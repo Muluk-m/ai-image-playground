@@ -37,7 +37,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 acquire_deploy_lock "$build_lock" "images $target $public_sha $private_sha"
-# Fail on missing registry credentials now rather than after the builds.
+# Fail on missing tools or registry credentials now rather than after the first image is pushed.
+if [ "$transport" = registry ] && ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required to read the pushed image digests (brew install jq / apt-get install jq)." >&2
+  exit 1
+fi
 [ "$transport" = archive ] || ghcr_login "${GHCR_PUSH_TOKEN_FILE:-$config_root/ghcr-push-token}"
 snapshot=$(mktemp -d)
 mkdir "$snapshot/public" "$snapshot/private"

@@ -36,7 +36,21 @@ const FAKE_DOCKER = `#!/bin/sh
 printf '%s\\n' "$*" >> "$CALL_LOG"
 case "$1" in
   buildx)
-    case "$2" in build) exit "\${TEST_BUILD_EXIT:-0}" ;; esac ;;
+    [ "$2" = build ] || exit 0
+    meta=
+    output=
+    while [ $# -gt 0 ]; do
+      case "$1" in --metadata-file) meta=$2; shift ;; --output) output=$2; shift ;; esac
+      shift
+    done
+    [ "\${TEST_BUILD_EXIT:-0}" = 0 ] || exit "$TEST_BUILD_EXIT"
+    case "$output" in *push=true*)
+      [ -f "$TEST_ROOT/logged-in" ] || { echo 'denied: not logged in' >&2; exit 1; }
+      [ "\${TEST_PUSH_EXIT:-0}" = 0 ] || { echo 'unexpected status 503' >&2; exit 1; }
+      case "$output" in *:internal-*) d=1 ;; *:paid-*) d=2 ;; *) d=3 ;; esac
+      printf '{"containerimage.config.digest":"%s","containerimage.digest":"sha256:%s"}\n' \
+        '${imageId}' "$(printf '%064d' 0 | tr 0 "$d")" > "$meta" ;;
+    esac ;;
   inspect) echo '6442450944 6442450944 400000' ;;
   login)
     if [ "$3" = -u ]; then
@@ -46,13 +60,6 @@ case "$1" in
       exit 0
     fi
     [ -f "$TEST_ROOT/logged-in" ] ;;
-  push)
-    [ -f "$TEST_ROOT/logged-in" ] || { echo 'denied: not logged in' >&2; exit 1; }
-    [ "\${TEST_PUSH_EXIT:-0}" = 0 ] || { echo 'unexpected status 503' >&2; exit 1; }
-    case "$2" in *:internal-*) d=1 ;; *:paid-*) d=2 ;; *) d=3 ;; esac
-    echo "The push refers to repository [${repoName}]"
-    echo '5f70bf18a086: Pushed'
-    echo "\${2##*:}: digest: sha256:$(printf '%064d' 0 | tr 0 "$d") size: 1234" ;;
   save) printf 'image archive' > "$3" ;;
   image)
     case "$5" in
@@ -158,7 +165,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('build-vps-release.sh, registry transport (default)', () => {
-  it('pushes every image to GHCR and records its repository digest in images.tsv', () => {
+  it('pushes every image from buildx to GHCR and records its repository digest in images.tsv', () => {
     writeFileSync(join(root, 'logged-in'), '')
     const result = build()
     expect(result.stderr).not.toContain('denied')
@@ -166,18 +173,22 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     const p = pub.slice(0, 12)
     const q = priv.slice(0, 12)
     const all = calls()
-    for (const [local, remote] of [
-      [`ai-image-playground:vps-main-${p}`, `${repoName}:internal-${p}`],
-      [`ai-image-playground:paid-${p}-${q}`, `${repoName}:paid-${p}-${q}`],
-      [`ai-image-playground:backup-${p}`, `${repoName}:backup-${p}`],
+    for (const remote of [
+      `${repoName}:internal-${p}`,
+      `${repoName}:paid-${p}-${q}`,
+      `${repoName}:backup-${p}`,
     ]) {
-      const built = all.findIndex(
-        (c) => c.startsWith('buildx build') && c.includes(`--tag ${local}`),
+      // One Docker v2 manifest per image, so the digest the VPS pulls names exactly this image.
+      const build = all.find(
+        (c) =>
+          c.startsWith('buildx build') &&
+          c.includes(`--output type=image,name=${remote},push=true,oci-mediatypes=false`),
       )
-      expect(built).toBeGreaterThanOrEqual(0)
-      expect(all.indexOf(`tag ${local} ${remote}`)).toBeGreaterThan(built)
-      expect(all.indexOf(`push ${remote}`)).toBeGreaterThan(all.indexOf(`tag ${local} ${remote}`))
+      expect(build).toContain('--provenance=false --sbom=false')
+      expect(build).not.toContain('--load')
     }
+    // Nothing goes through the local Docker store any more.
+    expect(all.some((c) => /^(tag|push|image inspect) /.test(c))).toBe(false)
     expect(readFileSync(join(out, 'images.tsv'), 'utf8')).toBe(
       [
         `internal\tai-image-playground:vps-main-${p}\t${imageId}\t${pub}\t${priv}\t${pushed('1')}`,
@@ -254,7 +265,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(calls().some((c) => c.startsWith('buildx build') || c.startsWith('push'))).toBe(false)
   })
 
-  it('leaves no checksums when a push fails', () => {
+  it('leaves no checksums when a buildx push fails', () => {
     writeFileSync(join(root, 'logged-in'), '')
     env.TEST_PUSH_EXIT = '1'
     const result = build()
