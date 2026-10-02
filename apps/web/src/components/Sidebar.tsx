@@ -1,7 +1,11 @@
 import { BookOpen, LoaderCircle, MessageCircle, PanelLeftClose, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
-import { projectCatalog } from '../features/canvas/lib/projectCatalog'
+import {
+  projectCatalog,
+  projectsByExperience,
+  RECENT_PROJECT_COUNT,
+} from '../features/canvas/lib/projectCatalog'
 import { projectEntryName, projectExperience } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { GUIDE_PATHS } from '../features/guide/paths'
@@ -26,8 +30,6 @@ const ITEM =
 const ACTIVE_ITEM = 'font-semibold text-primary'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
 const ACTIVE_ROW = 'bg-accent font-medium text-foreground'
-/** 最近列表只摆几条；更多的去「资产 → 项目」。 */
-const RECENT_COUNT = 5
 type RecentKind = 'chat' | 'canvas'
 
 /**
@@ -69,9 +71,7 @@ export default function Sidebar() {
   useEffect(() => {
     if (activeKind) setKind(activeKind)
   }, [activeId, activeKind])
-  const listed = recent
-    .filter((project) => projectExperience(project) === kind)
-    .slice(0, RECENT_COUNT)
+  const listed = projectsByExperience(recent)[kind].slice(0, RECENT_PROJECT_COUNT)
 
   // 正在打开的那个项目。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 这一行不给反馈的话点下去像没反应。

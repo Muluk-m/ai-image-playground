@@ -1,10 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
-
-const digest = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
 export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal = AbortSignal.timeout(60000)) {
   const get = async (path) => {
@@ -14,23 +12,21 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
     return { response, bytes: Buffer.from(await response.arrayBuffer()) }
   }
   const localHtml = await readFile(resolve(dist, 'index.html'), 'utf8')
+  // The identity is a sha256 of the whole HTML, so a match means this exact entry and startup guard.
   const identity = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(localHtml)?.[0]
-  const guard = /<script id="startup-guard">[\s\S]*?<\/script>/.exec(localHtml)?.[0]
-  if (!identity || !guard) throw new Error('Build has no independent startup guard or HTML identity')
-  const matchesHtml = (bytes) => bytes.toString().includes(identity) && bytes.toString().includes(guard)
+  if (!identity) throw new Error('Build has no HTML identity')
   const { response: page, bytes: html } = await get('/')
   if (!page.ok || !page.headers.get('content-type')?.includes('text/html')) {
     throw new Error('Homepage did not return HTML')
   }
-  const entry = /<script\b[^>]*\bsrc="([^\"]+\.js)"/.exec(localHtml)?.[1]
-  if (!entry || !html.toString().includes(entry) || !matchesHtml(html)) throw new Error('Homepage references another release')
+  if (!html.toString().includes(identity)) throw new Error('Homepage references another release')
   const redirects = await readFile(resolve(dist, '_redirects'), 'utf8')
   for (const line of redirects.split('\n')) {
     const [source, , status] = line.trim().split(/\s+/)
     if (status !== '200') continue
     const path = source.replace(':project', 'startup-release-check')
     const { response, bytes } = await get(path)
-    if (response.status !== 200 || !bytes.toString().includes(entry) || !matchesHtml(bytes)) {
+    if (response.status !== 200 || !bytes.toString().includes(identity)) {
       throw new Error(`Application deep link did not serve this release: ${path}`)
     }
   }
@@ -43,7 +39,7 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
       const type = response.headers.get('content-type') ?? ''
       const expected = name.endsWith('.css') ? /^text\/css\b/ : /^(?:application|text)\/javascript\b/
       if (response.status !== 200 || !expected.test(type)) throw new Error(`Invalid asset ${name}: ${response.status} ${type}`)
-      if (digest(bytes) !== digest(await readFile(resolve(dist, 'assets', name)))) {
+      if (!bytes.equals(await readFile(resolve(dist, 'assets', name)))) {
         throw new Error(`Asset content differs from this build: ${name}`)
       }
     }))
