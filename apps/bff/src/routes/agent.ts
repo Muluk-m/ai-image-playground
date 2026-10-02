@@ -698,6 +698,9 @@ export const agentRoutes = new Elysia()
             ...(body.params ? { params: body.params } : {}),
             ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
             ...(canvas ? { canvas } : {}),
+            ...(body.experience === 'chat' || body.experience === 'canvas'
+              ? { experience: body.experience }
+              : {}),
           })
         } catch (error) {
           if (error instanceof MediaError) return status(error.status, { error: error.message })
@@ -731,6 +734,8 @@ export const agentRoutes = new Elysia()
         clarificationAnswer: t.Optional(t.Boolean()),
         /** 发话时浏览器里的画布。不合规格就当没带，不因此拒绝这一轮。 */
         canvas: t.Optional(t.Any()),
+        /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
+        experience: t.Optional(t.Any()),
       }),
     },
   )

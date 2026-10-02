@@ -494,6 +494,8 @@ export interface AgentInboxUserMessagePayload {
   readonly clarificationAnswer?: true
   /** 发话时浏览器里的画布。缺席即这一轮只认服务端已经同步的那份。 */
   readonly canvas?: AgentCanvasSnapshot
+  /** 发话时客户端看到的入口。项目文档记下入口之前，起轮按它判定，缺席才看有没有带画布。 */
+  readonly experience?: 'chat' | 'canvas'
 }
 
 /**

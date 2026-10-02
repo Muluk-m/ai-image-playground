@@ -48,6 +48,7 @@ export interface QueuedUserMessage {
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
+  readonly experience?: 'chat' | 'canvas'
 }
 
 export interface EnqueueUserMessage {
@@ -60,6 +61,7 @@ export interface EnqueueUserMessage {
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
+  readonly experience?: 'chat' | 'canvas'
 }
 
 export interface InboxEntry {
@@ -193,6 +195,7 @@ export async function enqueueAgentUserMessage(
       ...(message.mode ? { mode: message.mode } : {}),
       ...(message.params ? { params: message.params } : {}),
       ...(message.canvas ? { canvas: message.canvas } : {}),
+      ...(message.experience ? { experience: message.experience } : {}),
       ...(answering ? { clarificationAnswer: true as const } : {}),
     }
     const [row] = await tx
@@ -361,6 +364,7 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
     ...(payload.mode ? { mode: payload.mode } : {}),
     ...(payload.params ? { params: payload.params } : {}),
     ...(payload.canvas ? { canvas: payload.canvas } : {}),
+    ...(payload.experience ? { experience: payload.experience } : {}),
   }
 }
 
