@@ -12,7 +12,9 @@
  *
  * All files run even after a failure; the summary at the end lists every failed file.
  */
-import { relative } from 'node:path'
+import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join, relative } from 'node:path'
 
 const roots: string[] = []
 let jobs = Number(process.env.BUN_TEST_JOBS ?? 1)
@@ -42,26 +44,28 @@ if (testFiles.length === 0) {
   )
 }
 
+const logDirectory = mkdtempSync(join(tmpdir(), 'bun-tests-isolated-'))
+
 type Result = { file: string; exitCode: number; seconds: number; output: string }
 
 async function runFile(file: string): Promise<Result> {
   const started = performance.now()
-  // Serial runs stream straight to the terminal; parallel runs buffer each file so outputs do
-  // not interleave.
-  const streamed = jobs === 1
+  // Serial runs stream straight to the terminal. Parallel runs write each file's output to its own
+  // log so outputs do not interleave; a file rather than a pipe, because a grandchild that keeps a
+  // pipe open (a server, a worker) would otherwise hang the runner after the test process exits.
+  const logPath =
+    jobs === 1 ? null : join(logDirectory, `${basename(file)}-${crypto.randomUUID()}.log`)
+  const log = logPath ? openSync(logPath, 'w') : 'inherit'
   const child = Bun.spawn([process.execPath, 'test', file], {
     cwd: process.cwd(),
     env: process.env,
-    stdout: streamed ? 'inherit' : 'pipe',
-    stderr: streamed ? 'inherit' : 'pipe',
+    stdout: log,
+    stderr: log,
     stdin: 'ignore',
   })
-  const output = streamed
-    ? ''
-    : (
-        await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
-      ).join('')
   const exitCode = await child.exited
+  if (typeof log === 'number') closeSync(log)
+  const output = logPath ? await Bun.file(logPath).text() : ''
   return { file, exitCode, seconds: (performance.now() - started) / 1000, output }
 }
 
@@ -76,6 +80,7 @@ async function worker(): Promise<void> {
 }
 const started = performance.now()
 await Promise.all(Array.from({ length: Math.min(jobs, testFiles.length) }, worker))
+rmSync(logDirectory, { recursive: true, force: true })
 
 const failed = results
   .filter((result) => result.exitCode !== 0)
