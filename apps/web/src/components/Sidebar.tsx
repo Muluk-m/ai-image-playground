@@ -1,4 +1,4 @@
-import { BookOpen, LoaderCircle, MessageCircle, PanelLeftClose } from 'lucide-react'
+import { BookOpen, LoaderCircle, MessageCircle, PanelLeftClose, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
@@ -21,11 +21,14 @@ const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
 }
 
 const ITEM =
-  'flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-const ACTIVE_ITEM = 'bg-accent font-medium text-foreground'
+  'flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+/** 主入口选中只换字色，不铺底：底色留给下面「正在打开的项目」那一行。 */
+const ACTIVE_ITEM = 'font-semibold text-primary'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
-/** 对话、画布各自最多先摆几条；再多就折起来，点开才全部列出。 */
-const FOLDED_COUNT = 5
+const ACTIVE_ROW = 'bg-accent font-medium text-foreground'
+/** 最近列表只摆几条；更多的去「资产 → 项目」。 */
+const RECENT_COUNT = 5
+type RecentKind = 'chat' | 'canvas'
 
 /**
  * 主导航。**没有顶栏**：品牌在侧栏里，账号与积分浮在右上角，整块主区从屏幕顶端开始。
@@ -59,22 +62,16 @@ export default function Sidebar() {
   const recent = projectCatalog(projects, cloudCatalog).filter(
     (project) => project.hasContent || project.workspaceOpened,
   )
-  const [unfolded, setUnfolded] = useState({ chat: false, canvas: false })
-  const allChats = recent.filter((project) => projectExperience(project) === 'chat')
-  const allCanvases = recent.filter((project) => projectExperience(project) === 'canvas')
-  const chats = unfolded.chat ? allChats : allChats.slice(0, FOLDED_COUNT)
-  const canvases = unfolded.canvas ? allCanvases : allCanvases.slice(0, FOLDED_COUNT)
-  const foldToggle = (kind: 'chat' | 'canvas', total: number) =>
-    total > FOLDED_COUNT ? (
-      <button
-        type="button"
-        aria-expanded={unfolded[kind]}
-        onClick={() => setUnfolded((state) => ({ ...state, [kind]: !state[kind] }))}
-        className="flex h-8 w-full items-center rounded-xl px-3 text-left text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        {unfolded[kind] ? t('nav.showLess') : t('nav.showMore', { count: total - FOLDED_COUNT })}
-      </button>
-    ) : null
+  // 对话与画布共用一块位置，用分组标题上的两个标签切换。项目是异步恢复的、侧栏也不随页面
+  // 重挂，所以每次换到另一个项目（或它恢复出来）时跟到它那一类；同一项目下用户手动切的保留。
+  const [kind, setKind] = useState<RecentKind>('chat')
+  const activeKind = activeProject ? projectExperience(activeProject) : null
+  useEffect(() => {
+    if (activeKind) setKind(activeKind)
+  }, [activeId, activeKind])
+  const listed = recent
+    .filter((project) => projectExperience(project) === kind)
+    .slice(0, RECENT_COUNT)
 
   // 正在打开的那个项目。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 这一行不给反馈的话点下去像没反应。
@@ -111,7 +108,7 @@ export default function Sidebar() {
         aria-label={APP_MODE_LABELS[mode]}
         className={`${ITEM} ${active ? ACTIVE_ITEM : IDLE_ITEM}`}
       >
-        <Icon className={`h-4 w-4 ${active ? 'text-primary' : ''}`} aria-hidden="true" />
+        <Icon className="h-4 w-4" aria-hidden="true" />
         {APP_MODE_LABELS[mode]}
       </button>
     )
@@ -130,10 +127,11 @@ export default function Sidebar() {
         </button>
       )}
       {expanded ? (
+        // 子项一律不收缩：列表展开变长时由整栏滚动，而不是把每一行压扁。
         <nav
           aria-label={t('header.nav')}
           style={{ width: 'var(--app-sidebar-size)' }}
-          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto overflow-x-hidden border-r border-border bg-sidebar px-2.5 pb-4 pt-3 md:flex"
+          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto [&>*]:shrink-0 overflow-x-hidden bg-background px-2.5 pb-4 pt-3 md:flex"
         >
           <div className="mb-2 flex items-center gap-1">
             <button
@@ -158,41 +156,39 @@ export default function Sidebar() {
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 对话与画布是两种记录；生成结果留在对话里，需要编辑时可新建独立画布。 */}
-          <div className="group/head mt-2 flex h-9 items-center gap-2 px-3">
-            {/* 画布项目是资产的一部分：标题和「全部」都去「资产 → 项目」，那时点亮的是「资产」。 */}
+          <div className="mt-4 flex h-8 items-center gap-3.5 px-3">
+            {(['chat', 'canvas'] as const).map((one) => (
+              <button
+                key={one}
+                type="button"
+                aria-pressed={kind === one}
+                onClick={() => setKind(one)}
+                className={`text-[12px] font-medium leading-none tracking-wide ${
+                  kind === one
+                    ? 'text-foreground'
+                    : 'text-muted-foreground/70 hover:text-muted-foreground'
+                }`}
+              >
+                {t(one === 'chat' ? 'nav.chats' : 'nav.canvases')}
+              </button>
+            ))}
             <button
               type="button"
-              onClick={openProjects}
-              className="text-[13px] font-medium leading-none text-muted-foreground hover:text-foreground"
+              onClick={() => void newProject(kind)}
+              aria-label={t(kind === 'chat' ? 'nav.newChat' : 'nav.newCanvas')}
+              title={t(kind === 'chat' ? 'nav.newChat' : 'nav.newCanvas')}
+              className="ml-auto grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
             >
-              {t('nav.chats')}
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
-            <span className="ml-auto flex h-full items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
-              <button
-                type="button"
-                onClick={openProjects}
-                className="inline-flex h-7 items-center rounded-md px-1.5 text-[13px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {t('nav.allCanvases')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void newProject('chat')}
-                aria-label={t('nav.newChat')}
-                title={t('nav.newChat')}
-                className="grid h-7 w-7 place-items-center rounded-md text-[15px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                +
-              </button>
-            </span>
           </div>
-          {chats.map((project) => {
+          {listed.map((project) => {
             const active = appMode === 'canvas' && project.id === activeId
             return (
               <div
                 key={project.id}
                 className={`group/row flex h-9 items-center gap-2 rounded-xl px-3 ${
-                  active ? ACTIVE_ITEM : 'text-muted-foreground hover:bg-muted'
+                  active ? ACTIVE_ROW : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
                 <button
@@ -206,8 +202,10 @@ export default function Sidebar() {
                       className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
                       aria-hidden="true"
                     />
-                  ) : (
+                  ) : kind === 'chat' ? (
                     <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   )}
                   <span className="truncate">{projectEntryName(project)}</span>
                 </button>
@@ -223,67 +221,14 @@ export default function Sidebar() {
               </div>
             )
           })}
-          {foldToggle('chat', allChats.length)}
-          <div className="group/head mt-3 flex h-9 items-center gap-2 px-3">
-            <button
-              type="button"
-              onClick={openProjects}
-              className="text-[13px] font-medium leading-none text-muted-foreground hover:text-foreground"
-            >
-              {t('nav.canvases')}
-            </button>
-            <span className="ml-auto flex h-full items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
-              <button
-                type="button"
-                onClick={openProjects}
-                className="inline-flex h-7 items-center rounded-md px-1.5 text-[13px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {t('nav.allCanvases')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void newProject('canvas')}
-                aria-label={t('nav.newCanvas')}
-                title={t('nav.newCanvas')}
-                className="grid h-7 w-7 place-items-center rounded-md text-[15px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                +
-              </button>
-            </span>
-          </div>
-          {canvases.map((project) => (
-            <div
-              key={project.id}
-              className={`group/row flex h-9 items-center gap-2 rounded-xl px-3 ${appMode === 'canvas' && project.id === activeId ? ACTIVE_ITEM : 'text-muted-foreground hover:bg-muted'}`}
-            >
-              <button
-                type="button"
-                disabled={opening !== null}
-                onClick={() => void openProject(project.id)}
-                className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[13px]"
-              >
-                {opening === project.id ? (
-                  <LoaderCircle
-                    className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                )}
-                <span className="truncate">{projectEntryName(project)}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void openProject(project.id, true)}
-                aria-label={t('nav.immersive')}
-                title={t('nav.immersive')}
-                className="grid h-6 w-6 shrink-0 place-items-center rounded-md opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
-              >
-                ↗
-              </button>
-            </div>
-          ))}
-          {foldToggle('canvas', allCanvases.length)}
+          {/* 画布项目是资产的一部分：「查看全部」去「资产 → 项目」，那时点亮的是「资产」。 */}
+          <button
+            type="button"
+            onClick={openProjects}
+            className="flex h-8 items-center px-3 text-left text-[12px] text-muted-foreground hover:text-foreground"
+          >
+            {t('nav.viewAll')} →
+          </button>
           {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}
           <div className="min-h-6 flex-1" aria-hidden="true" />
           {/* 指南是独立的静态页，新标签打开，工作台原地不动。 */}
@@ -291,9 +236,9 @@ export default function Sidebar() {
             href={GUIDE_PATHS[currentLocale()]}
             target="_blank"
             rel="noopener"
-            className={`${ITEM} ${IDLE_ITEM} shrink-0`}
+            className="flex h-8 items-center gap-2 px-3 text-[12px] text-muted-foreground hover:text-foreground"
           >
-            <BookOpen className="h-4 w-4" aria-hidden="true" />
+            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
             {t('nav.guide')}
           </a>
         </nav>

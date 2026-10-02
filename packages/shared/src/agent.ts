@@ -1,5 +1,6 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
+import type { AgentBatchAnalysisLimit } from './agent-batch'
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type {
@@ -47,6 +48,10 @@ export function isAgentMode(value: unknown): value is AgentMode {
 
 /** 智能体可调用的工具。 */
 export type AgentToolName =
+  | 'planImageBatch'
+  | 'proposeBatchGeneration'
+  | 'readBatchAnalysis'
+  | 'proposeBatchAnalysis'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
@@ -147,10 +152,8 @@ export interface AgentSkillSummary {
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
  * 所以顺序不能在传输途中被重排。
  *
- * 两种形态由字节在哪儿决定，不由来源决定：像素只在这台浏览器里（拖进来的文件、
- * 烧了批注的合成图、遮罩编辑器的产出）就内联；字节已经在云媒体里（画布上选中的原图）
- * 就只带 id。后者曾经也内联：一次把八张原图下回浏览器再 base64 传上去，
- * 请求体几十 MB、要传几分钟，还白占一遍出站带宽。
+ * 启用附件上传后，原件与遮罩先就绪再传媒体身份；旧客户端与纯静态入口仍可内联。
+ * 批注、裁剪、扩图产生的新像素必须拥有自己的媒体身份，不能沿用画布原图绑定。
  */
 export type AgentTurnReference = AgentInlineReference | AgentMediaReference
 
@@ -158,6 +161,8 @@ export type AgentImageEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
 
 /** Numbered selection bounds in normalized image coordinates; the mask remains authoritative. */
 export interface AgentMarkedRegion {
+  /** Stable visible number; absent on older clients, which use array position. */
+  readonly number?: number
   readonly x: number
   readonly y: number
   readonly width: number
@@ -179,12 +184,15 @@ export interface AgentInlineReference {
 /**
  * 字节在云媒体里的参考图（`media_objects.id`）。
  *
- * 它没有遮罩：画遮罩与烧批注都产出新像素，那张图在 R2 里并不存在，只能内联。
+ * 原件和遮罩分别使用不可变媒体身份，编辑动作与区域属于同一份发话快照。
  */
 export interface AgentMediaReference {
   readonly imageId: string
   readonly mediaId: string
   readonly name?: string
+  readonly maskMediaId?: string
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 export type AgentStoredReference = AgentStoredInlineReference | AgentStoredMediaReference
@@ -199,11 +207,7 @@ export interface AgentStoredInlineReference {
 }
 
 /** 云媒体那一路的快照：字节留在 R2，会话只按 id 认领它（见 `media_references`）。 */
-export interface AgentStoredMediaReference {
-  readonly imageId: string
-  readonly name?: string
-  readonly mediaId: string
-}
+export type AgentStoredMediaReference = AgentMediaReference
 
 /**
  * 一轮里生效的生成参数：用户在输入框的参数浮层里选，随起轮一起送到服务端，
@@ -539,9 +543,34 @@ export interface AgentSaveResponse {
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
+/** Visual conclusions are accepted only after these pixels were dispatched to the model. */
+export interface AgentVisualEvidence {
+  readonly imageId: string
+  readonly source: string
+  readonly representation:
+    | 'original'
+    | 'preview'
+    | 'region'
+    | 'selection-location'
+    | 'selection-crop'
+    | 'tool-output'
+  readonly width: number | null
+  readonly height: number | null
+  readonly bytes: number
+  readonly selection: boolean
+}
+
+export interface AgentVisualObservation {
+  readonly imageId: string
+  readonly observation: string
+  readonly evidence: readonly AgentVisualEvidence[]
+}
+
 export interface AgentToolResultBlock {
   /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
   readonly video?: VideoGenerationRecord
+  readonly analysisLimit?: AgentBatchAnalysisLimit
+  readonly batchId?: string
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
@@ -583,6 +612,7 @@ export interface AgentToolResultBlock {
   readonly sources?: readonly AgentWebSource[]
   /** 取图这一步存下的网图。缺席即这条不是取图工具，或者没有取到。 */
   readonly fetchedImages?: readonly AgentFetchedImage[]
+  readonly visualObservations?: readonly AgentVisualObservation[]
 }
 
 /**
@@ -1051,6 +1081,7 @@ export type AgentTurnErrorCode =
   | 'agent_tool_failed'
   | 'agent_turn_interrupted'
   | 'agent_context_overflow'
+  | 'agent_request_budget_exceeded'
 
 /** 失败诊断只保留错误文本与调用标识，不包含请求内容或认证信息。 */
 export interface AgentTurnFailure {
@@ -1208,6 +1239,8 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return block.saveCard.status === 'saved'
       ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
       : `${title}：卡片已经给到用户，他还没按下保存`
+  if (block.visualObservations?.length)
+    return `${title}：完成；已观察结论：${block.visualObservations.map((entry) => `图片 ${entry.imageId}：${entry.observation}`).join('；')}。需要像素时用 viewImage 重读。`
   if (block.fetchedImages?.length)
     return `${title}：完成，${block.fetchedImages
       .map((image) => `图片 ${image.imageId}（来自 ${image.sourceUrl}）`)

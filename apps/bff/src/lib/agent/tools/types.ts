@@ -1,6 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
+  AgentBatchAnalysisLimit,
   AgentCanvasEditPlan,
   AgentCanvasSnapshot,
   AgentFetchedImage,
@@ -22,6 +23,7 @@ import type { AgentAutoSubmitBudget } from '../auto-submit'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
 import type { TurnAuthorizationText } from '../turn-authorization'
+import type { VisualWorkset } from '../visual-workset'
 
 /**
  * 这一轮的工具清单要按谁来筛。不是每个工具都对所有人在场：存素材、存模板要写进这个人的
@@ -52,6 +54,7 @@ export interface AgentToolContext {
   readonly assertExecution?: () => Promise<void>
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
+  readonly visualWorkset?: VisualWorkset
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */
@@ -91,6 +94,8 @@ export interface AgentSubmissionReplay {
 export interface AgentToolDetails {
   /** 拟稿时冻结的实际视频参数，确认前即展示给用户。 */
   readonly video?: VideoGenerationRecord
+  readonly analysisLimit?: AgentBatchAnalysisLimit
+  readonly batchId?: string
   readonly executedPrompt?: string
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
@@ -113,6 +118,7 @@ export interface AgentToolDetails {
   readonly sources?: readonly AgentWebSource[]
   /** 取图工具存下的网图；只有它会填。 */
   readonly fetchedImages?: readonly AgentFetchedImage[]
+  readonly visualObservations?: readonly import('@image-playground/shared').AgentVisualObservation[]
 }
 
 /**

@@ -13,11 +13,13 @@ export type AgentJobStep = (typeof AGENT_JOB_STEPS)[number]
  * `reconnecting` 是重启或滚动发布后执行器重新接上上游，`confirming` 是结果已归档、正在确认。
  * 两者在刻度上都落在「生成」那一格。
  */
-export type AgentJobPhase = AgentJobStep | 'reconnecting' | 'confirming'
+export type AgentJobPhase = AgentJobStep | 'reconnecting' | 'confirming' | 'reconciling'
 
 /** 这个阶段在四格刻度上落在哪一格。 */
 export function agentJobStep(phase: AgentJobPhase): AgentJobStep {
-  return phase === 'reconnecting' || phase === 'confirming' ? 'generating' : phase
+  return phase === 'reconnecting' || phase === 'confirming' || phase === 'reconciling'
+    ? 'generating'
+    : phase
 }
 
 /**

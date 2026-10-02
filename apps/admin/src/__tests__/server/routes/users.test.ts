@@ -308,6 +308,7 @@ describe('admin user routes', () => {
     expect(body.tasks).toEqual([
       {
         id: 'user-task-failed',
+        kind: 'queue',
         status: 'failed',
         provider: 'gemini',
         model: 'gemini-3-pro',

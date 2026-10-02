@@ -54,6 +54,7 @@ export interface AgentToolMessage {
   readonly toolCallId: string
   /** 哪个工具。历史里可能有这个前端还不认识的工具名，所以它不参与任何穷尽判断。 */
   readonly toolName?: AgentToolName
+  readonly batchId?: string
   readonly title: string
   readonly prompt?: string
   readonly status: AgentToolStatus | 'running'

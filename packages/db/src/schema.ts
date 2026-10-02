@@ -1,4 +1,10 @@
 import type {
+  AgentBatchAnalysisSource,
+  AgentBatchAttemptSnapshot,
+  AgentBatchConfirmation,
+  AgentBatchEstimates,
+  AgentBatchItem,
+  AgentBatchPriceSnapshot,
   AgentCanvasSnapshot,
   AgentCompactionRecord,
   AgentContentBlock,
@@ -14,6 +20,10 @@ import type {
   AgentTurnReference,
   AgentTurnStopReason,
   AgentTurnUsage,
+  AgentVisualEvidence,
+  AnalysisCoverage,
+  AnalysisFinding,
+  AnalysisInputSnapshot,
   ChannelMedia,
   GenerationParameters,
   GenerationSource,
@@ -35,6 +45,7 @@ import {
   customType,
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -494,6 +505,13 @@ export interface AgentInboxTaskResultPayload {
   readonly taskIds: readonly string[]
   /** 唤醒轮替谁计日配额：提交这些任务的那台设备。 */
   readonly deviceId: string
+  /** One immutable, completed batch version; its items are summarized without loading pixels. */
+  readonly batch?: {
+    readonly batchId: string
+    readonly version: number
+    readonly eventVersion: 1
+    readonly itemKeys: readonly string[]
+  }
 }
 
 /**
@@ -509,7 +527,7 @@ export interface AgentInboxResumePayload {
    * 被打断的是一轮唤醒：它当时要处理的那一批（提交它们的轮与任务）。续跑照这一批接着处理，
    * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
    */
-  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds'>
+  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch'>
   /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
   readonly canvas?: AgentCanvasSnapshot
 }
@@ -743,6 +761,10 @@ export const agent_model_calls = pgTable(
       .notNull(),
     model: text('model').notNull(),
     input_image_count: integer('input_image_count').notNull().default(0),
+    // Null marks legacy calls whose dispatch facts were not recorded.
+    http_dispatch_count: integer('http_dispatch_count'),
+    request_bytes: bigint('request_bytes', { mode: 'number' }),
+    local_rejection: text('local_rejection'),
     status: text('status').$type<'in_progress' | 'completed' | 'failed' | 'cancelled'>().notNull(),
     usage: bunJsonb('usage').$type<AgentTurnUsage>(),
     cache_read_tokens: integer('cache_read_tokens'),
@@ -772,6 +794,7 @@ export const tasks = pgTable(
     provider: text('provider').$type<QueueProvider>().notNull(),
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
+    reconciliation_required: boolean('reconciliation_required').notNull().default(false),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */
@@ -815,7 +838,11 @@ export const tasks = pgTable(
     kind: text('kind').$type<TaskKind>().notNull().default('queue'),
   },
   (t) => [
-    check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat')`),
+    check(
+      'tasks_reconciling_check',
+      sql`${t.status} <> 'reconciling' OR ${t.reconciliation_required}`,
+    ),
+    check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat', 'analysis')`),
     index('idx_tasks_status').on(t.status),
     index('idx_tasks_queued_provider_time')
       .on(t.provider, t.submitted_at, t.id)
@@ -874,6 +901,7 @@ export const daily_quota = pgTable(
 // operational view. Keeping them out also preserves the committed view shape across additive
 // task migrations, so existing read-only grants do not need the view to be dropped and recreated.
 const {
+  reconciliation_required: _reconciliationRequired,
   archive_payload: _archivePayload,
   archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
@@ -882,6 +910,22 @@ const {
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
   qb.select(queueTaskColumns).from(tasks).where(eq(tasks.kind, 'queue')),
+)
+
+export const task_dispatches = pgTable(
+  'task_dispatches',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    execution_token: text('execution_token').notNull(),
+    intended_at: epochMs('intended_at').notNull(),
+    dispatched_at: epochMs('dispatched_at'),
+    upstream_request_id: text('upstream_request_id'),
+    upstream_task_id: text('upstream_task_id'),
+  },
+  (t) => [index('idx_task_dispatches_task').on(t.task_id, t.intended_at)],
 )
 
 export type Task = typeof tasks.$inferSelect
@@ -1092,7 +1136,9 @@ export const media_objects = pgTable(
     sha256: text('sha256').notNull(),
     bytes: bigint('bytes', { mode: 'number' }).notNull(),
     content_type: text('content_type').notNull(),
-    status: text('status').$type<'pending' | 'ready'>().notNull(),
+    status: text('status').$type<'pending' | 'ready' | 'deleting'>().notNull(),
+    attachment_managed: boolean('attachment_managed').notNull().default(false),
+    attachment_lease_until: epochMs('attachment_lease_until'),
     reserved_bytes: bigint('reserved_bytes', { mode: 'number' }).notNull(),
     staging_key: text('staging_key').notNull(),
     object_key: text('object_key'),
@@ -1109,7 +1155,7 @@ export const media_objects = pgTable(
     index('idx_media_objects_pending').on(t.status, t.expires_at),
     check('media_objects_bytes_check', sql`${t.bytes} > 0`),
     check('media_objects_reserved_bytes_check', sql`${t.reserved_bytes} >= 0`),
-    check('media_objects_status_check', sql`${t.status} IN ('pending', 'ready')`),
+    check('media_objects_status_check', sql`${t.status} IN ('pending', 'ready', 'deleting')`),
   ],
 )
 
@@ -1123,7 +1169,7 @@ export const media_references = pgTable(
       .notNull()
       .references(() => media_objects.id, { onDelete: 'restrict' }),
     owner_kind: text('owner_kind')
-      .$type<'project' | 'asset' | 'conversation' | 'generation'>()
+      .$type<'project' | 'asset' | 'conversation' | 'generation' | 'batch' | 'analysis'>()
       .notNull(),
     owner_id: text('owner_id').notNull(),
     created_at: epochMs('created_at').notNull(),
@@ -1133,7 +1179,7 @@ export const media_references = pgTable(
     index('idx_media_references_media').on(t.media_id),
     check(
       'media_references_owner_kind_check',
-      sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation')`,
+      sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation', 'batch', 'analysis')`,
     ),
   ],
 )
@@ -1153,5 +1199,227 @@ export const generation_images = pgTable(
   (t) => [
     primaryKey({ columns: [t.generation_id, t.role, t.position] }),
     check('generation_images_role_check', sql`${t.role} IN ('input', 'mask', 'output')`),
+  ],
+)
+
+export const agent_batches = pgTable(
+  'agent_batches',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id').references(() => agent_conversations.id, {
+      onDelete: 'set null',
+    }),
+    origin_turn_id: text('origin_turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    experience: text('experience').$type<'chat' | 'canvas'>().notNull(),
+    project_id: text('project_id'),
+    project_revision: integer('project_revision'),
+    current_version: integer('current_version').notNull().default(1),
+    status: text('status')
+      .$type<'draft' | 'cancelled' | 'running' | 'paused' | 'closed'>()
+      .notNull()
+      .default('draft'),
+    pause_reason: text('pause_reason').$type<
+      | 'price_changed'
+      | 'insufficient_credits'
+      | 'input_limit'
+      | 'upstream_auth'
+      | 'model_unavailable'
+    >(),
+    confirmed_version: integer('confirmed_version'),
+    confirmation_command_id: text('confirmation_command_id'),
+    device_id: text('device_id'),
+    dispatch_generation: integer('dispatch_generation').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_agent_batches_confirmation').on(t.user_id, t.confirmation_command_id),
+    uniqueIndex('idx_agent_batches_call').on(t.conversation_id, t.origin_turn_id, t.tool_call_id),
+    index('idx_agent_batches_owner_conversation').on(
+      t.user_id,
+      t.conversation_id,
+      t.created_at,
+      t.id,
+    ),
+    check(
+      'agent_batches_status_check',
+      sql`${t.status} IN ('draft', 'cancelled', 'running', 'paused', 'closed')`,
+    ),
+    check('agent_batches_experience_check', sql`${t.experience} IN ('chat', 'canvas')`),
+  ],
+)
+
+export const agent_batch_plans = pgTable(
+  'agent_batch_plans',
+  {
+    batch_id: text('batch_id')
+      .notNull()
+      .references(() => agent_batches.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    rule: text('rule').notNull(),
+    digest: text('digest').notNull(),
+    item_count: integer('item_count').notNull(),
+    estimate_snapshot: bunJsonb('estimate_snapshot').$type<AgentBatchEstimates>().notNull(),
+    attempt_targets: bunJsonb('attempt_targets')
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
+    retry_item_keys: bunJsonb('retry_item_keys').$type<string[]>().notNull().default([]),
+    retry_requires_resume: boolean('retry_requires_resume').notNull().default(false),
+    confirmation: bunJsonb('confirmation').$type<AgentBatchConfirmation>(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.batch_id, t.version] })],
+)
+
+export const agent_batch_items = pgTable(
+  'agent_batch_items',
+  {
+    batch_id: text('batch_id')
+      .notNull()
+      .references(() => agent_batches.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    key: text('key').notNull(),
+    ordinal: integer('ordinal').notNull(),
+    kind: text('kind').$type<AgentBatchItem['kind']>().notNull(),
+    inputs: bunJsonb('inputs').$type<AgentBatchItem['inputs']>().notNull(),
+    prompt: text('prompt').notNull(),
+    params: bunJsonb('params').$type<AgentBatchItem['params']>().notNull(),
+    source_analysis: bunJsonb('source_analysis').$type<readonly AgentBatchAnalysisSource[]>(),
+    dependencies: bunJsonb('dependencies').$type<AgentBatchItem['dependencies']>().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.batch_id, t.version, t.key] }),
+    uniqueIndex('idx_agent_batch_items_order').on(t.batch_id, t.version, t.ordinal),
+    foreignKey({
+      columns: [t.batch_id, t.version],
+      foreignColumns: [agent_batch_plans.batch_id, agent_batch_plans.version],
+    }).onDelete('cascade'),
+  ],
+)
+
+export const agent_batch_attempts = pgTable(
+  'agent_batch_attempts',
+  {
+    batch_id: text('batch_id').notNull(),
+    version: integer('version').notNull(),
+    item_key: text('item_key').notNull(),
+    attempt: integer('attempt').notNull(),
+    task_id: text('task_id').notNull(),
+    price_snapshot: bunJsonb('price_snapshot').$type<AgentBatchPriceSnapshot | null>(),
+    reserved_credits: integer('reserved_credits').notNull(),
+    terminal_snapshot: bunJsonb('terminal_snapshot').$type<AgentBatchAttemptSnapshot>(),
+    submitted_at: epochMs('submitted_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.batch_id, t.version, t.item_key, t.attempt] }),
+    uniqueIndex('idx_agent_batch_attempts_task').on(t.task_id),
+    uniqueIndex('idx_agent_batch_attempts_number').on(t.batch_id, t.item_key, t.attempt),
+    foreignKey({
+      columns: [t.batch_id, t.version, t.item_key],
+      foreignColumns: [
+        agent_batch_items.batch_id,
+        agent_batch_items.version,
+        agent_batch_items.key,
+      ],
+    }).onDelete('restrict'),
+  ],
+)
+
+export const agent_batch_commands = pgTable(
+  'agent_batch_commands',
+  {
+    batch_id: text('batch_id')
+      .notNull()
+      .references(() => agent_batches.id, { onDelete: 'cascade' }),
+    command_id: text('command_id').notNull(),
+    kind: text('kind')
+      .$type<
+        | 'pause'
+        | 'resume'
+        | 'reprice'
+        | 'retry_quote'
+        | 'analysis_proposal'
+        | 'generation_proposal'
+        | 'phase_edit'
+      >()
+      .notNull(),
+    request_hash: text('request_hash').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.batch_id, t.command_id] })],
+)
+
+export const analysis_tasks = pgTable(
+  'analysis_tasks',
+  {
+    task_id: text('task_id').primaryKey(),
+    user_id: text('user_id').notNull(),
+    device_id: text('device_id').notNull(),
+    batch_id: text('batch_id').notNull(),
+    plan_version: integer('plan_version').notNull(),
+    item_key: text('item_key').notNull(),
+    attempt: integer('attempt').notNull(),
+    origin_conversation_id: text('origin_conversation_id'),
+    origin_turn_id: text('origin_turn_id').notNull(),
+    model: text('model').notNull(),
+    input_snapshot: bunJsonb('input_snapshot').$type<AnalysisInputSnapshot>().notNull(),
+    price_snapshot: bunJsonb('price_snapshot').$type<AgentBatchPriceSnapshot>().notNull(),
+    reserved_credits: integer('reserved_credits').notNull(),
+    actual_credits: integer('actual_credits'),
+    status: text('status').$type<TaskStatus>().notNull(),
+    findings: bunJsonb('findings').$type<AnalysisFinding[]>(),
+    coverage: bunJsonb('coverage').$type<AnalysisCoverage>(),
+    evidence: bunJsonb('evidence').$type<readonly AgentVisualEvidence[]>(),
+    error_code: text('error_code'),
+    created_at: epochMs('created_at').notNull(),
+    completed_at: epochMs('completed_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_analysis_tasks_item_attempt').on(t.batch_id, t.item_key, t.attempt),
+    index('idx_analysis_tasks_owner_created').on(t.user_id, t.created_at.desc(), t.task_id),
+    check('analysis_tasks_attempt_check', sql`${t.attempt} > 0`),
+    check('analysis_tasks_reserved_check', sql`${t.reserved_credits} >= 0`),
+    check(
+      'analysis_tasks_status_check',
+      sql`${t.status} IN ('queued', 'in_progress', 'reconciling', 'completed', 'failed', 'cancelled')`,
+    ),
+  ],
+)
+
+export const analysis_model_calls = pgTable(
+  'analysis_model_calls',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id')
+      .notNull()
+      .references(() => analysis_tasks.task_id),
+    execution_token: text('execution_token'),
+    model: text('model').notNull(),
+    status: text('status')
+      .$type<'prepared' | 'dispatched' | 'completed' | 'failed' | 'cancelled' | 'unknown'>()
+      .notNull(),
+    http_dispatch_count: integer('http_dispatch_count').notNull().default(0),
+    request_bytes: bigint('request_bytes', { mode: 'number' }),
+    upstream_request_id: text('upstream_request_id'),
+    local_rejection: text('local_rejection'),
+    usage: bunJsonb('usage').$type<AgentTurnUsage>(),
+    response_content: text('response_content'),
+    started_at: epochMs('started_at').notNull(),
+    dispatched_at: epochMs('dispatched_at'),
+    finished_at: epochMs('finished_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_analysis_model_calls_task').on(t.task_id),
+    check('analysis_model_calls_dispatch_check', sql`${t.http_dispatch_count} IN (0, 1)`),
+    check(
+      'analysis_model_calls_status_check',
+      sql`${t.status} IN ('prepared', 'dispatched', 'completed', 'failed', 'cancelled', 'unknown')`,
+    ),
   ],
 )

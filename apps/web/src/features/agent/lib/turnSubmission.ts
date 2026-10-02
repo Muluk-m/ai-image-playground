@@ -6,11 +6,16 @@ import {
   type AgentTurnReference,
 } from '@image-playground/shared'
 import { mediaIdentity } from '../../../lib/cloudMedia'
+import {
+  localAttachmentIdentity,
+  localAttachmentMatchesSource,
+} from '../../../lib/localAttachmentSources'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import { liveCanvasSnapshot } from '../../canvas/lib/canvasSnapshot'
 import { type CanvasProject, projectExperience } from '../../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../../canvas/lib/workspaceKeys'
 import { inlineReferenceCount } from './agentClient'
+import { canReuseAttachmentMedia, prepareAttachmentReferences } from './attachmentUploads'
 
 export interface TurnSubmissionSnapshot {
   readonly references: readonly AgentTurnReference[]
@@ -74,7 +79,21 @@ export function captureTurnSubmission(input: {
         : []
     })
   }
-  const snapshot: TurnSubmissionSnapshot = structuredClone({
+  const localCandidates =
+    !chat && !input.replay && readable
+      ? input.references.flatMap((reference) => {
+          if (
+            !('dataUrl' in reference) ||
+            reference.maskDataUrl ||
+            !localAttachmentIdentity(reference.dataUrl)
+          )
+            return []
+          const element = workspace.doc.elements.find((one) => one.id === reference.imageId)
+          const source = element?.type === 'image' ? workspace.doc.files[element.fileId] : undefined
+          return source ? [{ imageId: reference.imageId, handle: reference.dataUrl, source }] : []
+        })
+      : []
+  let snapshot: TurnSubmissionSnapshot = structuredClone({
     references: input.references,
     params: input.replay?.params ?? input.params,
     ...(canvas ? { canvas } : {}),
@@ -82,7 +101,20 @@ export function captureTurnSubmission(input: {
   })
 
   return {
-    snapshot,
+    get snapshot() {
+      return snapshot
+    },
+    resolveCanvasBindings: localCandidates.length
+      ? async () => {
+          const matched = [...(snapshot.canvasReferenceIds ?? [])]
+          while (localCandidates.length) {
+            const candidate = localCandidates.shift()!
+            if (await localAttachmentMatchesSource(candidate.handle, candidate.source))
+              matched.push(candidate.imageId)
+          }
+          snapshot = { ...snapshot, canvasReferenceIds: matched }
+        }
+      : undefined,
     async prepare(): Promise<TurnSubmissionSnapshot | null> {
       const local = snapshot.references.flatMap((reference) =>
         'dataUrl' in reference &&
@@ -92,13 +124,15 @@ export function captureTurnSubmission(input: {
           : [],
       )
       const ids = cloud && local.length ? await cloud.mediaIdsFor(local) : new Map<string, string>()
-      const references = snapshot.references.map((reference) => {
-        if (!('dataUrl' in reference) || reference.maskDataUrl) return reference
-        const mediaId = ids.get(reference.dataUrl) ?? mediaIdentity(reference.dataUrl)
-        if (!mediaId) return reference
-        const { dataUrl: _source, maskDataUrl: _mask, ...rest } = reference
-        return { ...rest, mediaId }
-      })
+      const references = await prepareAttachmentReferences(
+        snapshot.references.map((reference) => {
+          if (!('dataUrl' in reference) || !canReuseAttachmentMedia(reference)) return reference
+          const mediaId = ids.get(reference.dataUrl) ?? mediaIdentity(reference.dataUrl)
+          if (!mediaId) return reference
+          const { dataUrl: _source, maskDataUrl: _mask, ...rest } = reference
+          return { ...rest, mediaId }
+        }),
+      )
       if (inlineReferenceCount(references) > AGENT_TURN_MAX_INLINE_REFERENCES) return null
       const matched = new Set(snapshot.canvasReferenceIds)
       const media = new Map(
@@ -117,9 +151,7 @@ export function captureTurnSubmission(input: {
                 ...snapshot.canvas,
                 elements: snapshot.canvas.elements.map((element) => {
                   const mediaId = media.get(element.id)
-                  return element.type === 'image' && !element.mediaId && mediaId
-                    ? { ...element, mediaId }
-                    : element
+                  return element.type === 'image' && mediaId ? { ...element, mediaId } : element
                 }),
               },
             }

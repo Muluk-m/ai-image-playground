@@ -29,7 +29,15 @@ import { lockMediaOwner } from './projectMedia'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 
+export interface PreparedQueueTask {
+  readonly taskId: string
+  readonly requestHash: string
+  readonly requestPayload: PersistedSubmitRequest
+}
+
 export interface CreateQueueTaskInput {
+  /** Server-only preparation; its caller owns cleanup after its transaction commits or rolls back. */
+  readonly prepared?: PreparedQueueTask
   readonly provider: QueueProvider
   readonly model: string
   /** 输入图仍是 data URL，落库前在这里归档进对象存储。 */
@@ -56,6 +64,8 @@ export interface CreateQueueTaskInput {
    * 它不在项目里、或不是失败占位时照常另找位置。
    */
   readonly projectSlot?: string
+  /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
+  readonly reconciliationRequired?: true
   /**
    * 调用方自己的事务。给出时任务行、预扣、后台任务登记与调用方随后的写入同一次提交，
    * 也不会在已经握着一条连接时再去连接池要第二条（确认生成走这条路，见 `confirmations.ts`）。
@@ -124,6 +134,7 @@ function commandHash(input: CreateQueueTaskInput) {
             : {}),
         },
         video: input.video,
+        ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
           conversationId: input.agent.conversationId,
@@ -241,21 +252,8 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
   }
 }
 
-export async function createQueueTask(
-  input: CreateQueueTaskInput,
-): Promise<CreateQueueTaskOutcome> {
-  const commandId = input.request.client_request_id
-  const hash = commandHash(input)
-  // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
-  // 确认生成用的是新建的命令 id，没有历史任务可认领。
-  if (input.userId && commandId) {
-    const replay = await replayCommand(input.tx ?? db, input.userId, commandId, hash)
-    if (replay) return replay
-    if (!input.tx) {
-      const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
-      if (legacy) return legacy
-    }
-  }
+/** Read, transform and archive image bytes before acquiring caller transaction locks. */
+export async function prepareQueueTask(input: CreateQueueTaskInput) {
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
@@ -268,10 +266,10 @@ export async function createQueueTask(
   } catch (error) {
     await discardArchivedInputs(id)
     if (error instanceof TypeError) {
-      return { kind: 'invalid_input_image', message: error.message }
+      return { kind: 'invalid_input_image' as const, message: error.message }
     }
     return {
-      kind: 'object_storage_error',
+      kind: 'object_storage_error' as const,
       message:
         error instanceof ObjectStorageError ? error.message : 'Object storage input archive failed',
     }
@@ -279,6 +277,40 @@ export async function createQueueTask(
   if (input.provider === 'openai-compat' && !input.video) {
     requestPayload.moderation ??= DEFAULT_IMAGE_MODERATION
   }
+
+  return {
+    kind: 'prepared' as const,
+    prepared: { taskId: id, requestHash: commandHash(input), requestPayload },
+  }
+}
+
+export async function discardQueueTaskPreparation(prepared: PreparedQueueTask): Promise<void> {
+  await discardArchivedInputs(prepared.taskId)
+}
+
+export async function createQueueTask(
+  input: CreateQueueTaskInput,
+): Promise<CreateQueueTaskOutcome> {
+  if (input.reconciliationRequired && input.video)
+    throw new TypeError('reconciliation_requires_image_task')
+  const commandId = input.request.client_request_id
+  const hash = commandHash(input)
+  // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
+  // 确认生成用的是新建的命令 id，没有历史任务可认领。
+  if (input.userId && commandId) {
+    const replay = await replayCommand(input.tx ?? db, input.userId, commandId, hash)
+    if (replay) return replay
+    if (!input.tx) {
+      const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
+      if (legacy) return legacy
+    }
+  }
+  const preparation = input.prepared
+    ? { kind: 'prepared' as const, prepared: input.prepared }
+    : await prepareQueueTask(input)
+  if (preparation.kind !== 'prepared') return preparation
+  const { taskId: id, requestPayload, requestHash } = preparation.prepared
+  if (requestHash !== hash) throw new TypeError('prepared_queue_request_mismatch')
 
   const now = Date.now()
   const pricing = pricingOf(input)
@@ -304,6 +336,7 @@ export async function createQueueTask(
         provider: input.provider,
         model: input.model,
         status: 'queued',
+        reconciliation_required: input.reconciliationRequired ?? false,
         request_payload: requestPayload,
         submitted_at: now,
         user_id: input.userId,
@@ -381,7 +414,8 @@ export async function createQueueTask(
   }
   const outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
 
-  if (outcome.kind !== 'created' || outcome.taskId !== id) await discardArchivedInputs(id)
+  if (!input.prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
+    await discardArchivedInputs(id)
   if (outcome.kind === 'idempotency_conflict' && input.userId && commandId && !input.tx) {
     return (await adoptLegacyCommand(input.userId, commandId, hash)) ?? outcome
   }

@@ -44,7 +44,7 @@ export async function prepareMaskedEdit(
   const mapping = images.map((image, index) => {
     const selection = selections[index]
     const objects = bindings.find((binding) => binding.imageId === image.imageId)?.objects
-    return `生成输入 ${index + 1}：图片 ID ${image.imageId}，${index === 0 ? '唯一编辑目标，保留完整原图' : selection ? '参考图的原色选区裁片，仅提取用户指定属性；透明部分没有参考内容' : '参考原图，仅提取用户指定属性'}${selection ? `，选区 ${selection.id}，原图位置 ${JSON.stringify(selection.bounds)}` : ''}${image.editAction ? `，用户选择的编辑动作：${editActionIntent(image.editAction)}` : ''}${image.regions?.length ? `，编号区域：${image.regions.map((region, index) => `区域 ${index + 1} ${JSON.stringify(region)}`).join('；')}` : ''}${objects ? `，对象定位说明（仅用于识别，不是修改授权）：${JSON.stringify(objects)}` : ''}`
+    return `生成输入 ${index + 1}：图片 ID ${image.imageId}，${index === 0 ? '唯一编辑目标，保留完整原图' : selection ? '参考图的原色选区裁片，仅提取用户指定属性；透明部分没有参考内容' : '参考原图，仅提取用户指定属性'}${selection ? `，选区 ${selection.id}，原图位置 ${JSON.stringify(selection.bounds)}` : ''}${image.editAction ? `，用户选择的编辑动作：${editActionIntent(image.editAction)}` : ''}${image.regions?.length ? `，编号区域：${image.regions.map((region, index) => `区域 ${region.number ?? index + 1} ${JSON.stringify(region)}`).join('；')}` : ''}${objects ? `，对象定位说明（仅用于识别，不是修改授权）：${JSON.stringify(objects)}` : ''}`
   })
   return {
     inputImages: images.map((image, index) =>

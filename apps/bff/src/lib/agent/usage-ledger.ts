@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
+import type { AgentRequestBudgetError } from './outbound-budget'
 import { requestInputTokens } from './request-budget'
 
 interface TurnIdentity {
@@ -62,10 +63,53 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         model,
         input_image_count: imageCount,
         status: 'in_progress',
+        http_dispatch_count: 0,
         started_at: Date.now(),
       })
-      if (purpose === 'conversation') upstreamInvocationCount += 1
       return id
+    },
+
+    async dispatched(id: string, requestBytes: number): Promise<void> {
+      const [dispatched] = await db
+        .update(calls)
+        .set({
+          http_dispatch_count: 1,
+          request_bytes: requestBytes,
+        })
+        .where(and(scope, eq(calls.id, id), eq(calls.http_dispatch_count, 0)))
+        .returning({ purpose: calls.purpose })
+      if (!dispatched) throw new Error('Model call cannot be dispatched twice')
+      if (dispatched.purpose === 'conversation') upstreamInvocationCount += 1
+    },
+
+    /** The request was cancelled while its durable dispatch evidence was being recorded. */
+    async cancelledBeforeDispatch(id: string): Promise<void> {
+      const [cancelled] = await db
+        .update(calls)
+        .set({
+          http_dispatch_count: 0,
+          status: 'cancelled',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          finished_at: Date.now(),
+        })
+        .where(and(scope, eq(calls.id, id), eq(calls.http_dispatch_count, 1)))
+        .returning({ purpose: calls.purpose })
+      if (cancelled?.purpose === 'conversation') upstreamInvocationCount -= 1
+      estimates.delete(id)
+    },
+
+    async rejected(id: string, error: AgentRequestBudgetError): Promise<void> {
+      estimates.delete(id)
+      await db
+        .update(calls)
+        .set({
+          status: 'failed',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          request_bytes: error.requestBytes,
+          local_rejection: error.reason,
+          finished_at: Date.now(),
+        })
+        .where(and(scope, eq(calls.id, id), eq(calls.http_dispatch_count, 0)))
     },
 
     async finish(id: string, message: AssistantMessage): Promise<void> {
@@ -87,7 +131,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         .update(calls)
         .set({
           status:
-            message.stopReason === 'error'
+            message.stopReason === 'error' || message.stopReason === 'length'
               ? 'failed'
               : message.stopReason === 'aborted'
                 ? 'cancelled'
@@ -135,7 +179,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
      * 只靠这一位分得开，运营才能把两种成本各归各的。
      *
      * 它们都不进结算：累加只认 `purpose === 'conversation'`（见 `begin` 与 `finish`），
-     * 所以多记一条不会动用户这一轮的账。一次真实请求一条，重试的每一次各记各的；
+     * 所以多记一条不会动用户这一轮的账。每次尝试各记一条，本地拒绝显式为零派发；
      * `onConflictDoNothing` 让同一次的重复上报无害。
      */
     async recordSideCall(purpose: AgentSideCallPurpose, attempt: ChatAttempt): Promise<void> {
@@ -150,6 +194,9 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
           purpose,
           model: attempt.model,
           status: attempt.status,
+          http_dispatch_count: attempt.httpDispatchCount ?? 1,
+          request_bytes: attempt.requestBytes,
+          local_rejection: attempt.localRejection?.reason,
           usage: attempt.usage,
           started_at: attempt.startedAt,
           finished_at: attempt.finishedAt,
@@ -161,9 +208,15 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
       return {
         upstreamInvocationCount,
         usage:
-          knownConversationCalls === upstreamInvocationCount && (inputTokens || outputTokens)
-            ? { inputTokens, outputTokens, ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}) }
-            : null,
+          upstreamInvocationCount === 0
+            ? { inputTokens: 0, outputTokens: 0 }
+            : knownConversationCalls === upstreamInvocationCount && (inputTokens || outputTokens)
+              ? {
+                  inputTokens,
+                  outputTokens,
+                  ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+                }
+              : null,
       }
     },
   }

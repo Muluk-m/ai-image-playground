@@ -4,6 +4,7 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
 import { resolveChatApiKey } from '../resolveApiKey'
+import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { agentThinking } from './thinking'
 
@@ -50,11 +51,16 @@ function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
       supportsReasoningEffort: true,
       maxTokensField: 'max_tokens',
       supportsUsageInStreaming: true,
+      // 与 Pi 0.87 的未知兼容网关默认值对齐；不让 URL 启发式替网关承诺 strict schema。
+      supportsStrictMode: false,
     },
   }
 }
 
-const runtimes = new Map<string, { model: Model<'openai-completions'>; streamFn: StreamFn }>()
+const runtimes = new Map<
+  string,
+  { model: Model<'openai-completions'>; models: ReturnType<typeof createModels> }
+>()
 
 /**
  * 不给 pi 装 telemetry exporter。它的 telemetry 是零依赖契约包，默认 no-op；
@@ -81,12 +87,7 @@ function runtime(depth?: AgentThinkingDepth) {
       api: openAICompletionsApi(),
     }),
   )
-  const streamFn: StreamFn = (streamModel, context, options) =>
-    models.streamSimple(streamModel, context, {
-      ...options,
-      fetch: withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs) as typeof globalThis.fetch,
-    })
-  const result = { model, streamFn }
+  const result = { model, models }
   runtimes.set(key, result)
   return result
 }
@@ -95,6 +96,18 @@ export function agentModel(depth?: AgentThinkingDepth): Model<'openai-completion
   return runtime(depth).model
 }
 
-export function agentStreamFn(depth?: AgentThinkingDepth): StreamFn {
-  return runtime(depth).streamFn
+export function agentStreamFn(
+  depth?: AgentThinkingDepth,
+  observer: AgentDispatchObserver = {},
+): StreamFn {
+  const { models } = runtime(depth)
+  return (streamModel, context, options) =>
+    models.streamSimple(streamModel, context, {
+      ...options,
+      maxRetries: 0,
+      fetch: guardedAgentFetch(
+        withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs),
+        observer,
+      ) as typeof globalThis.fetch,
+    })
 }

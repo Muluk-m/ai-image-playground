@@ -8,6 +8,7 @@ import {
   PROMPT_REWRITE_GUARD_PREFIX,
   parseAgentFrame,
 } from '@image-playground/shared'
+import { TEST_IMAGE } from './imageFixtures'
 
 /**
  * 落库的那一句。确认提交时会钉上创作页同款的防改写 guard（`lib/agent/prompt-shaping.ts`），
@@ -103,7 +104,9 @@ export const TEST_IMAGE_CHANNEL = {
   defaults: { apiMode: 'images' as const, timeout: 600 },
 }
 
-export const TEST_RESULT_PAYLOAD = { data: [{ b64_json: 'aGk=', mime: 'image/png' }] }
+export const TEST_RESULT_PAYLOAD = {
+  data: [{ b64_json: TEST_IMAGE.png.toString('base64'), mime: 'image/png' }],
+}
 
 export function eventsOfType<T extends AgentTurnEvent['type']>(
   frames: { event: AgentTurnEvent }[],
@@ -221,7 +224,7 @@ export interface ControlledCompletion {
   responseFor(signal?: AbortSignal): Response
   push(content: string): void
   pushToolCall(index: number, call: ToolCallSpec): void
-  finish(): void
+  finish(reason?: 'stop' | 'length'): void
   /** 上游流到一半断掉：已推的帧读完之后才报错，所以要等消费者收到它们再调。 */
   fail(message?: string): void
 }
@@ -281,10 +284,10 @@ export function controlledCompletion(
         choices: [{ index: 0, delta: { tool_calls: [{ index, function: { arguments: tail } }] } }],
       })
     },
-    finish() {
+    finish(reason = 'stop') {
       send({
         id: 'completion-1',
-        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        choices: [{ index: 0, delta: {}, finish_reason: reason }],
         ...(usage ? { usage } : {}),
       })
       controller.enqueue(encoder.encode('data: [DONE]\n\n'))

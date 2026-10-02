@@ -1,7 +1,13 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
-import { prepareMaskedEdit } from '../../../lib/agent/masked-edit'
-import { imageSelection, referenceEvidence } from '../../../lib/agent/selection-preview'
+
+process.env.PORT = '0'
+process.env.DATABASE_URL = 'postgres://unused/unused'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.OPERATOR_CONFIG_FILE = ''
+const { prepareMaskedEdit } = await import('../../../lib/agent/masked-edit')
+const { imageSelection, referenceEvidence } = await import('../../../lib/agent/selection-preview')
 
 async function png(pixels: number[], width = 2) {
   return `data:image/png;base64,${(
@@ -117,5 +123,17 @@ it('maps region numbers without merging disconnected selected pixels', async () 
   expect(request!.prompt).toContain('区域 1')
   expect(request!.prompt).toContain('区域 2')
   expect(request!.prompt).toContain('用户选择的编辑动作：擦除')
+  expect(request!.mask).toBe(maskDataUrl)
+})
+
+it('preserves sparse region identity in the final masked edit prompt', async () => {
+  const request = await prepareMaskedEdit(
+    [{ ...image, regions: [{ number: 7, x: 0, y: 0, width: 0.5, height: 1 }] }],
+    [{ imageId: 'target', selectionId: selection.id }],
+    '将@区域7改成红色，其他不变',
+  )
+  expect(request!.prompt).toContain('将@区域7改成红色，其他不变')
+  expect(request!.prompt).toContain('区域 7')
+  expect(request!.prompt).not.toContain('区域 1')
   expect(request!.mask).toBe(maskDataUrl)
 })

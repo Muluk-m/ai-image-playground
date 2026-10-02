@@ -1,3 +1,4 @@
+import type { AgentMarkedRegion } from '@image-playground/shared'
 import { accountRequired } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -24,6 +25,7 @@ export async function sendImageEditToAgent(
   instruction: string,
   options: {
     strokes?: readonly MaskStroke[]
+    regions?: readonly AgentMarkedRegion[]
     referenceDataUrl?: string
     frame?: { mode: 'crop' | 'outpaint'; rect: EditRect }
   } = {},
@@ -107,6 +109,7 @@ export async function sendImageEditToAgent(
         imageId: image.id,
         dataUrl,
         ...(maskDataUrl ? { maskDataUrl } : {}),
+        ...(options.regions?.length ? { regions: options.regions } : {}),
       },
       ...(options.referenceDataUrl
         ? [{ imageId: crypto.randomUUID(), dataUrl: options.referenceDataUrl }]

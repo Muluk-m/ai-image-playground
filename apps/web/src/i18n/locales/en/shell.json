@@ -34,8 +34,7 @@
     "newCanvas": "New canvas",
     "immersive": "Open immersive",
     "guide": "User guide",
-    "showMore": "Show {{count}} more",
-    "showLess": "Show less"
+    "viewAll": "View all"
   },
   "logout": {
     "title": "Sign out",

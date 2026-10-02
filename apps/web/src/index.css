@@ -610,31 +610,8 @@
   border-top: 1px solid hsl(var(--border) / 0.6);
 }
 
-.auth-referral summary {
-  width: fit-content;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.auth-referral summary span {
-  margin-left: 8px;
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.auth-referral summary:hover {
-  color: hsl(var(--foreground));
-}
-
-.auth-referral summary:focus-visible {
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: 4px;
-  border-radius: 3px;
-}
-
 .auth-referral .auth-field {
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .auth-status-screen {
@@ -777,12 +754,17 @@
     grid-template-rows: 150px auto;
   }
 
+  .auth-showcase {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
   .auth-showcase::after {
     background: linear-gradient(180deg, rgba(7, 8, 10, 0.28), hsl(var(--background)));
   }
 
   .auth-brand {
-    top: 20px;
+    top: 0;
     left: 20px;
     font-size: 16px;
   }
@@ -814,7 +796,8 @@
   }
 
   .auth-showcase-copy {
-    bottom: 18px;
+    bottom: 0;
+    margin-top: 8px;
     left: 20px;
     width: 75%;
   }
