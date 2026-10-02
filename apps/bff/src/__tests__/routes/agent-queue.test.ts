@@ -9,6 +9,7 @@ import {
   type AgentQueueWithdrawResult,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import {
@@ -283,6 +284,33 @@ describe('排队消息', () => {
     })
     // 排着的话还没进对话：上游只见过第一句。
     expect(calls).toHaveLength(1)
+  })
+
+  it('排队消息记下发话时声明的入口，不认识的值当没带', async () => {
+    const { conversationId } = await busyConversation()
+    const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text: '整理一下我的画布',
+      experience: 'canvas',
+    })
+    const body = await queued(response)
+    const [row] = await db
+      .select({ payload: schema.agent_inbox.payload })
+      .from(schema.agent_inbox)
+      .where(eq(schema.agent_inbox.id, body.queued.id))
+    expect(row?.payload).toMatchObject({ experience: 'canvas' })
+    const unknown = await queued(
+      await post(`/api/agent/conversations/${conversationId}/turns`, {
+        deviceId: DEVICE,
+        text: 'x',
+        experience: 'gallery',
+      }),
+    )
+    const [ignored] = await db
+      .select({ payload: schema.agent_inbox.payload })
+      .from(schema.agent_inbox)
+      .where(eq(schema.agent_inbox.id, unknown.queued.id))
+    expect(ignored?.payload).not.toHaveProperty('experience')
   })
 
   it('当前回复结束后按顺序处理排队消息，每轮取一条', async () => {
