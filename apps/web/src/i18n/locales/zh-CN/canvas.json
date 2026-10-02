@@ -434,7 +434,6 @@
   },
   "resize": {
     "action": "调整尺寸",
-    "hint": "用不同宽高比生成此图片",
     "ratio": {
       "square": "方形",
       "portrait": "竖版",
