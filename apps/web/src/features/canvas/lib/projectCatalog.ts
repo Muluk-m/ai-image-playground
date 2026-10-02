@@ -14,12 +14,14 @@ export function projectCatalog(
         ? {
             ...project,
             name: remote.name,
+            // 本机较新时仍以本机为准；本机没有封面（对话项目画布常是空的）就用云端那张。
             cover:
               remote.updatedAt >= project.updatedAt && remote.coverMediaId !== undefined
                 ? remote.coverMediaId
                   ? `aip-media:${remote.coverMediaId}`
                   : undefined
-                : project.cover,
+                : (project.cover ??
+                  (remote.coverMediaId ? `aip-media:${remote.coverMediaId}` : undefined)),
             updatedAt: Math.max(project.updatedAt, remote.updatedAt),
             hasContent: project.hasContent || remote.elementCount > 0,
             experience: remote.experience ?? project.experience,
