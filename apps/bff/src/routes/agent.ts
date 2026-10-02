@@ -795,7 +795,7 @@ export const agentRoutes = new Elysia()
       ])
       await ensureAgentSkills()
       // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
-      // 非模板技能的「已验证」跟部署默认的出图模型比（ADR 0017）。
+      // 非模板技能的「已验证」跟部署默认的出图模型比（ADR 0020）。
       return {
         skills: await listAgentSkillSummaries(
           resolveAgentMode(query.mode ?? 'image'),

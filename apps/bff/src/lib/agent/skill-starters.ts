@@ -11,7 +11,7 @@ import { isObject } from '../type-guards'
 
 /**
  * `meta.json` 里给场景引导用的那几段：素材位（`inputs`）、起手句（`starters`）、场景（`scene`）
- * 与验证记录（`verified`）。见 CONTEXT.md 同名词条与 ADR 0017。
+ * 与验证记录（`verified`）。见 CONTEXT.md 同名词条与 ADR 0020。
  *
  * 与图标、简介同一条规矩：**写坏只回退这几段，不丢技能**，并且**一个字都不进给模型的文本**。
  */
@@ -207,7 +207,7 @@ export function parseAgentSkillStarterMeta(
 
 /**
  * 「已验证」：有验证记录，且记录的模型就是这条技能此刻会用的模型。预置模板用的是钉死的那个，
- * 别的技能用部署的默认出图模型（见 ADR 0017）。任一边一变，这条技能就退出场景引导。
+ * 别的技能用部署的默认出图模型（见 ADR 0020）。任一边一变，这条技能就退出场景引导。
  */
 export function isAgentSkillVerified(
   skill: { readonly verification?: AgentSkillVerification; readonly template?: { model: string } },

@@ -77,7 +77,7 @@ BFF 的公开核心只做四件事：
   - 读不到、不是 JSON、字段不合规都**只回退不丢技能**：图标退到 `sparkles`、简介退成空串
     （界面自己回退到去掉「何时用：」的 `description`），并打一条 `agent.skill_meta_*` 的 warn。
     为什么是旁路文件而不是 frontmatter，见 [ADR 0007](../../docs/adr/0007-agent-skills-progressive-loading.md)。
-- `meta.json` 还可以写场景引导用的四段（见 [ADR 0017](../../docs/adr/0017-skill-asset-slots-starters-verified.md)
+- `meta.json` 还可以写场景引导用的四段（见 [ADR 0020](../../docs/adr/0020-skill-asset-slots-starters-verified.md)
   与 CONTEXT.md「素材位 / 起手句 / 场景 / 已验证」）：`inputs`（素材位）、`starters`（起手句，`{key}` 只能引用
   声明过的位）、`scene`（`ecommerce` / `poster` / `scene-character` / `look`）、`verified`（`{date, model, score}`）。
   解析在 [`src/lib/agent/skill-starters.ts`](./src/lib/agent/skill-starters.ts)；目录接口只发算好的布尔
