@@ -239,3 +239,32 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
     vi.unstubAllGlobals()
   }
 })
+
+it('首次绑定会话时记下绑定前看到的入口，老画布项目不会因此变成对话', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const legacy = await projectRepository.update((await projectRepository.create('老画布')).id, {
+    hasContent: true,
+  })
+  expect(legacy.experience).toBeUndefined()
+  useCanvasProjectStore.setState({ projects: [legacy], activeId: legacy.id, loaded: true })
+  keys = [legacy.sceneKey]
+  selectCanvasWorkspace(legacy.sceneKey)
+  await currentCanvasWorkspace().ready
+  expect(await bindNewCanvasWorkspace('legacy-conversation')).toBe(true)
+  const bound = useCanvasProjectStore.getState().projects.find((one) => one.id === legacy.id)
+  expect(bound?.conversationId).toBe('legacy-conversation')
+  expect(bound?.experience).toBe('canvas')
+})
+
+it('已记下入口的项目绑定会话时保持原样', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const chat = await projectRepository.create('对话', undefined, false, false, 'image', 'chat')
+  useCanvasProjectStore.setState({ projects: [chat], activeId: chat.id, loaded: true })
+  keys = [chat.sceneKey]
+  selectCanvasWorkspace(chat.sceneKey)
+  await currentCanvasWorkspace().ready
+  expect(await bindNewCanvasWorkspace('chat-conversation')).toBe(true)
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === chat.id)?.experience,
+  ).toBe('chat')
+})
