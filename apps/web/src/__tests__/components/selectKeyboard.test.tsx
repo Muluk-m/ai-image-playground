@@ -66,3 +66,28 @@ it('closes on Escape without selecting', () => {
   expect(trigger.getAttribute('aria-expanded')).toBe('false')
   expect(onChange).not.toHaveBeenCalled()
 })
+
+it('keeps a list with option actions open while focus moves into it, and closes when focus leaves', () => {
+  const onChange = vi.fn()
+  const options = [{ ...OPTIONS[0], actions: [{ label: 'x', onClick: vi.fn() }] }, OPTIONS[1]]
+  act(() =>
+    root.render(
+      <>
+        <Select value="auto" onChange={onChange} options={options} />
+        <button type="button">outside</button>
+      </>,
+    ),
+  )
+  const trigger = host.querySelector('[role="combobox"]') as HTMLElement
+  press(trigger, 'Enter')
+  press(trigger, 'Tab')
+  expect(trigger.getAttribute('aria-expanded')).toBe('true')
+
+  const action = host.querySelector('[role="listbox"] button') as HTMLButtonElement
+  act(() => action.focus())
+  expect(trigger.getAttribute('aria-expanded')).toBe('true')
+
+  const outside = [...host.querySelectorAll('button')].find((b) => b.textContent === 'outside')!
+  act(() => outside.focus())
+  expect(trigger.getAttribute('aria-expanded')).toBe('false')
+})
