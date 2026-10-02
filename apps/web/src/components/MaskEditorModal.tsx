@@ -1171,7 +1171,7 @@ export default function MaskEditorModal() {
                     disabled={!isReady || isSaving || tool === 'lasso'}
                     title={t('mask.brushSize')}
                   >
-                    <span className="text-[14px] sm:text-[15px] font-semibold tracking-tight">
+                    <span className="text-[14px] sm:text-title font-semibold tracking-tight">
                       {brushSize}
                     </span>
                   </button>

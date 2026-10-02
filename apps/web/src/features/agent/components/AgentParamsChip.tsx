@@ -92,7 +92,7 @@ export default function AgentParamsChip() {
         type="button"
         aria-expanded={open}
         aria-label={t('params.title')}
-        className={`flex min-w-0 max-w-full items-center h-8 gap-1.5 rounded-full bg-muted px-2.5 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
+        className={`flex min-w-0 max-w-full items-center h-8 gap-1.5 rounded-full bg-muted px-2.5 text-label-sm transition-colors hover:bg-muted ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
         <SettingsIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
@@ -140,9 +140,9 @@ export default function AgentParamsChip() {
           <div className="flex flex-wrap items-center gap-1.5">
             <ParamControls unsupported={UNSUPPORTED} />
           </div>
-          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
+          <p className={`mt-2 text-label-sm leading-relaxed ${INK_3}`}>{t('params.note')}</p>
           {generation.byok && (
-            <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.byokNote')}</p>
+            <p className={`mt-2 text-label-sm leading-relaxed ${INK_3}`}>{t('params.byokNote')}</p>
           )}
         </div>
       )}

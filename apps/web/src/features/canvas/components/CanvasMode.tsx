@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
+import { ArrowLeft, ChevronDown, FolderOpen, ImagePlus, PanelLeftOpen, Search } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
@@ -505,7 +505,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     aria-label={t('sidebar.title')}
                   >
                     <div className="flex items-center justify-between px-4 pb-2 pt-3">
-                      <span className="text-[13px] font-medium text-foreground">
+                      <span className="text-body-sm font-medium text-foreground">
                         {t('sidebar.title')}
                       </span>
                       <button
@@ -664,6 +664,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     className="studio-secondary"
                     onClick={() => fileInput.current?.click()}
                   >
+                    <ImagePlus className="h-4 w-4" aria-hidden="true" />
                     {t('empty.import')}
                   </button>
                 </div>

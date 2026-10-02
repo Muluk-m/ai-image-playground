@@ -1316,7 +1316,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               >
                 <SubmissionBillingAction
                   blockedAction={submissionGuard.blockedAction}
-                  className="text-[11px]"
+                  className="text-label-sm"
                 />
                 <ButtonTooltip
                   visible={submitHover && Boolean(submitBlockedTip)}
@@ -1641,7 +1641,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     >
                       <SubmissionBillingAction
                         blockedAction={submissionGuard.blockedAction}
-                        className="text-[11px]"
+                        className="text-label-sm"
                       />
                       <ButtonTooltip
                         visible={submitHover && Boolean(submitBlockedTip)}

@@ -66,14 +66,14 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
               ))}
             </ul>
             {overflow > 0 && (
-              <span className="text-[11px] font-medium text-muted-foreground">+{overflow}</span>
+              <span className="text-label-sm font-medium text-muted-foreground">+{overflow}</span>
             )}
           </div>
         )}
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate text-label-sm text-muted-foreground">
           {getTemplateParamEntries(template.params)
             .map((entry) => `${entry.label} ${entry.value}`)
             .join(' · ')}
@@ -81,7 +81,7 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
         <button
           type="button"
           onClick={() => void applyTemplate(template.id)}
-          className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20"
+          className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20"
         >
           {t('template.apply')}
         </button>

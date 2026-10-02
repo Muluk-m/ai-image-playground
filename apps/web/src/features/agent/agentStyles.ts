@@ -29,11 +29,11 @@ export const REPLY = 'max-w-full text-xs leading-relaxed text-foreground'
 
 /** 回复下方的操作键：悬停或键盘聚焦时才出现；没有悬停的触屏上常驻。 */
 export const REPLY_ACTION =
-  'inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100'
+  'inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-label-sm text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100'
 
 /** 离开底部时浮在对话记录下沿的「有新消息」。 */
 export const JUMP_TO_LATEST =
-  'absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-[11px] text-foreground shadow-[var(--studio-shadow)] transition hover:bg-muted'
+  'absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-label-sm text-foreground shadow-[var(--studio-shadow)] transition hover:bg-muted'
 
 export const FIELD =
   'w-full resize-none rounded-xl border border-border bg-muted px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none'
@@ -48,14 +48,14 @@ export const LIST_ROW =
 
 export const ACTIVE_LIST_ROW = 'bg-muted'
 
-export const GHOST_LINK = 'text-[11px] text-primary transition-colors hover:text-primary'
+export const GHOST_LINK = 'text-label-sm text-primary transition-colors hover:text-primary'
 
 export const CARD =
   'flex max-w-full flex-col gap-1.5 rounded-xl border border-border bg-muted px-2.5 py-2'
 
 export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
 
-export const CARD_NOTE = `text-[11px] ${INK_3}`
+export const CARD_NOTE = `text-label-sm ${INK_3}`
 
 /**
  * 草稿卡里那块提示词：卡本身是 `bg-muted`，输入框用底色分出来，一眼看得出这段字可以改。

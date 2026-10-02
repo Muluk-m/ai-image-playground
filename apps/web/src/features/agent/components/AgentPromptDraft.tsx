@@ -93,7 +93,7 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
         value={prompt}
         rows={7}
         disabled={submitting}
-        className="max-h-64 min-h-32 w-full resize-y rounded-xl border border-input/60 bg-background/60 p-3 text-[13px] leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
+        className="max-h-64 min-h-32 w-full resize-y rounded-xl border border-input/60 bg-background/60 p-3 text-body-sm leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
         onChange={(event) =>
           useAgentStore.getState().setPromptDraft(message.id, event.target.value)
         }

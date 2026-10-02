@@ -32,7 +32,7 @@ export function ToolCall({
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className="h-auto max-w-full justify-start gap-2 rounded-lg px-2 py-2 text-left text-[13px] font-normal text-muted-foreground"
+        className="h-auto max-w-full justify-start gap-2 rounded-lg px-2 py-2 text-left text-body-sm font-normal text-muted-foreground"
       >
         <ChevronRightIcon
           aria-hidden

@@ -145,7 +145,7 @@ export default function TemplateDetail() {
             </div>
           </section>
 
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-label-sm text-muted-foreground">
             <span>
               {t('templateDetail.createdAt', { time: formatDateTime(template.createdAt) })}
             </span>

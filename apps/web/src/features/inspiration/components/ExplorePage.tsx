@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import PageHeader from '../../../components/PageHeader'
+import SearchField from '../../../components/SearchField'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { useInspirationStore } from '../store'
@@ -22,39 +24,32 @@ export default function ExplorePage() {
   }, [])
 
   return (
-    <main className="flex h-[calc(100dvh-3.5rem)] flex-col">
-      <div className="studio-page-head flex shrink-0 flex-wrap items-center gap-3 border-b border-border py-3 pl-5 pr-16 md:pr-60">
-        <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS.explore}</h1>
-        <div className="flex-1">
-          <InspirationProviderTabs />
-        </div>
+    <main className="flex h-dvh flex-col">
+      <PageHeader title={APP_MODE_LABELS.explore}>
+        <InspirationProviderTabs />
         <button
           type="button"
           aria-pressed={onlyImageEdits}
           onClick={() => setOnlyImageEdits(!onlyImageEdits)}
-          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+          className={`ml-auto h-7 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             onlyImageEdits
-              ? 'border-primary bg-primary/10 text-primary'
+              ? 'border-primary/60 bg-primary/10 text-primary'
               : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
           }`}
         >
           {t('filter.imageEdit')}
         </button>
-        <label className="flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
-          <input
-            type="search"
-            value={searchKeyword}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('panel.searchPlaceholder')}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-      </div>
+        <SearchField
+          value={searchKeyword}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={t('panel.searchPlaceholder')}
+        />
+      </PageHeader>
       <div className="relative flex min-h-0 flex-1">
-        <aside className="hidden w-44 shrink-0 overflow-y-auto border-r border-border sm:block">
+        <aside className="hidden w-48 shrink-0 overflow-y-auto border-r border-border sm:block">
           <InspirationCategoryFilter />
         </aside>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <InspirationGrid />
         </div>
         {detailItemId && <InspirationDetail />}

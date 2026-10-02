@@ -87,13 +87,13 @@ export default function ImportUrlDialog({
           <CopyIcon className="h-5 w-5 shrink-0 text-primary mt-0.5" />
           <span>{t('profile.copyImportUrlFor', { name: profileName })}</span>
         </h3>
-        <div className="text-[13px] text-muted-foreground mb-5 leading-relaxed">
+        <div className="text-body-sm text-muted-foreground mb-5 leading-relaxed">
           {t('importUrl.question')}
         </div>
 
         {!options.includeApiKey && (
           <div className="mb-6 rounded-2xl bg-card/80 p-4 ring-1 ring-black/5 dark:ring-white/5">
-            <div className="text-[13px] font-bold text-foreground mb-3.5">
+            <div className="text-body-sm font-bold text-foreground mb-3.5">
               {t('importUrl.newApiVars')}
             </div>
             <div className="space-y-3">

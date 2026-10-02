@@ -15,7 +15,7 @@ export default function HeroCanvasProjects({ experience }: { experience: 'chat' 
   return (
     <>
       <div className="flex flex-wrap items-center gap-3 pb-5 pt-10 sm:gap-4">
-        <h2 className="text-[15px] font-semibold">
+        <h2 className="text-title font-semibold">
           {t(experience === 'chat' ? 'shell:nav.chats' : 'shell:nav.canvases')}
         </h2>
         <button
@@ -28,7 +28,7 @@ export default function HeroCanvasProjects({ experience }: { experience: 'chat' 
         <button
           type="button"
           onClick={openProjects}
-          className="ml-auto text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          className="ml-auto text-body-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           {t('shell:nav.allCanvases')} →
         </button>

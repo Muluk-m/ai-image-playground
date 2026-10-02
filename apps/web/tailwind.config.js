@@ -69,6 +69,13 @@ export default {
         'info': 'hsl(var(--info) / <alpha-value>)',
 
       },
+      // 字阶见 DESIGN.md：12/14/16/20 用 Tailwind 自带的 xs/sm/base/xl，这里只补自带档位之外的。
+      fontSize: {
+        'label-sm': '11px',
+        'body-sm': '13px',
+        title: '15px',
+        display: '38px',
+      },
       borderRadius: { lg: 'var(--radius)', md: 'calc(var(--radius) - 2px)', sm: 'calc(var(--radius) - 4px)' },
       fontFamily: {
         sans: ['var(--font-ui-sans)'],
