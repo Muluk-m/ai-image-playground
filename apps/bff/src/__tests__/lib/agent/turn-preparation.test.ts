@@ -639,6 +639,80 @@ describe('project experience across all turn sources', () => {
   }
 })
 
+describe('legacy projects without a recorded experience', () => {
+  async function legacyProject(conversationId: string): Promise<string> {
+    const id = crypto.randomUUID()
+    const now = Date.now()
+    await db.insert(schema.canvas_projects).values({
+      id,
+      user_id: USER_ID,
+      name: 'Legacy',
+      revision: 3,
+      document: { version: 1, elements: [] },
+      element_count: 0,
+      conversation_id: conversationId,
+      receipts: [],
+      created_at: now,
+      updated_at: now,
+    })
+    return id
+  }
+  async function recorded(id: string) {
+    const [row] = await db
+      .select({
+        document: schema.canvas_projects.document,
+        revision: schema.canvas_projects.revision,
+      })
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.id, id))
+    return row!
+  }
+
+  it('follows the canvas snapshot of the first message and records it on the project', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, '整理一下我的画布')
+    const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
+    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toBe('canvas')
+    expect((await recorded(project)).document.experience).toBe('canvas')
+    // 记下之后以项目为准，不再看消息。
+    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('canvas')
+  })
+
+  it('records chat when the first message comes from the chat view', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, 'hello')
+    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    expect((await recorded(project)).document.experience).toBe('chat')
+  })
+
+  it('does not record a guess from a wake whose origin is unknown', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    expect(
+      await loadAgentExperience(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'wake', turnId: 'missing-turn', taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toBe('chat')
+    expect((await recorded(project)).document.experience).toBeUndefined()
+  })
+
+  it('gives the canvas tools to a canvas message on a legacy project', async () => {
+    const conversationId = await conversationWithResult()
+    await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, '整理一下我的画布')
+    const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
+    const turn = preparedTurn((await prepare(conversationId, canvasSource)).prepared)
+    expect(turn.input.audience.experience).toBe('canvas')
+    const call = await runPrepared(turn)
+    const names = call.tools?.map((tool) => tool.function.name) ?? []
+    expect(names).toContain('readCanvas')
+    expect(names).toContain('arrangeCanvas')
+  })
+})
+
 describe('unsynced project experience is bound to the originating message', () => {
   it('ignores later pending and cancelled canvas messages when preparing chat', async () => {
     const conversationId = await conversationWithResult()
