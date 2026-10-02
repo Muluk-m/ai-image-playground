@@ -48,8 +48,20 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      # typecheck 在 web job 里跑过，这里不重复。
-      - run: pnpm test --concurrency=1 --env-mode=loose
+      # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
+      - run: pnpm test --concurrency=1 --env-mode=loose --filter='!@image-playground/web'
+  # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
+  web-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VITEST_MAX_WORKERS: 1
+      # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
+      NODE_OPTIONS: --no-experimental-webstorage
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup
+      - run: pnpm test --env-mode=loose --filter=@image-playground/web
   # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
   # overlay 一起 lint / typecheck / build，并跑 overlay 自己的测试。它执行的是「先扩后缩」——公开树只能删掉钉住的
   # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
