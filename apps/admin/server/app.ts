@@ -5,6 +5,7 @@ import { config, getAdminCapabilities } from './config'
 import { appVersion } from './lib/app-version'
 import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
+import { clientErrorsRoutes } from './routes/client-errors'
 import { devicesRoutes } from './routes/devices'
 import { googleAuthRoutes } from './routes/google-auth'
 import { imagesRoutes } from './routes/images'
@@ -36,6 +37,7 @@ const apiApp = new Elysia()
   .use(overviewRoutes)
   .use(opsRoutes)
   .use(auditRoutes)
+  .use(clientErrorsRoutes)
   .use(tasksRoutes)
   .use(imagesRoutes)
   .use(inspirationsRoutes)
