@@ -61,7 +61,7 @@ export default function LookDetail({
         <div className="flex min-w-0 shrink-0 flex-col bg-black/5 md:flex-[3] md:shrink dark:bg-black/40">
           <div className="relative flex min-h-0 flex-1 items-center justify-center p-3 md:p-6">
             {current ? (
-              <div className="relative max-h-[28vh] max-w-full overflow-hidden rounded-xl md:max-h-full shadow-2xl">
+              <div className="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-2xl">
                 <LookImage
                   source={current.source}
                   alt={look.name}
