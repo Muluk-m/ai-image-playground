@@ -10,7 +10,11 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
-import { projectCatalog } from '../features/canvas/lib/projectCatalog'
+import {
+  projectCatalog,
+  projectsByExperience,
+  RECENT_PROJECT_COUNT,
+} from '../features/canvas/lib/projectCatalog'
 import {
   projectDisplayName,
   projectEntryName,
@@ -27,6 +31,8 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
+const INITIAL_VISIBLE = { chat: RECENT_PROJECT_COUNT, canvas: RECENT_PROJECT_COUNT }
+
 export default function ProjectNavigation() {
   const { t } = useTranslation(['agent', 'canvas'])
   const projects = useCanvasProjectStore((state) => state.projects)
@@ -36,7 +42,7 @@ export default function ProjectNavigation() {
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [visibleCounts, setVisibleCounts] = useState({ chat: 5, canvas: 5 })
+  const [visibleCounts, setVisibleCounts] = useState(INITIAL_VISIBLE)
   // 哪一项正在打开。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 只把按钮置灰的话点下去像没反应。`'new'` 是「新建」那一项。
   const [pending, setPending] = useState<string | 'new' | null>(null)
@@ -58,8 +64,9 @@ export default function ProjectNavigation() {
   const currentExperience = current ? projectExperience(current) : 'chat'
   const groupOrder: ('chat' | 'canvas')[] =
     currentExperience === 'canvas' ? ['canvas', 'chat'] : ['chat', 'canvas']
+  const matchesByExperience = projectsByExperience(matches)
   const groups = groupOrder.map((experience) => {
-    const items = matches.filter((project) => projectExperience(project) === experience)
+    const items = matchesByExperience[experience]
     return { experience, items, visible: items.slice(0, visibleCounts[experience]) }
   })
   const allProjects = () => {
@@ -92,7 +99,7 @@ export default function ProjectNavigation() {
             setOpen(value)
             if (value) {
               setSearch('')
-              setVisibleCounts({ chat: 5, canvas: 5 })
+              setVisibleCounts(INITIAL_VISIBLE)
               void useCanvasProjectStore.getState().refreshCloud()
             }
           }}
@@ -123,7 +130,7 @@ export default function ProjectNavigation() {
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value)
-                  setVisibleCounts({ chat: 5, canvas: 5 })
+                  setVisibleCounts(INITIAL_VISIBLE)
                 }}
                 placeholder={t('navigation.search')}
                 aria-label={t('navigation.search')}
@@ -191,7 +198,7 @@ export default function ProjectNavigation() {
                         )}
                       </Button>
                     ))}
-                    {group.items.length > 5 && (
+                    {group.items.length > RECENT_PROJECT_COUNT && (
                       <div className="flex items-center">
                         {group.visible.length < group.items.length && (
                           <Button
@@ -200,21 +207,27 @@ export default function ProjectNavigation() {
                             onClick={() =>
                               setVisibleCounts((value) => ({
                                 ...value,
-                                [group.experience]: value[group.experience] + 5,
+                                [group.experience]: value[group.experience] + RECENT_PROJECT_COUNT,
                               }))
                             }
                           >
                             {t('navigation.expand', {
-                              remaining: Math.min(5, group.items.length - group.visible.length),
+                              remaining: Math.min(
+                                RECENT_PROJECT_COUNT,
+                                group.items.length - group.visible.length,
+                              ),
                             })}
                           </Button>
                         )}
-                        {visibleCounts[group.experience] > 5 && (
+                        {visibleCounts[group.experience] > RECENT_PROJECT_COUNT && (
                           <Button
                             variant="ghost"
                             className="justify-start px-3 text-xs text-muted-foreground"
                             onClick={() =>
-                              setVisibleCounts((value) => ({ ...value, [group.experience]: 5 }))
+                              setVisibleCounts((value) => ({
+                                ...value,
+                                [group.experience]: RECENT_PROJECT_COUNT,
+                              }))
                             }
                           >
                             {t('navigation.collapse')}

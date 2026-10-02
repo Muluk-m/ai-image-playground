@@ -1,6 +1,7 @@
 import i18next from 'i18next'
 import { initReactI18next, useTranslation } from 'react-i18next'
 import { zhCN } from './locales/zh-CN'
+import { LOCALE_STORAGE_KEY } from './storageKey'
 
 // 把中文 catalog 的形状喂给 i18next：写错 key 或漏建 key 在 `pnpm typecheck` 就红，不用等运行时
 // 把 key 原样渲染给用户。这段必须留在本文件里——放进独立的 .d.ts 就要靠各 tsconfig 的 include
@@ -22,7 +23,7 @@ export type I18nNamespace = keyof typeof zhCN
 
 export const I18N_NAMESPACES = Object.keys(zhCN) as I18nNamespace[]
 
-const LOCALE_STORAGE_KEY = 'aip.locale'
+export { LOCALE_STORAGE_KEY }
 
 function isSupported(value: string): value is AppLocale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value)
