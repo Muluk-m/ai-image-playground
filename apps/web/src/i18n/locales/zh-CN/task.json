@@ -71,7 +71,8 @@
     "source": "来源",
     "createdAt": "创建于 {{time}}",
     "elapsed": "耗时 {{duration}}",
-    "copyAll": "全部复制"
+    "copyAll": "全部复制",
+    "dialog": "作品详情"
   },
   "rawUrls": {
     "title": "原始图片链接 ({{n}})",
@@ -92,7 +93,8 @@
   "lightbox": {
     "saveImage": "保存图片",
     "saveFailed": "保存失败",
-    "loadingOriginal": "原图加载中"
+    "loadingOriginal": "原图加载中",
+    "dialog": "图片预览"
   },
   "grid": {
     "viewAll": "查看全部",
