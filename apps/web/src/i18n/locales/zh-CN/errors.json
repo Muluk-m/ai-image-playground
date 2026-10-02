@@ -5,8 +5,7 @@
     "return_handoff_failed": "退回的消息尚未保存到草稿，请重试恢复。"
   },
   "customProvider": {
-    "template_too_deep": "自定义服务商的请求模板嵌套过深，请简化后重试",
-    "fallback": "自定义服务商请求失败，请检查配置后重试"
+    "template_too_deep": "自定义服务商的请求模板嵌套过深，请简化后重试"
   },
   "login": {
     "invalid_credentials": "邮箱地址或密码不正确",
@@ -68,11 +67,6 @@
     "recovery_copy_failed": "无法保存恢复副本。请释放浏览器存储空间后重试，当前修改未被替换。",
     "recovery_changed": "保存副本期间有了新修改，已保留在当前画布。请再次选择处理方式。",
     "project_deleted": "这个项目已被删除。当前编辑仍保留，可另存为新项目。"
-  },
-  "cloudPlacement": {
-    "place_failed": "未能放入当前项目，请重试。",
-    "project_not_ready": "项目仍在保存或存在冲突，请先完成保存或处理冲突。",
-    "fallback": "未能放入当前项目，请重试。"
   },
   "projectRecycle": {
     "fallback": "回收站操作失败，请重试。"

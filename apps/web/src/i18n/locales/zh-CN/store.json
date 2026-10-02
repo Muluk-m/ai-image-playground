@@ -3,7 +3,6 @@
     "image": "创作",
     "canvas": "画布",
     "explore": "探索",
-    "projects": "项目",
     "library": "资产",
     "tools": "工具箱"
   },
@@ -14,9 +13,6 @@
     "inputImageMissing": "输入图片已不存在",
     "maskImageMissing": "遮罩图片已不存在",
     "customDisconnected": "与自定义异步任务的连接已断开，之后会继续查询任务结果。"
-  },
-  "profile": {
-    "unknown": "未知配置"
   },
   "networkHint": {
     "proxyDown": "提示：请求立即失败，请检查 API 代理服务是否正常运行。",

@@ -133,12 +133,9 @@
   },
   "workspace": {
     "canvasAria": "创作画布",
-    "untitled": "我的画布",
-    "backToProjects": "返回项目",
     "backHome": "回到主页",
     "assets": "资产库",
-    "sourceChat": "返回来源对话",
-    "imageTransferFailed": "图片未能加入新画布，请重试"
+    "sourceChat": "返回来源对话"
   },
   "saveError": {
     "message": "画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。",
@@ -223,8 +220,6 @@
     "updatedAt": "{{date}} 更新",
     "actionsAria": "项目 {{name}} 的更多操作",
     "rename": "重命名",
-    "renameAria": "重命名项目 {{name}}",
-    "deleteAria": "删除项目 {{name}}",
     "deleteTitle": "删除项目",
     "deleteMessage": "删除“{{name}}”及其画布和会话？此操作无法撤销。",
     "noMatch": "没有找到匹配的项目",
@@ -368,12 +363,10 @@
     },
     "brushSize": "笔刷",
     "undo": "撤销标记",
-    "regions": "修改区域",
     "regionName": "区域 {{no}}",
     "removeRegion": "移除区域 {{no}}",
     "promptAria": "修改要求",
     "promptPlaceholder": "描述希望怎么修改，例如：把鞋带改成亮蓝色",
-    "paintFirst": "在图片上拖动框选，或切换画笔标记位置",
     "uploadReference": "上传图片",
     "removeReference": "移除参考图",
     "modelUnsupported": "当前模型不支持遮罩重绘，请切到 GPT Image 系列",

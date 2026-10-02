@@ -55,8 +55,6 @@
     "copyErrorFailed": "Could not copy the error",
     "promptCopied": "Prompt copied",
     "copyPromptFailed": "Could not copy the prompt",
-    "promptRevisedReason": "The API rewrote the prompt it returned",
-    "promptMissingReason": "The API left out some fields the official API returns",
     "referenceCopied": "Reference image copied",
     "copyReferenceFailed": "Could not copy the reference image",
     "copyFullError": "Copy full error",
@@ -66,7 +64,6 @@
     "copyImageUrls": "Copy image links",
     "inputSection": "Input",
     "copyPrompt": "Copy prompt",
-    "promptRevised": "Prompt was rewritten",
     "expandAll": "Show all",
     "referenceSection": "Reference images",
     "copyReference": "Copy reference image",
@@ -103,7 +100,6 @@
     "viewAll": "View all works",
     "collapse": "Show less",
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
-    "recent": "Recent",
     "noMatches": "No matching records",
     "empty": "No works yet. Write a line on Create, or pick a starting point in Explore.",
     "mine": "My works"
@@ -119,31 +115,6 @@
   "cloudHistory": {
     "refresh": "Refresh",
     "loading": "Loading…",
-    "more": "Load more",
-    "close": "Close",
-    "details": "View details",
-    "openAria": "View this {{model}} generation",
-    "status": {
-      "queued": "Queued",
-      "in_progress": "Generating",
-      "completed": "Completed",
-      "failed": "Failed",
-      "cancelled": "Cancelled"
-    },
-    "reuse": "Reuse settings",
-    "preparing": "Preparing…",
-    "reuseFailed": "Could not restore all references and settings. Please retry.",
-    "modelUnavailable": "The original model is currently unavailable. Please retry later.",
-    "download": "Download original",
-    "downloadFailed": "Could not download the original. Please retry.",
-    "output": "Generated image {{number}}",
-    "references": "References",
-    "reference": "Reference {{number}}",
-    "mask": "Mask",
-    "archiving": "Saving",
-    "unavailable": "Some originals could not be saved.",
-    "place": "Add to current project",
-    "agentSource": "Agent generation",
-    "studioSource": "Studio generation"
+    "more": "Load more"
   }
 }
