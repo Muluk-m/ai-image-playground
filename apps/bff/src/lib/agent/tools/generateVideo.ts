@@ -6,11 +6,11 @@ import type {
   VideoRejection,
 } from '@image-playground/shared'
 import {
+  AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
   agentTitleLine,
   clampVideoPreset,
   VIDEO_ASPECT_RATIOS,
   VIDEO_DURATIONS,
-  VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTION_LABELS,
   VIDEO_RESOLUTIONS,
   videoDurationsForResolution,
@@ -19,12 +19,12 @@ import {
 } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { isCapabilityEnabled } from '../../capabilities'
-import { getChannels } from '../../channels'
 import { requireAgentImages } from '../images'
+import { agentVideoModel, agentVideoModels, agentVideoRequestError } from '../video-models'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import { reviewParameter } from './queueParams'
-import { draftQueueTask, noModelMessage, type QueueTarget, resolveAgentModel } from './queueTask'
+import { draftQueueTask, noModelMessage } from './queueTask'
 
 const TITLE_MAX_CHARS = 32
 
@@ -37,6 +37,7 @@ function videoRecord(
   preset: VideoPreset,
   firstFrameId: string | null,
   referenceIds: readonly string[] = [],
+  lastFrameId?: string,
 ): VideoGenerationRecord {
   return {
     model,
@@ -44,15 +45,20 @@ function videoRecord(
     aspectRatio: preset.aspectRatio,
     resolution: preset.resolution,
     ...(firstFrameId ? { firstFrameId } : {}),
+    ...(lastFrameId ? { lastFrameId } : {}),
     ...(referenceIds.length ? { referenceIds: [...referenceIds] } : {}),
   }
 }
 
 /** 参考图 id：去重，并去掉与起始帧相同的那张——一张图在一段视频里只有一种用法。 */
-function referenceIdsOf(imageId: unknown, referenceImageIds: unknown): string[] {
+function referenceIdsOf(
+  imageId: unknown,
+  referenceImageIds: unknown,
+  lastFrameId?: unknown,
+): string[] {
   if (!Array.isArray(referenceImageIds)) return []
   const ids = referenceImageIds.filter((id): id is string => typeof id === 'string' && id !== '')
-  return [...new Set(ids)].filter((id) => id !== imageId)
+  return [...new Set(ids)].filter((id) => id !== imageId && id !== lastFrameId)
 }
 
 /** 参数说明与系统提示里的参考图一句话，按矩阵写这个模型带不带得了、最多几张、清晰度封顶。 */
@@ -73,10 +79,10 @@ function referencePlan(
   askedResolution: VideoPreset['resolution'] | undefined,
   referenceCount: number,
   hasFirstFrame: boolean,
+  hasLastFrame = false,
 ): { preset: VideoPreset; rejection: VideoRejection | null } {
-  if (referenceCount === 0) return { preset, rejection: null }
   // 共享校验读全局矩阵，看不到渠道开关；渠道没声明就在这里先按「带不了」驳回。
-  if (!support.referenceImages)
+  if (referenceCount > 0 && !support.referenceImages)
     return {
       preset,
       rejection: {
@@ -85,7 +91,7 @@ function referencePlan(
         reason: `${support.label} 不支持参考图`,
       },
     }
-  const cap = support.referenceImages.maxResolution
+  const cap = referenceCount > 0 ? support.referenceImages?.maxResolution : undefined
   const lowered =
     cap &&
     !askedResolution &&
@@ -98,6 +104,7 @@ function referencePlan(
       ? lowered
       : preset
   const first = hasFirstFrame ? 1 : 0
+  const frames = first + (hasLastFrame ? 1 : 0)
   const rejection = videoRequestRejection(
     modelId,
     {
@@ -105,9 +112,10 @@ function referencePlan(
       aspect_ratio: capped.aspectRatio,
       resolution: capped.resolution,
       ...(hasFirstFrame ? { first_frame_index: 0 } : {}),
-      reference_image_indices: Array.from({ length: referenceCount }, (_, i) => i + first),
+      ...(hasLastFrame ? { last_frame_index: first } : {}),
+      reference_image_indices: Array.from({ length: referenceCount }, (_, i) => i + frames),
     },
-    referenceCount + first,
+    referenceCount + frames,
   )
   return { preset: capped, rejection }
 }
@@ -128,19 +136,7 @@ function referenceRefusalText(
  * 能跑的视频模型：既要在这个部署的 channel 里，也要在支持矩阵里。
  * 少判一半，工具就会进模型的清单，然后在执行时抛——那一轮直接死掉。
  */
-function videoModel(): { target: QueueTarget; support: VideoModelSupport } | null {
-  const target = resolveAgentModel('video')
-  const matrix = target ? VIDEO_MODEL_SUPPORT[target.model] : undefined
-  if (!target || !matrix) return null
-  // 参考图认运营在 channels.json 里的开关，和画布同一条：没声明就当这个模型带不了。
-  const declared = getChannels().some((channel) =>
-    channel.models.some(
-      (model) => model.id === target.model && model.capabilities.includes('reference_images'),
-    ),
-  )
-  const { referenceImages: _gated, ...base } = matrix
-  return { target, support: declared ? matrix : base }
-}
+const videoModel = (model?: string) => agentVideoModel(model) ?? null
 
 /** 这个模型的时长档。分清晰度的模型逐档写清：不分档写，模型会以为 1080p 也能要 4 秒。 */
 function durationText(support: VideoModelSupport): string {
@@ -182,17 +178,43 @@ function videoParameters(support: VideoModelSupport | null) {
     : VIDEO_RESOLUTIONS.map((one) => VIDEO_RESOLUTION_LABELS[one]).join(' / ')
   const ratios = (support?.aspectRatios ?? VIDEO_ASPECT_RATIOS).join(' / ')
   return Type.Object({
+    model: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 128,
+        description: `视频模型 ID；不填使用部署默认，指定后不会静默换模型。可用模型：${
+          agentVideoModels()
+            .map(
+              ({ target, support }) =>
+                `${target.model}（${support.label}：${supportText(support)}；首帧${support.firstFrame ? '可用' : '不可用'}，尾帧${support.lastFrame ? '可用' : '不可用'}；${referenceText(support)}）`,
+            )
+            .join('；') || '暂无'
+        }。`,
+      }),
+    ),
     prompt: Type.String({
+      minLength: 1,
+      maxLength: AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
       description: '描述这段视频里发生什么：主体、动作、镜头怎么动。用用户说话的语言写。',
     }),
     imageId: Type.Optional(
       Type.String({
+        minLength: 1,
+        maxLength: 128,
         description:
           '要动起来的那张图的图片 id，视频从它开始，产出也放在它旁边。不填就是纯文生视频。',
       }),
     ),
+    lastFrameId: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 128,
+        description:
+          '结束帧的图片 ID；只有支持尾帧的模型才能使用。与 imageId 组合指定从首帧到尾帧的过渡。不要把普通参考图当成尾帧。',
+      }),
+    ),
     referenceImageIds: Type.Optional(
-      Type.Array(Type.String(), {
+      Type.Array(Type.String({ minLength: 1, maxLength: 128 }), {
         maxItems: 16,
         description: `参考图的图片 id（全能参考）：人物、道具、场景各一张，按提示词里「图片1、图片2」的顺序排。${support ? referenceText(support) : ''}用户没给参考图就别填；只想让一张图动起来用 imageId。`,
       }),
@@ -222,7 +244,7 @@ const GUIDANCE_BASE =
 function videoGuidance(): string {
   const support = videoModel()?.support
   if (!support) return GUIDANCE_BASE
-  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
+  return `${GUIDANCE_BASE}默认视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}工具 model 参数列出可用模型及能力；用户指定模型就原样填 ID，不指定时可根据首尾帧和参考图需求选择支持的模型。尾帧填 lastFrameId。用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档，按回执说明限制。不要声称看过生成视频的运动或音频内容；图片查看工具只能看封面。`
 }
 
 const FIELD_PARAMS: Record<VideoPresetConflict['field'], string> = {
@@ -263,11 +285,12 @@ function draftedPresetText(support: VideoModelSupport, preset: VideoPreset): str
 
 /** 模型填的档位里，这个部署做不到的那几项。`call()` 与 `execute()` 同一个算式。 */
 function conflictsFor(args: {
+  readonly model?: string | undefined
   readonly durationSeconds?: number | undefined
   readonly resolution?: VideoPreset['resolution'] | undefined
   readonly aspectRatio?: VideoPreset['aspectRatio'] | undefined
 }): VideoPresetConflict[] {
-  const resolved = videoModel()
+  const resolved = videoModel(args.model)
   if (!resolved) return []
   return videoPresetConflicts(resolved.support, {
     duration: args.durationSeconds,
@@ -278,14 +301,16 @@ function conflictsFor(args: {
 
 /** `call()` 用：这次的参考图会不会被驳回。与 `execute()` 同一个算式。 */
 function referenceRejectionFor(args: {
+  readonly model?: string | undefined
+  readonly lastFrameId?: string | undefined
   readonly imageId: string | null
   readonly references: readonly string[]
   readonly durationSeconds?: number | undefined
   readonly resolution?: VideoPreset['resolution'] | undefined
   readonly aspectRatio?: VideoPreset['aspectRatio'] | undefined
 }): boolean {
-  const resolved = videoModel()
-  if (!resolved || args.references.length === 0) return false
+  const resolved = videoModel(args.model)
+  if (!resolved) return true
   const asked = {
     duration: args.durationSeconds,
     aspectRatio: args.aspectRatio,
@@ -298,13 +323,14 @@ function referenceRejectionFor(args: {
     args.resolution,
     args.references.length,
     args.imageId !== null,
+    Boolean(args.lastFrameId),
   )
   return plan.rejection !== null
 }
 
 export const generateVideo = defineAgentTool({
   name: 'generateVideo',
-  // 只在视频轮：图片轮里出现它，模型就会把「让它动起来」当成随时可选的下一步。
+  // 画布只在视频轮提供；Chat 由工具装配显式开放，仍要求用户明确提出视频需求。
   modes: ['video'],
   label: '生视频',
   // 拟稿即收尾：对话模式下档位与提示词交给用户确认，不提交任务、不落画布。出图模式当场提交。
@@ -318,35 +344,58 @@ export const generateVideo = defineAgentTool({
   // 视频是这里最贵的一件事，失败让模型接着重试等于再扣一次费；停下来交给用户定夺。
   onError: 'abort',
   available: () => isCapabilityEnabled('generation:video') && videoModel() !== null,
-  target: () => videoModel()?.target,
-  call({ prompt, imageId, referenceImageIds, durationSeconds, resolution, aspectRatio }) {
+  target: (_params, args) =>
+    videoModel(typeof args.model === 'string' ? args.model : undefined)?.target,
+  call({
+    prompt,
+    imageId,
+    lastFrameId,
+    model,
+    referenceImageIds,
+    durationSeconds,
+    resolution,
+    aspectRatio,
+  }) {
     const written = typeof prompt === 'string' ? prompt : undefined
-    const references = referenceIdsOf(imageId, referenceImageIds)
+    const references = referenceIdsOf(imageId, referenceImageIds, lastFrameId)
     const first = typeof imageId === 'string' && imageId ? imageId : null
     // 档位或参考图做不到就不提交，也就不会有产物。画布跟着不占位——`outputCount` 必须与真正提交的
     // 张数同一个算式，否则那里会空出一个永远填不上的框。
     const refused =
-      conflictsFor({ durationSeconds, resolution, aspectRatio }).length > 0 ||
+      conflictsFor({ model, durationSeconds, resolution, aspectRatio }).length > 0 ||
       referenceRejectionFor({
         imageId: first,
+        model,
+        lastFrameId,
         references,
         durationSeconds,
         resolution,
         aspectRatio,
       })
-    const anchor = first ?? references[0]
+    const anchor = first ?? lastFrameId ?? references[0]
     return {
       title: written?.trim() ? `视频：${agentTitleLine(written, TITLE_MAX_CHARS)}` : '生视频',
       // 视频任务一次只出一段，图片参数里的 n 对它没有意义。
       ...(refused ? {} : { outputCount: 1 }),
       // 给了起始帧就贴着它放——与执行时的 `anchorObjectId` 取同一项。
-      ...(anchor ? { anchor, references: [...(first ? [first] : []), ...references] } : {}),
+      ...(anchor
+        ? {
+            anchor,
+            references: [
+              ...(first ? [first] : []),
+              ...(lastFrameId ? [lastFrameId] : []),
+              ...references,
+            ],
+          }
+        : {}),
       ...(written ? { prompt: written } : {}),
     }
   },
   execute(context) {
     return async (toolCallId, params, signal) => {
-      const resolved = videoModel()
+      if (!isCapabilityEnabled('generation:video'))
+        throw new AgentToolError('model_unavailable', noModelMessage('video'))
+      const resolved = videoModel(params.model)
       if (!resolved) throw new AgentToolError('model_unavailable', noModelMessage('video'))
       const { support, target } = resolved
       const asked = {
@@ -361,14 +410,25 @@ export const generateVideo = defineAgentTool({
           content: [{ type: 'text', text: refusalText(target.model, support, conflicts) }],
           details: {},
         }
-      const referenceIds = referenceIdsOf(params.imageId, params.referenceImageIds)
+      // Normalize before any capability/count/resolution check: aliases must not
+      // turn an existing frame into an extra reference or lower its resolution.
+      const firstFrameId = params.imageId ? context.images.identify(params.imageId) : undefined
+      const lastFrameId = params.lastFrameId
+        ? context.images.identify(params.lastFrameId)
+        : undefined
+      const referenceIds = referenceIdsOf(
+        firstFrameId,
+        params.referenceImageIds?.map((id) => context.images.identify(id)),
+        lastFrameId,
+      )
       const plan = referencePlan(
         target.model,
         support,
         clampVideoPreset(support, asked),
         params.resolution,
         referenceIds.length,
-        Boolean(params.imageId),
+        Boolean(firstFrameId),
+        Boolean(lastFrameId),
       )
       if (plan.rejection)
         return {
@@ -378,14 +438,42 @@ export const generateVideo = defineAgentTool({
           details: {},
         }
       const preset = plan.preset
-      const source = params.imageId
-        ? (await requireAgentImages(context.images, [params.imageId]))[0]!
+      const source = firstFrameId
+        ? (await requireAgentImages(context.images, [firstFrameId]))[0]!
         : null
-      const references = await requireAgentImages(context.images, referenceIds)
-      const inputImages = [...(source ? [source] : []), ...references].map((one) => one.dataUrl)
-      const referenceStart = source ? 1 : 0
+      const last = lastFrameId
+        ? (await requireAgentImages(context.images, [lastFrameId]))[0]!
+        : null
+      // Resolve aliases before de-duplicating: "image 1" and its stable ID are the same input.
+      const used = new Set([source?.imageId, last?.imageId].filter(Boolean))
+      const references = (await requireAgentImages(context.images, referenceIds)).filter(
+        (image) => {
+          if (used.has(image.imageId)) return false
+          used.add(image.imageId)
+          return true
+        },
+      )
+      if (source && last && source.imageId === last.imageId)
+        throw new AgentToolError('invalid_params', '首尾帧必须引用不同图片')
+      const inputImages = [...(source ? [source] : []), ...(last ? [last] : []), ...references].map(
+        (one) => one.dataUrl,
+      )
+      const referenceStart = (source ? 1 : 0) + (last ? 1 : 0)
+      const video = {
+        duration_seconds: preset.duration,
+        aspect_ratio: preset.aspectRatio,
+        resolution: preset.resolution,
+        ...(source ? { first_frame_index: 0 } : {}),
+        ...(last ? { last_frame_index: source ? 1 : 0 } : {}),
+        ...(references.length
+          ? { reference_image_indices: references.map((_, i) => referenceStart + i) }
+          : {}),
+      }
+      const prompt = params.prompt.trim()
+      const rejected = agentVideoRequestError(target.model, prompt, video, inputImages.length)
+      if (rejected) throw new AgentToolError(rejected.code, rejected.message)
       // 产出贴着起始帧放；没有起始帧就贴着第一张参考图。
-      const anchorImage = source ?? references[0]
+      const anchorImage = source ?? last ?? references[0]
       const outcome = await draftQueueTask(
         context,
         {
@@ -393,23 +481,16 @@ export const generateVideo = defineAgentTool({
           media: 'video',
           toolCallId,
           target,
-          prompt: params.prompt,
+          prompt,
           ...(inputImages.length ? { inputImages } : {}),
-          video: {
-            duration_seconds: preset.duration,
-            aspect_ratio: preset.aspectRatio,
-            resolution: preset.resolution,
-            ...(source ? { first_frame_index: 0 } : {}),
-            ...(references.length
-              ? { reference_image_indices: references.map((_, i) => referenceStart + i) }
-              : {}),
-          },
+          video,
           // 档位随草稿冻结：确认提交时记到任务上，任务结束后再照它记到产物上。
           videoRecord: videoRecord(
             target.model,
             preset,
             source?.imageId ?? null,
             references.map((one) => one.imageId),
+            last?.imageId,
           ),
           ...(anchorImage ? { anchorObjectId: anchorImage.imageId } : {}),
           review: params.reviewAfterCompletion === true,

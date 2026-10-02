@@ -100,7 +100,8 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
     (tool) =>
-      tool.modes.includes(mode) &&
+      (tool.modes.includes(mode) ||
+        (audience?.experience === 'chat' && tool.name === 'generateVideo')) &&
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
       (tool.available?.(mode, audience) ?? true),
   )
