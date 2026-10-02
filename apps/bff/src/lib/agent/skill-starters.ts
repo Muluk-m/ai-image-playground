@@ -114,6 +114,13 @@ function unknownRefs(text: string, keys: ReadonlySet<string>): string[] {
     .filter((key) => !keys.has(key))
 }
 
+/** 示例词必须落在句子自己的文字里：`{key}` 引用会被换成位名，落在它上面的选不中。 */
+function inPlainText(text: string, word: string): boolean {
+  return text
+    .split(AGENT_SKILL_INPUT_REF_RE)
+    .some((part, at) => at % 2 === 0 && part.includes(word))
+}
+
 /** 示例词只留出现在对应语言句子里的那一份；一份都不剩就不带。 */
 function starterHighlight(
   raw: unknown,
@@ -123,8 +130,8 @@ function starterHighlight(
 ): AgentLocalizedText | undefined {
   if (raw === undefined) return undefined
   const value = localized(raw)
-  const zh = value && text['zh-CN'].includes(value['zh-CN']) ? value['zh-CN'] : undefined
-  const en = value?.en && text.en?.includes(value.en) ? value.en : undefined
+  const zh = value && inPlainText(text['zh-CN'], value['zh-CN']) ? value['zh-CN'] : undefined
+  const en = value?.en && text.en && inPlainText(text.en, value.en) ? value.en : undefined
   if (!zh || (value?.en && !en)) warnField(skill, 'starters.highlight', { index })
   if (!zh) return undefined
   return en ? { 'zh-CN': zh, en } : { 'zh-CN': zh }

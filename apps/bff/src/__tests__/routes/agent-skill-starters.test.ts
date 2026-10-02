@@ -111,6 +111,8 @@ beforeAll(async () => {
       { text: { 'zh-CN': '给 {product} 换个角度' } },
       // 示例词不在句子里：只丢示例词，句子留下。
       { text: { 'zh-CN': '为 {product} 出图' }, highlight: { 'zh-CN': '海报' } },
+      // 示例词只出现在 `{key}` 引用里：那里会被换成位名，选不中，也只丢示例词。
+      { text: { 'zh-CN': '给 {product} 换色' }, highlight: { 'zh-CN': 'product' } },
     ],
     verified: { date: '2026-10-02', model: VERIFIED_MODEL, score: 2.7 },
   })
@@ -191,6 +193,7 @@ describe('GET /api/agent/skills 的素材位与起手句', () => {
         },
         { text: { 'zh-CN': '给 {product} 换个角度' } },
         { text: { 'zh-CN': '为 {product} 出图' } },
+        { text: { 'zh-CN': '给 {product} 换色' } },
       ],
     })
   })

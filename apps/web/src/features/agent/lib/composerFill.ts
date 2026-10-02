@@ -17,8 +17,13 @@ export interface ComposerFill {
   readonly text: string
   /** 技能的 kebab-case 标识；缺席即一句普通的话。 */
   readonly skill?: string
-  /** 填好后选中的那一段，必须出现在 `text` 里。 */
-  readonly highlight?: string
+  /** 填好后选中的那一段，按 `text` 里的下标算。 */
+  readonly highlight?: TextRange
+}
+
+export interface TextRange {
+  readonly start: number
+  readonly end: number
 }
 
 type Fill = (content: ComposerFill) => void
@@ -46,15 +51,14 @@ export function fillAgentComposer(content: string | ComposerFill): boolean {
  */
 export function agentComposerFillPrompt(content: ComposerFill): {
   readonly prompt: string
-  readonly selection: { readonly start: number; readonly end: number }
+  readonly selection: TextRange
 } {
   const head = content.skill ? `/${content.skill} ` : ''
   const prompt = head + content.text
-  const at = content.highlight ? content.text.indexOf(content.highlight) : -1
-  const selection =
-    at >= 0
-      ? { start: head.length + at, end: head.length + at + (content.highlight?.length ?? 0) }
-      : { start: prompt.length, end: prompt.length }
+  const { highlight } = content
+  const selection = highlight
+    ? { start: head.length + highlight.start, end: head.length + highlight.end }
+    : { start: prompt.length, end: prompt.length }
   return { prompt, selection }
 }
 

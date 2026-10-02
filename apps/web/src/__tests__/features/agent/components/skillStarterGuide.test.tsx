@@ -53,6 +53,8 @@ const MAIN_IMAGE = skill({
       highlight: { 'zh-CN': '白底', en: 'white' },
     },
     { text: { 'zh-CN': '给 {product} 换个角度' } },
+    // 示例词「素材」也出现在位名「商品素材」里：要选中的是句子自己的那个。
+    { text: { 'zh-CN': '把 {product} 存成素材' }, highlight: { 'zh-CN': '素材' } },
   ],
 })
 
@@ -137,7 +139,7 @@ describe('首页对话创作的场景引导', () => {
     await mount()
     click(button('电商'))
     const rows = buttons().slice(0, -1)
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(3)
     expect(rows[0]?.querySelector('[data-skill-name="product-main-image"]')?.textContent).toBe(
       '电商主图',
     )
@@ -155,6 +157,18 @@ describe('首页对话创作的场景引导', () => {
     expect(useStore.getState().prompt).toBe('/product-main-image 为 商品素材 出一张白底主图')
     expect(editor().querySelector('[data-skill-name="product-main-image"]')).not.toBeNull()
     expect(window.getSelection()?.toString()).toBe('白底')
+  })
+
+  it('示例词落在句子自己的文字上，不落在位名上', async () => {
+    await mount()
+    click(button('电商'))
+    click(button('存成素材'))
+    expect(useStore.getState().prompt).toBe('/product-main-image 把 商品素材 存成素材')
+    const selection = window.getSelection()!
+    expect(selection.toString()).toBe('素材')
+    // 选区在句末那个「素材」上，不在前面的「商品素材」里。
+    const anchor = selection.anchorNode?.textContent ?? ''
+    expect(selection.anchorOffset).toBe(anchor.length - 2)
   })
 
   it('输入框里已有用户自己的话时不覆盖，提示一声', async () => {

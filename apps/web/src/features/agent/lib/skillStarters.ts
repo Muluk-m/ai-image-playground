@@ -8,7 +8,7 @@ import {
   localizedText,
   localizedTextLocale,
 } from '@image-playground/shared'
-import type { ComposerFill } from './composerFill'
+import type { ComposerFill, TextRange } from './composerFill'
 
 /** 一个场景展开后最多摆几条起手句：多了就不是「起手」，是一张菜单。 */
 export const SCENE_STARTER_LIMIT = 3
@@ -69,12 +69,20 @@ export function starterFill(
   starter: AgentSkillStarter,
   language: string,
 ): ComposerFill {
-  const text = starterSegments(starter, skill.inputs, language)
-    .map((segment) =>
-      segment.kind === 'text' ? segment.text : localizedText(segment.input.label, language),
-    )
-    .join('')
   // 示例词跟着句子取同一种语言：句子回退了中文，示例词也取中文那份。
-  const highlight = starter.highlight?.[localizedTextLocale(starter.text, language)]
+  const word = starter.highlight?.[localizedTextLocale(starter.text, language)]
+  let text = ''
+  let highlight: TextRange | undefined
+  for (const segment of starterSegments(starter, skill.inputs, language)) {
+    if (segment.kind === 'input') {
+      text += localizedText(segment.input.label, language)
+      continue
+    }
+    // 只在句子自己的文字里找示例词：位名里碰巧含着同一个词时不能选到位名上。
+    const at = word && !highlight ? segment.text.indexOf(word) : -1
+    if (word && at >= 0)
+      highlight = { start: text.length + at, end: text.length + at + word.length }
+    text += segment.text
+  }
   return { skill: skill.name, text, ...(highlight ? { highlight } : {}) }
 }
