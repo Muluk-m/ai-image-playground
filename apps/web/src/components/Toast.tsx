@@ -52,12 +52,12 @@ export default function Toast() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-24 left-1/2 z-[120] pointer-events-none"
+      className="fixed bottom-24 left-1/2 z-[1400] pointer-events-none"
     >
       {toast && (
         <div
           key={toast.message}
-          className="toast-enter flex items-center gap-2.5 w-max max-w-[calc(100vw-32px)] sm:max-w-[min(28rem,60vw)] px-5 py-3.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] ring-1 ring-black/5 dark:ring-white/10 text-sm font-medium text-foreground"
+          className="toast-enter flex items-center gap-2.5 w-max max-w-[calc(100vw-32px)] sm:max-w-[min(28rem,60vw)] px-5 py-3.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full shadow-popover ring-1 ring-hairline text-sm font-medium text-foreground"
         >
           <span className="flex-shrink-0" aria-hidden="true">
             {getIcon(toast.type)}

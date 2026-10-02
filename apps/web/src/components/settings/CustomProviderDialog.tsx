@@ -229,7 +229,7 @@ export default function CustomProviderDialog({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
+      <div className="relative z-10 w-full max-w-md rounded-3xl border bg-card/95 p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
         <div className="mb-5 flex items-center justify-between gap-4 shrink-0">
           <h3 className="text-base font-bold text-foreground">
             {editing ? t('provider.editCustom') : t('provider.createCustom')}

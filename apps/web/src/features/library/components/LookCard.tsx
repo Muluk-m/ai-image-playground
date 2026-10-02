@@ -54,7 +54,7 @@ export default function LookCard({
       <div className="flex flex-col gap-1.5 px-2.5 py-2">
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-xs font-medium text-foreground">{look.name}</span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">
+          <span className="shrink-0 text-label-sm text-muted-foreground">
             {t('look.slots', { count: look.slotCount })}
           </span>
         </div>
@@ -64,7 +64,7 @@ export default function LookCard({
             type="button"
             disabled={needsRetune || !canGenerate}
             onClick={() => onGenerate(look)}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t('look.generate')}
           </button>

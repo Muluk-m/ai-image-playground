@@ -51,7 +51,7 @@ export default function CanvasShortcutsHint() {
                 {row.keys.map((key) => (
                   <kbd
                     key={key}
-                    className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px] leading-none text-foreground"
+                    className="rounded border border-border bg-muted px-1 py-px font-mono text-label-sm leading-none text-foreground"
                   >
                     {key}
                   </kbd>

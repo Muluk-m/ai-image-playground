@@ -9,9 +9,9 @@ import { cn } from '../../../lib/utils'
 export const paper = 'bg-background border border-border/60 dark:bg-popover'
 export const field = 'bg-foreground/[0.04] dark:bg-foreground/[0.06]'
 export const ghostButton =
-  'flex items-center justify-center rounded-full text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 hover:bg-foreground/[0.06] hover:text-foreground active:scale-[0.96] focus-visible:ring-1 focus-visible:ring-ring motion-reduce:transition-none'
+  'flex items-center justify-center rounded-full text-muted-foreground outline-none transition-[background-color,color,transform] duration-150 hover:bg-foreground/[0.06] hover:text-foreground active:scale-[0.97] focus-visible:ring-1 focus-visible:ring-ring motion-reduce:transition-none'
 export const inkButton =
-  'bg-primary text-primary-foreground transition-[opacity,transform] duration-150 hover:bg-primary/90 active:scale-[0.96] motion-reduce:transition-none'
+  'bg-primary text-primary-foreground transition-[opacity,transform] duration-150 hover:bg-primary/90 active:scale-[0.97] motion-reduce:transition-none'
 export const mono = 'font-mono text-label-sm tracking-tight'
 export const iconSwap =
   '[grid-area:1/1] transition-[opacity,transform] duration-150 motion-reduce:transition-none'

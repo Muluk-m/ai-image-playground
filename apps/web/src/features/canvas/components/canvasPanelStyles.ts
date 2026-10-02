@@ -6,4 +6,4 @@
  * 其余层次交给面板本身。
  */
 export const CANVAS_PANEL_FIELD =
-  'w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none dark:border-white/[0.08]'
+  'w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none'

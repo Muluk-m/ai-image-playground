@@ -929,7 +929,7 @@ function StandardAgentToolCard({
   return (
     <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
       {message.retryOf && (
-        <span className="self-start rounded-md border border-border px-1.5 text-[10px] leading-4 text-muted-foreground">
+        <span className="self-start rounded-md border border-border px-1.5 text-label-sm leading-4 text-muted-foreground">
           {t('retry.record')}
         </span>
       )}

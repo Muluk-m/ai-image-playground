@@ -224,7 +224,7 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
               }
             >
               {source && <img src={source} alt="" className="h-full w-full object-cover" />}
-              <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-[10px] text-white">
+              <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-label-sm text-white">
                 {badge}
               </span>
               {out && (

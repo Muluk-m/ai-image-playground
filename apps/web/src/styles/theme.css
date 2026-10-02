@@ -33,6 +33,10 @@
   --warning: 35 90% 35%;
   --warning-foreground: 0 0% 100%;
   --info: var(--primary);
+  /* 1px 发丝描边与两档浮层阴影，见 DESIGN.md「Elevation & Depth」。 */
+  --hairline: rgb(0 0 0 / 0.05);
+  --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.12);
+  --shadow-dialog: 0 8px 40px rgb(0 0 0 / 0.12);
   /* Canvas geometry and compatibility aliases share the same theme. */
   --studio-shadow: 0 8px 24px rgb(0 0 0 / 8%);
   --studio-space-2: 8px;
@@ -53,10 +57,14 @@
   --muted-foreground: 90 4% 65%;
   --accent: 105 10% 19%;
   --destructive: 0 75% 65%;
+  --destructive-foreground: 0 60% 12%;
   --border: 110 4% 20%;
   --success: 142 55% 65%;
   --warning: 40 90% 65%;
   --warning-foreground: 35 60% 10%;
+  --hairline: rgb(255 255 255 / 0.1);
+  --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.3);
+  --shadow-dialog: 0 8px 40px rgb(0 0 0 / 0.4);
 }
 @layer base {
   * { border-color: hsl(var(--border)); }

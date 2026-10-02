@@ -112,7 +112,7 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
                 )}
                 <span className="min-w-0">
                   <span className="block truncate">{message.title}</span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-label-sm text-muted-foreground">
                     {placed ? t('resultShelf.locate') : t('resultShelf.place')}
                   </span>
                 </span>

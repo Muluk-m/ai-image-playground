@@ -79,7 +79,7 @@ export default function ConfirmDialog() {
 
   return (
     <Overlay onClose={handleClose} tier="alert" label={confirmDialog.title}>
-      <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
+      <div className="relative bg-card/90 backdrop-blur-xl border border-border rounded-3xl shadow-dialog max-w-sm w-full p-6 z-10 ring-1 ring-hairline animate-confirm-in">
         <h3 className="mb-2 flex items-center gap-2 text-base font-bold text-foreground">
           {confirmDialog.icon === 'info' && (
             <svg
@@ -120,7 +120,7 @@ export default function ConfirmDialog() {
               setConfirmDialog(null)
             }}
             disabled={!canConfirm}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${confirmClassName}`}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${confirmClassName}`}
           >
             {confirmText}
           </button>
