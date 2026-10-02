@@ -133,5 +133,6 @@ it('always shows the optional invitation input without a disclosure when enabled
   expect(invitation).not.toBeNull()
   expect(invitation?.closest('details')).toBeNull()
   expect(invitation?.disabled).toBe(false)
+  expect(invitation?.closest('label')?.textContent).toBe('邀请码（选填）')
   await bootstrapClientCapabilities(false, '')
 })

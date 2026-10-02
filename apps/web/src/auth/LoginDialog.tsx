@@ -329,9 +329,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
   const invitationField = referralEnabled ? (
     <div className="auth-referral">
       <label className="auth-field">
-        <span>
-          {t('referral.label')} · {t('referral.optional')}
-        </span>
+        <span>{t('referral.label')}</span>
         <input
           name="referral_code"
           value={referralCode}
