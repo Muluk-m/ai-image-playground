@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "bathtub",
+      "prompt": "用这条浴缸 {asset1} 出一张场景图，排水口位置不变",
+      "inputs": {
+        "asset1": [
+          "shared:product-bathtub.webp"
+        ]
+      }
+    },
+    {
+      "id": "washbasin",
+      "prompt": "用这只洗手台 {asset1} 出一张岩壁场景图",
+      "inputs": {
+        "asset1": [
+          "shared:product-washbasin.webp"
+        ]
+      }
+    },
+    {
+      "id": "perfume",
+      "prompt": "用这瓶香水 {asset1} 出一张场景图，瓶盖保持黑色",
+      "inputs": {
+        "asset1": [
+          "shared:product-perfume.webp"
+        ]
+      }
+    }
+  ]
+}

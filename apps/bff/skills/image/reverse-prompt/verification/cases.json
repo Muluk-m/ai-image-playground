@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "id": "color-block",
+      "prompt": "反推 {reference} 的提示词，不用等我改，直接用它给这瓶香水 {product} 出一张同款",
+      "inputs": {
+        "reference": [
+          "ref-color-block.webp"
+        ],
+        "product": [
+          "shared:product-perfume.webp"
+        ]
+      }
+    },
+    {
+      "id": "sunlit-home",
+      "prompt": "反推 {reference} 的提示词，不用等我改，直接用它给这只马克杯 {product} 出一张同款",
+      "inputs": {
+        "reference": [
+          "ref-sunlit-home.webp"
+        ],
+        "product": [
+          "shared:product-mug.webp"
+        ]
+      }
+    },
+    {
+      "id": "amber-resin",
+      "prompt": "反推 {reference} 的提示词，不用等我改，直接用它给这双运动鞋 {product} 出一张同款",
+      "inputs": {
+        "reference": [
+          "ref-amber-resin.webp"
+        ],
+        "product": [
+          "shared:product-sneaker.webp"
+        ]
+      }
+    }
+  ]
+}

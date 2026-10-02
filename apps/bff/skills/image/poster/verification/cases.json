@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "mug",
+      "prompt": "用这只马克杯 {product} 做一张中秋节的竖版海报，标题写「月满团圆」",
+      "inputs": {
+        "product": [
+          "shared:product-mug.webp"
+        ]
+      }
+    },
+    {
+      "id": "perfume",
+      "prompt": "为这瓶香水 {product} 做一张新品上市海报，标题写「焕新上市」，瓶盖保持黑色",
+      "inputs": {
+        "product": [
+          "shared:product-perfume.webp"
+        ]
+      }
+    },
+    {
+      "id": "sneaker",
+      "prompt": "用这双运动鞋 {product} 做一张横版活动 banner，标题写「夏日焕新」",
+      "inputs": {
+        "product": [
+          "shared:product-sneaker.webp"
+        ]
+      }
+    }
+  ]
+}
