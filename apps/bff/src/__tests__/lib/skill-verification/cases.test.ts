@@ -9,7 +9,7 @@ import {
 const PRODUCT = { key: 'product', required: true, multiple: true }
 const MODEL = { key: 'model', required: false, multiple: false }
 
-const existing = new Set(['/skills/_verification/fixtures/mug.webp', '/skill/verification/own.png'])
+const existing = new Set(['/skill-verification/fixtures/mug.webp', '/skill/verification/own.png'])
 const locate = (ref: string) => resolveFixture('/skills', '/skill', ref)
 const exists = (path: string) => existing.has(path)
 

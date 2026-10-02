@@ -11,7 +11,7 @@ import { VERIFICATION_CASE_COUNT } from './record'
  * ```
  *
  * - `inputs` 的键是技能 `meta.json` 声明的素材位 key（预置模板没写 `inputs` 时是 `asset1..N`）。
- * - 图片写文件名：`shared:<文件>` 取公共素材 `skills/_verification/fixtures/`，
+ * - 图片写文件名：`shared:<文件>` 取公共素材 `apps/bff/skill-verification/fixtures/`，
  *   不带前缀的取这条技能自己的 `verification/` 目录。只许文件名，不许路径。
  * - `prompt` 是用户那一句话，不带 `/技能名`；`{key}` 处换成这个位的 `[image N]`。
  */
@@ -19,8 +19,11 @@ import { VERIFICATION_CASE_COUNT } from './record'
 export const VERIFICATION_DIR = 'verification'
 export const VERIFICATION_CASES_FILE = 'cases.json'
 export const VERIFICATION_RECORD_FILE = 'record.json'
-/** 公共素材目录，相对技能根目录。以 `_` 开头：加载器只读 `image/`、`video/`、`shared/`。 */
-export const VERIFICATION_FIXTURES_DIR = join('_verification', 'fixtures')
+/**
+ * 公共素材目录，相对技能根目录：放在技能树之外的兄弟目录，技能加载器与按 mode 遍历技能树的
+ * 测试都看不到它，镜像的 allowlist 也不收它。
+ */
+export const VERIFICATION_FIXTURES_DIR = join('..', 'skill-verification', 'fixtures')
 export const SHARED_FIXTURE_PREFIX = 'shared:'
 
 /** 一个素材位：与 #997 约定的 `meta.json` `inputs` 同形，只取验证要用的三项。 */

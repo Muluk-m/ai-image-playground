@@ -287,7 +287,7 @@ const {
   VERIFICATION_RECORD_FILE,
 } = await import('../../../lib/skill-verification/cases')
 
-/** 磁盘上的全部图片技能目录（见 `skills/_verification/README.md`）。 */
+/** 磁盘上的全部图片技能目录（见 `apps/bff/skill-verification/README.md`）。 */
 const IMAGE_SKILL_NAMES = readdirSync(join(defaultAgentSkillsRoot(), 'image'))
 
 function readJson(path: string): unknown {

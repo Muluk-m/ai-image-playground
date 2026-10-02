@@ -2,19 +2,18 @@
 
 一条技能只有在固定测试输入、钉死模型下跑出来的图经人工打分过线，`meta.json` 才写
 `verified`，起手句才会露出它（#995）。本目录与各技能的 `verification/` 都**不进镜像**
-（`.dockerignore` 排除），只服务这条流程。
+（本目录不在 `.dockerignore` 的放行名单里，各技能的 `verification/` 显式排除），只服务这条流程。
 
 ## 目录
 
 ```
-apps/bff/skills/
-  _verification/
-    README.md            本文件
-    fixtures/*.webp      公共测试素材（商品、人物），多条技能共用，避免重复入库
-  image/<技能>/verification/
-    cases.json           3 组固定测试输入
-    *.webp               这条技能独有的输入图（可选）
-    record.json          验证记录：跑图信息 + 评分（打完分后提交）
+apps/bff/skill-verification/
+  README.md              本文件
+  fixtures/*.webp        公共测试素材（商品、人物），多条技能共用，避免重复入库
+apps/bff/skills/image/<技能>/verification/
+  cases.json             3 组固定测试输入
+  *.webp                 这条技能独有的输入图（可选）
+  record.json            验证记录：跑图信息 + 评分（打完分后提交）
 apps/bff/.verification-runs/<时间>/   跑图产出与对比页（gitignored）
 ```
 
@@ -32,7 +31,7 @@ apps/bff/.verification-runs/<时间>/   跑图产出与对比页（gitignored）
 
 - 正好 3 组，`id` 用 kebab-case。
 - `inputs` 的键是技能 `meta.json` 声明的素材位 key；预置模板没写 `inputs` 时是 `asset1..N`（按 `slotCount`）。必填位不能缺，单图位只放一张。
-- 图片写文件名：`shared:<文件>` 取 `_verification/fixtures/`，不带前缀取本技能 `verification/` 目录。
+- 图片写文件名：`shared:<文件>` 取本目录的 `fixtures/`，不带前缀取本技能 `verification/` 目录。
 - `prompt` 是用户那一句话，不带 `/技能名`；每个给了图的位都要以 `{key}` 出现在句子里，发出时换成 `[image N]`。
 
 格式由 `src/__tests__/lib/agent/shipped-skills.test.ts` 校验。

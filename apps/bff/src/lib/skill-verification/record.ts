@@ -1,7 +1,7 @@
 import { isObject } from '../type-guards'
 
 /**
- * 技能效果验证记录（见 `apps/bff/skills/_verification/README.md`）。
+ * 技能效果验证记录（见 `apps/bff/skill-verification/README.md`）。
  *
  * 一条技能用 3 组固定测试输入、每组跑 2 次，得到 6 张图；维护者给每张图按三项各打 1–3 分。
  * 记录落在技能目录的 `verification/record.json`，`meta.json` 的 `verified` 只能由一份过线的
