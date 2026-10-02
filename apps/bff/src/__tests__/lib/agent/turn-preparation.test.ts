@@ -27,6 +27,8 @@ const billing = installRecordingTaskHooks()
 
 const { prepareAgentTurn } = await import('../../../lib/agent/turn-preparation')
 const { loadAgentExperience } = await import('../../../lib/agent/experience')
+const experienceOf = async (...args: Parameters<typeof loadAgentExperience>) =>
+  (await loadAgentExperience(...args)).experience
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { claimConversation, ConversationExecutionLost, releaseConversation, turnExecution } =
   await import('../../../lib/agent/execution')
@@ -668,23 +670,45 @@ describe('legacy projects without a recorded experience', () => {
     return row!
   }
 
-  it('follows the canvas snapshot of the first message and records it on the project', async () => {
+  it('follows the canvas snapshot of the first message and records it once the turn takes it', async () => {
     const conversationId = await conversationWithResult()
     const project = await legacyProject(conversationId)
     const source = await queuedMessage(conversationId, '整理一下我的画布')
     const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
-    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toBe('canvas')
-    expect((await recorded(project)).document.experience).toBe('canvas')
+    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toEqual({
+      experience: 'canvas',
+      unrecorded: true,
+    })
+    // 只是判定，还没有轮取走这条消息：项目不动。
+    expect((await recorded(project)).document.experience).toBeUndefined()
+    preparedTurn((await prepare(conversationId, canvasSource)).prepared)
+    expect(await recorded(project)).toEqual({
+      document: { version: 1, elements: [], experience: 'canvas' },
+      revision: 3,
+    })
     // 记下之后以项目为准，不再看消息。
-    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('canvas')
+    expect(await experienceOf(conversationId, USER_ID, source)).toBe('canvas')
   })
 
   it('records chat when the first message comes from the chat view', async () => {
     const conversationId = await conversationWithResult()
     const project = await legacyProject(conversationId)
-    const source = await queuedMessage(conversationId, 'hello')
-    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    preparedTurn(
+      (await prepare(conversationId, await queuedMessage(conversationId, 'hello'))).prepared,
+    )
     expect((await recorded(project)).document.experience).toBe('chat')
+  })
+
+  it('leaves the project unrecorded when the message was withdrawn', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, 'hello')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'cancelled' })
+      .where(eq(schema.agent_inbox.id, source.message.id))
+    expect((await prepare(conversationId, source)).prepared).toEqual({ kind: 'withdrawn' })
+    expect((await recorded(project)).document.experience).toBeUndefined()
   })
 
   it('does not record a guess from a wake whose origin is unknown', async () => {
@@ -695,7 +719,7 @@ describe('legacy projects without a recorded experience', () => {
         kind: 'wake',
         wake: { id: 'wake', turnId: 'missing-turn', taskIds: [TASK_ID], deviceId: DEVICE },
       }),
-    ).toBe('chat')
+    ).toEqual({ experience: 'chat', unrecorded: false })
     expect((await recorded(project)).document.experience).toBeUndefined()
   })
 
@@ -724,13 +748,13 @@ describe('unsynced project experience is bound to the originating message', () =
       references: [],
       canvas: { elements: [] },
     })
-    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    expect(await experienceOf(conversationId, USER_ID, source)).toBe('chat')
     if (later.kind !== 'queued') throw Error('expected queued')
     await db
       .update(schema.agent_inbox)
       .set({ status: 'cancelled' })
       .where(eq(schema.agent_inbox.id, later.entry.view.id))
-    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    expect(await experienceOf(conversationId, USER_ID, source)).toBe('chat')
   })
 
   it('keeps a canvas message on canvas even when a newer message has no snapshot', async () => {
@@ -738,7 +762,7 @@ describe('unsynced project experience is bound to the originating message', () =
     const source = await queuedMessage(conversationId, 'canvas')
     const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
     await queuedMessage(conversationId, 'later chat')
-    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toBe('canvas')
+    expect(await experienceOf(conversationId, USER_ID, canvasSource)).toBe('canvas')
   })
 
   it('resolves wakes and resumes from the consumed origin, ignoring later queue entries', async () => {
@@ -757,7 +781,7 @@ describe('unsynced project experience is bound to the originating message', () =
       .where(eq(schema.agent_inbox.id, origin.entry.view.id))
     await queuedMessage(conversationId, 'later chat')
     expect(
-      await loadAgentExperience(conversationId, USER_ID, {
+      await experienceOf(conversationId, USER_ID, {
         kind: 'wake',
         wake: { id: 'wake', turnId: SUBMITTING_TURN, taskIds: [TASK_ID], deviceId: DEVICE },
       }),
@@ -773,13 +797,13 @@ describe('unsynced project experience is bound to the originating message', () =
       created_at: Date.now(),
     })
     expect(
-      await loadAgentExperience(conversationId, USER_ID, {
+      await experienceOf(conversationId, USER_ID, {
         kind: 'wake',
         wake: { id: 'next-wake', turnId: 'wake-turn', taskIds: [TASK_ID], deviceId: DEVICE },
       }),
     ).toBe('canvas')
     expect(
-      await loadAgentExperience(conversationId, USER_ID, {
+      await experienceOf(conversationId, USER_ID, {
         kind: 'resume',
         resume: { id: 'resume', interruptedTurnId: SUBMITTING_TURN, deviceId: DEVICE },
       }),

@@ -37,7 +37,7 @@ import {
   setAgentConversationTitle,
 } from './conversations'
 import type { TurnExecution } from './execution'
-import { loadAgentExperience } from './experience'
+import { loadAgentExperience, recordAgentExperience } from './experience'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import {
   consecutiveAgentWakes,
@@ -205,12 +205,13 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   const history = listAgentHistoryWindow(conversationId, owner)
   // 可能抛的那两件事先落定，再让来源去备内容：用户消息那一路会把参考图写进对象存储，跟它们
   // 并排跑的话，它们抛出时那些字节还没有任何东西指着，也没有谁去清。
-  const [overlay, loadedAudience, experience] = await Promise.all([
+  const [overlay, loadedAudience, resolved] = await Promise.all([
     loadPrivateBffOverlay(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
     ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
     loadAgentExperience(conversationId, userId, source),
   ])
+  const { experience } = resolved
   const audience: AgentTurnAudience = { ...loadedAudience, experience }
   const content =
     source.kind === 'wake'
@@ -333,6 +334,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
       const storedUserMessage = await content.write?.(tx)
+      if (source.kind === 'message' && userId && resolved.unrecorded)
+        await recordAgentExperience(tx, conversationId, userId, experience)
       return {
         storedUserMessage,
         reserved,
