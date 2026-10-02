@@ -598,6 +598,14 @@ describe('面板查询', () => {
     expect(
       agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, reply] }),
     ).toBeNull()
+    // A finished paragraph stays `streaming` until the next block starts; once it goes quiet
+    // the row comes back so a still-running turn does not look finished.
+    expect(
+      agentActivityPhase(
+        { turn: 'running', activeTurn: active, messages: [user, reply] },
+        { textIdle: true },
+      ),
+    ).toBe('thinking')
     expect(
       agentActivityPhase({
         turn: 'running',
