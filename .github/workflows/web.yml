@@ -17,13 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      # turbo 按输入哈希命中，恢复旧缓存不会读到过期结果。只给公开树用：turbo 看不见
-      # gitignored 的 private/，with-overlay 作业不能共享这份缓存。
-      - uses: actions/cache@v4
-        with:
-          path: .turbo/cache
-          key: turbo-public-${{ github.sha }}
-          restore-keys: turbo-public-
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm --dir apps/web build
@@ -123,4 +116,5 @@ jobs:
       - run: pnpm --dir apps/admin build
       # 计费钩子的测试在 overlay 里。公开 PR 改了钩子而私有测试红，原本要等合并后 overlay CI
       # 才发现（verified 指针停住）；这里在合并前就拦下。
-      - run: pnpm --filter './private/apps/*' test
+      # 逐包串行，每包内由 BUN_TEST_JOBS 并发，避免进程数叠乘。
+      - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test

@@ -101,14 +101,8 @@ jobs:
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-      # The overlay packages are workspace members; install their dependencies too.
-      - run: pnpm install --frozen-lockfile
+      # The overlay packages are workspace members; the install covers their dependencies too.
+      - uses: ./.github/actions/setup
       - run: ./scripts/pages-release.sh test
       - name: Remove secrets from the runner
         if: always()
