@@ -49,11 +49,27 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await act(async () => root.unmount())
   host.remove()
   vi.doUnmock('../../App')
   vi.unstubAllGlobals()
 })
+
+/**
+ * Fakes only the timer functions, before boot so AuthGate's retry backoff (1s, then 2s) is
+ * scheduled on the fake clock. The clock still follows real time, so fetch, IndexedDB and React
+ * keep their own scheduling; advanceRetryClock then jumps over the backoff without waiting.
+ */
+function useRetryClock(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+}
+
+async function advanceRetryClock(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+}
 
 function saveCoachState(key: string, dismissed: boolean) {
   localStorage.setItem(
@@ -153,16 +169,17 @@ describe('connection recovery', () => {
       return original(...args)
     })
 
+    useRetryClock()
     await boot(false)
     expect(host.textContent).toContain('正在准备工作台')
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 1100)))
+    await advanceRetryClock(1100)
     expect(host.textContent).toContain('连接暂时中断')
     expect(host.querySelector('.auth-recovery-card')).not.toBeNull()
 
     channelsAvailable = true
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 2100)))
+    await advanceRetryClock(2100)
     expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
-  }, 7000)
+  })
 })
 
 it('opens an agent-enabled workspace without a migration request', async () => {
@@ -205,12 +222,13 @@ describe('anonymous startup', () => {
       return original(...args)
     })
 
+    useRetryClock()
     await boot(false)
     expect(host.querySelector('[data-testid="workspace"]')).toBeNull()
     channelsAvailable = true
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 1100)))
+    await advanceRetryClock(1100)
     expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
-  }, 5000)
+  })
 
   it('mounts the workspace for a visitor without a session', async () => {
     await bootAnonymously()
