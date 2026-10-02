@@ -213,64 +213,11 @@ describe('runMigrations', () => {
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
-    for (const file of [
-      '0055_agent_batch_confirmation.down.sql',
-      '0054_agent_batch_retry.down.sql',
-      '0053_analysis_tasks.down.sql',
-      '0052_agent_batch_execution.down.sql',
-      '0051_agent_batch_plans.down.sql',
-      '0050_agent_call_dispatch.down.sql',
-      '0049_task_reconciliation.down.sql',
-      '0048_conversation_attachments.down.sql',
-      '0047_agent_turn_failure.down.sql',
-      '0046_agent_model_calls_started_at.down.sql',
-      '0045_retired_domain_migration.down.sql',
-      '0044_archive_retry_budget.down.sql',
-      '0043_queue_provider_time.down.sql',
-      '0042_admin_user_notes.down.sql',
-      '0041_agent_web_search_calls.down.sql',
-      '0040_user_looks.down.sql',
-      '0039_asset_views.down.sql',
-      '0038_inspiration_library.down.sql',
-      '0037_email_verification.down.sql',
-      '0036_agent_device_claims.down.sql',
-      '0035_agent_generation_drafts.down.sql',
-      '0034_generation_soft_delete.down.sql',
-      '0033_agent_jobs.down.sql',
-      '0032_agent_inbox.down.sql',
-      '0031_agent_tool_calls.down.sql',
-      '0030_ops_more.down.sql',
-      '0029_task_execution_leases.down.sql',
-      '0028_project_recycle.down.sql',
-      '0027_generation_source.down.sql',
-      '0026_project_generation_outputs.down.sql',
-      '0025_project_conversations.down.sql',
-      '0024_generation_images.down.sql',
-      '0023_durable_media.down.sql',
-      '0022_host_samples.down.sql',
-      '0021_service_heartbeats.down.sql',
-      '0020_cloud_generations.down.sql',
-      '0019_domain_migration.down.sql',
-      '0018_cloud_projects.down.sql',
-      '0017_agent_model_calls.down.sql',
-      '0016_agent_turn_summaries.down.sql',
-      '0015_chat_task_kind.down.sql',
-      '0014_agent_task_link.down.sql',
-      '0012_flowery_viper.down.sql',
-      '0011_public_meggan.down.sql',
-      '0010_calm_pestilence.down.sql',
-      '0009_silky_the_fallen.down.sql',
-      '0008_clean_fantastic_four.down.sql',
-      '0007_shocking_gertrude_yorkes.down.sql',
-      '0006_romantic_hiroim.down.sql',
-      '0005_left_annihilus.down.sql',
-      '0004_damp_tony_stark.down.sql',
-      '0003_perfect_night_nurse.down.sql',
-      '0002_careless_scrambler.down.sql',
-      '0001_blushing_liz_osborn.down.sql',
-      '0000_daffy_the_enforcers.down.sql',
-    ]) {
-      await connection.client.unsafe(await Bun.file(new URL(file, rollbackDirectory)).text())
+    // Newest first, one down file per journal entry: a migration without a rollback fails here.
+    for (const { tag } of [...journal.entries].reverse()) {
+      const rollback = Bun.file(new URL(`${tag}.down.sql`, rollbackDirectory))
+      expect(await rollback.exists(), `drizzle/rollback/${tag}.down.sql`).toBe(true)
+      await connection.client.unsafe(await rollback.text())
     }
 
     const [rolledBack] = await connection.client<

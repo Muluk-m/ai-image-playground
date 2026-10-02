@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - run: pnpm lint
+      # Deploy and backup scripts; shellcheck ships on the hosted runner.
+      - run: pnpm lint:sh
       - run: pnpm typecheck
       - run: pnpm --dir apps/web build
       - run: pnpm --dir apps/admin build
