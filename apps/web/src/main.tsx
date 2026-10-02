@@ -1,5 +1,6 @@
-import { StrictMode } from 'react'
+import { type ReactNode, StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BOOT_READY_EVENT } from './boot/constants'
 import { bootstrapLocale, i18next } from './i18n'
 import './index.css'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
@@ -20,11 +21,12 @@ const gateModules = Promise.all([
 ])
 const localeReady = bootstrapLocale()
 
-function dismissBootSplash(): void {
-  const boot = document.getElementById('boot')
-  if (!boot || boot.dataset.state === 'error') return
-  boot.classList.add('is-done')
-  // Keep the recovery UI available until the lazy workspace actually commits.
+/** Any screen React commits (gate, login, problem, workspace) owns loading and errors from here on. */
+function BootReady({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    document.dispatchEvent(new Event(BOOT_READY_EVENT))
+  }, [])
+  return children
 }
 
 // Capabilities and channel discovery share one startup round trip. The channel request can return
@@ -36,6 +38,12 @@ const [auth, { preloadChannels }, { bootstrapClientCapabilities }] = await gateM
 // 频道清单只决定模型下拉里有什么，首帧不等它；能力决定登录页还是工作台，必须等。
 preloadChannels(runtime.bff.enabled, runtime.bff.baseUrl)
 const root = createRoot(document.getElementById('root')!)
+const render = (node: ReactNode) =>
+  root.render(
+    <StrictMode>
+      <BootReady>{node}</BootReady>
+    </StrictMode>,
+  )
 async function mountAfterCapabilities(): Promise<void> {
   try {
     // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
@@ -43,23 +51,18 @@ async function mountAfterCapabilities(): Promise<void> {
       localeReady,
       bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl, true),
     ])
-    root.render(
-      <StrictMode>
-        <auth.AuthGate />
-      </StrictMode>,
-    )
+    render(<auth.AuthGate />)
   } catch {
-    root.render(
+    render(
       <auth.ProblemScreen
         title={i18next.t('status.unavailableTitle', { ns: 'auth' })}
         description={i18next.t('status.unavailableDescription', { ns: 'auth' })}
         retry={() => {
-          root.render(<auth.LoadingScreen />)
+          render(<auth.LoadingScreen />)
           void mountAfterCapabilities()
         }}
       />,
     )
   }
-  dismissBootSplash()
 }
 void mountAfterCapabilities()
