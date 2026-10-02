@@ -137,7 +137,7 @@
   "sidebar": {
     "title": "Image creation",
     "collapseAria": "Collapse panel",
-    "collapse": "Collapse ←",
+    "collapse": "Collapse",
     "emptyTitle": "What are you making today",
     "emptyBody": "Pick one to start, or just write a line.",
     "openChat": "Open creation panel"
@@ -203,7 +203,7 @@
     "title": "Let the idea unfold here.",
     "subtitle": "Describe the image you want, or add a reference.",
     "recent": "Recent projects",
-    "allProjects": "All projects →"
+    "allProjects": "All projects"
   },
   "imageMenu": {
     "copied": "Image copied",
@@ -437,7 +437,7 @@
     "action": "Edit image",
     "singleAction": "Edit whole image",
     "title": "Edit whole image",
-    "hint": "Rewrite the whole image from one instruction; the result replaces this one. To change only a spot, use Smart edit.",
+    "hint": "The result replaces this image.",
     "promptLabel": "Describe the edit",
     "placeholder": "e.g. put it on a light wooden desk, keep the product itself unchanged",
     "submit": "Edit",

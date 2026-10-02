@@ -126,7 +126,7 @@
   "sidebar": {
     "title": "图片创作",
     "collapseAria": "收起面板",
-    "collapse": "收起 ←",
+    "collapse": "收起",
     "emptyTitle": "今天想做点什么",
     "emptyBody": "选一个开始，或直接写一句。",
     "openChat": "展开创作"
@@ -192,7 +192,7 @@
     "title": "让想法，从这里展开。",
     "subtitle": "描述你想创作的画面，或添加一张参考图。",
     "recent": "最近项目",
-    "allProjects": "全部项目 →"
+    "allProjects": "全部项目"
   },
   "imageMenu": {
     "copied": "图片已复制",
@@ -420,7 +420,7 @@
     "action": "编辑图片",
     "singleAction": "整图编辑",
     "title": "整图编辑",
-    "hint": "按一句话整张改这张图，改完替换原图。只改一小块请用智能改图。",
+    "hint": "结果会替换原图。",
     "promptLabel": "描述编辑",
     "placeholder": "例如：把背景换成浅木色桌面，保持产品本身不变",
     "submit": "开始编辑",

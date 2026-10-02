@@ -9,7 +9,7 @@
     "deleteTitle": "批量删除",
     "deleteMessage_other": "确定要删除选中的 {{count}} 条记录吗？",
     "noImages": "选中的记录没有图片",
-    "downloadStarted_other": "开始下载 {{count}} 张图片...",
+    "downloadStarted_other": "开始下载 {{count}} 张图片…",
     "downloadPartial": "下载完成: 成功 {{success}}，失败 {{failed}}",
     "downloadSucceeded_other": "成功下载 {{count}} 张图片",
     "clearSelection": "取消选择",
@@ -22,13 +22,13 @@
   "bar": {
     "expand": "展开输入框",
     "expandHint": "点击展开输入框",
-    "emptyPromptHint": "点击展开输入框，输入新的 prompt...",
+    "emptyPromptHint": "点击展开输入框，输入新的 prompt…",
     "collapse": "收起输入框",
     "library": "素材与模板",
     "saveTemplate": "存为模板"
   },
   "editor": {
-    "placeholder": "描述你想生成的图片，@ 指定参考图，{槽位} 批量生成...",
+    "placeholder": "描述你想生成的图片，@ 指定参考图，{槽位} 批量生成…",
     "chatPlaceholder": "说说你想创作什么，或先和助手讨论思路…",
     "canvasPlaceholder": "描述你想在画布中创作的内容，@ 引用素材…",
     "clearPrompt": "清空提示词"
@@ -78,7 +78,7 @@
     "favoriteOnlyOff": "取消只看收藏",
     "statusAll": "全部状态",
     "statusDone": "已完成",
-    "placeholder": "搜索提示词、参数...",
+    "placeholder": "搜索提示词、参数…",
     "status": "状态"
   },
   "param": {
@@ -145,8 +145,8 @@
     "hintEraser": "擦除不需要修改的选区",
     "hintSelectionColor": "蓝色为选中范围",
     "remove": "移除遮罩",
-    "saving": "保存中...",
-    "loading": "正在载入图片...",
+    "saving": "保存中…",
+    "loading": "正在载入图片…",
     "lasso": "圈选",
     "brushKeep": "涂成保留区",
     "brushKeepLabel": "保留",
