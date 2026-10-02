@@ -1,3 +1,4 @@
+import { ArrowRight } from 'lucide-react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { StarIcon } from '../../../components/icons'
 import { useTranslation } from '../../../i18n'
@@ -113,7 +114,10 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
             {item.category}
             {referenceCount > 0 && ` · ${t('card.referenceCount', { count: referenceCount })}`}
           </span>
-          <span className="shrink-0 font-medium text-primary">{t('card.viewCase')} →</span>
+          <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-primary">
+            {t('card.viewCase')}
+            <ArrowRight className="h-3 w-3" aria-hidden="true" />
+          </span>
         </div>
       </div>
     </div>

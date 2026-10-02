@@ -166,7 +166,7 @@
   "toast": {
     "assetSaved": "已存为素材",
     "templateSaved": "已存为模板",
-    "promptTemplateSaved": "已存为模板，可在我的资产中查看",
+    "promptTemplateSaved": "已存为模板",
     "assetImageMissing": "素材图片已丢失",
     "alreadyInReferences": "已在参考图中",
     "addedToReferences": "已加入参考图",
