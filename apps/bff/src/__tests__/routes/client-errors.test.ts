@@ -62,7 +62,11 @@ describe('POST /api/client-errors', () => {
           release: 'build-b',
         },
         { kind: 'boot', message: 'timeout', context: { rendered: false } },
-        { kind: 'error', message: 'nul\u0000 byte', context: { 'k\u0000': 'v\u0000' } },
+        {
+          kind: 'error',
+          message: 'nul\u0000 byte',
+          context: { 'k\u0000': 'v\u0000', literal: '\\u0000' },
+        },
         { kind: 'not-a-kind', message: 'dropped' },
         { kind: 'error' },
       ],
@@ -71,7 +75,10 @@ describe('POST /api/client-errors', () => {
 
     const rows = await db.select().from(schema.client_errors)
     expect(rows).toHaveLength(4)
-    expect(rows.find((row) => row.message === 'nul byte')?.context).toEqual({ k: 'v' })
+    expect(rows.find((row) => row.message === 'nul byte')?.context).toEqual({
+      k: 'v',
+      literal: '\\u0000',
+    })
     const runtime = rows.filter((row) => row.kind === 'error' && row.name === 'TypeError')
     expect(new Set(runtime.map((row) => row.fingerprint)).size).toBe(1)
     expect(runtime[0]).toMatchObject({

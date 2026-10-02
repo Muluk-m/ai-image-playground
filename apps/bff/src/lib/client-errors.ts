@@ -24,17 +24,26 @@ function clip(value: unknown, max: number): string | undefined {
   return trimmed ? trimmed.slice(0, max) : undefined
 }
 
+/** 递归剔掉字符串与键名里的 NUL。层级封顶：上报方能塞进来的东西不该让这里递归失控。 */
+function stripNul(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') return value.replaceAll('\0', '')
+  if (!value || typeof value !== 'object' || depth > 8) return depth > 8 ? undefined : value
+  if (Array.isArray(value)) return value.map((item) => stripNul(item, depth + 1))
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key.replaceAll('\0', ''),
+      stripNul(item, depth + 1),
+    ]),
+  )
+}
+
 function clipContext(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  try {
-    // NUL 在序列化结果里是转义序列；剔掉它再解析，键名与嵌套字符串一并干净。
-    const serialized = JSON.stringify(value).replaceAll('\\u0000', '')
-    return serialized.length <= CLIENT_ERROR_LIMITS.context
-      ? (JSON.parse(serialized) as Record<string, unknown>)
-      : undefined
-  } catch {
-    return undefined
-  }
+  const clean = stripNul(value) as Record<string, unknown>
+  const serialized = JSON.stringify(clean)
+  return serialized !== undefined && serialized.length <= CLIENT_ERROR_LIMITS.context
+    ? clean
+    : undefined
 }
 
 /**
@@ -146,6 +155,7 @@ export async function purgeOldClientErrors(
   retentionMs = CLIENT_ERROR_RETENTION_MS,
   now = Date.now(),
 ): Promise<number> {
+  // 子查询每次执行都重新求值，每一轮删的是当时最早的下一批。
   const expired = db
     .select({ id: schema.client_errors.id })
     .from(schema.client_errors)
