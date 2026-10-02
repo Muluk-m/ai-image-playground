@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { type AgentMode, DEFAULT_AGENT_SKILL_ICON, LOOK_PURPOSES } from '@image-playground/shared'
+import {
+  AGENT_SKILL_INPUT_REF_RE,
+  AGENT_SKILL_SCENES,
+  type AgentMode,
+  DEFAULT_AGENT_SKILL_ICON,
+  LOOK_PURPOSES,
+} from '@image-playground/shared'
 
 // 只读磁盘上随仓库发的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/shipped-agent-skills'
@@ -52,12 +58,16 @@ const MODES: AgentMode[] = ['image', 'video']
 
 _setChannelsForTesting([VIDEO_CHANNEL])
 const diagnostics: string[] = []
+/** meta.json 里被回退、被丢掉的字段与起手句：加载照常，体检要把它们拦在 CI。 */
+const metaWarnings: string[] = []
 const { log } = await import('../../../lib/logger')
 const warn = log.warn.bind(log)
 // 加载器把 frontmatter 不合规、读不出来这些事都记成 warn，不抛；体检要的正是它们。
 log.warn = ((first: unknown, ...rest: unknown[]) => {
   const event = (first as { event?: string } | undefined)?.event
   if (event === 'agent.skill_diagnostic') diagnostics.push(JSON.stringify(first))
+  if (event?.startsWith('agent.skill_meta_') || event === 'agent.skill_starter_dropped')
+    metaWarnings.push(JSON.stringify(first))
   return warn(first as never, ...(rest as never[]))
 }) as typeof log.warn
 await ensureAgentSkills()
@@ -173,6 +183,41 @@ describe('随仓库发的技能', () => {
         .map((skill) => skill.name)
         .sort()
       expect(loaded).toEqual(onDisk)
+    }
+  })
+})
+
+describe('随仓库发的技能的素材位与起手句', () => {
+  it('meta.json 里没有被回退或丢掉的字段与起手句', () => {
+    expect(metaWarnings).toEqual([])
+  })
+
+  it.each(MODES)('%s 轮的起手句只引用声明过的素材位，文案与场景都合法', (mode) => {
+    for (const skill of agentSkills(mode)) {
+      const keys = new Set(skill.inputs.map((input) => input.key))
+      for (const input of skill.inputs) expect(input.label['zh-CN'].trim()).not.toBe('')
+      if (skill.scene) expect(AGENT_SKILL_SCENES).toContain(skill.scene)
+      for (const starter of skill.starters) {
+        for (const text of [starter.text['zh-CN'], starter.text.en ?? '']) {
+          const refs = [...text.matchAll(AGENT_SKILL_INPUT_REF_RE)].map(([, key]) => key)
+          expect([skill.name, refs.filter((key) => !keys.has(key ?? ''))]).toEqual([skill.name, []])
+        }
+        expect(starter.text['zh-CN'].trim()).not.toBe('')
+        if (starter.highlight) expect(starter.text['zh-CN']).toContain(starter.highlight['zh-CN'])
+      }
+    }
+  })
+
+  it.each(MODES)('%s 轮的系统提示词里没有素材位与起手句的文案', (mode) => {
+    const { systemPrompt } = turnInitialState([], mode)
+    for (const skill of agentSkills(mode)) {
+      for (const starter of skill.starters)
+        expect(systemPrompt).not.toContain(starter.text['zh-CN'])
+      for (const input of skill.inputs) {
+        // 「素材」这类两个字的位名太短，会撞上正文里的普通用词；只查足够长、像文案的那些。
+        if ([...input.label['zh-CN']].length >= 4)
+          expect(systemPrompt).not.toContain(input.label['zh-CN'])
+      }
     }
   })
 })

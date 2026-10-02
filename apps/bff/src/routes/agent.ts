@@ -784,14 +784,23 @@ export const agentRoutes = new Elysia()
     '/api/agent/skills',
     async ({ query, authUser }) => {
       // 动态引入：`skills` 与 `tools` 静态依赖 pi，模块图不该因为一条清单端点被提到路由加载时。
-      const [{ listAgentSkillSummaries, ensureAgentSkills }, { resolveAgentMode }] =
-        await Promise.all([import('../lib/agent/skills'), import('../lib/agent/tools')])
+      const [
+        { listAgentSkillSummaries, ensureAgentSkills },
+        { resolveAgentMode },
+        { resolveAgentModel },
+      ] = await Promise.all([
+        import('../lib/agent/skills'),
+        import('../lib/agent/tools'),
+        import('../lib/agent/tools/queueTask'),
+      ])
       await ensureAgentSkills()
       // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
+      // 非模板技能的「已验证」跟部署默认的出图模型比（ADR 0017）。
       return {
         skills: await listAgentSkillSummaries(
           resolveAgentMode(query.mode ?? 'image'),
           authUser?.id ?? null,
+          resolveAgentModel('image')?.model,
         ),
       }
     },

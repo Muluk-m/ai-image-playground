@@ -156,6 +156,9 @@ describe('GET /api/agent/skills', () => {
           // 界面用的图标与一句话简介来自旁路的 meta.json，跟着清单一起发给前端。
           icon: 'clapperboard',
           summary: '一句话生成多镜头短片',
+          inputs: [],
+          starters: [],
+          verified: false,
         },
       ],
     })

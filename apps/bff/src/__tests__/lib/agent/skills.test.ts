@@ -170,6 +170,9 @@ describe('agent skills loading', () => {
       description: '何时用：多镜短片。',
       icon: 'clapperboard',
       summary: '一句话生成多镜头短片',
+      inputs: [],
+      starters: [],
+      verified: false,
     })
     expect(JSON.stringify(agentSkillSummaries('video'))).not.toContain('分镜正文')
   })
