@@ -108,7 +108,7 @@ const CRITERIA = ${scriptJson(VERIFICATION_CRITERIA)};
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 function collect(section) {
   const skill = section.dataset.skill;
-  const runs = DATA[skill].runs.map((run) => {
+  const runs = DATA[skill].map((run) => {
     const { scores: _old, ...rest } = run;
     if (run.output === null) return rest;
     rest.output = DATA_RUN_ID + "/" + run.output;
@@ -153,7 +153,7 @@ export function renderReviewPage(
   skills: readonly ReviewSkill[],
   judgeScript: string,
 ): string {
-  const data = Object.fromEntries(skills.map((skill) => [skill.skill, { runs: skill.runs }]))
+  const data = Object.fromEntries(skills.map((skill) => [skill.skill, skill.runs]))
   return `<!doctype html>
 <html lang="zh-CN">
 <head>

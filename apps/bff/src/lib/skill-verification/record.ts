@@ -1,3 +1,5 @@
+import { isObject } from '../type-guards'
+
 /**
  * 技能效果验证记录（见 `apps/bff/skills/_verification/README.md`）。
  *
@@ -73,10 +75,6 @@ export function isIsoDate(value: unknown): value is string {
 
 function isScore(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 3
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export type ParsedRecord =
@@ -168,17 +166,17 @@ export function judgeVerificationRecord(record: VerificationRecord): Verificatio
   }
 
   const models = [...new Set(record.runs.map((run) => run.model))]
-  if (models.length > 1) reasons.push(`6 次用了不同的模型：${models.join('、')}`)
+  if (models.length > 1) reasons.push(`${expected} 次用了不同的模型：${models.join('、')}`)
   if (!record.reviewedAt) reasons.push('没有打分日期 reviewedAt')
 
   const average = scores.length > 0 ? scores.reduce((sum, one) => sum + one, 0) / scores.length : 0
   if (scores.length > 0 && average < VERIFICATION_AVERAGE_MIN)
     reasons.push(`平均分 ${roundScore(average)}，低于 ${VERIFICATION_AVERAGE_MIN}`)
 
-  if (reasons.length > 0 || !record.reviewedAt || models.length !== 1)
-    return { passed: false, reasons }
+  const model = models.length === 1 ? models[0] : undefined
+  if (reasons.length > 0 || !record.reviewedAt || !model) return { passed: false, reasons }
   return {
     passed: true,
-    verified: { date: record.reviewedAt, model: models[0]!, score: roundScore(average) },
+    verified: { date: record.reviewedAt, model, score: roundScore(average) },
   }
 }

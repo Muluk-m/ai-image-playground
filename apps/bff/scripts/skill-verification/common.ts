@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   declaredInputs,
+  imageSkillsWithVerificationFile,
   parseVerificationCases,
   resolveFixture,
   VERIFICATION_CASES_FILE,
@@ -23,18 +24,12 @@ export function imageSkillDirectory(skill: string): string {
 }
 
 /** 磁盘上写了测试输入的那些图片技能。 */
-export function skillsWithCases(): string[] {
-  return readdirSync(join(SKILLS_ROOT, 'image')).filter((name) =>
-    existsSync(join(SKILLS_ROOT, 'image', name, VERIFICATION_DIR, VERIFICATION_CASES_FILE)),
-  )
-}
+export const skillsWithCases = () =>
+  imageSkillsWithVerificationFile(SKILLS_ROOT, VERIFICATION_CASES_FILE)
 
 /** 写了验证记录的那些图片技能。 */
-export function skillsWithRecords(): string[] {
-  return readdirSync(join(SKILLS_ROOT, 'image')).filter((name) =>
-    existsSync(join(SKILLS_ROOT, 'image', name, VERIFICATION_DIR, VERIFICATION_RECORD_FILE)),
-  )
-}
+export const skillsWithRecords = () =>
+  imageSkillsWithVerificationFile(SKILLS_ROOT, VERIFICATION_RECORD_FILE)
 
 export interface SkillVerificationSetup {
   readonly skill: string

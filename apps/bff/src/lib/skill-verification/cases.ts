@@ -1,4 +1,6 @@
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { isObject } from '../type-guards'
 import { VERIFICATION_CASE_COUNT } from './record'
 
 /**
@@ -38,10 +40,6 @@ const KEY_RE = /^[a-z][a-z0-9-]*$/
 const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(webp|png|jpe?g)$/
 const PLACEHOLDER_RE = /\{([a-z][a-z0-9-]*)\}/g
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 /**
  * 从 `meta.json` 读出素材位：写了 `inputs` 用它；预置模板没写时按 `template.slotCount`
  * 派生 `asset1..N`（必填、可多图，与目录接口的派生规则一致）；都没有就是没有位。
@@ -65,11 +63,23 @@ export function declaredInputs(meta: unknown): DeclaredInput[] {
   return []
 }
 
+/** 去掉 `shared:` 前缀后的文件名。 */
+export function fixtureFileName(ref: string): string {
+  return ref.startsWith(SHARED_FIXTURE_PREFIX) ? ref.slice(SHARED_FIXTURE_PREFIX.length) : ref
+}
+
 /** 一张测试输入图的磁盘位置。 */
 export function resolveFixture(skillsRoot: string, skillDirectory: string, ref: string): string {
   return ref.startsWith(SHARED_FIXTURE_PREFIX)
-    ? join(skillsRoot, VERIFICATION_FIXTURES_DIR, ref.slice(SHARED_FIXTURE_PREFIX.length))
+    ? join(skillsRoot, VERIFICATION_FIXTURES_DIR, fixtureFileName(ref))
     : join(skillDirectory, VERIFICATION_DIR, ref)
+}
+
+/** 技能根目录下 `image/` 里在 `verification/` 中放了 `file` 的那些技能名。 */
+export function imageSkillsWithVerificationFile(skillsRoot: string, file: string): string[] {
+  return readdirSync(join(skillsRoot, 'image')).filter((name) =>
+    existsSync(join(skillsRoot, 'image', name, VERIFICATION_DIR, file)),
+  )
 }
 
 export type ParsedCases =
@@ -127,11 +137,7 @@ export function parseVerificationCases(
       }
       if (!input.multiple && refs.length > 1) errors.push(`${where}.inputs.${key} 这个位只收一张图`)
       for (const ref of refs) {
-        const file =
-          typeof ref === 'string' && ref.startsWith(SHARED_FIXTURE_PREFIX)
-            ? ref.slice(SHARED_FIXTURE_PREFIX.length)
-            : ref
-        if (typeof file !== 'string' || !FILE_RE.test(file)) {
+        if (typeof ref !== 'string' || !FILE_RE.test(fixtureFileName(ref))) {
           errors.push(`${where}.inputs.${key} 里的 ${String(ref)} 不是合法的图片文件名`)
           continue
         }

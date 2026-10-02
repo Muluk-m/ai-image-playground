@@ -10,18 +10,20 @@ import {
 
 type Meta = Readonly<Record<string, unknown>>
 
-/**
- * 按验证记录改写 `meta.json`：过线写 `verified`，不过线删掉它。其余字段原样保留、顺序不动。
- * 记录格式不对按不过线处理，原因就是格式错误。
- */
+/** 一份原始记录的判定：先校验格式，格式不对按不过线处理，原因就是格式错误。 */
+function verdictOf(rawRecord: unknown): VerificationVerdict {
+  const parsed = parseVerificationRecord(rawRecord)
+  return parsed.ok
+    ? judgeVerificationRecord(parsed.record)
+    : { passed: false, reasons: parsed.errors.map((error) => `记录格式：${error}`) }
+}
+
+/** 按验证记录改写 `meta.json`：过线写 `verified`，不过线删掉它。其余字段原样保留、顺序不动。 */
 export function backfillVerified(
   meta: Meta,
   rawRecord: unknown,
 ): { readonly meta: Meta; readonly verdict: VerificationVerdict } {
-  const parsed = parseVerificationRecord(rawRecord)
-  const verdict: VerificationVerdict = parsed.ok
-    ? judgeVerificationRecord(parsed.record)
-    : { passed: false, reasons: parsed.errors.map((error) => `记录格式：${error}`) }
+  const verdict = verdictOf(rawRecord)
   const { verified: _previous, ...rest } = meta
   return { meta: verdict.passed ? { ...rest, verified: verdict.verified } : rest, verdict }
 }
@@ -44,7 +46,7 @@ export function verifiedMismatches(meta: Meta, rawRecord: unknown | undefined): 
   if (meta.verified === undefined) return []
   if (!isStamp(meta.verified)) return ['verified 不是 { date, model, score }']
   if (rawRecord === undefined) return ['写了 verified，但没有验证记录']
-  const { verdict } = backfillVerified(meta, rawRecord)
+  const verdict = verdictOf(rawRecord)
   if (!verdict.passed) return ['写了 verified，但验证记录没过线', ...verdict.reasons]
   const expected = verdict.verified
   const actual = meta.verified

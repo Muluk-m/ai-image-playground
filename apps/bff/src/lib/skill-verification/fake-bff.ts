@@ -1,4 +1,5 @@
 import type { AgentConversationSnapshot, AgentToolResultBlock } from '@image-playground/shared'
+import { decodeDataUrl } from '../upstream/shared'
 
 /**
  * 跑图脚本的假 BFF：只实现跑图要走的那几条接口，不花钱、不连上游。测试与 `run.ts --mock`
@@ -28,14 +29,6 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { 'content-type': 'application/json' },
   })
-}
-
-function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
-  const [head, data] = dataUrl.split(',', 2) as [string, string]
-  return {
-    mime: head.slice('data:'.length, head.indexOf(';')),
-    bytes: new Uint8Array(Buffer.from(data, 'base64')),
-  }
 }
 
 export function createFakeBff(options: FakeBffOptions = {}): FakeBff {

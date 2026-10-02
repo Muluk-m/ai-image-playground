@@ -20,21 +20,15 @@ import { join } from 'node:path'
 import { caseTurn } from '../../src/lib/skill-verification/cases'
 import { createFakeBff } from '../../src/lib/skill-verification/fake-bff'
 import type { VerificationRun } from '../../src/lib/skill-verification/record'
-import type { ReviewSkill } from '../../src/lib/skill-verification/review-page'
+import type { ReviewCase } from '../../src/lib/skill-verification/review-page'
 import {
+  IMAGE_MIME_BY_EXTENSION,
   imageExtension,
   type RunnerOptions,
   runVerificationCase,
 } from '../../src/lib/skill-verification/runner'
 import { loadSkillSetup, parseArgs, RUNS_ROOT, skillsWithCases } from './common'
 import { RUN_MANIFEST, writeReviewPage } from './review'
-
-const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
-  webp: 'image/webp',
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-}
 
 function list(value: string | true | undefined): string[] | undefined {
   return typeof value === 'string' ? value.split(',').filter(Boolean) : undefined
@@ -62,7 +56,7 @@ function runnerOptions(mock: boolean): RunnerOptions {
 
 const { flags } = parseArgs(process.argv.slice(2))
 const mock = flags.get('mock') === true
-const runs = Number(flags.get('runs') ?? 2)
+const runCount = Number(flags.get('runs') ?? 2)
 const onlyCases = list(flags.get('cases'))
 const skills = list(flags.get('skills')) ?? skillsWithCases()
 if (skills.length === 0) throw new Error('没有可跑的技能：先给技能写 verification/cases.json')
@@ -76,20 +70,26 @@ const runDir = join(RUNS_ROOT, runId)
 for (const setup of setups) {
   const skillDir = join(runDir, setup.skill)
   mkdirSync(join(skillDir, 'inputs'), { recursive: true })
-  const review: { cases: ReviewSkill['cases'][number][]; runs: VerificationRun[] } = {
-    cases: [],
-    runs: [],
-  }
+  // 对比页与产出放在同一目录，清单里的路径都相对它。每跑完一次就落盘：中途断了，
+  // 已经花钱出的图也还在清单里，对比页照样能打分。
+  const cases: ReviewCase[] = []
+  const runs: VerificationRun[] = []
+  const save = () =>
+    writeFileSync(
+      join(skillDir, RUN_MANIFEST),
+      `${JSON.stringify({ skill: setup.skill, cases, runs }, null, 2)}\n`,
+    )
   for (const one of setup.cases.filter((item) => !onlyCases || onlyCases.includes(item.id))) {
     const turn = caseTurn(setup.skill, one)
     const images = turn.images.map((image) => {
-      const file = image.ref.replace(/^shared:/, '')
+      // 公共素材与技能自带的同名文件互不覆盖：前缀换成 `shared-` 留在文件名里。
+      const file = image.ref.replace(':', '-')
       const bytes = new Uint8Array(readFileSync(setup.locate(image.ref)))
       writeFileSync(join(skillDir, 'inputs', file), bytes)
       const extension = file.split('.').at(-1)!.toLowerCase()
-      return { file, mime: MIME_BY_EXTENSION[extension] ?? 'image/png', bytes }
+      return { file, mime: IMAGE_MIME_BY_EXTENSION[extension] ?? 'image/png', bytes }
     })
-    review.cases.push({
+    cases.push({
       id: one.id,
       text: turn.text,
       inputs: turn.images.map((image, at) => ({
@@ -97,7 +97,7 @@ for (const setup of setups) {
         src: `${setup.skill}/inputs/${images[at]!.file}`,
       })),
     })
-    for (let index = 1; index <= runs; index++) {
+    for (let index = 1; index <= runCount; index++) {
       const label = `${setup.skill} ${one.id}#${index}`
       console.log(`→ ${label}`)
       try {
@@ -114,14 +114,14 @@ for (const setup of setups) {
           output = `${one.id}-${index}.${imageExtension(result.image.mime)}`
           writeFileSync(join(skillDir, output), result.image.bytes)
         }
-        review.runs.push({ ...result.run, output: output && `${setup.skill}/${output}` })
+        runs.push({ ...result.run, output: output && `${setup.skill}/${output}` })
         console.log(
           `  ${output ? `出图 ${output}` : `没出图（${result.run.error}）`} · ${result.run.model}`,
         )
       } catch (error) {
         // 一次失败不拖累整批：记成没出图，对比页与判定都会把它算作不过线。
         const message = error instanceof Error ? error.message : String(error)
-        review.runs.push({
+        runs.push({
           case: one.id,
           run: index,
           output: null,
@@ -131,11 +131,9 @@ for (const setup of setups) {
         })
         console.error(`  失败：${message}`)
       }
+      save()
     }
   }
-  // 对比页与产出放在同一目录，清单里的路径都相对它。
-  const manifest: ReviewSkill = { skill: setup.skill, ...review }
-  writeFileSync(join(skillDir, RUN_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 console.log(`对比页：${await writeReviewPage(runDir)}`)

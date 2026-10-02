@@ -279,6 +279,7 @@ describe('随仓库发的预置模板', () => {
 const { verifiedMismatches } = await import('../../../lib/skill-verification/backfill')
 const {
   declaredInputs,
+  imageSkillsWithVerificationFile,
   parseVerificationCases,
   resolveFixture,
   VERIFICATION_CASES_FILE,
@@ -294,10 +295,9 @@ function readJson(path: string): unknown {
 }
 
 describe('随仓库发的技能效果验证', () => {
-  const withCases = IMAGE_SKILL_NAMES.filter((name) =>
-    existsSync(
-      join(defaultAgentSkillsRoot(), 'image', name, VERIFICATION_DIR, VERIFICATION_CASES_FILE),
-    ),
+  const withCases = imageSkillsWithVerificationFile(
+    defaultAgentSkillsRoot(),
+    VERIFICATION_CASES_FILE,
   )
 
   it('至少有一条技能写了测试输入', () => {

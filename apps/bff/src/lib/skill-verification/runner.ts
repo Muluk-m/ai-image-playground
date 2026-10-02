@@ -2,6 +2,7 @@ import {
   type AgentConversationSnapshot,
   type AgentToolResultBlock,
   DEVICE_ID_HEADER,
+  USER_SESSION_COOKIE,
 } from '@image-playground/shared'
 import type { CaseTurn } from './cases'
 import type { VerificationRun } from './record'
@@ -109,10 +110,7 @@ export async function runVerificationCase(
   const base = options.baseUrl.replace(/\/+$/, '')
   const headers: Record<string, string> = {
     [DEVICE_ID_HEADER]: options.deviceId,
-    // 与 `user-session.ts` 的 USER_SESSION_COOKIE 同名；那个模块连着数据库，脚本不引它。
-    ...(options.sessionCookie
-      ? { cookie: `image_playground_session=${options.sessionCookie}` }
-      : {}),
+    ...(options.sessionCookie ? { cookie: `${USER_SESSION_COOKIE}=${options.sessionCookie}` } : {}),
   }
   const call = (path: string, init: RequestInit = {}) =>
     options.fetch(`${base}${path}`, {
@@ -161,7 +159,8 @@ export async function runVerificationCase(
       await expectOk(await call(`${conversationPath}/messages`), '读取会话')
     ).json()) as AgentConversationSnapshot
     const print = fingerprint(snapshot)
-    stable = isIdle(snapshot) && print === previous ? stable + 1 : isIdle(snapshot) ? 1 : 0
+    const idle = isIdle(snapshot)
+    stable = !idle ? 0 : print === previous ? stable + 1 : 1
     previous = print
     if (stable >= settlePolls) break
     if (now().getTime() > deadline) throw new RunnerError('等待出图超时')
@@ -169,7 +168,8 @@ export async function runVerificationCase(
   }
 
   const date = isoDate(now())
-  const delivered = toolResults(snapshot)
+  const results = toolResults(snapshot)
+  const delivered = results
     .filter((block) => GENERATION_TOOLS.has(block.toolName) && block.status === 'succeeded')
     .flatMap((block) =>
       (block.artifacts ?? [])
@@ -180,9 +180,7 @@ export async function runVerificationCase(
   const model = last?.model ?? input.model ?? 'default'
   const run = { case: input.caseId, run: input.run, model, date }
   if (!last) {
-    const failed = toolResults(snapshot)
-      .filter((block) => block.status === 'failed')
-      .at(-1)
+    const failed = results.filter((block) => block.status === 'failed').at(-1)
     return { run: { ...run, error: failed?.errorCode ?? 'no_output' }, image: null }
   }
   const image = await expectOk(
@@ -197,9 +195,15 @@ export async function runVerificationCase(
   }
 }
 
-/** 按 MIME 给产出图取扩展名。 */
+/** 图片扩展名与 MIME 的对照：读输入图按扩展名取 MIME，写产出图按 MIME 取扩展名。 */
+export const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+}
+
+/** 按 MIME 给产出图取扩展名，认不出按 png。 */
 export function imageExtension(mime: string): string {
-  if (mime === 'image/jpeg') return 'jpg'
-  if (mime === 'image/webp') return 'webp'
-  return 'png'
+  return Object.entries(IMAGE_MIME_BY_EXTENSION).find(([, one]) => one === mime)?.[0] ?? 'png'
 }
