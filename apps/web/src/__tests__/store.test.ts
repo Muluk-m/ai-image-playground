@@ -158,6 +158,7 @@ import { clearImages, getAllTasks, getImage, putImage } from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
+  confirmDialogAsync,
   editOutputImage,
   getPersistedState,
   getTaskApiProfile,
@@ -1748,5 +1749,37 @@ describe('展开平台记录的详情', () => {
           ?.outputImages.length === 1,
       '二次展开未补到归档图片',
     )
+  })
+})
+
+describe('confirmDialogAsync', () => {
+  const dialog = { title: 'Confirm', message: 'Sure?' }
+  beforeEach(() => {
+    useStore.setState({
+      confirmDialog: null,
+      setConfirmDialog: (confirmDialog) => useStore.setState({ confirmDialog }),
+    })
+  })
+
+  it('resolves with the user choice and clears its dialog', async () => {
+    const confirming = confirmDialogAsync(dialog)
+    useStore.getState().confirmDialog?.action()
+    expect(await confirming).toBe(true)
+    expect(useStore.getState().confirmDialog).toBeNull()
+  })
+
+  it('treats abort and a replacing dialog as cancel without clearing the replacement', async () => {
+    const controller = new AbortController()
+    const aborted = confirmDialogAsync(dialog, controller.signal)
+    controller.abort()
+    expect(await aborted).toBe(false)
+    expect(useStore.getState().confirmDialog).toBeNull()
+
+    const replaced = confirmDialogAsync(dialog)
+    const other = { ...dialog, title: 'Other', action: () => {} }
+    useStore.getState().setConfirmDialog(other)
+    expect(await replaced).toBe(false)
+    expect(useStore.getState().confirmDialog).toBe(other)
+    useStore.getState().setConfirmDialog(null)
   })
 })

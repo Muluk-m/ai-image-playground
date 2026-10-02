@@ -1,16 +1,27 @@
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { beginLookSubmission } from '../features/library/lib/lookSubmissionOperation'
 import { i18next } from '../i18n'
-import { accountScope, scopedStorageName } from '../lib/authScope'
+import { pathAppMode } from '../lib/appPaths'
+import { scopedStorageName } from '../lib/authScope'
+import { watchSubmissionContext } from '../lib/submissionContext'
 import { submitPrepared, useStore } from '../store'
 import { isSignedIn } from './loginPrompt'
 import { takePendingSubmission } from './pendingSubmission'
+
+/** OAuth always lands on `/`, which is the image composer too; restore the address the send came from. */
+function returnToSourcePath(sourcePath: string): boolean {
+  const { pathname, search, hash } = window.location
+  if (pathname === sourcePath) return true
+  if (pathname.replace(/\/+$/, '') !== '' || pathAppMode(sourcePath) !== 'image') return false
+  window.history.replaceState(window.history.state, '', `${sourcePath}${search}${hash}`)
+  return true
+}
 
 export async function resumePendingSubmission(): Promise<void> {
   if (!isSignedIn()) return
   const pending = await takePendingSubmission()
   if (!pending) return
-  if (pending.sourcePath && window.location.pathname !== pending.sourcePath) return
+  if (pending.sourcePath && !returnToSourcePath(pending.sourcePath)) return
   if (pending.kind === 'image') {
     if (pending.ownerScope && pending.ownerScope !== scopedStorageName('pending')) return
     if (pending.template) {
@@ -25,35 +36,28 @@ export async function resumePendingSubmission(): Promise<void> {
           }),
         )
       } catch {
-        if (!operation.signal.aborted || operation.signal.reason?.name === 'TimeoutError')
-          useStore.getState().showToast(i18next.t('look.prepareFailed', { ns: 'library' }), 'error')
+        const timedOut = operation.signal.reason?.name === 'TimeoutError'
+        if (!operation.signal.aborted || timedOut)
+          useStore
+            .getState()
+            .showToast(
+              i18next.t(timedOut ? 'look.prepareTimeout' : 'look.prepareFailed', { ns: 'library' }),
+              'error',
+            )
       } finally {
         operation.finish()
       }
       return
     }
-    const sameAccount = accountScope()
     const start = useStore.getState()
-    let active = true
-    const current = () =>
-      active &&
-      sameAccount() &&
-      (!pending.sourcePath || window.location.pathname === pending.sourcePath)
-    const unwatch = useStore.subscribe((next) => {
-      if (next.appMode !== start.appMode || next.createTarget !== start.createTarget) active = false
-    })
-    const onNavigate = () => {
-      if (!current()) active = false
-    }
-    window.addEventListener('popstate', onNavigate)
+    const context = watchSubmissionContext(pending.sourcePath)
     let ids: string[]
     try {
-      ids = await submitPrepared(pending.input, { isCurrent: current })
+      ids = await submitPrepared(pending.input, { isCurrent: context.isCurrent })
     } finally {
-      unwatch()
-      window.removeEventListener('popstate', onNavigate)
+      context.dispose()
     }
-    if (!current()) return
+    if (!context.isCurrent()) return
     if (
       ids.length === 0 &&
       !useStore.getState().prompt.trim() &&

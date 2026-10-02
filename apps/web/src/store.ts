@@ -1352,6 +1352,54 @@ export interface PreparedSubmissionOptions {
   onLoginQueued?: () => void
 }
 
+type ConfirmDialog = NonNullable<AppState['confirmDialog']>
+
+/** 弹确认框并等结果；被别的弹窗顶掉、关掉或 signal 中止都算取消。 */
+export function confirmDialogAsync(
+  dialog: Omit<ConfirmDialog, 'action' | 'cancelAction'>,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false
+    let unsubscribe: (() => void) | undefined
+    const finish = (confirmed: boolean) => {
+      if (settled) return
+      settled = true
+      unsubscribe?.()
+      signal?.removeEventListener('abort', abort)
+      if (useStore.getState().confirmDialog === shown) useStore.getState().setConfirmDialog(null)
+      resolve(confirmed)
+    }
+    const abort = () => finish(false)
+    const shown: ConfirmDialog = {
+      ...dialog,
+      action: () => finish(true),
+      cancelAction: () => finish(false),
+    }
+    if (signal?.aborted) {
+      resolve(false)
+      return
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    useStore.getState().setConfirmDialog(shown)
+    unsubscribe = useStore.subscribe((state) => {
+      if (state.confirmDialog !== shown) finish(false)
+    })
+  })
+}
+
+/** 指定模型提交时：这份配置档案仍在设置里，并且仍提供这个模型。 */
+export function isModelAvailableForProfile(
+  settings: AppSettings,
+  profile: ClientProfile,
+  modelId: string,
+): boolean {
+  return (
+    normalizeSettings(settings).profiles.some((item) => item.id === profile.id) &&
+    getProfileModels(profile, getPublicChannels()).includes(modelId)
+  )
+}
+
 export async function submitPrepared(
   input: PreparedSubmission,
   options: PreparedSubmissionOptions = {},
@@ -1364,11 +1412,7 @@ export async function submitPrepared(
     input.profile ??
     normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
     getActiveApiProfile(normalizedSettings)
-  if (
-    input.modelId &&
-    (!normalizedSettings.profiles.some((item) => item.id === input.profileId) ||
-      !getProfileModels(selectedProfile, getPublicChannels()).includes(input.modelId))
-  ) {
+  if (input.modelId && !isModelAvailableForProfile(settings, selectedProfile, input.modelId)) {
     showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
     return []
   }
@@ -1423,33 +1467,15 @@ export async function submitPrepared(
       if (!current()) return []
       if (coverage === 'full') {
         options.onConfirmationPending?.(true)
-        const confirmed = await new Promise<boolean>((resolve) => {
-          let settled = false
-          let unsubscribe: (() => void) | undefined
-          const finish = (confirmed: boolean) => {
-            if (settled) return
-            settled = true
-            unsubscribe?.()
-            options.signal?.removeEventListener('abort', abort)
-            if (useStore.getState().confirmDialog === dialog)
-              useStore.getState().setConfirmDialog(null)
-            resolve(confirmed)
-          }
-          const abort = () => finish(false)
-          const dialog = {
+        const confirmed = await confirmDialogAsync(
+          {
             title: i18next.t('mask.fullTitle', { ns: 'store' }),
             message: i18next.t('mask.fullMessage', { ns: 'store' }),
             confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
-            tone: 'warning' as const,
-            action: () => finish(true),
-            cancelAction: () => finish(false),
-          }
-          options.signal?.addEventListener('abort', abort, { once: true })
-          useStore.getState().setConfirmDialog(dialog)
-          unsubscribe = useStore.subscribe((state) => {
-            if (state.confirmDialog !== dialog) finish(false)
-          })
-        }).finally(() => options.onConfirmationPending?.(false))
+            tone: 'warning',
+          },
+          options.signal,
+        ).finally(() => options.onConfirmationPending?.(false))
         if (!confirmed) return []
       }
       const imageId = await storeImage(input.maskDraft.maskDataUrl, 'mask')
