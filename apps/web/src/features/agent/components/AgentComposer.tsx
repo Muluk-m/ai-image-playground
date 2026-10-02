@@ -37,6 +37,12 @@ import {
 } from '../../../components/ui/select'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
+import {
+  assetSlotAt,
+  assetSlotImages,
+  clearAssetSlot,
+  fillAssetSlot,
+} from '../../../lib/assetSlotDraft'
 import { accountScope } from '../../../lib/authScope'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
@@ -94,8 +100,10 @@ import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
 import {
+  type AgentDraft,
   type AgentReference,
   type AttachedReference,
+  agentAdmission,
   attachReference,
   clearReferenceMask,
   draftForSubmit,
@@ -112,6 +120,7 @@ import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
+import { useAssetSlots } from './useAssetSlots'
 
 const EDITOR_CLASS =
   'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
@@ -367,6 +376,24 @@ export default function AgentComposer({
     [draft.prompt, skills],
   )
 
+  const renderSlot = useAssetSlots<AgentDraft>({
+    read: () => session.getSnapshot().draft,
+    write: setDraft,
+    admission: () => agentAdmission(transportRef.current),
+    refusalMessage: (reason) => referenceLimitMessage(reason, transportRef.current),
+    fromAsset: (image, asset) => ({ ...image, name: asset.name }),
+    fromFiles: filesToReferences,
+    imageName: (reference) => reference.name,
+    accepting: () => {
+      const snapshot = session.getSnapshot()
+      if (snapshot.loading || snapshot.recoveryBlocked) {
+        useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+        return false
+      }
+      return useAgentStore.getState().conversationId === conversationId
+    },
+  })
+
   const promptEditor = usePromptEditor({
     value: draft.prompt,
     labels,
@@ -393,6 +420,7 @@ export default function AgentComposer({
         </>
       )
     },
+    renderSlot,
     onEdit: () => menuRef.current.open(),
     onKeyDown: (event) => {
       if (menuRef.current.handleKeyDown(event)) return

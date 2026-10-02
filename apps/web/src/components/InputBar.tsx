@@ -2,6 +2,7 @@ import { FolderOpen, Images, Square } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
+import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
@@ -45,6 +46,7 @@ import {
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
   CANVAS_HANDOFF_ADMISSION,
+  type ReferenceDraft,
   referenceAdmission,
   referenceRefusal,
   referenceRefusalMessage,
@@ -303,6 +305,28 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     open: () => void
     handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => boolean
   }>({ open: () => {}, handleKeyDown: () => false })
+  // 素材位只出现在对话 / 画布档：起手句只往智能体的第一轮里填。
+  const admissionRef = useRef(admission)
+  admissionRef.current = admission
+  const assetNames = useMemo(() => getAssetNamesByImageId(assets), [assets])
+  const renderSlot = useAssetSlots<ReferenceDraft>({
+    read: () => {
+      const state = useStore.getState()
+      return { prompt: state.prompt, references: state.inputImages }
+    },
+    write: (draft) =>
+      useStore.setState({ prompt: draft.prompt, inputImages: [...draft.references] }),
+    admission: () => admissionRef.current,
+    refusalMessage: referenceRefusalMessage,
+    fromAsset: (image) => image,
+    fromFiles: async (files) => {
+      const images: InputImage[] = []
+      for (const file of files) images.push(await storeImageFromFile(file))
+      return images
+    },
+    imageName: (image) => assetNames[image.id],
+  })
+
   const promptEditor = usePromptEditor({
     value: prompt,
     labels: mentionLabels,
@@ -314,6 +338,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     commandLabel: skillInvocation?.skill.title,
     commandChip: skillInvocation && <AgentSkillBadge skill={skillInvocation.skill} />,
     parseCommand: getSlashTemplateQuery,
+    renderSlot,
     onEdit: () => menusRef.current.open(),
     onKeyDown: (event) => {
       if (menusRef.current.handleKeyDown(event)) return

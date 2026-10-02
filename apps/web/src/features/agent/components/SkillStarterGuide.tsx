@@ -19,6 +19,7 @@ import {
 } from '../lib/skillStarters'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import AgentSkillBadge from './AgentSkillBadge'
+import { AssetSlotFace } from './AssetSlotChip'
 
 const SCENE_ICONS: Readonly<Record<AgentSkillScene, LucideIcon>> = {
   ecommerce: Store,
@@ -63,12 +64,8 @@ export default function SkillStarterGuide() {
                     segment.kind === 'text' ? (
                       <span key={index}>{segment.text}</span>
                     ) : (
-                      <span
-                        key={index}
-                        data-starter-input={segment.input.key}
-                        className="mx-0.5 rounded border border-dashed border-primary/50 px-1 text-primary"
-                      >
-                        {localizedText(segment.input.label, i18n.language)}
+                      <span key={index} data-starter-input={segment.input.key}>
+                        <AssetSlotFace label={localizedText(segment.input.label, i18n.language)} />
                       </span>
                     ),
                 )}
