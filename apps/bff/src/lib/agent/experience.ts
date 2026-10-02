@@ -1,8 +1,17 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import type { BffTransaction } from '../private-overlay'
 import type { AgentTurnSource } from './turn-preparation'
 
 type AgentExperience = 'chat' | 'canvas'
+
+function ownedProject(conversationId: string, userId: string) {
+  return and(
+    eq(schema.canvas_projects.conversation_id, conversationId),
+    eq(schema.canvas_projects.user_id, userId),
+    isNull(schema.canvas_projects.deleted_at),
+  )
+}
 
 /**
  * 项目文档记下的入口是权威来源；没记下时只认当前消息或原轮已消费的消息。
@@ -10,41 +19,33 @@ type AgentExperience = 'chat' | 'canvas'
  * 文档缺 `experience` 的是这个字段出现之前建的项目。客户端按「绑会话之前、有内容就是画布」
  * 推断它，绑上会话的那一刻推断就失效了，所以服务端不能照抄那条规则补默认值——那样画布里
  * 发出的第一句话会被当成对话，模型拿不到画布工具。客户端在画布视图里发话才带画布快照，
- * 这就是它当时看到的入口；第一次由用户消息判定出来，就记到项目上，之后两边都以它为准。
+ * 这就是它当时看到的入口；消息真正被这一轮取走时由 `recordAgentExperience` 记到项目上。
  */
 export async function loadAgentExperience(
   conversationId: string,
   userId: string | null,
   source: AgentTurnSource,
-): Promise<AgentExperience> {
-  const owned = userId
-    ? and(
-        eq(schema.canvas_projects.conversation_id, conversationId),
-        eq(schema.canvas_projects.user_id, userId),
-        isNull(schema.canvas_projects.deleted_at),
-      )
-    : undefined
-  if (owned) {
+): Promise<{ experience: AgentExperience; unrecorded: boolean }> {
+  let unrecorded = false
+  if (userId) {
     const [project] = await db
       .select({ document: schema.canvas_projects.document })
       .from(schema.canvas_projects)
-      .where(owned)
+      .where(ownedProject(conversationId, userId))
       .limit(1)
-    if (project?.document.experience) return project.document.experience
-    if (project && source.kind === 'message') {
-      const experience = source.message.canvas ? 'canvas' : 'chat'
-      // 只补空着的那格，不动 revision：客户端保存时沿用已有的值（见 `lib/projects.ts`），
-      // 项目目录摘要会把它带回客户端。
-      await db
-        .update(schema.canvas_projects)
-        .set({
-          document: sql`jsonb_set(${schema.canvas_projects.document}, '{experience}', to_jsonb(${experience}::text))`,
-        })
-        .where(and(owned, sql`${schema.canvas_projects.document}->>'experience' IS NULL`))
-      return experience
-    }
+    if (project?.document.experience) return { experience: project.document.experience, unrecorded }
+    unrecorded = Boolean(project)
   }
-  if (source.kind === 'message') return source.message.canvas ? 'canvas' : 'chat'
+  if (source.kind === 'message')
+    return { experience: source.message.canvas ? 'canvas' : 'chat', unrecorded }
+  return { experience: await originExperience(conversationId, source), unrecorded: false }
+}
+
+/** 唤醒与续跑沿已消费的来源追到发起它的用户消息；追不到就按对话算，这个猜测不记到项目上。 */
+async function originExperience(
+  conversationId: string,
+  source: Exclude<AgentTurnSource, { kind: 'message' }>,
+): Promise<AgentExperience> {
   if (source.kind === 'resume' && source.resume.canvas) return 'canvas'
   let originTurnId =
     source.kind === 'wake'
@@ -75,4 +76,35 @@ export async function loadAgentExperience(
     else originTurnId = payload.turnId
   }
   return 'chat'
+}
+
+/**
+ * 把用户消息判定出的入口记到还没记过的项目上，之后两边都以它为准。
+ *
+ * 必须在取走这条消息的同一事务里调：消息被撤回、预扣失败时整笔回滚，入口也不该被定下。
+ * 锁与项目保存（`lib/projects.ts` 的 `writeProject`）同一把所有者行锁，保存读到旧文档、
+ * 再整份写回时不会把这里刚补上的值冲掉；只补空着的那格，revision 不动，保存时沿用已有的值。
+ */
+export async function recordAgentExperience(
+  tx: BffTransaction,
+  conversationId: string,
+  userId: string,
+  experience: AgentExperience,
+): Promise<void> {
+  await tx
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .for('update')
+  await tx
+    .update(schema.canvas_projects)
+    .set({
+      document: sql`jsonb_set(${schema.canvas_projects.document}, '{experience}', to_jsonb(${experience}::text))`,
+    })
+    .where(
+      and(
+        ownedProject(conversationId, userId),
+        sql`${schema.canvas_projects.document}->>'experience' IS NULL`,
+      ),
+    )
 }
