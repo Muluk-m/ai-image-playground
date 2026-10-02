@@ -28,6 +28,8 @@ const FLUSH_DELAY_MS = 2000
  * 按 UTF-8 字节算：中文内容一个字三字节。
  */
 const MAX_BATCH_BYTES = 24 * 1024
+/** beacon 发出后无法等它完成；一次 flush 只发这么多，剩下的等下一拍，免得同时在途的超出配额。 */
+const MAX_FLUSH_BYTES = 48 * 1024
 const encoder = new TextEncoder()
 
 /** 浏览器自己产生、与代码无关的噪声。 */
@@ -103,15 +105,32 @@ export function flushClientErrors(): void {
   const encode = (errors: ClientErrorReport[]) =>
     JSON.stringify({ deviceId, errors } satisfies ClientErrorBatch)
   const fits = (body: string) => encoder.encode(body).byteLength <= MAX_BATCH_BYTES
+  let budget = MAX_FLUSH_BYTES
+  const sendBatch = (reports: ClientErrorReport[]): boolean => {
+    const body = encode(reports)
+    const size = encoder.encode(body).byteLength
+    if (size > budget) return false
+    budget -= size
+    send(endpoint!, body)
+    return true
+  }
   let batch: ClientErrorReport[] = []
-  for (const report of pending.splice(0)) {
+  const queue = pending.splice(0)
+  while (queue.length > 0) {
+    const report = queue[0]!
     const next = [...batch, report]
     if (next.length <= CLIENT_ERROR_LIMITS.batch && fits(encode(next))) {
       batch = next
+      queue.shift()
       continue
     }
-    if (batch.length > 0) send(endpoint, encode(batch))
+    if (batch.length > 0 && !sendBatch(batch)) {
+      pending.unshift(...batch, ...queue)
+      scheduleFlush()
+      return
+    }
     batch = []
+    queue.shift()
     // 单条就超限（超长的 context、满是中文的栈）：依次去掉 context、缩短栈，保住错误本身。
     const slimmed = [
       report,
@@ -120,7 +139,10 @@ export function flushClientErrors(): void {
     ].find((candidate) => fits(encode([candidate])))
     if (slimmed) batch = [slimmed]
   }
-  if (batch.length > 0) send(endpoint, encode(batch))
+  if (batch.length > 0 && !sendBatch(batch)) {
+    pending.unshift(...batch)
+    scheduleFlush()
+  }
 }
 
 /** `text/plain` 是 CORS 安全类型，跨域发往 API 时不触发预检；页面关闭途中也能送达。 */
