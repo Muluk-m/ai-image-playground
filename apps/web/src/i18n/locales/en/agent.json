@@ -208,6 +208,7 @@
     "stopped": "Stopped"
   },
   "composer": {
+    "uploadsPending": "Reference images are still uploading; you can send once they finish",
     "placeholder": "Say what you want, @ for canvas or assets",
     "chatPlaceholder": "Say what you want, @ to mention an asset",
     "editorAria": "Message the agent",

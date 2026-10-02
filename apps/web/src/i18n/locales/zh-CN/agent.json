@@ -198,6 +198,7 @@
     "stopped": "已停止"
   },
   "composer": {
+    "uploadsPending": "参考图还在上传，传完就能发送",
     "placeholder": "说一句你想做什么，@ 引用画布或素材",
     "chatPlaceholder": "说一句你想做什么，@ 引用素材",
     "editorAria": "对智能体说",
