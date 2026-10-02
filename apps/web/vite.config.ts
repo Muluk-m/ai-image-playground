@@ -12,6 +12,9 @@ import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
+/** 最低支持的浏览器内核。Chrome 80 覆盖仍在使用的国产浏览器旧内核；Safari 14 覆盖 iOS 14。 */
+const BROWSER_TARGET = ['es2020', 'chrome80', 'edge80', 'firefox78', 'safari14']
+
 function loadDevProxyConfig() {
   try {
     return normalizeDevProxyConfig(
@@ -106,10 +109,10 @@ export default defineConfig(({ command }) => {
       setupFiles: ['./src/__tests__/setup/i18n.ts'],
     },
     build: {
-      // main.tsx 用 top-level await 启动 runtime/channel discovery；
-      // vite 默认 target='modules' (ES2020) 不支持 TLA，会构建失败。
-      // 'esnext' 与 TLA 的 baseline (Chrome 89+/Safari 15+) 对齐。
-      target: 'esnext',
+      // Windows 上大量用户用 360/QQ/搜狗等国产浏览器，内核常停在 Chromium 80 多版本；
+      // 构建产物的语法必须降到它们读得懂，否则主脚本解析失败，整页停在「工作台暂时无法打开」。
+      // 运行时 API 的缺口由 `src/boot/polyfills.ts` 补。入口因此不能用顶层 await。
+      target: BROWSER_TARGET,
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
@@ -120,6 +123,8 @@ export default defineConfig(({ command }) => {
           // 大概率不变，业务代码改动只 bust 业务 chunk）。用函数形式才能匹配
           // deep imports（react/jsx-runtime、react-dom/client 等）。
           manualChunks(id) {
+            // 独立成块并由入口第一个导入：共享块先于入口正文执行，内联进入口就补晚了。
+            if (id.includes('/src/boot/polyfills')) return 'polyfills'
             if (!id.includes('node_modules')) return undefined
             if (
               id.includes('/react/') ||
