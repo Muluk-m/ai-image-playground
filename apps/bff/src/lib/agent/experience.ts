@@ -79,32 +79,37 @@ async function originExperience(
 }
 
 /**
- * 把用户消息判定出的入口记到还没记过的项目上，之后两边都以它为准。
+ * 把用户消息判定出的入口记到还没记过的项目上，之后两边都以它为准。返回项目此刻的入口是否
+ * 与这一轮用的一致。
  *
  * 必须在取走这条消息的同一事务里调：消息被撤回、预扣失败时整笔回滚，入口也不该被定下。
  * 锁与项目保存（`lib/projects.ts` 的 `writeProject`）同一把所有者行锁，保存读到旧文档、
  * 再整份写回时不会把这里刚补上的值冲掉；只补空着的那格，revision 不动，保存时沿用已有的值。
+ * 保存不受会话租约约束，可能抢在这里之前先定下入口：那时这一轮是按过期的判断准备的，不一致。
  */
 export async function recordAgentExperience(
   tx: BffTransaction,
   conversationId: string,
   userId: string,
   experience: AgentExperience,
-): Promise<void> {
+): Promise<boolean> {
   await tx
     .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
     .for('update')
+  const [project] = await tx
+    .select({ document: schema.canvas_projects.document })
+    .from(schema.canvas_projects)
+    .where(ownedProject(conversationId, userId))
+    .limit(1)
+  if (!project) return true
+  if (project.document.experience) return project.document.experience === experience
   await tx
     .update(schema.canvas_projects)
     .set({
       document: sql`jsonb_set(${schema.canvas_projects.document}, '{experience}', to_jsonb(${experience}::text))`,
     })
-    .where(
-      and(
-        ownedProject(conversationId, userId),
-        sql`${schema.canvas_projects.document}->>'experience' IS NULL`,
-      ),
-    )
+    .where(ownedProject(conversationId, userId))
+  return true
 }

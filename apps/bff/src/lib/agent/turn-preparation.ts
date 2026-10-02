@@ -305,6 +305,15 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
       if (!(await consumeAgentMessage(tx, conversationId, sourceId(source), turnId)))
         throw new TurnStartRollback({ kind: 'withdrawn' })
+      // 入口在这一轮取走消息时才定下；被并发保存抢先定成另一种，整笔回滚，消息留在队里，
+      // 起轮循环按新的入口重新准备（`withdrawn` 在那里就是「再来一次」）。
+      if (
+        source.kind === 'message' &&
+        userId &&
+        resolved.unrecorded &&
+        !(await recordAgentExperience(tx, conversationId, userId, experience))
+      )
+        throw new TurnStartRollback({ kind: 'withdrawn' })
       let reserved: ChatTaskReserved | undefined
       // 这一轮最终按哪一份走；退到 `withoutNote` 就是说明没进这一轮。
       let chosen = withNote
@@ -334,8 +343,6 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
       const storedUserMessage = await content.write?.(tx)
-      if (source.kind === 'message' && userId && resolved.unrecorded)
-        await recordAgentExperience(tx, conversationId, userId, experience)
       return {
         storedUserMessage,
         reserved,
