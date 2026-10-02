@@ -178,4 +178,65 @@ describe('Overlay', () => {
 
     expect(document.body.textContent).not.toContain('layer tooltip')
   })
+
+  describe('focus', () => {
+    // jsdom 不做布局，getClientRects 恒为空；按「全部可见」处理。
+    beforeEach(() => {
+      vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    })
+    afterEach(() => vi.restoreAllMocks())
+
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            open
+          </button>
+          {open && (
+            <Overlay onClose={() => setOpen(false)} label="对话框">
+              <button type="button">first</button>
+              <button type="button" onClick={() => setOpen(false)}>
+                last
+              </button>
+            </Overlay>
+          )}
+        </>
+      )
+    }
+
+    it('names itself, moves focus inside, wraps Tab and returns focus on close', () => {
+      render(<Harness />)
+      const opener = host.querySelector('button') as HTMLButtonElement
+      opener.focus()
+      act(() => opener.click())
+
+      const surface = overlayRoot()
+      expect(surface.getAttribute('role')).toBe('dialog')
+      expect(surface.getAttribute('aria-modal')).toBe('true')
+      expect(surface.getAttribute('aria-label')).toBe('对话框')
+      expect(document.activeElement?.textContent).toBe('first')
+
+      const last = [...surface.querySelectorAll('button')].find((b) => b.textContent === 'last')!
+      last.focus()
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+      })
+      expect(document.activeElement?.textContent).toBe('first')
+
+      act(() => last.click())
+      expect(document.activeElement).toBe(opener)
+    })
+
+    it('leaves the dialog role to content that declares its own', () => {
+      render(
+        <Overlay onClose={() => {}} role="none">
+          <div role="dialog" aria-label="inner">
+            <button type="button">ok</button>
+          </div>
+        </Overlay>,
+      )
+      expect(overlayRoot().hasAttribute('role')).toBe(false)
+    })
+  })
 })

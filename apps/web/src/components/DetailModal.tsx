@@ -405,6 +405,8 @@ export default function DetailModal() {
                 {outputLen > 1 && (
                   <>
                     <button
+                      type="button"
+                      aria-label={t('common:action.previousImage')}
                       onClick={() => setImageIndex((imageIndex - 1 + outputLen) % outputLen)}
                       className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                     >
@@ -423,6 +425,8 @@ export default function DetailModal() {
                       </svg>
                     </button>
                     <button
+                      type="button"
+                      aria-label={t('common:action.nextImage')}
                       onClick={() => setImageIndex((imageIndex + 1) % outputLen)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                     >
@@ -934,6 +938,7 @@ export default function DetailModal() {
                 </button>
                 <button
                   type="button"
+                  aria-label={t('common:action.close')}
                   onClick={() => setShowRawUrlsModal(false)}
                   className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
                 >
@@ -1016,6 +1021,7 @@ export default function DetailModal() {
                 </button>
                 <button
                   type="button"
+                  aria-label={t('common:action.close')}
                   onClick={() => setShowRawResponseModal(false)}
                   className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
                 >

@@ -37,7 +37,7 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
         onClick={() => openTemplateDetail(template.id)}
         onKeyDown={handleKeyDown}
         title={t('template.viewDetail')}
-        className="flex cursor-pointer flex-col gap-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-ring/60"
+        className="flex cursor-pointer flex-col gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="truncate text-sm font-medium text-foreground">{template.name}</span>
 

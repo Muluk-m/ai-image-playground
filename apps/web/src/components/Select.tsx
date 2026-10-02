@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { useTranslation } from '../i18n'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from './icons'
@@ -73,6 +74,48 @@ export default function Select({
   const triggerRef = useRef<HTMLDivElement>(null)
 
   const selectedOption = options.find((o) => o.value === value)
+  const listId = useId()
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const optionId = (index: number) => `${listId}-opt-${index}`
+
+  const openMenu = () => {
+    setActiveIndex(selectedOption ? options.indexOf(selectedOption) : 0)
+    setIsOpen(true)
+  }
+  // 打开时成为 Esc 栈顶：Esc 只关下拉，不关外层弹窗。
+  useCloseOnEscape(isOpen, () => setIsOpen(false))
+
+  // 键盘与 WAI-ARIA combobox 约定一致：方向键移动高亮，Enter 选中。
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        openMenu()
+      }
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      setActiveIndex((index) => (index + step + options.length) % options.length)
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      setActiveIndex(e.key === 'Home' ? 0 : options.length - 1)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      const option = options[activeIndex]
+      if (option) onChange(option.value)
+      setIsOpen(false)
+    } else if (e.key === 'Tab') {
+      setIsOpen(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen || activeIndex < 0) return
+    document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: 'nearest' })
+  }, [isOpen, activeIndex])
 
   useEffect(() => {
     return () => {
@@ -162,7 +205,8 @@ export default function Select({
     e.preventDefault()
     e.stopPropagation()
     // 动画和位置的计算在 useEffect 中进行，这里可以先假设一个默认值或保留当前状态
-    setIsOpen(!isOpen)
+    if (isOpen) setIsOpen(false)
+    else openMenu()
   }
 
   const clearTouchDrag = () => {
@@ -181,9 +225,18 @@ export default function Select({
     <div ref={containerRef} className={wrapperClassName ?? 'relative w-full'}>
       <div
         ref={triggerRef}
+        role="combobox"
+        tabIndex={disabled ? -1 : 0}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listId : undefined}
+        aria-activedescendant={isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined}
+        aria-disabled={disabled || undefined}
+        aria-label={hideSelectedLabel ? (selectedOption?.label ?? String(value)) : undefined}
         title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
-        className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
+        onKeyDown={handleKeyDown}
+        className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring ${className ?? ''} ${
           disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50' : ''
         }`}
       >
@@ -195,6 +248,8 @@ export default function Select({
 
       {isOpen && (
         <div
+          id={listId}
+          role="listbox"
           className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
             placement === 'top'
               ? 'bottom-full mb-1.5 animate-dropdown-up'
@@ -202,9 +257,13 @@ export default function Select({
           }`}
           style={{ maxHeight: menuMaxHeight }}
         >
-          {options.map((option) => (
+          {options.map((option, index) => (
             <div
               key={option.value}
+              id={optionId(index)}
+              role="option"
+              aria-selected={option.value === value}
+              onMouseEnter={() => setActiveIndex(index)}
               data-option-value={String(option.value)}
               title={option.title ?? option.label}
               draggable={option.draggable}
@@ -373,6 +432,10 @@ export default function Select({
                 setIsOpen(false)
               }}
               className={`relative flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs transition-colors ${
+                index === activeIndex && draggedValue !== option.value
+                  ? 'ring-1 ring-inset ring-ring/40'
+                  : ''
+              } ${
                 draggedValue === option.value
                   ? 'opacity-40 bg-muted'
                   : option.variant === 'action'

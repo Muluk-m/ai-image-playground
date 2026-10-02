@@ -378,7 +378,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
     ) : null
 
   return (
-    <Overlay onClose={onClose} tier="raised">
+    <Overlay onClose={onClose} tier="raised" role="none">
       <div role="dialog" aria-modal="true" aria-label={t('dialog.label')} className="auth-dialog">
         <button
           type="button"

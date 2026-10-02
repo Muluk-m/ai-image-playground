@@ -22,7 +22,12 @@
     "save": "Save",
     "download": "Download",
     "collapse": "Collapse",
-    "generate": "Generate"
+    "generate": "Generate",
+    "show": "Show",
+    "hide": "Hide",
+    "remove": "Remove",
+    "previousImage": "Previous",
+    "nextImage": "Next"
   },
   "state": {
     "generating": "Generating",

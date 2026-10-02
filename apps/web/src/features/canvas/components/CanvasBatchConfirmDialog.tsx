@@ -45,7 +45,7 @@ export default function CanvasBatchConfirmDialog({
   }
 
   return (
-    <Overlay onClose={submitting ? () => {} : onClose} tier="raised">
+    <Overlay onClose={submitting ? () => {} : onClose} tier="raised" role="none">
       <div
         role="dialog"
         aria-modal="true"
