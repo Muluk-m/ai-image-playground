@@ -91,7 +91,7 @@ export default function AssetDetail({
                   type="button"
                   onClick={() => setLightboxImageId(view.imageId)}
                   aria-label={t('asset.zoom')}
-                  className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <AssetThumb imageId={view.imageId} alt={asset.name} />
                   {view.imageId === assetCoverImageId(asset) && index === 0 && (

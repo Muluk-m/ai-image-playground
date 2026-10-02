@@ -300,7 +300,7 @@ export default function DetailModal() {
 
   return (
     <>
-      <Overlay onClose={() => setDetailTaskId(null)} tier="modal">
+      <Overlay onClose={() => setDetailTaskId(null)} tier="modal" label={t('detail.dialog')}>
         <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col md:flex-row z-10 ring-1 ring-black/5 dark:ring-white/10 animate-modal-in">
           <div className="flex h-14 items-center justify-end px-4 md:hidden">
             <button
@@ -405,6 +405,8 @@ export default function DetailModal() {
                 {outputLen > 1 && (
                   <>
                     <button
+                      type="button"
+                      aria-label={t('common:action.previousImage')}
                       onClick={() => setImageIndex((imageIndex - 1 + outputLen) % outputLen)}
                       className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                     >
@@ -423,6 +425,8 @@ export default function DetailModal() {
                       </svg>
                     </button>
                     <button
+                      type="button"
+                      aria-label={t('common:action.nextImage')}
                       onClick={() => setImageIndex((imageIndex + 1) % outputLen)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                     >
@@ -907,7 +911,11 @@ export default function DetailModal() {
       </Overlay>
 
       {showRawUrlsModal && rawImageUrls.length > 0 && (
-        <Overlay onClose={() => setShowRawUrlsModal(false)} tier="raised">
+        <Overlay
+          onClose={() => setShowRawUrlsModal(false)}
+          tier="raised"
+          label={t('rawUrls.title', { n: rawImageUrls.length })}
+        >
           <div className="flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
               <h3 className="text-base font-semibold text-foreground dark:text-white">
@@ -934,6 +942,7 @@ export default function DetailModal() {
                 </button>
                 <button
                   type="button"
+                  aria-label={t('common:action.close')}
                   onClick={() => setShowRawUrlsModal(false)}
                   className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
                 >
@@ -984,7 +993,11 @@ export default function DetailModal() {
       )}
 
       {showRawResponseModal && task?.rawResponsePayload && (
-        <Overlay onClose={() => setShowRawResponseModal(false)} tier="raised">
+        <Overlay
+          onClose={() => setShowRawResponseModal(false)}
+          tier="raised"
+          label={t('rawResponse.title')}
+        >
           <div
             className="flex w-full max-w-3xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-card shadow-xl"
             onPointerDown={(e) => {
@@ -1016,6 +1029,7 @@ export default function DetailModal() {
                 </button>
                 <button
                   type="button"
+                  aria-label={t('common:action.close')}
                   onClick={() => setShowRawResponseModal(false)}
                   className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
                 >

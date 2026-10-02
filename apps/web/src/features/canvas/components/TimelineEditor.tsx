@@ -252,7 +252,7 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
   const missingNow = clips.length > 0 && !urlOf(clips, playIndex)
 
   return (
-    <Overlay onClose={close} tier="raised" layout="fill" backdrop="none">
+    <Overlay onClose={close} tier="raised" layout="fill" backdrop="none" role="none">
       <div
         ref={root}
         className="flex h-full w-full flex-col bg-background text-foreground outline-none"

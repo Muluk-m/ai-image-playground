@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { useTranslation } from '../i18n'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from './icons'
@@ -34,6 +35,8 @@ interface SelectProps {
   wrapperClassName?: string
   /** 隐藏选中值文本（chip 模式由外层 chip 自己渲染 value，只保留 chevron 触发）。 */
   hideSelectedLabel?: boolean
+  /** 字段名（「质量」「格式」），读屏用；同一行里多个 auto 靠它区分 */
+  label?: string
 }
 
 export default function Select({
@@ -45,6 +48,7 @@ export default function Select({
   className,
   wrapperClassName,
   hideSelectedLabel,
+  label,
 }: SelectProps) {
   const { t } = useTranslation(['composer', 'common'])
   const [isOpen, setIsOpen] = useState(false)
@@ -73,6 +77,62 @@ export default function Select({
   const triggerRef = useRef<HTMLDivElement>(null)
 
   const selectedOption = options.find((o) => o.value === value)
+  const listId = useId()
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const optionId = (index: number) => `${listId}-opt-${index}`
+
+  const openMenu = () => {
+    setActiveIndex(selectedOption ? options.indexOf(selectedOption) : 0)
+    setIsOpen(true)
+  }
+  // 打开时成为 Esc 栈顶：Esc 只关下拉，不关外层弹窗。
+  useCloseOnEscape(isOpen, () => closeMenu())
+
+  // 焦点在列表里（编辑 / 删除按钮）时关掉下拉，按钮随之卸载；把焦点还给触发器，
+  // 动作若打开了新弹窗，新弹窗会在下一帧接走焦点，这里不抢。
+  const closeMenu = () => {
+    const hadFocusInside = containerRef.current?.contains(document.activeElement) ?? false
+    setIsOpen(false)
+    if (!hadFocusInside) return
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body || !document.activeElement?.isConnected) {
+        triggerRef.current?.focus()
+      }
+    })
+  }
+
+  // 键盘与 WAI-ARIA combobox 约定一致：方向键移动高亮，Enter 选中。
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        openMenu()
+      }
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      setActiveIndex((index) => (index + step + options.length) % options.length)
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      setActiveIndex(e.key === 'Home' ? 0 : options.length - 1)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      const option = options[activeIndex]
+      if (option) onChange(option.value)
+      setIsOpen(false)
+    } else if (e.key === 'Tab' && !options.some((option) => option.actions?.length)) {
+      // 带编辑 / 删除按钮的列表不在 Tab 时收起，让焦点能走进这些按钮。
+      setIsOpen(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen || activeIndex < 0) return
+    document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: 'nearest' })
+  }, [isOpen, activeIndex])
 
   useEffect(() => {
     return () => {
@@ -162,7 +222,8 @@ export default function Select({
     e.preventDefault()
     e.stopPropagation()
     // 动画和位置的计算在 useEffect 中进行，这里可以先假设一个默认值或保留当前状态
-    setIsOpen(!isOpen)
+    if (isOpen) setIsOpen(false)
+    else openMenu()
   }
 
   const clearTouchDrag = () => {
@@ -178,12 +239,38 @@ export default function Select({
   }
 
   return (
-    <div ref={containerRef} className={wrapperClassName ?? 'relative w-full'}>
+    <div
+      ref={containerRef}
+      className={wrapperClassName ?? 'relative w-full'}
+      onBlur={(e) => {
+        // 焦点移到 Select 之外的控件才收起，Tab 进操作按钮时保持打开。relatedTarget 为空
+        // 是点在不可聚焦的选项上，交给 click 处理；点页面空白由外部 mousedown 收起。
+        // 点选项时焦点会落到外层可聚焦容器（如 Popover），它包着 Select，不算离开。
+        const next = e.relatedTarget as Node | null
+        const container = containerRef.current
+        if (isOpen && next && container && !container.contains(next) && !next.contains(container)) {
+          setIsOpen(false)
+        }
+      }}
+    >
       <div
         ref={triggerRef}
+        role="combobox"
+        tabIndex={disabled ? -1 : 0}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listId : undefined}
+        aria-activedescendant={isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined}
+        aria-disabled={disabled || undefined}
+        aria-label={
+          hideSelectedLabel
+            ? [label, selectedOption?.label ?? String(value)].filter(Boolean).join(' ')
+            : label
+        }
         title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
-        className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
+        onKeyDown={handleKeyDown}
+        className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring ${className ?? ''} ${
           disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50' : ''
         }`}
       >
@@ -195,6 +282,8 @@ export default function Select({
 
       {isOpen && (
         <div
+          id={listId}
+          role="listbox"
           className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
             placement === 'top'
               ? 'bottom-full mb-1.5 animate-dropdown-up'
@@ -202,9 +291,13 @@ export default function Select({
           }`}
           style={{ maxHeight: menuMaxHeight }}
         >
-          {options.map((option) => (
+          {options.map((option, index) => (
             <div
               key={option.value}
+              id={optionId(index)}
+              role="option"
+              aria-selected={option.value === value}
+              onMouseEnter={() => setActiveIndex(index)}
               data-option-value={String(option.value)}
               title={option.title ?? option.label}
               draggable={option.draggable}
@@ -373,6 +466,10 @@ export default function Select({
                 setIsOpen(false)
               }}
               className={`relative flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs transition-colors ${
+                index === activeIndex && draggedValue !== option.value
+                  ? 'ring-1 ring-inset ring-ring/40'
+                  : ''
+              } ${
                 draggedValue === option.value
                   ? 'opacity-40 bg-muted'
                   : option.variant === 'action'
@@ -435,7 +532,7 @@ export default function Select({
                         event.preventDefault()
                         event.stopPropagation()
                         action.onClick()
-                        setIsOpen(false)
+                        closeMenu()
                       }}
                       className={`rounded-md p-1.5 transition flex items-center justify-center ${
                         action.variant === 'danger'

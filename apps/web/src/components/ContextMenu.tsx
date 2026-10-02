@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 
 interface ContextMenuProps {
   x: number
@@ -45,6 +46,22 @@ export default function ContextMenu({
   // 回调走 ref：调用方传的是内联箭头函数，进依赖数组会让每次父组件重渲染都重挂 5 个监听。
   const handlersRef = useRef({ onClose, onOutsidePointer })
   handlersRef.current = { onClose, onOutsidePointer }
+  useCloseOnEscape(true, onClose)
+
+  // 菜单不是模态：打开时聚焦第一项、关闭时还给打开者，但不锁 Tab——Tab 直接收起菜单。
+  // 打开者在渲染时记下，effect 里读到的可能已是菜单项。
+  const openerRef = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  )
+  useEffect(() => {
+    const opener = openerRef.current
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true })
+    return () => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true })
+    }
+  }, [])
 
   useEffect(() => {
     const close = (e: Event) => {
@@ -70,6 +87,21 @@ export default function ContextMenu({
   return createPortal(
     <div
       ref={menuRef}
+      role="menu"
+      onKeyDown={(e) => {
+        if (e.key === 'Tab') {
+          handlersRef.current.onClose()
+          return
+        }
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+        e.preventDefault()
+        const items = [
+          ...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+        ]
+        const at = items.indexOf(document.activeElement as HTMLElement)
+        const step = e.key === 'ArrowDown' ? 1 : -1
+        items[(at + step + items.length) % items.length]?.focus()
+      }}
       className="fixed z-[9999] min-w-[120px] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in"
       style={{ left: position.left, top: position.top }}
       onContextMenu={(e) => e.preventDefault()}
@@ -92,8 +124,9 @@ export function ContextMenuItem({
   return (
     <button
       type="button"
+      role="menuitem"
       onClick={onClick}
-      className="flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-card"
+      className="flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-muted focus-visible:bg-muted"
     >
       {icon}
       {label}
