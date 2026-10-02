@@ -82,7 +82,16 @@ it('splits batches by encoded size so long multibyte stacks still arrive', async
     error.stack = '堆栈'.repeat(4000)
     reportClientError('error', error)
   }
-  flushClientErrors()
+  vi.useFakeTimers()
+  try {
+    flushClientErrors()
+    // 一拍只发 48 KiB，剩下的留到下一拍，不挤爆浏览器的在途配额。
+    const firstTick = sendBeacon.mock.calls.reduce((sum, [, blob]) => sum + blob.size, 0)
+    expect(firstTick).toBeLessThanOrEqual(48 * 1024)
+    await vi.runAllTimersAsync()
+  } finally {
+    vi.useRealTimers()
+  }
   const bodies = await sentBodies()
   expect(bodies.length).toBeGreaterThan(1)
   expect(bodies.flatMap((sent) => sent.body.errors)).toHaveLength(8)
