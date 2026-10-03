@@ -918,6 +918,11 @@ export interface AgentConversationView {
   readonly title: string
   readonly createdAt: number
   readonly updatedAt: number
+  /**
+   * 仅列表接口给：这段对话最近一次生成的第一张输出图。没有云端项目的对话在客户端只有
+   * 一条本地项目记录，画布又是空的，封面只能靠它。
+   */
+  readonly coverMediaId?: string
 }
 
 /** 一轮的消耗明细，单位是积分。 */

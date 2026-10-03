@@ -307,6 +307,21 @@ export async function restoreProject(id: string): Promise<void> {
   if (isCurrent()) await workspaces.get(project.sceneKey)?.cloud?.load(true)
 }
 
+/**
+ * 本地项目的封面只从画布取，对话项目的结果却留在对话里，画布常是空的：没有画布封面时
+ * 用服务端给的对话最近一张输出图。画布截出来的 data: 封面不覆盖；云端项目由项目列表负责。
+ */
+function conversationCover(
+  project: { cover?: string; cloud?: unknown },
+  conversation: AgentConversationView,
+): { cover: string | undefined } | null {
+  if (project.cloud) return null
+  if (project.cover && !project.cover.startsWith('aip-media:')) return null
+  // 列表说这段对话已经没有可用输出（比如生成记录被删了），之前补的兜底封面也要撤掉。
+  const cover = conversation.coverMediaId ? `aip-media:${conversation.coverMediaId}` : undefined
+  return project.cover === cover ? null : { cover }
+}
+
 /** 会话列表回来了：没有项目的会话补一条项目记录，没起过名的跟着会话标题走。 */
 export async function importConversationProjects(
   conversations: readonly AgentConversationView[],
@@ -330,13 +345,26 @@ export async function importConversationProjects(
           project.name !== conversation.title
         )
           await autoNameProject(project.id, conversation.title).catch(() => {})
+        if (!isCurrent()) return
+        // 上面的改名会 await，这期间画布可能刚写进截图封面：按目录里的最新一份判断。
+        const latest = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.id === project.id)
+        const change = latest && conversationCover(latest, conversation)
+        if (change)
+          await useCanvasProjectStore
+            .getState()
+            .update(project.id, change)
+            .catch(() => {})
       }
       continue
     }
-    const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
+    let project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
       sceneKey: canvasSceneKey(conversation.id),
       conversationId: conversation.id,
     })
+    const change = conversationCover(project, conversation)
+    if (change) project = await projectRepository.update(project.id, change)
     useCanvasProjectStore.getState().updateListed(project)
   }
 }
