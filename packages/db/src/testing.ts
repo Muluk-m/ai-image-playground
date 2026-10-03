@@ -88,9 +88,13 @@ function checkedDatabaseName(name: string): string {
 
 /** Changes whenever a committed migration or the journal changes, so a stale template is never reused. */
 async function migrationsFingerprint(): Promise<string> {
-  const files = await Array.fromAsync(
-    new Bun.Glob('{*.sql,meta/_journal.json}').scan({ cwd: migrationsFolder }),
-  )
+  // Two scans on purpose: Bun 1.3's Glob matches nothing for a brace group mixing a bare pattern
+  // with a path (`{*.sql,meta/_journal.json}`), which hashed an empty set and froze the template.
+  const files = [
+    ...(await Array.fromAsync(new Bun.Glob('*.sql').scan({ cwd: migrationsFolder }))),
+    ...(await Array.fromAsync(new Bun.Glob('meta/_journal.json').scan({ cwd: migrationsFolder }))),
+  ]
+  if (files.length < 2) throw new Error(`no migrations found under ${migrationsFolder}`)
   const hash = createHash('sha256')
   for (const file of files.sort()) {
     hash.update(file)
