@@ -35,7 +35,7 @@ export default function ProductionShotPane({
   refreshKey?: string
 }) {
   const { t } = useTranslation('production')
-  const edit = useProductionEditor(document, onSaved)
+  const edit = useProductionEditor(document, onSaved, 'shots')
   const shots = edit.content.shots ?? []
   const [selected, setSelected] = useState<string | null>(null)
   const [removeId, setRemoveId] = useState<string | null>(null)
