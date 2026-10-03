@@ -1,9 +1,19 @@
+import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
+import { useState } from 'react'
 
 import { Kpi } from '@/components/Kpi'
-import { LazyTaskVolumeChart } from '@/components/LazyTaskVolumeChart'
+import { AgentCacheCard } from '@/components/overview/AgentCacheCard'
+import { AttentionList } from '@/components/overview/AttentionList'
+import { HealthStrip } from '@/components/overview/HealthStrip'
+import {
+  LazyClientErrorTrendChart,
+  LazyOverviewTrendChart,
+} from '@/components/overview/LazyOverviewTrendChart'
+import { Sparkline } from '@/components/overview/Sparkline'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { RangeToggle } from '@/components/RangeToggle'
+import { SegmentedControl } from '@/components/SegmentedControl'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -13,256 +23,403 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { adminSessionQueryOptions } from '@/lib/admin-session'
+import { elapsed } from '@/lib/format'
+import {
+  type AttentionItem,
+  attentionItems,
+  type Change,
+  change,
+  healthTiles,
+  percent,
+} from '@/lib/overview-signals'
 import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
-import { useOverview } from '@/lib/queries'
-import { parseOverviewSearch, RANGE_LABEL, type Range } from '@/lib/search-params'
-import type { OverviewResult } from '@/lib/types'
+import { useClientErrors, useOps, useOverview } from '@/lib/queries'
+import {
+  DEFAULT_OPS_RANGE,
+  parseOverviewSearch,
+  RANGE_LABEL,
+  type Range,
+} from '@/lib/search-params'
+import type { ClientErrorsResult, OpsSnapshot, OverviewResult } from '@/lib/types'
 import { useRangeSearch } from '@/lib/useRangeSearch'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_authed/overview')({
   validateSearch: parseOverviewSearch,
   component: OverviewPage,
 })
 
-function formatDuration(value: number | null): string {
-  if (value === null) return '—'
-  return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(1)} s`
-}
-
-function cacheRate(readTokens: number, inputTokens: number): string {
-  return inputTokens > 0 ? `${((readTokens / inputTokens) * 100).toFixed(1)}%` : '—'
-}
-
+/**
+ * 指挥台：一个首页回答「现在好不好」。所有业务数字同一个时间窗，并和紧挨着的上一个同长度窗口比；
+ * 健康灯与「需要处理」复用运维看板与前端错误页的判断，点进去就是对应的详情页。
+ */
 function OverviewPage() {
   const [range, setRange] = useRangeSearch()
-  const query = useOverview(range)
+  const overview = useOverview(range)
+  // 运维快照与前端错误各自取、各自失败：哪一块没到，就只有那几盏灯显示读取中。
+  const ops = useOps(DEFAULT_OPS_RANGE, 60_000)
+  const errors = useClientErrors(range)
 
   return (
-    <Page crumbs={[{ label: '概览' }]} description="运行状态与任务趋势">
-      {query.isPending ? (
-        <PendingState label="正在汇总任务数据" />
-      ) : query.isError ? (
-        <ErrorState label="概览加载失败" error={query.error} />
+    <Page
+      crumbs={[{ label: '概览' }]}
+      description={`所有数字统计近 ${RANGE_LABEL[range]}，并与上一个同长度时段对比`}
+      actions={<RangeToggle value={range} onChange={setRange} />}
+    >
+      {overview.isPending ? (
+        <PendingState label="正在汇总" />
+      ) : overview.isError ? (
+        <ErrorState label="概览加载失败" error={overview.error} />
       ) : (
-        <OverviewContent data={query.data} range={range} onRangeChange={setRange} />
+        <CommandCenter
+          overview={overview.data}
+          ops={ops.data}
+          errors={errors.data}
+          opsPending={ops.isPending}
+          range={range}
+        />
       )}
     </Page>
   )
 }
 
-function OverviewContent({
-  data,
+function CommandCenter({
+  overview,
+  ops,
+  errors,
+  opsPending,
   range,
-  onRangeChange,
 }: {
-  data: OverviewResult
+  overview: OverviewResult
+  ops: OpsSnapshot | undefined
+  errors: ClientErrorsResult | undefined
+  opsPending: boolean
   range: Range
-  onRangeChange: (next: Range) => void
 }) {
-  const { summary, volume, volume_bucket, failures, models, agent_cache } = data
-  const successPercent = Math.round(summary.success_rate * 1000) / 10
-  const multiplier = summary.total === 0 ? null : summary.upstream_invocations / summary.total
-
+  const tiles = healthTiles({ overview, ops, errors })
+  const items = attentionItems({ overview, ops, errors })
   return (
     <>
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-label="关键指标">
-        <Kpi label={`任务总量 · ${RANGE_LABEL[range]}`} value={String(summary.total)} />
-        <Kpi
-          label="上游调用"
-          value={String(summary.upstream_invocations)}
-          note={multiplier === null ? '暂无任务' : `平均 ${multiplier.toFixed(2)} 次 / 任务`}
-        />
-        <Kpi
-          label="成功率"
-          value={`${successPercent}%`}
-          note={`${summary.completed} 成功 · ${summary.failed} 失败`}
-        />
-        <Kpi
-          label="中位耗时 P50"
-          value={formatDuration(summary.p50_duration_ms)}
-          note="上游处理耗时中位数"
-        />
-        <Kpi
-          label="慢请求 P95"
-          value={formatDuration(summary.p95_duration_ms)}
-          note="上游处理耗时 95 分位"
-        />
+      <HealthStrip tiles={tiles} />
+      <PulseKpis overview={overview} />
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <TrendCard overview={overview} errors={errors} />
+        <AttentionCard items={items} pending={opsPending} />
       </section>
-
+      <section className="grid gap-4 xl:grid-cols-2">
+        <ModelsCard overview={overview} />
+        <FailuresCard overview={overview} />
+      </section>
       <PrivateAdminOverviewPanel />
+      <AgentCacheCard agent_cache={overview.agent_cache} range={range} />
+    </>
+  )
+}
 
-      <Card>
-        <CardHeader className="p-4">
-          <CardTitle className="text-sm">Agent 输入缓存 · {RANGE_LABEL[range]}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 p-4 pt-0">
-          <div>
-            <p className="font-mono text-2xl font-semibold tabular-nums">
-              {cacheRate(agent_cache.cache_read_tokens, agent_cache.input_tokens)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              缓存命中率 = 缓存读取 token / 输入 token · {agent_cache.calls.toLocaleString('zh-CN')}{' '}
-              次已上报用量的对话调用
-            </p>
+const SENTIMENT_CLASS: Record<Change['sentiment'], string> = {
+  good: 'text-success',
+  bad: 'text-danger',
+  neutral: 'text-muted-foreground',
+}
+
+function PulseKpis({ overview }: { overview: OverviewResult }) {
+  const { data: session } = useQuery(adminSessionQueryOptions)
+  const { current, previous, series } = overview.pulse
+  const kpis = [
+    {
+      label: '提交任务',
+      now: current.tasks,
+      before: previous.tasks,
+      series: series.map((b) => b.tasks),
+    },
+    {
+      label: '活跃用户',
+      now: current.active,
+      before: previous.active,
+      series: series.map((b) => b.active),
+      hint: '账号与匿名设备',
+    },
+    {
+      label: '出图张数',
+      now: current.images,
+      before: previous.images,
+      series: series.map((b) => b.images),
+    },
+    // 没开账号登录的部署没有注册这回事，换成 Agent 轮次。
+    session?.accounts_login === false
+      ? {
+          label: 'Agent 轮次',
+          now: current.agent_turns,
+          before: previous.agent_turns,
+          series: series.map((b) => b.agent_completed + b.agent_failed + b.agent_aborted),
+        }
+      : {
+          label: '新注册',
+          now: current.signups,
+          before: previous.signups,
+          series: series.map((b) => b.signups),
+        },
+  ]
+  return (
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="业务指标">
+      {kpis.map((kpi) => {
+        const delta = change(kpi.now, kpi.before)
+        return (
+          <Card key={kpi.label}>
+            <CardContent className="flex items-end justify-between gap-3 p-4">
+              <div className="min-w-0 flex-1">
+                <Kpi
+                  variant="inline"
+                  label={kpi.label}
+                  value={kpi.now.toLocaleString('zh-CN')}
+                  note={
+                    <>
+                      <span
+                        className={cn('font-mono font-semibold', SENTIMENT_CLASS[delta.sentiment])}
+                      >
+                        {delta.text}
+                      </span>{' '}
+                      上期 {kpi.before.toLocaleString('zh-CN')}
+                      {'hint' in kpi && kpi.hint ? ` · ${kpi.hint}` : ''}
+                    </>
+                  }
+                />
+              </div>
+              <Sparkline values={kpi.series} className={SENTIMENT_CLASS[delta.sentiment]} />
+            </CardContent>
+          </Card>
+        )
+      })}
+    </section>
+  )
+}
+
+type TrendTab = 'tasks' | 'agent' | 'errors'
+const TREND_OPTIONS: ReadonlyArray<{ value: TrendTab; label: string }> = [
+  { value: 'tasks', label: '生成任务' },
+  { value: 'agent', label: 'Agent 轮次' },
+  { value: 'errors', label: '前端错误' },
+]
+
+function TrendCard({
+  overview,
+  errors,
+}: {
+  overview: OverviewResult
+  errors: ClientErrorsResult | undefined
+}) {
+  const [tab, setTab] = useState<TrendTab>('tasks')
+  const { summary } = overview
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
+        <CardTitle className="text-sm">趋势</CardTitle>
+        <SegmentedControl options={TREND_OPTIONS} value={tab} onChange={setTab} label="趋势口径" />
+      </CardHeader>
+      <CardContent className="space-y-3 p-4 pt-0">
+        {tab === 'errors' ? (
+          errors ? (
+            <LazyClientErrorTrendChart buckets={errors.trend} bucketUnit={errors.bucket_unit} />
+          ) : (
+            <PendingState label="正在读取前端错误" className="h-52" />
+          )
+        ) : (
+          <LazyOverviewTrendChart
+            metric={tab}
+            overview={overview}
+            bucketUnit={overview.volume_bucket}
+          />
+        )}
+        {tab === 'tasks' ? (
+          <div className="grid grid-cols-3 gap-4 border-t pt-3">
+            <Kpi
+              variant="inline"
+              label="成功率"
+              value={percent(summary.success_rate)}
+              note={`${summary.completed} 成功 · ${summary.failed} 失败`}
+            />
+            <Kpi
+              variant="inline"
+              label="排队 P50"
+              value={summary.queue_p50_ms === null ? '—' : elapsed(summary.queue_p50_ms)}
+              note="提交到开始执行"
+            />
+            <Kpi
+              variant="inline"
+              label="生成 P50 / P95"
+              value={
+                summary.p50_duration_ms === null
+                  ? '—'
+                  : `${elapsed(summary.p50_duration_ms)} / ${elapsed(summary.p95_duration_ms ?? 0)}`
+              }
+              note="开始执行到完成"
+            />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-md border p-3">
-              <p className="text-xs text-muted-foreground">每轮首调</p>
-              <p className="font-mono text-lg font-semibold tabular-nums">
-                {cacheRate(
-                  agent_cache.first_call.cache_read_tokens,
-                  agent_cache.first_call.input_tokens,
-                )}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {agent_cache.first_call.calls.toLocaleString('zh-CN')} 次，含新对话及后续轮首次调用
-              </p>
-            </div>
-            <div className="rounded-md border p-3">
-              <p className="text-xs text-muted-foreground">轮内续调</p>
-              <p className="font-mono text-lg font-semibold tabular-nums">
-                {cacheRate(
-                  agent_cache.continuation.cache_read_tokens,
-                  agent_cache.continuation.input_tokens,
-                )}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {agent_cache.continuation.calls.toLocaleString('zh-CN')} 次，同一轮工具调用后继续
-              </p>
-            </div>
-          </div>
-          {agent_cache.models.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>模型</TableHead>
-                  <TableHead className="text-right">调用</TableHead>
-                  <TableHead className="text-right">缓存读取</TableHead>
-                  <TableHead className="text-right">输入 token</TableHead>
-                  <TableHead className="text-right">命中率</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {agent_cache.models.map((model) => (
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function AttentionCard({ items, pending }: { items: readonly AttentionItem[]; pending: boolean }) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
+        <CardTitle className="text-sm">需要处理</CardTitle>
+        <span className="text-xs text-muted-foreground">
+          {items.length ? `${items.length} 项 · 运维、生成、前端` : '运维、生成、前端'}
+        </span>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <AttentionList items={items} pending={pending} />
+      </CardContent>
+    </Card>
+  )
+}
+
+function ModelsCard({ overview }: { overview: OverviewResult }) {
+  const { models } = overview
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="p-4">
+        <CardTitle className="text-sm">模型</CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto p-0">
+        {models.length ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">模型</TableHead>
+                <TableHead className="text-right">任务</TableHead>
+                <TableHead className="w-[30%]">成功率</TableHead>
+                <TableHead className="text-right">排队 P50</TableHead>
+                <TableHead className="text-right">生成 P95</TableHead>
+                <TableHead className="pr-4 text-right">倍率</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {models.map((model) => {
+                const terminal = model.completed + model.failed
+                const rate = terminal > 0 ? model.completed / terminal : null
+                return (
                   <TableRow key={model.model}>
-                    <TableCell className="max-w-[240px] truncate font-mono text-xs">
+                    <TableCell className="max-w-[200px] truncate pl-4 font-mono text-xs">
                       {model.model}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {model.calls.toLocaleString('zh-CN')}
+                      {model.count.toLocaleString('zh-CN')}
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {model.cache_read_tokens.toLocaleString('zh-CN')}
+                    <TableCell>
+                      <RateBar rate={rate} />
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {model.input_tokens.toLocaleString('zh-CN')}
+                    <TableCell className="text-right font-mono text-xs tabular-nums">
+                      {model.queue_p50_ms === null ? '—' : elapsed(model.queue_p50_ms)}
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {cacheRate(model.cache_read_tokens, model.input_tokens)}
+                    <TableCell className="text-right font-mono text-xs tabular-nums">
+                      {model.run_p95_ms === null ? '—' : elapsed(model.run_p95_ms)}
+                    </TableCell>
+                    <TableCell className="pr-4 text-right font-mono tabular-nums">
+                      {model.average_multiplier === null
+                        ? '—'
+                        : model.average_multiplier.toFixed(2)}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-sm text-muted-foreground">当前范围内暂无可统计的 Agent 用量</p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            网关未上报缓存明细时可能显示 0%，请结合上游用量数据判断。
-          </p>
-        </CardContent>
-      </Card>
+                )
+              })}
+            </TableBody>
+          </Table>
+        ) : (
+          <div className="p-4">
+            <EmptyState label="当前范围内无任务" />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
-      <Card>
-        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
-          <CardTitle className="text-sm">任务脉冲</CardTitle>
-          <RangeToggle value={range} onChange={onRangeChange} />
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          <LazyTaskVolumeChart buckets={volume} bucketUnit={volume_bucket} label="系统任务量" />
-        </CardContent>
-      </Card>
+/** 成功率条：低于 90% 标红，一眼看出哪个模型拖后腿。 */
+function RateBar({ rate }: { rate: number | null }) {
+  if (rate === null) return <span className="text-xs text-muted-foreground">—</span>
+  const low = rate < 0.9
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn('h-full rounded-full', low ? 'bg-danger' : 'bg-success')}
+          style={{ width: `${Math.max(2, rate * 100)}%` }}
+        />
+      </div>
+      <span className={cn('w-12 text-right font-mono text-xs tabular-nums', low && 'text-danger')}>
+        {percent(rate)}
+      </span>
+    </div>
+  )
+}
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader className="p-4">
-            <CardTitle className="text-sm">模型用量</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {models.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-4">模型</TableHead>
-                    <TableHead className="text-right">任务</TableHead>
-                    <TableHead className="text-right">上游调用</TableHead>
-                    <TableHead className="pr-4 text-right">倍率</TableHead>
+function FailuresCard({ overview }: { overview: OverviewResult }) {
+  const { failures, summary } = overview
+  const total = failures.reduce((sum, failure) => sum + failure.count, 0)
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
+        <CardTitle className="text-sm">失败原因</CardTitle>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          共 {summary.failed}
+        </span>
+      </CardHeader>
+      <CardContent className="overflow-x-auto p-0">
+        {failures.length ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">原因</TableHead>
+                <TableHead className="w-[34%]">占比</TableHead>
+                <TableHead className="text-right">次数</TableHead>
+                <TableHead className="pr-4 text-right">较上期</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {failures.map((failure) => {
+                const diff = failure.count - failure.previous_count
+                return (
+                  <TableRow key={failure.error_type}>
+                    <TableCell className="max-w-[200px] truncate pl-4 font-mono text-xs">
+                      {failure.error_type}
+                    </TableCell>
+                    <TableCell>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-danger/80"
+                          style={{ width: `${total ? (failure.count / total) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {failure.count}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        'pr-4 text-right font-mono text-xs tabular-nums',
+                        diff > 0
+                          ? 'text-danger'
+                          : diff < 0
+                            ? 'text-success'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {diff === 0 ? '持平' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)}`}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {models.map((model) => (
-                    <TableRow key={model.model}>
-                      <TableCell className="max-w-[220px] truncate pl-4 font-mono text-xs">
-                        {model.model}
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        {model.count}
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        {model.upstream_invocations}
-                      </TableCell>
-                      <TableCell className="pr-4 text-right font-mono tabular-nums">
-                        {model.average_multiplier === null
-                          ? '—'
-                          : model.average_multiplier.toFixed(2)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <div className="p-4">
-                <EmptyState label="当前范围内无任务" />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
-            <CardTitle className="text-sm">失败分布</CardTitle>
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
-              {summary.failed}
-            </span>
-          </CardHeader>
-          <CardContent className="p-0">
-            {failures.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-4">错误类型</TableHead>
-                    <TableHead className="pr-4 text-right">次数</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {failures.map((failure) => (
-                    <TableRow key={failure.error_type}>
-                      <TableCell className="pl-4 font-mono text-xs">{failure.error_type}</TableCell>
-                      <TableCell className="pr-4 text-right font-mono tabular-nums">
-                        {failure.count}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="p-10 text-center text-sm text-muted-foreground">
-                当前范围内没有失败任务
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-    </>
+                )
+              })}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="p-10 text-center text-sm text-muted-foreground">当前范围内没有失败任务</p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
