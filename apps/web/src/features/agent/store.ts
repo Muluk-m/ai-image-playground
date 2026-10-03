@@ -50,6 +50,7 @@ import {
   restoreCloudProject,
   useCanvasProjectStore,
 } from '../canvas/projectStore'
+import { productionTurnContext } from '../production/lib/productionContext'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import { abortRecoveries, type PendingAbortRecovery } from './lib/abortRecovery'
 import {
@@ -110,6 +111,7 @@ import {
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
+import { isProductionDraft } from './lib/promptDraft'
 import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
@@ -300,6 +302,7 @@ export interface AgentState {
    * 确认一张草稿卡：把这份提示词原样交给服务端提交生成任务，面板换上提交之后的那张卡，
    * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
    */
+  acceptGenerationReceipt(conversationId: string, view: AgentMessageView): void
   confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
   /**
    * 按面板上的先后逐张确认所有待确认草稿。一张被拒（余额不够、没登录）就停下，
@@ -1576,6 +1579,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(),
+        ...productionTurnContext(get().conversationId),
         ...(modelOverride ? { model: modelOverride } : {}),
       }
       const conversationId = get().conversationId
@@ -2091,6 +2095,34 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ promptDrafts: { ...state.promptDrafts, [messageId]: prompt } }))
     },
 
+    acceptGenerationReceipt(conversationId, view) {
+      if (get().conversationId !== conversationId) return
+      const incoming = panelMessage(view.id, view.turnId, view.role, view.content)
+      if (incoming.kind !== 'tool') return
+      const shown = get().messages.find((one) => one.id === incoming.id)
+      if (
+        shown?.kind === 'tool' &&
+        agentJobUnsettled(incoming) &&
+        (shown.status === 'succeeded' || shown.status === 'failed')
+      )
+        return
+      const card = reconcileToolCard(shown, incoming)
+      if (card.kind !== 'tool') return
+      set((state) => {
+        const { [card.id]: _confirmed, ...promptDrafts } = state.promptDrafts
+        return {
+          promptDrafts: card.status === 'awaiting_confirmation' ? state.promptDrafts : promptDrafts,
+          messages: shown
+            ? state.messages.map((one) => (one.id === card.id ? card : one))
+            : [...state.messages, card],
+        }
+      })
+      if (card.status !== 'awaiting_confirmation' && card.status !== 'running') {
+        notifyPrivateSubmissionSettled()
+        jobs.track(conversationId, card, card.retryOf ? { kind: 'adopt' } : { kind: 'reserve' })
+      }
+    },
+
     async confirmPrompt(messageId, prompt) {
       const conversationId = get().conversationId
       const draft = get().messages.find((one) => one.id === messageId)
@@ -2099,7 +2131,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
       let view: AgentMessageView
       try {
-        view = await confirmToolPrompt(conversationId, messageId, text)
+        view = await confirmToolPrompt(
+          conversationId,
+          messageId,
+          text,
+          undefined,
+          draft.productionDraftRevision,
+        )
       } catch (thrown) {
         if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
         if (thrown.status === 404) return { ok: false, reason: 'gone' }
@@ -2142,7 +2180,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     async confirmAllPrompts() {
       // 先把这一刻的清单定死：确认会就地换掉卡片，边遍历边读 messages 会漏掉后面那些。
       const pending = get().messages.flatMap((one) =>
-        one.kind === 'tool' && one.status === 'awaiting_confirmation'
+        one.kind === 'tool' && one.status === 'awaiting_confirmation' && !isProductionDraft(one)
           ? [{ id: one.id, prompt: get().promptDrafts[one.id] ?? one.prompt ?? '' }]
           : [],
       )

@@ -6,7 +6,7 @@
 
 - **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
 - 前端两套 Pages、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
-- **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 发布到 https://test.muvloom.online（付费形态前端）。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。**测试站的 API 就是付费站生产 API，读写生产数据。** 细节见[测试环境手册](docs/deploy/test-environment.md)。
+- **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一公开提交与 `private.lock` 钉住的 overlay。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只用 `scripts/pages-release.sh internal|paid|test|admin`；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)；macmini2 旧备用已停止。固定 API 切换和跨机器单写者保护尚未上线，恢复演练或同库发布排空都不算完整灾备。
 

@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import type { ProductionPane } from '../../production/lib/productionContext'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -421,11 +422,13 @@ function StandardAgentToolCard({
   onViewCanvas,
   onPreviewResult,
   compactFetched = false,
+  onPreviewProduction,
 }: {
   message: AgentToolMessage
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string) => void
   compactFetched?: boolean
+  onPreviewProduction?: (pane?: ProductionPane) => void
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
@@ -497,7 +500,7 @@ function StandardAgentToolCard({
   if (message.status === 'awaiting_confirmation') {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
-        <AgentPromptDraft message={message} />
+        <AgentPromptDraft message={message} onPreviewProduction={onPreviewProduction} />
       </div>
     )
   }

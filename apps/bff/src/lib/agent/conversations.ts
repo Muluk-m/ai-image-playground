@@ -195,7 +195,7 @@ export async function softDeleteAgentConversation(
   const now = Date.now()
   await executor
     .update(schema.agent_conversations)
-    .set({ deleted_at: now, updated_at: now })
+    .set({ deleted_at: now, updated_at: now, production: null })
     .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
 }
 

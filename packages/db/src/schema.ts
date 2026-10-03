@@ -30,6 +30,9 @@ import type {
   GenerationSource,
   GenerationSummary,
   PersistedSubmitRequest,
+  ProductionGenerationBinding,
+  ProductionGenerationReference,
+  ProductionRecord,
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
@@ -419,6 +422,7 @@ export const agent_conversations = pgTable(
     deleted_at: epochMs('deleted_at'),
     /** 上下文压缩的私有状态：摘要、锚点与熔断计数。不下发前端。 */
     compaction: bunJsonb('compaction').$type<AgentCompactionRecord>(),
+    production: bunJsonb('production').$type<ProductionRecord>(),
   },
   (t) => [
     check(
@@ -632,6 +636,12 @@ export const agent_jobs = pgTable(
  * 结果卡与产物照它标注。
  */
 export interface AgentDraftSubmission {
+  readonly production?: ProductionGenerationBinding
+  readonly productionDraftRevision?: number
+  readonly productionParams?: AgentTurnParams
+  readonly productionReferences?: readonly ProductionGenerationReference[]
+  readonly productionOperationId?: string
+  readonly productionFingerprint?: string
   readonly anchorObjectId?: string
   readonly review: boolean
   readonly plan?: AgentJobPlan

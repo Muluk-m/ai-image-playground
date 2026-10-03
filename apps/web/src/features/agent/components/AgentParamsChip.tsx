@@ -1,5 +1,9 @@
 import { useMemo } from 'react'
-import { SettingsSection, SettingsSegmented } from '../../../components/composer/SettingsPanel'
+import {
+  SettingsPopover,
+  SettingsSection,
+  SettingsSegmented,
+} from '../../../components/composer/SettingsPanel'
 import { ImageSettings, ModelChip, type UnsupportedParam } from '../../../components/ParamControls'
 import { useTranslation } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -20,8 +24,14 @@ const DEPTHS = ['fast', 'medium', 'deep'] as const
  *
  * 自带 Key 的配置在智能体这条路上不生效——服务端没有 BYOK 分支，模型一律从内置渠道里挑。
  * 所以 BYOK 时模型 chip 不写 profile 里那个模型名，卡片底部写明原因。
+ *
+ * 制作模式下生成参数跟着每份草稿走（`generationControls={false}`），这里只留思考深度。
  */
-export default function AgentParamsChip() {
+export default function AgentParamsChip({
+  generationControls = true,
+}: {
+  generationControls?: boolean
+}) {
   const { t } = useTranslation('agent')
   const depth = useAgentStore((state) => state.thinkingDepth)
   const setDepth = useAgentStore((state) => state.setThinkingDepth)
@@ -33,6 +43,31 @@ export default function AgentParamsChip() {
     deep: t('params.thinkingDeep'),
   }
 
+  const thinking = (
+    <SettingsSection title={t('params.thinkingLegend')}>
+      <SettingsSegmented
+        label={t('params.thinkingLegend')}
+        options={DEPTHS.map((value) => ({ value, label: labels[value] }))}
+        value={depth}
+        onChange={setDepth}
+      />
+    </SettingsSection>
+  )
+
+  if (!generationControls) {
+    return (
+      <SettingsPopover
+        size="sm"
+        summary={t('params.thinkingSummary', { label: labels[depth] })}
+        title={t('params.thinkingLegend')}
+        dirty={depth !== 'medium'}
+        onReset={() => setDepth('medium')}
+      >
+        {() => thinking}
+      </SettingsPopover>
+    )
+  }
+
   return (
     <>
       <ModelChip size="sm" label={byok ? t('params.builtinModel') : undefined} />
@@ -42,16 +77,7 @@ export default function AgentParamsChip() {
         extra={{
           dirty: depth !== 'medium',
           reset: () => setDepth('medium'),
-          section: (
-            <SettingsSection title={t('params.thinkingLegend')}>
-              <SettingsSegmented
-                label={t('params.thinkingLegend')}
-                options={DEPTHS.map((value) => ({ value, label: labels[value] }))}
-                value={depth}
-                onChange={setDepth}
-              />
-            </SettingsSection>
-          ),
+          section: thinking,
           footnote: (
             <div className="space-y-1.5 text-label-sm leading-relaxed text-muted-foreground">
               <p>{t('params.note')}</p>

@@ -587,3 +587,13 @@ describe('reference images', () => {
     ).toBe('deriveFramesRejected')
   })
 })
+
+describe('model ids that name Object.prototype members', () => {
+  it('treats them as unsupported instead of reading the prototype', () => {
+    for (const id of ['constructor', '__proto__', 'toString']) {
+      expect(videoRequestRejection(id, request(), 0)?.code).toBe('modelUnsupported')
+      expect(validateVideoPrompt(id, '光')).toEqual({ ok: true })
+      expect(videoRateMultiplier(id, '1080p')).toBe(1)
+    }
+  })
+})

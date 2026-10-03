@@ -499,9 +499,15 @@ export async function confirmToolPrompt(
   messageId: string,
   prompt: string,
   fetcher: Fetcher = authenticatedBffFetch,
+  draftRevision?: number,
 ): Promise<AgentMessageView> {
   const response = await fetcher(url(`/conversations/${conversationId}/confirmations`), {
-    ...jsonInit({ deviceId: getDeviceId(), messageId, prompt }),
+    ...jsonInit({
+      deviceId: getDeviceId(),
+      messageId,
+      prompt,
+      ...(draftRevision !== undefined ? { draftRevision } : {}),
+    }),
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)

@@ -24,6 +24,7 @@ import { internalUserRoutes } from './routes/internal-users'
 import { lookRoutes } from './routes/looks'
 import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
+import { productionRoutes } from './routes/production'
 import { projectRoutes } from './routes/projects'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
@@ -179,6 +180,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
+  .use(productionRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
   .use(lookRoutes)

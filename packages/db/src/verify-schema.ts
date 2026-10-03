@@ -171,7 +171,13 @@ export const EXPECTED_INDEXES = [
 export const EXPECTED_COLUMNS = [
   'agent_batch_plans.confirmation',
   'agent_batch_items.source_analysis',
+  'agent_conversations.production',
 ] as const
+
+/** Columns whose type matters as much as their presence: the code reads them as JSON. */
+const EXPECTED_COLUMN_TYPES: Readonly<Record<string, string>> = {
+  'agent_conversations.production': 'jsonb',
+}
 
 const EXPECTED_MIGRATION_COUNT = journal.entries.length
 
@@ -198,8 +204,8 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       client<{ relation: string | null }[]>`
         SELECT to_regclass('drizzle.__drizzle_migrations')::text AS relation
       `,
-      client<{ name: string }[]>`
-        SELECT table_name || '.' || column_name AS name
+      client<{ name: string; type: string }[]>`
+        SELECT table_name || '.' || column_name AS name, data_type AS type
         FROM information_schema.columns WHERE table_schema = 'public'
       `,
     ])
@@ -211,13 +217,17 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       : []
     const tables = new Set(tableRows.map((row) => row.tablename))
     const indexes = new Set(indexRows.map((row) => row.indexname))
-    const columns = new Set(columnRows.map((row) => row.name))
+    const columns = new Map(columnRows.map((row) => [row.name, row.type]))
     const missingColumns = EXPECTED_COLUMNS.filter((name) => !columns.has(name))
+    const mistypedColumns = Object.entries(EXPECTED_COLUMN_TYPES).filter(
+      ([name, type]) => columns.has(name) && columns.get(name) !== type,
+    )
     const missingTables = EXPECTED_TABLES.filter((name) => !tables.has(name))
     const missingIndexes = EXPECTED_INDEXES.filter((name) => !indexes.has(name))
     const migrationCount = Number(migrationRows[0]?.count ?? 0)
     const failures = [
       missingColumns.length ? `missing columns: ${missingColumns.join(', ')}` : '',
+      ...mistypedColumns.map(([name, type]) => `${name} must be ${type}`),
       missingTables.length ? `missing tables: ${missingTables.join(', ')}` : '',
       missingIndexes.length ? `missing indexes: ${missingIndexes.join(', ')}` : '',
       migrationCount < EXPECTED_MIGRATION_COUNT

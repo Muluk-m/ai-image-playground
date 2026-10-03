@@ -168,6 +168,9 @@ export function toolResultBlock(
     return {
       ...head,
       status: 'awaiting_confirmation',
+      ...(details.productionDraftRevision
+        ? { productionDraftRevision: details.productionDraftRevision }
+        : {}),
       ...(details.video ? { video: details.video } : {}),
       ...(details.executedPrompt ? { prompt: details.executedPrompt } : {}),
       title: start.title,

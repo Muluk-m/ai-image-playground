@@ -117,6 +117,7 @@ beforeEach(() => {
   log = join(root, 'calls')
   for (const f of [
     'scripts/build-vps-release.sh',
+    'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
     'scripts/lib/deploy-common.sh',
   ]) {
@@ -169,7 +170,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     writeFileSync(join(root, 'logged-in'), '')
     const result = build()
     expect(result.stderr).not.toContain('denied')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     const p = pub.slice(0, 12)
     const q = priv.slice(0, 12)
     const all = calls()
@@ -199,11 +200,15 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     )
     expect(all.some((c) => c.startsWith('save'))).toBe(false)
     expect(all).not.toContain('login ghcr.io -u Muluk-m --password-stdin')
+    expect(readFileSync(join(out, 'scripts/check-test-isolation.sh'), 'utf8')).toBe(
+      readFileSync(join(source, 'scripts/check-test-isolation.sh'), 'utf8'),
+    )
     expect(outputFiles()).toEqual([
       'SHA256SUMS',
       'deploy/compose.app.yaml',
       'images.tsv',
       'scripts/app-compose.sh',
+      'scripts/check-test-isolation.sh',
       'scripts/lib/deploy-common.sh',
       'scripts/rollout-runtime.sh',
       'scripts/vps-deploy.sh',
@@ -249,7 +254,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     const token = 'ghp_push_token_value'
     write(join(root, 'config/ai-image-playground/ghcr-push-token'), `${token}\n`, 0o600)
     const result = build()
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     const all = calls()
     expect(all.indexOf('login ghcr.io -u Muluk-m --password-stdin')).toBeLessThan(
       all.findIndex((c) => c.startsWith('buildx build')),
@@ -288,7 +293,7 @@ describe('build-vps-release.sh, archive fallback', () => {
   it('saves images.tar.gz without logging in or pushing, and records no digests', () => {
     env.RELEASE_TRANSPORT = 'archive'
     const result = build('internal')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     const p = pub.slice(0, 12)
     const all = calls()
     expect(all).toContain(

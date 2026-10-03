@@ -27,8 +27,11 @@ import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import { planImageBatch } from './planImageBatch'
+import { proposeProductionEdit, readProduction, writeProduction } from './production'
+import { proposeProductionAssets } from './production-assets'
 import { proposeBatchAnalysis } from './proposeBatchAnalysis'
 import { proposeBatchGeneration } from './proposeBatchGeneration'
+import { proposeStoryboard } from './proposeStoryboard'
 import { readBatchAnalysis } from './readBatchAnalysis'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
@@ -60,6 +63,11 @@ export type {
 } from './types'
 
 const TOOLS: readonly AgentToolSpec[] = [
+  readProduction,
+  writeProduction,
+  proposeProductionEdit,
+  proposeProductionAssets,
+  proposeStoryboard,
   planImageBatch,
   proposeBatchGeneration,
   proposeBatchAnalysis,

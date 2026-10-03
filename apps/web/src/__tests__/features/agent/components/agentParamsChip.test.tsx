@@ -293,3 +293,19 @@ it('selects and remembers thinking depth independently of the image model', () =
   // 思考深度不进摘要（对话面板放不下），偏离默认时 chip 上亮点提示。
   expect(trigger().hasAttribute('data-dirty')).toBe(true)
 })
+
+it('制作模式仅调整思考深度，不显示图片摘要或修改全局图片参数', () => {
+  const initialParams = useStore.getState().params
+  act(() => root.render(<AgentParamsChip generationControls={false} />))
+  // 没有模型 chip，摘要只写思考深度。
+  const buttons = host.querySelectorAll<HTMLButtonElement>('button')
+  expect(buttons).toHaveLength(1)
+  expect(buttons[0]!.textContent).toContain('思考：')
+  expect(buttons[0]!.textContent).not.toContain('自动尺寸')
+  act(() => buttons[0]!.click())
+  expect(group('思考深度')).not.toBeNull()
+  expect(group('比例')).toBeNull()
+  act(() => option('思考深度', '深度').click())
+  expect(useAgentStore.getState().thinkingDepth).toBe('deep')
+  expect(useStore.getState().params).toEqual(initialParams)
+})

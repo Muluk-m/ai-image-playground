@@ -5,6 +5,7 @@ import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
+import type { ClientProfile } from '../lib/channels/types'
 import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import {
@@ -137,6 +138,16 @@ export function ModelChip({ size = 'md', label }: { size?: ComposerControlSize; 
 }
 
 /** 调用方塞进卡片的一组自有设置（智能体的思考深度），带着自己的默认判断与重置。 */
+/**
+ * 不读写全局 store 的一份参数：确认草稿时改的是草稿自己的参数，按草稿选定的渠道与模型
+ * 判断哪些参数可用。
+ */
+export interface ControlledParams {
+  params: TaskParams
+  profile: ClientProfile
+  onChange: (patch: Partial<TaskParams>) => void
+}
+
 export interface ExtraSettings {
   section: ReactNode
   dirty: boolean
@@ -146,7 +157,8 @@ export interface ExtraSettings {
 }
 
 /**
- * 生成设置：摘要 chip（画幅与张数）+ 点开的设置卡片。全部读写全局 store。
+ * 生成设置：摘要 chip（画幅与张数）+ 点开的设置卡片。默认读写全局 store；传了 `controlled`
+ * 就只读写调用方给的参数，可用项按它的 profile 判断。
  *
  * - `showCount`：张数可手选（直接生成）；智能体那条路由工具调用决定张数。
  * - `agentManaged`：这句话交给智能体，卡片里只剩画幅（比例 / 分辨率）。
@@ -157,19 +169,27 @@ export function ImageSettings({
   unsupported,
   size = 'md',
   extra,
+  controlled,
 }: {
   showCount?: boolean
   agentManaged?: boolean
   unsupported?: ReadonlySet<UnsupportedParam>
   size?: ComposerControlSize
   extra?: ExtraSettings
+  controlled?: ControlledParams
 }) {
   const { t } = useTranslation('composer')
-  const params = useStore((s) => s.params)
-  const setParams = useStore((s) => s.setParams)
+  const storedParams = useStore((s) => s.params)
+  const setStoredParams = useStore((s) => s.setParams)
+  const params = controlled?.params ?? storedParams
+  const setParams = controlled?.onChange ?? setStoredParams
   const settings = useStore((s) => s.settings)
 
-  const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
+  const controlledProfile = controlled?.profile
+  const activeProfile = useMemo(
+    () => controlledProfile ?? getActiveApiProfile(settings),
+    [controlledProfile, settings],
+  )
   const activeView = clientProfileToApiProfile(activeProfile)
   const isGemini = activeView.provider === 'gemini'
   const capabilities = getParamCapabilities(activeProfile, params.output_format)

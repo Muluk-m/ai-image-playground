@@ -279,7 +279,8 @@
     "thinkingFast": "Fast",
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
-    "thinkingLegend": "Thinking depth"
+    "thinkingLegend": "Thinking depth",
+    "thinkingSummary": "Thinking: {{label}}"
   },
   "mentions": {
     "headingResults": "Conversation images",

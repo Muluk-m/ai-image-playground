@@ -150,3 +150,38 @@ it('一张被拒就停下，剩下的原样留着', async () => {
     .messages.filter((one) => one.kind === 'tool' && one.status === 'awaiting_confirmation')
   expect(left.map((one) => one.id)).toEqual(['b', 'c'])
 })
+
+it('mixed drafts count and bulk-confirm only ordinary Chat drafts', async () => {
+  useAgentStore.setState({
+    conversationId: CONVERSATION,
+    messages: [
+      draft('a', '猫'),
+      { ...draft('production', '造型'), productionDraftRevision: 1 },
+      draft('b', '鸡'),
+      {
+        ...draft('legacy-production', '场景'),
+        snapshot: {
+          ...draft('x', '').snapshot!,
+          params: {
+            production: {
+              documentId: 'doc',
+              revision: 1,
+              target: 'location',
+              locationId: 'location',
+            },
+          },
+        },
+      },
+    ],
+    promptDrafts: {},
+  })
+  act(() => root.render(<AgentPendingDrafts />))
+  expect(host.textContent).toContain('2 张稿等你确认')
+  await clickAndSettle(confirmAll())
+  expect(posted.map((one) => one.id)).toEqual(['a', 'b'])
+  expect(host.textContent).toBe('')
+  await act(async () => {
+    await useAgentStore.getState().confirmAllPrompts()
+  })
+  expect(posted.map((one) => one.id)).toEqual(['a', 'b'])
+})

@@ -56,6 +56,15 @@ describe('runMigrations', () => {
     expect(byName.upstream_body?.data_type).toBe('text')
   })
 
+  it('stores the optional production document as PostgreSQL JSONB', async () => {
+    const rows = await connection.client`
+      SELECT data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'agent_conversations' AND column_name = 'production'
+    `
+    expect(rows).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])
+  })
+
   it('stores quota dates as PostgreSQL dates', async () => {
     const [quotaDate] = (await connection.client.unsafe(`
       SELECT data_type
@@ -218,6 +227,14 @@ describe('runMigrations', () => {
       const rollback = Bun.file(new URL(`${tag}.down.sql`, rollbackDirectory))
       expect(await rollback.exists(), `drizzle/rollback/${tag}.down.sql`).toBe(true)
       await connection.client.unsafe(await rollback.text())
+      if (tag === '0059_production_document') {
+        const columns = await connection.client<{ column_name: string }[]>`
+          SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='agent_conversations'
+        `
+        expect(columns.length).toBeGreaterThan(0)
+        expect(columns.some((column) => column.column_name === 'production')).toBe(false)
+      }
     }
 
     const [rolledBack] = await connection.client<
@@ -249,5 +266,10 @@ describe('runMigrations', () => {
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
     expect(restored).toHaveLength(journal.entries.length)
+    const production = await connection.client`
+      SELECT data_type FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='agent_conversations' AND column_name='production'
+    `
+    expect(production).toEqual([{ data_type: 'jsonb' }])
   })
 })

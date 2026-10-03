@@ -1,4 +1,9 @@
 import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import {
+  GEMINI_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_THINKING_LEVELS,
+} from '@image-playground/shared'
 
 // ===== 设置 =====
 
@@ -69,20 +74,11 @@ export interface AppSettings {
 
 // ===== 任务参数 =====
 
-export const GEMINI_ASPECT_RATIOS = [
-  '1:1',
-  '16:9',
-  '9:16',
-  '4:3',
-  '3:4',
-  '3:2',
-  '2:3',
-  '4:5',
-  '5:4',
-  '21:9',
-] as const
-export const GEMINI_IMAGE_SIZES = ['512', '1K', '2K'] as const
-export const GEMINI_THINKING_LEVELS = ['minimal', 'high'] as const
+export {
+  GEMINI_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_THINKING_LEVELS,
+} from '@image-playground/shared'
 
 export type GeminiAspectRatio = (typeof GEMINI_ASPECT_RATIOS)[number]
 export type GeminiImageSize = (typeof GEMINI_IMAGE_SIZES)[number]
