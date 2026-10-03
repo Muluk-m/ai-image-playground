@@ -314,11 +314,12 @@ export async function restoreProject(id: string): Promise<void> {
 function conversationCover(
   project: { cover?: string; cloud?: unknown },
   conversation: AgentConversationView,
-): string | undefined {
-  if (project.cloud || !conversation.coverMediaId) return undefined
-  if (project.cover && !project.cover.startsWith('aip-media:')) return undefined
-  const cover = `aip-media:${conversation.coverMediaId}`
-  return project.cover === cover ? undefined : cover
+): { cover: string | undefined } | null {
+  if (project.cloud) return null
+  if (project.cover && !project.cover.startsWith('aip-media:')) return null
+  // 列表说这段对话已经没有可用输出（比如生成记录被删了），之前补的兜底封面也要撤掉。
+  const cover = conversation.coverMediaId ? `aip-media:${conversation.coverMediaId}` : undefined
+  return project.cover === cover ? null : { cover }
 }
 
 /** 会话列表回来了：没有项目的会话补一条项目记录，没起过名的跟着会话标题走。 */
@@ -344,11 +345,16 @@ export async function importConversationProjects(
           project.name !== conversation.title
         )
           await autoNameProject(project.id, conversation.title).catch(() => {})
-        const cover = conversationCover(project, conversation)
-        if (cover && isCurrent())
+        if (!isCurrent()) return
+        // 上面的改名会 await，这期间画布可能刚写进截图封面：按目录里的最新一份判断。
+        const latest = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.id === project.id)
+        const change = latest && conversationCover(latest, conversation)
+        if (change)
           await useCanvasProjectStore
             .getState()
-            .update(project.id, { cover })
+            .update(project.id, change)
             .catch(() => {})
       }
       continue
@@ -357,8 +363,8 @@ export async function importConversationProjects(
       sceneKey: canvasSceneKey(conversation.id),
       conversationId: conversation.id,
     })
-    const cover = conversationCover(project, conversation)
-    if (cover) project = await projectRepository.update(project.id, { cover })
+    const change = conversationCover(project, conversation)
+    if (change) project = await projectRepository.update(project.id, change)
     useCanvasProjectStore.getState().updateListed(project)
   }
 }
