@@ -193,8 +193,9 @@ export function ImageSettings({
   const [customOpen, setCustomOpen] = useState(false)
   const [clamped, setClamped] = useState(false)
   const customActive = !isGemini && (selection.kind === 'custom' || customOpen)
-  const applySize = (next: string, wasClamped = false) => {
-    setCustomOpen(false)
+  /** 选预设会退出自定义；自定义宽高的提交留在自定义里，免得填完一边输入框就没了。 */
+  const applySize = (next: string, { custom = false, wasClamped = false } = {}) => {
+    setCustomOpen(custom)
     setClamped(wasClamped)
     setParams({ size: next })
   }
@@ -255,15 +256,16 @@ export function ImageSettings({
     const h = Number.parseInt(height, 10)
     if (!(w > 0 && h > 0)) return
     const next = normalizeSizeFor(`${w}x${h}`, rules)
-    applySize(next, next !== `${w}x${h}`)
+    applySize(next, { custom: true, wasClamped: next !== `${w}x${h}` })
   }
 
   // 卡片关着时不调用：分组只在打开时构建。
   const renderSections = () => {
     const pixels = parseImageSize(params.size)
+    // 从「智能」进自定义时先给一个 1:1 的起点，改一边就能提交出完整尺寸。
+    const draftPixels = pixels ?? { width: 1024, height: 1024 }
     const outputImageLimit = getOutputImageLimitForSettings(settings)
-    const countOptions = [1, 2, 3, 4].filter((n) => n <= outputImageLimit)
-    if (!countOptions.includes(params.n)) countOptions.push(params.n)
+    const countOptions = Array.from({ length: outputImageLimit }, (_, i) => i + 1)
 
     const ratioOptions = isGemini
       ? withAuto(GEMINI_ASPECT_RATIOS, autoLabel)
@@ -308,8 +310,8 @@ export function ImageSettings({
                   aria-label={t('size.width')}
                   inputMode="numeric"
                   placeholder="W"
-                  value={pixels ? String(pixels.width) : ''}
-                  onCommit={(width) => commitPixels(width, String(pixels?.height ?? width))}
+                  value={String(draftPixels.width)}
+                  onCommit={(width) => commitPixels(width, String(draftPixels.height))}
                 />
                 <span aria-hidden="true" className="text-muted-foreground">
                   ×
@@ -318,8 +320,8 @@ export function ImageSettings({
                   aria-label={t('size.height')}
                   inputMode="numeric"
                   placeholder="H"
-                  value={pixels ? String(pixels.height) : ''}
-                  onCommit={(height) => commitPixels(String(pixels?.width ?? height), height)}
+                  value={String(draftPixels.height)}
+                  onCommit={(height) => commitPixels(String(draftPixels.width), height)}
                 />
                 <span className="text-label-sm text-muted-foreground">PX</span>
               </div>
@@ -330,7 +332,7 @@ export function ImageSettings({
                 value={selection.kind === 'custom' ? selection.ratio : ''}
                 onCommit={(draft) => {
                   const next = sizeFor('1K', draft, rules)
-                  if (next) applySize(next)
+                  if (next) applySize(next, { custom: true })
                 }}
               />
             ))}
@@ -380,10 +382,7 @@ export function ImageSettings({
           <SettingsSection title={t('param.count')}>
             <SettingsSegmented
               label={t('param.count')}
-              options={countOptions.map((n) => ({
-                value: n,
-                label: t('settings.count', { count: n }),
-              }))}
+              options={countOptions.map((n) => ({ value: n, label: String(n) }))}
               value={params.n}
               onChange={(n) => setParams({ n })}
             />
@@ -405,10 +404,12 @@ export function ImageSettings({
           <SettingsSection title={t('param.quality')}>
             <SettingsSegmented
               label={t('param.quality')}
-              options={(['auto', 'low', 'medium', 'high'] as const).map((value) => ({
-                value,
-                label: t(`settings.quality.${value}`),
-              }))}
+              options={[
+                { value: 'auto', label: t('settings.quality.auto') },
+                { value: 'low', label: t('settings.quality.low') },
+                { value: 'medium', label: t('settings.quality.medium') },
+                { value: 'high', label: t('settings.quality.high') },
+              ]}
               value={params.quality}
               onChange={(quality) => setParams({ quality })}
             />

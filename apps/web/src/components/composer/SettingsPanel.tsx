@@ -316,7 +316,7 @@ export function SettingsToggle({
 
 /**
  * 先编辑、后提交的输入框：打字只改本地草稿，失焦或回车才 `onCommit`。
- * 外部值变了（比如点了预设）就跟着换成新值。
+ * 提交后显示的永远是外部值：被接受就是新值，被拒收或规整就回到实际生效的那个。
  */
 export function DraftInput({
   value,
@@ -333,13 +333,18 @@ export function DraftInput({
     setSynced(value)
     setDraft(value)
   }
+  // 调用方可能拒收或规整输入；值没变时也要回到实际生效的那个。
+  const commit = () => {
+    onCommit(draft)
+    setDraft(value)
+  }
   return (
     <Input
       {...props}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => onCommit(draft)}
-      onKeyDown={(e) => e.key === 'Enter' && onCommit(draft)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
       className={cn('rounded-lg bg-background text-body-sm tabular-nums', className)}
     />
   )
