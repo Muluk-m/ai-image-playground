@@ -161,7 +161,8 @@ export default function AgentPanel({
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
-  const [locatedId, setLocatedId] = useState<string | null>(null)
+  // 每次定位都换一个序号：同一步被点第二次（中间被用户收起过）也要重新展开。
+  const [located, setLocated] = useState<{ id: string; seq: number } | null>(null)
   const searchResults = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     if (!query) return []
@@ -176,7 +177,7 @@ export default function AgentPanel({
     })
   }, [messages, search])
   const locateMessage = (id: string) => {
-    setLocatedId(id)
+    setLocated((prev) => ({ id, seq: (prev?.seq ?? 0) + 1 }))
     requestAnimationFrame(() => {
       const target = Array.from(
         logRef.current?.querySelectorAll<HTMLElement>('[data-agent-message-id]') ?? [],
@@ -448,7 +449,8 @@ export default function AgentPanel({
                       <AgentActivityTrail
                         steps={trail.steps}
                         spent={trail.spent}
-                        revealId={locatedId}
+                        revealId={located?.id}
+                        revealSeq={located?.seq}
                       />
                     )}
                     {!grouping.absorbed.has(index) &&
