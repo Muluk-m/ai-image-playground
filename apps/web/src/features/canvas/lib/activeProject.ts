@@ -307,6 +307,20 @@ export async function restoreProject(id: string): Promise<void> {
   if (isCurrent()) await workspaces.get(project.sceneKey)?.cloud?.load(true)
 }
 
+/**
+ * 本地项目的封面只从画布取，对话项目的结果却留在对话里，画布常是空的：没有画布封面时
+ * 用服务端给的对话最近一张输出图。画布截出来的 data: 封面不覆盖；云端项目由项目列表负责。
+ */
+function conversationCover(
+  project: { cover?: string; cloud?: unknown },
+  conversation: AgentConversationView,
+): string | undefined {
+  if (project.cloud || !conversation.coverMediaId) return undefined
+  if (project.cover && !project.cover.startsWith('aip-media:')) return undefined
+  const cover = `aip-media:${conversation.coverMediaId}`
+  return project.cover === cover ? undefined : cover
+}
+
 /** 会话列表回来了：没有项目的会话补一条项目记录，没起过名的跟着会话标题走。 */
 export async function importConversationProjects(
   conversations: readonly AgentConversationView[],
@@ -330,13 +344,21 @@ export async function importConversationProjects(
           project.name !== conversation.title
         )
           await autoNameProject(project.id, conversation.title).catch(() => {})
+        const cover = conversationCover(project, conversation)
+        if (cover && isCurrent())
+          await useCanvasProjectStore
+            .getState()
+            .update(project.id, { cover })
+            .catch(() => {})
       }
       continue
     }
-    const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
+    let project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
       sceneKey: canvasSceneKey(conversation.id),
       conversationId: conversation.id,
     })
+    const cover = conversationCover(project, conversation)
+    if (cover) project = await projectRepository.update(project.id, { cover })
     useCanvasProjectStore.getState().updateListed(project)
   }
 }
