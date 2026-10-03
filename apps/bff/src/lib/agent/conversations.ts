@@ -142,12 +142,18 @@ export async function listAgentConversations(owner: AgentOwner): Promise<AgentCo
       ),
     ]),
   )
-  return rows.map((row) =>
-    conversationView({
+  const covers = await latestConversationOutputs(
+    owner,
+    rows.map((row) => row.id),
+  )
+  return rows.map((row) => {
+    const view = conversationView({
       ...row,
       title: row.title.trim() ? row.title : (recovered.get(row.id) ?? row.title),
-    }),
-  )
+    })
+    const coverMediaId = covers.get(row.id)
+    return coverMediaId ? { ...view, coverMediaId } : view
+  })
 }
 
 export async function setAgentConversationTitle(
@@ -523,4 +529,33 @@ export async function listAgentTurnMessages(
     owner,
     inArray(schema.agent_messages.turn_id, [...turnIds]),
   )
+}
+
+/** 与云端项目封面同一口径：每段对话最近一次生成的第一张、已就绪的图片输出。 */
+async function latestConversationOutputs(
+  owner: AgentOwner,
+  conversationIds: readonly string[],
+): Promise<Map<string, string>> {
+  // 生成记录只挂在登录用户名下；设备身份没有可当封面的历史。
+  if (owner.kind !== 'user' || conversationIds.length === 0) return new Map()
+  const g = schema.generation_records
+  const gi = schema.generation_images
+  const m = schema.media_objects
+  const conversationId = sql<string>`${g.source} ->> 'conversationId'`
+  const rows = await db
+    .selectDistinctOn([conversationId], { conversationId, mediaId: gi.media_id })
+    .from(g)
+    .innerJoin(gi, and(eq(gi.generation_id, g.id), eq(gi.role, 'output')))
+    .innerJoin(m, and(eq(m.id, gi.media_id), eq(m.user_id, g.user_id)))
+    .where(
+      and(
+        eq(g.user_id, owner.userId),
+        isNull(g.deleted_at),
+        inArray(conversationId, [...conversationIds]),
+        eq(m.status, 'ready'),
+        sql`${m.content_type} LIKE 'image/%'`,
+      ),
+    )
+    .orderBy(conversationId, desc(g.created_at), asc(gi.position))
+  return new Map(rows.map((row) => [row.conversationId, row.mediaId]))
 }
