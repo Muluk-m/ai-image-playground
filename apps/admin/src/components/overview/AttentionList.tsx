@@ -1,10 +1,11 @@
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 
-import type { AttentionItem } from '@/lib/overview-signals'
+import { type AttentionItem, signalSearch } from '@/lib/overview-signals'
+import type { Range } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
 
-function Row({ item }: { item: AttentionItem }) {
+function Row({ item, range }: { item: AttentionItem; range: Range }) {
   const body = (
     <>
       <span
@@ -26,7 +27,11 @@ function Row({ item }: { item: AttentionItem }) {
   )
   const className = 'flex items-start gap-3 rounded-md bg-muted/60 px-3 py-2'
   return item.to ? (
-    <Link to={item.to} className={cn(className, 'transition-colors hover:bg-muted')}>
+    <Link
+      to={item.to}
+      search={signalSearch(item.to, range) as never}
+      className={cn(className, 'transition-colors hover:bg-muted')}
+    >
       {body}
     </Link>
   ) : (
@@ -38,15 +43,20 @@ function Row({ item }: { item: AttentionItem }) {
 export function AttentionList({
   items,
   pending,
+  range,
 }: {
   items: readonly AttentionItem[]
+  /** 还有来源没读完：此时列表为空不代表没事。 */
   pending: boolean
+  range: Range
 }) {
   if (!items.length) {
     return (
       <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-        <span className="size-2 rounded-full bg-success" />
-        {pending ? '运维数据还在读取，目前没发现问题' : '没有需要处理的事'}
+        <span
+          className={cn('size-2 rounded-full', pending ? 'bg-muted-foreground/40' : 'bg-success')}
+        />
+        {pending ? '还有数据在读取，已读到的部分没发现问题' : '没有需要处理的事'}
       </p>
     )
   }
@@ -54,7 +64,7 @@ export function AttentionList({
     <ul className="grid gap-2" aria-label="需要处理">
       {items.map((item) => (
         <li key={item.key}>
-          <Row item={item} />
+          <Row item={item} range={range} />
         </li>
       ))}
     </ul>

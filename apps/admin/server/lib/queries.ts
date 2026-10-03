@@ -257,27 +257,36 @@ export function volumeBucketUnit(range: Range): VolumeBucketUnit {
   return range === '1d' ? 'hour' : 'day'
 }
 
-/** 趋势图的分桶：1 天按小时 24 格，其余按天，最后一格是当前这个小时或这一天。 */
-function volumeBuckets(range: Range) {
+/**
+ * 趋势图的分桶：1 天按小时 24 格，其余按天，最后一格是 `at` 所在的那个小时或那一天。
+ * 同一次请求的所有查询传同一个 `at`：各自取 NOW() 的话，跨整点或午夜时会错开一格。
+ */
+function volumeBuckets(range: Range, at: Date) {
+  const now = sql`${at}::timestamptz`
   return {
+    now,
     unit: range === '1d' ? sql`'hour'` : sql`'day'`,
     step: range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`,
     start:
       range === '1d'
-        ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
+        ? sql`DATE_TRUNC('hour', ${now}) - INTERVAL '23 hours'`
         : range === '7d'
-          ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
-          : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`,
+          ? sql`DATE_TRUNC('day', ${now}) - INTERVAL '6 days'`
+          : sql`DATE_TRUNC('day', ${now}) - INTERVAL '29 days'`,
   }
 }
 
-async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeBucket[]> {
+async function getTaskVolume(
+  range: Range,
+  userId?: string,
+  at: Date = new Date(),
+): Promise<TaskVolumeBucket[]> {
   const { db } = getHandle()
-  const { unit: bucketUnit, step: bucketStep, start: bucketStart } = volumeBuckets(range)
+  const { now, unit: bucketUnit, step: bucketStep, start: bucketStart } = volumeBuckets(range, at)
   const ownerCondition = userId ? sql`AND t.user_id = ${userId}` : sql``
   const rows = await db.execute(sql`
     WITH buckets AS (
-      SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
+      SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, ${now}), ${bucketStep}) AS bucket
     )
     SELECT
       EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
@@ -320,15 +329,18 @@ const EMPTY_PULSE_BUCKET: Omit<OverviewPulseBucket, 'bucket_at'> = {
 async function getPulse(
   range: Range,
   bucketAts: readonly number[],
+  at: Date,
 ): Promise<OverviewResult['pulse']> {
   const { db } = getHandle()
-  const now = Date.now()
+  const now = at.getTime()
   const current = new Date(now - rangeMs(range))
   const previous = new Date(now - 2 * rangeMs(range))
-  const { unit, start } = volumeBuckets(range)
+  const { unit, start } = volumeBuckets(range, at)
   // 走势的首格可能早于当前窗起点（按整点或整天对齐），取数下界取两者更早的那个。
   const floor = sql`LEAST(${previous}::timestamptz, ${start})`
-  const images = sql`GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)`
+  // 视频任务也走这个队列，不算出图。
+  const images = sql`CASE WHEN request_payload->'video' IS NULL
+    THEN GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1) ELSE 0 END`
   const actors = sql`
     SELECT submitted_at AS at, COALESCE(user_id, device_id) AS actor
     FROM queue_tasks
@@ -464,8 +476,10 @@ async function getPulse(
 
 export async function getOverview(range: Range): Promise<OverviewResult> {
   const { db } = getHandle()
-  const since = new Date(Date.now() - rangeMs(range))
-  const previousSince = new Date(Date.now() - 2 * rangeMs(range))
+  // 整个请求只取一次「现在」：窗口、上期与分桶都从它算，彼此对得上。
+  const at = new Date()
+  const since = new Date(at.getTime() - rangeMs(range))
+  const previousSince = new Date(at.getTime() - 2 * rangeMs(range))
 
   const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw, phaseRowsRaw] =
     await Promise.all([
@@ -487,7 +501,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       FROM queue_tasks
       WHERE submitted_at >= ${since}
     `),
-      getTaskVolume(range),
+      getTaskVolume(range, undefined, at),
       db.execute(sql`
       SELECT
         COALESCE(error_type, 'unknown') AS error_type,
@@ -571,6 +585,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
   const pulse = await getPulse(
     range,
     volume.map((bucket) => bucket.bucket_at),
+    at,
   )
   const summary = (summaryRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
   const agentCacheModels = (cacheRowsRaw as unknown as Array<Record<string, unknown>>).map(

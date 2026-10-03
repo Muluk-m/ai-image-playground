@@ -99,7 +99,38 @@ describe('healthTiles', () => {
     expect(byKey.queue).toMatchObject({ tone: 'bad', to: '/ops' })
     expect(byKey.queue!.note).toContain('最老的排队任务已经等了')
     expect(byKey.api).toMatchObject({ value: '取不到', tone: 'unknown' })
-    expect(byKey.frontend).toMatchObject({ tone: 'unknown' })
+    expect(byKey.frontend).toMatchObject({ value: '…', tone: 'unknown' })
+  })
+
+  it('never shows green for missing data', () => {
+    const empty = {
+      ...window,
+      completed: 0,
+      failed: 0,
+      agent_turns: 0,
+      agent_failed: 0,
+      agent_aborted: 0,
+    }
+    const tiles = healthTiles({
+      overview: overview({ pulse: { current: empty, previous: empty, series: [] } }),
+      ops: ops({
+        api: {
+          ok: true,
+          data: {
+            recent: { requests: 0, client_errors: 0, server_errors: 0, p95_ms: null },
+            window_ms: 15 * 60_000,
+            series: [],
+            error_routes: [],
+          },
+        },
+      }),
+      errorsState: 'failed',
+    })
+    const byKey = Object.fromEntries(tiles.map((tile) => [tile.key, tile]))
+    expect(byKey.generation!.tone).toBe('unknown')
+    expect(byKey.agent!.tone).toBe('unknown')
+    expect(byKey.api).toMatchObject({ tone: 'unknown', value: '—' })
+    expect(byKey.frontend).toMatchObject({ tone: 'unknown', value: '取不到' })
   })
 })
 
@@ -138,6 +169,25 @@ describe('attentionItems', () => {
     expect(items.map((item) => item.title)).toEqual([
       'flaky 失败率 30.0%',
       'upstream_error 失败比上期多 9 次',
+    ])
+  })
+
+  it('says so when a source could not be read, and counts boot failures from the summary', () => {
+    const items = attentionItems({
+      overview: overview(),
+      opsState: 'failed',
+      errors: {
+        range: '7d',
+        bucket_unit: 'day',
+        summary: { events: 900, devices: 40, boot_events: 12, groups: 100 },
+        trend: [],
+        // 启动失败的分组不在截断后的前 100 组里。
+        groups: [],
+      },
+    })
+    expect(items.map((item) => [item.source, item.title])).toEqual([
+      ['运维', '运维快照没有读到，机器、队列与服务的状况未知'],
+      ['前端', '12 次启动失败，用户看到「工作台暂时无法打开」'],
     ])
   })
 })

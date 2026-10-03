@@ -55,6 +55,18 @@ await writer.db.insert(writer.schema.tasks).values([
     error_type: 'upstream_error',
     submitted_at: now - 30 * 3600_000,
   },
+  {
+    // 视频任务也走这个队列，但不算出图张数。
+    id: 'overview-video',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    // 只看有没有 video 键，内容不重要。
+    request_payload: { prompt: 'video', device_id: 'overview-device', video: {} } as never,
+    submitted_at: now - 26 * 3600_000,
+    started_at: now - 26 * 3600_000 + 100,
+    completed_at: now - 26 * 3600_000 + 1100,
+  },
 ])
 await writer.db.insert(writer.schema.users).values({
   id: 'overview-user',
@@ -185,7 +197,13 @@ describe('GET /api/overview', () => {
       agent_failed: 1,
       agent_aborted: 0,
     })
-    expect(body.pulse.previous).toMatchObject({ tasks: 1, failed: 1, images: 0, active: 1 })
+    expect(body.pulse.previous).toMatchObject({
+      tasks: 2,
+      completed: 1,
+      failed: 1,
+      images: 0,
+      active: 2,
+    })
     expect(body.pulse.series.map((bucket) => bucket.bucket_at)).toEqual(
       body.volume.map((bucket) => bucket.bucket_at),
     )
@@ -205,8 +223,8 @@ describe('GET /api/overview', () => {
       summary: { total: number }
       volume: Array<{ total: number }>
     }
-    expect(body.summary.total).toBe(4)
+    expect(body.summary.total).toBe(5)
     expect(body.volume).toHaveLength(7)
-    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(4)
+    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(5)
   })
 })
