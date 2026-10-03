@@ -189,7 +189,12 @@ export function SettingsSegmented<T extends string | number>({
           aria-pressed={option.value === value}
           disabled={option.disabled}
           onClick={() => onChange(option.value)}
-          className={cn('h-8 min-w-0 flex-1 truncate px-2 tabular-nums', SEGMENT_ITEM)}
+          className={cn(
+            'h-8 min-w-0 flex-1 truncate tabular-nums',
+            // 档位多（数量 1–10）时收窄内边距，两位数也放得下。
+            options.length > 6 ? 'px-0.5' : 'px-2',
+            SEGMENT_ITEM,
+          )}
         >
           {option.label}
         </button>
