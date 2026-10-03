@@ -9,6 +9,8 @@ import type {
   ListDevicesResult,
   ListUsersResult,
   OperatorAuditRow,
+  OverviewPulseBucket,
+  OverviewPulseWindow,
   OverviewResult,
   Range,
   SortKey,
@@ -255,16 +257,23 @@ export function volumeBucketUnit(range: Range): VolumeBucketUnit {
   return range === '1d' ? 'hour' : 'day'
 }
 
+/** 趋势图的分桶：1 天按小时 24 格，其余按天，最后一格是当前这个小时或这一天。 */
+function volumeBuckets(range: Range) {
+  return {
+    unit: range === '1d' ? sql`'hour'` : sql`'day'`,
+    step: range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`,
+    start:
+      range === '1d'
+        ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
+        : range === '7d'
+          ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
+          : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`,
+  }
+}
+
 async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeBucket[]> {
   const { db } = getHandle()
-  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
-  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
-  const bucketStart =
-    range === '1d'
-      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
-      : range === '7d'
-        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
-        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
+  const { unit: bucketUnit, step: bucketStep, start: bucketStart } = volumeBuckets(range)
   const ownerCondition = userId ? sql`AND t.user_id = ${userId}` : sql``
   const rows = await db.execute(sql`
     WITH buckets AS (
@@ -292,9 +301,171 @@ async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeB
   }))
 }
 
+type Row = Record<string, unknown>
+
+const EMPTY_PULSE_BUCKET: Omit<OverviewPulseBucket, 'bucket_at'> = {
+  tasks: 0,
+  images: 0,
+  active: 0,
+  signups: 0,
+  agent_completed: 0,
+  agent_failed: 0,
+  agent_aborted: 0,
+}
+
+/**
+ * 概览的环比与走势。当前窗与上一个同长度窗口各数一遍；走势与任务量图同一套分桶。
+ * 「活跃」把账号与匿名设备一起数：两类入口都在用，只数账号会把匿名用量整块漏掉。
+ */
+async function getPulse(
+  range: Range,
+  bucketAts: readonly number[],
+): Promise<OverviewResult['pulse']> {
+  const { db } = getHandle()
+  const now = Date.now()
+  const current = new Date(now - rangeMs(range))
+  const previous = new Date(now - 2 * rangeMs(range))
+  const { unit, start } = volumeBuckets(range)
+  // 走势的首格可能早于当前窗起点（按整点或整天对齐），取数下界取两者更早的那个。
+  const floor = sql`LEAST(${previous}::timestamptz, ${start})`
+  const images = sql`GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)`
+  const actors = sql`
+    SELECT submitted_at AS at, COALESCE(user_id, device_id) AS actor
+    FROM queue_tasks
+    WHERE submitted_at >= ${floor}
+    UNION ALL
+    SELECT t.created_at, COALESCE(c.user_id, c.device_id)
+    FROM agent_turns t
+    JOIN agent_conversations c ON c.id = t.conversation_id
+    WHERE t.created_at >= ${floor}
+  `
+
+  const [taskRows, actorRows, signupRows, agentRows, seriesRows] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE submitted_at >= ${current}) AS tasks_cur,
+        COUNT(*) FILTER (WHERE submitted_at < ${current}) AS tasks_prev,
+        COUNT(*) FILTER (WHERE status = 'completed' AND submitted_at >= ${current}) AS completed_cur,
+        COUNT(*) FILTER (WHERE status = 'completed' AND submitted_at < ${current}) AS completed_prev,
+        COUNT(*) FILTER (WHERE status = 'failed' AND submitted_at >= ${current}) AS failed_cur,
+        COUNT(*) FILTER (WHERE status = 'failed' AND submitted_at < ${current}) AS failed_prev,
+        COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at >= ${current}), 0) AS images_cur,
+        COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at < ${current}), 0) AS images_prev
+      FROM queue_tasks
+      WHERE submitted_at >= ${previous}
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(DISTINCT actor) FILTER (WHERE at >= ${current}) AS active_cur,
+        COUNT(DISTINCT actor) FILTER (WHERE at >= ${previous} AND at < ${current}) AS active_prev
+      FROM (${actors}) a
+      WHERE actor IS NOT NULL
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at >= ${current}) AS signups_cur,
+        COUNT(*) FILTER (WHERE created_at < ${current}) AS signups_prev
+      FROM users
+      WHERE created_at >= ${previous}
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at >= ${current}) AS turns_cur,
+        COUNT(*) FILTER (WHERE created_at < ${current}) AS turns_prev,
+        COUNT(*) FILTER (WHERE stop_reason = 'failed' AND created_at >= ${current}) AS failed_cur,
+        COUNT(*) FILTER (WHERE stop_reason = 'failed' AND created_at < ${current}) AS failed_prev,
+        COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at >= ${current}) AS aborted_cur,
+        COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at < ${current}) AS aborted_prev
+      FROM agent_turns
+      WHERE created_at >= ${previous}
+    `),
+    db.execute(sql`
+      WITH
+        tasks_by AS (
+          SELECT DATE_TRUNC(${unit}, submitted_at) AS bucket,
+                 COUNT(*) AS tasks,
+                 COALESCE(SUM(${images}) FILTER (WHERE status = 'completed'), 0) AS images
+          FROM queue_tasks WHERE submitted_at >= ${start} GROUP BY 1
+        ),
+        actors_by AS (
+          SELECT DATE_TRUNC(${unit}, at) AS bucket, COUNT(DISTINCT actor) AS active
+          FROM (${actors}) a WHERE actor IS NOT NULL AND at >= ${start} GROUP BY 1
+        ),
+        signups_by AS (
+          SELECT DATE_TRUNC(${unit}, created_at) AS bucket, COUNT(*) AS signups
+          FROM users WHERE created_at >= ${start} GROUP BY 1
+        ),
+        agent_by AS (
+          SELECT DATE_TRUNC(${unit}, created_at) AS bucket,
+                 COUNT(*) FILTER (WHERE stop_reason = 'completed') AS agent_completed,
+                 COUNT(*) FILTER (WHERE stop_reason = 'failed') AS agent_failed,
+                 COUNT(*) FILTER (WHERE stop_reason = 'aborted') AS agent_aborted
+          FROM agent_turns WHERE created_at >= ${start} GROUP BY 1
+        ),
+        keys AS (
+          SELECT bucket FROM tasks_by UNION SELECT bucket FROM actors_by
+          UNION SELECT bucket FROM signups_by UNION SELECT bucket FROM agent_by
+        )
+      SELECT
+        EXTRACT(EPOCH FROM k.bucket) * 1000 AS bucket_at,
+        COALESCE(t.tasks, 0) AS tasks,
+        COALESCE(t.images, 0) AS images,
+        COALESCE(a.active, 0) AS active,
+        COALESCE(s.signups, 0) AS signups,
+        COALESCE(g.agent_completed, 0) AS agent_completed,
+        COALESCE(g.agent_failed, 0) AS agent_failed,
+        COALESCE(g.agent_aborted, 0) AS agent_aborted
+      FROM keys k
+      LEFT JOIN tasks_by t ON t.bucket = k.bucket
+      LEFT JOIN actors_by a ON a.bucket = k.bucket
+      LEFT JOIN signups_by s ON s.bucket = k.bucket
+      LEFT JOIN agent_by g ON g.bucket = k.bucket
+    `),
+  ])
+
+  const t = (taskRows as unknown as Row[])[0] ?? {}
+  const a = (actorRows as unknown as Row[])[0] ?? {}
+  const u = (signupRows as unknown as Row[])[0] ?? {}
+  const g = (agentRows as unknown as Row[])[0] ?? {}
+  const window = (suffix: 'cur' | 'prev'): OverviewPulseWindow => ({
+    tasks: Number(t[`tasks_${suffix}`] ?? 0),
+    completed: Number(t[`completed_${suffix}`] ?? 0),
+    failed: Number(t[`failed_${suffix}`] ?? 0),
+    images: Number(t[`images_${suffix}`] ?? 0),
+    active: Number(a[`active_${suffix}`] ?? 0),
+    signups: Number(u[`signups_${suffix}`] ?? 0),
+    agent_turns: Number(g[`turns_${suffix}`] ?? 0),
+    agent_failed: Number(g[`failed_${suffix}`] ?? 0),
+    agent_aborted: Number(g[`aborted_${suffix}`] ?? 0),
+  })
+  const byBucket = new Map(
+    (seriesRows as unknown as Row[]).map((row) => [
+      Number(row.bucket_at),
+      {
+        tasks: Number(row.tasks),
+        images: Number(row.images),
+        active: Number(row.active),
+        signups: Number(row.signups),
+        agent_completed: Number(row.agent_completed),
+        agent_failed: Number(row.agent_failed),
+        agent_aborted: Number(row.agent_aborted),
+      },
+    ]),
+  )
+  return {
+    current: window('cur'),
+    previous: window('prev'),
+    series: bucketAts.map((bucket_at) => ({
+      bucket_at,
+      ...(byBucket.get(bucket_at) ?? EMPTY_PULSE_BUCKET),
+    })),
+  }
+}
+
 export async function getOverview(range: Range): Promise<OverviewResult> {
   const { db } = getHandle()
   const since = new Date(Date.now() - rangeMs(range))
+  const previousSince = new Date(Date.now() - 2 * rangeMs(range))
 
   const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw, phaseRowsRaw] =
     await Promise.all([
@@ -309,16 +480,23 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         PERCENTILE_DISC(0.95) WITHIN GROUP (
           ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
         ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms,
-        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations,
+        PERCENTILE_DISC(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (started_at - submitted_at)) * 1000
+        ) FILTER (WHERE started_at IS NOT NULL) AS queue_p50_ms
       FROM queue_tasks
       WHERE submitted_at >= ${since}
     `),
       getTaskVolume(range),
       db.execute(sql`
-      SELECT COALESCE(error_type, 'unknown') AS error_type, COUNT(*) AS count
+      SELECT
+        COALESCE(error_type, 'unknown') AS error_type,
+        COUNT(*) FILTER (WHERE submitted_at >= ${since}) AS count,
+        COUNT(*) FILTER (WHERE submitted_at < ${since}) AS previous_count
       FROM queue_tasks
-      WHERE submitted_at >= ${since} AND status = 'failed'
+      WHERE submitted_at >= ${previousSince} AND status = 'failed'
       GROUP BY COALESCE(error_type, 'unknown')
+      HAVING COUNT(*) FILTER (WHERE submitted_at >= ${since}) > 0
       ORDER BY count DESC, error_type
     `),
       db.execute(sql`
@@ -329,7 +507,15 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         AVG(
           upstream_invocation_count::double precision
             / GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)
-        ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
+        ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        PERCENTILE_DISC(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (started_at - submitted_at)) * 1000
+        ) FILTER (WHERE started_at IS NOT NULL) AS queue_p50_ms,
+        PERCENTILE_DISC(0.95) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
+        ) FILTER (WHERE status = 'completed' AND started_at IS NOT NULL) AS run_p95_ms
       FROM queue_tasks
       WHERE submitted_at >= ${since}
       GROUP BY model
@@ -382,6 +568,10 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
     `),
     ])
 
+  const pulse = await getPulse(
+    range,
+    volume.map((bucket) => bucket.bucket_at),
+  )
   const summary = (summaryRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
   const agentCacheModels = (cacheRowsRaw as unknown as Array<Record<string, unknown>>).map(
     (row) => ({
@@ -414,12 +604,15 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       p50_duration_ms: nullableNumber(summary.p50_duration_ms),
       p95_duration_ms: nullableNumber(summary.p95_duration_ms),
       upstream_invocations: Number(summary.upstream_invocations ?? 0),
+      queue_p50_ms: nullableNumber(summary.queue_p50_ms),
     },
+    pulse,
     volume,
     volume_bucket: volumeBucketUnit(range),
     failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       error_type: String(row.error_type),
       count: Number(row.count),
+      previous_count: Number(row.previous_count),
     })),
     agent_cache: {
       calls: firstCall.calls + continuation.calls,
@@ -434,6 +627,10 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       count: Number(row.count),
       upstream_invocations: Number(row.upstream_invocations),
       average_multiplier: nullableNumber(row.average_multiplier),
+      completed: Number(row.completed),
+      failed: Number(row.failed),
+      queue_p50_ms: nullableNumber(row.queue_p50_ms),
+      run_p95_ms: nullableNumber(row.run_p95_ms),
     })),
   }
 }
