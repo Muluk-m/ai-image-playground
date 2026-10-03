@@ -336,8 +336,15 @@ export function videoPresetConflicts(
   return conflicts
 }
 
+// 模型 id 来自请求体；普通对象查表会让 `constructor`、`__proto__` 命中原型上的属性。
+function ownVideoModelSupport(modelId: string): VideoModelSupport | undefined {
+  return Object.prototype.hasOwnProperty.call(VIDEO_MODEL_SUPPORT, modelId)
+    ? VIDEO_MODEL_SUPPORT[modelId]
+    : undefined
+}
+
 export function videoRateMultiplier(modelId: string, resolution: VideoResolution): number {
-  return VIDEO_MODEL_SUPPORT[modelId]?.resolutionMultipliers[resolution] ?? 1
+  return ownVideoModelSupport(modelId)?.resolutionMultipliers[resolution] ?? 1
 }
 
 export function videoDurationsForResolution(
@@ -352,9 +359,9 @@ export function validateVideoPrompt(modelId: string, prompt: string): VideoValid
 }
 
 export function videoPromptRejection(modelId: string, prompt: string): VideoRejection | null {
-  const support = VIDEO_MODEL_SUPPORT[modelId]
+  const support = ownVideoModelSupport(modelId)
   const max = support?.promptMaxChars
-  if (max === undefined || prompt.length <= max) return null
+  if (!support || max === undefined || prompt.length <= max) return null
   const { label } = support
   return rejection('promptTooLong', { label, max }, `${label} 描述最多 ${max} 字`)
 }
@@ -372,7 +379,7 @@ export function videoRequestRejection(
   video: VideoRequest,
   inputImageCount: number,
 ): VideoRejection | null {
-  const support = VIDEO_MODEL_SUPPORT[modelId]
+  const support = ownVideoModelSupport(modelId)
   if (!support) return rejection('modelUnsupported', {}, '该模型不支持视频生成')
 
   const { label } = support
