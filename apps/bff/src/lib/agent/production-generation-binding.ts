@@ -173,7 +173,7 @@ export async function bindProductionGeneration(
     ))
   )
     throw new AgentToolError('invalid_params', '参考图已失效')
-  const inputImages = input.inputImages
+  const inputImages = input.inputImages?.length
     ? [...input.inputImages]
     : await Promise.all(
         references.map((one) =>

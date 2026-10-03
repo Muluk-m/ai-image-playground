@@ -482,7 +482,9 @@ export const generateVideo = defineAgentTool({
           toolCallId,
           target,
           prompt,
-          referenceIds: [...(source ? [source] : []), ...references].map((one) => one.imageId),
+          referenceIds: [...(source ? [source] : []), ...(last ? [last] : []), ...references].map(
+            (one) => one.imageId,
+          ),
           ...(inputImages.length ? { inputImages } : {}),
           video,
           // 档位随草稿冻结：确认提交时记到任务上，任务结束后再照它记到产物上。
