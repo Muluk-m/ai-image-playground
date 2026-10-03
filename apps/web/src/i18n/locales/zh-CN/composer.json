@@ -94,34 +94,14 @@
     "moderation": "审核",
     "count": "数量",
     "noModel": "未选择",
-    "more": "更多",
     "model": "模型"
   },
   "size": {
-    "titleRatio": "设置画面比例",
-    "titleSize": "设置图像尺寸",
-    "current": "当前：{{value}}",
-    "modeAuto": "自动",
-    "modeAutoRatio": "智能比例 Auto",
-    "modeRatio": "按比例",
-    "modeResolution": "自定义宽高",
-    "autoTitle": "自动尺寸",
-    "autoTitleRatio": "智能比例",
-    "autoLine1": "尺寸由模型决定",
-    "baseResolution": "基准分辨率",
-    "imageRatio": "图像比例",
-    "customRatio": "自定义比例",
     "customRatioLabel": "输入自定义比例",
     "customRatioPlaceholder": "例如 5:4 / 2.39:1",
     "ratioOnlyNote": "最终像素数量由模型决定，仅保证所选宽高比例。",
-    "pixelSection": "输入具体像素值",
     "width": "宽度 (Width)",
     "height": "高度 (Height)",
-    "pixelPlaceholder": "例如 1024",
-    "willUse": "将使用",
-    "invalid": "尺寸无效",
-    "limitText": "由于模型限制，不符合要求的分辨率会被自动规整：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。",
-    "limitedLimitText": "由于模型限制，不符合要求的分辨率会被自动规整：\n宽高均为 16 的倍数，宽高比不超过 3:1，分辨率不超过 1K。",
     "limitedTierHint": "当前模型不支持 1K 以上的分辨率",
     "clampedHint": "由于模型限制，原始分辨率已被自动规整"
   },
@@ -165,5 +145,25 @@
   },
   "model": {
     "expandOptions": "展开模型候选"
+  },
+  "settings": {
+    "title": "生成设置",
+    "close": "关闭生成设置",
+    "reset": "恢复默认",
+    "done": "完成",
+    "auto": "智能",
+    "autoOption": "自动",
+    "custom": "自定义",
+    "count_other": "{{count}} 张",
+    "autoSizeHint": "智能比例下由模型决定尺寸。",
+    "compressionHint": "留空按服务默认。",
+    "transparentHint": "生成后在本机抠出透明底，仅 PNG。",
+    "noRewriteHint": "提示词原样发给模型，不让网关改写。",
+    "quality": {
+      "auto": "自动",
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    }
   }
 }
