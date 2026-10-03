@@ -101,12 +101,28 @@ describe('inspectable read-only tools', () => {
       ({ ...step(id, 'viewImage', id), status: 'succeeded' }) as AgentToolMessage
     act(() =>
       root.render(
-        <AgentActivityTrail steps={[done('t1'), done('t2')]} spent={true} revealId="t2" />,
+        <AgentActivityTrail
+          steps={[done('t1'), done('t2')]}
+          spent={true}
+          revealId="t2"
+          revealSeq={1}
+        />,
       ),
     )
     expect(host.querySelector('[data-agent-message-id="t2"]')).not.toBeNull()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-controls]')!.click())
     expect(host.querySelector('[data-agent-message-id="t2"]')).toBeNull()
+    act(() =>
+      root.render(
+        <AgentActivityTrail
+          steps={[done('t1'), done('t2')]}
+          spent={true}
+          revealId="t2"
+          revealSeq={2}
+        />,
+      ),
+    )
+    expect(host.querySelector('[data-agent-message-id="t2"]')).not.toBeNull()
   })
 
   it('reveals a hidden finished step while a later one is still running', () => {
