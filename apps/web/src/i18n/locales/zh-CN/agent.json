@@ -280,7 +280,7 @@
     "sending": "发送中",
     "thinking": "思考中",
     "executing": "执行中",
-    "stepsDone": "已完成 {{count}} 步",
+    "done": "已完成",
     "stopping": "正在中止"
   },
   "clarification": {

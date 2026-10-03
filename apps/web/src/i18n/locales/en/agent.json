@@ -295,7 +295,7 @@
     "sending": "Sending",
     "thinking": "Thinking",
     "executing": "Running",
-    "stepsDone": "Done in {{count}} steps",
+    "done": "Done",
     "stopping": "Stopping"
   },
   "clarification": {

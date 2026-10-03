@@ -1,5 +1,6 @@
-import { ChevronRightIcon, Loader } from 'lucide-react'
+import { ChevronRightIcon } from 'lucide-react'
 import { useId, useLayoutEffect, useState } from 'react'
+import { stepRow } from '../../../components/assistant-ui/elements/surfaces'
 import { useTranslation } from '../../../i18n'
 import { cn } from '../../../lib/utils'
 import type { AgentToolMessage } from '../types'
@@ -17,8 +18,8 @@ function Steps({ steps }: { steps: readonly AgentToolMessage[] }) {
 }
 
 /**
- * 一串只读过程步。跑着的时候只露当前这一步，做完的不往下堆；全部做完后收成一行
- * 「已完成 N 步」，点开才逐条展开。失败的步骤始终露着：原因和处理入口不能藏。
+ * 一串只读过程步。跑着的时候只露当前这一步，做完的不往下堆；做完后不管几步都只留一行
+ * 「已完成」，点开才逐条展开。失败的步骤始终露着：原因和处理入口不能藏。
  */
 export default function AgentActivityTrail({
   steps,
@@ -45,7 +46,7 @@ export default function AgentActivityTrail({
 
   let visible: readonly AgentToolMessage[]
   if (running.length) visible = revealed ? steps : [...failed, running[running.length - 1]!]
-  else if (steps.length === 1 || failed.length) visible = steps
+  else if (failed.length) visible = steps
   else visible = []
 
   if (visible.length) {
@@ -64,19 +65,18 @@ export default function AgentActivityTrail({
         aria-expanded={expanded}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className="group flex w-fit items-center gap-2 rounded-lg px-2 py-1.5 text-body-sm text-muted-foreground/80 transition-colors hover:bg-accent hover:text-muted-foreground"
+        className={cn(stepRow, 'w-fit text-muted-foreground/80')}
       >
-        <Loader aria-hidden className="size-3.5 shrink-0 text-primary/70" />
-        {t('activity.stepsDone', { count: steps.length })}
+        {t('activity.done')}
         <ChevronRightIcon
           aria-hidden
           className={cn(
-            'size-3.5 shrink-0 transition-transform motion-reduce:transition-none',
+            'size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none',
             expanded && 'rotate-90',
           )}
         />
       </button>
-      <div id={id} hidden={!expanded} className="ml-3.5 border-l border-border pl-2">
+      <div id={id} hidden={!expanded} className="ml-[6px] border-l border-border pl-[10px]">
         {expanded && <Steps steps={steps} />}
       </div>
     </div>
