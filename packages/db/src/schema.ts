@@ -741,6 +741,8 @@ export const agent_turns = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.conversation_id, t.turn_id] }),
+    // 运营概览按时间窗统计轮次与活跃主体；轮次随会话长期保留，没有它每次都要扫全表。
+    index('idx_agent_turns_created').on(t.created_at),
     check(
       'agent_turns_stop_reason_check',
       sql`${t.stop_reason} IN ('completed', 'aborted', 'failed')`,
