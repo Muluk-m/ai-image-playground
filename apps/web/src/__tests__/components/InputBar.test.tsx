@@ -168,6 +168,52 @@ describe('首屏的生成设置', () => {
     expect(useStore.getState().params.size).toBe('auto')
   })
 
+  it('自定义宽高：改一边就提交完整尺寸，输入框不收起；被规整的值回显成实际尺寸', () => {
+    remount('generate')
+    const group = openSettings()
+    const custom = [...(group('比例')?.querySelectorAll('button') ?? [])].find((one) =>
+      one.textContent?.includes('自定义'),
+    )
+    act(() => custom?.click())
+    const width = () => document.body.querySelector<HTMLInputElement>('input[aria-label^="宽度"]')
+    const setValue = (input: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    act(() => {
+      const input = width()!
+      input.focus()
+      setValue(input, '1024')
+    })
+    act(() => width()?.blur())
+    expect(useStore.getState().params.size).toBe('1024x1024')
+    // 恰好落在 1:1 预设上也不退出自定义，还能接着填高度。
+    expect(width()).not.toBeNull()
+
+    act(() => {
+      const input = width()!
+      input.focus()
+      setValue(input, '99999')
+    })
+    act(() => width()?.blur())
+    const size = useStore.getState().params.size
+    expect(size).not.toBe('99999x1024')
+    expect(width()?.value).toBe(size.split('x')[0])
+    act(() => useStore.getState().setParams({ size: 'auto' }))
+  })
+
+  it('数量可选到上限，不止 1–4 张', () => {
+    remount('generate')
+    const ten = [...(openSettings()('数量')?.querySelectorAll('button') ?? [])].find(
+      (one) => one.textContent === '10',
+    )
+    act(() => ten?.click())
+    expect(useStore.getState().params.n).toBe(10)
+    expect(settingsChip().getAttribute('aria-label')).toContain('10 张')
+    act(() => useStore.getState().setParams({ n: 1 }))
+  })
+
   it('Gemini 模型下留的是比例与分辨率，思考强度归智能体', () => {
     useStore.setState({
       settings: {
