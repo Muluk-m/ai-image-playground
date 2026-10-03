@@ -563,7 +563,10 @@ function StandardAgentToolCard({
         running={status === 'running' || status === 'queued'}
       >
         <div className="flex flex-col gap-2">
-          <ToolStatus label={statusLabel} status={status} />
+          {/* 跑着、做完已经由星号和流光说清楚；只有排队、待确认这种要另说一句。 */}
+          {(status === 'queued' || status === 'waiting') && (
+            <ToolStatus label={statusLabel} status={status} />
+          )}
           {note && <p className={CARD_NOTE}>{note}</p>}
           {message.sources?.map((source) => (
             <a
