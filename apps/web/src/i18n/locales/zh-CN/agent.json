@@ -258,19 +258,13 @@
     "interjectAria": "现在插话：{{text}}"
   },
   "params": {
-    "title": "生成参数",
-    "autoSize": "自动尺寸",
     "builtinModel": "内置渠道模型",
     "byokNote": "智能体只能用内置渠道的模型，自带 Key 的配置在这里不生效。",
     "note": "张数由智能体按需求决定。参数改动从下一轮生效。",
-    "autoRatio": "自动比例",
     "thinkingFast": "快速",
     "thinkingMedium": "中等",
     "thinkingDeep": "深度",
-    "thinkingSummary": "思考：{{label}}",
-    "thinkingLegend": "思考深度",
-    "closeAria": "关闭生成参数",
-    "done": "完成"
+    "thinkingLegend": "思考深度"
   },
   "mentions": {
     "headingResults": "会话图片",

@@ -57,9 +57,19 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-/** chip 的 title 是 `label` 或 `label: value`，按前缀找。 */
-function chip(label: string): Element | null {
-  return host.querySelector(`[title="${label}"], [title^="${label}: "]`)
+/** 生成设置 chip：aria-label 是「生成设置: 摘要」。 */
+function settingsChip(): HTMLButtonElement {
+  const el = host.querySelector<HTMLButtonElement>('[aria-label^="生成设置: "]')
+  if (!el) throw new Error('no settings chip')
+  return el
+}
+
+/** 点开生成设置卡片（Radix 浮层挂在 body 上），返回按分组名找控件的函数。 */
+function openSettings(): (label: string) => Element | null {
+  act(() => {
+    settingsChip().click()
+  })
+  return (label) => document.body.querySelector(`[role="group"][aria-label="${label}"]`)
 }
 
 function editor(): HTMLElement {
@@ -115,29 +125,93 @@ describe('生成输入框的回车', () => {
   })
 })
 
-describe('首屏「画布」档的参数 chip', () => {
-  it('直出档摆着张数与「更多」', () => {
+describe('首屏的生成设置', () => {
+  it('直出档：摘要带张数，卡片里有数量、质量与格式', () => {
     remount('generate')
-    expect(chip('数量')).not.toBeNull()
-    expect(chip('更多')).not.toBeNull()
+    expect(settingsChip().getAttribute('aria-label')).toContain('1 张')
+    const group = openSettings()
+    expect(group('比例')).not.toBeNull()
+    expect(group('数量')).not.toBeNull()
+    expect(group('格式')).not.toBeNull()
   })
 
-  it('交给智能体时只留模型与画幅：张数、质量、格式都由它自己定', () => {
+  it('交给智能体时只留画幅：张数、质量、格式都由它自己定', () => {
     remount('canvas')
-    // 画幅还在：比例 / 尺寸这一档用户说了算。
-    expect(chip('比例') ?? chip('尺寸')).not.toBeNull()
-    expect(chip('数量')).toBeNull()
-    expect(chip('更多')).toBeNull()
-    expect(chip('质量')).toBeNull()
-    expect(chip('格式')).toBeNull()
+    expect(settingsChip().getAttribute('aria-label')).not.toContain('张')
+    const group = openSettings()
+    expect(group('比例')).not.toBeNull()
+    expect(group('数量')).toBeNull()
+    expect(group('质量')).toBeNull()
+    expect(group('格式')).toBeNull()
   })
 
   it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
     remount('chat')
-    expect(chip('数量')).toBeNull()
-    expect(chip('比例') ?? chip('尺寸')).not.toBeNull()
+    expect(openSettings()('数量')).toBeNull()
     expect(editor().getAttribute('data-placeholder')).toContain('讨论思路')
     expect(useStore.getState().createTarget).toBe('chat')
+  })
+
+  it('选一格比例就写回对应尺寸，「恢复默认」回到智能比例', () => {
+    remount('generate')
+    const group = openSettings()
+    const sixteenNine = [...(group('比例')?.querySelectorAll('button') ?? [])].find((one) =>
+      one.textContent?.includes('16:9'),
+    )
+    expect(sixteenNine).toBeDefined()
+    act(() => sixteenNine?.click())
+    expect(useStore.getState().params.size).toBe('1280x720')
+    const reset = [...document.body.querySelectorAll('button')].find(
+      (one) => one.textContent === '恢复默认',
+    )
+    act(() => reset?.click())
+    expect(useStore.getState().params.size).toBe('auto')
+  })
+
+  it('自定义宽高：改一边就提交完整尺寸，输入框不收起；被规整的值回显成实际尺寸', () => {
+    remount('generate')
+    const group = openSettings()
+    const custom = [...(group('比例')?.querySelectorAll('button') ?? [])].find((one) =>
+      one.textContent?.includes('自定义'),
+    )
+    act(() => custom?.click())
+    const width = () => document.body.querySelector<HTMLInputElement>('input[aria-label^="宽度"]')
+    const setValue = (input: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    act(() => {
+      const input = width()!
+      input.focus()
+      setValue(input, '1024')
+    })
+    act(() => width()?.blur())
+    expect(useStore.getState().params.size).toBe('1024x1024')
+    // 恰好落在 1:1 预设上也不退出自定义，还能接着填高度。
+    expect(width()).not.toBeNull()
+
+    act(() => {
+      const input = width()!
+      input.focus()
+      setValue(input, '99999')
+    })
+    act(() => width()?.blur())
+    const size = useStore.getState().params.size
+    expect(size).not.toBe('99999x1024')
+    expect(width()?.value).toBe(size.split('x')[0])
+    act(() => useStore.getState().setParams({ size: 'auto' }))
+  })
+
+  it('数量可选到上限，不止 1–4 张', () => {
+    remount('generate')
+    const ten = [...(openSettings()('数量')?.querySelectorAll('button') ?? [])].find(
+      (one) => one.textContent === '10',
+    )
+    act(() => ten?.click())
+    expect(useStore.getState().params.n).toBe(10)
+    expect(settingsChip().getAttribute('aria-label')).toContain('10 张')
+    act(() => useStore.getState().setParams({ n: 1 }))
   })
 
   it('Gemini 模型下留的是比例与分辨率，思考强度归智能体', () => {
@@ -162,11 +236,11 @@ describe('首屏「画布」档的参数 chip', () => {
     })
     remount('canvas')
 
-    expect(chip('比例')).not.toBeNull()
-    expect(chip('分辨率')).not.toBeNull()
-    expect(chip('思考')).toBeNull()
-    expect(chip('更多')).toBeNull()
-    expect(chip('数量')).toBeNull()
+    const group = openSettings()
+    expect(group('比例')).not.toBeNull()
+    expect(group('分辨率')).not.toBeNull()
+    expect(group('思考')).toBeNull()
+    expect(group('数量')).toBeNull()
   })
 })
 
@@ -339,7 +413,8 @@ it('template preparation turns the send button into a click-only stop, even with
       })
     })
     const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.title.includes('生成') && !button.disabled,
+      (button) =>
+        button.title.includes('生成') && !button.hasAttribute('aria-haspopup') && !button.disabled,
     )
     expect(send).toBeDefined()
     await act(async () => {

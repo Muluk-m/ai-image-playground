@@ -1,6 +1,10 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { ChipIcons } from '../../../components/chipIcons'
+import {
+  composerChipClass,
+  composerIconButtonClass,
+} from '../../../components/composer/SettingsPanel'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import {
@@ -247,17 +251,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   return (
     <div className="studio-direct-composer" onPointerDown={(e) => e.stopPropagation()}>
-      {video && (
-        <div className="pb-3">
-          <CanvasVideoParams
-            hasFirstFrame={
-              !referenceItems &&
-              imageCount > 0 &&
-              !canvasVideoSelectionRefusal(editor, videoDraft.model)
-            }
-          />
-        </div>
-      )}
       {hint && <p className="px-1 pb-2 text-label-sm text-muted-foreground">{hint}</p>}
       <SubmissionBillingAction
         blockedAction={submissionGuard.blockedAction}
@@ -314,13 +307,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         {/* 附件 + 参数 chip + 发送同属这张卡：参数跟着输入走，不散在卡外面。
             参数与工作台共用同一份全局 params/settings，数量 n>1 时 fan-out 成 n 个并行任务。 */}
         <div className="flex items-end gap-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               title={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
               aria-label={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-              className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl border border-input bg-background text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:bg-accent hover:text-foreground"
+              className={composerIconButtonClass('sm')}
             >
               {ChipIcons.imageAttach}
             </button>
@@ -331,7 +324,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               >
                 <SelectTrigger
                   aria-label={t('generate.modeAria')}
-                  className="h-10 w-auto gap-1.5 rounded-xl border-input bg-background px-3 text-xs font-medium"
+                  className={composerChipClass('sm')}
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -341,7 +334,18 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                 </SelectContent>
               </Select>
             )}
-            {!video && <ParamControls showCount collapsible />}
+            {video ? (
+              <CanvasVideoParams
+                hasFirstFrame={
+                  !referenceItems &&
+                  imageCount > 0 &&
+                  !canvasVideoSelectionRefusal(editor, videoDraft.model)
+                }
+                size="sm"
+              />
+            ) : (
+              <ParamControls showCount size="sm" />
+            )}
           </div>
           <button
             type="button"
@@ -349,7 +353,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             disabled={!canSubmit}
             title={submissionGuard.disabledReason ?? t('common:action.generate')}
             aria-label={t('common:action.generate')}
-            className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           >
             {ChipIcons.sparkles}
           </button>

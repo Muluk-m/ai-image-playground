@@ -23,11 +23,24 @@ function render(): void {
 }
 
 function trigger(): HTMLButtonElement {
-  return host.querySelector<HTMLButtonElement>('button[aria-label="生成参数"]')!
+  return host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
 }
 
 function toggle(): void {
-  act(() => trigger().dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => trigger().click())
+}
+
+/** 卡片挂在 body 上；按分组名找。 */
+function group(label: string): Element | null {
+  return document.body.querySelector(`[role="group"][aria-label="${label}"]`)
+}
+
+function option(groupLabel: string, text: string): HTMLButtonElement {
+  const button = [...(group(groupLabel)?.querySelectorAll('button') ?? [])].find((node) =>
+    node.textContent?.includes(text),
+  )
+  if (!button) throw new Error(`Missing ${groupLabel} option: ${text}`)
+  return button
 }
 
 beforeEach(() => {
@@ -42,10 +55,11 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  document.body.innerHTML = ''
 })
 
-describe('智能体输入框的生成参数', () => {
-  it('点开才出现参数面板，再点收起', () => {
+describe('智能体输入框的生成设置', () => {
+  it('点开才出现设置卡片，再点收起', () => {
     render()
 
     toggle()
@@ -55,23 +69,62 @@ describe('智能体输入框的生成参数', () => {
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('面板里没有「透明」和「防改写」：智能体那条路做不到，显示了就是骗人', () => {
+  it('卡片里没有「透明」和「防改写」，也没有张数：智能体那条路做不到或自己决定', () => {
     render()
     toggle()
 
-    expect(host.textContent).not.toContain('透明')
-    expect(host.textContent).not.toContain('防改写')
+    expect(document.body.textContent).not.toContain('透明')
+    expect(document.body.textContent).not.toContain('防改写')
+    expect(group('数量')).toBeNull()
   })
 
-  it('按 Esc 收起面板', () => {
+  it('按 Esc 收起卡片', () => {
     render()
     toggle()
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
 
     act(() => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
     })
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('选一格比例立即写回尺寸，卡片保持打开，点「完成」才收起', () => {
+    useProfile('openai-compat', 'gpt-image-2.5-flare')
+    render()
+    toggle()
+
+    act(() => option('比例', '16:9').click())
+    expect(useStore.getState().params.size).toBe('1280x720')
+    expect(option('比例', '16:9').getAttribute('aria-pressed')).toBe('true')
+    expect(trigger().getAttribute('aria-label')).toContain('16:9 · 1K')
+
+    act(() => option('分辨率', '2K').click())
+    expect(useStore.getState().params.size).toBe('2560x1440')
+    expect(trigger().getAttribute('aria-expanded')).toBe('true')
+
+    const done = [...document.body.querySelectorAll('button')].find(
+      (node) => node.textContent === '完成',
+    )
+    act(() => done?.click())
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('「恢复默认」回到智能比例与中等思考', () => {
+    useStore.setState({ params: { ...DEFAULT_PARAMS, size: '2560x1440', quality: 'high' } })
+    useAgentStore.setState({ thinkingDepth: 'deep' })
+    render()
+    toggle()
+
+    const reset = [...document.body.querySelectorAll('button')].find(
+      (node) => node.textContent === '恢复默认',
+    )
+    act(() => reset?.click())
+    expect(useStore.getState().params.size).toBe('auto')
+    expect(useStore.getState().params.quality).toBe('auto')
+    expect(useAgentStore.getState().thinkingDepth).toBe('medium')
   })
 })
 
@@ -102,18 +155,18 @@ function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
 
 /**
  * 自带 Key 的配置在智能体这条路上不生效：服务端没有 BYOK 分支，模型一律从内置渠道挑。
- * 摘要里摆 profile 的模型名就是「界面写 A、实际花钱跑 B」，所以那个名字不能出现，
- * 面板里得说清楚为什么。
+ * 模型 chip 写 profile 的模型名就是「界面写 A、实际花钱跑 B」，所以那个名字不能出现，
+ * 卡片里得说清楚为什么。
  */
-it('自带 Key 时摘要不摆本地模型名，面板说明智能体只能用内置渠道', () => {
+it('自带 Key 时模型 chip 不摆本地模型名，卡片说明智能体只能用内置渠道', () => {
   useProfile('openai-compat', 'my-private-image-model')
   render()
 
-  expect(trigger().textContent).not.toContain('my-private-image-model')
-  expect(trigger().textContent).toContain('内置渠道模型')
+  expect(host.textContent).not.toContain('my-private-image-model')
+  expect(host.textContent).toContain('内置渠道模型')
 
   toggle()
-  expect(host.textContent).toContain('智能体只能用内置渠道的模型')
+  expect(document.body.textContent).toContain('智能体只能用内置渠道的模型')
 })
 
 describe('gemini 专属参数跟着当前模型走', () => {
@@ -123,17 +176,18 @@ describe('gemini 专属参数跟着当前模型走', () => {
       params: { ...DEFAULT_PARAMS, size: '1536x1024', gemini_aspect_ratio: '9:16' },
     })
     render()
-    expect(trigger().textContent).toContain('9:16')
-    expect(trigger().textContent).not.toContain('1536x1024')
+    expect(trigger().getAttribute('aria-label')).toContain('9:16')
+    expect(trigger().getAttribute('aria-label')).not.toContain('1536')
   })
+
   it('gemini 系模型才给分辨率与思考级别', () => {
     useProfile('gemini', 'gemini-3.1-flash-image')
     render()
     toggle()
 
-    expect(host.textContent).toContain('比例')
-    expect(host.textContent).toContain('分辨率')
-    expect(host.textContent).toContain('思考')
+    expect(group('比例')).not.toBeNull()
+    expect(group('分辨率')).not.toBeNull()
+    expect(group('思考')).not.toBeNull()
   })
 
   // 同一个 Gemini profile 也能指到别的模型；分辨率与思考级别只有 Gemini 图像模型认。
@@ -142,9 +196,9 @@ describe('gemini 专属参数跟着当前模型走', () => {
     render()
     toggle()
 
-    expect(host.textContent).toContain('比例')
-    expect(host.textContent).not.toContain('分辨率')
-    expect(host.querySelector('[title^="思考:"]')).toBeNull()
+    expect(group('比例')).not.toBeNull()
+    expect(group('分辨率')).toBeNull()
+    expect(group('思考')).toBeNull()
   })
 
   it('不走 gemini 协议时一项都不给', () => {
@@ -152,12 +206,11 @@ describe('gemini 专属参数跟着当前模型走', () => {
     render()
     toggle()
 
-    expect(host.textContent).not.toContain('分辨率')
-    expect(host.querySelector('[title^="思考:"]')).toBeNull()
+    expect(group('思考')).toBeNull()
   })
 })
 
-it('仅支持比例的模型在参数摘要和面板中都显示比例', () => {
+it('仅支持比例的模型在摘要和卡片中都显示比例，不给分辨率', () => {
   setChannels([
     {
       id: 'ratio',
@@ -183,67 +236,60 @@ it('仅支持比例的模型在参数摘要和面板中都显示比例', () => {
     params: { ...DEFAULT_PARAMS, size: '1536x1024' },
   })
   render()
-  expect(trigger().textContent).toContain('3:2')
-  expect(trigger().textContent).not.toContain('1536x1024')
+  expect(trigger().getAttribute('aria-label')).toContain('3:2')
+  expect(trigger().getAttribute('aria-label')).not.toContain('1536')
   toggle()
-  expect(host.querySelector('button[title="比例: 3:2"]')).not.toBeNull()
+  expect(option('比例', '3:2').getAttribute('aria-pressed')).toBe('true')
+  expect(group('分辨率')).toBeNull()
 })
 
-function clickWithPointer(element: Element) {
-  act(() => element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })))
-  act(() => element.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-}
-
-function buttonWithText(text: string) {
-  const button = Array.from(document.body.querySelectorAll('button')).find(
-    (node) => node.textContent?.trim() === text,
-  )
-  if (!button) throw new Error(`Missing button: ${text}`)
-  return button
-}
-
-function openRatio() {
-  useProfile('openai-compat', 'gpt-image-2.5-flare')
+it('仅支持比例的模型在自定义里填预设比例：仍回显实际比例', () => {
+  setChannels([
+    {
+      id: 'ratio',
+      kind: 'openai-queue',
+      label: 'Ratio',
+      models: [{ id: 'flare', label: 'Flare', capabilities: ['quality'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  useStore.setState({
+    settings: {
+      ...useStore.getState().settings,
+      activeProfileId: 'ratio-profile',
+      profiles: [
+        {
+          id: 'ratio-profile',
+          source: 'builtin-edge',
+          channelId: 'ratio',
+          selectedModelId: 'flare',
+        },
+      ],
+    },
+  })
   render()
   toggle()
-  const chip = host.querySelector<HTMLButtonElement>('button[title^="尺寸:"]')!
-  clickWithPointer(chip)
-  expect(document.body.querySelector('h3')?.textContent).toBe('设置图像尺寸')
-  clickWithPointer(buttonWithText('按比例'))
-}
-
-it('keeps the portalled ratio picker open until confirmation and applies the selection', () => {
-  openRatio()
-  clickWithPointer(buttonWithText('16:9'))
-  expect(document.body.querySelector('h3')?.textContent).toBe('设置图像尺寸')
-  expect(useStore.getState().params.size).toBe('auto')
-  clickWithPointer(buttonWithText('确定'))
+  act(() => option('比例', '自定义').click())
+  const input = () =>
+    document.body.querySelector<HTMLInputElement>('input[aria-label="输入自定义比例"]')
+  act(() => {
+    const el = input()!
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, '16:9')
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.focus()
+  })
+  act(() => input()?.blur())
   expect(useStore.getState().params.size).toBe('1280x720')
-  expect(trigger().textContent).toContain('1280x720')
-  expect(trigger().getAttribute('aria-expanded')).toBe('true')
-  expect(document.body.querySelector('h3')).toBeNull()
-  act(() => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })))
-  expect(trigger().getAttribute('aria-expanded')).toBe('false')
-})
-
-it('Escape dismisses only the topmost picker and leaves unconfirmed parameters unchanged', () => {
-  openRatio()
-  clickWithPointer(buttonWithText('9:16'))
-  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-  expect(document.body.querySelector('h3')).toBeNull()
-  expect(trigger().getAttribute('aria-expanded')).toBe('true')
-  expect(useStore.getState().params.size).toBe('auto')
-  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-  expect(trigger().getAttribute('aria-expanded')).toBe('false')
+  expect(input()?.value).toBe('16:9')
 })
 
 it('selects and remembers thinking depth independently of the image model', () => {
   render()
   toggle()
-  const deep = [...host.querySelectorAll('button')].find((button) => button.textContent === '深度')!
-  act(() => deep.click())
-  expect(deep.getAttribute('aria-pressed')).toBe('true')
+  act(() => option('思考深度', '深度').click())
+  expect(option('思考深度', '深度').getAttribute('aria-pressed')).toBe('true')
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
-  expect(trigger().textContent).toContain('思考：深度')
+  // 思考深度不进摘要（对话面板放不下），偏离默认时 chip 上亮点提示。
+  expect(trigger().hasAttribute('data-dirty')).toBe(true)
 })

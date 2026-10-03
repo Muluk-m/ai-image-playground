@@ -61,13 +61,12 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <div className="rounded-[22px] bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-[1.5px] shadow-[0_24px_60px_-30px_hsl(var(--primary)/0.4)]">
             <div className="rounded-[21px] bg-card p-3">
               {/*
-                图片档的参数不在这里：AgentComposer 底部那枚 chip 已经带着模型、尺寸与思考深度，
-                展开还能改格式与质量。再摆一行 ParamControls 就是同一组参数出现两次，
-                而且它里面的透明、防改写、张数在智能体这条路上根本不生效（见 AgentParamsChip）。
+                图片档的参数不在这里：AgentComposer 底部已经有模型 chip 与生成设置（尺寸、思考深度、
+                格式与质量）。再摆一份就是同一组参数出现两次。
               */}
               {video && (
-                <div className="mb-2 px-1">
-                  <CanvasVideoParams hasFirstFrame={false} />
+                <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+                  <CanvasVideoParams hasFirstFrame={false} size="sm" />
                 </div>
               )}
               <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />

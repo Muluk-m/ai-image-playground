@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateImageSize,
   normalizeCodexCliImageSize,
+  readSizeSelection,
   sameAspectRatio,
+  sizeFor,
   sizeRatioLabel,
 } from '../../lib/size'
 
@@ -84,5 +86,62 @@ describe('size ratio helpers', () => {
     it('preserves non-pixel size values', () => {
       expect(normalizeCodexCliImageSize('auto')).toBe('auto')
     })
+  })
+})
+
+const OPEN = { ratioOnly: false, limitTo1K: false }
+
+describe('生成设置里尺寸对应哪一格', () => {
+  it('auto 落在「智能」', () => {
+    expect(readSizeSelection('auto', OPEN)).toEqual({ kind: 'auto' })
+    expect(readSizeSelection('', OPEN)).toEqual({ kind: 'auto' })
+  })
+
+  it('预设尺寸回显成比例 + 分辨率档', () => {
+    expect(readSizeSelection('2560x1440', OPEN)).toEqual({
+      kind: 'preset',
+      ratio: '16:9',
+      tier: '2K',
+    })
+    expect(readSizeSelection('1024x1536', OPEN)).toEqual({
+      kind: 'preset',
+      ratio: '2:3',
+      tier: '1K',
+    })
+  })
+
+  it('预设外的宽高落在「自定义」，带约分后的比例', () => {
+    expect(readSizeSelection('1600x1280', OPEN)).toEqual({ kind: 'custom', ratio: '5:4' })
+  })
+
+  it('只认比例的模型按比例匹配，存的比例本身也能回显', () => {
+    const ratioOnly = { ratioOnly: true, limitTo1K: false }
+    expect(readSizeSelection('2560x1440', ratioOnly)).toMatchObject({
+      kind: 'preset',
+      ratio: '16:9',
+    })
+    expect(readSizeSelection('3:4', ratioOnly)).toEqual({
+      kind: 'preset',
+      ratio: '3:4',
+      tier: '1K',
+    })
+    expect(readSizeSelection('5:4', ratioOnly)).toEqual({ kind: 'custom', ratio: '5:4' })
+  })
+
+  it('Codex CLI 被上游重新量化的尺寸仍按比例认回预设', () => {
+    const codex = { ratioOnly: false, limitTo1K: true }
+    expect(readSizeSelection('941x1672', codex)).toMatchObject({ kind: 'preset', ratio: '9:16' })
+  })
+})
+
+describe('选格写回的尺寸', () => {
+  it('按当前分辨率档算预设尺寸', () => {
+    expect(sizeFor('2K', '16:9', OPEN)).toBe('2560x1440')
+    expect(sizeFor('4K', '1:1', OPEN)).toBe('2880x2880')
+  })
+
+  it('只认比例或限 1K 时一律按 1K 算', () => {
+    expect(sizeFor('4K', '16:9', { ratioOnly: true, limitTo1K: false })).toBe('1280x720')
+    expect(sizeFor('2K', '1:1', { ratioOnly: false, limitTo1K: true })).toBe('1024x1024')
   })
 })
