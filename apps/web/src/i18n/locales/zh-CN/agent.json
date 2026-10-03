@@ -264,7 +264,8 @@
     "thinkingFast": "快速",
     "thinkingMedium": "中等",
     "thinkingDeep": "深度",
-    "thinkingLegend": "思考深度"
+    "thinkingLegend": "思考深度",
+    "thinkingSummary": "思考：{{label}}"
   },
   "mentions": {
     "headingResults": "会话图片",

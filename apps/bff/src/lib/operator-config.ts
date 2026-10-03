@@ -171,6 +171,7 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
 /** 同步依赖登录：登录关闭时视为关，而不是像 self-register 那样拒绝启动。 */
 function applyCapabilityDependencies(capabilities: Record<CapabilityKey, boolean>): void {
   if (!capabilities['accounts:login']) capabilities['accounts:sync'] = false
+  if (!capabilities['agent:chat']) capabilities['agent:production'] = false
 }
 
 function assertCapabilityCompatibility(capabilities: CapabilityValues): void {

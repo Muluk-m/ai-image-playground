@@ -14,6 +14,8 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
+import ProductionResultCard from '../../production/components/ProductionResultCard'
+import type { ProductionPane } from '../../production/lib/productionContext'
 import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
@@ -59,14 +61,30 @@ function renderMessage(
   skills: readonly AgentSkillSummary[],
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string) => void,
+  onPreviewProduction?: (pane?: ProductionPane) => void,
 ) {
   if (message.kind === 'tool') {
+    if (
+      (message.toolName === 'writeProduction' || message.toolName === 'proposeStoryboard') &&
+      message.status === 'succeeded' &&
+      onPreviewProduction
+    )
+      return (
+        <ProductionResultCard
+          title={message.title}
+          pane={message.toolName === 'proposeStoryboard' ? 'storyboard' : 'script'}
+          onOpen={() =>
+            onPreviewProduction(message.toolName === 'proposeStoryboard' ? 'storyboard' : 'script')
+          }
+        />
+      )
     // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
     if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
     // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
     return (
       <AgentToolCard
         message={message}
+        onPreviewProduction={onPreviewProduction}
         onViewCanvas={onViewCanvas}
         onPreviewResult={onPreviewResult}
       />
@@ -126,6 +144,8 @@ export default function AgentPanel({
   presentation = 'side',
   searchOpen = false,
   onCloseSearch,
+  onPreviewProduction,
+  productionMode = false,
 }: {
   doc: CanvasDoc
   editor: CanvasEditor
@@ -135,6 +155,8 @@ export default function AgentPanel({
   presentation?: 'page' | 'side'
   searchOpen?: boolean
   onCloseSearch?: () => void
+  onPreviewProduction?: (pane?: ProductionPane) => void
+  productionMode?: boolean
 }) {
   const { t } = useTranslation(['agent', 'errors'])
   const open = useAgentStore((state) => state.open)
@@ -454,7 +476,14 @@ export default function AgentPanel({
                       />
                     )}
                     {!grouping.absorbed.has(index) &&
-                      renderMessage(message, answerableId, skills, onViewCanvas, onPreviewResult)}
+                      renderMessage(
+                        message,
+                        answerableId,
+                        skills,
+                        onViewCanvas,
+                        onPreviewResult,
+                        onPreviewProduction,
+                      )}
                     {footer && (
                       <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
                     )}
@@ -509,6 +538,7 @@ export default function AgentPanel({
       {tab === 'chat' && <AgentMessageQueue />}
       {tab === 'chat' && (
         <AgentComposer
+          productionMode={productionMode}
           doc={doc}
           editor={editor}
           showLooks={presentation !== 'page' || messages.length === 0}

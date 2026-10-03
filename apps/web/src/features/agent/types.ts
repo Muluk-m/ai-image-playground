@@ -47,6 +47,7 @@ export interface AgentTextMessage {
 
 /** 一次工具调用在对话流里的那张结果卡。 */
 export interface AgentToolMessage {
+  readonly productionDraftRevision?: number
   readonly video?: import('@image-playground/shared').VideoGenerationRecord
   readonly kind: 'tool'
   readonly id: string

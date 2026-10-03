@@ -44,8 +44,8 @@ overlay 反过来只允许通过上面三个接缝与三个**宿主面**引公�
 也可手动跑）把 lock 抬到它：先把这对组合构建一遍，通过才提交，并显式触发一次生产部署——
 所以 overlay 合并**会**上线，不必等公开 main 另有提交。本地 `private/` 用
 `scripts/sync-private-overlay.sh` 对齐到 lock；两边错位时 typecheck / 全量测试会红（overlay 引了
-公开树没有的宿主面成员），那是版本没对上，不是代码坏了。测试环境仍取 overlay main HEAD（预览下
-一版），所以 test 可能比生产多出尚未钉住的 overlay 提交。
+公开树没有的宿主面成员），那是版本没对上，不是代码坏了。测试环境也按 `private.lock` 取，前后端
+固定同一 overlay 提交。
 
 私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，

@@ -66,7 +66,9 @@ export default function AgentArtifactPane({
   onSelect,
   onClose,
   onViewCanvas,
+  presentation = 'overlay',
 }: {
+  presentation?: 'panel' | 'overlay'
   message: AgentToolMessage
   selectedId?: string
   onSelect: (id: string) => void
@@ -74,6 +76,7 @@ export default function AgentArtifactPane({
   onViewCanvas?: (objectIds?: readonly string[]) => void
 }) {
   const { t } = useTranslation('agent')
+  const { t: tv } = useTranslation('video')
   const [source, setSource] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
@@ -210,11 +213,13 @@ export default function AgentArtifactPane({
       .finally(() => setEditBusy(false))
   }
 
-  return createPortal(
+  const pane = (
     <aside
       className="studio-artifact-pane"
-      role="dialog"
-      aria-modal="true"
+      data-presentation={presentation}
+      data-editing={Boolean(editAction)}
+      role={presentation === 'panel' ? 'region' : 'dialog'}
+      aria-modal={presentation === 'panel' ? undefined : true}
       aria-label={t('tool.previewTitle')}
     >
       <button
@@ -322,7 +327,9 @@ export default function AgentArtifactPane({
         {message.prompt && (
           <section className="studio-artifact-pane-prompt">
             <div>
-              <span>{t('tool.imagePrompt')}</span>
+              <span>
+                {active.media === 'video' ? tv('landing.promptAria') : t('tool.imagePrompt')}
+              </span>
               <button
                 type="button"
                 onClick={() => void navigator.clipboard.writeText(message.prompt ?? '')}
@@ -389,6 +396,7 @@ export default function AgentArtifactPane({
       {editAction && source && (
         <AgentArtifactEditDialog
           key={`${active.id}:${editAction}`}
+          presentation={presentation}
           action={editAction}
           source={source}
           busy={editBusy}
@@ -396,9 +404,9 @@ export default function AgentArtifactPane({
           onGenerate={generateEdit}
         />
       )}
-    </aside>,
-    document.body,
+    </aside>
   )
+  return presentation === 'panel' ? pane : createPortal(pane, document.body)
 }
 
 function PaneThumbnail({

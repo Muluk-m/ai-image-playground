@@ -185,6 +185,7 @@ export const editImage = defineAgentTool({
           // 确认时提交的都是这一句。
           prompt: prepared?.prompt ?? params.prompt,
           n: params.n,
+          referenceIds: images.map((image) => image.imageId),
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
           ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
           anchorObjectId: images[0]!.imageId,

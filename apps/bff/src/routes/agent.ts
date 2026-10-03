@@ -175,6 +175,26 @@ async function renderReferenceImage(
  */
 const paramsSchema = t.Optional(
   t.Object({
+    productionMode: t.Optional(t.Literal(true)),
+    production: t.Optional(
+      t.Object({
+        documentId: t.String({ minLength: 1, maxLength: 128 }),
+        revision: t.Integer({ minimum: 1 }),
+        target: t.String({ pattern: '^(setting|outline|scene|shots|shot|look|location|clip)$' }),
+        sceneId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        lookId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        locationId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        clipId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        shotId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        quote: t.Optional(
+          t.Object({
+            start: t.Integer({ minimum: 0 }),
+            end: t.Integer({ minimum: 1 }),
+            text: t.String({ minLength: 1, maxLength: 100000 }),
+          }),
+        ),
+      }),
+    ),
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
     /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
@@ -575,6 +595,7 @@ export const agentRoutes = new Elysia()
         conversationId: conversation.id,
         owner,
         messageId: body.messageId,
+        draftRevision: body.draftRevision,
         prompt: body.prompt,
         deviceId: body.deviceId,
         userId: authUser?.id ?? null,
@@ -596,6 +617,7 @@ export const agentRoutes = new Elysia()
       body: t.Object({
         deviceId: deviceIdSchema(),
         messageId: t.String({ minLength: 1, maxLength: 128 }),
+        draftRevision: t.Optional(t.Integer({ minimum: 1 })),
         // 空白与超长由确认本身按 `confirmation_refused` 回绝（界面只认 code）；这里只挡住
         // 明显的滥用体积。
         prompt: t.String({ maxLength: 20_000 }),
@@ -642,6 +664,13 @@ export const agentRoutes = new Elysia()
   .post(
     '/api/agent/conversations/:id/turns',
     async ({ params, body, authUser, request, server, status }) => {
+      if (
+        (body.params?.productionMode || body.params?.production) &&
+        !isCapabilityEnabled('agent:production')
+      )
+        return capabilityUnavailable('agent:production')
+      if ((body.params?.productionMode || body.params?.production) && !authUser)
+        return status(401, { error: 'unauthorized' })
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
       if (agentTurnRateLimited(body.deviceId, address)) {
         return status(429, { error: 'rate_limited' })
@@ -695,7 +724,9 @@ export const agentRoutes = new Elysia()
             references,
             deviceId: body.deviceId,
             ...(body.mode ? { mode: body.mode } : {}),
-            ...(body.params ? { params: body.params } : {}),
+            ...(body.params
+              ? { params: body.params as import('@image-playground/shared').AgentTurnParams }
+              : {}),
             ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
             ...(canvas ? { canvas } : {}),
             ...(body.experience === 'chat' || body.experience === 'canvas'

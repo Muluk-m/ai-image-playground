@@ -106,6 +106,13 @@ const DYNAMIC_PREFIXES = [
   'video:frameSlot.both',
   'video:frameSlot.first',
   'video:frameSlot.last',
+  // features/production/components：生成状态、首尾帧槽位、导出阶段、文稿历史来源按值拼 key。
+  'production:generation.status.',
+  'production:clip.first-frame',
+  'production:clip.last-frame',
+  'production:export.cancelled',
+  'production:export.complete',
+  'production:historySource.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/

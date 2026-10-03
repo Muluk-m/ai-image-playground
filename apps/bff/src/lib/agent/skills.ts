@@ -344,11 +344,13 @@ export function ensureAgentSkills(): Promise<SkillIndex> {
 
 /** 这个 mode 看得见的技能。`ensureAgentSkills()` 之前一律是空的。 */
 export function agentSkills(mode: AgentMode): readonly AgentSkill[] {
-  return index[mode]
+  return index[mode].filter(
+    (skill) => skill.name !== 'video-production' || isCapabilityEnabled('agent:production'),
+  )
 }
 
 export function findAgentSkill(mode: AgentMode, name: string): AgentSkill | undefined {
-  return index[mode].find((skill) => skill.name === name)
+  return agentSkills(mode).find((skill) => skill.name === name)
 }
 
 /**
@@ -420,7 +422,7 @@ export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  return mode === 'image' ? [...index[mode], ...audience.looks] : index[mode]
+  return mode === 'image' ? [...agentSkills(mode), ...audience.looks] : agentSkills(mode)
 }
 
 /**

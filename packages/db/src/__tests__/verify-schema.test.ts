@@ -47,6 +47,27 @@ describe('verifySchema', () => {
     }
   })
 
+  it('rejects a missing or non-JSONB production document even when migrations are recorded', async () => {
+    const handle = createDb(databaseUrl)
+    try {
+      await handle.client.unsafe('ALTER TABLE agent_conversations DROP COLUMN production')
+      await expect(verifySchema(databaseUrl)).rejects.toThrow(
+        'missing columns: agent_conversations.production',
+      )
+      await handle.client.unsafe('ALTER TABLE agent_conversations ADD COLUMN production text')
+      await expect(verifySchema(databaseUrl)).rejects.toThrow(
+        'agent_conversations.production must be jsonb',
+      )
+    } finally {
+      await handle.client.unsafe('ALTER TABLE agent_conversations DROP COLUMN IF EXISTS production')
+      await handle.client.unsafe('ALTER TABLE agent_conversations ADD COLUMN production jsonb')
+      await handle.close()
+    }
+    await expect(verifySchema(databaseUrl)).resolves.toMatchObject({
+      migrations: journal.entries.length,
+    })
+  })
+
   it('reports a missing expected index', async () => {
     const handle = createDb(databaseUrl)
     try {

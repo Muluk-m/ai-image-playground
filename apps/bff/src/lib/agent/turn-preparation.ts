@@ -213,13 +213,19 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   ])
   const { experience } = resolved
   const audience: AgentTurnAudience = { ...loadedAudience, experience }
-  const content =
+  let content =
     source.kind === 'wake'
       ? await wakeContent(conversationId, owner, turnId, history, source.wake)
       : source.kind === 'resume'
         ? await resumeContent(conversationId, owner, turnId, history, source.resume)
         : await messageContent(conversationId, owner, turnId, history, source)
   if ('kind' in content) return content
+  if (content.params?.productionMode || content.params?.production) {
+    content = {
+      ...content,
+      params: { ...content.params, productionMode: true, autoSubmit: undefined },
+    }
+  }
   // chat 不把旧客户端残留的画布上下文带给模型或图片解析器。
   const turnContent = experience === 'chat' ? { ...content, canvas: undefined } : content
 
@@ -413,6 +419,8 @@ function turnInputOf(
     history,
     currentTime,
     text: content.text,
+    ...(content.params?.production ? { production: content.params.production } : {}),
+    ...(content.params?.productionMode ? { productionMode: true as const } : {}),
     references: content.references,
     mode: content.mode,
     reviewImageIds: [...content.reviewImageIds, ...(note?.reviewImageIds ?? [])],
