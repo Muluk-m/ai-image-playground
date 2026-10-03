@@ -9,6 +9,8 @@ export interface FakeBff {
   readonly fetch: (input: string, init?: RequestInit) => Promise<Response>
   /** 收到的每一轮请求体，测试据此断言发了什么。 */
   readonly turns: Record<string, unknown>[]
+  /** 跑完后被删掉的会话。 */
+  readonly deleted: string[]
 }
 
 export interface FakeBffOptions {
@@ -34,6 +36,7 @@ function json(body: unknown, status = 200): Response {
 export function createFakeBff(options: FakeBffOptions = {}): FakeBff {
   const conversations = new Map<string, FakeConversation>()
   const turns: Record<string, unknown>[] = []
+  const deleted: string[] = []
 
   function snapshot(id: string, conversation: FakeConversation): AgentConversationSnapshot {
     conversation.polls += 1
@@ -91,6 +94,11 @@ export function createFakeBff(options: FakeBffOptions = {}): FakeBff {
       conversations.set(id, { polls: 0, model: options.model ?? 'fake-image-model' })
       return json({ conversation: { id } })
     }
+    const deleteMatch = /^\/api\/agent\/conversations\/([^/]+)$/.exec(pathname)
+    if (method === 'DELETE' && deleteMatch && conversations.delete(deleteMatch[1]!)) {
+      deleted.push(deleteMatch[1]!)
+      return json({ ok: true })
+    }
     const conversationMatch = /^\/api\/agent\/conversations\/([^/]+)\/(turns|jobs|messages)$/.exec(
       pathname,
     )
@@ -123,5 +131,5 @@ export function createFakeBff(options: FakeBffOptions = {}): FakeBff {
     return json({ error: 'not_found' }, 404)
   }
 
-  return { fetch: handle, turns }
+  return { fetch: handle, turns, deleted }
 }
