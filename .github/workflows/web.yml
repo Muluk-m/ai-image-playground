@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: pnpm lint
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
@@ -48,7 +48,7 @@ jobs:
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
       - run: pnpm test --concurrency=1 --env-mode=loose --filter='!@image-playground/web'
@@ -62,7 +62,7 @@ jobs:
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: pnpm test --env-mode=loose --filter=@image-playground/web
   # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
@@ -95,7 +95,7 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       BUN_TEST_JOBS: 4
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # 先自己报一句：`ssh-key` 为空时 checkout 会退回 token 认证，私有仓返回的是
@@ -115,7 +115,7 @@ jobs:
         run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
       - name: Check out the private overlay at the pinned commit
         id: overlay
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
           ref: ${{ steps.lock.outputs.sha }}
