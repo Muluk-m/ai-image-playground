@@ -405,3 +405,37 @@ it('删除当前空项目时必须切换到另一个项目，不能复用即将�
   expect(next).not.toBe(first)
   expect(useCanvasProjectStore.getState().projects.some((one) => one.id === next)).toBe(true)
 })
+
+it('删除当前画布项目后顶上来的仍是画布项目，不会被送进对话页', async () => {
+  expect(await state().createProject(undefined, false, 'canvas')).toBe(true)
+  const canvas = useCanvasProjectStore.getState().activeId!
+  expect(await state().deleteProject(canvas)).toBe(true)
+  const next = useCanvasProjectStore
+    .getState()
+    .projects.find((one) => one.id === useCanvasProjectStore.getState().activeId)
+  expect(next?.id).not.toBe(canvas)
+  expect(next?.experience).toBe('canvas')
+})
+
+it('在画布项目里另起新对话，仍开一个画布项目', async () => {
+  expect(await state().createProject(undefined, false, 'canvas')).toBe(true)
+  currentCanvasWorkspace().doc.addElements([
+    {
+      id: 'kept',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      rotation: 0,
+      fileId: 'kept-file',
+    },
+  ])
+  const canvas = useCanvasProjectStore.getState().activeId!
+  state().startNewConversation()
+  await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).not.toBe(canvas))
+  const next = useCanvasProjectStore
+    .getState()
+    .projects.find((one) => one.id === useCanvasProjectStore.getState().activeId)
+  expect(next?.experience).toBe('canvas')
+})

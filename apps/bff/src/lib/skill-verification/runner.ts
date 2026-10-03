@@ -32,6 +32,8 @@ export interface RunnerOptions {
   readonly settlePolls?: number
   /** 单次跑图的上限，默认 20 分钟。 */
   readonly timeoutMs?: number
+  /** 跑完删会话的限时，默认 15 秒。 */
+  readonly cleanupTimeoutMs?: number
   readonly now?: () => Date
 }
 
@@ -94,6 +96,8 @@ async function expectOk(response: Response, what: string): Promise<Response> {
 }
 
 /** 跑一次：一组测试输入的第 `run` 次。网络或接口错误抛 {@link RunnerError}，没出图不抛。 */
+const CLEANUP_TIMEOUT_MS = 15_000
+
 export async function runVerificationCase(
   options: RunnerOptions,
   input: RunInput,
@@ -124,70 +128,81 @@ export async function runVerificationCase(
   const { conversation } = (await created.json()) as { conversation: { id: string } }
   const conversationPath = `/api/agent/conversations/${encodeURIComponent(conversation.id)}`
 
-  const turn = await expectOk(
-    await call(`${conversationPath}/turns`, {
-      method: 'POST',
-      body: JSON.stringify({
-        deviceId: options.deviceId,
-        text: input.turn.text,
-        mode: 'image',
-        clientMessageId: `verify-${input.skill}-${input.caseId}-${input.run}-${now().getTime()}`,
-        params: { autoSubmit: true, ...(input.model ? { model: input.model } : {}) },
-        references: input.turn.images.map((image, at) => ({
-          imageId: `verify-${at + 1}`,
-          name: image.ref,
-          dataUrl: `data:${input.images[at]!.mime};base64,${base64(input.images[at]!.bytes)}`,
-        })),
+  try {
+    const turn = await expectOk(
+      await call(`${conversationPath}/turns`, {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceId: options.deviceId,
+          text: input.turn.text,
+          mode: 'image',
+          clientMessageId: `verify-${input.skill}-${input.caseId}-${input.run}-${now().getTime()}`,
+          params: { autoSubmit: true, ...(input.model ? { model: input.model } : {}) },
+          references: input.turn.images.map((image, at) => ({
+            imageId: `verify-${at + 1}`,
+            name: image.ref,
+            dataUrl: `data:${input.images[at]!.mime};base64,${base64(input.images[at]!.bytes)}`,
+          })),
+        }),
       }),
-    }),
-    '发起对话轮',
-  )
-  // 开轮成功时回的是这一轮的事件流；读完它就是这一轮的对话说完了（后台任务另算）。
-  await turn.text()
-
-  let stable = 0
-  let previous = ''
-  let snapshot: AgentConversationSnapshot
-  for (;;) {
-    // 先问任务列表：它是「读取即结算」的，消息快照里的任务状态随之更新。
-    await (await expectOk(await call(`${conversationPath}/jobs`), '查询后台任务')).arrayBuffer()
-    snapshot = (await (
-      await expectOk(await call(`${conversationPath}/messages`), '读取会话')
-    ).json()) as AgentConversationSnapshot
-    const print = fingerprint(snapshot)
-    const idle = isIdle(snapshot)
-    stable = !idle ? 0 : print === previous ? stable + 1 : 1
-    previous = print
-    if (stable >= settlePolls) break
-    if (now().getTime() > deadline) throw new RunnerError('等待出图超时')
-    await sleep(interval)
-  }
-
-  const date = localIsoDate(now())
-  const results = toolResults(snapshot)
-  const delivered = results
-    .filter((block) => GENERATION_TOOLS.has(block.toolName) && block.status === 'succeeded')
-    .flatMap((block) =>
-      (block.artifacts ?? [])
-        .filter((artifact) => artifact.media === 'image')
-        .map((artifact) => ({ artifact, model: block.snapshot?.target?.model })),
+      '发起对话轮',
     )
-  const last = delivered.at(-1)
-  const model = last?.model ?? input.model ?? UNKNOWN_MODEL
-  const run = { case: input.caseId, run: input.run, model, date }
-  if (!last) {
-    const failed = results.filter((block) => block.status === 'failed').at(-1)
-    return { run: { ...run, error: failed?.errorCode ?? 'no_output' }, image: null }
-  }
-  const image = await expectOk(
-    await call(
-      `/v1/queue/requests/${encodeURIComponent(last.artifact.taskId)}/image/${last.artifact.outputIndex}`,
-    ),
-    '下载产出图',
-  )
-  return {
-    run,
-    image: { mime: last.artifact.mime, bytes: new Uint8Array(await image.arrayBuffer()) },
+    // 开轮成功时回的是这一轮的事件流；读完它就是这一轮的对话说完了（后台任务另算）。
+    await turn.text()
+
+    let stable = 0
+    let previous = ''
+    let snapshot: AgentConversationSnapshot
+    for (;;) {
+      // 先问任务列表：它是「读取即结算」的，消息快照里的任务状态随之更新。
+      await (await expectOk(await call(`${conversationPath}/jobs`), '查询后台任务')).arrayBuffer()
+      snapshot = (await (
+        await expectOk(await call(`${conversationPath}/messages`), '读取会话')
+      ).json()) as AgentConversationSnapshot
+      const print = fingerprint(snapshot)
+      const idle = isIdle(snapshot)
+      stable = !idle ? 0 : print === previous ? stable + 1 : 1
+      previous = print
+      if (stable >= settlePolls) break
+      if (now().getTime() > deadline) throw new RunnerError('等待出图超时')
+      await sleep(interval)
+    }
+
+    const date = localIsoDate(now())
+    const results = toolResults(snapshot)
+    const delivered = results
+      .filter((block) => GENERATION_TOOLS.has(block.toolName) && block.status === 'succeeded')
+      .flatMap((block) =>
+        (block.artifacts ?? [])
+          .filter((artifact) => artifact.media === 'image')
+          .map((artifact) => ({ artifact, model: block.snapshot?.target?.model })),
+      )
+    const last = delivered.at(-1)
+    const model = last?.model ?? input.model ?? UNKNOWN_MODEL
+    const run = { case: input.caseId, run: input.run, model, date }
+    if (!last) {
+      const failed = results.filter((block) => block.status === 'failed').at(-1)
+      return { run: { ...run, error: failed?.errorCode ?? 'no_output' }, image: null }
+    }
+    const image = await expectOk(
+      await call(
+        `/v1/queue/requests/${encodeURIComponent(last.artifact.taskId)}/image/${last.artifact.outputIndex}`,
+      ),
+      '下载产出图',
+    )
+    return {
+      run,
+      image: { mime: last.artifact.mime, bytes: new Uint8Array(await image.arrayBuffer()) },
+    }
+  } finally {
+    // 验证会话只为取一张产出图：留着它，账号首页会多出一条「对话」项目。图已下载到本地，
+    // 这里删不掉（比如超时时那一轮还在跑）也不影响结果。
+    // 清理挂住也不能拖住已经拿到的结果或原来的错误：限时放弃。
+    await call(conversationPath, {
+      method: 'DELETE',
+      body: JSON.stringify({ deviceId: options.deviceId }),
+      signal: AbortSignal.timeout(options.cleanupTimeoutMs ?? CLEANUP_TIMEOUT_MS),
+    }).catch(() => {})
   }
 }
 
