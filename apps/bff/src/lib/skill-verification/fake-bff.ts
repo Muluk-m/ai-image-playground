@@ -37,6 +37,7 @@ export function createFakeBff(options: FakeBffOptions = {}): FakeBff {
   const conversations = new Map<string, FakeConversation>()
   const turns: Record<string, unknown>[] = []
   const deleted: string[] = []
+  let nextId = 0
 
   function snapshot(id: string, conversation: FakeConversation): AgentConversationSnapshot {
     conversation.polls += 1
@@ -90,7 +91,8 @@ export function createFakeBff(options: FakeBffOptions = {}): FakeBff {
     const { pathname } = new URL(input)
     const method = init.method ?? 'GET'
     if (method === 'POST' && pathname === '/api/agent/conversations') {
-      const id = `c${conversations.size + 1}`
+      nextId += 1
+      const id = `c${nextId}`
       conversations.set(id, { polls: 0, model: options.model ?? 'fake-image-model' })
       return json({ conversation: { id } })
     }

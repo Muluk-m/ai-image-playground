@@ -85,6 +85,37 @@ describe('runVerificationCase', () => {
     expect(noOutput.deleted).toEqual(['c1'])
   })
 
+  it('清理请求挂住时到点放弃，照常返回结果', async () => {
+    const bff = createFakeBff()
+    const hanging = async (url: string, init: RequestInit = {}) =>
+      init.method === 'DELETE'
+        ? new Promise<Response>((_, reject) =>
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+          )
+        : bff.fetch(url, init)
+    const output = await runVerificationCase(
+      { ...options(hanging), cleanupTimeoutMs: 10 },
+      input('m'),
+    )
+    expect(output.image).toEqual({ mime: 'image/png', bytes: PNG })
+  })
+
+  it('假 BFF 删掉会话后再建，不会复用仍在跑的会话 id', async () => {
+    const bff = createFakeBff()
+    const create = async () =>
+      (
+        (await (
+          await bff.fetch('https://bff.test/api/agent/conversations', { method: 'POST' })
+        ).json()) as {
+          conversation: { id: string }
+        }
+      ).conversation.id
+    const first = await create()
+    const second = await create()
+    await bff.fetch(`https://bff.test/api/agent/conversations/${first}`, { method: 'DELETE' })
+    expect(await create()).not.toBe(second)
+  })
+
   it('接口报错时抛出带状态码的 RunnerError', async () => {
     const failing = async () => new Response('nope', { status: 401 })
     await expect(runVerificationCase(options(failing), input())).rejects.toThrow(RunnerError)

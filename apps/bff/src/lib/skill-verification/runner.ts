@@ -32,6 +32,8 @@ export interface RunnerOptions {
   readonly settlePolls?: number
   /** 单次跑图的上限，默认 20 分钟。 */
   readonly timeoutMs?: number
+  /** 跑完删会话的限时，默认 15 秒。 */
+  readonly cleanupTimeoutMs?: number
   readonly now?: () => Date
 }
 
@@ -94,6 +96,8 @@ async function expectOk(response: Response, what: string): Promise<Response> {
 }
 
 /** 跑一次：一组测试输入的第 `run` 次。网络或接口错误抛 {@link RunnerError}，没出图不抛。 */
+const CLEANUP_TIMEOUT_MS = 15_000
+
 export async function runVerificationCase(
   options: RunnerOptions,
   input: RunInput,
@@ -193,9 +197,11 @@ export async function runVerificationCase(
   } finally {
     // 验证会话只为取一张产出图：留着它，账号首页会多出一条「对话」项目。图已下载到本地，
     // 这里删不掉（比如超时时那一轮还在跑）也不影响结果。
+    // 清理挂住也不能拖住已经拿到的结果或原来的错误：限时放弃。
     await call(conversationPath, {
       method: 'DELETE',
       body: JSON.stringify({ deviceId: options.deviceId }),
+      signal: AbortSignal.timeout(options.cleanupTimeoutMs ?? CLEANUP_TIMEOUT_MS),
     }).catch(() => {})
   }
 }
