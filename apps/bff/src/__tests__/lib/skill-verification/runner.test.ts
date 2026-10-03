@@ -75,6 +75,16 @@ describe('runVerificationCase', () => {
     expect(output.run.error).toBe('no_output')
   })
 
+  it('取回产出图后删掉验证会话，免得混进账号的对话项目', async () => {
+    const bff = createFakeBff()
+    await runVerificationCase(options(bff.fetch), input('m'))
+    const noOutput = createFakeBff({ outcome: 'no_output' })
+    await runVerificationCase(options(noOutput.fetch), input('m'))
+
+    expect(bff.deleted).toEqual(['c1'])
+    expect(noOutput.deleted).toEqual(['c1'])
+  })
+
   it('接口报错时抛出带状态码的 RunnerError', async () => {
     const failing = async () => new Response('nope', { status: 401 })
     await expect(runVerificationCase(options(failing), input())).rejects.toThrow(RunnerError)
