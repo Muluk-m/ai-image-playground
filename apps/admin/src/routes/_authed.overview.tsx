@@ -32,6 +32,7 @@ import {
   change,
   healthTiles,
   percent,
+  type SourceState,
 } from '@/lib/overview-signals'
 import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
 import { useClientErrors, useOps, useOverview } from '@/lib/queries'
@@ -76,7 +77,8 @@ function OverviewPage() {
           overview={overview.data}
           ops={ops.data}
           errors={errors.data}
-          opsPending={ops.isPending}
+          opsState={sourceState(ops)}
+          errorsState={sourceState(errors)}
           range={range}
         />
       )}
@@ -84,28 +86,38 @@ function OverviewPage() {
   )
 }
 
+/** 有数据就当到了：一次后台刷新失败不该把还能用的读数整块撤掉。 */
+function sourceState(query: { data: unknown; isError: boolean }): SourceState {
+  if (query.data !== undefined) return 'ready'
+  return query.isError ? 'failed' : 'loading'
+}
+
 function CommandCenter({
   overview,
   ops,
   errors,
-  opsPending,
+  opsState,
+  errorsState,
   range,
 }: {
   overview: OverviewResult
   ops: OpsSnapshot | undefined
   errors: ClientErrorsResult | undefined
-  opsPending: boolean
+  opsState: SourceState
+  errorsState: SourceState
   range: Range
 }) {
-  const tiles = healthTiles({ overview, ops, errors })
-  const items = attentionItems({ overview, ops, errors })
+  const signals = { overview, ops, opsState, errors, errorsState }
+  const tiles = healthTiles(signals)
+  const items = attentionItems(signals)
+  const pending = opsState === 'loading' || errorsState === 'loading'
   return (
     <>
-      <HealthStrip tiles={tiles} />
+      <HealthStrip tiles={tiles} range={range} />
       <PulseKpis overview={overview} />
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <TrendCard overview={overview} errors={errors} />
-        <AttentionCard items={items} pending={opsPending} />
+        <TrendCard overview={overview} errors={errors} errorsState={errorsState} />
+        <AttentionCard items={items} pending={pending} range={range} />
       </section>
       <section className="grid gap-4 xl:grid-cols-2">
         <ModelsCard overview={overview} />
@@ -205,9 +217,11 @@ const TREND_OPTIONS: ReadonlyArray<{ value: TrendTab; label: string }> = [
 function TrendCard({
   overview,
   errors,
+  errorsState,
 }: {
   overview: OverviewResult
   errors: ClientErrorsResult | undefined
+  errorsState: SourceState
 }) {
   const [tab, setTab] = useState<TrendTab>('tasks')
   const { summary } = overview
@@ -221,6 +235,10 @@ function TrendCard({
         {tab === 'errors' ? (
           errors ? (
             <LazyClientErrorTrendChart buckets={errors.trend} bucketUnit={errors.bucket_unit} />
+          ) : errorsState === 'failed' ? (
+            <p className="flex h-52 items-center justify-center text-sm text-muted-foreground">
+              前端错误没有读到，稍后点侧栏「刷新」重试
+            </p>
           ) : (
             <PendingState label="正在读取前端错误" className="h-52" />
           )
@@ -262,7 +280,15 @@ function TrendCard({
   )
 }
 
-function AttentionCard({ items, pending }: { items: readonly AttentionItem[]; pending: boolean }) {
+function AttentionCard({
+  items,
+  pending,
+  range,
+}: {
+  items: readonly AttentionItem[]
+  pending: boolean
+  range: Range
+}) {
   return (
     <Card className="min-w-0">
       <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
@@ -272,7 +298,7 @@ function AttentionCard({ items, pending }: { items: readonly AttentionItem[]; pe
         </span>
       </CardHeader>
       <CardContent className="p-4 pt-0">
-        <AttentionList items={items} pending={pending} />
+        <AttentionList items={items} pending={pending} range={range} />
       </CardContent>
     </Card>
   )

@@ -305,7 +305,11 @@ describe('概览 command center', () => {
   it('lights each subsystem and lists boot failures under 需要处理', async () => {
     renderAt('/overview')
     const health = within(await screen.findByRole('region', { name: '系统健康' }))
-    expect(health.getByRole('link', { name: /前端：注意，2/ })).toHaveAttribute('href', '/errors')
+    // 带着概览的时间窗过去，详情页看到的是同一批错误。
+    expect(health.getByRole('link', { name: /前端：注意，2/ })).toHaveAttribute(
+      'href',
+      '/errors?range=7d',
+    )
     // 运维快照每一栏都取不到：灯显示取不到，不冒充正常。
     expect(health.getByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
     expect(
