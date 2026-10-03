@@ -5,10 +5,10 @@ import {
   videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
+import { SettingsChoice } from '../../../components/composer/SettingsPanel'
 import { useTranslation } from '../../../i18n'
 import { useVideoStore } from '../store'
 import type { VideoDraft } from '../types'
-import ChipRow from './ChipRow'
 
 /**
  * 时长、画幅、清晰度三行档位。画布生成栏与重新生成弹窗共用：两处写的是同一份草稿，
@@ -28,7 +28,7 @@ export default function VideoPresetRows({
   const durations = videoDurationsForResolution(support, draft.resolution)
   return (
     <>
-      <ChipRow
+      <SettingsChoice
         label={t('composer.durationLabel')}
         options={support.durations}
         value={draft.duration}
@@ -36,7 +36,7 @@ export default function VideoPresetRows({
         optionDisabled={(duration) => !durations.includes(duration)}
         onChange={(duration) => useVideoStore.getState().setDuration(duration)}
       />
-      <ChipRow
+      <SettingsChoice
         label={t('field.aspectRatio')}
         options={VIDEO_ASPECT_RATIOS.filter((ratio) => support.aspectRatios.includes(ratio))}
         value={draft.aspectRatio}
@@ -45,7 +45,7 @@ export default function VideoPresetRows({
         disabled={aspectFollowsFirstFrame}
         note={aspectFollowsFirstFrame ? t('aspect.followsFirstFrame') : undefined}
       />
-      <ChipRow
+      <SettingsChoice
         label={t('field.resolution')}
         options={support.resolutions}
         value={draft.resolution}
