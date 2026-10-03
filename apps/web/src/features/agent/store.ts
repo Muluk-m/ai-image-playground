@@ -1209,6 +1209,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
     open: (conversationId) => void openConversation(conversationId),
   }
+  /** 当前项目是对话还是画布；没有当前项目时按默认入口「对话」。 */
+  const currentExperience = (): 'chat' | 'canvas' => {
+    const current = currentCanvasProject()
+    return current ? projectExperience(current) : 'chat'
+  }
   const createProject = async (
     reuseEmpty = true,
     kind: ProjectKind = 'image',
@@ -1280,7 +1285,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     get running() {
       return currentTurnRunning()
     },
-    replaceCurrent: async () => void (await createProject(false)),
+    // 顶上来的新项目沿用被删那个的入口：删掉画布项目不该把人送进对话页。
+    replaceCurrent: async () => void (await createProject(false, 'image', currentExperience())),
     forgetConversation: (conversationId) =>
       set((state) => ({
         conversations: state.conversations.filter((one) => one.id !== conversationId),
@@ -1437,7 +1443,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
     startNewConversation() {
       if (useCanvasProjectStore.getState().loaded) {
-        void get().createProject()
+        void get().createProject(undefined, true, currentExperience())
         return
       }
       resetDelivery()
