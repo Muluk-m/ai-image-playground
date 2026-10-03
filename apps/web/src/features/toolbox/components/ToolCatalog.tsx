@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import PageHeader from '../../../components/PageHeader'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { TOOL_GROUPS, TOOLS } from '../lib/registry'
@@ -20,7 +21,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
         <Icon className="h-5 w-5" />
       </span>
       <span>
-        <span className="block text-[15px] font-medium">{t(`tool.${tool.id}.name`)}</span>
+        <span className="block text-title font-medium">{t(`tool.${tool.id}.name`)}</span>
         <span className="mt-1 block text-xs text-muted-foreground">
           {t(`tool.${tool.id}.options`)}
         </span>
@@ -39,11 +40,10 @@ export default function ToolCatalog() {
   return (
     <main
       {...dropZoneProps}
-      className={`flex h-[calc(100dvh-3.5rem)] flex-col ${dragging ? 'bg-primary/5' : ''}`}
+      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col ${dragging ? 'bg-primary/5' : ''}`}
     >
       {inputs}
-      <div className="studio-page-head flex shrink-0 items-center gap-3 border-b border-border py-3 pl-5 pr-16 md:pr-60">
-        <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS.tools}</h1>
+      <PageHeader title={APP_MODE_LABELS.tools}>
         {count > 0 && (
           <span className="ml-auto flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">
             {t('intake.imported', { count })}
@@ -57,9 +57,9 @@ export default function ToolCatalog() {
             </button>
           </span>
         )}
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-5 md:p-8">
-        <div className="mx-auto max-w-5xl space-y-8">
+      </PageHeader>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="max-w-5xl space-y-8">
           {TOOL_GROUPS.map((group) => {
             const tools = TOOLS.filter((tool) => tool.group === group)
             if (tools.length === 0) return null

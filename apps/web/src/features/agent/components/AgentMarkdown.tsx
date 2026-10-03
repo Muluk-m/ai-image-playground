@@ -36,13 +36,13 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   ),
   code: ({ node: _node, className, ...props }) =>
     className ? (
-      <code className={`${className} font-mono text-[11px]`} {...props} />
+      <code className={`${className} font-mono text-label-sm`} {...props} />
     ) : (
-      <code className="rounded bg-muted px-1 py-px font-mono text-[11px]" {...props} />
+      <code className="rounded bg-muted px-1 py-px font-mono text-label-sm" {...props} />
     ),
   pre: ({ node: _node, ...props }) => (
     <pre
-      className={`${BLOCK} overflow-x-auto rounded-lg bg-muted px-2.5 py-2 font-mono text-[11px] leading-relaxed`}
+      className={`${BLOCK} overflow-x-auto rounded-lg bg-muted px-2.5 py-2 font-mono text-label-sm leading-relaxed`}
       {...props}
     />
   ),
@@ -52,7 +52,7 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   hr: ({ node: _node, ...props }) => <hr className="my-2 border-border" {...props} />,
   table: ({ node: _node, ...props }) => (
     <div className={`${BLOCK} overflow-x-auto`}>
-      <table className="border-collapse text-[11px]" {...props} />
+      <table className="border-collapse text-label-sm" {...props} />
     </div>
   ),
   th: ({ node: _node, ...props }) => (

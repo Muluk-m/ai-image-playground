@@ -8,6 +8,7 @@ import { AGENT_MAX_CONSECUTIVE_WAKES } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { type AgentCall, completionStream, recordingAgentFetch } from '../../helpers/agentStubs'
 import { silenceChatUpstream } from '../../helpers/chatStubs'
+import { TEST_IMAGE } from '../../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../../helpers/privateOverlayStub'
 
@@ -25,7 +26,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 const billing = installRecordingTaskHooks()
 
 const { prepareAgentTurn } = await import('../../../lib/agent/turn-preparation')
-const { loadAgentExperience } = await import('../../../lib/agent/experience')
+const { loadAgentExperience, recordAgentExperience } = await import('../../../lib/agent/experience')
+const experienceOf = async (...args: Parameters<typeof loadAgentExperience>) =>
+  (await loadAgentExperience(...args)).experience
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { claimConversation, ConversationExecutionLost, releaseConversation, turnExecution } =
   await import('../../../lib/agent/execution')
@@ -58,7 +61,7 @@ const SUBMITTING_TURN = 'turn-submitting'
 const TASK_ID = 'task-1'
 const REFERENCE: AgentTurnReference = {
   imageId: 'canvas-original',
-  dataUrl: 'data:image/png;base64,aGk=',
+  dataUrl: TEST_IMAGE.pngDataUrl,
 }
 
 let calls: AgentCall[]
@@ -91,6 +94,25 @@ function resultBlock(artifacts: readonly string[]): AgentToolResultBlock {
 /** 一个会话，外加提交那一轮的用户原话与结果卡：唤醒与续跑都点名它。 */
 async function conversationWithResult(artifacts: readonly string[] = []): Promise<string> {
   const conversation = await createAgentConversation(USER, '画一只橘猫')
+  if (artifacts.length) {
+    const data = []
+    for (const [index] of artifacts.entries()) {
+      const object = `${TASK_ID}/out/${index}`
+      await storage.write(object, TEST_IMAGE.png, 'image/png')
+      data.push({ object, mime: 'image/png' })
+    }
+    await db.insert(schema.tasks).values({
+      id: TASK_ID,
+      user_id: USER_ID,
+      provider: 'openai-compat',
+      model: 'gpt-image-1',
+      status: 'completed',
+      submitted_at: Date.now(),
+      agent_conversation_id: conversation.id,
+      request_payload: { prompt: '一只橘猫' },
+      result_payload: { data },
+    })
+  }
   await appendAgentMessage(db, {
     conversationId: conversation.id,
     turnId: SUBMITTING_TURN,
@@ -619,6 +641,175 @@ describe('project experience across all turn sources', () => {
   }
 })
 
+describe('legacy projects without a recorded experience', () => {
+  async function legacyProject(conversationId: string): Promise<string> {
+    const id = crypto.randomUUID()
+    const now = Date.now()
+    await db.insert(schema.canvas_projects).values({
+      id,
+      user_id: USER_ID,
+      name: 'Legacy',
+      revision: 3,
+      document: { version: 1, elements: [] },
+      element_count: 0,
+      conversation_id: conversationId,
+      receipts: [],
+      created_at: now,
+      updated_at: now,
+    })
+    return id
+  }
+  async function recorded(id: string) {
+    const [row] = await db
+      .select({
+        document: schema.canvas_projects.document,
+        revision: schema.canvas_projects.revision,
+      })
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.id, id))
+    return row!
+  }
+
+  it('follows the canvas snapshot of the first message and records it once the turn takes it', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, '整理一下我的画布')
+    const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
+    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toEqual({
+      experience: 'canvas',
+      unrecorded: true,
+    })
+    // 只是判定，还没有轮取走这条消息：项目不动。
+    expect((await recorded(project)).document.experience).toBeUndefined()
+    preparedTurn((await prepare(conversationId, canvasSource)).prepared)
+    expect(await recorded(project)).toEqual({
+      document: { version: 1, elements: [], experience: 'canvas' },
+      revision: 3,
+    })
+    // 记下之后以项目为准，不再看消息。
+    expect(await experienceOf(conversationId, USER_ID, source)).toBe('canvas')
+  })
+
+  it('records chat when the first message comes from the chat view', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    preparedTurn(
+      (await prepare(conversationId, await queuedMessage(conversationId, 'hello'))).prepared,
+    )
+    expect((await recorded(project)).document.experience).toBe('chat')
+  })
+
+  it('leaves the project unrecorded when the message was withdrawn', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, 'hello')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'cancelled' })
+      .where(eq(schema.agent_inbox.id, source.message.id))
+    expect((await prepare(conversationId, source)).prepared).toEqual({ kind: 'withdrawn' })
+    expect((await recorded(project)).document.experience).toBeUndefined()
+  })
+
+  it('does not record a guess from a wake whose origin is unknown', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    expect(
+      await loadAgentExperience(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'wake', turnId: 'missing-turn', taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toEqual({ experience: 'chat', unrecorded: false })
+    expect((await recorded(project)).document.experience).toBeUndefined()
+  })
+
+  it('reports a mismatch when a project save recorded another experience first', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    await db
+      .update(schema.canvas_projects)
+      .set({ document: { version: 1, elements: [], experience: 'chat' } })
+      .where(eq(schema.canvas_projects.id, project))
+    expect(
+      await db.transaction((tx) => recordAgentExperience(tx, conversationId, USER_ID, 'canvas')),
+    ).toBe(false)
+    expect(
+      await db.transaction((tx) => recordAgentExperience(tx, conversationId, USER_ID, 'chat')),
+    ).toBe(true)
+    expect((await recorded(project)).document.experience).toBe('chat')
+  })
+
+  it('trusts the declared experience over a missing canvas snapshot', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    // 画布还在加载：没有快照，但客户端知道自己开着的是画布。
+    const enqueued = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: '整理一下我的画布',
+      deviceId: DEVICE,
+      references: [],
+      experience: 'canvas',
+    })
+    if (enqueued.kind !== 'queued') throw Error('expected queued')
+    const next = await nextAgentInboxEntry(conversationId)
+    if (next?.kind !== 'user_message') throw Error('expected a user message')
+    expect(next.experience).toBe('canvas')
+    const { kind: _kind, ...message } = next
+    const turn = preparedTurn(
+      (await prepare(conversationId, { kind: 'message', message, announce: false })).prepared,
+    )
+    expect(turn.input.audience.experience).toBe('canvas')
+    expect((await recorded(project)).document.experience).toBe('canvas')
+  })
+
+  it('lets a declared chat win over a stale canvas snapshot', async () => {
+    const conversationId = await conversationWithResult()
+    await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, 'hello')
+    expect(
+      await experienceOf(conversationId, USER_ID, {
+        ...source,
+        message: { ...source.message, canvas: { elements: [] }, experience: 'chat' },
+      }),
+    ).toBe('chat')
+  })
+
+  it('follows the declared experience of the origin message for wakes', async () => {
+    const conversationId = await conversationWithResult()
+    const origin = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: 'canvas origin without snapshot',
+      deviceId: DEVICE,
+      references: [],
+      experience: 'canvas',
+    })
+    if (origin.kind !== 'queued') throw Error('expected queued')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'consumed', consumed_turn_id: 'declared-origin' })
+      .where(eq(schema.agent_inbox.id, origin.entry.view.id))
+    expect(
+      await experienceOf(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'wake', turnId: 'declared-origin', taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toBe('canvas')
+  })
+
+  it('gives the canvas tools to a canvas message on a legacy project', async () => {
+    const conversationId = await conversationWithResult()
+    await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, '整理一下我的画布')
+    const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
+    const turn = preparedTurn((await prepare(conversationId, canvasSource)).prepared)
+    expect(turn.input.audience.experience).toBe('canvas')
+    const call = await runPrepared(turn)
+    const names = call.tools?.map((tool) => tool.function.name) ?? []
+    expect(names).toContain('readCanvas')
+    expect(names).toContain('arrangeCanvas')
+  })
+})
+
 describe('unsynced project experience is bound to the originating message', () => {
   it('ignores later pending and cancelled canvas messages when preparing chat', async () => {
     const conversationId = await conversationWithResult()
@@ -630,13 +821,13 @@ describe('unsynced project experience is bound to the originating message', () =
       references: [],
       canvas: { elements: [] },
     })
-    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    expect(await experienceOf(conversationId, USER_ID, source)).toBe('chat')
     if (later.kind !== 'queued') throw Error('expected queued')
     await db
       .update(schema.agent_inbox)
       .set({ status: 'cancelled' })
       .where(eq(schema.agent_inbox.id, later.entry.view.id))
-    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    expect(await experienceOf(conversationId, USER_ID, source)).toBe('chat')
   })
 
   it('keeps a canvas message on canvas even when a newer message has no snapshot', async () => {
@@ -644,7 +835,7 @@ describe('unsynced project experience is bound to the originating message', () =
     const source = await queuedMessage(conversationId, 'canvas')
     const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
     await queuedMessage(conversationId, 'later chat')
-    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toBe('canvas')
+    expect(await experienceOf(conversationId, USER_ID, canvasSource)).toBe('canvas')
   })
 
   it('resolves wakes and resumes from the consumed origin, ignoring later queue entries', async () => {
@@ -663,7 +854,7 @@ describe('unsynced project experience is bound to the originating message', () =
       .where(eq(schema.agent_inbox.id, origin.entry.view.id))
     await queuedMessage(conversationId, 'later chat')
     expect(
-      await loadAgentExperience(conversationId, USER_ID, {
+      await experienceOf(conversationId, USER_ID, {
         kind: 'wake',
         wake: { id: 'wake', turnId: SUBMITTING_TURN, taskIds: [TASK_ID], deviceId: DEVICE },
       }),
@@ -679,16 +870,71 @@ describe('unsynced project experience is bound to the originating message', () =
       created_at: Date.now(),
     })
     expect(
-      await loadAgentExperience(conversationId, USER_ID, {
+      await experienceOf(conversationId, USER_ID, {
         kind: 'wake',
         wake: { id: 'next-wake', turnId: 'wake-turn', taskIds: [TASK_ID], deviceId: DEVICE },
       }),
     ).toBe('canvas')
     expect(
-      await loadAgentExperience(conversationId, USER_ID, {
+      await experienceOf(conversationId, USER_ID, {
         kind: 'resume',
         resume: { id: 'resume', interruptedTurnId: SUBMITTING_TURN, deviceId: DEVICE },
       }),
     ).toBe('canvas')
+  })
+})
+
+describe('原生模型历史缓存', () => {
+  it('先发终帧，再在收尾之前写缓存', async () => {
+    const conversation = await createAgentConversation(USER, '你好')
+    for (const [role, text] of [
+      ['user', '你好'],
+      ['assistant', '你好呀'],
+    ] as const)
+      await appendAgentMessage(db, {
+        conversationId: conversation.id,
+        turnId: SUBMITTING_TURN,
+        role,
+        content: [{ type: 'text', text }],
+      })
+    const { prepared } = await prepare(
+      conversation.id,
+      await queuedMessage(conversation.id, '再聊聊'),
+    )
+    const turn = preparedTurn(prepared)
+    expect(turn.input.modelHistory).toBeDefined()
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let settled = false
+    const write = storage.write.bind(storage)
+    storage.write = async (key, bytes, contentType, signal) => {
+      if (!key.endsWith('model-context-v1.json')) return write(key, bytes, contentType, signal)
+      try {
+        // 写入期限到了就放弃：旧实现会在终帧之前等到这里超时。
+        await new Promise<void>((resolve, reject) => {
+          void gate.then(resolve)
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+        await write(key, bytes, contentType, signal)
+      } finally {
+        settled = true
+      }
+    }
+
+    const running = await startAgentTurn(turn)
+    for await (const { event } of running.read(0)) {
+      if (event.type !== 'turnEnd') continue
+      expect(settled).toBe(false)
+      break
+    }
+    release()
+    await running.completed
+    expect(settled).toBe(true)
+    expect([...storage.objects.keys()].some((key) => key.endsWith('model-context-v1.json'))).toBe(
+      true,
+    )
   })
 })

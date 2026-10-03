@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useCloudGenerations } from '../hooks/useCloudGenerations'
 import { useTranslation } from '../i18n'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { useStore } from '../store'
 import SearchBar from './SearchBar'
+import SectionHeader from './SectionHeader'
 import TaskGrid from './TaskGrid'
 import { Button } from './ui/button'
 
@@ -16,29 +18,29 @@ import { Button } from './ui/button'
 export default function GenerationHistory({ userId, hero }: { userId?: string; hero?: boolean }) {
   const { t } = useTranslation(['task', 'errors'])
   const [showAll, setShowAll] = useState(false)
+  // 冷启动时下面是灵感区，它自带标题；「我的作品」空着挂一个标题只会像没加载出来。
+  const hasWorks = useStore((s) => s.tasks.length > 0 || s.platformGenerations.length > 0)
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
   return (
     <>
-      {hero ? (
-        <div className="flex flex-wrap items-center gap-3 pb-5 pt-10 sm:gap-4">
-          <h2 className="shrink-0 text-[15px] font-semibold">{t('grid.mine')}</h2>
+      {!hero && <SearchBar />}
+      {/* 展开着删光作品时仍留住标题，否则搜索与「收起」一起消失，退不出筛选态。 */}
+      {hero && (hasWorks || showAll) && (
+        <SectionHeader
+          className="pb-4 pt-10"
+          title={t('grid.mine')}
+          action={{
+            label: showAll ? t('grid.collapse') : t('grid.viewAll'),
+            onClick: () => setShowAll((value) => !value),
+            expanded: showAll,
+          }}
+        >
           {showAll && (
-            <div className="w-full sm:ml-auto sm:w-auto sm:max-w-xl sm:flex-1">
+            <div className="w-full sm:w-auto sm:max-w-xl sm:flex-1">
               <SearchBar compact />
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto text-muted-foreground"
-            aria-expanded={showAll}
-            onClick={() => setShowAll((value) => !value)}
-          >
-            {showAll ? t('grid.collapse') : t('grid.viewAll')}
-          </Button>
-        </div>
-      ) : (
-        <SearchBar />
+        </SectionHeader>
       )}
       <TaskGrid hero={hero} limit={hero && !showAll ? 3 : undefined} />
       {cloud.failed && (

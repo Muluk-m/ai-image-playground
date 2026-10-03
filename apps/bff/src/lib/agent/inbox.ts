@@ -20,6 +20,8 @@ import {
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, not, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
+import { lockMediaOwner, MediaError } from '../projectMedia'
+import { claimConversationMedia, validateConversationMediaSelections } from './images'
 
 /**
  * 会话收件箱（`agent_inbox`）里的用户消息与唤醒。忙时发的话排在这里，当前回复可以结束时由
@@ -46,6 +48,7 @@ export interface QueuedUserMessage {
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
+  readonly experience?: 'chat' | 'canvas'
 }
 
 export interface EnqueueUserMessage {
@@ -58,6 +61,7 @@ export interface EnqueueUserMessage {
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
+  readonly experience?: 'chat' | 'canvas'
 }
 
 export interface InboxEntry {
@@ -124,12 +128,40 @@ export async function enqueueAgentUserMessage(
   message: EnqueueUserMessage,
   now = Date.now(),
 ): Promise<EnqueueResult> {
+  const [duplicate] = await db
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.client_message_id, message.clientMessageId),
+      ),
+    )
+    .limit(1)
+  if (!duplicate) {
+    const [owner] = await db
+      .select({ userId: schema.agent_conversations.user_id })
+      .from(schema.agent_conversations)
+      .where(eq(schema.agent_conversations.id, conversationId))
+      .limit(1)
+    if (!(await validateConversationMediaSelections(owner?.userId ?? null, message.references)))
+      throw new MediaError(422, 'invalid_reference')
+  }
   return db.transaction(async (tx) => {
-    await tx
-      .select({ id: schema.agent_conversations.id })
+    const [owner] = await tx
+      .select({ userId: schema.agent_conversations.user_id })
+      .from(schema.agent_conversations)
+      .where(eq(schema.agent_conversations.id, conversationId))
+    if (owner?.userId) await lockMediaOwner(tx, owner.userId)
+    const [conversation] = await tx
+      .select({
+        id: schema.agent_conversations.id,
+        deletedAt: schema.agent_conversations.deleted_at,
+      })
       .from(schema.agent_conversations)
       .where(eq(schema.agent_conversations.id, conversationId))
       .for('update')
+    if (!conversation || conversation.deletedAt) throw new MediaError(404, 'conversation_not_found')
     const [existing] = await tx
       .select()
       .from(inbox)
@@ -152,6 +184,10 @@ export async function enqueueAgentUserMessage(
       .from(inbox)
       .where(and(isPendingUserMessage(conversationId), eq(inbox.kind, kind)))
     if ((pending?.count ?? 0) >= AGENT_QUEUE_MAX_PENDING) return { kind: 'full' }
+    if (
+      !(await claimConversationMedia(conversationId, owner?.userId ?? null, message.references, tx))
+    )
+      throw new MediaError(422, 'invalid_reference')
     const payload: AgentInboxUserMessagePayload = {
       text: message.text,
       deviceId: message.deviceId,
@@ -159,6 +195,7 @@ export async function enqueueAgentUserMessage(
       ...(message.mode ? { mode: message.mode } : {}),
       ...(message.params ? { params: message.params } : {}),
       ...(message.canvas ? { canvas: message.canvas } : {}),
+      ...(message.experience ? { experience: message.experience } : {}),
       ...(answering ? { clarificationAnswer: true as const } : {}),
     }
     const [row] = await tx
@@ -327,6 +364,7 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
     ...(payload.mode ? { mode: payload.mode } : {}),
     ...(payload.params ? { params: payload.params } : {}),
     ...(payload.canvas ? { canvas: payload.canvas } : {}),
+    ...(payload.experience ? { experience: payload.experience } : {}),
   }
 }
 
@@ -460,7 +498,17 @@ export async function enqueueAgentWake(
   payload: AgentInboxTaskResultPayload,
   now: number,
 ): Promise<string> {
-  const id = crypto.randomUUID()
+  const batchEventId = payload.batch
+    ? `batch-result:${payload.batch.batchId}:${payload.batch.version}`
+    : null
+  if (batchEventId) {
+    const [existing] = await tx
+      .select({ id: inbox.id })
+      .from(inbox)
+      .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.id, batchEventId)))
+    if (existing) return existing.id
+  }
+  const id = batchEventId ?? crypto.randomUUID()
   await tx.insert(inbox).values({
     conversation_id: conversationId,
     id,

@@ -108,7 +108,7 @@ export default function ReferenceVideoPopover({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
         <h3 className={`${PANEL_TITLE} mb-1`}>
           {t('referenceVideo.title', { count: items.length })}
         </h3>
@@ -147,7 +147,7 @@ export default function ReferenceVideoPopover({
                 aria-label={t('referenceVideo.moveUp', { no: index + 1 })}
                 disabled={index === 0}
                 onClick={() => setItems((current) => moveInputItem(current, index, index - 1))}
-                className="ml-auto grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"
+                className="ml-auto grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
                 <ArrowUp className="h-3.5 w-3.5" />
               </button>
@@ -222,16 +222,16 @@ export default function ReferenceVideoPopover({
 
         <div className={`${PANEL_SECTION} mt-4`}>
           {refusal && (
-            <p role="alert" className="mb-1.5 text-[11px] text-destructive">
+            <p role="alert" className="mb-1.5 text-label-sm text-destructive">
               {refusal}
             </p>
           )}
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
+            <p className="mb-1.5 text-label-sm text-destructive">{guard.disabledReason}</p>
           )}
           <SubmissionBillingAction
             blockedAction={guard.blockedAction}
-            className="mb-1.5 text-[11px]"
+            className="mb-1.5 text-label-sm"
           />
           <button
             type="button"

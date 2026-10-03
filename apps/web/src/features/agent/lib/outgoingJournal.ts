@@ -1,5 +1,9 @@
 import type { AgentMode } from '@image-playground/shared'
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
+import {
+  attachmentSourceOwner,
+  hasLocalAttachmentSources,
+} from '../../../lib/localAttachmentSources'
 import type { TurnSubmissionSnapshot } from './turnSubmission'
 
 /**
@@ -46,8 +50,7 @@ function openDatabase(): Promise<IDBDatabase> {
 /** 按账号分隔：换账号之后不该看见上一个账号没发出去的话。 */
 const key = (projectId: string) => scopedStorageName(`agent-outgoing:${projectId}`)
 
-async function readRaw(projectId: string): Promise<OutgoingMessage[]> {
-  const storageKey = key(projectId)
+async function readRaw(storageKey: string): Promise<OutgoingMessage[]> {
   const db = await openDatabase()
   return new Promise((resolve, reject) => {
     const request = db.transaction(STORE).objectStore(STORE).get(storageKey)
@@ -57,21 +60,22 @@ async function readRaw(projectId: string): Promise<OutgoingMessage[]> {
 }
 
 async function update(
-  projectId: string,
+  storageKey: string,
   change: (messages: OutgoingMessage[]) => readonly OutgoingMessage[],
-): Promise<void> {
-  const storageKey = key(projectId)
+): Promise<readonly OutgoingMessage[]> {
   const db = await openDatabase()
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE, 'readwrite')
     const store = transaction.objectStore(STORE)
     const request = store.get(storageKey)
+    let changed: readonly OutgoingMessage[] = []
     request.onsuccess = () => {
       const messages = change(Array.isArray(request.result) ? request.result : [])
+      changed = messages
       if (messages.length) store.put([...messages], storageKey)
       else store.delete(storageKey)
     }
-    transaction.oncomplete = () => resolve()
+    transaction.oncomplete = () => resolve(changed)
     transaction.onabort = () => reject(transaction.error)
     transaction.onerror = () => reject(transaction.error)
   })
@@ -80,25 +84,45 @@ async function update(
 /** 读不出来就当没有：本机存储坏了不该把这一轮拦在门外。 */
 export async function outgoingMessages(projectId: string): Promise<OutgoingMessage[]> {
   try {
-    return await readRaw(projectId)
+    return await readRaw(key(projectId))
   } catch {
     return []
   }
 }
 
+/** Draft recovery must distinguish an empty journal from storage that could not be read. */
+export async function outgoingCommandIds(projectId: string): Promise<ReadonlySet<string>> {
+  return new Set((await readRaw(key(projectId))).map((message) => message.id))
+}
+
 /**
  * 起轮**之前**落一条。这一步要等它写完：写在飞行途中，刷新就可能抢在写入之前。
- * 写失败不拦发送——存不下只是回不来，比发不出去轻。
+ * 持久原件的发送命令必须先保存成功；旧内联输入保留原有尽力保存行为。
  */
 export async function rememberOutgoing(message: OutgoingMessage): Promise<void> {
-  try {
-    await update(message.projectId, (messages) => [
-      ...messages.filter((one) => one.id !== message.id),
-      message,
-    ])
-  } catch {
-    /* 存不下就只是刷新后回不来。 */
-  }
+  const storageKey = key(message.projectId)
+  const current = accountScope()
+  const owner = attachmentSourceOwner(`outgoing:${storageKey}:${message.id}`)
+  await owner.withDocument(async () => {
+    try {
+      await owner.retain(message)
+      if (!current()) throw new Error('media_scope_changed')
+      await update(storageKey, (messages) => [
+        ...messages.filter((one) => one.id !== message.id),
+        message,
+      ])
+      // A failed cleanup can retain extra bytes, but must not turn a committed command into a new draft.
+      await owner.replace(message).catch(() => {})
+    } catch (error) {
+      if (hasLocalAttachmentSources(message)) {
+        const persisted = await readRaw(storageKey).catch(() => undefined)
+        if (persisted)
+          await owner.replace(persisted.find((one) => one.id === message.id)).catch(() => {})
+        throw error
+      }
+      /* 旧内联输入存不下时保留原有行为。 */
+    }
+  })
 }
 
 /** 会话是发送途中现建的：补上它，重发时才知道往哪个会话发。 */
@@ -108,7 +132,7 @@ export async function bindOutgoingConversation(
   conversationId: string,
 ): Promise<void> {
   try {
-    await update(projectId, (messages) =>
+    await update(key(projectId), (messages) =>
       messages.map((one) => (one.id === id ? { ...one, conversationId } : one)),
     )
   } catch {
@@ -118,11 +142,16 @@ export async function bindOutgoingConversation(
 
 /** 服务端收下了，或者这句话已经退回输入框：本机这份就不必再留。 */
 export async function forgetOutgoing(projectId: string, id: string): Promise<void> {
-  try {
-    await update(projectId, (messages) => messages.filter((one) => one.id !== id))
-  } catch {
-    /* 同上。 */
-  }
+  const storageKey = key(projectId)
+  const owner = attachmentSourceOwner(`outgoing:${storageKey}:${id}`)
+  await owner.withDocument(async () => {
+    try {
+      await update(storageKey, (messages) => messages.filter((one) => one.id !== id))
+      await owner.release()
+    } catch {
+      /* 同上。 */
+    }
+  })
 }
 
 /** 只更新仍未被确认的原记录；取消或成功移除后，迟到的上传不得复活它。 */
@@ -131,11 +160,19 @@ export async function updateOutgoingInput(
   id: string,
   input: TurnSubmissionSnapshot,
 ): Promise<void> {
-  try {
-    await update(projectId, (messages) =>
-      messages.map((one) => (one.id === id ? { ...one, ...input } : one)),
-    )
-  } catch {
-    /* 存不下就保留之前的原始输入。 */
-  }
+  const storageKey = key(projectId)
+  const sameAccount = accountScope()
+  const owner = attachmentSourceOwner(`outgoing:${storageKey}:${id}`)
+  await owner.withDocument(async () => {
+    try {
+      await owner.retain(input)
+      if (!sameAccount()) return
+      const current = await update(storageKey, (messages) =>
+        messages.map((one) => (one.id === id ? { ...one, ...input } : one)),
+      )
+      await owner.replace(current.find((one) => one.id === id))
+    } catch {
+      /* 存不下就保留之前的原始输入。 */
+    }
+  })
 }

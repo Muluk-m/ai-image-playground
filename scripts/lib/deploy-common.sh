@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Sourced by scripts/vps-deploy.sh and scripts/pages-release.sh. Not a program.
 #
 # append_deploy_log reads $public_sha and $private_sha from the caller, which sets both to a

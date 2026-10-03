@@ -38,7 +38,7 @@
     "test": {
       "cache": false,
       // PRIVATE_ADMIN_OVERLAY_ENTRY 同 typecheck：pretest 也跑 routes:generate。
-      "env": ["TEST_DATABASE_URL", "PRIVATE_ADMIN_OVERLAY_ENTRY"]
+      "env": ["TEST_DATABASE_URL", "BUN_TEST_JOBS", "PRIVATE_ADMIN_OVERLAY_ENTRY"]
     }
   }
 }

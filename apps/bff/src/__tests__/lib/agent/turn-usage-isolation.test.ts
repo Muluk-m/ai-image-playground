@@ -62,6 +62,7 @@ function prepared(
     // 这几条用例不领租约：断言的是用量与结算，写库走 db 自己的事务就够。
     execution: { assert: async () => {}, write: (callback) => db.transaction(callback) },
     conversationId,
+    owner: { kind: 'device', deviceId: 'device-abcdefgh' },
     turnId,
     userMessageId: 'next',
     input: {

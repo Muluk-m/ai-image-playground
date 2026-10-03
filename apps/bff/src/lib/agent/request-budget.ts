@@ -49,7 +49,9 @@ export class AgentContextOverflow extends Error {
     readonly inputTokens: number,
     readonly limit: number,
   ) {
-    super(`agent request needs ~${inputTokens} input tokens, over the ${limit} budget`)
+    super(
+      `agent request needs ~${inputTokens} input tokens, over the ${limit} budget。请选择缩小共同查看范围或指定必要区域；逐图摘要不能代替完整联合比较。`,
+    )
     this.name = 'AgentContextOverflow'
   }
 }

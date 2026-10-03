@@ -1,32 +1,20 @@
 {
   "header": {
     "brandName": "Muvloom",
-    "homeAria": "Muvloom, back to the canvas",
     "nav": "Main navigation",
-    "library": "Assets",
     "accountMenu": "Open your account",
     "appMenu": "Open the app menu",
     "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Account settings",
     "login": "Sign in",
-    "loggingOut": "Signing out",
-    "membership": {
-      "subscribe": "Get membership"
-    }
+    "loggingOut": "Signing out"
   },
   "brand": {
-    "home": "Home",
-    "projects": "Projects",
-    "newProject": "New project",
-    "deleteProject": "Delete this project",
-    "deleteProjectMessage": "Delete the project “{{name}}”?"
+    "home": "Home"
   },
   "nav": {
-    "assets": "Assets",
-    "templates": "Templates",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar",
     "chats": "Chats",
     "newChat": "New chat",
     "canvases": "Canvases",
@@ -81,19 +69,12 @@
     "historyAdopted_other": "Recovered {{count}} items from before you signed in"
   },
   "mode": {
-    "generate": "Generate",
     "canvas": "Canvas"
   },
   "hero": {
     "titleLead": "Imagine it, ",
     "titleAccent": "make it real",
     "subtitle": "Turn a sentence into work you can see"
-  },
-  "account": {
-    "guest": "Guest",
-    "subscribe": "Subscribe",
-    "upgrade": "Upgrade",
-    "expires": "Ends {{date}}"
   },
   "createTarget": {
     "aria": "Where this prompt goes",

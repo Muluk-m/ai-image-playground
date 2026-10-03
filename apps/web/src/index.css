@@ -95,7 +95,7 @@
 }
 
 .auth-brand img {
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 .auth-art-wall {
@@ -548,7 +548,7 @@
 .auth-terms {
   margin: 24px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.55;
   text-align: center;
 }
@@ -610,31 +610,8 @@
   border-top: 1px solid hsl(var(--border) / 0.6);
 }
 
-.auth-referral summary {
-  width: fit-content;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.auth-referral summary span {
-  margin-left: 8px;
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.auth-referral summary:hover {
-  color: hsl(var(--foreground));
-}
-
-.auth-referral summary:focus-visible {
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: 4px;
-  border-radius: 3px;
-}
-
 .auth-referral .auth-field {
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .auth-status-screen {
@@ -650,7 +627,7 @@
 }
 
 .auth-status-screen img {
-  border-radius: 11px;
+  border-radius: 12px;
 }
 
 .auth-status-screen h1,
@@ -702,7 +679,7 @@
   width: min(100%, 360px);
   padding: 28px;
   border: 1px solid hsl(var(--border));
-  border-radius: 18px;
+  border-radius: 16px;
   background: hsl(var(--card));
   box-shadow: 0 16px 48px hsl(var(--foreground) / 0.04);
   text-align: left;
@@ -738,7 +715,7 @@
   margin-top: 24px;
   padding: 9px 13px;
   border-color: hsl(var(--border));
-  border-radius: 9px;
+  border-radius: 10px;
   color: hsl(var(--foreground));
   background: hsl(var(--secondary));
   font-size: 13px;
@@ -777,12 +754,17 @@
     grid-template-rows: 150px auto;
   }
 
+  .auth-showcase {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
   .auth-showcase::after {
     background: linear-gradient(180deg, rgba(7, 8, 10, 0.28), hsl(var(--background)));
   }
 
   .auth-brand {
-    top: 20px;
+    top: 0;
     left: 20px;
     font-size: 16px;
   }
@@ -814,7 +796,8 @@
   }
 
   .auth-showcase-copy {
-    bottom: 18px;
+    bottom: 0;
+    margin-top: 8px;
     left: 20px;
     width: 75%;
   }
@@ -841,7 +824,7 @@
 
 @media (max-width: 480px) {
   .auth-dialog {
-    border-radius: 18px;
+    border-radius: 16px;
     grid-template-rows: 128px auto;
   }
 
@@ -1093,6 +1076,28 @@ input[type="number"] {
   }
 }
 
+/* 智能体步骤前的四角星：跑着时缓慢转动、呼吸，跑完停下变淡。 */
+@keyframes agent-spark {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(0.82);
+    opacity: 0.7;
+  }
+  50% {
+    transform: rotate(90deg) scale(1.05);
+    opacity: 1;
+  }
+}
+.agent-spark {
+  transform-origin: center;
+  animation: agent-spark 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-spark {
+    animation: none;
+  }
+}
+
 @keyframes coach-pop-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1334,6 +1339,32 @@ input[type="number"] {
   background: hsl(var(--primary) / 0.2);
   border-color: hsl(var(--ring));
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.25);
+}
+
+/* 素材位胶囊：外观归 AssetSlotChip，外层只占位置；没有渲染器时退回虚线位名 */
+.mention-tag.asset-slot-tag,
+.mention-tag.asset-slot-tag:hover,
+.dark .mention-tag.asset-slot-tag,
+.dark .mention-tag.asset-slot-tag:hover {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-weight: 400;
+  /* 点胶囊是打开填位面板，不是选中这一段：整段选中后再打字会把位连同引用一起换掉。 */
+  user-select: none;
+}
+
+.mention-tag.asset-slot-tag:not(:has(*)) {
+  padding: 0 6px;
+  border: 1px dashed hsl(var(--primary) / 0.6);
+  color: hsl(var(--primary));
+}
+
+:where(.mention-tag.asset-slot-tag.selected) > * {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.35);
 }
 
 /* 槽位胶囊：×k 只能走 ::after，进 DOM 文本会让光标偏移换算错位 */

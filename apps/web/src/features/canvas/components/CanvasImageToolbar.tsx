@@ -34,6 +34,7 @@ type EditAction = 'inpaint' | 'erase' | 'cutout' | 'edit' | 'crop' | 'outpaint' 
 const PANEL_WIDTH = 576
 const TOOLBAR_GAP = 10
 const TOOLBAR_HEIGHT = 40
+const MIN_EXPANDED_HEIGHT = 120
 const RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const
 
 /** 图片下方的快捷菜单；编辑动作将它就地展开，要求统一发给 Agent 对话。 */
@@ -57,6 +58,19 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   } | null>(null)
   const sessionEpoch = useRef(0)
   const busyRef = useRef(false)
+  /**
+   * 收起态工具条的实际尺寸：靠右的图要按宽度往回挪，不然末尾的「更多」会被画布边缘切掉；
+   * 窄屏换行后高度也不止一行，上下放不放得下得按实测高度算。
+   */
+  const [toolbarSize, setToolbarSize] = useState({ width: 0, height: TOOLBAR_HEIGHT })
+  const measureToolbar = (node: HTMLDivElement | null) => {
+    if (!node) return
+    const width = node.offsetWidth
+    const height = node.offsetHeight || TOOLBAR_HEIGHT
+    setToolbarSize((current) =>
+      current.width === width && current.height === height ? current : { width, height },
+    )
+  }
   const activeRef = useRef(active)
   activeRef.current = active
   const doc = editor.doc
@@ -136,7 +150,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         8,
         Math.min(viewport.width - width - 8, imageLeft + (bounds.w * camera.zoom - width) / 2),
       )
-    : Math.max(8, imageLeft)
+    : Math.max(8, Math.min(imageLeft, viewport.width - toolbarSize.width - 8))
   const expandedHeight = painting ? 300 : 205
   const preferredTop = imageBottom + TOOLBAR_GAP
   const expandedTop =
@@ -144,12 +158,18 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
       ? preferredTop
       : imageTop - TOOLBAR_GAP - expandedHeight >= 8
         ? imageTop - TOOLBAR_GAP - expandedHeight
-        : Math.max(8, viewport.height - expandedHeight - 8)
+        : // 上下都放不下整块：只要图下还有能用的高度，就贴在图下内部滚动，不盖住要标记的图。
+          viewport.height - 8 - preferredTop >= MIN_EXPANDED_HEIGHT
+          ? preferredTop
+          : Math.max(8, viewport.height - expandedHeight - 8)
   const top = expanded
     ? expandedTop
-    : imageBottom + TOOLBAR_GAP + TOOLBAR_HEIGHT <= viewport.height
+    : imageBottom + TOOLBAR_GAP + toolbarSize.height <= viewport.height
       ? imageBottom + TOOLBAR_GAP
-      : Math.max(8, imageTop - TOOLBAR_GAP - TOOLBAR_HEIGHT)
+      : imageTop - TOOLBAR_GAP - toolbarSize.height >= 8
+        ? imageTop - TOOLBAR_GAP - toolbarSize.height
+        : // 上下都没地方：钉在画布底边内，宁可压住图的下沿也别让按钮出画布。
+          Math.max(8, viewport.height - toolbarSize.height - 8)
   const panelEpoch = sessionEpoch.current
   const setBusy = (value: boolean) => {
     busyRef.current = value
@@ -261,12 +281,15 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         aria-label={expanded ? t('imageToolbar.aria') : undefined}
         className={
           'absolute z-[430] rounded-xl border border-border bg-card shadow-xl ' +
-          (expanded ? 'overflow-y-auto' : '')
+          (expanded ? 'overflow-y-auto' : 'w-max')
         }
+        ref={expanded ? undefined : measureToolbar}
         style={{
           left,
           top,
-          ...(expanded ? { width, maxHeight: Math.max(80, viewport.height - top - 8) } : {}),
+          ...(expanded
+            ? { width, maxHeight: Math.max(80, viewport.height - top - 8) }
+            : { maxWidth: viewport.width - 16 }),
         }}
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -278,7 +301,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           role="toolbar"
           aria-label={t('imageToolbar.aria')}
           className={
-            'flex items-center gap-0.5 p-0.5 ' + (expanded ? 'border-b border-border' : '')
+            'flex items-center gap-0.5 p-0.5 ' + (expanded ? 'border-b border-border' : 'flex-wrap')
           }
         >
           <CanvasToolbarButton
@@ -361,6 +384,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         </div>
         {painting && (
           <InpaintPanel
+            key={panelEpoch}
             editor={editor}
             onSendingChange={setBusy}
             onDone={() => {

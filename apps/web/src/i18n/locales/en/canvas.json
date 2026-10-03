@@ -73,7 +73,19 @@
     "editTitle_other": "Edit {{count}} images",
     "editSubmit_one": "Edit {{count}} image",
     "editSubmit_other": "Edit {{count}} images",
-    "clear": "Clear selection"
+    "clear": "Clear selection",
+    "cutoutTitle_one": "Remove background from {{count}} image",
+    "cutoutTitle_other": "Remove background from {{count}} images",
+    "resizeTitle_one": "Resize {{count}} image to {{ratio}}",
+    "resizeTitle_other": "Resize {{count}} images to {{ratio}}",
+    "confirmBody_one": "This is AI processing: it starts {{count}} generation task.",
+    "confirmBody_other": "This is AI processing: each image starts its own generation task, {{count}} in total.",
+    "cutoutPlacement": "The cutout replaces the original.",
+    "resizePlacement": "Resized images go next to the originals, which are kept.",
+    "confirmCost": "Estimated cost",
+    "confirmCancel": "Cancel",
+    "confirmSubmit_one": "Generate {{count}}",
+    "confirmSubmit_other": "Generate {{count}}"
   },
   "submit": {
     "blocked": "Can't generate right now",
@@ -125,19 +137,16 @@
   "sidebar": {
     "title": "Image creation",
     "collapseAria": "Collapse panel",
-    "collapse": "Collapse ←",
+    "collapse": "Collapse",
     "emptyTitle": "What are you making today",
     "emptyBody": "Pick one to start, or just write a line.",
     "openChat": "Open creation panel"
   },
   "workspace": {
     "canvasAria": "Creation canvas",
-    "untitled": "My canvas",
-    "backToProjects": "Back to projects",
     "backHome": "Back to home",
     "assets": "Assets",
-    "sourceChat": "Back to source chat",
-    "imageTransferFailed": "Could not add this image to a new canvas. Please retry."
+    "sourceChat": "Back to source chat"
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
@@ -148,7 +157,7 @@
     "title": "Give your imagination a picture.",
     "bodyAgent": "Describe your idea and the results appear here.",
     "bodyDirect": "Describe the image to start creating.",
-    "import": "＋ Import reference images"
+    "import": "Import reference images"
   },
   "import": {
     "inputAria": "Import canvas images",
@@ -194,7 +203,7 @@
     "title": "Let the idea unfold here.",
     "subtitle": "Describe the image you want, or add a reference.",
     "recent": "Recent projects",
-    "allProjects": "All projects →"
+    "allProjects": "All projects"
   },
   "imageMenu": {
     "copied": "Image copied",
@@ -213,6 +222,8 @@
     "loadingCloud": "Loading projects…",
     "retryCloud": "Retry loading projects",
     "refreshCloud": "Refresh projects",
+    "filterAll": "All",
+    "filterAria": "Filter projects by type",
     "loadMore": "Load more projects",
     "newProject": "New project",
     "openAria": "Open project {{name}}",
@@ -220,8 +231,6 @@
     "updatedAt": "Updated {{date}}",
     "actionsAria": "More actions for {{name}}",
     "rename": "Rename",
-    "renameAria": "Rename project {{name}}",
-    "deleteAria": "Delete project {{name}}",
     "deleteTitle": "Delete project",
     "deleteMessage": "Delete “{{name}}” along with its canvas and conversation? This cannot be undone.",
     "noMatch": "No matching projects",
@@ -371,12 +380,10 @@
     },
     "brushSize": "Brush",
     "undo": "Undo mark",
-    "regions": "Edit regions",
     "regionName": "Area {{no}}",
     "removeRegion": "Remove area {{no}}",
     "promptAria": "Edit description",
     "promptPlaceholder": "Describe the change, e.g. make the laces bright blue",
-    "paintFirst": "Drag to select an area, or switch to the brush",
     "uploadReference": "Upload image",
     "removeReference": "Remove reference",
     "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
@@ -384,7 +391,11 @@
     "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
     "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
     "sourceGone": "The source image is no longer on the canvas",
-    "canvasAria": "Smart edit selection canvas"
+    "canvasAria": "Smart edit selection canvas",
+    "regionLimit": "You can mark up to {{max}} regions. Remove an unused region to continue.",
+    "regionRemoved": " (removed)",
+    "promptTooLong": "Keep the editing instructions within {{max}} characters.",
+    "regionMissing": "Remove unavailable area references or redo their selections before sending."
   },
   "crop": {
     "action": "Crop",
@@ -426,7 +437,7 @@
     "action": "Edit image",
     "singleAction": "Edit whole image",
     "title": "Edit whole image",
-    "hint": "Rewrite the whole image from one instruction; the result replaces this one. To change only a spot, use Smart edit.",
+    "hint": "The result replaces this image.",
     "promptLabel": "Describe the edit",
     "placeholder": "e.g. put it on a light wooden desk, keep the product itself unchanged",
     "submit": "Edit",
@@ -435,7 +446,6 @@
   },
   "resize": {
     "action": "Resize",
-    "hint": "Generate this image at another aspect ratio",
     "ratio": {
       "square": "Square",
       "portrait": "Portrait",

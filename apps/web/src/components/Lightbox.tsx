@@ -22,6 +22,7 @@ function clamp(v: number, min: number, max: number) {
 }
 
 export default function Lightbox() {
+  const { t } = useTranslation('task')
   const lightboxImageId = useStore((s) => s.lightboxImageId)
   const lightboxImageList = useStore((s) => s.lightboxImageList)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
@@ -150,7 +151,13 @@ export default function Lightbox() {
   if (!lightboxImageId) return null
   if (!displaySrc) {
     return (
-      <Overlay onClose={close} tier="raised" backdrop="none" layout="fill">
+      <Overlay
+        onClose={close}
+        tier="raised"
+        backdrop="none"
+        layout="fill"
+        label={t('lightbox.dialog')}
+      >
         <div className="flex h-full w-full items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
           <LoaderCircle className="relative h-10 w-10 animate-spin text-white/80" />
@@ -218,7 +225,7 @@ function LightboxInner({
   onPrev,
   onNext,
 }: LightboxInnerProps) {
-  const { t } = useTranslation('task')
+  const { t } = useTranslation(['task', 'common'])
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
@@ -587,7 +594,13 @@ function LightboxInner({
     'flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm text-white backdrop-blur-sm transition-all hover:bg-black/60'
 
   return (
-    <Overlay onClose={onClose} tier="raised" backdrop="none" layout="fill">
+    <Overlay
+      onClose={onClose}
+      tier="raised"
+      backdrop="none"
+      layout="fill"
+      label={t('lightbox.dialog')}
+    >
       <div
         ref={containerRef}
         data-lightbox-root
@@ -659,6 +672,8 @@ function LightboxInner({
         {showNav && !isZoomed && (
           <>
             <button
+              type="button"
+              aria-label={t('common:action.previousImage')}
               className={`${navBtnClass} left-3 sm:left-5`}
               onClick={(e) => {
                 e.stopPropagation()
@@ -680,6 +695,8 @@ function LightboxInner({
               </svg>
             </button>
             <button
+              type="button"
+              aria-label={t('common:action.nextImage')}
               className={`${navBtnClass} right-3 sm:right-5`}
               onClick={(e) => {
                 e.stopPropagation()

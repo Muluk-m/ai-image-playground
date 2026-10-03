@@ -1,4 +1,37 @@
 {
   "icon": "aperture",
-  "summary": "微水泥与圆窗的素净场景"
+  "summary": "微水泥与圆窗的素净场景",
+  "inputs": [
+    {
+      "key": "asset1",
+      "label": {
+        "zh-CN": "商品素材",
+        "en": "Product"
+      },
+      "multiple": true
+    }
+  ],
+  "scene": "look",
+  "starters": [
+    {
+      "text": {
+        "zh-CN": "用这条浴缸 {asset1} 出一张圆窗场景图",
+        "en": "Make a round-window scene with this bathtub {asset1}"
+      },
+      "highlight": {
+        "zh-CN": "浴缸",
+        "en": "bathtub"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "给 {asset1} 出一张场景图，五金件位置不变",
+        "en": "Make a scene image of {asset1}, keeping the hardware where it is"
+      },
+      "highlight": {
+        "zh-CN": "五金件位置",
+        "en": "the hardware"
+      }
+    }
+  ]
 }

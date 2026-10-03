@@ -7,7 +7,7 @@ import {
 } from '@image-playground/shared'
 import { useId, useState } from 'react'
 import Credits from '../../../components/Credits'
-import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
+import { ImageSettings, type UnsupportedParam } from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
 import {
   Select,
@@ -191,7 +191,7 @@ export default function ProductionGenerationEditor({
       />
       {!fields.video && imageChannel && (
         <fieldset disabled={busy} className="flex flex-wrap gap-2" key={fields.model}>
-          <ParamControls
+          <ImageSettings
             unsupported={UNSUPPORTED}
             controlled={{
               profile: {

@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import { Button } from '../../../components/ui/button'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -157,7 +158,7 @@ export default function AgentPanel({
   onPreviewProduction?: (pane?: ProductionPane) => void
   productionMode?: boolean
 }) {
-  const { t } = useTranslation('agent')
+  const { t } = useTranslation(['agent', 'errors'])
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
@@ -166,6 +167,8 @@ export default function AgentPanel({
   const videoSkills = useAgentSkills('video')
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
+  const returnedMessagesError = useAgentStore((state) => state.returnedMessagesError)
+  const returnedMessagesPending = useAgentStore((state) => state.returnedMessagesPending)
   const errorDiagnostic = useAgentStore((state) => state.errorDiagnostic)
   const diagnosticConversationId = useAgentStore((state) => state.conversationId)
   const panelWidth = useAgentStore((state) => state.panelWidth)
@@ -180,7 +183,8 @@ export default function AgentPanel({
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
-  const [locatedId, setLocatedId] = useState<string | null>(null)
+  // 每次定位都换一个序号：同一步被点第二次（中间被用户收起过）也要重新展开。
+  const [located, setLocated] = useState<{ id: string; seq: number } | null>(null)
   const searchResults = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     if (!query) return []
@@ -195,7 +199,7 @@ export default function AgentPanel({
     })
   }, [messages, search])
   const locateMessage = (id: string) => {
-    setLocatedId(id)
+    setLocated((prev) => ({ id, seq: (prev?.seq ?? 0) + 1 }))
     requestAnimationFrame(() => {
       const target = Array.from(
         logRef.current?.querySelectorAll<HTMLElement>('[data-agent-message-id]') ?? [],
@@ -467,7 +471,8 @@ export default function AgentPanel({
                       <AgentActivityTrail
                         steps={trail.steps}
                         spent={trail.spent}
-                        revealId={locatedId}
+                        revealId={located?.id}
+                        revealSeq={located?.seq}
                       />
                     )}
                     {!grouping.absorbed.has(index) &&
@@ -487,19 +492,34 @@ export default function AgentPanel({
               })}
               <AgentActivity />
               <AgentHistoryStatus />
-              {error && !historyFailed && (
+              {(error || returnedMessagesPending) && !historyFailed && (
                 <ErrorState
                   title={t('panel.errorTitle')}
-                  detail={error}
+                  detail={
+                    returnedMessagesPending
+                      ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
+                      : (error ?? undefined)
+                  }
                   actions={
-                    <AgentCopyDiagnostic
-                      diagnostic={
-                        errorDiagnostic ?? {
-                          conversationId: diagnosticConversationId,
-                          message: error,
+                    <>
+                      {returnedMessagesPending && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void useAgentStore.getState().retryReturnedMessages()}
+                        >
+                          {t('draft.retryRestore')}
+                        </Button>
+                      )}
+                      <AgentCopyDiagnostic
+                        diagnostic={
+                          errorDiagnostic ?? {
+                            conversationId: diagnosticConversationId,
+                            message: error,
+                          }
                         }
-                      }
-                    />
+                      />
+                    </>
                   }
                 />
               )}

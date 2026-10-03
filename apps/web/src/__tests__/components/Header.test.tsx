@@ -79,7 +79,7 @@ describe('the header', () => {
     expect(document.querySelector('button[aria-label="灵感库"]')).toBeNull()
   })
 
-  it('未登录时只保留登录入口，登录后恢复积分和账户入口', () => {
+  it('未登录时有登录入口和应用菜单（切主题与语言），登录后换成积分和账户入口', () => {
     const login = vi.fn()
     const logout = vi.fn(async () => {})
     const render = (user: { id: string; username: string } | null) =>
@@ -92,7 +92,7 @@ describe('the header', () => {
     act(() => render(null))
     expect(host.querySelector('[aria-label="积分余额"]')).toBeNull()
     expect(host.querySelector('[aria-label="收费版账户头像"]')).toBeNull()
-    expect(host.querySelector('[aria-label="打开应用菜单"]')).toBeNull()
+    expect(host.querySelector('[aria-label="打开应用菜单"]')).not.toBeNull()
     click('登录')
     expect(login).toHaveBeenCalledOnce()
 

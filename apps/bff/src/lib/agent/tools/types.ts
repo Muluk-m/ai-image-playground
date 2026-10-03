@@ -1,6 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
+  AgentBatchAnalysisLimit,
   AgentCanvasEditPlan,
   AgentCanvasSnapshot,
   AgentFetchedImage,
@@ -14,6 +15,7 @@ import type {
   AgentToolStage,
   AgentTurnParams,
   AgentWebSource,
+  VideoGenerationRecord,
 } from '@image-playground/shared'
 import type { Static, TSchema } from 'typebox'
 import type { ChatAttempt } from '../../chatCompletion'
@@ -21,6 +23,7 @@ import type { AgentAutoSubmitBudget } from '../auto-submit'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
 import type { TurnAuthorizationText } from '../turn-authorization'
+import type { VisualWorkset } from '../visual-workset'
 
 /**
  * 这一轮的工具清单要按谁来筛。不是每个工具都对所有人在场：存素材、存模板要写进这个人的
@@ -51,6 +54,7 @@ export interface AgentToolContext {
   readonly assertExecution?: () => Promise<void>
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
+  readonly visualWorkset?: VisualWorkset
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */
@@ -88,6 +92,10 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  /** 拟稿时冻结的实际视频参数，确认前即展示给用户。 */
+  readonly video?: VideoGenerationRecord
+  readonly analysisLimit?: AgentBatchAnalysisLimit
+  readonly batchId?: string
   readonly executedPrompt?: string
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
@@ -111,6 +119,7 @@ export interface AgentToolDetails {
   readonly sources?: readonly AgentWebSource[]
   /** 取图工具存下的网图；只有它会填。 */
   readonly fetchedImages?: readonly AgentFetchedImage[]
+  readonly visualObservations?: readonly import('@image-playground/shared').AgentVisualObservation[]
 }
 
 /**
@@ -183,7 +192,10 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
    * 参数快照（{@link AgentToolCallSnapshot}），失败记录与重试都从那里取参数。
    * 解析不出来就返回 undefined，快照照记，只是没有模型。
    */
-  target?(params: AgentTurnParams | undefined): AgentToolCallSnapshot['target']
+  target?(
+    params: AgentTurnParams | undefined,
+    args: AgentToolArgs<P>,
+  ): AgentToolCallSnapshot['target']
   /**
    * 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。
    * 带上这一轮的创作类型：同一个名字在两个 mode 下未必指同一件事，起跑这一行标签要按

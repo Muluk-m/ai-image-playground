@@ -3,10 +3,8 @@ import { useStore } from '../store'
 export default function Toast() {
   const toast = useStore((s) => s.toast)
 
-  if (!toast) return null
-
-  const getIcon = () => {
-    switch (toast.type) {
+  const getIcon = (type: NonNullable<typeof toast>['type']) => {
+    switch (type) {
       case 'success':
         return (
           <div className="flex items-center justify-center w-5 h-5 rounded-full bg-success/10 dark:bg-success/50 text-success dark:text-success">
@@ -49,12 +47,24 @@ export default function Toast() {
     }
   }
 
+  // live region 必须常驻：节点和文字同时出现时读屏常常不播报，所以只切换里面的内容。
   return (
-    <div className="fixed bottom-24 left-1/2 z-[120] pointer-events-none toast-enter">
-      <div className="flex items-center gap-2.5 w-max max-w-[calc(100vw-32px)] sm:max-w-[min(28rem,60vw)] px-5 py-3.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] ring-1 ring-black/5 dark:ring-white/10 text-sm font-medium text-foreground">
-        <span className="flex-shrink-0">{getIcon()}</span>
-        <span className="leading-5 whitespace-pre-line text-center">{toast.message}</span>
-      </div>
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-24 left-1/2 z-[1400] pointer-events-none"
+    >
+      {toast && (
+        <div
+          key={toast.message}
+          className="toast-enter flex items-center gap-2.5 w-max max-w-[calc(100vw-32px)] sm:max-w-[min(28rem,60vw)] px-5 py-3.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full shadow-popover ring-1 ring-hairline text-sm font-medium text-foreground"
+        >
+          <span className="flex-shrink-0" aria-hidden="true">
+            {getIcon(toast.type)}
+          </span>
+          <span className="leading-5 whitespace-pre-line text-center">{toast.message}</span>
+        </div>
+      )}
     </div>
   )
 }

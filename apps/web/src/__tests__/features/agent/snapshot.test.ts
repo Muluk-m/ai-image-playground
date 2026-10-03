@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type {
   AgentToolArtifact,
   AgentToolEndEvent,
@@ -17,6 +18,8 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
+import { peekCanvasWorkspace } from '../../../features/canvas/lib/activeProject'
+import { setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 /**
@@ -143,6 +146,9 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
+  setClientStorageScope(crypto.randomUUID())
+  // Switch the workspace account before installing this account's canvas fixture.
+  peekCanvasWorkspace()
   reserved.length = 0
   placedInto.length = 0
   placed.length = 0
@@ -180,6 +186,8 @@ beforeEach(() => {
     activeTurn: null,
     error: null,
     loaded: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
     jobProgress: {},
     toolStartedAt: {},
     retryRefusals: {},
@@ -188,6 +196,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  setClientStorageScope(null)
   useAgentStore.setState({ conversationId: null, messages: [], turn: 'idle', activeTurn: null })
   // 守候按会话退出，但要等到下一跳才看得见会话已经切走：先推过那一跳再收假时钟，否则它带着
   // 上一个会话停在半路，下一个用例的守候会被当成同一次而不再开。

@@ -38,7 +38,7 @@ export default function CanvasEditPromptDialog({
 
   return (
     <Overlay onClose={onClose}>
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
         <h3 className={`${PANEL_TITLE} mb-1.5`}>{t('imageEdit.title')}</h3>
         <p className="mb-3 text-xs text-muted-foreground">{t('imageEdit.hint')}</p>
 
@@ -61,11 +61,11 @@ export default function CanvasEditPromptDialog({
 
         <div className={`${PANEL_SECTION} mt-3`}>
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
+            <p className="mb-1.5 text-label-sm text-destructive">{guard.disabledReason}</p>
           )}
           <SubmissionBillingAction
             blockedAction={guard.blockedAction}
-            className="mb-1.5 text-[11px]"
+            className="mb-1.5 text-label-sm"
           />
           <button
             type="button"

@@ -1,6 +1,7 @@
 import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 
@@ -15,6 +16,8 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
  *    backdrop 必须 pointer-events-none，否则它盖在表面之上、命中的是 backdrop 而非表面，永不关闭
  * 5. z 层：modal(50) / raised(100) / alert(110) / artifact(1200)
  * 6. 打开任意 Overlay 时统一收起 Tooltip —— 定位型浮层不得越过模态 backdrop
+ * 7. 焦点 —— 焦点困在表面内，关闭后还给打开前的元素；表面默认是 role=dialog，
+ *    内容自己带 role=dialog（和标题关联）时传 role="none"，免得读屏念两遍
  *
  * 定位型浮层（Tooltip、Select 下拉、拖拽预览）不属于这里。
  */
@@ -42,6 +45,9 @@ interface OverlayProps {
   backdrop?: 'dim' | 'none'
   /** center = 居中 + p-4（默认）；fill = 内容自己撑满视口 */
   layout?: 'center' | 'fill'
+  /** 读屏念出的对话框名称 */
+  label?: string
+  role?: 'dialog' | 'none'
   children: ReactNode
 }
 
@@ -50,9 +56,13 @@ export default function Overlay({
   tier = 'modal',
   backdrop = 'dim',
   layout = 'center',
+  label,
+  role = 'dialog',
   children,
 }: OverlayProps) {
   const boundaryRef = useRef<HTMLDivElement>(null)
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(surfaceRef)
   useEffect(() => {
     dismissAllTooltips()
     openBoundaries.push(boundaryRef)
@@ -72,8 +82,13 @@ export default function Overlay({
 
   return createPortal(
     <div
+      ref={surfaceRef}
+      role={role === 'dialog' ? 'dialog' : undefined}
+      aria-modal={role === 'dialog' ? true : undefined}
+      aria-label={role === 'dialog' ? label : undefined}
+      tabIndex={-1}
       data-no-drag-select
-      className={surfaceClass}
+      className={`${surfaceClass} outline-none`}
       onPointerDown={(e) => {
         surfaceDownRef.current = e.target === e.currentTarget
       }}

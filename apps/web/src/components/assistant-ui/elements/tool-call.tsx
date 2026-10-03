@@ -3,13 +3,12 @@
  * Upstream: assistant-ui/assistant-ui@4fffd182971380758dcda062ea076f7bc9257fee
  * See UPSTREAM.md for source paths and local adaptations; license in LICENSE.
  */
-import { CheckIcon, ChevronRightIcon } from 'lucide-react'
+import { ChevronRightIcon } from 'lucide-react'
 import { type ComponentProps, useId, useState } from 'react'
 import { cn } from '../../../lib/utils'
-import { Button } from '../../ui/button'
-import { field, ShimmerLabel } from './surfaces'
+import { AgentSpark, ShimmerLabel, stepRow } from './surfaces'
 
-/** The upstream collapsible composition uses the existing shadcn Button disclosure here. */
+/** 一行过程步骤：星号 + 标题，点开是左侧一道细线下的说明。没有说明时什么也不展开。 */
 export function ToolCall({
   label,
   activeLabel,
@@ -26,27 +25,35 @@ export function ToolCall({
   const id = useId()
   return (
     <div data-slot="tool-call" className={cn('w-full max-w-xl', className)} {...props}>
-      <Button
+      <button
         type="button"
-        variant="ghost"
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className="h-auto max-w-full justify-start gap-2 rounded-lg px-2 py-2 text-left text-[13px] font-normal text-muted-foreground"
+        className={stepRow}
       >
-        <ChevronRightIcon
-          aria-hidden
-          className={cn(
-            'size-3.5 shrink-0 transition-transform motion-reduce:transition-none',
-            open && 'rotate-90',
-          )}
-        />
-        <ShimmerLabel active={running} className="min-w-0 truncate">
+        <AgentSpark active={running} />
+        <ShimmerLabel
+          active={running}
+          className={cn('min-w-0 truncate', !running && 'text-muted-foreground/80')}
+        >
           {running ? activeLabel : label}
         </ShimmerLabel>
-        {!running && <CheckIcon aria-hidden className="size-3.5 shrink-0 text-primary" />}
-      </Button>
-      <div id={id} hidden={!open} className={cn(field, 'mt-2 rounded-2xl p-3.5 text-xs')}>
+        {!running && (
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              'size-3.5 shrink-0 opacity-0 transition motion-reduce:transition-none group-hover:opacity-60 group-focus-visible:opacity-60',
+              open && 'rotate-90 opacity-60',
+            )}
+          />
+        )}
+      </button>
+      <div
+        id={id}
+        hidden={!open}
+        className="ml-[6px] mt-0.5 border-l border-border py-0.5 pl-[16px] text-xs text-muted-foreground has-[>div:empty]:hidden"
+      >
         {children}
       </div>
     </div>

@@ -22,6 +22,10 @@ function fakeUpstreamTimeoutError(): Error {
 }
 
 describe('isRetryableError', () => {
+  it('preserves an explicit no-retry decision even with a diagnostic HTTP 500', () => {
+    expect(isRetryableError(Object.assign(upstreamError(500), { retryable: false }))).toBe(false)
+  })
+
   it('上游 5xx 视为瞬时，需要重试', () => {
     expect(isRetryableError(upstreamError(500))).toBe(true)
     expect(isRetryableError(upstreamError(502))).toBe(true)

@@ -35,6 +35,7 @@ export const mediaRoutes = new Elysia()
     {
       body: t.Object(
         {
+          purpose: t.Optional(t.Literal('conversation-attachment')),
           sha256: t.String({ pattern: '^[a-f0-9]{64}$' }),
           bytes: t.Integer({ minimum: 1, maximum: 100_000_000 }),
           contentType: t.String({ pattern: '^image/(png|jpeg|webp)$' }),

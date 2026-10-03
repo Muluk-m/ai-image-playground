@@ -288,3 +288,69 @@ describe('createCompactionTransform', () => {
     })
   })
 })
+
+it('rejects a visual fold before persisting its summary or advancing the durable anchor', async () => {
+  setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
+  const id = await conversationId()
+  const transform = createCompactionTransform({
+    conversationId: id,
+    turnId: 'turn-visual',
+    historyIds: HISTORY_IDS,
+    userMessageId: 'm6',
+    compaction: FRESH,
+    foldedBefore: 0,
+    overheadTokens: 0,
+    settings: SETTINGS,
+  })
+  const messages = structuredClone(MESSAGES)
+  const image = { type: 'image' as const, mimeType: 'image/png', data: 'AAAA' }
+  const first = messages[0]!
+  if (first.role !== 'user' || !Array.isArray(first.content))
+    throw new Error('fixture user expected')
+  first.content.push(image)
+  const transformed = await transform(messages, (candidate) =>
+    candidate.some(
+      (message) =>
+        (message.role === 'user' || message.role === 'toolResult') &&
+        Array.isArray(message.content) &&
+        message.content.some((block) => block === image),
+    ),
+  )
+  expect(transformed).toEqual(messages)
+  expect(await loadAgentCompaction(id)).toBeNull()
+})
+
+it('still folds old text while the current image remains available to the model', async () => {
+  const { createVisualWorkset } = await import('../../../lib/agent/visual-workset')
+  setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
+  const id = await conversationId()
+  const transform = createCompactionTransform({
+    conversationId: id,
+    turnId: 'turn-visual',
+    historyIds: HISTORY_IDS,
+    userMessageId: 'm6',
+    compaction: FRESH,
+    foldedBefore: 0,
+    overheadTokens: 0,
+    settings: { ...SETTINGS, contextWindow: 4000, keepRecentTokens: 1500 },
+  })
+  const messages: AgentMessage[] = Array.from(
+    { length: 40 },
+    (_, index) => user(`visual-${index}`, body('a')).message,
+  )
+  const image = { type: 'image' as const, mimeType: 'image/png', data: 'AAAA' }
+  const last = messages[messages.length - 1]!
+  if (last.role !== 'user' || !Array.isArray(last.content)) throw new Error('fixture user expected')
+  last.content.push(image)
+  const shaped = await createVisualWorkset().transform(messages, transform)
+  expect(shaped.length).toBeLessThan(messages.length)
+  expect(
+    shaped.some(
+      (message) =>
+        (message.role === 'user' || message.role === 'toolResult') &&
+        Array.isArray(message.content) &&
+        message.content.some((block) => block === image),
+    ),
+  ).toBe(true)
+  expect((await loadAgentCompaction(id))?.anchor?.coveredCount).toBeGreaterThan(0)
+})

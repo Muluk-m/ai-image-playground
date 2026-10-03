@@ -68,7 +68,7 @@ export default function SuggestionMenu<T>({
       <div ref={listRef} className="max-h-56 overflow-y-auto custom-scrollbar" role="listbox">
         {groups.map((group, groupIndex) => (
           <div key={group.key}>
-            <div className="px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground">
+            <div className="px-2 pb-1 pt-0.5 text-label-sm text-muted-foreground">
               {group.heading}
             </div>
             {group.options.length === 0 && group.emptyNote && (
@@ -106,7 +106,7 @@ export default function SuggestionMenu<T>({
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate font-medium">{option.label}</span>
                     {option.description && (
-                      <span className="truncate text-[11px] font-normal text-muted-foreground">
+                      <span className="truncate text-label-sm font-normal text-muted-foreground">
                         {option.description}
                       </span>
                     )}

@@ -40,8 +40,8 @@ export default function SettingsModal() {
   }
 
   return (
-    <Overlay onClose={handleClose} tier="modal">
-      <div className="relative z-10 flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card/95 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10 sm:h-[600px]">
+    <Overlay onClose={handleClose} tier="modal" label={t('modal.title')}>
+      <div className="relative z-10 flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card/95 shadow-2xl ring-1 ring-hairline animate-modal-in sm:h-[600px]">
         <div className="flex shrink-0 items-center justify-between border-b border-border p-5">
           <h3 className="flex items-center gap-2 text-lg font-bold text-foreground">
             <SettingsIcon className="h-5 w-5 text-primary" aria-hidden="true" />

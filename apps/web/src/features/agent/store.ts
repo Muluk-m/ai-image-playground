@@ -52,6 +52,7 @@ import {
 } from '../canvas/projectStore'
 import { productionTurnContext } from '../production/lib/productionContext'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
+import { abortRecoveries, type PendingAbortRecovery } from './lib/abortRecovery'
 import {
   type AgentConversationState,
   AgentRequestError,
@@ -76,7 +77,7 @@ import {
 } from './lib/artifactDelivery'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
-import { agentDraft, bindNewAgentDraft } from './lib/drafts'
+import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -200,6 +201,8 @@ export interface AgentState {
   loaded: boolean
   historyLoading: boolean
   historyFailed: boolean
+  returnedMessagesPending: boolean
+  returnedMessagesError: ReturnedMessagesErrorCode | null
   /** 对话面板宽度（CSS 像素），用户拖过就记住。 */
   panelWidth: number
   /**
@@ -231,6 +234,7 @@ export interface AgentState {
   /** 读回会话列表与上次那个会话的消息，并挂回仍在进行的那一轮。 */
   load(): Promise<void>
   refreshConversations(): Promise<void>
+  followBatchWake(conversationId: string, batchId: string, version: number): void
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
@@ -262,8 +266,13 @@ export interface AgentState {
     modelOverride?: string,
     /** 输入框接回失败消息后，日志停止自动重发；先等草稿落盘。 */
     onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
+    localPersistence?: {
+      stage(submission: UnsentTurnSubmission): Promise<void>
+      committed(id: string): void
+    },
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
+  retryReturnedMessages(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
   withdrawQueued(queueId: string): Promise<void>
   /** 把一条排队消息升级为插话：插进正在跑的那一轮，在它下一个动作边界生效。 */
@@ -302,10 +311,27 @@ export interface AgentState {
   confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
 
+type ReturnedMessagesErrorCode = 'stop_failed' | 'return_handoff_failed' | 'fallback'
+
+class ReturnedMessagesPersistenceError extends Error {
+  readonly code: 'return_handoff_failed' | 'fallback'
+  readonly cause: unknown
+  constructor(code: 'return_handoff_failed' | 'fallback', cause: unknown) {
+    super(code)
+    this.code = code
+    this.cause = cause
+  }
+}
+
+const returnedMessagesErrorText = (code: ReturnedMessagesErrorCode) =>
+  i18next.getFixedT(null, 'errors')(`agentQueue.${code}`)
+
 function turnFailureText(code?: string): string {
   switch (code) {
     case 'agent_upstream_error':
       return i18next.t('error.upstream', { ns: 'agent' })
+    case 'agent_request_budget_exceeded':
+      return i18next.t('error.requestBudgetExceeded', { ns: 'agent' })
     case 'agent_context_overflow':
       return i18next.t('error.contextOverflow', { ns: 'agent' })
     case 'agent_tool_failed':
@@ -319,6 +345,8 @@ function requestDiagnostic(
   thrown: unknown,
   conversationId: string | null,
 ): Record<string, unknown> {
+  if (thrown instanceof ReturnedMessagesPersistenceError)
+    return { ...requestDiagnostic(thrown.cause, conversationId), recoveryCode: thrown.code }
   return {
     conversationId,
     occurredAt: new Date().toISOString(),
@@ -425,6 +453,8 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
   errorDiagnostic: null,
   historyLoading: false,
   historyFailed: false,
+  returnedMessagesPending: false,
+  returnedMessagesError: null,
 })
 
 function readPanelWidth(): number {
@@ -740,6 +770,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       activeTurn: null,
       historyLoading: true,
       historyFailed: false,
+      returnedMessagesPending: false,
+      returnedMessagesError: null,
     })
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let state: AgentConversationState
@@ -772,6 +804,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
     set({ historyLoading: false, historyFailed: false })
     adoptSnapshot(conversationId, state)
+    await recoverReturnedMessages(conversationId)
+    if (!isCurrent()) return
     const active = state.activeTurn?.turnId ?? turnId
     if (!active) {
       // 历史读回来了、也没有在跑的轮：发送途中丢掉的那几条现在补发。
@@ -779,7 +813,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
       return
     }
-    set({ turn: 'running', error: null, errorDiagnostic: null, activeTurn: { turnId: active } })
+    set({ turn: 'running', activeTurn: { turnId: active } })
     await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
   }
 
@@ -805,10 +839,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   const resumeOutgoing = async (projectId: string) => {
     if (resuming.has(projectId)) return
     resuming.add(projectId)
+    const sameAccount = accountScope()
     try {
       for (const message of await outgoingMessages(projectId)) {
         // 项目换了就停：这几条属于刚才那个项目，发到别处去就串了。
-        if (currentCanvasProject()?.id !== projectId) return
+        if (!sameAccount() || currentCanvasProject()?.id !== projectId) return
+        // A crash can leave both staged draft and journal; the journal now owns this command.
+        const draft = agentDraft(message.conversationId, projectId)
+        await draft.ready
+        if (!sameAccount()) return
+        if (!(await draft.acceptSubmission(message.id))) return
+        if (!sameAccount() || currentCanvasProject()?.id !== projectId) return
         if (deliveredAlready(message)) {
           await forgetOutgoing(projectId, message.id)
           continue
@@ -840,9 +881,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
    * 停止请求没拿到响应（超时、断网）时重发同一个请求：服务端那一刻可能已经撤下了排队消息，
    * 只在响应里交还，重发拿得回同一批。服务端明确答复的错误（例如 404）不重发。
    */
-  const abortWithRetry = async (conversationId: string, turnId: string) => {
+  const abortWithRetry = async (conversationId: string, turnId: string, current = () => true) => {
     for (let attempt = 1; ; attempt += 1) {
       try {
+        if (!current()) throw new Error('stop_recovery_scope_changed')
         return await abortTurn(conversationId, turnId)
       } catch (error) {
         if (error instanceof AgentRequestError || attempt >= STOP_ATTEMPTS) throw error
@@ -880,31 +922,135 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           finish()
       })
     })
+  const handoffReturnedMessages = async (
+    conversationId: string,
+    pointer: PendingAbortRecovery,
+    receipts: ReturnType<typeof abortRecoveries>,
+    draft: DraftSession,
+  ) => {
+    // An account/backend switch must never replay an old receipt against the new identity.
+    if (!receipts.current()) return false
+    const returned = await abortWithRetry(conversationId, pointer.turnId, receipts.current)
+    if (!receipts.current()) return false
+    try {
+      if (returned.length && !(await draft.returnQueued(returned)))
+        throw new Error('draft_handoff_failed')
+      await receipts.forget(pointer.turnId)
+    } catch (error) {
+      throw new ReturnedMessagesPersistenceError(
+        returned.length ? 'return_handoff_failed' : 'fallback',
+        error,
+      )
+    }
+    if (receipts.current() && get().conversationId === conversationId)
+      set((state) => ({
+        queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
+      }))
+    return true
+  }
+
+  const recoverReturnedMessages = async (conversationId: string) => {
+    const receipts = abortRecoveries(conversationId)
+    const current = () => receipts.current() && get().conversationId === conversationId
+    const initial = get()
+    const ownsError = Boolean(
+      initial.returnedMessagesError &&
+        initial.error === returnedMessagesErrorText(initial.returnedMessagesError),
+    )
+    const errorUnchanged = () =>
+      get().error === initial.error && get().errorDiagnostic === initial.errorDiagnostic
+    try {
+      const pointers = await receipts.read()
+      for (const pointer of pointers) {
+        if (!receipts.current()) return
+        const cached = agentDraft(conversationId, pointer.projectId)
+        const draft =
+          cached.key === pointer.draftKey
+            ? cached
+            : new DraftSession(pointer.draftKey, undefined, pointer.projectId)
+        try {
+          if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
+        } catch (error) {
+          // A stopped turn with no returned messages has no receipt. Verify history before
+          // retiring its pointer, then continue with later receipts instead of blocking them.
+          if (error instanceof AgentRequestError && error.status === 404) {
+            const history = await fetchMessages(conversationId)
+            if (!receipts.current()) return
+            if (history.activeTurn?.turnId !== pointer.turnId) {
+              await receipts.forget(pointer.turnId)
+              continue
+            }
+          }
+          throw error
+        }
+      }
+      const pending = (await receipts.read()).length > 0
+      if (current())
+        set({
+          returnedMessagesPending: pending,
+          returnedMessagesError: pending ? 'fallback' : null,
+          ...(pointers.length && ownsError && errorUnchanged()
+            ? { error: null, errorDiagnostic: null }
+            : {}),
+        })
+    } catch (error) {
+      const code = error instanceof ReturnedMessagesPersistenceError ? error.code : 'fallback'
+      if (current())
+        set({
+          returnedMessagesPending: true,
+          returnedMessagesError: code,
+          ...(errorUnchanged() && (initial.error === null || ownsError)
+            ? {
+                error: returnedMessagesErrorText(code),
+                errorDiagnostic: requestDiagnostic(error, conversationId),
+              }
+            : {}),
+        })
+    }
+  }
+
   const requestAbort = async (conversationId: string, turnId: string) => {
-    const current = () =>
-      get().conversationId === conversationId && get().activeTurn?.turnId === turnId
-    // 退回的排队消息属于按停止时的这个项目：请求期间切走了，也得落回它自己的输入框，不能落进
-    // 切过去的那个项目。
+    const receipts = abortRecoveries(conversationId)
+    const shown = () => receipts.current() && get().conversationId === conversationId
+    const current = () => shown() && get().activeTurn?.turnId === turnId
+    // Capture the destination before asynchronous storage/network work or project changes.
     const draft = currentProjectDraft(conversationId)
+    const pointer = { turnId, draftKey: draft.key, projectId: currentCanvasProject()?.id }
+    let remembered = false
+    let stopped = false
     try {
       if (current()) set({ stopping: true, error: null, errorDiagnostic: null })
-      const returned = await abortWithRetry(conversationId, turnId)
-      // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
-      if (returned.length) {
-        draft.update((before) => returnQueuedToDraft(before, returned))
-        if (get().conversationId === conversationId)
-          set((state) => ({
-            queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
-          }))
-      }
+      // The server emits queue-withdrawn before returning the receipt. Persist its identity first.
+      await receipts.remember(pointer)
+      remembered = true
+      if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
+      stopped = true
+      const pending = (await receipts.read()).length > 0
+      if (shown())
+        set({
+          returnedMessagesPending: pending,
+          returnedMessagesError: pending ? get().returnedMessagesError : null,
+        })
     } catch (error) {
-      if (!current()) return
-      // 轮可能恰好结束；读回事实后再决定是否报错，不能把 404 当成中止成功。
+      if (!shown()) return
+      if (!remembered) {
+        // No stop request was sent: preserve the running turn and its normal stop action.
+        set({
+          stopping: current() ? false : get().stopping,
+          error: i18next.t('error.stopFailed', { ns: 'agent' }),
+          errorDiagnostic: requestDiagnostic(error, conversationId),
+        })
+        return
+      }
+      // A genuine missing turn is checked against history; a local handoff error never takes this path.
       if (error instanceof AgentRequestError && error.status === 404) {
         try {
           const history = await fetchMessages(conversationId)
-          if (!current()) return
+          if (!shown()) return
           if (!history.activeTurn) {
+            await receipts.forget(turnId)
+            const pending = (await receipts.read()).length > 0
+            if (!shown()) return
             resetDelivery()
             set({
               turn: 'idle',
@@ -913,18 +1059,25 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               activeTurn: null,
               error: null,
               errorDiagnostic: null,
+              returnedMessagesPending: pending,
+              returnedMessagesError: pending ? get().returnedMessagesError : null,
             })
             adoptSnapshot(conversationId, history)
             return
           }
         } catch {
-          /* 保留在运行的轮，让用户重试。 */
+          /* Keep the receipt available for explicit retry. */
         }
       }
-      if (current())
+      let code: ReturnedMessagesErrorCode = 'stop_failed'
+      if (error instanceof ReturnedMessagesPersistenceError) code = error.code
+      else if (stopped) code = 'fallback'
+      if (shown())
         set({
-          stopping: false,
-          error: i18next.t('error.stopFailed', { ns: 'agent' }),
+          stopping: current() ? false : get().stopping,
+          returnedMessagesPending: true,
+          returnedMessagesError: code,
+          error: returnedMessagesErrorText(code),
           errorDiagnostic: requestDiagnostic(error, conversationId),
         })
     }
@@ -969,6 +1122,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         clientMessageId,
         clarificationAnswer,
         prepared.canvas,
+        prepared.experience,
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
@@ -983,6 +1137,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           active?.turnId ?? outcome.turnId,
           text,
           prepared.references,
+          undefined,
+          clientMessageId,
         )
       } else if (
         outcome.kind === 'frames' ||
@@ -1056,6 +1212,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
     open: (conversationId) => void openConversation(conversationId),
   }
+  /** 当前项目是对话还是画布；没有当前项目时按默认入口「对话」。 */
+  const currentExperience = (): 'chat' | 'canvas' => {
+    const current = currentCanvasProject()
+    return current ? projectExperience(current) : 'chat'
+  }
   const createProject = async (
     reuseEmpty = true,
     kind: ProjectKind = 'image',
@@ -1127,7 +1288,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     get running() {
       return currentTurnRunning()
     },
-    replaceCurrent: async () => void (await createProject(false)),
+    // 顶上来的新项目沿用被删那个的入口：删掉画布项目不该把人送进对话页。
+    replaceCurrent: async () => void (await createProject(false, 'image', currentExperience())),
     forgetConversation: (conversationId) =>
       set((state) => ({
         conversations: state.conversations.filter((one) => one.id !== conversationId),
@@ -1151,6 +1313,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     loaded: false,
     historyLoading: false,
     historyFailed: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
     panelWidth: readPanelWidth(),
     jobProgress: {},
     toolStartedAt: {},
@@ -1171,6 +1335,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set({ autoSubmit })
     },
 
+    followBatchWake(conversationId, batchId, version) {
+      jobs.followBatch(conversationId, batchId, version)
+    },
     setOpen: (open) => set({ open }),
     setTab: (tab) => set({ tab }),
     setPanelWidth: (width) => {
@@ -1279,7 +1446,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
     startNewConversation() {
       if (useCanvasProjectStore.getState().loaded) {
-        void get().createProject()
+        void get().createProject(undefined, true, currentExperience())
         return
       }
       resetDelivery()
@@ -1371,7 +1538,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       replay,
       modelOverride,
       onUnsent,
+      localPersistence,
     ) {
+      const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(),
         ...productionTurnContext(get().conversationId),
@@ -1386,6 +1555,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         project: sourceProject,
         replay,
       })
+      if (captured.resolveCanvasBindings) await captured.resolveCanvasBindings()
+      if (!sameAccount()) return 'cancelled'
       references = captured.snapshot.references
       // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
       // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
@@ -1398,6 +1569,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
 
       if (
+        !sameAccount() ||
         get().conversationId !== conversationId ||
         currentCanvasProject()?.id !== sourceProject?.id
       )
@@ -1410,6 +1582,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
+      if (localPersistence) {
+        await localPersistence.stage({
+          ...captured.snapshot,
+          id: messageId,
+          text: trimmed,
+          mode,
+          clarificationAnswer,
+        })
+        if (!sameAccount()) return 'cancelled'
+      }
       if (journaled)
         await rememberOutgoing({
           id: messageId,
@@ -1422,16 +1604,22 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           clarificationAnswer,
           createdAt: Date.now(),
         })
+      if (journaled) localPersistence?.committed(messageId)
+      if (!sameAccount()) return 'cancelled'
       let submissionInput = captured.snapshot
       const prepare = async () => {
+        if (!sameAccount()) throw new Error('media_scope_changed')
         const prepared = await captured.prepare()
-        if (prepared) submissionInput = prepared
+        if (!sameAccount()) throw new Error('media_scope_changed')
+        // Unaccepted uploads can expire; retain the captured pixels for a fresh upload on retry.
+        if (prepared) submissionInput = { ...prepared, references: captured.snapshot.references }
         if (prepared && journaled)
-          await updateOutgoingInput(journaled.projectId, journaled.id, prepared)
+          await updateOutgoingInput(journaled.projectId, journaled.id, submissionInput)
+        if (!sameAccount()) throw new Error('media_scope_changed')
         return prepared
       }
       const settleJournal = async () => {
-        if (journaled) await forgetOutgoing(journaled.projectId, journaled.id)
+        if (journaled && sameAccount()) await forgetOutgoing(journaled.projectId, journaled.id)
       }
       const returnUnsent = async (withdrawn = false) => {
         if (!onUnsent && !withdrawn) return
@@ -1540,6 +1728,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         try {
           if (!target) {
             target = await createProjectConversation()
+            if (!sameAccount()) return 'cancelled'
             if (submission.cancelled) return await cancelUnsent()
             if (!turnDelivery.isCurrent()) {
               await turnDelivery.settled()
@@ -1555,10 +1744,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               await turnDelivery.settled()
               return
             }
+            if (!sameAccount()) return 'cancelled'
             safeLocalStorage.setItem(conversationKey(), target)
             bindNewAgentDraft(target, currentCanvasProject()?.id)
             set({ conversationId: target })
             // 会话是刚刚建出来的：本机那份补上它，重发时才知道发去哪个会话。
+            if (!sameAccount()) return 'cancelled'
             if (journaled) await bindOutgoingConversation(journaled.projectId, journaled.id, target)
             if (sourceProject?.cloud && cloudProjectsEnabled()) {
               let history: AgentConversationState
@@ -1604,6 +1795,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             messageId,
             clarificationAnswer,
             prepared.canvas,
+            prepared.experience,
           )
         } catch (thrown) {
           if (turnDelivery.isCurrent())
@@ -1707,6 +1899,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (abortInFlight === settled) abortInFlight = null
       })
       await settling
+    },
+
+    async retryReturnedMessages() {
+      const conversationId = get().conversationId
+      if (conversationId) await recoverReturnedMessages(conversationId)
     },
 
     async withdrawQueued(queueId) {

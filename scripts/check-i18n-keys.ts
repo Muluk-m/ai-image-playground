@@ -16,7 +16,10 @@ import { join, relative } from 'node:path'
 const WEB_SRC = join(import.meta.dir, '..', 'apps', 'web', 'src')
 const CATALOG_DIR = join(WEB_SRC, 'i18n', 'locales', 'zh-CN')
 
-/** 靠模板字符串拼出来的 key 前缀，字面量搜不到，按前缀整体放行。 */
+/**
+ * 靠模板字符串拼出来的 key，字面量搜不到，按前缀整体放行。同一父级下只有部分子 key 是
+ * 拼出来的，就逐条列完整 key，免得把同级里真正没人用的 key 一起放过。
+ */
 const DYNAMIC_PREFIXES = [
   'common:locale.',
   'locale.',
@@ -30,6 +33,79 @@ const DYNAMIC_PREFIXES = [
   'canvas:rectEdit.handle.',
   // features/canvas/components/CanvasResizeMenu.tsx：按 RESIZE_RATIOS 里的比例拼 key。
   'canvas:resize.ratio.',
+  // features/agent/components/SkillStarterGuide.tsx：按 shared 的 AGENT_SKILL_SCENES 拼 key。
+  'agent:starters.scene.',
+  // features/agent/components/AgentAssetDrawer.tsx：按媒体类型拼 `assets.${one}`。
+  'agent:assets.image',
+  'agent:assets.video',
+  // features/agent/components/AgentBatchItemResult.tsx、AgentBatchAnalysisSummary.tsx：按条目状态拼 key。
+  'agent:batch.itemStatus.',
+  // features/agent/components/AgentBatchItemResult.tsx：按结果表示方式拼 key。
+  'agent:batch.representation.',
+  // features/agent/components/AgentComposer.tsx：按上传状态拼 key。
+  'agent:composer.upload.',
+  // features/agent/components/AgentCopyDiagnostic.tsx：按诊断字段名拼 key；
+  'agent:diagnostic.fields.',
+  // 同一文件按复制结果拼 `error.${result}`。
+  'agent:error.copied',
+  'agent:error.copyFailed',
+  // features/agent/components/AgentJobProgress.tsx、canvas/lib/editProgressLabel.ts：按任务阶段拼 key。
+  'agent:job.phase.',
+  // features/agent/components/AgentMessageQueue.tsx：按排队失败原因拼 key。
+  'agent:queue.failure.',
+  // features/agent/components/AgentSaveCard.tsx：按保存失败原因拼 `save.${failure}`。
+  'agent:save.failed',
+  'agent:save.imageGone',
+  // features/agent/components/AgentArtifactEditDialog.tsx：按编辑动作拼 `tool.${action}Placeholder`。
+  'agent:tool.cropPlaceholder',
+  'agent:tool.erasePlaceholder',
+  'agent:tool.inpaintPlaceholder',
+  'agent:tool.outpaintPlaceholder',
+  // features/agent/lib/toolFailure.ts：按拦截原因拼 key。
+  'agent:toolFailure.blocked.',
+  // features/canvas/components/ReferenceVideoPopover.tsx：按参考视频角色拼 key。
+  'canvas:referenceVideo.role.',
+  // features/agent/components/AgentBatchPlanCard.tsx：按批量错误码拼 key。
+  'errors:agentBatch.',
+  // features/agent/store.ts、AgentPanel.tsx：按排队错误码拼 key。
+  'errors:agentQueue.',
+  // features/library/components/AssetCard.tsx、AssetDetail.tsx、CreateRecordDialog.tsx：按素材的背景、类型、来源、视角拼 key。
+  'library:asset.background.',
+  'library:asset.kind.',
+  'library:asset.source.',
+  'library:asset.view.',
+  // features/library/components/CreateRecordDialog.tsx：素材与造型共用一个对话框，按 `${ns}.title` 拼 key。
+  'library:createAsset.',
+  'library:createLook.',
+  // features/library/components/LookCard.tsx、LookDetail.tsx、CreateRecordDialog.tsx：按造型用途拼 key。
+  'library:look.purpose.',
+  // features/library/components/LibraryPage.tsx：按标签页拼 key。
+  'library:tab.',
+  // components/SyncStatusPanel.tsx：按同步失败原因拼 key。
+  'shell:sync.failure.',
+  // components/TaskCard.tsx：按排队阶段拼 key。
+  'task:card.phase.',
+  // features/toolbox/components/ToolCatalog.tsx：按工具分组拼 key。
+  'toolbox:catalog.',
+  // features/toolbox/tools/stitch.tsx：按拼接方向拼 `params.${value}`。
+  'toolbox:params.horizontal',
+  'toolbox:params.vertical',
+  // features/toolbox/components/BackgroundField.tsx：按预设色拼 key。
+  'toolbox:params.color.',
+  // features/toolbox/tools/crop.tsx：按裁剪预设拼 key。
+  'toolbox:params.cropPreset.',
+  // features/toolbox/tools/resize.tsx：按缩放模式拼 key。
+  'toolbox:params.resize.',
+  // features/toolbox/components/ToolResultCard.tsx、CombineView.tsx：按失败码拼 `result.${code}`。
+  'toolbox:result.undecodable',
+  // 同一文件按提示类型拼 key。
+  'toolbox:result.note.',
+  // features/toolbox/components/ToolCatalog.tsx 等：按工具 id 拼 `tool.${id}.name` / `.options`。
+  'toolbox:tool.',
+  // features/video/lib/labels.ts：按首尾帧槽位拼 `frameSlot.${frame}`。
+  'video:frameSlot.both',
+  'video:frameSlot.first',
+  'video:frameSlot.last',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/

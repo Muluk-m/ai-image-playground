@@ -11,6 +11,7 @@ import {
   type Summarize,
   type SummaryRequest,
 } from './compaction'
+import { AgentRequestBudgetError } from './outbound-budget'
 import profiles from './thinking.config.json'
 import { estimateMessageTokens } from './token-estimate'
 
@@ -217,6 +218,7 @@ export async function summarizeCompaction(
     }
     return await askSummaryPrompt(prompt, onAttempt)
   } catch (error) {
+    if (error instanceof AgentRequestBudgetError) throw error
     log.warn({ event: 'agent.compaction_summary_failed', err: error }, 'compaction summary failed')
     return null
   }

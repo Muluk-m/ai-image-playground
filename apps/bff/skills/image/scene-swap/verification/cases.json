@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "mug",
+      "prompt": "把这只马克杯 {photo} 的背景换成清晨的木质餐桌",
+      "inputs": {
+        "photo": [
+          "shared:product-mug.webp"
+        ]
+      }
+    },
+    {
+      "id": "perfume",
+      "prompt": "把这瓶香水 {photo} 换成圣诞节的氛围，瓶盖保持黑色",
+      "inputs": {
+        "photo": [
+          "shared:product-perfume.webp"
+        ]
+      }
+    },
+    {
+      "id": "sneaker",
+      "prompt": "把这双运动鞋 {photo} 放到海边的礁石上",
+      "inputs": {
+        "photo": [
+          "shared:product-sneaker.webp"
+        ]
+      }
+    }
+  ]
+}

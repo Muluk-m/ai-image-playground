@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { resetTestDatabase } from '../testing'
 import { EXPECTED_INDEXES, EXPECTED_TABLES, verifySchema } from '../verify-schema'
@@ -10,8 +11,40 @@ describe('verifySchema', () => {
     await expect(verifySchema(databaseUrl)).resolves.toMatchObject({
       tables: EXPECTED_TABLES.length,
       indexes: EXPECTED_INDEXES.length,
-      migrations: 48,
+      migrations: journal.entries.length,
     })
+  })
+
+  it('rejects an incomplete migration ledger even when tables and indexes exist', async () => {
+    const handle = createDb(databaseUrl)
+    const [last] = await handle.client.unsafe(
+      'DELETE FROM drizzle.__drizzle_migrations WHERE id = (SELECT MAX(id) FROM drizzle.__drizzle_migrations) RETURNING *',
+    )
+    try {
+      await expect(verifySchema(databaseUrl)).rejects.toThrow(
+        `migration count ${journal.entries.length - 1} is below ${journal.entries.length}`,
+      )
+    } finally {
+      await handle.client`INSERT INTO drizzle.__drizzle_migrations (id, hash, created_at) VALUES (${last.id}, ${last.hash}, ${last.created_at})`
+      await handle.close()
+    }
+  })
+
+  it('rejects a missing paid phase authorization column despite a complete migration ledger', async () => {
+    const handle = createDb(databaseUrl)
+    try {
+      await handle.client.unsafe(
+        'ALTER TABLE agent_batch_plans RENAME COLUMN confirmation TO hidden_confirmation',
+      )
+      await expect(verifySchema(databaseUrl)).rejects.toThrow(
+        'missing columns: agent_batch_plans.confirmation',
+      )
+    } finally {
+      await handle.client.unsafe(
+        'ALTER TABLE agent_batch_plans RENAME COLUMN hidden_confirmation TO confirmation',
+      )
+      await handle.close()
+    }
   })
 
   it('rejects a missing or non-JSONB production document even when migrations are recorded', async () => {
@@ -19,7 +52,7 @@ describe('verifySchema', () => {
     try {
       await handle.client.unsafe('ALTER TABLE agent_conversations DROP COLUMN production')
       await expect(verifySchema(databaseUrl)).rejects.toThrow(
-        'agent_conversations.production must be jsonb',
+        'missing columns: agent_conversations.production',
       )
       await handle.client.unsafe('ALTER TABLE agent_conversations ADD COLUMN production text')
       await expect(verifySchema(databaseUrl)).rejects.toThrow(
@@ -30,7 +63,9 @@ describe('verifySchema', () => {
       await handle.client.unsafe('ALTER TABLE agent_conversations ADD COLUMN production jsonb')
       await handle.close()
     }
-    await expect(verifySchema(databaseUrl)).resolves.toMatchObject({ migrations: 48 })
+    await expect(verifySchema(databaseUrl)).resolves.toMatchObject({
+      migrations: journal.entries.length,
+    })
   })
 
   it('reports a missing expected index', async () => {

@@ -173,12 +173,12 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Overlay onClose={onClose} tier="raised">
+    <Overlay onClose={onClose} tier="raised" role="none">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="login-methods-title"
-        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in custom-scrollbar border-border dark:ring-white/10"
+        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border bg-card/95 p-5 shadow-2xl ring-1 ring-hairline animate-modal-in custom-scrollbar border-border"
       >
         <div className="mb-5 flex items-center justify-between gap-4">
           <h3 id="login-methods-title" className="text-base font-semibold text-foreground">
@@ -194,23 +194,23 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {notice ? (
-          <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-[13px] text-success dark:bg-success/10 dark:text-success">
+          <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-body-sm text-success dark:bg-success/10 dark:text-success">
             {noticeText(notice)}
           </p>
         ) : null}
         {errorText ? (
           <p
             role="alert"
-            className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive dark:bg-destructive/10 dark:text-destructive"
+            className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-body-sm text-destructive dark:bg-destructive/10 dark:text-destructive"
           >
             {errorText}
           </p>
         ) : null}
 
         {loadFailed ? (
-          <p className="text-[13px] text-muted-foreground">{t('methods.loadFailed')}</p>
+          <p className="text-body-sm text-muted-foreground">{t('methods.loadFailed')}</p>
         ) : !methods ? (
-          <p className="text-[13px] text-muted-foreground">{t('methods.loading')}</p>
+          <p className="text-body-sm text-muted-foreground">{t('methods.loading')}</p>
         ) : (
           <>
             <section className="mb-6">
@@ -297,7 +297,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             type="button"
                             disabled={pending}
                             onClick={() => void unlink(provider.id)}
-                            className="shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+                            className="shrink-0 rounded-lg px-3 py-1.5 text-body-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
                           >
                             {t('methods.unlink')}
                           </button>
@@ -308,7 +308,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             onClick={() => {
                               window.location.href = oauthLinkUrl(provider.id)
                             }}
-                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
+                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-body-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
                           >
                             {t('methods.link')}
                           </button>

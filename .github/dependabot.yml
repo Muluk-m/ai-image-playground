@@ -1,0 +1,13 @@
+# Third-party actions are pinned to commit SHAs so a moved tag cannot run unreviewed code with
+# these workflows' secrets. Dependabot proposes the bumps; each one goes through CI like any PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

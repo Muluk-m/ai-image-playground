@@ -37,7 +37,7 @@ export default function TemplateDetail() {
 
   return (
     <Overlay onClose={closeTemplateDetail} tier="raised">
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/50 bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border bg-card shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
         <div className="flex shrink-0 items-center gap-2 border-b border-border p-5">
           {draftName === null ? (
             <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-foreground">
@@ -145,7 +145,7 @@ export default function TemplateDetail() {
             </div>
           </section>
 
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-label-sm text-muted-foreground">
             <span>
               {t('templateDetail.createdAt', { time: formatDateTime(template.createdAt) })}
             </span>

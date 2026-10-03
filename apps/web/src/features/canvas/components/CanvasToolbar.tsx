@@ -1,4 +1,4 @@
-import { FolderOpen, Images, Maximize2, Paperclip } from 'lucide-react'
+import { FolderOpen, Images, Maximize2, Minus, Paperclip, Plus } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { Button } from '../../../components/ui/button'
@@ -120,7 +120,7 @@ function ToolButton({
       className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
         active
           ? 'bg-primary text-primary-foreground'
-          : 'text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent'
+          : 'text-foreground hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent'
       }`}
     >
       {children}
@@ -235,18 +235,18 @@ export default function CanvasToolbar({
         </ToolButton>
       </div>
       <ToolButton title={t('toolbar.zoomOut')} onClick={() => zoomStep(-1)}>
-        <span className="text-base leading-none">−</span>
+        <Minus size={18} aria-hidden="true" />
       </ToolButton>
       <button
         type="button"
         title={t('toolbar.resetZoom')}
         onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-        className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 w-9 px-0 text-[10px]`}
+        className="h-9 w-9 rounded-xl px-0 text-label-sm text-foreground tabular-nums transition-colors hover:bg-muted"
       >
         {camera.zoom < 0.01 ? '<1%' : `${Math.round(camera.zoom * 100)}%`}
       </button>
       <ToolButton title={t('toolbar.zoomIn')} onClick={() => zoomStep(1)}>
-        <span className="text-base leading-none">＋</span>
+        <Plus size={18} aria-hidden="true" />
       </ToolButton>
     </>
   )
@@ -258,7 +258,7 @@ export default function CanvasToolbar({
         type="button"
         variant="outline"
         size="sm"
-        className="pointer-events-auto absolute left-[58px] top-0 z-10 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-sidebar px-3 py-2 text-xs font-medium text-foreground shadow-lg disabled:opacity-40 md:hidden"
+        className="pointer-events-auto absolute left-[58px] top-0 z-10 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-sidebar px-3 py-2 text-xs font-medium text-foreground shadow-lg disabled:opacity-50 md:hidden"
         disabled={!doc.elements.length}
         onClick={onFitContent}
       >

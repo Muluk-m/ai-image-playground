@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { CapabilityKey } from '@image-playground/shared'
-import { evaluateCapability, hasCapability, loadOperatorConfig } from '../../lib/operator-config'
+import {
+  clientCapabilityManifest,
+  evaluateCapability,
+  hasCapability,
+  loadOperatorConfig,
+} from '../../lib/operator-config'
 
 const appRoot = resolve(import.meta.dir, '../../..')
 const sampleFile = join(appRoot, 'operator-config.example.json')
@@ -189,4 +194,50 @@ describe('operator config', () => {
     expect(() => evaluateCapability(resolved, 'unknown:capability')).not.toThrow()
     expect(evaluateCapability(resolved, 'unknown:capability')).toBe(false)
   })
+})
+
+it('only advertises bulk attachments after explicit resource limits and dependencies are ready', () => {
+  const capabilities = {
+    'accounts:login': true,
+    'accounts:sync': true,
+    'agent:chat': true,
+    'agent:attachments': true,
+    'agent:bulk-attachments': true,
+  }
+  const quotas = {
+    'sync:attachment-lease-seconds': 120,
+    'sync:asset-image-bytes': 1_000_000,
+    'agent:attachment-logical-references': 100,
+    'agent:attachment-image-bytes': 2_000_000,
+    'agent:attachment-image-pixels': 20_000_000,
+    'agent:attachment-upload-concurrency': 2,
+  }
+  const manifest = (value: unknown) =>
+    clientCapabilityManifest(loadOperatorConfig(temporaryFile(JSON.stringify(value))))
+  expect(manifest({ capabilities, quotas })).toMatchObject({
+    'agent:bulk-attachments': true,
+    attachmentLimits: {
+      logicalReferences: 100,
+      imageBytes: 1_000_000,
+      imagePixels: 20_000_000,
+      uploadConcurrency: 2,
+    },
+  })
+  for (const value of [
+    { capabilities, quotas: { 'sync:attachment-lease-seconds': 120 } },
+    { capabilities: { ...capabilities, 'agent:chat': false }, quotas },
+    { capabilities: { ...capabilities, 'accounts:login': false }, quotas },
+    { capabilities: { ...capabilities, 'agent:bulk-attachments': false }, quotas },
+  ]) {
+    const closed = manifest(value)
+    expect(closed['agent:bulk-attachments']).toBe(false)
+    expect(closed).not.toHaveProperty('attachmentLimits')
+  }
+  for (const invalid of [
+    { 'agent:attachment-logical-references': 101 },
+    { 'agent:attachment-image-pixels': 40_000_001 },
+    { 'agent:attachment-upload-concurrency': 5 },
+  ]) {
+    expect(() => manifest({ capabilities, quotas: { ...quotas, ...invalid } })).toThrow()
+  }
 })

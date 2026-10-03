@@ -77,11 +77,13 @@ describe('插话请求', () => {
       },
     ]
     const { calls, fetcher } = recordingFetcher({ messageId: 'm1' })
-    await interjectTurn('conv-1', 'turn-1', '改这张', references, fetcher)
+    const clientMessageId = 'client-interjection-1'
+    await interjectTurn('conv-1', 'turn-1', '改这张', references, fetcher, clientMessageId)
     expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({
       deviceId: DEVICE,
       text: '改这张',
       references,
+      clientMessageId,
     })
     await expect(
       interjectTurn(
@@ -105,7 +107,7 @@ describe('插话请求', () => {
       '改这几张',
       [
         { imageId: 'canvas-1', dataUrl: `aip-media:${mediaId}`, name: '主图' },
-        // 画过遮罩的是新像素，云端没有它，只能内联。
+        // 内联兼容路径把已有原图和本地遮罩一起解析成字节。
         {
           imageId: 'canvas-2',
           dataUrl: `aip-media:${mediaId}`,
@@ -115,7 +117,11 @@ describe('插话请求', () => {
       fetcher,
     )
 
-    expect(resolveMediaSource).toHaveBeenCalledTimes(1)
+    // 本地 data URL 遮罩直接透传；只有带遮罩的原图需要回源，普通云媒体仍只发 id。
+    expect(resolveMediaSource.mock.calls).toEqual([
+      [`aip-media:${mediaId}`],
+      ['data:image/png;base64,bWFzaw=='],
+    ])
     expect(JSON.parse(String(calls[0]!.init?.body)).references).toEqual([
       { imageId: 'canvas-1', mediaId, name: '主图' },
       {
@@ -538,6 +544,31 @@ describe('排队消息请求', () => {
       text: '再加一只狗',
       clientMessageId: 'client-1',
     })
+  })
+
+  it('起轮请求带上发话时看到的入口', async () => {
+    const calls: Call[] = []
+    const fetcher = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      return new Response(JSON.stringify({ queued, state: 'pending', turnId: 'turn-1' }), {
+        status: 202,
+      })
+    }
+
+    await startTurn(
+      'conv-1',
+      '整理一下我的画布',
+      [],
+      undefined,
+      'image',
+      fetcher,
+      'client-2',
+      false,
+      undefined,
+      'canvas',
+    )
+
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({ experience: 'canvas' })
   })
 
   it('排队已满的 409 带着错误码抛出，而不是当成别处在跑的轮', async () => {

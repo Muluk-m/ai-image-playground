@@ -77,6 +77,11 @@ BFF 的公开核心只做四件事：
   - 读不到、不是 JSON、字段不合规都**只回退不丢技能**：图标退到 `sparkles`、简介退成空串
     （界面自己回退到去掉「何时用：」的 `description`），并打一条 `agent.skill_meta_*` 的 warn。
     为什么是旁路文件而不是 frontmatter，见 [ADR 0007](../../docs/adr/0007-agent-skills-progressive-loading.md)。
+- `meta.json` 还可以写场景引导用的四段（见 [ADR 0020](../../docs/adr/0020-skill-asset-slots-starters-verified.md)
+  与 CONTEXT.md「素材位 / 起手句 / 场景 / 已验证」）：`inputs`（素材位）、`starters`（起手句，`{key}` 只能引用
+  声明过的位）、`scene`（`ecommerce` / `poster` / `scene-character` / `look`）、`verified`（`{date, model, score}`）。
+  解析在 [`src/lib/agent/skill-starters.ts`](./src/lib/agent/skill-starters.ts)；目录接口只发算好的布尔
+  `verified`，验证记录本身不出 BFF。端点测试在 `src/__tests__/routes/agent-skill-starters.test.ts`。
 - **正文只能引用该 mode 下真实存在的工具名与参数**。图片轮是 generateImage / editImage /
   readLibrary，视频轮多 generateVideo 与 arrangeTimeline。写了不存在的工具，模型会照着编。
 - 启动时加载一次并缓存（`ensureAgentSkills()`），diagnostics 打 warn 不 fatal。测试用
@@ -98,3 +103,7 @@ BFF 的公开核心只做四件事：
 - **技能条数会推高每轮的预扣**：`description` 进每一轮的系统提示词，条数一多
   `agent-billing.test.ts` 里那两条 `unitMultiplier` 区间就会被顶穿。那不是 bug，如实调区间并在
   注释里写清这次为什么上移。
+- **`meta.json` 的 `verified` 只能由回填工具写**：技能目录下 `verification/` 放 3 组测试输入与
+  打分记录，跑图、打分、回填的流程见 [`skill-verification/README.md`](./skill-verification/README.md)。
+  过线判据只有 `src/lib/skill-verification/record.ts` 一处；`shipped-skills.test.ts` 核对
+  `verified` 与记录一致、模板的 `verified.model` 等于钉死模型。验证数据不进镜像（`.dockerignore`）；`skills/` 下只多每条技能的 `verification/`，别的目录放到技能树外。

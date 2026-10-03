@@ -50,6 +50,7 @@ vi.mock('../../../../features/agent/lib/agentClient', async () => {
 })
 
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
+import { fillAgentComposer } from '../../../../features/agent/lib/composerFill'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
@@ -222,6 +223,33 @@ describe('部署做不了视频时', () => {
     click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
     expect(useAgentStore.getState().mode).toBe('image')
+  })
+})
+
+describe('起手句填进项目输入框', () => {
+  it('技能变成胶囊，示例词被选中；用户自己的草稿不被覆盖', async () => {
+    openProject('video')
+    render()
+    await settle()
+
+    act(() => {
+      fillAgentComposer({
+        skill: 'storyboard-short',
+        text: '做一条 15 秒的开箱短片',
+        highlight: { start: 4, end: 8 },
+      })
+    })
+    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toBe(
+      '/storyboard-short 做一条 15 秒的开箱短片',
+    )
+    expect(editor().querySelector('[data-skill-name="storyboard-short"]')).not.toBeNull()
+    expect(window.getSelection()?.toString()).toBe('15 秒')
+
+    type('，要横屏')
+    act(() => {
+      fillAgentComposer({ skill: 'storyboard-short', text: '另一句' })
+    })
+    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toContain('要横屏')
   })
 })
 

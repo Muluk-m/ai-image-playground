@@ -11,6 +11,7 @@ case "$release" in /*) ;; *) echo "Prebuilt release required. Run build-vps-rele
 release=$(CDPATH= cd -- "$release" && pwd)
 [ "$repo_root" = "$release" ] || { echo "Run the receiver shipped inside this release directory." >&2; exit 1; }
 deploy_env=${DEPLOY_ENV_FILE:-$config_root/deploy.env}
+# shellcheck source=/dev/null
 [ ! -f "$deploy_env" ] || . "$deploy_env"
 INTERNAL_PROJECT=${INTERNAL_PROJECT:-image-playground-internal}
 INTERNAL_IMAGE=${INTERNAL_IMAGE:-ai-image-playground:vps-main}

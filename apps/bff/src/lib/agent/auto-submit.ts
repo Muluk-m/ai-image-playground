@@ -11,6 +11,7 @@ import { AGENT_AUTO_SUBMIT_MAX_PER_TURN } from '@image-playground/shared'
 import { createQueueTask } from '../taskSubmission'
 import { shapeQueuePrompt } from './prompt-shaping'
 import { queueRefusalCode } from './tools/errors'
+import { agentVideoRequestError } from './video-models'
 
 /**
  * 出图模式：生成工具拟好稿当场提交，不停在「等待确认」。
@@ -67,6 +68,15 @@ function commandIdOf(input: AutoSubmitInput): string {
 }
 
 export async function submitAgentGeneration(input: AutoSubmitInput): Promise<AutoSubmitOutcome> {
+  if (input.video) {
+    const rejected = agentVideoRequestError(
+      input.model,
+      input.request.prompt,
+      input.video,
+      input.request.input_images?.length ?? 0,
+    )
+    if (rejected) return { kind: 'refused', code: rejected.code }
+  }
   const prompt =
     input.media === 'image'
       ? shapeQueuePrompt({

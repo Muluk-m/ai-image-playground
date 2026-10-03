@@ -11,6 +11,8 @@ export interface InpaintReference {
 const DEFAULT_BRUSH_PX = 18
 export const MIN_BRUSH_PX = 4
 export const MAX_BRUSH_PX = 80
+/** Matches the agent reference protocol's region limit. Erase does not send regions. */
+export const MAX_INPAINT_REGIONS = 32
 
 /** 涂抹会话干的是哪件事：按描述重画，还是把涂掉的东西抹干净。 */
 export type PaintEditKind = 'inpaint' | 'erase'
@@ -25,6 +27,8 @@ export const useInpaintSession = create<{
   imageId: string | null
   kind: PaintEditKind
   strokes: MaskStroke[]
+  strokeIds: number[]
+  nextStrokeId: number
   selectedStroke: number | null
   tool: 'rect' | 'brush' | 'eraser'
   brushPx: number
@@ -35,7 +39,7 @@ export const useInpaintSession = create<{
   close(): void
   setTool(tool: 'rect' | 'brush' | 'eraser'): void
   setBrushPx(px: number): void
-  addStroke(stroke: MaskStroke): void
+  addStroke(stroke: MaskStroke): boolean
   selectStroke(index: number): void
   removeStroke(index: number): void
   undo(): void
@@ -43,10 +47,12 @@ export const useInpaintSession = create<{
   setPrompt(prompt: string): void
   setReference(reference: InpaintReference | null): void
   setSubmitting(submitting: boolean): void
-}>((set) => ({
+}>((set, get) => ({
   imageId: null,
   kind: 'inpaint',
   strokes: [],
+  strokeIds: [],
+  nextStrokeId: 1,
   selectedStroke: null,
   tool: 'rect',
   brushPx: DEFAULT_BRUSH_PX,
@@ -59,6 +65,8 @@ export const useInpaintSession = create<{
       imageId,
       kind,
       strokes: [],
+      strokeIds: [],
+      nextStrokeId: 1,
       selectedStroke: null,
       tool: kind === 'inpaint' ? 'rect' : 'brush',
       prompt: '',
@@ -69,6 +77,8 @@ export const useInpaintSession = create<{
     set({
       imageId: null,
       strokes: [],
+      strokeIds: [],
+      nextStrokeId: 1,
       selectedStroke: null,
       prompt: '',
       reference: null,
@@ -76,8 +86,17 @@ export const useInpaintSession = create<{
     }),
   setTool: (tool) => set({ tool }),
   setBrushPx: (px) => set({ brushPx: Math.min(MAX_BRUSH_PX, Math.max(MIN_BRUSH_PX, px)) }),
-  addStroke: (stroke) =>
-    set((state) => ({ strokes: [...state.strokes, stroke], selectedStroke: state.strokes.length })),
+  addStroke: (stroke) => {
+    const state = get()
+    if (state.kind === 'inpaint' && state.strokes.length >= MAX_INPAINT_REGIONS) return false
+    set({
+      strokes: [...state.strokes, stroke],
+      strokeIds: [...state.strokeIds, state.nextStrokeId],
+      nextStrokeId: state.nextStrokeId + 1,
+      selectedStroke: state.strokes.length,
+    })
+    return true
+  },
   selectStroke: (index) =>
     set((state) => ({ selectedStroke: state.strokes[index] ? index : null })),
   removeStroke: (index) =>
@@ -95,15 +114,20 @@ export const useInpaintSession = create<{
               : state.selectedStroke
       return {
         strokes,
+        strokeIds: state.strokeIds.filter((_, current) => current !== index),
         selectedStroke,
       }
     }),
   undo: () =>
     set((state) => {
       const strokes = state.strokes.slice(0, -1)
-      return { strokes, selectedStroke: strokes.length ? strokes.length - 1 : null }
+      return {
+        strokes,
+        strokeIds: state.strokeIds.slice(0, -1),
+        selectedStroke: strokes.length ? strokes.length - 1 : null,
+      }
     }),
-  clearStrokes: () => set({ strokes: [], selectedStroke: null }),
+  clearStrokes: () => set({ strokes: [], strokeIds: [], selectedStroke: null }),
   setPrompt: (prompt) => set({ prompt }),
   setReference: (reference) => set({ reference }),
   setSubmitting: (submitting) => set({ submitting }),

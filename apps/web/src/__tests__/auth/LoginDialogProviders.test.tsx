@@ -3,13 +3,17 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginDialog } from '../../auth/LoginDialog'
+import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
+import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+vi.mock('../../lib/privateOverlay', () => ({ PrivateWebSupportsReferrals: true }))
 
 let host: HTMLDivElement
 let root: Root
@@ -101,4 +105,34 @@ describe('LoginDialog third-party providers', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+})
+
+it('always shows the optional invitation input without a disclosure when enabled', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) =>
+      input.includes('/api/capabilities')
+        ? Response.json({
+            ...allCapabilitiesOff(),
+            'accounts:self-register': true,
+            'billing:credits': true,
+          })
+        : Response.json({ providers: [] }),
+    ),
+  )
+  await bootstrapClientCapabilities(true, 'https://api.example.com')
+  await render()
+  await act(async () => {
+    const register = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+      button.textContent?.includes('立即注册'),
+    )
+    if (!register) throw new Error('missing registration entry')
+    register.click()
+  })
+  const invitation = document.querySelector<HTMLInputElement>('input[name="referral_code"]')
+  expect(invitation).not.toBeNull()
+  expect(invitation?.closest('details')).toBeNull()
+  expect(invitation?.disabled).toBe(false)
+  expect(invitation?.closest('label')?.textContent).toBe('邀请码（选填）')
+  await bootstrapClientCapabilities(false, '')
 })
