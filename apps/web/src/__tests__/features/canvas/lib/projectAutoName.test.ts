@@ -295,4 +295,13 @@ it('没有画布封面的本地对话项目用对话最近一张输出图当封�
   expect(projects.find((one) => one.conversationId === 'conversation-new')?.cover).toBe(
     'aip-media:media-new',
   )
+
+  // 输出图没了（生成记录被删）：撤掉兜底封面，画布截图仍然保留。
+  await importConversationProjects([
+    conversation('conversation-local', '马克杯'),
+    conversation('conversation-drawn', '画过的'),
+  ])
+  const after = useCanvasProjectStore.getState().projects
+  expect(after.find((one) => one.id === local.id)?.cover).toBeUndefined()
+  expect(after.find((one) => one.id === drawn.id)?.cover).toBe('data:image/webp;base64,AA')
 })
