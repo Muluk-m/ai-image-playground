@@ -243,6 +243,46 @@ it('仅支持比例的模型在摘要和卡片中都显示比例，不给分辨�
   expect(group('分辨率')).toBeNull()
 })
 
+it('仅支持比例的模型在自定义里填预设比例：仍回显实际比例', () => {
+  setChannels([
+    {
+      id: 'ratio',
+      kind: 'openai-queue',
+      label: 'Ratio',
+      models: [{ id: 'flare', label: 'Flare', capabilities: ['quality'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  useStore.setState({
+    settings: {
+      ...useStore.getState().settings,
+      activeProfileId: 'ratio-profile',
+      profiles: [
+        {
+          id: 'ratio-profile',
+          source: 'builtin-edge',
+          channelId: 'ratio',
+          selectedModelId: 'flare',
+        },
+      ],
+    },
+  })
+  render()
+  toggle()
+  act(() => option('比例', '自定义').click())
+  const input = () =>
+    document.body.querySelector<HTMLInputElement>('input[aria-label="输入自定义比例"]')
+  act(() => {
+    const el = input()!
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, '16:9')
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.focus()
+  })
+  act(() => input()?.blur())
+  expect(useStore.getState().params.size).toBe('1280x720')
+  expect(input()?.value).toBe('16:9')
+})
+
 it('selects and remembers thinking depth independently of the image model', () => {
   render()
   toggle()

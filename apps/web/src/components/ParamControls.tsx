@@ -329,7 +329,7 @@ export function ImageSettings({
               <DraftInput
                 aria-label={t('size.customRatioLabel')}
                 placeholder={t('size.customRatioPlaceholder')}
-                value={selection.kind === 'custom' ? selection.ratio : ''}
+                value={selection.kind === 'auto' ? '' : selection.ratio}
                 onCommit={(draft) => {
                   const next = sizeFor('1K', draft, rules)
                   if (next) applySize(next, { custom: true })
