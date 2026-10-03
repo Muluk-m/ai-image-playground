@@ -89,7 +89,7 @@ describe('inspectable read-only tools', () => {
       ),
     )
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!
-    expect(toggle.textContent).toBe('已完成 2 步')
+    expect(toggle.textContent).toBe('已完成')
     expect(host.querySelector('[data-slot="tool-call"]')).toBeNull()
     act(() => toggle.click())
     expect(toggle.getAttribute('aria-expanded')).toBe('true')

@@ -177,9 +177,8 @@ it('shows the assistant-ui image element only while an image result is pending',
 
     act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
     expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
-    expect(host.querySelector('[data-slot="tool-status"]')?.getAttribute('data-status')).toBe(
-      'succeeded',
-    )
+    expect(host.querySelector('[data-slot="tool-call"]')).not.toBeNull()
+    expect(host.querySelector('[data-slot="tool-status"]')).toBeNull()
   } finally {
     act(() => root.unmount())
   }
