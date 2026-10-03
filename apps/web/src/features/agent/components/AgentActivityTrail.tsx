@@ -23,10 +23,13 @@ function Steps({ steps }: { steps: readonly AgentToolMessage[] }) {
 export default function AgentActivityTrail({
   steps,
   revealId,
+  revealSeq,
 }: {
   steps: readonly AgentToolMessage[]
   spent: boolean
   revealId?: string | null
+  /** 第几次定位；同一步重复定位时靠它重新展开。 */
+  revealSeq?: number
 }) {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
@@ -36,7 +39,7 @@ export default function AgentActivityTrail({
   // 用 layout effect：定位方在下一帧找元素，展开得赶在那之前提交。
   useLayoutEffect(() => {
     if (revealed) setOpen(true)
-  }, [revealed, revealId])
+  }, [revealed, revealId, revealSeq])
   const failed = steps.filter((step) => step.status === 'failed')
   const running = steps.filter(inFlight)
 
