@@ -79,5 +79,8 @@
     "referenceResolutionUnsupported": "{{label}} 带参考图时清晰度最高 {{resolution}}",
     "referenceFramesRejected": "{{label}} 的参考图不能与首尾帧同时使用",
     "referenceImageMissing": "参考图不存在"
+  },
+  "settings": {
+    "title": "视频设置"
   }
 }

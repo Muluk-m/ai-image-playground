@@ -79,5 +79,8 @@
     "referenceResolutionUnsupported": "{{label}} goes up to {{resolution}} with reference images",
     "referenceFramesRejected": "{{label}} cannot combine reference images with first or last frames",
     "referenceImageMissing": "A reference image is gone"
+  },
+  "settings": {
+    "title": "Video settings"
   }
 }

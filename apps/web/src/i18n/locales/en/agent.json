@@ -273,19 +273,13 @@
     "interjectAria": "Interject now: {{text}}"
   },
   "params": {
-    "title": "Generation settings",
-    "autoSize": "Auto size",
     "builtinModel": "Built-in channel model",
     "byokNote": "The agent only runs on built-in channel models; your own API key profile does not apply here.",
     "note": "The agent decides how many images to make. Setting changes apply from the next turn.",
-    "autoRatio": "Auto ratio",
     "thinkingFast": "Fast",
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
-    "thinkingSummary": "Thinking: {{label}}",
-    "thinkingLegend": "Thinking depth",
-    "closeAria": "Close generation settings",
-    "done": "Done"
+    "thinkingLegend": "Thinking depth"
   },
   "mentions": {
     "headingResults": "Conversation images",
