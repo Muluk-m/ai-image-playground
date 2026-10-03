@@ -724,7 +724,9 @@ export const agentRoutes = new Elysia()
             references,
             deviceId: body.deviceId,
             ...(body.mode ? { mode: body.mode } : {}),
-            ...(body.params ? { params: body.params } : {}),
+            ...(body.params
+              ? { params: body.params as import('@image-playground/shared').AgentTurnParams }
+              : {}),
             ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
             ...(canvas ? { canvas } : {}),
             ...(body.experience === 'chat' || body.experience === 'canvas'
