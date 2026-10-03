@@ -204,13 +204,48 @@ export interface OverviewSummary {
   p50_duration_ms: number | null
   p95_duration_ms: number | null
   upstream_invocations: number
+  /** 从提交到开始执行的等待时长中位数。上面两个耗时量的是开始执行到完成，不含排队。 */
+  queue_p50_ms: number | null
+}
+
+/** 一个时间窗里的业务量；当前窗与紧挨着它的上一个同长度窗口各一份，用来算环比。 */
+export interface OverviewPulseWindow {
+  tasks: number
+  completed: number
+  failed: number
+  /** 成功任务请求的张数之和。 */
+  images: number
+  /** 提交过生成任务或跑过 Agent 轮次的账号与匿名设备数。 */
+  active: number
+  signups: number
+  agent_turns: number
+  agent_failed: number
+  agent_aborted: number
+}
+
+export interface OverviewPulseBucket {
+  bucket_at: number
+  tasks: number
+  images: number
+  active: number
+  signups: number
+  agent_completed: number
+  agent_failed: number
+  agent_aborted: number
 }
 
 export interface OverviewResult {
   summary: OverviewSummary
   volume: TaskVolumeBucket[]
   volume_bucket: VolumeBucketUnit
-  failures: Array<{ error_type: string; count: number }>
+  /** previous_count 是上一个同长度窗口里同一原因的次数。 */
+  failures: Array<{ error_type: string; count: number; previous_count: number }>
+  pulse: {
+    current: OverviewPulseWindow
+    previous: OverviewPulseWindow
+    /** 与 volume 同一套分桶。 */
+    series: OverviewPulseBucket[]
+  }
   agent_cache: {
     calls: number
     input_tokens: number
@@ -229,6 +264,12 @@ export interface OverviewResult {
     count: number
     upstream_invocations: number
     average_multiplier: number | null
+    completed: number
+    failed: number
+    /** 提交到开始执行的中位等待。 */
+    queue_p50_ms: number | null
+    /** 成功任务从开始执行到完成的 95 分位。 */
+    run_p95_ms: number | null
   }>
 }
 

@@ -127,6 +127,7 @@ export const EXPECTED_INDEXES = [
   'client_errors_pkey',
   'idx_client_errors_received',
   'idx_client_errors_fingerprint',
+  'idx_agent_turns_created',
   'container_samples_sampled_at_container_id_pk',
   'host_samples_pkey',
   'idx_service_heartbeats_seen',
