@@ -1,5 +1,5 @@
 import { ChevronRightIcon, Loader } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { cn } from '../../../lib/utils'
 import type { AgentToolMessage } from '../types'
@@ -31,11 +31,17 @@ export default function AgentActivityTrail({
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const id = useId()
+  const revealed = revealId != null && steps.some((step) => step.id === revealId)
+  // 搜索定位到这串里的某一步时先展开，滚动才找得到它；展开记进本地状态，用户之后还能收起。
+  // 用 layout effect：定位方在下一帧找元素，展开得赶在那之前提交。
+  useLayoutEffect(() => {
+    if (revealed) setOpen(true)
+  }, [revealed, revealId])
   const failed = steps.filter((step) => step.status === 'failed')
   const running = steps.filter(inFlight)
 
   let visible: readonly AgentToolMessage[]
-  if (running.length) visible = [...failed, running[running.length - 1]!]
+  if (running.length) visible = revealed ? steps : [...failed, running[running.length - 1]!]
   else if (steps.length === 1 || failed.length) visible = steps
   else visible = []
 
@@ -47,15 +53,14 @@ export default function AgentActivityTrail({
     )
   }
 
-  // 搜索定位到折起来的某一步时，先把这串展开，滚动才找得到它。
-  const expanded = open || (revealId != null && steps.some((step) => step.id === revealId))
+  const expanded = open
   return (
     <div className="flex shrink-0 flex-col gap-0.5">
       <button
         type="button"
         aria-expanded={expanded}
         aria-controls={id}
-        onClick={() => setOpen(!expanded)}
+        onClick={() => setOpen(!open)}
         className="group flex w-fit items-center gap-2 rounded-lg px-2 py-1.5 text-body-sm text-muted-foreground/80 transition-colors hover:bg-accent hover:text-muted-foreground"
       >
         <Loader aria-hidden className="size-3.5 shrink-0 text-primary/70" />

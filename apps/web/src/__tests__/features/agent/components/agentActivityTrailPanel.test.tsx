@@ -96,7 +96,7 @@ describe('inspectable read-only tools', () => {
     expect(host.querySelectorAll('[data-slot="tool-call"]')).toHaveLength(2)
   })
 
-  it('expands a folded trail when search locates one of its steps', () => {
+  it('expands a folded trail when search locates one of its steps, and folds again on click', () => {
     const done = (id: string) =>
       ({ ...step(id, 'viewImage', id), status: 'succeeded' }) as AgentToolMessage
     act(() =>
@@ -105,6 +105,17 @@ describe('inspectable read-only tools', () => {
       ),
     )
     expect(host.querySelector('[data-agent-message-id="t2"]')).not.toBeNull()
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-controls]')!.click())
+    expect(host.querySelector('[data-agent-message-id="t2"]')).toBeNull()
+  })
+
+  it('reveals a hidden finished step while a later one is still running', () => {
+    const done = { ...step('t1', 'viewImage', '看画布'), status: 'succeeded' } as AgentToolMessage
+    const live = step('t2', 'viewImage', '看图') as AgentToolMessage
+    act(() => root.render(<AgentActivityTrail steps={[done, live]} spent={false} />))
+    expect(host.querySelector('[data-agent-message-id="t1"]')).toBeNull()
+    act(() => root.render(<AgentActivityTrail steps={[done, live]} spent={false} revealId="t1" />))
+    expect(host.querySelector('[data-agent-message-id="t1"]')).not.toBeNull()
   })
 
   it('keeps a single completed tool call inspectable after the assistant replies', () => {
