@@ -1,5 +1,11 @@
 export type {
   AdminUserRow,
+  ClientErrorEvent,
+  ClientErrorEventsResult,
+  ClientErrorGroup,
+  ClientErrorKind,
+  ClientErrorsResult,
+  ClientErrorTrendBucket,
   DeviceDetailResult,
   DeviceRow,
   HostSample,

@@ -9,10 +9,6 @@
     "looks": "Templates"
   },
   "panel": {
-    "title": "My assets",
-    "tabProjects": "My projects",
-    "tabAssets": "Assets",
-    "tabTemplates": "Templates",
     "searchProjects": "Search project names",
     "searchAssets": "Search asset names",
     "searchTemplates": "Search prompt names",
@@ -94,9 +90,12 @@
     "more": "More templates",
     "applied": "Switched to {{model}} · {{size}}",
     "slotMismatch": "This template needs {{count}} assets",
-    "empty": "No templates of your own yet",
-    "inputLimit": "This template needs {{count}} input images; the limit is {{max}}. Remove template references to continue.",
-    "inputsUnavailable": "Could not load image \"{{image}}\". Check it and try again.",
+    "inputLimit": "This template needs {{count}} input images, more than the limit of {{max}}, so it can't be used right now. Choose another template.",
+    "inputLimitOwn": "This template needs {{count}} input images, more than the limit of {{max}}. Edit the template to remove some references and try again.",
+    "inputsUnavailable": "Could not load the image for asset \"{{image}}\". Check it and try again.",
+    "referenceUnavailable": "Could not load the references for template \"{{name}}\". Please try again later.",
+    "inputUnavailable": "An input image could not be loaded. Check your images and try again.",
+    "prepareTimeout": "Preparing this generation timed out. Check your connection and try again.",
     "prepareFailed": "Could not prepare this generation. Please try again."
   },
   "lookDetail": {
@@ -172,7 +171,7 @@
   "toast": {
     "assetSaved": "Saved as an asset",
     "templateSaved": "Saved as a template",
-    "promptTemplateSaved": "Saved as a template — find it in My assets",
+    "promptTemplateSaved": "Saved as a template",
     "assetImageMissing": "The asset image is gone",
     "alreadyInReferences": "Already in the references",
     "addedToReferences": "Added to the references",

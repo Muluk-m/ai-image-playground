@@ -3,10 +3,12 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
+  Bug,
   ClipboardList,
   HeartPulse,
   LogOut,
   type LucideIcon,
+  ReceiptText,
   RefreshCw,
   Settings,
   Shapes,
@@ -40,6 +42,7 @@ export type NavTo =
   | '/inspirations/skills'
   | '/inspirations/categories'
   | '/ops'
+  | '/errors'
   | '/audit'
 
 export interface NavEntry {
@@ -84,13 +87,31 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     label: '运维',
-    entries: [{ to: '/ops', icon: HeartPulse, label: '运维看板' }],
+    entries: [
+      { to: '/ops', icon: HeartPulse, label: '运维看板' },
+      { to: '/errors', icon: Bug, label: '前端错误' },
+    ],
   },
   {
     label: '设置',
     entries: [{ to: '/audit', icon: BookOpen, label: '审计' }],
   },
 ]
+
+/**
+ * 私有导航项来自 /api/extensions，只有名称与链接；图标在这里按链接认领。
+ * 认不出的新入口退回齿轮，不会因为私有树加了入口就让公开侧报错。
+ */
+const OVERLAY_NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
+  '/billing/orders': ReceiptText,
+  '/billing/settings': Settings,
+}
+
+function overlayNavIcon(href: string): LucideIcon {
+  return Object.prototype.hasOwnProperty.call(OVERLAY_NAV_ICONS, href)
+    ? OVERLAY_NAV_ICONS[href]!
+    : Settings
+}
 
 // 选中态用芽绿（tokens.css 的 --shell-nav-item-active-*），盖掉 shadcn 默认的中性 accent；
 // hover 也一并钉住，否则鼠标扫过当前模块会把它变回灰的。
@@ -157,16 +178,19 @@ export function AppSidebar() {
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu aria-label={group.label}>
-                  {overlayEntries.map((entry) => (
-                    <SidebarMenuItem key={entry.href}>
-                      <SidebarMenuButton asChild tooltip={entry.label}>
-                        <a href={entry.href}>
-                          <Settings />
-                          <span>{entry.label}</span>
-                        </a>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  {overlayEntries.map((entry) => {
+                    const Icon = overlayNavIcon(entry.href)
+                    return (
+                      <SidebarMenuItem key={entry.href}>
+                        <SidebarMenuButton asChild tooltip={entry.label}>
+                          <a href={entry.href}>
+                            <Icon />
+                            <span>{entry.label}</span>
+                          </a>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
                   {entries.map((entry) => (
                     <SidebarMenuItem key={entry.to}>
                       <SidebarMenuButton

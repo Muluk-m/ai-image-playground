@@ -1,6 +1,10 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { ChipIcons } from '../../../components/chipIcons'
+import {
+  composerChipClass,
+  composerIconButtonClass,
+} from '../../../components/composer/SettingsPanel'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import {
@@ -17,7 +21,7 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
-import { setAgentComposerFill } from '../../agent/lib/composerFill'
+import { useComposerFillTarget } from '../../agent/lib/composerFill'
 import { useVideoStore } from '../../video/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
@@ -211,16 +215,10 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   }
 
   // 空状态的示例提示词点一下填进来（没有智能体的部署里，这条输入框就是「那个输入框」）。
-  // 只换掉空草稿或上一条原样未动的建议：用户自己写的话一个字都不动。
-  const suggestedRef = useRef<string | null>(null)
-  useEffect(() =>
-    setAgentComposerFill((text) => {
-      const current = useCanvasComposer.getState().prompt
-      if (current.trim() !== '' && current !== suggestedRef.current) {
-        useStore.getState().showToast(t('agent:suggestions.draftKeptToast'), 'info')
-        return
-      }
-      suggestedRef.current = text
+  // 直接生成栏没有智能体，也就不认技能：起手句只取句子本身。
+  useComposerFillTarget({
+    read: () => useCanvasComposer.getState().prompt,
+    write: ({ text }) => {
       setPrompt(text)
       // 光标放到句末等用户接着写：受控 textarea 这一帧还是旧值，等渲染完再挪。
       window.setTimeout(() => {
@@ -229,8 +227,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         area.focus()
         area.setSelectionRange(area.value.length, area.value.length)
       }, 0)
-    }),
-  )
+      return text
+    },
+  })
 
   // 附件即「放到画布上的参考图」：导入后自动选中，选区随即被当作本次生成的输入。
   const attach = (files: File[]) => {
@@ -252,24 +251,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   return (
     <div className="studio-direct-composer" onPointerDown={(e) => e.stopPropagation()}>
-      {video && (
-        <div className="pb-3">
-          <CanvasVideoParams
-            hasFirstFrame={
-              !referenceItems &&
-              imageCount > 0 &&
-              !canvasVideoSelectionRefusal(editor, videoDraft.model)
-            }
-          />
-        </div>
-      )}
-      {hint && <p className="px-1 pb-2 text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="px-1 pb-2 text-label-sm text-muted-foreground">{hint}</p>}
       <SubmissionBillingAction
         blockedAction={submissionGuard.blockedAction}
-        className="px-1 pb-2 text-[11px]"
+        className="px-1 pb-2 text-label-sm"
       />
       {submissionGuard.blocked && submissionGuard.disabledReason ? (
-        <p className="px-1 pb-2 text-[11px] text-destructive dark:text-destructive">
+        <p className="px-1 pb-2 text-label-sm text-destructive dark:text-destructive">
           {submissionGuard.disabledReason}
         </p>
       ) : null}
@@ -286,12 +274,12 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               />
             ))}
             {previews.length === 0 && (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-label-sm text-muted-foreground">
                 {t('generate.previewPending')}
               </span>
             )}
             {annotationText && (
-              <span className="max-w-[50%] truncate text-[11px] text-warning dark:text-warning">
+              <span className="max-w-[50%] truncate text-label-sm text-warning dark:text-warning">
                 {t('generate.annotationHint', { text: annotationText })}
               </span>
             )}
@@ -319,13 +307,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         {/* 附件 + 参数 chip + 发送同属这张卡：参数跟着输入走，不散在卡外面。
             参数与工作台共用同一份全局 params/settings，数量 n>1 时 fan-out 成 n 个并行任务。 */}
         <div className="flex items-end gap-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               title={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
               aria-label={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-              className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl border border-input bg-background text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:bg-accent hover:text-foreground"
+              className={composerIconButtonClass('sm')}
             >
               {ChipIcons.imageAttach}
             </button>
@@ -336,7 +324,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               >
                 <SelectTrigger
                   aria-label={t('generate.modeAria')}
-                  className="h-10 w-auto gap-1.5 rounded-xl border-input bg-background px-3 text-xs font-medium"
+                  className={composerChipClass('sm')}
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -346,7 +334,18 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                 </SelectContent>
               </Select>
             )}
-            {!video && <ParamControls showCount collapsible />}
+            {video ? (
+              <CanvasVideoParams
+                hasFirstFrame={
+                  !referenceItems &&
+                  imageCount > 0 &&
+                  !canvasVideoSelectionRefusal(editor, videoDraft.model)
+                }
+                size="sm"
+              />
+            ) : (
+              <ParamControls showCount size="sm" />
+            )}
           </div>
           <button
             type="button"
@@ -354,7 +353,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             disabled={!canSubmit}
             title={submissionGuard.disabledReason ?? t('common:action.generate')}
             aria-label={t('common:action.generate')}
-            className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           >
             {ChipIcons.sparkles}
           </button>

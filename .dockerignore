@@ -70,3 +70,5 @@ apps/web/public/runtime-config.json
 **/generated
 **/node_modules
 **/dist
+# 技能效果验证的测试输入与评分记录只给仓库里的验证流程用，不进镜像。
+apps/bff/skills/*/*/verification

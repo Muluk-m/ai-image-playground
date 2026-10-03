@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "perfume",
+      "prompt": "用这瓶香水 {asset1} 出一张暖调主图，瓶盖保持黑色",
+      "inputs": {
+        "asset1": [
+          "shared:product-perfume.webp"
+        ]
+      }
+    },
+    {
+      "id": "bathtub",
+      "prompt": "用这条浴缸 {asset1} 出一张主图，黑色龙头不能变",
+      "inputs": {
+        "asset1": [
+          "shared:product-bathtub.webp"
+        ]
+      }
+    },
+    {
+      "id": "mug",
+      "prompt": "这是不透光的马克杯 {asset1}，出一张主图",
+      "inputs": {
+        "asset1": [
+          "shared:product-mug.webp"
+        ]
+      }
+    }
+  ]
+}

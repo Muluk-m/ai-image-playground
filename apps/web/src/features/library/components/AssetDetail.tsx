@@ -52,7 +52,7 @@ export default function AssetDetail({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 flex max-h-[85vh] w-[min(94vw,760px)] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 flex max-h-[85vh] w-[min(94vw,760px)] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-hairline animate-modal-in">
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
           <h3 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">
             {asset.name}
@@ -69,7 +69,7 @@ export default function AssetDetail({
               void attachAsset(asset.id)
               onClose()
             }}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20"
+            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20"
           >
             {t('asset.addAsReference')}
           </button>
@@ -91,7 +91,7 @@ export default function AssetDetail({
                   type="button"
                   onClick={() => setLightboxImageId(view.imageId)}
                   aria-label={t('asset.zoom')}
-                  className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <AssetThumb imageId={view.imageId} alt={asset.name} />
                   {view.imageId === assetCoverImageId(asset) && index === 0 && (
@@ -100,7 +100,7 @@ export default function AssetDetail({
                     </Badge>
                   )}
                 </button>
-                <span className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="flex items-center justify-between text-label-sm text-muted-foreground">
                   <span>{t(`asset.view.${view.label}`)}</span>
                   <span>{t(`asset.source.${view.source}`)}</span>
                 </span>

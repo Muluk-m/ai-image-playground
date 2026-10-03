@@ -16,6 +16,7 @@ import { createQueueTask } from '../taskSubmission'
 import { settleAgentJobs } from './background-jobs'
 import { appendAgentMessage } from './conversations'
 import { queueRefusalCode } from './tools/errors'
+import { agentVideoRequestError } from './video-models'
 
 /**
  * 单张重试：用户在一个失败占位上点重试，按那次调用起跑时的参数快照与此刻的价格重出这一张，
@@ -229,6 +230,7 @@ function retryRecord(
     ...(block.prompt ? { prompt: block.prompt } : {}),
     ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
     snapshot: plan.snapshot,
+    ...(plan.job.video ? { video: plan.job.video } : {}),
     ...(job ? { job } : {}),
     retryOf: {
       messageId: plan.failed.id,
@@ -272,6 +274,15 @@ async function submitRetryTask(
     return { kind: 'not_retryable' }
   const { video, client_request_id: _command, ...persisted } = original.request
   const { video: _hydratedVideo, ...request } = await hydrateInputImages(persisted)
+  if (video) {
+    const rejected = agentVideoRequestError(
+      plan.target.model,
+      request.prompt,
+      video,
+      request.input_images?.length ?? 0,
+    )
+    if (rejected) return { kind: 'refused', code: rejected.code }
+  }
   const deviceId = input.deviceId ?? persisted.device_id
   const submitted = await createQueueTask({
     provider: plan.target.provider,

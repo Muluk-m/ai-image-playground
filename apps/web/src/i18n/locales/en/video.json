@@ -1,64 +1,20 @@
 {
   "entry": {
-    "title": "Give your imagination a shot.",
-    "newCanvas": "New video canvas",
-    "continue": "Back to the last canvas"
+    "title": "Give your imagination a shot."
   },
   "landing": {
     "title": "Give your imagination a shot.",
     "subtitle": "Describe the frame, the motion and the camera. The result opens on the canvas.",
-    "composerAria": "Video creation",
-    "kindAria": "Creation type",
-    "kindImage": "Image",
-    "kindVideo": "Video",
-    "promptAria": "Video description",
-    "promptPlaceholder": "Describe the frame, motion and camera… (Cmd/Ctrl + Enter to generate)",
-    "paramsAria": "Video settings",
-    "addFrame": "Add image",
-    "frameAlt": "Reference image {{index}}",
-    "removeFrame": "Remove reference image {{index}}",
-    "hintText": "No image means text to video; add one for a first frame or references",
-    "hintFirst": "This one is the first frame; the aspect follows it",
-    "hintReferences": "{{count}} images used as references",
-    "submit": "Start creating · open the canvas",
-    "noModel": "No video model is available right now",
-    "tools": "Shortcuts",
-    "toolsHint": "Start from a local image, an idea or your assets",
-    "tool": {
-      "fromImage": {
-        "title": "Image to video",
-        "hint": "Pick an image as the first frame"
-      },
-      "references": {
-        "title": "Reference to video",
-        "hint": "Pick images to set style and subject"
-      },
-      "inspiration": {
-        "title": "Inspiration",
-        "hint": "Browse ready-made prompts"
-      },
-      "assets": {
-        "title": "Assets",
-        "hint": "Manage the images you saved"
-      }
-    },
     "cases": "Examples",
     "casesHint": "Tap one to fill the prompt above"
   },
   "status": {
     "queued": "Queued"
   },
-  "style": {
-    "realistic": "Realistic",
-    "magazine": "Magazine",
-    "animation": "Animation",
-    "any": "Any"
-  },
   "frameSlot": {
     "first": "First frame",
     "last": "Last frame",
-    "both": "First · last frame",
-    "removeAria": "Remove {{label}}"
+    "both": "First · last frame"
   },
   "field": {
     "description": "Description",
@@ -123,5 +79,8 @@
     "referenceResolutionUnsupported": "{{label}} goes up to {{resolution}} with reference images",
     "referenceFramesRejected": "{{label}} cannot combine reference images with first or last frames",
     "referenceImageMissing": "A reference image is gone"
+  },
+  "settings": {
+    "title": "Video settings"
   }
 }

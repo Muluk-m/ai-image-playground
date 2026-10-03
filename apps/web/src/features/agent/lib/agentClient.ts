@@ -3,6 +3,9 @@ import type {
   AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentBackgroundJobView,
+  AgentBatchPage,
+  AgentBatchUpdate,
+  AgentBatchWakeReceipt,
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
@@ -254,6 +257,8 @@ export async function startTurn(
   clarificationAnswer = false,
   /** 发话时屏幕上的画布。没有打开画布就不带。 */
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
+  /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
+  experience?: 'chat' | 'canvas',
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
   const init = jsonInit({
@@ -266,6 +271,7 @@ export async function startTurn(
     ...(mode && mode !== 'image' ? { mode } : {}),
     ...(params ? { params } : {}),
     ...(canvas ? { canvas } : {}),
+    ...(experience ? { experience } : {}),
   })
   const path = url(`/conversations/${conversationId}/turns`)
   let response: Response
@@ -605,11 +611,12 @@ export async function interjectTurn(
   text: string,
   references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
+  clientMessageId: string = crypto.randomUUID(),
 ): Promise<string> {
   references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
-    jsonInit({ deviceId: getDeviceId(), text, references }),
+    jsonInit({ deviceId: getDeviceId(), text, references, clientMessageId }),
   )
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { messageId: string }).messageId
@@ -650,7 +657,96 @@ async function resolveReferences(
       resolved.push({ ...rest, mediaId })
       continue
     }
-    resolved.push({ ...reference, dataUrl: await resolveMediaSource(reference.dataUrl) })
+    resolved.push({
+      ...reference,
+      dataUrl: await resolveMediaSource(reference.dataUrl),
+      ...(reference.maskDataUrl
+        ? { maskDataUrl: await resolveMediaSource(reference.maskDataUrl) }
+        : {}),
+    })
   }
   return resolved
+}
+
+/** The complete fixed scope is bounded to 100 items by the plan API. */
+export async function fetchBatchWakeReceipt(
+  batchId: string,
+  version: number,
+): Promise<AgentBatchWakeReceipt> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/wake?version=${version}`),
+    { headers: deviceHeaders(), signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchWakeReceipt
+}
+
+export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
+    {
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function updateBatchPlan(
+  batchId: string,
+  update: AgentBatchUpdate,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(url(`/batches/${encodeURIComponent(batchId)}`), {
+    ...jsonInit(update, 'PATCH'),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function cancelBatchPlan(
+  batchId: string,
+  expectedVersion: number,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/cancel`),
+    {
+      ...jsonInit({ expectedVersion }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export type AgentBatchCommand =
+  | {
+      action: 'confirm' | 'resume'
+      commandId: string
+      expectedVersion: number
+      expectedDigest: string
+      deviceId: string
+    }
+  | { action: 'pause' | 'reprice'; commandId: string; expectedVersion: number }
+  | {
+      action: 'retry-quote'
+      commandId: string
+      expectedVersion: number
+      itemKeys: readonly string[]
+    }
+
+export async function executeBatchCommand(
+  batchId: string,
+  command: AgentBatchCommand,
+): Promise<AgentBatchPage> {
+  const { action, ...body } = command
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/${action}`),
+    {
+      ...jsonInit(body),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
 }

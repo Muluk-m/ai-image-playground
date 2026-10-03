@@ -1,7 +1,9 @@
+import { ArrowRight } from 'lucide-react'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
 import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
+import SkillStarterGuide from '../../agent/components/SkillStarterGuide'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
@@ -59,18 +61,19 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <div className="rounded-[22px] bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-[1.5px] shadow-[0_24px_60px_-30px_hsl(var(--primary)/0.4)]">
             <div className="rounded-[21px] bg-card p-3">
               {/*
-                图片档的参数不在这里：AgentComposer 底部那枚 chip 已经带着模型、尺寸与思考深度，
-                展开还能改格式与质量。再摆一行 ParamControls 就是同一组参数出现两次，
-                而且它里面的透明、防改写、张数在智能体这条路上根本不生效（见 AgentParamsChip）。
+                图片档的参数不在这里：AgentComposer 底部已经有模型 chip 与生成设置（尺寸、思考深度、
+                格式与质量）。再摆一份就是同一组参数出现两次。
               */}
               {video && (
-                <div className="mb-2 px-1">
-                  <CanvasVideoParams hasFirstFrame={false} />
+                <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+                  <CanvasVideoParams hasFirstFrame={false} size="sm" />
                 </div>
               )}
               <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />
             </div>
           </div>
+          {/* 与首页对话页签同一套场景引导，填的是这张卡里的输入框。视频档没有起手句。 */}
+          {!video && <SkillStarterGuide />}
           <AgentHistoryStatus />
           {error && !historyFailed && (
             <p role="alert" className="mt-3 text-sm text-muted-foreground">
@@ -114,7 +117,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
                           event.currentTarget.currentTime = 0
                         }}
                       />
-                      <span className="absolute right-2 top-2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] text-foreground backdrop-blur-sm">
+                      <span className="absolute right-2 top-2 rounded-full bg-background/85 px-2 py-0.5 text-label-sm text-foreground backdrop-blur-sm">
                         {example.tag}
                       </span>
                     </span>
@@ -122,7 +125,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
                       <span className="block text-xs font-medium text-foreground">
                         {example.title}
                       </span>
-                      <span className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                      <span className="line-clamp-2 text-label-sm leading-relaxed text-muted-foreground">
                         {example.prompt}
                       </span>
                     </span>
@@ -140,10 +143,14 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <h2 className="text-lg font-semibold">{t('welcome.recent')}</h2>
           <button
             type="button"
-            className="text-sm text-muted-foreground hover:text-foreground"
+            className="group inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
             onClick={() => useLibraryStore.getState().openProjects()}
           >
             {t('welcome.allProjects')}
+            <ArrowRight
+              className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
           </button>
         </div>
         <ProjectGrid recent />

@@ -29,6 +29,7 @@ import {
 } from './production-generation-validation'
 import { shapeQueuePrompt, unshapeQueuePrompt } from './prompt-shaping'
 import { AgentToolError, queueRefusalCode } from './tools/errors'
+import { agentVideoRequestError } from './video-models'
 
 /**
  * 生成前的确认：模型只拟稿，钱由用户按下「确认生成」才花。
@@ -222,6 +223,15 @@ export async function confirmAgentGeneration(
             })
           : prompt
 
+      if (prepared.video) {
+        const rejected = agentVideoRequestError(
+          draft.model,
+          upstreamPrompt,
+          prepared.video,
+          prepared.request.input_images?.length ?? 0,
+        )
+        if (rejected) return { kind: 'refused', code: rejected.code }
+      }
       const submitted = await createQueueTask({
         tx,
         provider: draft.provider,

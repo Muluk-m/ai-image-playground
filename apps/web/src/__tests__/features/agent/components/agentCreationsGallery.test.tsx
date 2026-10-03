@@ -96,7 +96,7 @@ describe('全部产物弹窗', () => {
     put([image('a', { name: '猫' }), image('b', { name: '狗' })])
     render()
 
-    act(() => button(/查看全部产物/).click())
+    act(() => button(/^查看全部$/).click())
     expect(cards()).toHaveLength(2)
     expect(button(/导出 2 项/)).toBeTruthy()
 
@@ -108,7 +108,7 @@ describe('全部产物弹窗', () => {
   it('取消勾选的那件不进这次导出', async () => {
     put([image('a', { name: '猫' }), image('b', { name: '狗' })])
     render()
-    act(() => button(/查看全部产物/).click())
+    act(() => button(/^查看全部$/).click())
 
     act(() => card('猫').click())
     expect(card('猫').getAttribute('aria-pressed')).toBe('false')
@@ -120,7 +120,7 @@ describe('全部产物弹窗', () => {
   it('一件都没勾时导不出去，按钮自己禁着', () => {
     put([image('a', { name: '猫' })])
     render()
-    act(() => button(/查看全部产物/).click())
+    act(() => button(/^查看全部$/).click())
 
     act(() => cards()[0]!.click())
 

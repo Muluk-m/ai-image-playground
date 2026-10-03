@@ -1,4 +1,11 @@
+import { VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
 import { useEffect } from 'react'
+import {
+  type ComposerControlSize,
+  composerModelChipClass,
+  RatioShape,
+  SettingsPopover,
+} from '../../../components/composer/SettingsPanel'
 import {
   Select,
   SelectContent,
@@ -12,10 +19,16 @@ import VideoPresetRows from '../../video/components/VideoPresetRows'
 import { useVideoStore } from '../../video/store'
 
 /**
- * 生成栏视频档的参数：模型，加时长 / 画幅 / 清晰度行。
+ * 生成栏视频档的参数：和图片档同一套长相——模型单独一个 chip，时长 / 画幅 / 清晰度收进「视频设置」卡片。
  * 读写的是画布共用的视频参数草稿，不另养一份。
  */
-export default function CanvasVideoParams({ hasFirstFrame }: { hasFirstFrame: boolean }) {
+export default function CanvasVideoParams({
+  hasFirstFrame,
+  size = 'md',
+}: {
+  hasFirstFrame: boolean
+  size?: ComposerControlSize
+}) {
   const { t } = useTranslation('video')
   const draft = useVideoStore((state) => state.draft)
   const options = videoModelOptions()
@@ -26,16 +39,20 @@ export default function CanvasVideoParams({ hasFirstFrame }: { hasFirstFrame: bo
   }, [])
 
   if (!option) return null
+  const summary = [
+    t('shared.seconds', { seconds: draft.duration }),
+    hasFirstFrame ? undefined : draft.aspectRatio,
+    VIDEO_RESOLUTION_LABELS[draft.resolution],
+  ]
+    .filter(Boolean)
+    .join(' · ')
   return (
-    <div className="flex flex-col gap-2 px-2">
+    <>
       <Select
         value={draft.model}
         onValueChange={(model) => useVideoStore.getState().setModel(model)}
       >
-        <SelectTrigger
-          aria-label={t('field.model')}
-          className="h-8 w-auto gap-1.5 self-start rounded-full border-0 bg-muted px-2.5 text-xs"
-        >
+        <SelectTrigger aria-label={t('field.model')} className={composerModelChipClass(size)}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -46,11 +63,22 @@ export default function CanvasVideoParams({ hasFirstFrame }: { hasFirstFrame: bo
           ))}
         </SelectContent>
       </Select>
-      <VideoPresetRows
-        support={option.support}
-        draft={draft}
-        aspectFollowsFirstFrame={hasFirstFrame}
-      />
-    </div>
+      <SettingsPopover
+        title={t('settings.title')}
+        summary={summary}
+        size={size}
+        icon={
+          <RatioShape ratio={hasFirstFrame ? 'auto' : draft.aspectRatio} className="h-3.5 w-3.5" />
+        }
+      >
+        {() => (
+          <VideoPresetRows
+            support={option.support}
+            draft={draft}
+            aspectFollowsFirstFrame={hasFirstFrame}
+          />
+        )}
+      </SettingsPopover>
+    </>
   )
 }

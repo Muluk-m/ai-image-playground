@@ -99,7 +99,7 @@ export default function Header() {
     <>
       {/*
         没有顶栏：账号这一簇直接浮在右上角，不要底色与描边（暗底上多一层卡面反而像贴纸）；
-        各页面用 `studio-page-head` 给它让出右侧空位。
+        页头（PageHeader）按它测得的宽度让出右侧空位。
       */}
       <div
         ref={headerActionsRef}
@@ -120,7 +120,8 @@ export default function Header() {
               onLogout={() => setLogoutOpen(true)}
             />
           ) : null}
-          {!PrivateWebReplacesAuthActions && (!auth.enabled || auth.user) ? (
+          {/* 访客也要能切主题与语言；登录后若私有 overlay 接管了账号簇，这份菜单让位。 */}
+          {!auth.user || !PrivateWebReplacesAuthActions ? (
             <div ref={accountMenuRef} className="relative">
               <button
                 type="button"

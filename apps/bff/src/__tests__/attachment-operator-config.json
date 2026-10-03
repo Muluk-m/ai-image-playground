@@ -1,0 +1,14 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:sync": true,
+    "agent:chat": true,
+    "agent:attachments": true
+  },
+  "quotas": {
+    "sync:user-media-bytes": 1048576,
+    "sync:attachment-lease-seconds": 120,
+    "agent:turns-per-device-minute": 0,
+    "agent:turns-per-ip-hour": 0
+  }
+}

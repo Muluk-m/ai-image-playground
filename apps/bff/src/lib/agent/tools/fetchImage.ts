@@ -1,7 +1,7 @@
 import { Type } from 'typebox'
 import { fetchAndClaimImage, fetchedImageSize } from '../fetched-image'
 import { agentSaveToolsAvailable } from '../saves'
-import { referenceEvidence } from '../selection-preview'
+import { prepareVisualEvidence } from '../visual-input'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 
@@ -58,7 +58,9 @@ export const fetchImage = defineAgentTool({
       ...(signal ? { signal } : {}),
     })
     const resolved = await context.images.resolve(image.imageId, 'preview')
-    const evidence = resolved ? await referenceEvidence([resolved]) : { content: [], manifest: '' }
+    const evidence = resolved
+      ? await prepareVisualEvidence([resolved], 'fetchImage', 'preview')
+      : { content: [], manifest: '' }
     return {
       content: [
         {

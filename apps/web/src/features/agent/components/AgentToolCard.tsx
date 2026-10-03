@@ -40,10 +40,12 @@ import {
 } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
+import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
@@ -415,7 +417,7 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-export default function AgentToolCard({
+function StandardAgentToolCard({
   message,
   onViewCanvas,
   onPreviewResult,
@@ -564,7 +566,10 @@ export default function AgentToolCard({
         running={status === 'running' || status === 'queued'}
       >
         <div className="flex flex-col gap-2">
-          <ToolStatus label={statusLabel} status={status} />
+          {/* 跑着、做完已经由星号和流光说清楚；只有排队、待确认这种要另说一句。 */}
+          {(status === 'queued' || status === 'waiting') && (
+            <ToolStatus label={statusLabel} status={status} />
+          )}
           {note && <p className={CARD_NOTE}>{note}</p>}
           {message.sources?.map((source) => (
             <a
@@ -930,7 +935,7 @@ export default function AgentToolCard({
   return (
     <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
       {message.retryOf && (
-        <span className="self-start rounded-md border border-border px-1.5 text-[10px] leading-4 text-muted-foreground">
+        <span className="self-start rounded-md border border-border px-1.5 text-label-sm leading-4 text-muted-foreground">
           {t('retry.record')}
         </span>
       )}
@@ -1030,5 +1035,19 @@ export default function AgentToolCard({
         </button>
       )}
     </div>
+  )
+}
+
+export default function AgentToolCard(props: Parameters<typeof StandardAgentToolCard>[0]) {
+  return props.message.batchId ? (
+    <AgentBatchPlanCard
+      key={props.message.batchId}
+      batchId={props.message.batchId}
+      domId={agentToolCardDomId(props.message.id)}
+    />
+  ) : props.message.toolName === 'generateVideo' ? (
+    <AgentVideoToolCard key={props.message.id} {...props} />
+  ) : (
+    <StandardAgentToolCard {...props} />
   )
 }

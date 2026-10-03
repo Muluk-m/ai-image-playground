@@ -138,7 +138,7 @@ if (dialog && input && results) {
         : hits
             .map(
               ({ entry }, i) =>
-                `<a href="${escape(entry.url)}" data-result role="option" aria-selected="${i === 0}" class="block rounded-xl px-3 py-2.5 aria-selected:bg-muted"><span class="block text-[12px] text-muted-foreground">${escape(entry.chapter)}</span><span class="block text-[14.5px] font-medium text-foreground">${escape(entry.title)}</span><span class="mt-0.5 block truncate text-[13px] text-muted-foreground">${snippet(entry.text, terms[0]!)}</span></a>`,
+                `<a href="${escape(entry.url)}" data-result role="option" aria-selected="${i === 0}" class="block rounded-xl px-3 py-2.5 aria-selected:bg-muted"><span class="block text-[12px] text-muted-foreground">${escape(entry.chapter)}</span><span class="block text-[14.5px] font-medium text-foreground">${escape(entry.title)}</span><span class="mt-0.5 block truncate text-body-sm text-muted-foreground">${snippet(entry.text, terms[0]!)}</span></a>`,
             )
             .join('')
   }

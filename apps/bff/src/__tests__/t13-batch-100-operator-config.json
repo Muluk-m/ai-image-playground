@@ -1,0 +1,24 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:sync": true,
+    "agent:chat": true,
+    "agent:batch-plans": true,
+    "agent:batch-execution": true,
+    "agent:attachments": true,
+    "billing:credits": true,
+    "agent:bulk-attachments": true
+  },
+  "quotas": {
+    "sync:user-media-bytes": 1048576,
+    "sync:attachment-lease-seconds": 120,
+    "agent:turns-per-device-minute": 0,
+    "agent:turns-per-ip-hour": 0,
+    "agent:batch-max-items": 100,
+    "agent:batch-dispatch-window": 3,
+    "agent:attachment-logical-references": 100,
+    "agent:attachment-image-bytes": 20971520,
+    "agent:attachment-image-pixels": 16777216,
+    "agent:attachment-upload-concurrency": 2
+  }
+}

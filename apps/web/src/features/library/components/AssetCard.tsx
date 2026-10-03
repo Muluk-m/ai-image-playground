@@ -55,7 +55,7 @@ export default function AssetCard({
         onClick={() => void attachAsset(asset.id)}
         onKeyDown={handleKeyDown}
         title={asset.name}
-        className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
+        className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <AssetThumb imageId={coverImageId} alt={asset.name} />
         <div className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">
@@ -63,7 +63,7 @@ export default function AssetCard({
           {unsynced && <Badge tone="overlay">{t('asset.unsynced')}</Badge>}
         </div>
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-label-sm font-medium text-white">
           <span>{t('asset.addAsReference')}</span>
           {asset.background && (
             <Badge tone={asset.background === 'transparent' ? 'success' : 'overlay'}>
@@ -80,7 +80,7 @@ export default function AssetCard({
             onClick={() => onOpen(asset)}
             aria-label={t('asset.views')}
             title={t('asset.views')}
-            className="inline-flex items-center gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-[10px] font-medium text-white transition hover:bg-black/65"
+            className="inline-flex items-center gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-label-sm font-medium text-white transition hover:bg-black/65"
           >
             <LayersIcon className="h-3 w-3" />
             {t('asset.viewCount', { count: asset.views.length })}

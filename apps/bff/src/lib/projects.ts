@@ -18,7 +18,22 @@ const summaryColumns = {
   createdAt: table.created_at,
   updatedAt: table.updated_at,
   elementCount: table.element_count,
-  coverMediaId: table.cover_media_id,
+  // 封面取画布上最后一张图；对话项目的结果留在对话里、画布常是空的，就退到这个会话最近一次
+  // 生成的第一张输出图，免得项目列表一排空白卡。
+  coverMediaId: sql<string | null>`COALESCE(${table.cover_media_id}, (
+    SELECT gi.media_id
+    FROM ${schema.generation_records} g
+    JOIN ${schema.generation_images} gi ON gi.generation_id = g.id AND gi.role = 'output'
+    JOIN ${schema.media_objects} m ON m.id = gi.media_id AND m.user_id = g.user_id
+    WHERE "canvas_projects"."conversation_id" IS NOT NULL
+      AND g.user_id = "canvas_projects"."user_id"
+      AND g.deleted_at IS NULL
+      AND g.source ->> 'conversationId' = "canvas_projects"."conversation_id"
+      AND m.status = 'ready'
+      AND m.content_type LIKE 'image/%'
+    ORDER BY g.created_at DESC, gi.position ASC
+    LIMIT 1
+  ))`,
   conversationId: table.conversation_id,
   experience: sql<'chat' | 'canvas' | null>`${table.document}->>'experience'`,
   sourceProjectId: sql<string | null>`${table.document}->>'sourceProjectId'`,

@@ -222,6 +222,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return
+      // 模态确认开着时焦点可能被 Tab 到背景，快捷键仍不能改动它正要处理的那批元素。
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
       if (e.key === ' ') {
         setSpaceDown(true)
         e.preventDefault()
@@ -949,7 +951,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         </Layer>
       </Stage>
       {mobile && (
-        <div className="pointer-events-none absolute bottom-2 left-16 right-3 text-center text-[11px] text-muted-foreground">
+        <div className="pointer-events-none absolute bottom-2 left-16 right-3 text-center text-label-sm text-muted-foreground">
           {t('touch.hint')}
         </div>
       )}

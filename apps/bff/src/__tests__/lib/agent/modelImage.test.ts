@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import sharp from 'sharp'
-import { MODEL_IMAGE_MIMES, toModelImageDataUrl } from '../../../lib/agent/modelImage'
+
+// Configuration is read for resource limits; this pure image test never opens a database.
+process.env.PORT = '0'
+process.env.DATABASE_URL = 'postgres://unused/unused'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.OPERATOR_CONFIG_FILE = ''
+const { MODEL_IMAGE_MIMES, toModelImageDataUrl } = await import('../../../lib/agent/modelImage')
 
 async function pixel(format: 'png' | 'jpeg' | 'webp' | 'tiff' | 'gif'): Promise<string> {
   const image = sharp({ create: { width: 2, height: 2, channels: 4, background: '#f00' } })
@@ -39,9 +46,9 @@ describe('toModelImageDataUrl', () => {
     }
   })
 
-  it('解不开的数据保留原样，让上游报它自己的错', async () => {
+  it('解不开的数据明确拒绝，不回退原件', async () => {
     const junk = `data:image/avif;base64,${Buffer.from('not an image').toString('base64')}`
-    expect(await toModelImageDataUrl(junk)).toBe(junk)
-    expect(await toModelImageDataUrl('https://example.com/a.png')).toBe('https://example.com/a.png')
+    expect(toModelImageDataUrl(junk)).rejects.toThrow('重新添加')
+    expect(toModelImageDataUrl('https://example.com/a.png')).rejects.toThrow('重新添加')
   })
 })

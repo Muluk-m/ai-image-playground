@@ -7,6 +7,7 @@ import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -174,7 +175,7 @@ it('rejects region rectangles that extend beyond the image', async () => {
       references: [
         {
           imageId: 'bad-region',
-          dataUrl: 'data:image/png;base64,aGk=',
+          dataUrl: TEST_IMAGE.pngDataUrl,
           regions: [{ x: 0.9, y: 0, width: 0.2, height: 0.5 }],
           editAction: 'inpaint',
         },
@@ -416,6 +417,63 @@ describe('GET /api/agent/conversations', () => {
     const { status } = await request('GET', `/api/agent/conversations?deviceId=${DEVICE}`)
 
     expect(status).toBe(400)
+  })
+
+  it('carries the latest generated image of each conversation as its cover', async () => {
+    const cookie = await signIn('cover-owner')
+    const withImage = await startConversation(DEVICE, cookie)
+    const withoutImage = await startConversation(DEVICE, cookie)
+    const now = Date.now()
+    const media = (id: string, contentType: string) => ({
+      id,
+      user_id: 'cover-owner',
+      sha256: id,
+      bytes: 1,
+      content_type: contentType,
+      status: 'ready' as const,
+      reserved_bytes: 1,
+      staging_key: `staging/${id}`,
+      expires_at: now + 60_000,
+      created_at: now,
+      updated_at: now,
+    })
+    await db
+      .insert(schema.media_objects)
+      .values([media('old-output', 'image/png'), media('new-output', 'image/webp')])
+    const record = (id: string, createdAt: number, deletedAt: number | null = null) => ({
+      id,
+      user_id: 'cover-owner',
+      provider: 'openai',
+      model: 'gpt-image-2',
+      status: 'completed' as const,
+      prompt: 'mug',
+      created_at: createdAt,
+      revision: 1n,
+      deleted_at: deletedAt,
+      source: {
+        kind: 'agent' as const,
+        conversationId: withImage,
+        turnId: 'turn',
+        projectId: null,
+      },
+    })
+    await db
+      .insert(schema.generation_records)
+      .values([
+        record('gen-old', now - 2),
+        record('gen-new', now - 1),
+        record('gen-gone', now, now),
+      ])
+    await db.insert(schema.generation_images).values([
+      { generation_id: 'gen-old', role: 'output', position: 0, media_id: 'old-output' },
+      { generation_id: 'gen-new', role: 'output', position: 0, media_id: 'new-output' },
+      { generation_id: 'gen-gone', role: 'output', position: 0, media_id: 'old-output' },
+    ])
+
+    const conversations = await listConversations(DEVICE, cookie)
+
+    expect(conversations.find((one) => one.id === withImage)?.coverMediaId).toBe('new-output')
+    expect(conversations.find((one) => one.id === withoutImage)).not.toHaveProperty('coverMediaId')
   })
 
   it('hides the conversations of the device once signed in', async () => {

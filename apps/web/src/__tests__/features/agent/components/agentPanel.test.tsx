@@ -436,6 +436,11 @@ describe('AgentPanel', () => {
         ],
       }),
     )
+    const folded = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '已完成',
+    )
+    expect(folded).toBeDefined()
+    act(() => folded!.click())
     const line = host.querySelector<HTMLElement>(
       '#agent-tool-card-tool-skill button[aria-expanded]',
     )
@@ -465,6 +470,11 @@ describe('AgentPanel', () => {
         ],
       }),
     )
+    const folded = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '已完成',
+    )
+    expect(folded).toBeDefined()
+    act(() => folded!.click())
     expect(
       host.querySelector('#agent-tool-card-tool-skill button[aria-expanded]')?.textContent,
     ).toBe('没找到技能：nope')

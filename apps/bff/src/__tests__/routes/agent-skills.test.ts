@@ -156,6 +156,9 @@ describe('GET /api/agent/skills', () => {
           // 界面用的图标与一句话简介来自旁路的 meta.json，跟着清单一起发给前端。
           icon: 'clapperboard',
           summary: '一句话生成多镜头短片',
+          inputs: [],
+          starters: [],
+          verified: false,
         },
       ],
     })
@@ -249,7 +252,8 @@ describe('the tool list the model receives', () => {
     await runTurn(conversationId, '画一只猫')
     const names = calls[0]!.tools?.map((tool) => tool.function.name) ?? []
     expect(names).not.toContain('loadSkill')
-    expect(names).not.toContain('generateVideo')
+    // Chat can generate video even when this mode has no skill catalog.
+    expect(names).toContain('generateVideo')
     expect(names).toContain('generateImage')
   })
 })

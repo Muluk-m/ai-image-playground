@@ -258,3 +258,50 @@ it('a stale automatic title from another tab loses to a newer persisted reservat
     '另一个标签页的新标题',
   )
 })
+
+it('没有画布封面的本地对话项目用对话最近一张输出图当封面，画布截图与云端项目不动', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+  await bootstrapClientCapabilities(false, '')
+  const local = await projectRepository.create(UNTITLED_PROJECT, {
+    sceneKey: 'scene-local',
+    conversationId: 'conversation-local',
+  })
+  const drawn = await projectRepository.create(UNTITLED_PROJECT, {
+    sceneKey: 'scene-drawn',
+    conversationId: 'conversation-drawn',
+  })
+  await projectRepository.update(drawn.id, { cover: 'data:image/webp;base64,AA' })
+  const listedCloud = await projectRepository.importCloud({
+    ...cloud,
+    id: crypto.randomUUID(),
+    name: UNTITLED_PROJECT,
+    conversationId: 'conversation-cloud-cover',
+    coverMediaId: null,
+  })
+
+  await importConversationProjects([
+    { ...conversation('conversation-local', '马克杯'), coverMediaId: 'media-local' },
+    { ...conversation('conversation-drawn', '画过的'), coverMediaId: 'media-drawn' },
+    { ...conversation('conversation-cloud-cover', '云端'), coverMediaId: 'media-cloud' },
+    { ...conversation('conversation-new', '新对话'), coverMediaId: 'media-new' },
+  ])
+
+  const projects = useCanvasProjectStore.getState().projects
+  const byId = (id: string) => projects.find((one) => one.id === id)
+  expect(byId(local.id)?.cover).toBe('aip-media:media-local')
+  expect(byId(drawn.id)?.cover).toBe('data:image/webp;base64,AA')
+  expect(byId(listedCloud.id)?.cover).toBeUndefined()
+  expect(projects.find((one) => one.conversationId === 'conversation-new')?.cover).toBe(
+    'aip-media:media-new',
+  )
+
+  // 输出图没了（生成记录被删）：撤掉兜底封面，画布截图仍然保留。
+  await importConversationProjects([
+    conversation('conversation-local', '马克杯'),
+    conversation('conversation-drawn', '画过的'),
+  ])
+  const after = useCanvasProjectStore.getState().projects
+  expect(after.find((one) => one.id === local.id)?.cover).toBeUndefined()
+  expect(after.find((one) => one.id === drawn.id)?.cover).toBe('data:image/webp;base64,AA')
+})

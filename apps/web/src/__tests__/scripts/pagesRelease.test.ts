@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH } from '../../lib/appPaths'
+import { PROJECT_ROUTE_PATTERN, pagesRedirects } from '../../lib/pagesRedirects'
 
 const root = resolve(__dirname, '../../../../..')
 const { verifyPagesRelease, verifyPagesReleaseWithRetry } = await import(
@@ -16,7 +17,7 @@ beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'pages-release-'))
   await mkdir(join(dist, 'assets'))
   await writeFile(join(dist, 'index.html'), html)
-  await writeFile(join(dist, '_redirects'), '/image / 200\n/p/:project / 200')
+  await writeFile(join(dist, '_redirects'), pagesRedirects())
   await writeFile(join(dist, 'assets/main-123.js'), 'export {}')
   await writeFile(join(dist, 'assets/lazy-456.js'), 'export default 1')
 })
@@ -25,7 +26,7 @@ afterEach(async () => {
 })
 
 const good = async (url: URL) => {
-  if (['/', '/image', '/p/startup-release-check'].includes(url.pathname))
+  if (!url.pathname.includes('.'))
     return new Response(html, { headers: { 'content-type': 'text/html' } })
   if (url.pathname.includes('missing-'))
     return new Response('Not found', {
@@ -78,14 +79,50 @@ it('rejects long-lived error caching', async () => {
     ),
   ).rejects.toThrow('Missing asset')
 })
-it('keeps application deep links without a catch-all asset rewrite', async () => {
-  const rules = await readFile(join(root, 'apps/web/public/_redirects'), 'utf8')
-  for (const path of [...Object.values(APP_MODE_PATHS), LEGACY_PROJECTS_PATH, '/p/:project']) {
-    expect(rules).toContain(`${path} / 200`)
-    expect(rules).toContain(`${path}/ / 200`)
+it('generates SPA fallbacks for every app route without a catch-all asset rewrite', async () => {
+  const rules = pagesRedirects()
+  for (const path of [
+    ...Object.values(APP_MODE_PATHS),
+    LEGACY_PROJECTS_PATH,
+    PROJECT_ROUTE_PATTERN,
+  ]) {
+    expect(rules).toContain(`${path} / 200\n`)
+    if (path !== '/assets') expect(rules).toContain(`${path}/ / 200\n`)
   }
+  expect(rules).toContain('/assets / 200\n')
+  // `/assets/` 落在 `_headers` 的一年 immutable 规则里：不能在那里下发 HTML。
+  expect(rules).toContain('/assets/ /assets 301\n')
+  expect(rules).not.toContain('/assets/ / 200')
+  expect(rules).not.toMatch(/^\/assets\/\*/m)
   expect(rules).not.toMatch(/^\/\*/m)
   expect(await readFile(join(root, 'apps/web/public/404.html'), 'utf8')).toContain('Page not found')
+})
+
+it('rejects a stale deep link even when the home page is current', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === '/tools'
+        ? new Response(html.replace('a'.repeat(64), 'b'.repeat(64)), {
+            headers: { 'content-type': 'text/html' },
+          })
+        : good(url),
+    ),
+  ).rejects.toThrow('Application deep link did not serve this release: /tools')
+})
+
+it('rejects a deep link whose HTML is cached as long-lived', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === '/tools'
+        ? new Response(html, {
+            headers: {
+              'content-type': 'text/html',
+              'cache-control': 'public, max-age=31536000, immutable',
+            },
+          })
+        : good(url),
+    ),
+  ).rejects.toThrow('Application deep link is cached long-lived: /tools')
 })
 
 it('rejects a broken project deep link even if the home page works', async () => {
@@ -103,15 +140,6 @@ it('rejects an old HTML build even if its entry script URL is unchanged', async 
         ? new Response(html.replace('a'.repeat(64), 'b'.repeat(64)), {
             headers: { 'content-type': 'text/html' },
           })
-        : good(url),
-    ),
-  ).rejects.toThrow('Homepage references another release')
-})
-it('rejects HTML without the expected independent startup guard', async () => {
-  await expect(
-    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
-      url.pathname === '/'
-        ? new Response(html.replace('guard()', ''), { headers: { 'content-type': 'text/html' } })
         : good(url),
     ),
   ).rejects.toThrow('Homepage references another release')

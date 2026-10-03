@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Shared by entrypoint.sh, backup.sh and restore-drill.sh. Sourced, never executed.
 
 # Maps the S3_* settings onto aws-cli and sets $prefix. Callers check the variables first.

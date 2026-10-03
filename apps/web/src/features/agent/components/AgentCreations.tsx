@@ -205,11 +205,11 @@ const WorkCard = memo(function WorkCard({
           </span>
         </div>
       )}
-      <span className="block truncate px-2.5 pb-1 pt-2 text-[11px] text-foreground" title={name}>
+      <span className="block truncate px-2.5 pb-1 pt-2 text-label-sm text-foreground" title={name}>
         {name}
       </span>
       {element.type === 'image' && element.naturalWidth && element.naturalHeight && (
-        <span className="block px-2.5 pb-2 text-[10px] text-muted-foreground tabular-nums">
+        <span className="block px-2.5 pb-2 text-label-sm text-muted-foreground tabular-nums">
           {element.naturalWidth} × {element.naturalHeight}
         </span>
       )}
@@ -263,13 +263,13 @@ export default function AgentCreations({
     <div className="space-y-6 px-3 py-3">
       {works.length > 0 && (
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-label-sm text-muted-foreground">
             {t('creations.itemCount', { count: works.length })}
           </span>
           <button
             type="button"
             onClick={() => setGallery(true)}
-            className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:border-primary/60 hover:bg-muted"
+            className="rounded-lg border border-border px-2.5 py-1.5 text-label-sm font-medium text-foreground transition-colors hover:border-primary/60 hover:bg-muted"
           >
             {t('creations.viewAll')}
           </button>
@@ -284,12 +284,12 @@ export default function AgentCreations({
             <h3 className="line-clamp-2 text-xs font-medium text-foreground" title={group.title}>
               {group.title}
             </h3>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
+            <span className="shrink-0 text-label-sm text-muted-foreground">
               {t('creations.itemCount', { count: group.items.length })}
             </span>
           </div>
           {group.createdAt > 0 && (
-            <p className="mb-2 text-[10px] text-muted-foreground">
+            <p className="mb-2 text-label-sm text-muted-foreground">
               {new Intl.DateTimeFormat(currentLocale(), {
                 month: 'numeric',
                 day: 'numeric',

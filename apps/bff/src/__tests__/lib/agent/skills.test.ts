@@ -164,14 +164,17 @@ describe('agent skills loading', () => {
   })
 
   it('summarises a mode without leaking the body', () => {
-    expect(agentSkillSummaries('video')).toContainEqual({
+    expect(agentSkillSummaries('video', undefined)).toContainEqual({
       name: 'storyboard',
       title: '分镜短片',
       description: '何时用：多镜短片。',
       icon: 'clapperboard',
       summary: '一句话生成多镜头短片',
+      inputs: [],
+      starters: [],
+      verified: false,
     })
-    expect(JSON.stringify(agentSkillSummaries('video'))).not.toContain('分镜正文')
+    expect(JSON.stringify(agentSkillSummaries('video', undefined))).not.toContain('分镜正文')
   })
 
   it('takes icon and summary from meta.json', () => {
@@ -265,7 +268,7 @@ describe('预置模板标记', () => {
   })
 
   it('发给界面的那一份把图片换成地址，并带上正文', () => {
-    const summary = agentSkillSummaries('image').find((one) => one.name === 'scene-look')
+    const summary = agentSkillSummaries('image', undefined).find((one) => one.name === 'scene-look')
     expect(summary?.template?.coverUrl).toBe('/api/agent/skills/scene-look/files/cover.webp')
     expect(summary?.template?.referenceUrls).toEqual([
       '/api/agent/skills/scene-look/files/cover.webp',
@@ -282,9 +285,9 @@ describe('预置模板标记', () => {
 
   it('没写标记的技能不是模板', () => {
     expect(findAgentSkill('image', 'main-image')?.template).toBeUndefined()
-    expect(agentSkillSummaries('image').find((one) => one.name === 'main-image')?.template).toBe(
-      undefined,
-    )
+    expect(
+      agentSkillSummaries('image', undefined).find((one) => one.name === 'main-image')?.template,
+    ).toBe(undefined)
   })
 })
 

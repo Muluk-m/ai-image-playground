@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { runMigrations } from '../migrate'
 import { resetTestDatabase } from '../testing'
@@ -25,7 +26,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(48)
+    expect(rows).toHaveLength(journal.entries.length)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -117,7 +118,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(48)
+    expect(rows).toHaveLength(journal.entries.length)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -165,60 +166,68 @@ describe('runMigrations', () => {
     await connection.client.unsafe(`DELETE FROM agent_conversations WHERE id = 'conv-backfill'`)
   })
 
+  it('refuses attachment rollback while pending or ready leased originals remain', async () => {
+    const now = new Date()
+    await connection.client`INSERT INTO users (id, username, password_hash, status, created_at, updated_at) VALUES ('rollback-attachment-owner', 'rollback-attachment-owner', 'fixture', 'active', ${now}, ${now})`
+    const rollback = await Bun.file(
+      new URL('../../drizzle/rollback/0048_conversation_attachments.down.sql', import.meta.url),
+    ).text()
+    try {
+      for (const status of ['pending', 'ready']) {
+        await connection.client`INSERT INTO media_objects (id, user_id, sha256, bytes, content_type, status, attachment_managed, attachment_lease_until, reserved_bytes, staging_key, expires_at, created_at, updated_at) VALUES (${status}, 'rollback-attachment-owner', ${status}, 1, 'image/png', ${status}, true, ${now}, 1, ${status}, ${now}, ${now}, ${now})`
+        await expect(
+          connection.client.begin(async (tx) => {
+            await tx.unsafe(rollback)
+          }),
+        ).rejects.toThrow('attachment')
+        await connection.client`DELETE FROM media_objects WHERE id = ${status}`
+      }
+    } finally {
+      await connection.client`DELETE FROM users WHERE id = 'rollback-attachment-owner'`
+    }
+  })
+
+  it('retains paid phase authorization when a rollback would discard it', async () => {
+    const now = new Date()
+    await connection.client`INSERT INTO users (id, username, password_hash, status, created_at, updated_at) VALUES ('rollback-phase-owner', 'rollback-phase-owner', 'fixture', 'active', ${now}, ${now})`
+    try {
+      await connection.client`INSERT INTO agent_batches (id, user_id, origin_turn_id, tool_call_id, experience, created_at, updated_at) VALUES ('rollback-phase', 'rollback-phase-owner', 'turn', 'call', 'chat', ${now}, ${now})`
+      await connection.client`INSERT INTO agent_batch_plans (batch_id, version, title, rule, digest, item_count, estimate_snapshot, confirmation, created_at) VALUES ('rollback-phase', 1, 'phase', 'rule', 'digest', 1, '{}'::jsonb, '{"phase":"analysis","itemKeys":["detail"],"requiresResume":false}'::jsonb, ${now})`
+      const rollback = await Bun.file(
+        new URL('../../drizzle/rollback/0055_agent_batch_confirmation.down.sql', import.meta.url),
+      ).text()
+      await expect(
+        connection.client.begin(async (tx) => {
+          await tx.unsafe(rollback)
+        }),
+      ).rejects.toThrow('phase authorization')
+      const [saved] =
+        await connection.client`SELECT confirmation FROM agent_batch_plans WHERE batch_id = 'rollback-phase'`
+      expect(saved.confirmation).toEqual({
+        phase: 'analysis',
+        itemKeys: ['detail'],
+        requiresResume: false,
+      })
+      await connection.client`UPDATE agent_batch_plans SET confirmation = NULL WHERE batch_id = 'rollback-phase'`
+      await connection.client`INSERT INTO agent_batch_items (batch_id, version, key, ordinal, kind, inputs, prompt, params, dependencies, source_analysis) VALUES ('rollback-phase', 1, 'generate', 0, 'generation', '[]'::jsonb, 'concrete prompt', '{}'::jsonb, '[]'::jsonb, '[{"itemKey":"inspected","taskId":"independent-analysis","attempt":1}]'::jsonb)`
+      await expect(
+        connection.client.begin(async (tx) => {
+          await tx.unsafe(rollback)
+        }),
+      ).rejects.toThrow('phase authorization')
+    } finally {
+      await connection.client`DELETE FROM users WHERE id = 'rollback-phase-owner'`
+    }
+  })
+
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
-    for (const file of [
-      '0048_production_document.down.sql',
-      '0047_agent_turn_failure.down.sql',
-      '0046_agent_model_calls_started_at.down.sql',
-      '0045_retired_domain_migration.down.sql',
-      '0044_archive_retry_budget.down.sql',
-      '0043_queue_provider_time.down.sql',
-      '0042_admin_user_notes.down.sql',
-      '0041_agent_web_search_calls.down.sql',
-      '0040_user_looks.down.sql',
-      '0039_asset_views.down.sql',
-      '0038_inspiration_library.down.sql',
-      '0037_email_verification.down.sql',
-      '0036_agent_device_claims.down.sql',
-      '0035_agent_generation_drafts.down.sql',
-      '0034_generation_soft_delete.down.sql',
-      '0033_agent_jobs.down.sql',
-      '0032_agent_inbox.down.sql',
-      '0031_agent_tool_calls.down.sql',
-      '0030_ops_more.down.sql',
-      '0029_task_execution_leases.down.sql',
-      '0028_project_recycle.down.sql',
-      '0027_generation_source.down.sql',
-      '0026_project_generation_outputs.down.sql',
-      '0025_project_conversations.down.sql',
-      '0024_generation_images.down.sql',
-      '0023_durable_media.down.sql',
-      '0022_host_samples.down.sql',
-      '0021_service_heartbeats.down.sql',
-      '0020_cloud_generations.down.sql',
-      '0019_domain_migration.down.sql',
-      '0018_cloud_projects.down.sql',
-      '0017_agent_model_calls.down.sql',
-      '0016_agent_turn_summaries.down.sql',
-      '0015_chat_task_kind.down.sql',
-      '0014_agent_task_link.down.sql',
-      '0012_flowery_viper.down.sql',
-      '0011_public_meggan.down.sql',
-      '0010_calm_pestilence.down.sql',
-      '0009_silky_the_fallen.down.sql',
-      '0008_clean_fantastic_four.down.sql',
-      '0007_shocking_gertrude_yorkes.down.sql',
-      '0006_romantic_hiroim.down.sql',
-      '0005_left_annihilus.down.sql',
-      '0004_damp_tony_stark.down.sql',
-      '0003_perfect_night_nurse.down.sql',
-      '0002_careless_scrambler.down.sql',
-      '0001_blushing_liz_osborn.down.sql',
-      '0000_daffy_the_enforcers.down.sql',
-    ]) {
-      await connection.client.unsafe(await Bun.file(new URL(file, rollbackDirectory)).text())
-      if (file === '0048_production_document.down.sql') {
+    // Newest first, one down file per journal entry: a migration without a rollback fails here.
+    for (const { tag } of [...journal.entries].reverse()) {
+      const rollback = Bun.file(new URL(`${tag}.down.sql`, rollbackDirectory))
+      expect(await rollback.exists(), `drizzle/rollback/${tag}.down.sql`).toBe(true)
+      await connection.client.unsafe(await rollback.text())
+      if (tag === '0059_production_document') {
         const columns = await connection.client<{ column_name: string }[]>`
           SELECT column_name FROM information_schema.columns
           WHERE table_schema='public' AND table_name='agent_conversations'
@@ -256,7 +265,7 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(48)
+    expect(restored).toHaveLength(journal.entries.length)
     const production = await connection.client`
       SELECT data_type FROM information_schema.columns
       WHERE table_schema='public' AND table_name='agent_conversations' AND column_name='production'

@@ -106,7 +106,7 @@ export default function AgentCreationsGallery({
   }
 
   return (
-    <Overlay onClose={onClose}>
+    <Overlay onClose={onClose} role="none">
       <div
         role="dialog"
         aria-modal="true"
@@ -115,7 +115,7 @@ export default function AgentCreationsGallery({
       >
         <header className="flex items-center gap-3 border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium text-foreground">{t('creations.galleryTitle')}</h2>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-label-sm text-muted-foreground">
             {t('creations.itemCount', { count: works.length })}
           </span>
           <div className="flex-1" />
@@ -156,7 +156,7 @@ export default function AgentCreationsGallery({
                     // 取图期间按画布上的比例占位，图到了不会把整列推一下。
                     <div
                       style={{ aspectRatio: `${work.width} / ${work.height}` }}
-                      className="grid min-h-16 w-full place-items-center bg-muted px-2 text-center text-[11px] text-muted-foreground"
+                      className="grid min-h-16 w-full place-items-center bg-muted px-2 text-center text-label-sm text-muted-foreground"
                     >
                       {src === null ? t('creations.previewUnavailable') : '…'}
                     </div>
@@ -173,7 +173,7 @@ export default function AgentCreationsGallery({
                   >
                     <Check className="h-3.5 w-3.5" />
                   </span>
-                  <span className="block truncate px-2 py-1.5 text-[11px] text-foreground">
+                  <span className="block truncate px-2 py-1.5 text-label-sm text-foreground">
                     {name}
                   </span>
                 </button>
@@ -190,7 +190,7 @@ export default function AgentCreationsGallery({
             }
             label={t('creations.selectAll')}
           />
-          <span className="text-[11px] text-muted-foreground tabular-nums">
+          <span className="text-label-sm text-muted-foreground tabular-nums">
             {t('creations.selectedCount', { count: live.length })}
           </span>
           <div className="flex-1" />

@@ -258,6 +258,9 @@ function QueueBody({ queue, now }: { queue: OpsQueue; now: number }) {
       <div className="grid grid-cols-3 gap-4">
         <Kpi variant="inline" label="排队" value={String(queue.queued)} />
         <Kpi variant="inline" label="运行中" value={String(queue.in_progress)} />
+        {queue.reconciling ? (
+          <Kpi variant="inline" label="待核查" value={String(queue.reconciling)} />
+        ) : null}
         <Kpi
           variant="inline"
           label="最老的等了"
@@ -350,24 +353,53 @@ function BackupBody({ backup, now }: { backup: OpsBackups; now: number }) {
   )
 }
 
+/** 看板上每一栏的名字；概览页的健康灯与「需要处理」按它归类。 */
+export type OpsSource =
+  | 'host'
+  | 'containers'
+  | 'services'
+  | 'api'
+  | 'reliability'
+  | 'queue'
+  | 'backup'
+  | 'deployments'
+
+export interface OpsProblem {
+  source: OpsSource
+  text: string
+}
+
 /**
- * 全后台顶部那条窄横幅用：把看板每一栏的问题汇总成一串。顺序跟看板里的栏一致，
- * 所以横幅上那句话就是运营者滚到看板顶上会看到的第一句。
- * 取不到的栏不算出事——看板里也是这么处理的（只有那一栏说取不到）。
+ * 把看板每一栏的问题汇总成一串，顺序跟看板里的栏一致。取不到的栏不算出事——看板里也是这么处理的
+ * （只有那一栏说取不到）。
  */
-export function opsAlerts(snapshot: OpsSnapshot): string[] {
+export function opsProblems(snapshot: OpsSnapshot): OpsProblem[] {
   const now = snapshot.generated_at
   const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
+  const tag = (source: OpsSource, texts: string[]) => texts.map((text) => ({ source, text }))
   return [
-    ...(snapshot.host.ok ? hostProblems(snapshot.host.data, now) : []),
-    ...(snapshot.containers.ok ? containersProblems(snapshot.containers.data) : []),
-    ...(snapshot.services.ok ? servicesProblems(snapshot.services.data, now, deployments) : []),
-    ...(snapshot.api.ok ? apiProblems(snapshot.api.data) : []),
-    ...(snapshot.reliability.ok ? reliabilityProblems(snapshot.reliability.data) : []),
-    ...(snapshot.queue.ok ? queueProblems(snapshot.queue.data) : []),
-    ...(snapshot.backup.ok ? backupProblems(snapshot.backup.data, now) : []),
-    ...(snapshot.deployments.ok ? deploymentsProblems(snapshot.deployments.data) : []),
+    ...(snapshot.host.ok ? tag('host', hostProblems(snapshot.host.data, now)) : []),
+    ...(snapshot.containers.ok
+      ? tag('containers', containersProblems(snapshot.containers.data))
+      : []),
+    ...(snapshot.services.ok
+      ? tag('services', servicesProblems(snapshot.services.data, now, deployments))
+      : []),
+    ...(snapshot.api.ok ? tag('api', apiProblems(snapshot.api.data)) : []),
+    ...(snapshot.reliability.ok
+      ? tag('reliability', reliabilityProblems(snapshot.reliability.data))
+      : []),
+    ...(snapshot.queue.ok ? tag('queue', queueProblems(snapshot.queue.data)) : []),
+    ...(snapshot.backup.ok ? tag('backup', backupProblems(snapshot.backup.data, now)) : []),
+    ...(snapshot.deployments.ok
+      ? tag('deployments', deploymentsProblems(snapshot.deployments.data))
+      : []),
   ]
+}
+
+/** 全后台顶部那条窄横幅用：横幅上那句话就是运营者滚到看板顶上会看到的第一句。 */
+export function opsAlerts(snapshot: OpsSnapshot): string[] {
+  return opsProblems(snapshot).map((problem) => problem.text)
 }
 
 /** 回答「这套部署现在有没有出事」。业务跑得怎么样是概览页的事，这里不重复。 */

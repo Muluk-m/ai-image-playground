@@ -9,6 +9,8 @@ import type {
   ListDevicesResult,
   ListUsersResult,
   OperatorAuditRow,
+  OverviewPulseBucket,
+  OverviewPulseWindow,
   OverviewResult,
   Range,
   SortKey,
@@ -255,20 +257,36 @@ export function volumeBucketUnit(range: Range): VolumeBucketUnit {
   return range === '1d' ? 'hour' : 'day'
 }
 
-async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeBucket[]> {
+/**
+ * 趋势图的分桶：1 天按小时 24 格，其余按天，最后一格是 `at` 所在的那个小时或那一天。
+ * 同一次请求的所有查询传同一个 `at`：各自取 NOW() 的话，跨整点或午夜时会错开一格。
+ */
+function volumeBuckets(range: Range, at: Date) {
+  const now = sql`${at}::timestamptz`
+  return {
+    now,
+    unit: range === '1d' ? sql`'hour'` : sql`'day'`,
+    step: range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`,
+    start:
+      range === '1d'
+        ? sql`DATE_TRUNC('hour', ${now}) - INTERVAL '23 hours'`
+        : range === '7d'
+          ? sql`DATE_TRUNC('day', ${now}) - INTERVAL '6 days'`
+          : sql`DATE_TRUNC('day', ${now}) - INTERVAL '29 days'`,
+  }
+}
+
+async function getTaskVolume(
+  range: Range,
+  userId?: string,
+  at: Date = new Date(),
+): Promise<TaskVolumeBucket[]> {
   const { db } = getHandle()
-  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
-  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
-  const bucketStart =
-    range === '1d'
-      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
-      : range === '7d'
-        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
-        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
+  const { now, unit: bucketUnit, step: bucketStep, start: bucketStart } = volumeBuckets(range, at)
   const ownerCondition = userId ? sql`AND t.user_id = ${userId}` : sql``
   const rows = await db.execute(sql`
     WITH buckets AS (
-      SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
+      SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, ${now}), ${bucketStep}) AS bucket
     )
     SELECT
       EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
@@ -292,12 +310,180 @@ async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeB
   }))
 }
 
+type Row = Record<string, unknown>
+
+const EMPTY_PULSE_BUCKET: Omit<OverviewPulseBucket, 'bucket_at'> = {
+  tasks: 0,
+  images: 0,
+  active: 0,
+  signups: 0,
+  agent_completed: 0,
+  agent_failed: 0,
+  agent_aborted: 0,
+}
+
+/**
+ * 概览的环比与走势。当前窗与上一个同长度窗口各数一遍；走势与任务量图同一套分桶。
+ * 「活跃」把账号与匿名设备一起数：两类入口都在用，只数账号会把匿名用量整块漏掉。
+ */
+async function getPulse(
+  range: Range,
+  bucketAts: readonly number[],
+  at: Date,
+): Promise<OverviewResult['pulse']> {
+  const { db } = getHandle()
+  const now = at.getTime()
+  const current = new Date(now - rangeMs(range))
+  const previous = new Date(now - 2 * rangeMs(range))
+  const { unit, start } = volumeBuckets(range, at)
+  // 走势的首格可能早于当前窗起点（按整点或整天对齐），取数下界取两者更早的那个。
+  const floor = sql`LEAST(${previous}::timestamptz, ${start})`
+  // 视频任务也走这个队列，不算出图。
+  const images = sql`CASE WHEN request_payload->'video' IS NULL
+    THEN GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1) ELSE 0 END`
+  const actors = sql`
+    SELECT submitted_at AS at, COALESCE(user_id, device_id) AS actor
+    FROM queue_tasks
+    WHERE submitted_at >= ${floor}
+    UNION ALL
+    SELECT t.created_at, COALESCE(c.user_id, c.device_id)
+    FROM agent_turns t
+    JOIN agent_conversations c ON c.id = t.conversation_id
+    WHERE t.created_at >= ${floor}
+  `
+
+  const [taskRows, actorRows, signupRows, agentRows, seriesRows] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE submitted_at >= ${current}) AS tasks_cur,
+        COUNT(*) FILTER (WHERE submitted_at < ${current}) AS tasks_prev,
+        COUNT(*) FILTER (WHERE status = 'completed' AND submitted_at >= ${current}) AS completed_cur,
+        COUNT(*) FILTER (WHERE status = 'completed' AND submitted_at < ${current}) AS completed_prev,
+        COUNT(*) FILTER (WHERE status = 'failed' AND submitted_at >= ${current}) AS failed_cur,
+        COUNT(*) FILTER (WHERE status = 'failed' AND submitted_at < ${current}) AS failed_prev,
+        COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at >= ${current}), 0) AS images_cur,
+        COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at < ${current}), 0) AS images_prev
+      FROM queue_tasks
+      WHERE submitted_at >= ${previous}
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(DISTINCT actor) FILTER (WHERE at >= ${current}) AS active_cur,
+        COUNT(DISTINCT actor) FILTER (WHERE at >= ${previous} AND at < ${current}) AS active_prev
+      FROM (${actors}) a
+      WHERE actor IS NOT NULL
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at >= ${current}) AS signups_cur,
+        COUNT(*) FILTER (WHERE created_at < ${current}) AS signups_prev
+      FROM users
+      WHERE created_at >= ${previous}
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at >= ${current}) AS turns_cur,
+        COUNT(*) FILTER (WHERE created_at < ${current}) AS turns_prev,
+        COUNT(*) FILTER (WHERE stop_reason = 'failed' AND created_at >= ${current}) AS failed_cur,
+        COUNT(*) FILTER (WHERE stop_reason = 'failed' AND created_at < ${current}) AS failed_prev,
+        COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at >= ${current}) AS aborted_cur,
+        COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at < ${current}) AS aborted_prev
+      FROM agent_turns
+      WHERE created_at >= ${previous}
+    `),
+    db.execute(sql`
+      WITH
+        tasks_by AS (
+          SELECT DATE_TRUNC(${unit}, submitted_at) AS bucket,
+                 COUNT(*) AS tasks,
+                 COALESCE(SUM(${images}) FILTER (WHERE status = 'completed'), 0) AS images
+          FROM queue_tasks WHERE submitted_at >= ${start} GROUP BY 1
+        ),
+        actors_by AS (
+          SELECT DATE_TRUNC(${unit}, at) AS bucket, COUNT(DISTINCT actor) AS active
+          FROM (${actors}) a WHERE actor IS NOT NULL AND at >= ${start} GROUP BY 1
+        ),
+        signups_by AS (
+          SELECT DATE_TRUNC(${unit}, created_at) AS bucket, COUNT(*) AS signups
+          FROM users WHERE created_at >= ${start} GROUP BY 1
+        ),
+        agent_by AS (
+          SELECT DATE_TRUNC(${unit}, created_at) AS bucket,
+                 COUNT(*) FILTER (WHERE stop_reason = 'completed') AS agent_completed,
+                 COUNT(*) FILTER (WHERE stop_reason = 'failed') AS agent_failed,
+                 COUNT(*) FILTER (WHERE stop_reason = 'aborted') AS agent_aborted
+          FROM agent_turns WHERE created_at >= ${start} GROUP BY 1
+        ),
+        keys AS (
+          SELECT bucket FROM tasks_by UNION SELECT bucket FROM actors_by
+          UNION SELECT bucket FROM signups_by UNION SELECT bucket FROM agent_by
+        )
+      SELECT
+        EXTRACT(EPOCH FROM k.bucket) * 1000 AS bucket_at,
+        COALESCE(t.tasks, 0) AS tasks,
+        COALESCE(t.images, 0) AS images,
+        COALESCE(a.active, 0) AS active,
+        COALESCE(s.signups, 0) AS signups,
+        COALESCE(g.agent_completed, 0) AS agent_completed,
+        COALESCE(g.agent_failed, 0) AS agent_failed,
+        COALESCE(g.agent_aborted, 0) AS agent_aborted
+      FROM keys k
+      LEFT JOIN tasks_by t ON t.bucket = k.bucket
+      LEFT JOIN actors_by a ON a.bucket = k.bucket
+      LEFT JOIN signups_by s ON s.bucket = k.bucket
+      LEFT JOIN agent_by g ON g.bucket = k.bucket
+    `),
+  ])
+
+  const t = (taskRows as unknown as Row[])[0] ?? {}
+  const a = (actorRows as unknown as Row[])[0] ?? {}
+  const u = (signupRows as unknown as Row[])[0] ?? {}
+  const g = (agentRows as unknown as Row[])[0] ?? {}
+  const window = (suffix: 'cur' | 'prev'): OverviewPulseWindow => ({
+    tasks: Number(t[`tasks_${suffix}`] ?? 0),
+    completed: Number(t[`completed_${suffix}`] ?? 0),
+    failed: Number(t[`failed_${suffix}`] ?? 0),
+    images: Number(t[`images_${suffix}`] ?? 0),
+    active: Number(a[`active_${suffix}`] ?? 0),
+    signups: Number(u[`signups_${suffix}`] ?? 0),
+    agent_turns: Number(g[`turns_${suffix}`] ?? 0),
+    agent_failed: Number(g[`failed_${suffix}`] ?? 0),
+    agent_aborted: Number(g[`aborted_${suffix}`] ?? 0),
+  })
+  const byBucket = new Map(
+    (seriesRows as unknown as Row[]).map((row) => [
+      Number(row.bucket_at),
+      {
+        tasks: Number(row.tasks),
+        images: Number(row.images),
+        active: Number(row.active),
+        signups: Number(row.signups),
+        agent_completed: Number(row.agent_completed),
+        agent_failed: Number(row.agent_failed),
+        agent_aborted: Number(row.agent_aborted),
+      },
+    ]),
+  )
+  return {
+    current: window('cur'),
+    previous: window('prev'),
+    series: bucketAts.map((bucket_at) => ({
+      bucket_at,
+      ...(byBucket.get(bucket_at) ?? EMPTY_PULSE_BUCKET),
+    })),
+  }
+}
+
 export async function getOverview(range: Range): Promise<OverviewResult> {
   const { db } = getHandle()
-  const since = new Date(Date.now() - rangeMs(range))
+  // 整个请求只取一次「现在」：窗口、上期与分桶都从它算，彼此对得上。
+  const at = new Date()
+  const since = new Date(at.getTime() - rangeMs(range))
+  const previousSince = new Date(at.getTime() - 2 * rangeMs(range))
 
-  const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw] = await Promise.all([
-    db.execute(sql`
+  const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw, phaseRowsRaw] =
+    await Promise.all([
+      db.execute(sql`
       SELECT
         COUNT(*) AS total,
         COUNT(*) FILTER (WHERE status = 'completed') AS completed,
@@ -308,19 +494,26 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         PERCENTILE_DISC(0.95) WITHIN GROUP (
           ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
         ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms,
-        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations,
+        PERCENTILE_DISC(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (started_at - submitted_at)) * 1000
+        ) FILTER (WHERE started_at IS NOT NULL) AS queue_p50_ms
       FROM queue_tasks
       WHERE submitted_at >= ${since}
     `),
-    getTaskVolume(range),
-    db.execute(sql`
-      SELECT COALESCE(error_type, 'unknown') AS error_type, COUNT(*) AS count
+      getTaskVolume(range, undefined, at),
+      db.execute(sql`
+      SELECT
+        COALESCE(error_type, 'unknown') AS error_type,
+        COUNT(*) FILTER (WHERE submitted_at >= ${since}) AS count,
+        COUNT(*) FILTER (WHERE submitted_at < ${since}) AS previous_count
       FROM queue_tasks
-      WHERE submitted_at >= ${since} AND status = 'failed'
+      WHERE submitted_at >= ${previousSince} AND status = 'failed'
       GROUP BY COALESCE(error_type, 'unknown')
+      HAVING COUNT(*) FILTER (WHERE submitted_at >= ${since}) > 0
       ORDER BY count DESC, error_type
     `),
-    db.execute(sql`
+      db.execute(sql`
       SELECT
         model,
         COUNT(*) AS count,
@@ -328,48 +521,72 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         AVG(
           upstream_invocation_count::double precision
             / GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)
-        ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
+        ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        PERCENTILE_DISC(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (started_at - submitted_at)) * 1000
+        ) FILTER (WHERE started_at IS NOT NULL) AS queue_p50_ms,
+        PERCENTILE_DISC(0.95) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
+        ) FILTER (WHERE status = 'completed' AND started_at IS NOT NULL) AS run_p95_ms
       FROM queue_tasks
       WHERE submitted_at >= ${since}
       GROUP BY model
       ORDER BY count DESC, model
     `),
-    db.execute(sql`
-      WITH classified AS (
-        SELECT c.model,
-          (c.usage->>'inputTokens')::bigint AS input_tokens,
-          c.cache_read_tokens,
-          NOT EXISTS (
-            SELECT 1 FROM agent_model_calls earlier
-            WHERE earlier.conversation_id = c.conversation_id
-              AND earlier.turn_id = c.turn_id
-              AND earlier.purpose = 'conversation'
-              AND (earlier.started_at, earlier.id) < (c.started_at, c.id)
-          ) AS first_call
-        FROM agent_model_calls c
-        WHERE c.started_at >= ${since}
-          AND c.purpose = 'conversation'
-          AND c.usage IS NOT NULL
-          AND c.cache_read_tokens IS NOT NULL
-          AND (c.usage->>'inputTokens')::bigint > 0
-      )
+      db.execute(sql`
       SELECT
         model,
         COUNT(*) AS calls,
-        SUM(input_tokens) AS input_tokens,
-        SUM(cache_read_tokens) AS cache_read_tokens,
-        COUNT(*) FILTER (WHERE first_call) AS first_calls,
-        COALESCE(SUM(input_tokens) FILTER (WHERE first_call), 0) AS first_input_tokens,
-        COALESCE(SUM(cache_read_tokens) FILTER (WHERE first_call), 0) AS first_cache_read_tokens,
-        COUNT(*) FILTER (WHERE NOT first_call) AS continuation_calls,
-        COALESCE(SUM(input_tokens) FILTER (WHERE NOT first_call), 0) AS continuation_input_tokens,
-        COALESCE(SUM(cache_read_tokens) FILTER (WHERE NOT first_call), 0) AS continuation_cache_read_tokens
-      FROM classified
+        SUM((usage->>'inputTokens')::bigint) AS input_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens
+      FROM agent_model_calls
+      WHERE started_at >= ${since}
+        AND purpose = 'conversation'
+        AND usage IS NOT NULL
+        AND cache_read_tokens IS NOT NULL
+        AND (usage->>'inputTokens')::bigint > 0
       GROUP BY model
       ORDER BY input_tokens DESC, model
     `),
-  ])
+      // 首调按整轮排序，窗口之前的早先调用也算；未派发、本地拒绝或没报用量的尝试不占首调位。
+      db.execute(sql`
+      WITH ranked AS (
+        SELECT
+          started_at,
+          (usage->>'inputTokens')::bigint AS input_tokens,
+          cache_read_tokens,
+          ROW_NUMBER() OVER (
+            PARTITION BY conversation_id, turn_id ORDER BY started_at, id
+          ) = 1 AS first_call
+        FROM agent_model_calls
+        WHERE purpose = 'conversation'
+          AND usage IS NOT NULL
+          AND (usage->>'inputTokens')::bigint > 0
+          AND local_rejection IS NULL
+          AND COALESCE(http_dispatch_count, 1) > 0
+          AND (conversation_id, turn_id) IN (
+            SELECT conversation_id, turn_id FROM agent_model_calls
+            WHERE started_at >= ${since} AND purpose = 'conversation'
+          )
+      )
+      SELECT
+        first_call,
+        COUNT(*) AS calls,
+        SUM(input_tokens) AS input_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens
+      FROM ranked
+      WHERE started_at >= ${since} AND cache_read_tokens IS NOT NULL
+      GROUP BY first_call
+    `),
+    ])
 
+  const pulse = await getPulse(
+    range,
+    volume.map((bucket) => bucket.bucket_at),
+    at,
+  )
   const summary = (summaryRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
   const agentCacheModels = (cacheRowsRaw as unknown as Array<Record<string, unknown>>).map(
     (row) => ({
@@ -377,26 +594,19 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       calls: Number(row.calls),
       input_tokens: Number(row.input_tokens),
       cache_read_tokens: Number(row.cache_read_tokens),
-      first_call: {
-        calls: Number(row.first_calls),
-        input_tokens: Number(row.first_input_tokens),
-        cache_read_tokens: Number(row.first_cache_read_tokens),
-      },
-      continuation: {
-        calls: Number(row.continuation_calls),
-        input_tokens: Number(row.continuation_input_tokens),
-        cache_read_tokens: Number(row.continuation_cache_read_tokens),
-      },
     }),
   )
-  const cacheGroup = (key: 'first_call' | 'continuation') => ({
-    calls: agentCacheModels.reduce((sum, model) => sum + model[key].calls, 0),
-    input_tokens: agentCacheModels.reduce((sum, model) => sum + model[key].input_tokens, 0),
-    cache_read_tokens: agentCacheModels.reduce(
-      (sum, model) => sum + model[key].cache_read_tokens,
-      0,
-    ),
-  })
+  const phaseRows = phaseRowsRaw as unknown as Array<Record<string, unknown>>
+  const cachePhase = (first: boolean) => {
+    const row = phaseRows.find((one) => one.first_call === first)
+    return {
+      calls: Number(row?.calls ?? 0),
+      input_tokens: Number(row?.input_tokens ?? 0),
+      cache_read_tokens: Number(row?.cache_read_tokens ?? 0),
+    }
+  }
+  const firstCall = cachePhase(true)
+  const continuation = cachePhase(false)
   const completed = Number(summary.completed ?? 0)
   const failed = Number(summary.failed ?? 0)
   const terminal = completed + failed
@@ -409,28 +619,33 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       p50_duration_ms: nullableNumber(summary.p50_duration_ms),
       p95_duration_ms: nullableNumber(summary.p95_duration_ms),
       upstream_invocations: Number(summary.upstream_invocations ?? 0),
+      queue_p50_ms: nullableNumber(summary.queue_p50_ms),
     },
+    pulse,
     volume,
     volume_bucket: volumeBucketUnit(range),
     failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       error_type: String(row.error_type),
       count: Number(row.count),
+      previous_count: Number(row.previous_count),
     })),
     agent_cache: {
-      calls: agentCacheModels.reduce((sum, model) => sum + model.calls, 0),
-      input_tokens: agentCacheModels.reduce((sum, model) => sum + model.input_tokens, 0),
-      cache_read_tokens: agentCacheModels.reduce((sum, model) => sum + model.cache_read_tokens, 0),
-      first_call: cacheGroup('first_call'),
-      continuation: cacheGroup('continuation'),
-      models: agentCacheModels.map(
-        ({ first_call: _first, continuation: _continuation, ...model }) => model,
-      ),
+      calls: firstCall.calls + continuation.calls,
+      input_tokens: firstCall.input_tokens + continuation.input_tokens,
+      cache_read_tokens: firstCall.cache_read_tokens + continuation.cache_read_tokens,
+      first_call: firstCall,
+      continuation,
+      models: agentCacheModels,
     },
     models: (modelRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       model: String(row.model),
       count: Number(row.count),
       upstream_invocations: Number(row.upstream_invocations),
       average_multiplier: nullableNumber(row.average_multiplier),
+      completed: Number(row.completed),
+      failed: Number(row.failed),
+      queue_p50_ms: nullableNumber(row.queue_p50_ms),
+      run_p95_ms: nullableNumber(row.run_p95_ms),
     })),
   }
 }
@@ -456,6 +671,7 @@ const TASK_LIST_COLUMNS = sql`
 function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
   return {
     id: String(row.id),
+    kind: row.kind === 'analysis' ? 'analysis' : 'queue',
     provider: String(row.provider),
     model: String(row.model),
     status: taskStatus(row.status),
@@ -522,9 +738,23 @@ export async function getUserTasks(
     statusFilter && statusFilter !== 'all' ? sql`AND t.status = ${statusFilter}` : sql``
 
   const rows = (await db.execute(sql`
-    SELECT ${TASK_LIST_COLUMNS}
-    FROM queue_tasks t
-    WHERE t.user_id = ${userId}
+    SELECT t.*
+    FROM (
+      SELECT ${TASK_LIST_COLUMNS}, 'queue' AS kind
+      FROM queue_tasks t
+      WHERE t.user_id = ${userId}
+      UNION ALL
+      SELECT a.task_id AS id, 'openai-compat' AS provider, a.model, a.status,
+        a.created_at AS submitted_at, c.dispatched_at AS started_at, a.completed_at,
+        a.error_code AS error_type, NULL::integer AS upstream_status,
+        jsonb_build_object('prompt', a.input_snapshot->>'prompt') AS request_payload,
+        a.attempt AS attempt_count, COALESCE(c.http_dispatch_count, 0) AS upstream_invocation_count,
+        'analysis' AS kind
+      FROM analysis_tasks a
+      LEFT JOIN analysis_model_calls c ON c.task_id = a.task_id
+      WHERE a.user_id = ${userId}
+    ) t
+    WHERE TRUE
       ${statusCondition}
       ${keyset}
     ORDER BY t.submitted_at DESC, t.id DESC
@@ -642,7 +872,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     .where(eq(schema.queue_tasks.id, taskId))
     .limit(1)
   const task = rows[0]
-  if (!task) return null
+  if (!task) return getAnalysisTask(taskId)
 
   // 最小实现：从原始 result_payload 抽 image meta（index + mime），不解 base64
   const images = extractImagesMeta(task.provider, task.result_payload)
@@ -665,6 +895,55 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     upstream_body: task.upstream_body,
     device_id,
     next_retry_at: task.next_retry_at,
+  }
+}
+
+/** Independent analysis facts outlive transient worker rows and never expose image archives. */
+async function getAnalysisTask(taskId: string): Promise<TaskDetail | null> {
+  const { db, schema } = getHandle()
+  const [row] = await db
+    .select({ analysis: schema.analysis_tasks, call: schema.analysis_model_calls })
+    .from(schema.analysis_tasks)
+    .leftJoin(
+      schema.analysis_model_calls,
+      eq(schema.analysis_model_calls.task_id, schema.analysis_tasks.task_id),
+    )
+    .where(eq(schema.analysis_tasks.task_id, taskId))
+    .limit(1)
+  if (!row) return null
+  const { analysis, call } = row
+  return {
+    id: analysis.task_id,
+    kind: 'analysis',
+    provider: 'openai-compat',
+    model: analysis.model,
+    status: analysis.status,
+    submitted_at: analysis.created_at,
+    started_at: call?.dispatched_at ?? null,
+    completed_at: analysis.completed_at,
+    error_type: analysis.error_code,
+    upstream_status: null,
+    prompt: analysis.input_snapshot.prompt,
+    request_payload: { prompt: analysis.input_snapshot.prompt },
+    upstream_invocation_count: call?.http_dispatch_count ?? 0,
+    attempt_count: analysis.attempt,
+    result_meta: { images: [] },
+    error_message: analysis.error_code,
+    upstream_body: null,
+    device_id: analysis.device_id,
+    user_id: analysis.user_id,
+    next_retry_at: null,
+    analysis: {
+      pricing: analysis.price_snapshot,
+      reservedCredits: analysis.reserved_credits,
+      actualCredits: analysis.actual_credits,
+      findings: analysis.findings,
+      coverage: analysis.coverage,
+      evidence: analysis.evidence,
+      usage: call?.usage ?? null,
+      upstreamRequestId: call?.upstream_request_id ?? null,
+      localRejection: call?.local_rejection ?? null,
+    },
   }
 }
 

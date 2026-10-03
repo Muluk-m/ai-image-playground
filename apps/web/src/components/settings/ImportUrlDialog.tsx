@@ -73,7 +73,7 @@ export default function ImportUrlDialog({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
+      <div className="relative bg-card/90 backdrop-blur-xl border border-border rounded-3xl shadow-dialog max-w-sm w-full p-6 z-10 ring-1 ring-hairline animate-confirm-in">
         <button
           type="button"
           onClick={onClose}
@@ -87,13 +87,13 @@ export default function ImportUrlDialog({
           <CopyIcon className="h-5 w-5 shrink-0 text-primary mt-0.5" />
           <span>{t('profile.copyImportUrlFor', { name: profileName })}</span>
         </h3>
-        <div className="text-[13px] text-muted-foreground mb-5 leading-relaxed">
+        <div className="text-body-sm text-muted-foreground mb-5 leading-relaxed">
           {t('importUrl.question')}
         </div>
 
         {!options.includeApiKey && (
-          <div className="mb-6 rounded-2xl bg-card/80 p-4 ring-1 ring-black/5 dark:ring-white/5">
-            <div className="text-[13px] font-bold text-foreground mb-3.5">
+          <div className="mb-6 rounded-2xl bg-card/80 p-4 ring-1 ring-hairline">
+            <div className="text-body-sm font-bold text-foreground mb-3.5">
               {t('importUrl.newApiVars')}
             </div>
             <div className="space-y-3">

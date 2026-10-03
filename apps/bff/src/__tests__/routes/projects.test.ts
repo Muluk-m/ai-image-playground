@@ -380,3 +380,76 @@ it('回收项目仍占数量配额；过期项目不可恢复，旧目录游标�
   expect(continued.deletedIds).toContain(id)
   expect(continued.projects.map((one: { id: string }) => one.id)).not.toContain(id)
 })
+
+it('chat projects without a canvas cover fall back to the latest generated image', async () => {
+  const id = crypto.randomUUID()
+  await request(`/${id}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 0,
+    name: 'chat',
+    document: { version: 1, elements: [], experience: 'chat' },
+  })
+  const now = Date.now()
+  const conversationId = crypto.randomUUID()
+  await db.insert(schema.agent_conversations).values({
+    id: conversationId,
+    user_id: 'project-owner',
+    title: 'chat',
+    created_at: now,
+    updated_at: now,
+  })
+  await db
+    .update(schema.canvas_projects)
+    .set({ conversation_id: conversationId })
+    .where(eq(schema.canvas_projects.id, id))
+  const media = (mediaId: string, contentType: string) => ({
+    id: mediaId,
+    user_id: 'project-owner',
+    sha256: mediaId,
+    bytes: 1,
+    content_type: contentType,
+    status: 'ready' as const,
+    reserved_bytes: 1,
+    staging_key: `staging/${mediaId}`,
+    expires_at: now + 60_000,
+    created_at: now,
+    updated_at: now,
+  })
+  await db
+    .insert(schema.media_objects)
+    .values([
+      media('older-output', 'image/png'),
+      media('newer-input', 'image/png'),
+      media('newer-output', 'image/webp'),
+    ])
+  const record = (recordId: string, createdAt: number, deletedAt: number | null = null) => ({
+    id: recordId,
+    user_id: 'project-owner',
+    provider: 'openai',
+    model: 'gpt-image-2',
+    status: 'completed' as const,
+    prompt: 'mug',
+    created_at: createdAt,
+    revision: 1n,
+    deleted_at: deletedAt,
+    source: { kind: 'agent' as const, conversationId, turnId: 'turn', projectId: id },
+  })
+  await db
+    .insert(schema.generation_records)
+    .values([
+      record('gen-old', now - 2),
+      record('gen-new', now - 1),
+      record('gen-hidden', now, now),
+    ])
+  await db.insert(schema.generation_images).values([
+    { generation_id: 'gen-old', role: 'output', position: 0, media_id: 'older-output' },
+    { generation_id: 'gen-new', role: 'input', position: 0, media_id: 'newer-input' },
+    { generation_id: 'gen-new', role: 'output', position: 0, media_id: 'newer-output' },
+    { generation_id: 'gen-hidden', role: 'output', position: 0, media_id: 'older-output' },
+  ])
+
+  const list = await (await request('', deviceB)).json()
+  expect(list.projects.find((one: { id: string }) => one.id === id).coverMediaId).toBe(
+    'newer-output',
+  )
+})

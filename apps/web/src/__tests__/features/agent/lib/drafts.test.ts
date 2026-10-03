@@ -343,3 +343,194 @@ it('空输入框接回失败消息时也保留尚未恢复的旧草稿', async (
   expect(restored.getSnapshot().unsent?.prompt).toBe('旧草稿')
   expect(restored.getSnapshot().recoverable).toBe(true)
 })
+
+it('Web Locks 拒绝保存后显示失败，并允许下一次编辑重新保存', async () => {
+  const session = new DraftSession('document-lock-rejection')
+  await ready(session)
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'locks')
+  const request = vi.fn(() => Promise.reject(new DOMException('Lock unavailable', 'AbortError')))
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } })
+  try {
+    session.update({ prompt: '第一次需要保存的内容', references: [] })
+    const outcome = await session.flush().then(
+      () => 'settled',
+      () => 'rejected',
+    )
+    expect(outcome).toBe('settled')
+    expect(session.getSnapshot().error).toBeTruthy()
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined })
+    session.update({ prompt: '锁恢复后的新内容', references: [] })
+    await session.flush()
+    expect(session.getSnapshot().error).toBeNull()
+    expect(await storedPrompt(session.key)).toBe('锁恢复后的新内容')
+  } finally {
+    if (descriptor) Object.defineProperty(navigator, 'locks', descriptor)
+    else Reflect.deleteProperty(navigator, 'locks')
+  }
+})
+
+async function draftRows(): Promise<{ key: IDBValidKey; value: unknown }[]> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('image-playground-agent-drafts', 1)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  try {
+    return await new Promise((resolve, reject) => {
+      const rows: { key: IDBValidKey; value: unknown }[] = []
+      const tx = db.transaction('drafts')
+      const request = tx.objectStore('drafts').openCursor()
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (!cursor) return
+        rows.push({ key: cursor.key, value: cursor.value })
+        cursor.continue()
+      }
+      tx.oncomplete = () => resolve(rows)
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+it.each([
+  { prompt: 123, references: [], originalText: '保留损坏记录中的原文' },
+  { prompt: '', references: [], returnedQueueIds: 123 },
+  { prompt: '', references: [], remainingUnsent: 123 },
+  { prompt: '', references: [], unsent: { prompt: 123, references: [] } },
+  { prompt: '', references: [], remainingUnsent: [{ prompt: '嵌套原文', references: null }] },
+  { prompt: '', references: [null] },
+])('读取失败后显式重试无效记录能恢复编辑且完整保留原始记录 %#', async (raw) => {
+  const key = `invalid-recovery-row-${crypto.randomUUID()}`
+  const seed = new DraftSession(key)
+  await seed.ready
+  const db = await new Promise<IDBDatabase>((resolve) => {
+    const request = indexedDB.open('image-playground-agent-drafts', 1)
+    request.onsuccess = () => resolve(request.result)
+  })
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').put(raw, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+  const get = IDBObjectStore.prototype.get
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (this.name === 'drafts' && query === key)
+      throw new DOMException('Read failed', 'UnknownError')
+    return get.call(this, query)
+  })
+  const session = new DraftSession(key)
+  try {
+    await session.ready
+    expect(session.getSnapshot().recoveryBlocked).toBe(true)
+    failure.mockRestore()
+    await session.retryRecovery()
+    expect(session.getSnapshot().recoveryBlocked).toBe(false)
+    session.update({ prompt: '恢复后新内容', references: [] })
+    await session.flush()
+    expect(await storedPrompt(key)).toBe('恢复后新内容')
+    expect(
+      (await draftRows()).some((row) => JSON.stringify(row.value) === JSON.stringify(raw)),
+    ).toBe(true)
+  } finally {
+    failure.mockRestore()
+  }
+})
+
+it.each([
+  'update',
+  'returnUnsent',
+  'moveTo',
+] as const)('首次读取完成前 %s 后读取失败，重试保留本地和磁盘内容并解除阻断', async (operation) => {
+  const key = `early-${operation}`
+  const seed = new DraftSession(key)
+  await seed.ready
+  seed.update({ prompt: '磁盘原始内容', references: [] })
+  await seed.flush()
+  const get = IDBObjectStore.prototype.get
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (this.name === 'drafts' && (query === key || query === `${key}-moved`))
+      throw new DOMException('Read failed', 'UnknownError')
+    return get.call(this, query)
+  })
+  const session = new DraftSession(key)
+  try {
+    let returned: Promise<boolean> | undefined
+    if (operation === 'update') session.update({ prompt: '本地新内容', references: [] })
+    else if (operation === 'returnUnsent')
+      returned = session.returnUnsent({ prompt: '本地新内容', references: [] })
+    else session.moveTo(`${key}-moved`)
+    await session.ready
+    await returned
+    expect(session.getSnapshot().recoveryBlocked).toBe(true)
+    failure.mockRestore()
+    await session.retryRecovery()
+    expect(session.getSnapshot().recoveryBlocked).toBe(false)
+    const recovered = session.getSnapshot()
+    expect(JSON.stringify(recovered)).toContain('磁盘原始内容')
+    if (operation !== 'moveTo') expect(JSON.stringify(recovered)).toContain('本地新内容')
+    await session.flush()
+    const reloaded = new DraftSession(session.key)
+    await reloaded.ready
+    expect(JSON.stringify(reloaded.getSnapshot())).toContain('磁盘原始内容')
+    if (operation !== 'moveTo')
+      expect(JSON.stringify(reloaded.getSnapshot())).toContain('本地新内容')
+  } finally {
+    failure.mockRestore()
+  }
+})
+
+it('隔离损坏草稿后原媒体仅归恢复副本持有，显式释放副本即可回收', async () => {
+  const { registerLocalAttachmentSource, readLocalAttachment, attachmentSourceOwner } =
+    await import('../../../../lib/localAttachmentSources')
+  const handle = registerLocalAttachmentSource(
+    new File([new Uint8Array([1, 2, 3])], 'raw.png', { type: 'image/png' }),
+    1024,
+  )
+  await readLocalAttachment(handle)
+  const key = `invalid-owner-${crypto.randomUUID()}`
+  const seed = new DraftSession(key)
+  await seed.ready
+  seed.update({ prompt: '原图引用', references: [{ id: 'raw', dataUrl: handle }] })
+  await seed.flush()
+  const db = await new Promise<IDBDatabase>((resolve) => {
+    const request = indexedDB.open('image-playground-agent-drafts', 1)
+    request.onsuccess = () => resolve(request.result)
+  })
+  const raw = { prompt: 123, references: [{ id: 'raw', dataUrl: handle }] }
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').put(raw, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  const restored = new DraftSession(key)
+  await restored.ready
+  await restored.retryRecovery()
+  expect(restored.getSnapshot().recoveryBlocked).toBe(false)
+  const copy = (await draftRows()).find(
+    (row) => row.key !== key && JSON.stringify(row.value) === JSON.stringify(raw),
+  )!
+  expect(copy).toBeDefined()
+  expect(new Uint8Array((await readLocalAttachment(handle)).data)).toEqual(
+    new Uint8Array([1, 2, 3]),
+  )
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').delete(copy.key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+  await attachmentSourceOwner(`draft:${String(copy.key)}`).release()
+  await expect(readLocalAttachment(handle)).rejects.toThrow('attachment_source_missing')
+})

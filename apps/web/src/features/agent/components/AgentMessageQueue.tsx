@@ -36,7 +36,7 @@ export default function AgentMessageQueue() {
   return (
     <section aria-label={t('queue.title', { count: queue.length })} className="shrink-0 px-3 pt-2">
       {hasWaitingMessages(queue) && (
-        <p className={`mb-1 flex items-baseline gap-1.5 text-[11px] ${INK_3}`}>
+        <p className={`mb-1 flex items-baseline gap-1.5 text-label-sm ${INK_3}`}>
           <span className={`font-medium ${INK}`}>{t('queue.title', { count: waiting })}</span>
           <span>{t('queue.hint')}</span>
         </p>
@@ -51,12 +51,12 @@ export default function AgentMessageQueue() {
               {message.text}
             </span>
             {message.failure && (
-              <span role="status" className="shrink-0 text-[11px] text-destructive">
+              <span role="status" className="shrink-0 text-label-sm text-destructive">
                 {t(`queue.failure.${message.failure}`)}
               </span>
             )}
             {message.referenceCount > 0 && (
-              <span className={`shrink-0 text-[11px] ${INK_3}`}>
+              <span className={`shrink-0 text-label-sm ${INK_3}`}>
                 {t('queue.references', { count: message.referenceCount })}
               </span>
             )}

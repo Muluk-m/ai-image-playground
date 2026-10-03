@@ -18,10 +18,47 @@ vi.mock('../../lib/api-client', () => {
       p50_duration_ms: 1200,
       p95_duration_ms: 4200,
       upstream_invocations: 4,
+      queue_p50_ms: 800,
+    },
+    pulse: {
+      current: {
+        tasks: 3,
+        completed: 2,
+        failed: 1,
+        images: 5,
+        active: 2,
+        signups: 1,
+        agent_turns: 4,
+        agent_failed: 0,
+        agent_aborted: 1,
+      },
+      previous: {
+        tasks: 2,
+        completed: 2,
+        failed: 0,
+        images: 4,
+        active: 2,
+        signups: 0,
+        agent_turns: 1,
+        agent_failed: 0,
+        agent_aborted: 0,
+      },
+      series: [
+        {
+          bucket_at: Date.now(),
+          tasks: 3,
+          images: 5,
+          active: 2,
+          signups: 1,
+          agent_completed: 3,
+          agent_failed: 0,
+          agent_aborted: 1,
+        },
+      ],
     },
     volume: [{ bucket_at: Date.now(), total: 3, completed: 2, failed: 1 }],
     volume_bucket: 'day',
-    failures: [{ error_type: 'upstream_timeout', count: 1 }],
+    failures: [{ error_type: 'upstream_timeout', count: 1, previous_count: 0 }],
     agent_cache: {
       calls: 2,
       input_tokens: 1000,
@@ -33,7 +70,18 @@ vi.mock('../../lib/api-client', () => {
         { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
       ],
     },
-    models: [{ model: 'gpt-image-2', count: 3, upstream_invocations: 4, average_multiplier: 1.33 }],
+    models: [
+      {
+        model: 'gpt-image-2',
+        count: 3,
+        upstream_invocations: 4,
+        average_multiplier: 1.33,
+        completed: 2,
+        failed: 1,
+        queue_p50_ms: 800,
+        run_p95_ms: 4200,
+      },
+    ],
   }
   const user = {
     id: 'user-1',
@@ -60,6 +108,29 @@ vi.mock('../../lib/api-client', () => {
     }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
     if (url.startsWith('/api/overview')) return overview
+    if (url.startsWith('/api/client-errors')) {
+      return {
+        range: '7d',
+        bucket_unit: 'day',
+        summary: { events: 3, devices: 2, boot_events: 2, groups: 1 },
+        trend: [],
+        groups: [
+          {
+            fingerprint: 'aaaaaaaaaaaaaaaa',
+            kind: 'boot',
+            name: 'BootFailure',
+            message: 'timeout',
+            count: 2,
+            devices: 2,
+            users: 0,
+            first_seen: Date.now() - 3600_000,
+            last_seen: Date.now() - 60_000,
+            last_url: null,
+            last_release: null,
+          },
+        ],
+      }
+    }
     if (url.includes('/tasks')) return { tasks: [], nextCursor: null }
     if (url.startsWith('/api/users/')) {
       return {
@@ -222,6 +293,31 @@ describe('sync footprint', () => {
   })
 })
 
+describe('概览 command center', () => {
+  it('compares business numbers with the previous window', async () => {
+    renderAt('/overview')
+    const kpis = within(await screen.findByRole('region', { name: '业务指标' }))
+    expect(kpis.getByText('提交任务')).toBeInTheDocument()
+    expect(kpis.getByText('+50.0%')).toBeInTheDocument()
+    expect(kpis.getByText('新注册')).toBeInTheDocument()
+  })
+
+  it('lights each subsystem and lists boot failures under 需要处理', async () => {
+    renderAt('/overview')
+    const health = within(await screen.findByRole('region', { name: '系统健康' }))
+    // 带着概览的时间窗过去，详情页看到的是同一批错误。
+    expect(health.getByRole('link', { name: /前端：注意，2/ })).toHaveAttribute(
+      'href',
+      '/errors?range=7d',
+    )
+    // 运维快照每一栏都取不到：灯显示取不到，不冒充正常。
+    expect(health.getByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
+    expect(
+      await screen.findByText('2 次启动失败，用户看到「工作台暂时无法打开」'),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('time range placement', () => {
   it('shows the token-weighted Agent cache hit rate and per-model usage', async () => {
     renderAt('/overview')
@@ -234,9 +330,9 @@ describe('time range placement', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders the range control next to the task pulse chart on 概览', async () => {
+  it('renders one range control for the whole 概览 page', async () => {
     renderAt('/overview')
-    expect(await screen.findByLabelText('时间范围')).toBeInTheDocument()
+    expect(await screen.findAllByLabelText('时间范围')).toHaveLength(1)
   })
 
   it('renders no range control on the user detail page', async () => {

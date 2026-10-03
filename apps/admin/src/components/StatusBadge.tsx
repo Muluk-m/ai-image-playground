@@ -11,6 +11,8 @@ export function StatusBadge({ status }: StatusBadgeProps) {
       return <Badge variant="success">成功</Badge>
     case 'failed':
       return <Badge variant="destructive">失败</Badge>
+    case 'reconciling':
+      return <Badge variant="warning">待核查</Badge>
     case 'in_progress':
       return <Badge variant="info">运行中</Badge>
     case 'queued':

@@ -6,7 +6,7 @@
 
 import type { ComponentProps } from 'react'
 import { cn } from '../../../lib/utils'
-import { mono, ShimmerLabel } from './surfaces'
+import { AgentSpark, mono, ShimmerLabel } from './surfaces'
 
 export function ThinkingIndicator({
   label,
@@ -20,13 +20,10 @@ export function ThinkingIndicator({
   return (
     <div
       data-slot="thinking-indicator"
-      className={cn('text-foreground/55 flex items-center gap-2.5 text-sm', className)}
+      className={cn('text-foreground/55 flex items-center gap-2 text-[13px] leading-5', className)}
       {...props}
     >
-      <span
-        aria-hidden
-        className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
-      />
+      <AgentSpark active />
       <ShimmerLabel
         key={label}
         className="fade-in slide-in-from-bottom-1 animate-in relative inline-block leading-none duration-300"

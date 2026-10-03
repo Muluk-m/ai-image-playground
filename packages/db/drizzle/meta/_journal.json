@@ -334,8 +334,85 @@
     {
       "idx": 48,
       "version": "7",
-      "when": 1790820000000,
-      "tag": "0048_production_document",
+      "when": 1790853000000,
+      "tag": "0048_conversation_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790853000001,
+      "tag": "0049_task_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790853000002,
+      "tag": "0050_agent_call_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790853000003,
+      "tag": "0051_agent_batch_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790853000004,
+      "tag": "0052_agent_batch_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790853000005,
+      "tag": "0053_analysis_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790853000006,
+      "tag": "0054_agent_batch_retry",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790853000007,
+      "tag": "0055_agent_batch_confirmation",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790853000008,
+      "tag": "0056_generation_records_conversation",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790853000009,
+      "tag": "0057_client_errors",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790853000010,
+      "tag": "0058_agent_turns_created_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790853000011,
+      "tag": "0059_production_document",
       "breakpoints": true
     }
   ]

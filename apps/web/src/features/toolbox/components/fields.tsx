@@ -36,7 +36,7 @@ export function Segmented<T extends string | number>({
           role="radio"
           aria-checked={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`h-8 rounded-md px-3 text-[13px] transition-colors ${
+          className={`h-8 rounded-md px-3 text-body-sm transition-colors ${
             value === option.value
               ? 'bg-background font-medium text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground'
@@ -74,7 +74,7 @@ export function NumberField({
           const next = Math.round(Number(event.target.value))
           if (Number.isFinite(next) && next >= min) onChange(next)
         }}
-        className="h-8 pr-9 text-[13px]"
+        className="h-8 pr-9 text-body-sm"
       />
       <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
         {unit}
