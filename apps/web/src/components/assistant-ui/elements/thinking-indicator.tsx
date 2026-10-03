@@ -4,6 +4,7 @@
  * See UPSTREAM.md for source paths and local adaptations; license in LICENSE.
  */
 
+import { Loader } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import { cn } from '../../../lib/utils'
 import { mono, ShimmerLabel } from './surfaces'
@@ -23,9 +24,9 @@ export function ThinkingIndicator({
       className={cn('text-foreground/55 flex items-center gap-2.5 text-sm', className)}
       {...props}
     >
-      <span
+      <Loader
         aria-hidden
-        className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
+        className="size-3.5 shrink-0 animate-[spin_3s_linear_infinite] text-primary motion-reduce:animate-none"
       />
       <ShimmerLabel
         key={label}
