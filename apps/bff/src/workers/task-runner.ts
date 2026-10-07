@@ -336,7 +336,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     }
     const isTimeout = err instanceof UpstreamTimeoutError
     const isUnknownResult = err instanceof UpstreamResultUnknownError
-    const isStorageError = err instanceof ObjectStorageError
+    const isStorageError = err instanceof ObjectStorageError && !rejectedMaskedOutput
     const message = isTimeout
       ? `上游超时：BFF 等待超过 ${Math.round(QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS / 60000)} 分钟未拿到响应`
       : err instanceof Error

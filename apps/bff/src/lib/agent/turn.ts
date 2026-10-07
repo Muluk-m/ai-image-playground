@@ -303,9 +303,14 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         }
         throw thrown
       }
-      const callId = await ledger.begin('conversation', model.id, context)
+      let callId = await ledger.begin('conversation', model.id, context)
       modelCallId = callId
       return agentStreamFn(prepared.params?.thinkingDepth, {
+        onRetry: async (message) => {
+          await ledger.finish(callId, message)
+          callId = await ledger.begin('conversation', model.id, context)
+          modelCallId = callId
+        },
         onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
         onDispatch: async (bytes) => {
           const evidence = visualWorkset.dispatched(context.messages)

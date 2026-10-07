@@ -11,6 +11,8 @@ export function inspectMaskedAlignment(
   const policy = maskedEditSettings.alignment
   const stepX = Math.max(1, Math.ceil(width / policy.gridSize))
   const stepY = Math.max(1, Math.ceil(height / policy.gridSize))
+  // 比较低频结构，避免 JPEG 噪声、细纹理重绘被当作整图错位。
+  const sampleSize = Math.max(1, Math.ceil(Math.min(width, height) / policy.analysisMaxEdge))
   let textured = 0
   let matched = 0
   const matchedQuadrants = new Set<number>()
@@ -27,21 +29,32 @@ export function inspectMaskedAlignment(
         sumAB = 0,
         count = 0,
         excluded = false
-      for (let y = top; y < Math.min(height, top + stepY); y++) {
-        for (let x = left; x < Math.min(width, left + stepX); x++) {
-          const offset = (y * width + x) * 4
-          if (mask[offset + 3] !== 255) {
-            excluded = true
-            continue
+      for (let y = top; y < Math.min(height, top + stepY); y += sampleSize) {
+        for (let x = left; x < Math.min(width, left + stepX); x += sampleSize) {
+          let a = 0,
+            b = 0,
+            samples = 0
+          for (let sy = y; sy < Math.min(height, top + stepY, y + sampleSize); sy++) {
+            for (let sx = x; sx < Math.min(width, left + stepX, x + sampleSize); sx++) {
+              const offset = (sy * width + sx) * 4
+              if (mask[offset + 3] !== 255) {
+                excluded = true
+                continue
+              }
+              protectedPixels++
+              difference += Math.abs(grey(source, offset) - grey(candidate, offset))
+              if (source[offset + 3] !== 255 || candidate[offset + 3] !== 255) {
+                excluded = true
+                continue
+              }
+              a += grey(source, offset)
+              b += grey(candidate, offset)
+              samples++
+            }
           }
-          protectedPixels++
-          const a = grey(source, offset),
-            b = grey(candidate, offset)
-          difference += Math.abs(a - b)
-          if (source[offset + 3] !== 255 || candidate[offset + 3] !== 255) {
-            excluded = true
-            continue
-          }
+          if (!samples) continue
+          a /= samples
+          b /= samples
           count++
           sumA += a
           sumB += b
