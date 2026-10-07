@@ -45,21 +45,24 @@ const STREAM_IDLE_TIMEOUT_MS = AGENT_SSE_HEARTBEAT_MS * 3
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
-/** Only bound the response headers; a healthy SSE response may run for many minutes. */
+/** Keep the deadline through JSON/error bodies; callers release it when SSE takes over. */
 async function fetchStreamResponse(
   fetcher: Fetcher,
   path: string,
   init: RequestInit,
-): Promise<Response> {
+): Promise<{ response: Response; releaseDeadline: () => void }> {
   const controller = new AbortController()
   const timer = setTimeout(
     () => controller.abort(new DOMException('Agent request timed out', 'TimeoutError')),
     CONTROL_REQUEST_TIMEOUT_MS,
   )
+  const releaseDeadline = () => clearTimeout(timer)
   try {
-    return await fetcher(path, { ...init, signal: controller.signal })
-  } finally {
-    clearTimeout(timer)
+    const response = await fetcher(path, { ...init, signal: controller.signal })
+    return { response, releaseDeadline }
+  } catch (error) {
+    releaseDeadline()
+    throw error
   }
 }
 
@@ -316,23 +319,28 @@ export async function startTurn(
     ...(experience ? { experience } : {}),
   })
   const path = url(`/conversations/${conversationId}/turns`)
-  let response: Response
+  let opened: Awaited<ReturnType<typeof fetchStreamResponse>>
   try {
-    response = await fetchStreamResponse(fetcher, path, init)
+    opened = await fetchStreamResponse(fetcher, path, init)
   } catch {
     // 请求可能已经到了服务端、只是回程断了：同一个 id 再发一次，服务端按它去重。
-    response = await fetchStreamResponse(fetcher, path, init)
+    opened = await fetchStreamResponse(fetcher, path, init)
   }
-  if (response.status === 202) {
-    return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+  const { response } = opened
+  try {
+    if (response.status === 202) {
+      return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+    }
+    if (response.status === 409) {
+      // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
+      const turnId = await alreadyRunningTurnId(response.clone())
+      if (turnId) return { kind: 'alreadyRunning', turnId }
+    }
+    if (!response.ok || !response.body) throw await requestError(response)
+    return { kind: 'frames', frames: readFrames(response) }
+  } finally {
+    opened.releaseDeadline()
   }
-  if (response.status === 409) {
-    // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
-    const turnId = await alreadyRunningTurnId(response.clone())
-    if (turnId) return { kind: 'alreadyRunning', turnId }
-  }
-  if (!response.ok || !response.body) throw await requestError(response)
-  return { kind: 'frames', frames: readFrames(response) }
 }
 
 /** `lastEventId` 为 0 表示从头要一遍这一轮。 */
@@ -345,16 +353,23 @@ async function* resumeTurn(
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetchStreamResponse(
+  const opened = await fetchStreamResponse(
     fetcher,
     url(`/conversations/${conversationId}/turns/${turnId}/events`),
     {
       headers,
     },
   )
-  // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
-  if (response.ok && response.body) onOpen?.()
-  yield* readFrames(response)
+  try {
+    // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
+    if (opened.response.ok && opened.response.body) {
+      opened.releaseDeadline()
+      onOpen?.()
+    }
+    yield* readFrames(opened.response)
+  } finally {
+    opened.releaseDeadline()
+  }
 }
 
 /** 会话级增量：`lastEventId` 之后这个会话的全部事件，不分哪一轮。 */
@@ -366,13 +381,20 @@ async function* resumeConversation(
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetchStreamResponse(
+  const opened = await fetchStreamResponse(
     fetcher,
     url(`/conversations/${conversationId}/events`),
     { headers },
   )
-  if (response.ok && response.body) onOpen?.()
-  yield* readFrames(response)
+  try {
+    if (opened.response.ok && opened.response.body) {
+      opened.releaseDeadline()
+      onOpen?.()
+    }
+    yield* readFrames(opened.response)
+  } finally {
+    opened.releaseDeadline()
+  }
 }
 
 /** 断了之后隔多久再续播。第一次立刻重试：多数断流是中间设备掐的，续播马上就接上了。 */
