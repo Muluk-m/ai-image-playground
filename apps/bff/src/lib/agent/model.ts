@@ -112,17 +112,28 @@ export function agentStreamFn(
   observer: AgentDispatchObserver & { onRetry?: (message: AssistantMessage) => Promise<void> } = {},
 ): StreamFn {
   const { models } = runtime(depth)
-  return retryOverloadedStream(
-    (streamModel, context, options) =>
-      models.streamSimple(streamModel, context, {
-        ...options,
-        maxRetries: 0,
-        fetch: guardedAgentFetch(
-          withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs),
-          observer,
-        ) as typeof globalThis.fetch,
-      }),
-    observer.onRetry,
-    retryBackoffMs,
-  )
+  return (model, context, options) => {
+    // 证据属于这一份请求、这一轮尝试；网络异常的文本不能替代上游拒绝响应。
+    let overloadRejected = false
+    return retryOverloadedStream(
+      (streamModel, context, options) => {
+        overloadRejected = false
+        return models.streamSimple(streamModel, context, {
+          ...options,
+          maxRetries: 0,
+          fetch: guardedAgentFetch(
+            withIdleTimeout(async (input, init) => {
+              const response = await (fetchImpl ?? globalThis.fetch)(input, init)
+              overloadRejected = response.status === 429 || response.status === 503
+              return response
+            }, idleMs),
+            observer,
+          ) as typeof globalThis.fetch,
+        })
+      },
+      () => overloadRejected,
+      observer.onRetry,
+      retryBackoffMs,
+    )(model, context, options)
+  }
 }

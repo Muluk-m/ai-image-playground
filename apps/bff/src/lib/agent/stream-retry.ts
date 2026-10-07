@@ -5,13 +5,13 @@ import { log } from '../logger'
 /** 只重试明确的过载拒绝；断流、超时与已有输出都不能证明可以安全重发。 */
 export function retryOverloadedStream(
   stream: StreamFn,
+  isOverloadRejected: () => boolean,
   onRetry?: (message: AssistantMessage) => Promise<void>,
   backoffMs = 1000,
 ): StreamFn {
   return (model, context, options) => {
     const output = createAssistantMessageEventStream()
     void (async () => {
-      let last: AssistantMessage | undefined
       try {
         for (let attempt = 0; attempt < 3; attempt++) {
           let start:
@@ -30,11 +30,11 @@ export function retryOverloadedStream(
               event.reason === 'error' &&
               !emitted &&
               event.error.content.length === 0 &&
+              isOverloadRejected() &&
               /\b(overloaded|server_overloaded)\b/i.test(event.error.errorMessage ?? '') &&
               !options?.signal?.aborted &&
               attempt < 2
             ) {
-              last = event.error
               // 每次尝试都有自己的派发与用量记录，SDK 自动重试仍然关闭。
               await onRetry?.(event.error)
               log.warn(
@@ -59,22 +59,20 @@ export function retryOverloadedStream(
       } catch (error) {
         const aborted = options?.signal?.aborted
         const message: AssistantMessage = {
-          ...(last ?? {
-            role: 'assistant',
-            content: [],
-            api: model.api,
-            provider: model.provider,
-            model: model.id,
-            timestamp: Date.now(),
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-            },
-          }),
+          role: 'assistant',
+          content: [],
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          timestamp: Date.now(),
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
           stopReason: aborted ? 'aborted' : 'error',
           errorMessage: error instanceof Error ? error.message : String(error),
         }
