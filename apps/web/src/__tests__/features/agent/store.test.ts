@@ -293,6 +293,27 @@ describe('一轮对话', () => {
     expect(state().turn).toBe('idle')
   })
 
+  it('受理后的消息保留已确认媒体身份，不再依赖会被清理的本机附件', async () => {
+    const references: AgentTurnReference[] = [
+      { imageId: 'photo', dataUrl: `aip-local:${crypto.randomUUID()}`, name: '产品图' },
+    ]
+    const prepared: AgentTurnReference[] = [
+      { imageId: 'photo', mediaId: crypto.randomUUID(), name: '产品图' },
+    ]
+    const capture = turnSubmission.captureTurnSubmission
+    vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => {
+      const captured = capture(input)
+      return { ...captured, prepare: async () => ({ ...captured.snapshot, references: prepared }) }
+    })
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+
+    await state().send('加背景', references)
+
+    expect(state().messages.find((message) => message.id === 'user-1')).toMatchObject({
+      references: prepared,
+    })
+  })
+
   it('参考图准备失败时退出发送中，保留原消息和参考图供重试', async () => {
     const capture = turnSubmission.captureTurnSubmission
     vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => ({

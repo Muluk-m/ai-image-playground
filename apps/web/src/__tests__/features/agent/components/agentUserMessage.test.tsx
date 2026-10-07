@@ -1,9 +1,81 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentUserMessage from '../../../../features/agent/components/AgentUserMessage'
+import * as agentClient from '../../../../features/agent/lib/agentClient'
+import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentTextMessage } from '../../../../features/agent/types'
+
+vi.mock('../../../../components/Lightbox', () => ({
+  ImagePreview: ({ src }: { src: string }) => <img data-original src={src} alt="原图" />,
+}))
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  useAgentStore.setState({ conversationId: null })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+it.each([
+  'aip-local',
+  'aip-media',
+  'mediaId',
+])('已发送的 %s 引用从消息读取缩略图，点开时才读取原图', async (kind) => {
+  useAgentStore.setState({ conversationId: 'conversation-1' })
+  const id = crypto.randomUUID()
+  const thumbnail = new Blob(['thumbnail'], { type: 'image/webp' })
+  const original = new Blob(['original'], { type: 'image/png' })
+  const fetchReference = vi
+    .spyOn(agentClient, 'fetchMessageReference')
+    .mockResolvedValueOnce(thumbnail)
+    .mockResolvedValueOnce(original)
+  const createUrl = vi.fn((blob: Blob) => (blob === thumbnail ? 'blob:thumbnail' : 'blob:original'))
+  const revokeUrl = vi.fn()
+  vi.stubGlobal(
+    'URL',
+    Object.assign(class extends URL {}, { createObjectURL: createUrl, revokeObjectURL: revokeUrl }),
+  )
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user-1',
+    turnId: 'turn-1',
+    role: 'user',
+    streaming: false,
+    text: '加背景',
+    references: [
+      {
+        imageId: 'photo',
+        name: '产品图',
+        ...(kind === 'mediaId' ? { mediaId: id } : { dataUrl: `${kind}:${id}` }),
+      },
+    ],
+  }
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentUserMessage message={message} skills={[]} />))
+    expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:thumbnail')
+    expect(fetchReference).toHaveBeenCalledTimes(1)
+    expect(fetchReference).toHaveBeenNthCalledWith(1, 'conversation-1', 'user-1', 0, {
+      signal: expect.any(AbortSignal),
+    })
+
+    await act(async () => host.querySelector<HTMLButtonElement>('.agent-image-mention')!.click())
+    expect(host.querySelector('[data-original]')?.getAttribute('src')).toBe('blob:original')
+    expect(fetchReference).toHaveBeenNthCalledWith(2, 'conversation-1', 'user-1', 0, {
+      signal: expect.any(AbortSignal),
+      variant: 'annotated',
+    })
+  } finally {
+    act(() => root.unmount())
+  }
+  expect(revokeUrl.mock.calls.flat()).toEqual(['blob:thumbnail', 'blob:original'])
+})
 
 it('shows user intent and a named reference while hiding legacy edit scaffolding only for masked messages', () => {
   const host = document.createElement('div')
