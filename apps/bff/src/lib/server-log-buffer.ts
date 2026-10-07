@@ -10,10 +10,21 @@ const LEVELS: Record<number, ServerLogLevel> = {
 }
 // Exclude raw user content and credentials, including nested error/request objects.
 const PRIVATE_FIELD =
-  /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
+  /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|payloadPreview|responseBody|errorBody|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
 
-export function redactLogText(value: string): string {
-  return value
+export function redactLogText(value: string, depth = 0): string {
+  const withoutNul = value.replace(/\u0000/g, '')
+  if (depth > 5) return '[TRUNCATED]'
+  const structured = withoutNul.replace(/\{[\s\S]*\}|\[[\s\S]*\]/g, (candidate) => {
+    try {
+      return JSON.stringify(sanitize(JSON.parse(candidate), depth + 1))
+    } catch {
+      return /["'](?:prompt|content|messages|payload|body)["']\s*:/.test(candidate)
+        ? '[REDACTED PAYLOAD]'
+        : candidate
+    }
+  })
+  return structured
     .replace(/\b(Bearer|Basic)\s+[^\s"'<>]+/gi, '$1 [REDACTED]')
     .replace(/\b(?:sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\b/gi, '[REDACTED]')
     .replace(
@@ -27,16 +38,19 @@ export function redactLogText(value: string): string {
 
 function sanitize(value: unknown, depth = 0): unknown {
   if (depth > 5) return '[TRUNCATED]'
-  if (typeof value === 'string') return redactLogText(value)
+  if (typeof value === 'string') return redactLogText(value, depth)
   if (Array.isArray(value)) return value.slice(0, 30).map((one) => sanitize(one, depth + 1))
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
         .slice(0, 60)
-        .map(([key, one]) => [
-          key,
-          PRIVATE_FIELD.test(key) ? '[REDACTED]' : sanitize(one, depth + 1),
-        ]),
+        .map(([key, one]) => {
+          const cleanedKey = key.replace(/\u0000/g, '').slice(0, 200)
+          return [
+            cleanedKey,
+            PRIVATE_FIELD.test(cleanedKey) ? '[REDACTED]' : sanitize(one, depth + 1),
+          ]
+        }),
     )
   }
   return value
@@ -91,10 +105,12 @@ export function createServerLogBuffer(options: {
   const maxEntries = options.maxEntries ?? 500
   const batchSize = options.batchSize ?? 100
   let pending: Promise<void> | undefined
+  let stopped = false
   let dropped = 0
   let failures = 0
   let lastWrittenAt: number | null = null
   function enqueue(entry: ServerLogEntry) {
+    if (stopped) return
     if (queue.length >= maxEntries) {
       dropped++
       return
@@ -120,17 +136,46 @@ export function createServerLogBuffer(options: {
       })
     return pending
   }
-  async function drain() {
-    while (queue.length) {
-      const before = queue.length
+  async function pump(maxBatches = 20) {
+    for (let batch = 0; batch < maxBatches && queue.length && !stopped; batch++) {
+      const failuresBefore = failures
       await flush()
-      if (queue.length >= before) break
+      if (failures !== failuresBefore) break
+    }
+  }
+  async function drain(timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs
+    let expired = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const work = async () => {
+      while (queue.length && !expired && Date.now() < deadline) {
+        const failuresBefore = failures
+        await flush()
+        if (failures !== failuresBefore) break
+      }
+    }
+    try {
+      await Promise.race([
+        work(),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            expired = true
+            resolve()
+          }, timeoutMs)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
     }
   }
   return {
     enqueue,
     flush,
+    pump,
     drain,
+    stop: () => {
+      stopped = true
+    },
     stats: () => ({ pending: queue.length, dropped, failures, last_written_at: lastWrittenAt }),
   }
 }

@@ -12,9 +12,11 @@ process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 const { app, apiMetrics } = await import('../../app')
 const { close, db, schema } = await import('../../db/client')
 const { log, serverLogBuffer } = await import('../../lib/logger')
+const { closeServerLogDatabase } = await import('../../lib/server-logs')
 const { withRequestContext } = await import('../../lib/request-context')
 
 afterAll(async () => {
+  await closeServerLogDatabase()
   await close()
 })
 

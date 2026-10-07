@@ -37,9 +37,12 @@ export interface ServerLogGroup {
   last_at: number
 }
 
-export interface ServerLogsResult {
+export interface ServerLogPage {
   entries: ServerLogEntry[]
   nextCursor: string | null
+}
+
+export interface ServerLogsResult extends ServerLogPage {
   summary: { total: number; errors: number; warnings: number }
   groups: ServerLogGroup[]
   trend: Array<{ at: number; count: number; errors: number }>

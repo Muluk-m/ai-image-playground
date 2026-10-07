@@ -120,7 +120,9 @@ describe('authenticated server log explorer', () => {
     expect(new Set(ids).size).toBe(105)
     expect(ids).toHaveLength(105)
     expect(second.nextCursor).toBeNull()
-    expect(second.summary.total).toBe(105)
+    expect(second).not.toHaveProperty('summary')
+    expect(second).not.toHaveProperty('groups')
+    expect(second).not.toHaveProperty('trend')
   })
   it('supports literal search and exact request, task and event drill-down', async () => {
     const literal = (await (await request('&q=100%25_failure')).json()) as ServerLogsResult

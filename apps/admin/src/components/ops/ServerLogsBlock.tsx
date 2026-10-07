@@ -2,11 +2,12 @@ import {
   SERVER_LOG_LEVELS,
   type ServerLogEntry,
   type ServerLogFilters,
+  type ServerLogPage,
   type ServerLogsResult,
 } from '@image-playground/shared'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -114,20 +115,34 @@ export function ServerLogsBlock() {
     return () => clearInterval(timer)
   }, [live, custom])
   const window = custom ?? { from: end - RANGES[range], to: end }
+  const signature = JSON.stringify([filters, custom ?? range])
   const query = useInfiniteQuery({
-    queryKey: ['ops-logs', window, filters],
+    queryKey: ['ops-logs', window, filters, custom ? 'fixed' : range],
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({ from: String(window.from), to: String(window.to) })
       for (const [key, value] of Object.entries(filters)) if (value) params.set(key, String(value))
       if (pageParam) params.set('cursor', pageParam)
-      return apiClient.get<ServerLogsResult>(`/api/ops/logs?${params}`)
+      return apiClient.get<ServerLogPage | ServerLogsResult>(`/api/ops/logs?${params}`)
     },
     initialPageParam: '',
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 0,
+    placeholderData: (previous, previousQuery) => {
+      const key = previousQuery?.queryKey
+      return !custom && key?.[3] === range && JSON.stringify(key[2]) === JSON.stringify(filters)
+        ? previous
+        : undefined
+    },
   })
-  const data = query.data?.pages[0]
-  const entries = query.data?.pages.flatMap((page) => page.entries) ?? []
+  const lastGood = useRef<{ signature: string; data: NonNullable<typeof query.data> } | null>(null)
+  useEffect(() => {
+    if (query.data && !query.isPlaceholderData) lastGood.current = { signature, data: query.data }
+  }, [query.data, query.isPlaceholderData, signature])
+  const retained =
+    query.data ?? (lastGood.current?.signature === signature ? lastGood.current.data : undefined)
+  const firstPage = retained?.pages[0]
+  const data = firstPage && 'summary' in firstPage ? firstPage : undefined
+  const entries = retained?.pages.flatMap((page) => page.entries) ?? []
   const update = (values: Partial<ServerLogFilters>) =>
     setFilters((previous) => ({ ...previous, ...values }))
   const max = Math.max(1, ...(data?.trend.map((point) => point.count) ?? []))
@@ -324,7 +339,14 @@ export function ServerLogsBlock() {
         </div>
         {query.isError ? (
           <p role="alert" className="text-sm text-danger">
-            日志加载失败，请点击刷新重试。
+            {data
+              ? '日志刷新失败，下面保留上次成功读取的记录，请点击刷新重试。'
+              : '日志加载失败，请点击刷新重试。'}
+          </p>
+        ) : null}
+        {data && query.isFetching ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            正在刷新日志，下面保留上一次读取的记录。
           </p>
         ) : null}
         {!data && query.isPending ? (
@@ -455,7 +477,10 @@ export function ServerLogsBlock() {
                   <LogDetails
                     key={entry.id}
                     entry={entry}
-                    onFilter={update}
+                    onFilter={(values) => {
+                      setFilters(values)
+                      setSearch('')
+                    }}
                     onInspect={() => setLive(false)}
                   />
                 ))
@@ -465,7 +490,7 @@ export function ServerLogsBlock() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={query.isFetchingNextPage}
+                disabled={query.isFetching}
                 onClick={() => {
                   setLive(false)
                   void query.fetchNextPage()

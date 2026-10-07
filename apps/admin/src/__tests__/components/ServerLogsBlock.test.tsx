@@ -52,6 +52,7 @@ const result: ServerLogsResult = {
 const get = vi.spyOn(apiClient, 'get')
 afterEach(() => {
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 function setup() {
   get.mockImplementation(async (url) =>
@@ -83,8 +84,13 @@ describe('server log exploration', () => {
   it('opens structured detail, correlates a request, and pauses when loading older logs', async () => {
     setup()
     await screen.findByText('upstream timeout', { selector: 'summary span' })
-    fireEvent.click(screen.getByRole('button', { name: '同请求 request-1' }))
+    fireEvent.click(await screen.findByRole('button', { name: /worker \/ error.*task.failed/ }))
+    await waitFor(() => expect(get.mock.lastCall![0]).toContain('group=task.failed'))
+    fireEvent.click(await screen.findByRole('button', { name: '同请求 request-1' }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('requestId=request-1'))
+    const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
+    for (const key of ['service', 'level', 'q', 'group', 'taskId'])
+      expect(params.has(key)).toBe(false)
     expect(await screen.findByText(/worker.ts:42/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '加载更早日志（暂停自动刷新）' }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('cursor=older-page'))
@@ -102,5 +108,28 @@ describe('server log exploration', () => {
     )
     expect(await screen.findByRole('alert')).toHaveTextContent('日志加载失败')
     expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled()
+  })
+  it('keeps records through a window refresh and its failure, but clears them for a new filter', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    setup()
+    await screen.findByText('201')
+    let failRefresh: (error: Error) => void = () => {}
+    get.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failRefresh = reject
+        }),
+    )
+    vi.setSystemTime(Date.now() + 1000)
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+    expect(screen.getByText('201')).toBeInTheDocument()
+    expect(await screen.findByText(/正在刷新日志/)).toBeInTheDocument()
+    failRefresh(new Error('offline'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('保留上次成功读取')
+    expect(screen.getByText('201')).toBeInTheDocument()
+    get.mockRejectedValue(new Error('offline'))
+    fireEvent.change(screen.getByLabelText('日志服务'), { target: { value: 'bff' } })
+    await waitFor(() => expect(screen.queryByText('201')).not.toBeInTheDocument())
+    expect(await screen.findByRole('alert')).toHaveTextContent('日志加载失败')
   })
 })
