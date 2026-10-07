@@ -28,7 +28,9 @@ export function parseServerLogSearch(input: Record<string, unknown>): ServerLogS
   for (const key of LOG_FILTER_KEYS) {
     if (key === 'service' || key === 'level') continue
     const value = input[key]
-    if (typeof value === 'string' && value.trim()) out[key] = value.trim().slice(0, 400)
+    if (typeof value !== 'string') continue
+    const text = key === 'q' ? value.trim() : value
+    if (text) out[key] = text.slice(0, 400)
   }
   const from = input.from === undefined ? NaN : Number(input.from)
   const to = input.to === undefined ? NaN : Number(input.to)
