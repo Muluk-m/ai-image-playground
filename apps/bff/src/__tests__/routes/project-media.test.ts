@@ -55,6 +55,83 @@ function request(path: string, cookie: string, body?: unknown, method = body ? '
 }
 const key = (url: string) => new URL(url).pathname.slice(1)
 
+it('五张并发上传确认排队完成，存储读取并行但缓冲最多两张原件', async () => {
+  const { config } = await import('../../config')
+  const previousOperator = config.operator
+  config.operator = {
+    ...previousOperator,
+    quotas: { ...previousOperator.quotas, 'sync:user-media-bytes': 4 * 1024 * 1024 },
+  }
+  let release!: () => void
+  let secondStarted!: () => void
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const overlap = new Promise<void>((resolve) => {
+    secondStarted = resolve
+  })
+  let active = 0
+  let peak = 0
+  const originalOpen = storage.open.bind(storage)
+  storage.open = async (path) => {
+    if (!path.startsWith('staging/')) return originalOpen(path)
+    peak = Math.max(peak, ++active)
+    if (active === 2) secondStarted()
+    try {
+      await blocked
+      return await originalOpen(path)
+    } finally {
+      active--
+    }
+  }
+  let completions: Promise<Response>[] = []
+  try {
+    const uploads: { id: string; bytes: Buffer }[] = []
+    for (const color of ['#110000', '#220000', '#330000', '#440000', '#550000']) {
+      const bytes = await sharp({
+        create: { width: 32, height: 24, channels: 4, background: color },
+      })
+        .png()
+        .toBuffer()
+      const reserved = await request('media/uploads', deviceA, {
+        bytes: bytes.length,
+        contentType: 'image/png',
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      })
+      expect(reserved.status).toBe(200)
+      const upload = await reserved.json()
+      await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+      uploads.push({ id: upload.id, bytes })
+    }
+    completions = uploads.map((upload) => request(`media/${upload.id}/complete`, deviceA, {}))
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        overlap,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('storage operations did not overlap')), 2000)
+        }),
+      ])
+    } finally {
+      clearTimeout(timeout)
+    }
+    release()
+    expect(peak).toBe(2)
+    for (const [index, response] of (await Promise.all(completions)).entries()) {
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ id: uploads[index]!.id, status: 'ready' })
+      const access = await (await request(`media/${uploads[index]!.id}/access`, deviceA)).json()
+      expect(await storage.read(key(access.originalUrl))).toEqual(
+        new Uint8Array(uploads[index]!.bytes),
+      )
+    }
+  } finally {
+    release()
+    await Promise.allSettled(completions)
+    config.operator = previousOperator
+  }
+})
+
 it('上传确认后另一设备恢复图片结构，原件直读且旧上传地址不能改写已确认图片', async () => {
   const bytes = await sharp({
     create: { width: 32, height: 24, channels: 4, background: '#cc4422' },
