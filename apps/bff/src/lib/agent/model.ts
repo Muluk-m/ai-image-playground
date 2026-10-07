@@ -1,11 +1,17 @@
 import type { StreamFn } from '@earendil-works/pi-agent-core'
-import { createModels, createProvider, type Model } from '@earendil-works/pi-ai'
+import {
+  type AssistantMessage,
+  createModels,
+  createProvider,
+  type Model,
+} from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
 import { resolveChatApiKey } from '../resolveApiKey'
 import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
+import { retryOverloadedStream } from './stream-retry'
 import { agentThinking } from './thinking'
 
 const PROVIDER_ID = 'upstream-gateway'
@@ -15,6 +21,11 @@ export type AgentFetch = (input: RequestInfo | URL, init?: RequestInit) => Promi
 
 let fetchImpl: AgentFetch | undefined
 let idleMs = AGENT_STREAM_IDLE_TIMEOUT_MS
+let retryBackoffMs = 1000
+
+export function setAgentRetryBackoffForTesting(ms?: number): void {
+  retryBackoffMs = ms ?? 1000
+}
 
 /** 测试注入点；undefined 恢复真实 transport。 */
 export function setAgentFetchForTesting(impl?: AgentFetch): void {
@@ -98,16 +109,20 @@ export function agentModel(depth?: AgentThinkingDepth): Model<'openai-completion
 
 export function agentStreamFn(
   depth?: AgentThinkingDepth,
-  observer: AgentDispatchObserver = {},
+  observer: AgentDispatchObserver & { onRetry?: (message: AssistantMessage) => Promise<void> } = {},
 ): StreamFn {
   const { models } = runtime(depth)
-  return (streamModel, context, options) =>
-    models.streamSimple(streamModel, context, {
-      ...options,
-      maxRetries: 0,
-      fetch: guardedAgentFetch(
-        withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs),
-        observer,
-      ) as typeof globalThis.fetch,
-    })
+  return retryOverloadedStream(
+    (streamModel, context, options) =>
+      models.streamSimple(streamModel, context, {
+        ...options,
+        maxRetries: 0,
+        fetch: guardedAgentFetch(
+          withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs),
+          observer,
+        ) as typeof globalThis.fetch,
+      }),
+    observer.onRetry,
+    retryBackoffMs,
+  )
 }

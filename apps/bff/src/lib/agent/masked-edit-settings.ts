@@ -5,6 +5,7 @@ for (const [key, names] of Object.entries({
   boundary: ['featherPixels', 'minImageEdge'],
   alignment: [
     'gridSize',
+    'analysisMaxEdge',
     'minVariance',
     'minCorrelation',
     'minMatchedFraction',
@@ -44,6 +45,8 @@ if (
   !Number.isInteger(settings.alignment.gridSize) ||
   settings.alignment.gridSize < 2 ||
   settings.alignment.gridSize > 64 ||
+  !Number.isInteger(settings.alignment.analysisMaxEdge) ||
+  settings.alignment.analysisMaxEdge < settings.alignment.gridSize * 2 ||
   settings.alignment.minCorrelation > 1 ||
   settings.alignment.minMatchedFraction > 1 ||
   !Number.isInteger(settings.output.dimensionMultiple) ||
