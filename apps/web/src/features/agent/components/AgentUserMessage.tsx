@@ -7,6 +7,11 @@ import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { createMaskPreviewDataUrl } from '../../../lib/canvasImage'
+import { mediaIdentity } from '../../../lib/cloudMedia'
+import {
+  localAttachmentFailure,
+  localAttachmentIdentity,
+} from '../../../lib/localAttachmentSources'
 import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { USER_BUBBLE } from '../agentStyles'
 import { fetchMessageReference } from '../lib/agentClient'
@@ -86,24 +91,36 @@ function ReferenceThumbnail({
   messageId,
   index,
   name,
+  pending,
 }: {
   reference: NonNullable<AgentTextMessage['references']>[number]
   messageId: string
   index: number
   /** 同名参考图编号后的显示名；没名字的传 undefined，走序号标签。 */
   name: string | undefined
+  pending: boolean
 }) {
   const { t } = useTranslation('agent')
   const conversationId = useAgentStore((state) => state.conversationId)
   const scope = scopedStorageName('media')
-  const local = 'dataUrl' in reference ? reference.dataUrl : undefined
+  const sourceHandle = 'dataUrl' in reference ? reference.dataUrl : undefined
+  const deferred =
+    sourceHandle &&
+    (mediaIdentity(sourceHandle) ||
+      localAttachmentIdentity(sourceHandle) ||
+      localAttachmentFailure(sourceHandle))
+  // Older live messages can retain a released local handle. Once accepted, the message endpoint
+  // owns both thumbnails and annotated originals; internal handles are never browser image URLs.
+  const local = deferred && !pending ? undefined : sourceHandle
   // 服务端按下标发这张图，两种快照都认：内联那一路存在对象存储里，按 id 那一路仍是云媒体原件。
   const remote =
     'image' in reference
       ? reference.image.object
       : 'mediaId' in reference
         ? reference.mediaId
-        : undefined
+        : deferred && !pending
+          ? sourceHandle
+          : undefined
   const mask =
     'maskDataUrl' in reference
       ? reference.maskDataUrl
@@ -183,7 +200,9 @@ function ReferenceThumbnail({
             : t('reference.view', { label })
         }
         aria-label={t('reference.view', { label })}
-        disabled={Boolean(local && mask && markedPreview?.identity !== identity)}
+        disabled={Boolean(
+          (pending && deferred) || (local && mask && markedPreview?.identity !== identity),
+        )}
         onClick={() => setOpenIdentity(identity)}
       >
         {source ? (
@@ -256,6 +275,7 @@ export default memo(function AgentUserMessage({
         messageId={message.id}
         index={index}
         name={names[index]}
+        pending={Boolean(message.pending)}
       />,
     )
     from = match.index + match[0].length
@@ -278,6 +298,7 @@ export default memo(function AgentUserMessage({
               messageId={message.id}
               index={index}
               name={names[index]}
+              pending={Boolean(message.pending)}
             />
           ))}
         </div>
