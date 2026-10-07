@@ -181,113 +181,170 @@ async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 
   return row
 }
 
-// Bound original buffering and image decoding; callers retry instead of building an unbounded queue.
-let processing = false
-export async function completeMedia(userId: string, id: string) {
-  const result = await withMediaObjectLock(id, async (database) => {
-    const row = await ownedMedia(userId, id, database)
-    if (row.status === 'ready') return summary(row)
-    if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
-    if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
-    const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
-    if (limits && row.bytes > limits.imageBytes) throw new MediaError(413, 'media_too_large')
-    if (processing) throw new MediaError(503, 'media_processing_busy')
-    processing = true
-    let candidatePrefix: string | undefined
-    let published = false
-    try {
-      const store = durableMediaStore()
-      const source = await store.open(row.staging_key)
-      if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
-      const reader = source.stream(0, row.bytes - 1).getReader()
-      const bytes = new Uint8Array(row.bytes)
-      let offset = 0
-      try {
-        while (true) {
-          const part = await reader.read()
-          if (part.done) break
-          if (offset + part.value.length > bytes.length)
-            throw new MediaError(422, 'media_size_mismatch')
-          bytes.set(part.value, offset)
-          offset += part.value.length
-        }
-      } finally {
-        await reader.cancel()
-        reader.releaseLock()
+// Overlap storage I/O for two originals, while decoding at most one image at a time.
+let processing = 0
+const processingQueue: { resume: () => void; reject: () => void }[] = []
+async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
+  if (processing < 2) processing++
+  else {
+    if (processingQueue.length >= 8) throw new MediaError(503, 'media_processing_busy')
+    await new Promise<void>((resolve, reject) => {
+      const entry = {
+        resume: () => {
+          clearTimeout(timer)
+          resolve()
+        },
+        reject: () => {
+          const index = processingQueue.indexOf(entry)
+          if (index >= 0) processingQueue.splice(index, 1)
+          reject(new MediaError(503, 'media_processing_busy'))
+        },
       }
-      if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
-        throw new MediaError(422, 'media_hash_mismatch')
-      let metadata: Metadata
-      let preview: Buffer
-      try {
-        const image = sharp(bytes, {
-          limitInputPixels: limits?.imagePixels ?? MEDIA_IMAGE_MAX_PIXELS,
-          failOn: 'warning',
-        })
-        metadata = await image.metadata()
-        if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
-        if (`image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type)
-          throw new Error('content_type_mismatch')
-        preview = await image.rotate().resize(PREVIEW_RESIZE).webp({ quality: 75 }).toBuffer()
-        if (!metadata.width || !metadata.height || preview.length > PREVIEW_BUDGET)
-          throw new Error('invalid_preview')
-      } catch {
-        throw new MediaError(422, 'media_invalid_image')
-      }
-      // Never publish the client-writable key. This verified buffer is written to a fresh server-only key.
-      const prefix = `objects/${userId}/${id}/${crypto.randomUUID()}`
-      candidatePrefix = prefix
-      const objectKey = `${prefix}/original`
-      const previewKey = `${prefix}/preview.webp`
-      await store.write(objectKey, bytes, row.content_type)
-      await store.write(previewKey, preview, 'image/webp')
-      if (
-        (await store.open(objectKey)).size !== bytes.length ||
-        (await store.open(previewKey)).size !== preview.length
-      )
-        throw new MediaError(503, 'media_not_readable')
-      return await database.transaction(async (tx) => {
-        await lockMediaOwner(tx, userId)
-        const [current] = await tx
-          .select()
-          .from(media)
-          .where(and(eq(media.id, id), eq(media.user_id, userId)))
-        if (!current) throw new MediaError(404, 'media_not_found')
-        if (current.status === 'ready') return summary(current)
-        if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
-        if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
-          throw new MediaError(409, 'media_upload_expired')
-        const [ready] = await tx
-          .update(media)
-          .set({
-            status: 'ready',
-            object_key: objectKey,
-            preview_key: previewKey,
-            preview_bytes: preview.length,
-            reserved_bytes: bytes.length + preview.length,
-            width: metadata.width!,
-            height: metadata.height!,
-            updated_at: Date.now(),
-          })
-          .where(eq(media.id, id))
-          .returning()
-        published = true
-        return summary(ready!)
-      })
-    } catch (error) {
-      if (error instanceof MediaError) throw error
-      throw new MediaError(503, 'media_storage_unavailable')
-    } finally {
-      if (candidatePrefix && !published) {
-        try {
-          await durableMediaStore().deletePrefix(`${candidatePrefix}/`)
-        } catch {
-          /* Still charged; the managed media sweep retries the whole prefix. */
-        }
-      }
-      processing = false
-    }
+      const timer = setTimeout(entry.reject, 10_000)
+      processingQueue.push(entry)
+    })
+  }
+  try {
+    return await work()
+  } finally {
+    const next = processingQueue.shift()
+    if (next) next.resume()
+    else processing--
+  }
+}
+let decoding: Promise<void> = Promise.resolve()
+async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
+  const previous = decoding
+  let release!: () => void
+  decoding = new Promise<void>((resolve) => {
+    release = resolve
   })
+  await previous
+  try {
+    return await work()
+  } finally {
+    release()
+  }
+}
+export async function completeMedia(userId: string, id: string) {
+  const result = await withMediaProcessing(() =>
+    withMediaObjectLock(id, async (database) => {
+      const row = await ownedMedia(userId, id, database)
+      if (row.status === 'ready') return summary(row)
+      if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
+      if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
+      const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
+      if (limits && row.bytes > limits.imageBytes) throw new MediaError(413, 'media_too_large')
+      let candidatePrefix: string | undefined
+      let published = false
+      try {
+        const store = durableMediaStore()
+        const source = await store.open(row.staging_key)
+        if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
+        const reader = source.stream(0, row.bytes - 1).getReader()
+        const bytes = new Uint8Array(row.bytes)
+        let offset = 0
+        try {
+          while (true) {
+            const part = await reader.read()
+            if (part.done) break
+            if (offset + part.value.length > bytes.length)
+              throw new MediaError(422, 'media_size_mismatch')
+            bytes.set(part.value, offset)
+            offset += part.value.length
+          }
+        } finally {
+          await reader.cancel()
+          reader.releaseLock()
+        }
+        if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
+          throw new MediaError(422, 'media_hash_mismatch')
+        let metadata: Metadata
+        let preview: Buffer
+        try {
+          const decoded = await withMediaDecode(async () => {
+            const image = sharp(bytes, {
+              limitInputPixels: limits?.imagePixels ?? MEDIA_IMAGE_MAX_PIXELS,
+              failOn: 'warning',
+            })
+            const metadata = await image.metadata()
+            if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
+            if (
+              `image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type
+            )
+              throw new Error('content_type_mismatch')
+            const preview = await image
+              .rotate()
+              .resize(PREVIEW_RESIZE)
+              .webp({ quality: 75 })
+              .toBuffer()
+            if (!metadata.width || !metadata.height || preview.length > PREVIEW_BUDGET)
+              throw new Error('invalid_preview')
+            return { metadata, preview }
+          })
+          metadata = decoded.metadata
+          preview = decoded.preview
+        } catch {
+          throw new MediaError(422, 'media_invalid_image')
+        }
+        // Never publish the client-writable key. This verified buffer is written to a fresh server-only key.
+        const prefix = `objects/${userId}/${id}/${crypto.randomUUID()}`
+        candidatePrefix = prefix
+        const objectKey = `${prefix}/original`
+        const previewKey = `${prefix}/preview.webp`
+        const written = await Promise.allSettled([
+          store.write(objectKey, bytes, row.content_type),
+          store.write(previewKey, preview, 'image/webp'),
+        ])
+        for (const result of written) if (result.status === 'rejected') throw result.reason
+        const [original, thumbnail] = await Promise.all([
+          store.open(objectKey),
+          store.open(previewKey),
+        ])
+        if (original.size !== bytes.length || thumbnail.size !== preview.length)
+          throw new MediaError(503, 'media_not_readable')
+        return await database.transaction(async (tx) => {
+          await lockMediaOwner(tx, userId)
+          const [current] = await tx
+            .select()
+            .from(media)
+            .where(and(eq(media.id, id), eq(media.user_id, userId)))
+          if (!current) throw new MediaError(404, 'media_not_found')
+          if (current.status === 'ready') return summary(current)
+          if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
+          if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
+            throw new MediaError(409, 'media_upload_expired')
+          const [ready] = await tx
+            .update(media)
+            .set({
+              status: 'ready',
+              object_key: objectKey,
+              preview_key: previewKey,
+              preview_bytes: preview.length,
+              reserved_bytes: bytes.length + preview.length,
+              width: metadata.width!,
+              height: metadata.height!,
+              updated_at: Date.now(),
+            })
+            .where(eq(media.id, id))
+            .returning()
+          published = true
+          return summary(ready!)
+        })
+      } catch (error) {
+        if (error instanceof MediaError) throw error
+        throw new MediaError(503, 'media_storage_unavailable')
+      } finally {
+        if (candidatePrefix && !published) {
+          try {
+            await durableMediaStore().deletePrefix(`${candidatePrefix}/`)
+          } catch {
+            /* Still charged; the managed media sweep retries the whole prefix. */
+          }
+        }
+      }
+    }),
+  )
   if (!result) throw new MediaError(503, 'media_processing_busy')
   return result
 }
