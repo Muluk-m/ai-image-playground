@@ -30,35 +30,42 @@ export default function MediaImage({
     let generation = 0
     const load = async () => {
       const requested = ++generation
-      if (!src) return
-      let source = src
-      if (localAttachmentIdentity(src)) {
-        const upload = await readAttachmentUpload(src, backend)
-        if (upload?.state !== 'ready') {
-          if (current && requested === generation) setResolved(undefined)
-          return
+      try {
+        if (!src) return
+        let source = src
+        if (localAttachmentIdentity(src)) {
+          const upload = await readAttachmentUpload(src, backend)
+          if (upload?.state !== 'ready') {
+            if (current && requested === generation) setResolved(undefined)
+            return
+          }
+          source = `aip-media:${upload.result.id}`
         }
-        source = `aip-media:${upload.result.id}`
+        if (
+          !mediaIdentity(source) ||
+          !current ||
+          requested !== generation ||
+          scope !== scopedStorageName(BASE_DB_NAME) ||
+          backend !== bffBaseUrl()
+        )
+          return
+        const value = await resolveMediaSource(source, 'preview')
+        if (
+          current &&
+          requested === generation &&
+          scope === scopedStorageName(BASE_DB_NAME) &&
+          backend === bffBaseUrl()
+        )
+          setResolved({ source: src, value, scope, backend })
+      } catch {
+        if (
+          current &&
+          requested === generation &&
+          scope === scopedStorageName(BASE_DB_NAME) &&
+          backend === bffBaseUrl()
+        )
+          onResolveError?.()
       }
-      if (
-        !mediaIdentity(source) ||
-        !current ||
-        requested !== generation ||
-        scope !== scopedStorageName(BASE_DB_NAME) ||
-        backend !== bffBaseUrl()
-      )
-        return
-      const value = await resolveMediaSource(source, 'preview')
-      if (
-        current &&
-        requested === generation &&
-        scope === scopedStorageName(BASE_DB_NAME) &&
-        backend === bffBaseUrl()
-      )
-        setResolved({ source: src, value, scope, backend })
-    }
-    const failed = () => {
-      if (current) onResolveError?.()
     }
     const unsubscribe = onLocalAttachmentUploadChanged((change) => {
       if (
@@ -66,7 +73,7 @@ export default function MediaImage({
         change.storageScope === scope &&
         (change.backend === undefined || change.backend === backend)
       )
-        void load().catch(failed)
+        void load()
     })
     const release = onLocalAttachmentReleased((change) => {
       if (change.storageScope === scope && src && change.sources.includes(src)) {
@@ -74,7 +81,7 @@ export default function MediaImage({
         setResolved(undefined)
       }
     })
-    void load().catch(failed)
+    void load()
     return () => {
       current = false
       unsubscribe()
