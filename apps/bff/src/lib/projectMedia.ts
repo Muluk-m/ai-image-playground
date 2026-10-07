@@ -264,6 +264,7 @@ export async function completeMedia(userId: string, id: string) {
           throw new MediaError(422, 'media_hash_mismatch')
         let metadata: Metadata
         let preview: Buffer
+        let observed: Metadata | undefined
         try {
           const decoded = await withMediaDecode(async () => {
             const image = sharp(bytes, {
@@ -271,6 +272,7 @@ export async function completeMedia(userId: string, id: string) {
               failOn: 'warning',
             })
             const metadata = await image.metadata()
+            observed = metadata
             if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
             if (
               `image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type
@@ -287,7 +289,37 @@ export async function completeMedia(userId: string, id: string) {
           })
           metadata = decoded.metadata
           preview = decoded.preview
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : ''
+          const reason =
+            message === 'animated_image'
+              ? 'animated_image'
+              : message === 'content_type_mismatch'
+                ? 'content_type_mismatch'
+                : message === 'invalid_preview'
+                  ? 'invalid_preview'
+                  : /pixel limit/i.test(message)
+                    ? 'pixel_limit'
+                    : observed
+                      ? 'preview_failed'
+                      : 'decode_failed'
+          log.warn(
+            {
+              event: 'media.validation_failed',
+              userId,
+              mediaId: id,
+              errorCode: 'media_invalid_image',
+              reason,
+              bytes: row.bytes,
+              declaredContentType: row.content_type,
+              detectedFormat: observed?.format,
+              width: observed?.width,
+              height: observed?.height,
+              pixelLimit: limits?.imagePixels ?? MEDIA_IMAGE_MAX_PIXELS,
+              err: error,
+            },
+            'uploaded image validation failed',
+          )
           throw new MediaError(422, 'media_invalid_image')
         }
         // Never publish the client-writable key. This verified buffer is written to a fresh server-only key.
