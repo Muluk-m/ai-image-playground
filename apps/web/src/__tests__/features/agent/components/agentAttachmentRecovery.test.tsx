@@ -39,7 +39,7 @@ it('restores ready and failed local attachments after restart without uploading 
     }
     if (url.startsWith('https://storage.test/'))
       return new Response(null, {
-        status: url.endsWith(failedId ?? '/never') && !retryAllowed ? 503 : 200,
+        status: url.endsWith(failedId ?? '/never') && !retryAllowed ? 400 : 200,
       })
     if (url.endsWith('/complete'))
       return Response.json({ id: url.split('/').slice(-2)[0], status: 'ready' })
