@@ -213,4 +213,19 @@ describe('structured server log collection', () => {
     )
     expect(entry('Cookie: session=private-secret').message).not.toContain('private-secret')
   })
+  it('fails closed for nonstandard arrays through the persisted log parser', () => {
+    for (const fragment of [
+      '[undefined, "private prompt"]',
+      '[NaN, "private prompt"]',
+      '[Infinity, "private prompt"]',
+      '[arbitraryValue, "private prompt"]',
+      '[undefined]',
+      '[NaN]',
+      '[undefined, "private prompt"',
+    ]) {
+      const row = entry(`upstream ${fragment} private remainder`)
+      expect(row.message).toBe('upstream [REDACTED PAYLOAD]')
+      expect(JSON.stringify(row)).not.toContain('private')
+    }
+  })
 })

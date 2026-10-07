@@ -12,7 +12,7 @@ const LEVELS: Record<number, ServerLogLevel> = {
 const PRIVATE_FIELD =
   /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|payloadPreview|responseBody|errorBody|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
 
-function looksStructured(value: string, cursor: number): boolean {
+function looksStructured(value: string, cursor: number, arrayPayload: Uint8Array): boolean {
   const opener = value[cursor]
   let next = cursor + 1
   while (next < value.length && /\s/.test(value[next]!)) next++
@@ -22,11 +22,12 @@ function looksStructured(value: string, cursor: number): boolean {
     return char === '}' || /^[a-z0-9_$][\w$.-]*\s*:/i.test(value.slice(next))
   }
   return (
+    arrayPayload[cursor + 1] === 1 ||
     char === ']' ||
     char === '{' ||
     char === '[' ||
     (char !== undefined && /[0-9-]/.test(char)) ||
-    /^(?:true|false|null)(?=[\s,\]])/i.test(value.slice(next))
+    /^(?:true|false|null|undefined|NaN|[+-]?Infinity)(?=[\s,\]])/i.test(value.slice(next))
   )
 }
 
@@ -41,12 +42,22 @@ function privateAssignment(value: string): number | null {
 
 /** Single pass, quote-aware JSON fragment scanning; malformed fragments fail closed. */
 function redactStructuredText(value: string, depth: number): string {
+  // Detect list separators/quoted values before the next closing bracket in linear time.
+  // This also catches non-JSON arrays without mistaking [worker] or [as run] for payloads.
+  const arrayPayload = new Uint8Array(value.length + 1)
+  let evidence = 0
+  for (let index = value.length - 1; index >= 0; index--) {
+    const char = value[index]
+    if (char === ']') evidence = 0
+    else if (char === ',' || char === '"' || char === "'") evidence = 1
+    arrayPayload[index] = evidence
+  }
   const chunks: string[] = []
   let plainStart = 0
   let cursor = 0
   while (cursor < value.length) {
     const opener = value[cursor]
-    if ((opener !== '{' && opener !== '[') || !looksStructured(value, cursor)) {
+    if ((opener !== '{' && opener !== '[') || !looksStructured(value, cursor, arrayPayload)) {
       cursor++
       continue
     }
