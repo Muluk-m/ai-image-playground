@@ -1,14 +1,28 @@
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { log } from '../lib/logger'
 import { accessMedia, completeMedia, MediaError, reserveMedia } from '../lib/projectMedia'
 import { resolveAuthUser } from '../lib/user-auth'
 
-async function respond(work: () => Promise<unknown>) {
+async function respond(
+  work: () => Promise<unknown>,
+  context: { userId: string; mediaId?: string; stage: 'reserve' | 'complete' | 'access' },
+) {
   try {
     return await work()
   } catch (error) {
-    if (error instanceof MediaError)
+    if (error instanceof MediaError) {
+      log.warn(
+        {
+          event: 'media.request_rejected',
+          ...context,
+          errorCode: error.message,
+          status: error.status,
+        },
+        'media request rejected',
+      )
       return Response.json({ error: error.message }, { status: error.status })
+    }
     throw error
   }
 }
@@ -30,7 +44,7 @@ export const mediaRoutes = new Elysia()
     '/api/media/uploads',
     ({ authUser, body, status }) =>
       authUser
-        ? respond(() => reserveMedia(authUser.id, body))
+        ? respond(() => reserveMedia(authUser.id, body), { userId: authUser.id, stage: 'reserve' })
         : status(401, { error: 'unauthorized' }),
     {
       body: t.Object(
@@ -48,7 +62,11 @@ export const mediaRoutes = new Elysia()
     '/api/media/:id/complete',
     ({ authUser, params, status }) =>
       authUser
-        ? respond(() => completeMedia(authUser.id, params.id))
+        ? respond(() => completeMedia(authUser.id, params.id), {
+            userId: authUser.id,
+            mediaId: params.id,
+            stage: 'complete',
+          })
         : status(401, { error: 'unauthorized' }),
     { params },
   )
@@ -56,7 +74,11 @@ export const mediaRoutes = new Elysia()
     '/api/media/:id/access',
     ({ authUser, params, status }) =>
       authUser
-        ? respond(() => accessMedia(authUser.id, params.id))
+        ? respond(() => accessMedia(authUser.id, params.id), {
+            userId: authUser.id,
+            mediaId: params.id,
+            stage: 'access',
+          })
         : status(401, { error: 'unauthorized' }),
     { params },
   )
