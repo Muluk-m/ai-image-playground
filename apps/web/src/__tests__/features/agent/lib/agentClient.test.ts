@@ -197,6 +197,39 @@ async function collect(turn: AgentTurnStream): Promise<AgentTurnEvent[]> {
 }
 
 describe('发送与续播的等待期限', () => {
+  it.each([202, 409, 503])('起轮返回 %s 响应头但 JSON 正文停滞时也有等待期限', async (status) => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{'))
+                init!.signal!.addEventListener(
+                  'abort',
+                  () => controller.error(init!.signal!.reason),
+                  { once: true },
+                )
+              },
+            }),
+            { status, headers: { 'content-type': 'application/json' } },
+          ),
+      )
+      const sending = startTurn(CONVERSATION, '改面料', [], undefined, undefined, fetcher)
+      const rejected = expect(sending).rejects.toMatchObject(
+        status === 202 ? { name: 'TimeoutError' } : { status },
+      )
+
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      await rejected
+      expect(fetcher).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('起轮响应卡住时用原消息 id 有界重试，两次都超时后返回失败', async () => {
     vi.useFakeTimers()
     try {
