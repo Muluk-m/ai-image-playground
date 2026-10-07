@@ -12,7 +12,11 @@ import {
 import { bffBaseUrl } from '../lib/runtimeConfig'
 
 /** Local attachment originals stay on disk; only their confirmed cloud preview is rendered. */
-export default function MediaImage({ src, ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+export default function MediaImage({
+  src,
+  onResolveError,
+  ...props
+}: ImgHTMLAttributes<HTMLImageElement> & { onResolveError?: () => void }) {
   const scope = scopedStorageName(BASE_DB_NAME)
   const backend = bffBaseUrl()
   const [resolved, setResolved] = useState<{
@@ -53,13 +57,16 @@ export default function MediaImage({ src, ...props }: ImgHTMLAttributes<HTMLImag
       )
         setResolved({ source: src, value, scope, backend })
     }
+    const failed = () => {
+      if (current) onResolveError?.()
+    }
     const unsubscribe = onLocalAttachmentUploadChanged((change) => {
       if (
         (!change.source || change.source === src) &&
         change.storageScope === scope &&
         (change.backend === undefined || change.backend === backend)
       )
-        void load().catch(() => {})
+        void load().catch(failed)
     })
     const release = onLocalAttachmentReleased((change) => {
       if (change.storageScope === scope && src && change.sources.includes(src)) {
@@ -67,13 +74,13 @@ export default function MediaImage({ src, ...props }: ImgHTMLAttributes<HTMLImag
         setResolved(undefined)
       }
     })
-    void load().catch(() => {})
+    void load().catch(failed)
     return () => {
       current = false
       unsubscribe()
       release()
     }
-  }, [src, scope, backend])
+  }, [src, scope, backend, onResolveError])
   const deferred =
     src && (mediaIdentity(src) || localAttachmentIdentity(src) || localAttachmentFailure(src))
   const value = deferred
