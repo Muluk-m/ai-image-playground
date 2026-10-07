@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { FolderOpen, Images, Zap } from 'lucide-react'
+import { FolderOpen, Images, LoaderCircle, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useEffect,
@@ -878,7 +878,16 @@ export default function AgentComposer({
                   </div>
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
-                    <span role="status" className="text-xs text-muted-foreground">
+                    <span
+                      role="status"
+                      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                    >
+                      {['queued', 'uploading', 'verifying'].includes(uploadState) && (
+                        <LoaderCircle
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
+                        />
+                      )}
                       {uploadError === 'attachment_capability_unavailable'
                         ? t('errors:attachment.attachment_capability_unavailable')
                         : uploadError === 'media_unsupported_image'
