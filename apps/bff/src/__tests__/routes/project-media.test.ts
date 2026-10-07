@@ -73,19 +73,33 @@ it('五张并发上传确认排队完成，存储读取并行但缓冲最多两�
   let active = 0
   let peak = 0
   const originalOpen = storage.open.bind(storage)
-  storage.open = async (path) => {
-    if (!path.startsWith('staging/')) return originalOpen(path)
-    peak = Math.max(peak, ++active)
-    if (active === 2) secondStarted()
-    try {
-      await blocked
-      return await originalOpen(path)
-    } finally {
-      active--
-    }
-  }
   let completions: Promise<Response>[] = []
   try {
+    const readyBytes = await sharp({
+      create: { width: 4, height: 4, channels: 4, background: '#abcdef' },
+    })
+      .png()
+      .toBuffer()
+    const readyUpload = await (
+      await request('media/uploads', deviceA, {
+        bytes: readyBytes.length,
+        contentType: 'image/png',
+        sha256: createHash('sha256').update(readyBytes).digest('hex'),
+      })
+    ).json()
+    await storage.write(key(readyUpload.uploadUrl), readyBytes, 'image/png')
+    expect((await request(`media/${readyUpload.id}/complete`, deviceA, {})).status).toBe(200)
+    storage.open = async (path) => {
+      if (!path.startsWith('staging/')) return originalOpen(path)
+      peak = Math.max(peak, ++active)
+      if (active === 2) secondStarted()
+      try {
+        await blocked
+        return await originalOpen(path)
+      } finally {
+        active--
+      }
+    }
     const uploads: { id: string; bytes: Buffer }[] = []
     for (const color of ['#110000', '#220000', '#330000', '#440000', '#550000']) {
       const bytes = await sharp({
@@ -115,6 +129,16 @@ it('五张并发上传确认排队完成，存储读取并行但缓冲最多两�
     } finally {
       clearTimeout(timeout)
     }
+    const replay = await Promise.race([
+      request(`media/${readyUpload.id}/complete`, deviceA, {}),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('ready confirmation waited for processing')),
+          1000,
+        )
+      }),
+    ]).finally(() => clearTimeout(timeout))
+    expect(replay.status).toBe(200)
     release()
     expect(peak).toBe(2)
     for (const [index, response] of (await Promise.all(completions)).entries()) {

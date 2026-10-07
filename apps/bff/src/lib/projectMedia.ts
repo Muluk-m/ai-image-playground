@@ -227,6 +227,9 @@ async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 export async function completeMedia(userId: string, id: string) {
+  // A lost confirmation response must not make immutable, verified media wait behind new I/O.
+  const existing = await ownedMedia(userId, id)
+  if (existing.status === 'ready') return summary(existing)
   const result = await withMediaProcessing(() =>
     withMediaObjectLock(id, async (database) => {
       const row = await ownedMedia(userId, id, database)
