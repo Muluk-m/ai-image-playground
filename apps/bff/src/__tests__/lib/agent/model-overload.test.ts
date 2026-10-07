@@ -61,6 +61,10 @@ it('does not retry authentication failures or ambiguous network failures', async
     async () => {
       throw new Error('connection reset')
     },
+    async () => {
+      throw new Error('Our servers are currently overloaded. Connection closed after dispatch.')
+    },
+    async () => Response.json({ error: { message: 'overloaded' } }, { status: 401 }),
   ]) {
     let calls = 0
     setAgentFetchForTesting(async () => {
@@ -70,6 +74,19 @@ it('does not retry authentication failures or ambiguous network failures', async
     expect((await (await agentStreamFn()(agentModel(), context)).result()).stopReason).toBe('error')
     expect(calls).toBe(1)
   }
+})
+
+it('does not retry an HTTP 200 stream failure before content without rejection evidence', async () => {
+  let calls = 0
+  const upstream = controlledCompletion()
+  setAgentFetchForTesting(async () => {
+    calls++
+    setTimeout(() => upstream.fail('Our servers are currently overloaded.'), 1)
+    return upstream.responseFor()
+  })
+  const stream = await agentStreamFn()(agentModel(), context)
+  expect((await stream.result()).stopReason).toBe('error')
+  expect(calls).toBe(1)
 })
 
 it('does not retry after text or tool output even if the stream fails with an overload message', async () => {
