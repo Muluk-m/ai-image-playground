@@ -95,4 +95,68 @@ describe('structured server log collection', () => {
     expect(saved).toEqual([first.id, second.id])
     expect(buffer.stats().pending).toBe(0)
   })
+  it('removes raw response previews, serialized user content and NUL in every persisted string', () => {
+    const row = parseServerLog(
+      JSON.stringify({
+        level: 50,
+        time: Date.now(),
+        msg: 'upstream error: {"prompt":"user original", "content":"private text", "code":"failed"}',
+        payloadPreview: '{"prompt":"preview original"}',
+        err: { message: '{"content":"private message", "reason":"bad request"}' },
+        'diag\u0000key': 'valid\u0000value',
+      }),
+      identity,
+    )!
+    const stored = JSON.stringify(row)
+    for (const privateText of [
+      'user original',
+      'private text',
+      'preview original',
+      'private message',
+      '\\u0000',
+    ])
+      expect(stored).not.toContain(privateText)
+    expect(row.fields.diagkey).toBe('validvalue')
+    expect(stored).toContain('bad request')
+  })
+
+  it('pumps several healthy batches in one cycle instead of waiting between batches', async () => {
+    const saved: string[] = []
+    const buffer = createServerLogBuffer({
+      maxEntries: 200,
+      batchSize: 10,
+      onFailure: () => {},
+      write: async (rows) => {
+        saved.push(...rows.map((row) => row.id))
+      },
+    })
+    for (let index = 0; index < 150; index++) buffer.enqueue(entry(String(index)))
+    await buffer.pump()
+    expect(saved).toHaveLength(150)
+    expect(buffer.stats()).toMatchObject({ pending: 0, dropped: 0 })
+  })
+
+  it('returns at the drain deadline and does not start another batch after timeout', async () => {
+    let release: () => void = () => {}
+    let calls = 0
+    const buffer = createServerLogBuffer({
+      batchSize: 1,
+      onFailure: () => {},
+      write: async () => {
+        calls++
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      },
+    })
+    buffer.enqueue(entry('first'))
+    buffer.enqueue(entry('second'))
+    await buffer.drain(10)
+    expect(buffer.stats().pending).toBe(2)
+    expect(calls).toBe(1)
+    release()
+    await buffer.flush()
+    expect(calls).toBe(1)
+    expect(buffer.stats().pending).toBe(1)
+  })
 })

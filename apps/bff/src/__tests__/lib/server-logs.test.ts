@@ -6,9 +6,15 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_server_logs')
 process.env.APP_ROLE = 'worker'
 const { db, schema, close } = await import('../../db/client')
 const { log, serverLogBuffer } = await import('../../lib/logger')
-const { purgeServerLogs } = await import('../../lib/server-logs')
+const { purgeServerLogs, closeServerLogDatabase, writeServerLogs } = await import(
+  '../../lib/server-logs'
+)
 const { withRequestContext } = await import('../../lib/request-context')
-afterAll(close)
+const { parseServerLog } = await import('../../lib/server-log-buffer')
+afterAll(async () => {
+  await closeServerLogDatabase()
+  await close()
+})
 
 describe('server log persistence', () => {
   it('collects the existing logger and automatically correlates requests before writing JSON fields', async () => {
@@ -43,6 +49,34 @@ describe('server log persistence', () => {
     expect(row!.fields.apiKey).toBe('[REDACTED]')
     expect(row!.fields.err).toMatchObject({ message: 'test failure' })
   })
+  it('stores a NUL-containing diagnostic alongside ordinary logs without poisoning the batch', async () => {
+    const identity = { service: 'worker' as const, instance: 'nul-test', version: 'release' }
+    const malformed = parseServerLog(
+      JSON.stringify({
+        level: 50,
+        time: Date.now(),
+        event: 'test.nul',
+        msg: 'bad\u0000message',
+        'field\u0000name': 'value\u0000text',
+      }),
+      identity,
+    )!
+    const normal = parseServerLog(
+      JSON.stringify({ level: 30, time: Date.now(), event: 'test.nul', msg: 'normal message' }),
+      identity,
+    )!
+    await writeServerLogs([malformed, normal])
+    const rows = await db
+      .select()
+      .from(schema.server_logs)
+      .where(eq(schema.server_logs.event, 'test.nul'))
+    expect(rows).toHaveLength(2)
+    expect(rows.find((row) => row.id === malformed.id)).toMatchObject({
+      message: 'badmessage',
+      fields: { fieldname: 'valuetext' },
+    })
+  })
+
   it('purges expired logs while preserving retained logs', async () => {
     const [base] = await db.select().from(schema.server_logs).limit(1)
     await db

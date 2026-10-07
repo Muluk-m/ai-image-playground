@@ -1,4 +1,4 @@
-import type { ServerLogFilters, ServerLogsResult } from '@image-playground/shared'
+import type { ServerLogFilters, ServerLogPage, ServerLogsResult } from '@image-playground/shared'
 import { SERVER_LOG_LEVELS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import { getDbHandle } from './db'
@@ -60,7 +60,7 @@ export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) 
 
 export async function readServerLogs(
   query: ReturnType<typeof parseLogQuery>,
-): Promise<ServerLogsResult> {
+): Promise<ServerLogPage | ServerLogsResult> {
   const { filters, cursor } = query
   const db = getDbHandle().db
   const conditions = [sql`at >= ${new Date(filters.from)} AND at <= ${new Date(filters.to)}`]
@@ -77,10 +77,27 @@ export async function readServerLogs(
   const where = sql.join(conditions, sql` AND `)
   const page = cursor ? sql`${where} AND (at, id) < (${new Date(cursor.at)}, ${cursor.id})` : where
   const bucket_ms = Math.max(60_000, Math.ceil((filters.to - filters.from) / 60 / 60_000) * 60_000)
-  const [rows, totals, groups, points, collectors] = await Promise.all([
-    db.execute(
+  async function readPage(): Promise<ServerLogPage> {
+    const rows = await db.execute(
       sql`SELECT * FROM server_logs WHERE ${page} ORDER BY at DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
-    ),
+    )
+    const entries = (rows as unknown as Array<Record<string, unknown>>)
+      .slice(0, PAGE_SIZE)
+      .map((row) => ({
+        ...row,
+        at: epoch(row.at),
+      })) as unknown as ServerLogsResult['entries']
+    const last = entries.at(-1)
+    const nextCursor =
+      rows.length > PAGE_SIZE && last
+        ? Buffer.from(JSON.stringify({ at: last.at, id: last.id })).toString('base64url')
+        : null
+    return { entries, nextCursor }
+  }
+  // Later pages only need records. Full-window statistics remain on page one.
+  if (cursor) return readPage()
+  const [records, totals, groups, points, collectors] = await Promise.all([
+    readPage(),
     db.execute(sql`SELECT count(*)::int AS total,
       count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors,
       count(*) FILTER (WHERE level = 'warn')::int AS warnings FROM server_logs WHERE ${where}`),
@@ -98,17 +115,6 @@ export async function readServerLogs(
       WHERE last_seen_at >= ${new Date(Date.now() - 120_000)} OR latest = 1
       ORDER BY last_seen_at DESC LIMIT 10`),
   ])
-  const entries = (rows as unknown as Array<Record<string, unknown>>)
-    .slice(0, PAGE_SIZE)
-    .map((row) => ({
-      ...row,
-      at: epoch(row.at),
-    })) as unknown as ServerLogsResult['entries']
-  const last = entries.at(-1)
-  const nextCursor =
-    rows.length > PAGE_SIZE && last
-      ? Buffer.from(JSON.stringify({ at: last.at, id: last.id })).toString('base64url')
-      : null
   const pointMap = new Map(
     (points as unknown as Array<Record<string, unknown>>).map((row) => [
       Number(row.at),
@@ -124,8 +130,7 @@ export async function readServerLogs(
     trend.push(pointMap.get(at) ?? { at, count: 0, errors: 0 })
   }
   return {
-    entries,
-    nextCursor,
+    ...records,
     summary: totals[0] as ServerLogsResult['summary'],
     groups: (groups as unknown as Array<Record<string, unknown>>).map((row) => ({
       ...row,
