@@ -33,7 +33,10 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 )
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
-const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
+const { setAgentFetchForTesting, setAgentRetryBackoffForTesting } = await import(
+  '../../../lib/agent/model'
+)
+setAgentRetryBackoffForTesting(0)
 const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
   '../../../lib/chatCompletion'
 )
@@ -150,6 +153,54 @@ afterAll(async () => {
 })
 
 describe('startAgentTurn usage', () => {
+  it('records overload retries separately without repeating user messages or hiding unknown usage', async () => {
+    let calls = 0
+    setAgentFetchForTesting(
+      recordingAgentFetch([], () =>
+        ++calls === 1
+          ? Response.json(
+              {
+                error: { message: 'Our servers are currently overloaded. Please try again later.' },
+              },
+              { status: 503 },
+            )
+          : completionStream('好'),
+      ),
+    )
+    const conversation = await createAgentConversation(
+      { kind: 'device', deviceId: 'device-abcdefgh' },
+      '第一句',
+    )
+    const settlements: AgentTurnSettlement[] = []
+    const turn = await startAgentTurn(
+      prepared(conversation.id, 'overload-retry', [], '继续', async (settlement) => {
+        settlements.push(settlement)
+        return { chat: 0, image: 0, video: 0 }
+      }),
+    )
+    const events: AgentTurnEvent[] = []
+    for await (const stored of turn.read(0)) events.push(stored.event)
+    expect(events.filter((event) => event.type === 'turnEnd')).toHaveLength(1)
+    expect(settlements).toEqual([{ outcome: 'completed', usage: null, upstreamInvocationCount: 2 }])
+    const records = await db
+      .select()
+      .from(schema.agent_model_calls)
+      .where(eq(schema.agent_model_calls.turn_id, 'overload-retry'))
+      .orderBy(schema.agent_model_calls.started_at)
+    expect(records).toHaveLength(2)
+    expect(records[0]).toMatchObject({ status: 'failed', http_dispatch_count: 1, usage: null })
+    expect(records[1]).toMatchObject({
+      status: 'completed',
+      http_dispatch_count: 1,
+      usage: { inputTokens: 12, outputTokens: 4 },
+    })
+    expect(records[0]?.id).not.toBe(records[1]?.id)
+    const messages = await db
+      .select()
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.turn_id, 'overload-retry'))
+    expect(messages.filter((message) => message.role === 'assistant')).toHaveLength(1)
+  })
   it('keeps the turn active until a transient settlement failure succeeds', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
     const conversation = await createAgentConversation(
