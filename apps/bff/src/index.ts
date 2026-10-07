@@ -8,15 +8,17 @@ import { initChannels } from './lib/channels'
 import { purgeOldClientErrors } from './lib/client-errors'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
-import { log } from './lib/logger'
+import { log, serverLogBuffer } from './lib/logger'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { withRequestContext } from './lib/request-context'
+import { startServerLogs } from './lib/server-logs'
 
 // 与 Cloudflare 的请求体上限对齐：生产流量经它进来，超过的本来就到不了这里；直连源站时
 // 也不该放进更大的。前端提交前会把参考图压到长边 2048，正常一次远小于这个数。
 const MAX_REQUEST_BODY_SIZE_BYTES = 100 * 1024 * 1024
 
+const stopServerLogs = startServerLogs()
 config.assertValid()
 log.info(
   {
@@ -179,7 +181,10 @@ log.info(
 )
 
 // 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
-const stopHeartbeat = startHeartbeat({ service: 'bff' })
+const stopHeartbeat = startHeartbeat({
+  service: 'bff',
+  detail: () => ({ logs: serverLogBuffer.stats() }),
+})
 
 // 排队消息与唤醒的兜底：收尾那个实例正在下线或半路没了时由这里接着开轮；worker 写进收件箱的
 // 唤醒、等太久先唤醒的那一批也由这里起轮。开机先巡一次。
@@ -211,6 +216,7 @@ const apiMinutesTimer = setInterval(() => void flushApiMinutes(), 60_000)
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
+  await stopServerLogs()
   await closeDb()
   // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。
   log.flush()

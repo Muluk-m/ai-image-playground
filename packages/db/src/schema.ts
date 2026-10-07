@@ -1471,3 +1471,33 @@ export const analysis_model_calls = pgTable(
     ),
   ],
 )
+
+/** Structured operational logs. BFF/worker write; Admin only reads. */
+export const server_logs = pgTable(
+  'server_logs',
+  {
+    id: text('id').primaryKey(),
+    at: epochMs('at').notNull(),
+    service: text('service').$type<'bff' | 'worker'>().notNull(),
+    instance: text('instance').notNull(),
+    version: text('version').notNull(),
+    level: text('level').$type<import('@image-playground/shared').ServerLogLevel>().notNull(),
+    event: text('event'),
+    group_key: text('group_key').notNull(),
+    message: text('message').notNull(),
+    request_id: text('request_id'),
+    task_id: text('task_id'),
+    fields: bunJsonb('fields').$type<Record<string, unknown>>().notNull(),
+  },
+  (t) => [
+    index('idx_server_logs_at').on(t.at.desc(), t.id.desc()),
+    index('idx_server_logs_service_level').on(t.service, t.level, t.at.desc()),
+    index('idx_server_logs_request').on(t.request_id, t.at.desc()),
+    index('idx_server_logs_task').on(t.task_id, t.at.desc()),
+    check('server_logs_service_check', sql`${t.service} IN ('bff', 'worker')`),
+    check(
+      'server_logs_level_check',
+      sql`${t.level} IN ('trace', 'debug', 'info', 'warn', 'error', 'fatal')`,
+    ),
+  ],
+)
