@@ -1,7 +1,6 @@
 import { MessageCircle, MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { CanvasIcon, PlusIcon, TrashIcon, VideoIcon } from '../../../components/icons'
-import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
@@ -21,6 +20,7 @@ import {
   projectExperience,
 } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
+import ProjectCover from './ProjectCover'
 import ProjectTrash from './ProjectTrash'
 
 function projectBadge(project: CanvasProject) {
@@ -48,28 +48,6 @@ const FILTERS = [
   { value: 'chat', label: 'grid.chat' },
 ] as const satisfies readonly { value: ExperienceFilter; label: string }[]
 
-/** 无封面时按类型给底纹：画布是点阵，对话是气泡，不同类型一眼可分。 */
-function EmptyCover({ chat }: { chat: boolean }) {
-  if (!chat) {
-    return (
-      <span
-        aria-hidden="true"
-        className="absolute inset-0 bg-[radial-gradient(hsl(var(--muted-foreground)/0.28)_1px,transparent_1px)] [background-size:14px_14px]"
-      />
-    )
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className="absolute inset-0 flex flex-col justify-center gap-2 px-[22%]"
-    >
-      <span className="h-3.5 w-full rounded-full bg-sky-500/20" />
-      <span className="h-3.5 w-3/5 self-end rounded-full bg-muted-foreground/20" />
-      <span className="h-3.5 w-4/5 rounded-full bg-sky-500/20" />
-    </span>
-  )
-}
-
 export default function ProjectGrid({
   search = '',
   recent = false,
@@ -82,6 +60,9 @@ export default function ProjectGrid({
   const { t } = useTranslation('canvas')
   const projects = useCanvasProjectStore((state) => state.projects)
   const activeId = useCanvasProjectStore((state) => state.activeId)
+  const runningConversationId = useAgentStore((state) =>
+    state.turn === 'running' ? state.conversationId : null,
+  )
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const cloudLoading = useCanvasProjectStore((state) => state.cloudLoading)
   const cloudCursor = useCanvasProjectStore((state) => state.cloudCursor)
@@ -231,26 +212,15 @@ export default function ProjectGrid({
                 className="block w-full rounded-2xl text-left disabled:opacity-50"
               >
                 <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted transition-colors group-hover:border-primary/50">
-                  {project.cover ? (
-                    <>
-                      {/* 封面完整显示，四周用同图模糊铺底，避免大块灰边。 */}
-                      <MediaImage
-                        src={project.cover}
-                        alt=""
-                        loading="lazy"
-                        aria-hidden="true"
-                        className="absolute inset-0 h-full w-full scale-125 object-cover opacity-50 blur-2xl saturate-150"
-                      />
-                      <MediaImage
-                        src={project.cover}
-                        alt=""
-                        loading="lazy"
-                        className="relative h-full w-full object-contain"
-                      />
-                    </>
-                  ) : (
-                    <EmptyCover chat={projectExperience(project) === 'chat'} />
-                  )}
+                  <ProjectCover
+                    source={project.cover}
+                    chat={projectExperience(project) === 'chat'}
+                    pending={
+                      cloudLoading ||
+                      (Boolean(project.conversationId) &&
+                        project.conversationId === runningConversationId)
+                    }
+                  />
                 </div>
                 <div className="mt-2.5 flex items-center gap-2 pr-1">
                   <span

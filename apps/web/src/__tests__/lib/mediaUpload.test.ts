@@ -5,7 +5,10 @@ import { uploadMediaSource } from '../../lib/mediaUpload'
 
 const source = 'data:image/png;base64,iVBORw0KGgo='
 const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 it('uploads the original bytes without a canvas and waits for server confirmation', async () => {
   vi.stubGlobal('crypto', webcrypto)
@@ -102,4 +105,99 @@ it('rejects unsupported GIF before browser decoding, raster allocation or upload
   } finally {
     elements.mockRestore()
   }
+})
+
+it('retries busy confirmation without uploading successful bytes again', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.useFakeTimers()
+  let confirmations = 0
+  let puts = 0
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    if (input === source) return new Response(bytes)
+    if (input.endsWith('/uploads'))
+      return Response.json({
+        id: 'retry',
+        status: 'pending',
+        uploadUrl: 'https://storage.test/retry',
+      })
+    if (init?.method === 'PUT') {
+      puts++
+      return new Response(null)
+    }
+    if (input.endsWith('/complete')) {
+      confirmations++
+      return confirmations < 3
+        ? Response.json({ error: 'media_processing_busy' }, { status: 503 })
+        : Response.json({ id: 'retry', status: 'ready' })
+    }
+    throw new Error(`Unexpected fetch ${input}`)
+  })
+  const uploading = uploadMediaSource(source, { signal: new AbortController().signal })
+  await vi.waitFor(() => expect(confirmations).toBe(1))
+  await vi.advanceTimersByTimeAsync(1500)
+  expect(await uploading).toMatchObject({ id: 'retry' })
+  expect(confirmations).toBe(3)
+  expect(puts).toBe(1)
+})
+
+it('recovers a transient PUT failure while preserving the original bytes', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.useFakeTimers()
+  const bodies: Uint8Array[] = []
+  const urls: string[] = []
+  let reservations = 0
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    if (input === source) return new Response(bytes)
+    if (input.endsWith('/uploads')) {
+      reservations++
+      return Response.json({
+        id: 'put-retry',
+        status: 'pending',
+        uploadUrl: `https://storage.test/retry-${reservations}`,
+      })
+    }
+    if (init?.method === 'PUT') {
+      urls.push(input)
+      bodies.push(new Uint8Array(init.body as ArrayBuffer))
+      if (bodies.length === 1) throw new TypeError('network interrupted')
+      return new Response(null)
+    }
+    if (input.endsWith('/complete')) return Response.json({ id: 'put-retry', status: 'ready' })
+    throw new Error(`Unexpected fetch ${input}`)
+  })
+  const uploading = uploadMediaSource(source, { signal: new AbortController().signal })
+  await vi.waitFor(() => expect(bodies).toHaveLength(1))
+  await vi.advanceTimersByTimeAsync(500)
+  expect(await uploading).toMatchObject({ id: 'put-retry' })
+  expect(bodies).toEqual([bytes, bytes])
+  expect(urls).toEqual(['https://storage.test/retry-1', 'https://storage.test/retry-2'])
+})
+
+it('stops retrying when removed during backoff', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.useFakeTimers()
+  let confirmations = 0
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    if (input === source) return new Response(bytes)
+    if (input.endsWith('/uploads'))
+      return Response.json({
+        id: 'cancel',
+        status: 'pending',
+        uploadUrl: 'https://storage.test/cancel',
+      })
+    if (init?.method === 'PUT') return new Response(null)
+    if (input.endsWith('/complete')) {
+      confirmations++
+      return Response.json({ error: 'media_processing_busy' }, { status: 503 })
+    }
+    throw new Error(`Unexpected fetch ${input}`)
+  })
+  const controller = new AbortController()
+  const uploading = uploadMediaSource(source, { signal: controller.signal })
+  const rejected = expect(uploading).rejects.toThrow('removed')
+  await vi.waitFor(() => expect(confirmations).toBe(1))
+  controller.abort(new Error('removed'))
+  await rejected
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(confirmations).toBe(1)
 })

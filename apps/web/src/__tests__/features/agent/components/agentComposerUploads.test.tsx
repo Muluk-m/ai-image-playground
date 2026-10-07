@@ -37,7 +37,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
           leaseExpiresAt: Date.now() + 1200_000,
         })
       if (input === 'https://storage.test/one')
-        return new Response(null, { status: fail ? 503 : 200 })
+        return new Response(null, { status: fail ? 400 : 200 })
       if (input.endsWith('/complete')) {
         await confirmation
         return Response.json({ id: 'one', status: 'ready' })
