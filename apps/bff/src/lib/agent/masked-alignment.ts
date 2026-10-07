@@ -33,6 +33,8 @@ export function inspectMaskedAlignment(
         for (let x = left; x < Math.min(width, left + stepX); x += sampleSize) {
           let a = 0,
             b = 0,
+            protectedA = 0,
+            protectedB = 0,
             samples = 0
           for (let sy = y; sy < Math.min(height, top + stepY, y + sampleSize); sy++) {
             for (let sx = x; sx < Math.min(width, left + stepX, x + sampleSize); sx++) {
@@ -42,7 +44,8 @@ export function inspectMaskedAlignment(
                 continue
               }
               protectedPixels++
-              difference += Math.abs(grey(source, offset) - grey(candidate, offset))
+              protectedA += grey(source, offset)
+              protectedB += grey(candidate, offset)
               if (source[offset + 3] !== 255 || candidate[offset + 3] !== 255) {
                 excluded = true
                 continue
@@ -52,6 +55,8 @@ export function inspectMaskedAlignment(
               samples++
             }
           }
+          // 块大小与保护像素数量加权，平坦区域也使用同一份低频证据。
+          difference += Math.abs(protectedA - protectedB)
           if (!samples) continue
           a /= samples
           b /= samples
