@@ -192,7 +192,25 @@ describe('structured server log collection', () => {
   })
 
   it('bounds malformed text scanning before processing large input', () => {
-    expect(entry('{'.repeat(10_000)).message).toBe('[REDACTED PAYLOAD]')
+    expect(entry('{'.repeat(10_000)).message).toHaveLength(4000)
     expect(entry('{'.repeat(100_000)).message).toBe('[TRUNCATED LOG TEXT]')
+  })
+  it('preserves ordinary diagnostic brackets while hiding malformed sensitive remainders', () => {
+    for (const message of [
+      '[worker] task failed',
+      'at handler [as run] (worker.ts:42)',
+      'request /items/[id failed: connection refused',
+      'ordinary {tag} diagnostic',
+    ])
+      expect(entry(message).message).toBe(message)
+    const malformed = entry("upstream {'content':'hello } private user text'} next diagnostic")
+    expect(malformed.message).toBe('upstream [REDACTED PAYLOAD]')
+    expect(entry('upstream {"content":"private" invalid} private remainder').message).toBe(
+      'upstream [REDACTED PAYLOAD]',
+    )
+    expect(entry('body: ["private array content"] safe suffix').message).not.toContain(
+      'private array content',
+    )
+    expect(entry('Cookie: session=private-secret').message).not.toContain('private-secret')
   })
 })

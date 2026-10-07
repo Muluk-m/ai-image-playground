@@ -12,6 +12,33 @@ const LEVELS: Record<number, ServerLogLevel> = {
 const PRIVATE_FIELD =
   /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|payloadPreview|responseBody|errorBody|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
 
+function looksStructured(value: string, cursor: number): boolean {
+  const opener = value[cursor]
+  let next = cursor + 1
+  while (next < value.length && /\s/.test(value[next]!)) next++
+  const char = value[next]
+  if (char === '"' || char === "'") return true
+  if (opener === '{') {
+    return char === '}' || /^[a-z0-9_$][\w$.-]*\s*:/i.test(value.slice(next))
+  }
+  return (
+    char === ']' ||
+    char === '{' ||
+    char === '[' ||
+    (char !== undefined && /[0-9-]/.test(char)) ||
+    /^(?:true|false|null)(?=[\s,\]])/i.test(value.slice(next))
+  )
+}
+
+/** A plain diagnostic can still carry a labeled secret, outside any JSON fragment. */
+function privateAssignment(value: string): number | null {
+  const keys = /\b([a-z_$][\w$-]*)["']?\s*[:=]/gi
+  for (const match of value.matchAll(keys)) {
+    if (PRIVATE_FIELD.test(match[1]!)) return match.index
+  }
+  return null
+}
+
 /** Single pass, quote-aware JSON fragment scanning; malformed fragments fail closed. */
 function redactStructuredText(value: string, depth: number): string {
   const chunks: string[] = []
@@ -19,22 +46,26 @@ function redactStructuredText(value: string, depth: number): string {
   let cursor = 0
   while (cursor < value.length) {
     const opener = value[cursor]
-    if (opener !== '{' && opener !== '[') {
+    if ((opener !== '{' && opener !== '[') || !looksStructured(value, cursor)) {
       cursor++
       continue
     }
-    chunks.push(value.slice(plainStart, cursor))
+    const plain = value.slice(plainStart, cursor)
+    const sensitive = privateAssignment(plain)
+    if (sensitive !== null)
+      return chunks.join('') + plain.slice(0, sensitive) + '[REDACTED PAYLOAD]'
+    chunks.push(plain)
     const start = cursor++
     const stack = [opener]
-    let quoted = false
+    let quote: string | null = null
     let escaped = false
     while (cursor < value.length && stack.length) {
       const char = value[cursor++]
-      if (quoted) {
+      if (quote !== null) {
         if (escaped) escaped = false
         else if (char === '\\') escaped = true
-        else if (char === '"') quoted = false
-      } else if (char === '"') quoted = true
+        else if (char === quote) quote = null
+      } else if (char === '"' || char === "'") quote = char
       else if (char === '{' || char === '[') stack.push(char)
       else if (char === '}' || char === ']') {
         const opening = stack.pop()
@@ -51,17 +82,22 @@ function redactStructuredText(value: string, depth: number): string {
         chunks.push(JSON.stringify(sanitize(JSON.parse(value.slice(start, cursor)), depth + 1)))
       } catch {
         chunks.push('[REDACTED PAYLOAD]')
+        cursor = value.length
       }
     }
     plainStart = cursor
   }
-  chunks.push(value.slice(plainStart))
+  const plain = value.slice(plainStart)
+  const sensitive = privateAssignment(plain)
+  chunks.push(sensitive === null ? plain : plain.slice(0, sensitive) + '[REDACTED PAYLOAD]')
   return chunks.join('')
 }
 
 export function redactLogText(value: string, depth = 0): string {
   if (depth > 5 || value.length > 16_000) return '[TRUNCATED LOG TEXT]'
-  const withoutNul = value.replace(/\u0000/g, '')
+  const withoutNul = value
+    .replace(/\u0000/g, '')
+    .replace(/data:[^;\s]+;base64,[a-z0-9+/=]+/gi, '[BINARY REDACTED]')
   const structured = redactStructuredText(withoutNul, depth)
   return structured
     .replace(/\b(Bearer|Basic)\s+[^\s"'<>]+/gi, '$1 [REDACTED]')
