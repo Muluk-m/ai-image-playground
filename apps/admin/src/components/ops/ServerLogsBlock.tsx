@@ -18,6 +18,7 @@ const RANGES = LOG_RANGES
 const SELECT_STYLE = 'h-9 rounded-md border bg-background px-2 text-sm'
 const time = (at: number) =>
   new Date(at).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
+const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, -1)
 
 function LogDetails({
   entry,
@@ -140,13 +141,20 @@ export function ServerLogsBlock({
   const range = state.range ?? '24h'
   const custom =
     state.from !== undefined && state.to !== undefined ? { from: state.from, to: state.to } : null
+  const fixed = Boolean(custom)
   const filters = serverLogFilters(state)
   const setFilters = (values: Partial<ServerLogFilters>) =>
     change({ range: state.range, from: state.from, to: state.to, ...values })
   const setCustom = (value: { from: number; to: number } | null) =>
     change({ ...state, from: value?.from, to: value?.to })
   const [end, setEnd] = useState(() => Date.now())
-  const [live, setLive] = useState(!custom)
+  // A fixed range suspends refresh; live remembers only the user's manual pause choice.
+  const [live, setLive] = useState(true)
+  const previouslyFixed = useRef(fixed)
+  useEffect(() => {
+    if (previouslyFixed.current && !fixed) setEnd(Date.now())
+    previouslyFixed.current = fixed
+  }, [fixed])
   const [search, setSearch] = useState(state.q ?? '')
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   useEffect(() => setSearch(state.q ?? ''), [state.q])
@@ -232,8 +240,9 @@ export function ServerLogsBlock({
             size="sm"
             variant="outline"
             onClick={() => {
-              setLive(!live)
-              if (!live) {
+              if (live && !custom) setLive(false)
+              else {
+                setLive(true)
                 setCustom(null)
                 setEnd(Date.now())
               }
@@ -363,16 +372,27 @@ export function ServerLogsBlock({
                 ]),
               )
               change({ ...state, ...located, ...(fromText || toText ? { from, to } : {}) })
-              if (fromText || toText) setLive(false)
             }}
           >
             <label>
               开始时间（北京时间）
-              <Input name="from" type="datetime-local" />
+              <Input
+                name="from"
+                type="datetime-local"
+                step="0.001"
+                key={`from:${custom?.from ?? range}`}
+                defaultValue={custom ? dateInput(custom.from) : ''}
+              />
             </label>
             <label>
               结束时间（北京时间）
-              <Input name="to" type="datetime-local" />
+              <Input
+                name="to"
+                type="datetime-local"
+                step="0.001"
+                key={`to:${custom?.to ?? range}`}
+                defaultValue={custom ? dateInput(custom.to) : ''}
+              />
             </label>
             <label>
               请求 ID

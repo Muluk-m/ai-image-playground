@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ServerLogsBlock } from '../../components/ops/ServerLogsBlock'
 import { apiClient } from '../../lib/api-client'
-import { parseServerLogSearch } from '../../lib/server-log-search'
+import { parseServerLogSearch, type ServerLogSearch } from '../../lib/server-log-search'
 
 const now = Date.now()
 const result: ServerLogsResult = {
@@ -74,6 +74,54 @@ function setup() {
 }
 
 describe('server log exploration', () => {
+  it('resumes a fresh relative window after leaving a shared fixed range and preserves manual pause', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    get.mockResolvedValue(result)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const block = (searchState: ServerLogSearch) => (
+      <QueryClientProvider client={client}>
+        <ServerLogsBlock searchState={searchState} />
+      </QueryClientProvider>
+    )
+    const view = render(block({ from: now - 3600000, to: now }))
+    await screen.findByText('201')
+    vi.setSystemTime(now + 7200000)
+    view.rerender(block({}))
+    await waitFor(() => {
+      const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
+      expect(Number(params.get('to'))).toBe(now + 7200000)
+      expect(Number(params.get('to')) - Number(params.get('from'))).toBe(86400_000)
+    })
+    fireEvent.click(screen.getByRole('button', { name: '暂停自动刷新' }))
+    view.rerender(block({ q: 'timeout' }))
+    await waitFor(() => expect(get.mock.lastCall![0]).toContain('q=timeout'))
+    expect(screen.getByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
+  })
+  it('reflects fixed dates and clears old date drafts before applying identity filters in a preset range', async () => {
+    setup()
+    await screen.findByText('201')
+    const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, -1)
+    fireEvent.change(screen.getByLabelText('开始时间（北京时间）'), {
+      target: { value: dateInput(now - 7200000) },
+    })
+    fireEvent.change(screen.getByLabelText('结束时间（北京时间）'), {
+      target: { value: dateInput(now) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
+    await waitFor(() => expect(get.mock.lastCall![0]).toContain(`from=${now - 7200000}`))
+    expect(screen.getByLabelText('开始时间（北京时间）')).toHaveValue(dateInput(now - 7200000))
+    fireEvent.change(screen.getByLabelText('日志时间范围'), { target: { value: '1h' } })
+    expect(screen.getByLabelText('开始时间（北京时间）')).toHaveValue('')
+    expect(screen.getByLabelText('结束时间（北京时间）')).toHaveValue('')
+    fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: 'user-new' } })
+    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
+    await waitFor(() => {
+      const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
+      expect(params.get('userId')).toBe('user-new')
+      expect(Number(params.get('to')) - Number(params.get('from'))).toBe(3600_000)
+    })
+    expect(screen.getByRole('button', { name: '暂停自动刷新' })).toBeInTheDocument()
+  })
   it('copies a fixed query window and reports clipboard failures', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const writeText = vi
