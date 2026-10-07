@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, it } from 'bun:test'
+import { afterAll, beforeEach, expect, it, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
@@ -334,9 +334,37 @@ it('同一份字节改用正确的类型重新预留，沿用原身份并能确�
     await request('media/uploads', deviceA, { ...descriptor, contentType: 'image/png' })
   ).json()
   await storage.write(key(mislabeled.uploadUrl), bytes, 'image/webp')
-  expect(await (await request(`media/${mislabeled.id}/complete`, deviceA, {})).json()).toEqual({
-    error: 'media_invalid_image',
-  })
+  const { log } = await import('../../lib/logger')
+  const warning = spyOn(log, 'warn')
+  try {
+    expect(await (await request(`media/${mislabeled.id}/complete`, deviceA, {})).json()).toEqual({
+      error: 'media_invalid_image',
+    })
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'media.validation_failed',
+        userId: 'media-owner',
+        mediaId: mislabeled.id,
+        reason: 'content_type_mismatch',
+        detectedFormat: 'webp',
+        declaredContentType: 'image/png',
+      }),
+      'uploaded image validation failed',
+    )
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'media.request_rejected',
+        userId: 'media-owner',
+        mediaId: mislabeled.id,
+        stage: 'complete',
+        errorCode: 'media_invalid_image',
+        status: 422,
+      }),
+      'media request rejected',
+    )
+  } finally {
+    warning.mockRestore()
+  }
 
   const corrected = await request('media/uploads', deviceA, {
     ...descriptor,
