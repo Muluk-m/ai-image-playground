@@ -1906,6 +1906,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             })
           return
         }
+        // The draft and outgoing journal release local originals after acceptance. The live
+        // message must own the confirmed identities before those callbacks clear its sources.
+        set((state) => ({
+          messages: state.messages.map((message) =>
+            message.kind === 'text' && message.pending
+              ? { ...message, references: prepared.references }
+              : message,
+          ),
+        }))
         onAccepted?.()
         await follow(target, { frames: outcome.frames }, trimmed, turnDelivery, async (turnId) => {
           if (submission.cancelled) await requestAbort(target, turnId)
