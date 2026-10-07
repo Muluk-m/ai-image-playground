@@ -21,14 +21,14 @@ export default function ProjectCover({
   const failed = source && settled?.source === source && settled.failed
   return (
     <>
-      {source && !failed && (
+      {source && (
         <>
           <MediaImage
             src={source}
             alt=""
             loading="lazy"
             aria-hidden="true"
-            className="absolute inset-0 h-full w-full scale-125 object-cover opacity-50 blur-2xl saturate-150"
+            className={`absolute inset-0 h-full w-full scale-125 object-cover blur-2xl saturate-150 ${failed ? 'opacity-0' : 'opacity-50'}`}
           />
           <MediaImage
             src={source}
@@ -37,7 +37,7 @@ export default function ProjectCover({
             onLoad={() => setSettled({ source, failed: false })}
             onError={() => setSettled({ source, failed: true })}
             onResolveError={fail}
-            className={`relative h-full w-full object-contain ${loading ? 'opacity-0' : ''}`}
+            className={`relative h-full w-full object-contain ${loading || failed ? 'opacity-0' : ''}`}
           />
         </>
       )}

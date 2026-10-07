@@ -37,7 +37,8 @@ it('ends loading when cloud preview resolution fails', async () => {
       root.render(<ProjectCover source="aip-media:11000000-0000-4000-8000-000000000001" chat />),
     )
     await vi.waitFor(() => expect(host.querySelector('[role=status]')).toBeNull())
-    expect(host.querySelector('img')).toBeNull()
+    expect(host.querySelectorAll('img')).toHaveLength(2)
+    expect(host.querySelectorAll('img')[1]!.className).toContain('opacity-0')
   } finally {
     await act(async () => root.unmount())
     vi.unstubAllGlobals()
