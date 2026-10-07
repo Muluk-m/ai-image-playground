@@ -17,7 +17,10 @@ export type ServerLogSearch = Partial<ServerLogFilters> & { range?: keyof typeof
 
 export function parseServerLogSearch(input: Record<string, unknown>): ServerLogSearch {
   const out: ServerLogSearch = {}
-  if (typeof input.range === 'string' && Object.hasOwn(LOG_RANGES, input.range))
+  if (
+    typeof input.range === 'string' &&
+    Object.prototype.hasOwnProperty.call(LOG_RANGES, input.range)
+  )
     out.range = input.range as keyof typeof LOG_RANGES
   if (input.service === 'bff' || input.service === 'worker') out.service = input.service
   if (SERVER_LOG_LEVELS.some((level) => level === input.level))

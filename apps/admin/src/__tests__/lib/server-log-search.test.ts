@@ -42,6 +42,7 @@ describe('shareable server log queries', () => {
     ).toEqual({})
     expect(parseServerLogSearch({ from: to + 1000, to })).toEqual({})
     expect(parseServerLogSearch({ from: 0 })).toEqual({})
+    expect(parseServerLogSearch({ range: 'toString' })).toEqual({})
     expect(parseServerLogSearch({ range: '24h', q: '  decode failed  ' })).toEqual({
       range: '24h',
       q: 'decode failed',
