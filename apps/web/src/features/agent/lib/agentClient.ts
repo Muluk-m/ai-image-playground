@@ -30,6 +30,7 @@ import type {
 } from '@image-playground/shared'
 import {
   AGENT_FRAME_SEPARATOR,
+  AGENT_SSE_HEARTBEAT_MS,
   DEVICE_ID_HEADER,
   isAgentToolErrorCode,
   parseAgentFrame,
@@ -40,8 +41,30 @@ import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 const CONTROL_REQUEST_TIMEOUT_MS = 15_000
+const STREAM_IDLE_TIMEOUT_MS = AGENT_SSE_HEARTBEAT_MS * 3
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
+
+/** Keep the deadline through JSON/error bodies; callers release it when SSE takes over. */
+async function fetchStreamResponse(
+  fetcher: Fetcher,
+  path: string,
+  init: RequestInit,
+): Promise<{ response: Response; releaseDeadline: () => void }> {
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Agent request timed out', 'TimeoutError')),
+    CONTROL_REQUEST_TIMEOUT_MS,
+  )
+  const releaseDeadline = () => clearTimeout(timer)
+  try {
+    const response = await fetcher(path, { ...init, signal: controller.signal })
+    return { response, releaseDeadline }
+  } catch (error) {
+    releaseDeadline()
+    throw error
+  }
+}
 
 export class AgentRequestError extends Error {
   constructor(
@@ -95,7 +118,10 @@ function deviceHeaders(): Record<string, string> {
 export async function createConversation(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView> {
-  const response = await fetcher(url('/conversations'), jsonInit({ deviceId: getDeviceId() }))
+  const response = await fetcher(url('/conversations'), {
+    ...jsonInit({ deviceId: getDeviceId() }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { conversation: AgentConversationView }).conversation
 }
@@ -103,7 +129,10 @@ export async function createConversation(
 export async function fetchConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView[]> {
-  const response = await fetcher(url('/conversations'), { headers: deviceHeaders() })
+  const response = await fetcher(url('/conversations'), {
+    headers: deviceHeaders(),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
 }
@@ -201,13 +230,29 @@ async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
       if (frame) yield frame
     }
   }
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffered += decoder.decode(value, { stream: true })
-    yield* drain(false)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    while (true) {
+      // Comment heartbeats also count as traffic: quiet model/tool work is still healthy.
+      const idle = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new DOMException('Agent stream stopped responding', 'TimeoutError')),
+          STREAM_IDLE_TIMEOUT_MS,
+        )
+      })
+      const { done, value } = await Promise.race([reader.read(), idle])
+      clearTimeout(timer)
+      if (done) break
+      buffered += decoder.decode(value, { stream: true })
+      yield* drain(false)
+    }
+    yield* drain(true)
+  } finally {
+    clearTimeout(timer)
+    // A broken transport may never acknowledge cancellation; reconnect without waiting for it.
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
-  yield* drain(true)
 }
 
 /**
@@ -274,23 +319,28 @@ export async function startTurn(
     ...(experience ? { experience } : {}),
   })
   const path = url(`/conversations/${conversationId}/turns`)
-  let response: Response
+  let opened: Awaited<ReturnType<typeof fetchStreamResponse>>
   try {
-    response = await fetcher(path, init)
+    opened = await fetchStreamResponse(fetcher, path, init)
   } catch {
     // 请求可能已经到了服务端、只是回程断了：同一个 id 再发一次，服务端按它去重。
-    response = await fetcher(path, init)
+    opened = await fetchStreamResponse(fetcher, path, init)
   }
-  if (response.status === 202) {
-    return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+  const { response } = opened
+  try {
+    if (response.status === 202) {
+      return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+    }
+    if (response.status === 409) {
+      // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
+      const turnId = await alreadyRunningTurnId(response.clone())
+      if (turnId) return { kind: 'alreadyRunning', turnId }
+    }
+    if (!response.ok || !response.body) throw await requestError(response)
+    return { kind: 'frames', frames: readFrames(response) }
+  } finally {
+    opened.releaseDeadline()
   }
-  if (response.status === 409) {
-    // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
-    const turnId = await alreadyRunningTurnId(response.clone())
-    if (turnId) return { kind: 'alreadyRunning', turnId }
-  }
-  if (!response.ok || !response.body) throw await requestError(response)
-  return { kind: 'frames', frames: readFrames(response) }
 }
 
 /** `lastEventId` 为 0 表示从头要一遍这一轮。 */
@@ -303,12 +353,23 @@ async function* resumeTurn(
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetcher(url(`/conversations/${conversationId}/turns/${turnId}/events`), {
-    headers,
-  })
-  // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
-  if (response.ok && response.body) onOpen?.()
-  yield* readFrames(response)
+  const opened = await fetchStreamResponse(
+    fetcher,
+    url(`/conversations/${conversationId}/turns/${turnId}/events`),
+    {
+      headers,
+    },
+  )
+  try {
+    // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
+    if (opened.response.ok && opened.response.body) {
+      opened.releaseDeadline()
+      onOpen?.()
+    }
+    yield* readFrames(opened.response)
+  } finally {
+    opened.releaseDeadline()
+  }
 }
 
 /** 会话级增量：`lastEventId` 之后这个会话的全部事件，不分哪一轮。 */
@@ -320,9 +381,20 @@ async function* resumeConversation(
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetcher(url(`/conversations/${conversationId}/events`), { headers })
-  if (response.ok && response.body) onOpen?.()
-  yield* readFrames(response)
+  const opened = await fetchStreamResponse(
+    fetcher,
+    url(`/conversations/${conversationId}/events`),
+    { headers },
+  )
+  try {
+    if (opened.response.ok && opened.response.body) {
+      opened.releaseDeadline()
+      onOpen?.()
+    }
+    yield* readFrames(opened.response)
+  } finally {
+    opened.releaseDeadline()
+  }
 }
 
 /** 断了之后隔多久再续播。第一次立刻重试：多数断流是中间设备掐的，续播马上就接上了。 */
@@ -616,7 +688,10 @@ export async function interjectTurn(
   references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
-    jsonInit({ deviceId: getDeviceId(), text, references, clientMessageId }),
+    {
+      ...jsonInit({ deviceId: getDeviceId(), text, references, clientMessageId }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
   )
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { messageId: string }).messageId

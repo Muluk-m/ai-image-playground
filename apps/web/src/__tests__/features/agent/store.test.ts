@@ -13,6 +13,7 @@ import {
   answerableClarificationId,
   conversationStarted,
 } from '../../../features/agent/lib/panelMessages'
+import * as turnSubmission from '../../../features/agent/lib/turnSubmission'
 import { useAgentStore } from '../../../features/agent/store'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -112,6 +113,7 @@ afterEach(() => {
   setClientStorageScope(null)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
+  vi.restoreAllMocks()
 })
 
 describe('一轮对话', () => {
@@ -289,6 +291,66 @@ describe('一轮对话', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(state().turn).toBe('idle')
+  })
+
+  it('参考图准备失败时退出发送中，保留原消息和参考图供重试', async () => {
+    const capture = turnSubmission.captureTurnSubmission
+    vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => ({
+      ...capture(input),
+      prepare: async () => {
+        throw new Error('media_upload_failed')
+      },
+    }))
+    const references = [{ imageId: 'fabric', dataUrl: 'data:image/png;base64,aGk=' }]
+    const accepted = vi.fn()
+    const unsent = vi.fn(async () => true)
+
+    await state().send(
+      '改这块面料',
+      references,
+      accepted,
+      'image',
+      'client-1',
+      undefined,
+      undefined,
+      unsent,
+    )
+
+    expect(state().turn).toBe('failed')
+    expect(agentActivityPhase(state())).toBeNull()
+    expect(state().messages).toEqual([])
+    expect(state().error).toBe('有几张图还没能上传到云端，这一轮没有发出。请重试，草稿已保留。')
+    expect(state().errorDiagnostic).toMatchObject({ message: 'media_upload_failed' })
+    expect(accepted).not.toHaveBeenCalled()
+    expect(unsent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'client-1', text: '改这块面料', references }),
+    )
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(false)
+
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('改这块面料', references)
+    expect(state().turn).toBe('idle')
+  })
+
+  it('等待参考图时中止，随后上传失败也按已中止收尾', async () => {
+    const capture = turnSubmission.captureTurnSubmission
+    let rejectUpload!: (error: Error) => void
+    vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => ({
+      ...capture(input),
+      prepare: () =>
+        new Promise((_, reject) => {
+          rejectUpload = reject
+        }),
+    }))
+    const sending = state().send('修改面料')
+    await vi.waitFor(() => expect(rejectUpload).toBeDefined())
+    await state().abort()
+    rejectUpload(new Error('media_upload_failed'))
+
+    expect(await sending).toBe('cancelled')
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(state().error).toBeNull()
   })
 
   it('云端媒体换不上、只能内联的张数超过上限时当场打回，不发注定被拒的请求', async () => {

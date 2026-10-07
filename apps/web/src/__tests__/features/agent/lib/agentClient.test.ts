@@ -1,5 +1,10 @@
 import type { AgentTurnEvent } from '@image-playground/shared'
-import { DEVICE_ID_HEADER, encodeAgentFrame } from '@image-playground/shared'
+import {
+  AGENT_SSE_HEARTBEAT_MS,
+  agentHeartbeatFrame,
+  DEVICE_ID_HEADER,
+  encodeAgentFrame,
+} from '@image-playground/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 const DEVICE = 'device-abcdefgh'
@@ -190,6 +195,183 @@ async function collect(turn: AgentTurnStream): Promise<AgentTurnEvent[]> {
   for await (const event of turn.events) events.push(event)
   return events
 }
+
+describe('发送与续播的等待期限', () => {
+  it.each([202, 409, 503])('起轮返回 %s 响应头但 JSON 正文停滞时也有等待期限', async (status) => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = vi.fn(
+        async (_url: string, init?: RequestInit) =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{'))
+                init!.signal!.addEventListener(
+                  'abort',
+                  () => controller.error(init!.signal!.reason),
+                  { once: true },
+                )
+              },
+            }),
+            { status, headers: { 'content-type': 'application/json' } },
+          ),
+      )
+      const sending = startTurn(CONVERSATION, '改面料', [], undefined, undefined, fetcher)
+      const rejected = expect(sending).rejects.toMatchObject(
+        status === 202 ? { name: 'TimeoutError' } : { status },
+      )
+
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      await rejected
+      expect(fetcher).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('起轮响应卡住时用原消息 id 有界重试，两次都超时后返回失败', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), {
+              once: true,
+            })
+          }),
+      )
+      const sending = startTurn(
+        CONVERSATION,
+        '改面料',
+        [],
+        undefined,
+        undefined,
+        fetcher,
+        'client-1',
+      )
+      const rejected = expect(sending).rejects.toMatchObject({ name: 'TimeoutError' })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await rejected
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(
+        fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).clientMessageId),
+      ).toEqual(['client-1', 'client-1'])
+      expect(fetcher.mock.calls[0]![1]!.signal).not.toBe(fetcher.mock.calls[1]![1]!.signal)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('流不再发字节时取消旧连接，从最后一帧续播', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancelled = vi.fn()
+      const broken = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(encodeAgentFrame(1, TURN_START)))
+          },
+          cancel: cancelled,
+        }),
+      )
+      const { calls, fetcher } = scriptedFetcher([
+        () => broken,
+        () => sse([{ id: 2, event: TURN_END }]),
+      ])
+      const started = await startTurn(CONVERSATION, '改面料', [], undefined, undefined, fetcher)
+      if (started.kind !== 'frames') throw new Error('起轮没拿到帧流')
+      const turn = followTurn(CONVERSATION, { frames: started.frames }, { fetcher, delaysMs: [0] })
+      const collected = collect(turn)
+      await vi.advanceTimersByTimeAsync(AGENT_SSE_HEARTBEAT_MS * 3 + 1)
+      expect(await collected).toEqual([TURN_START, TURN_END])
+      expect(turn.outcome).toBe('ended')
+      expect(cancelled).toHaveBeenCalledOnce()
+      expect(headerOf(calls[1]!.init, 'last-event-id')).toBe('1')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('起轮返回响应头却一直没有首帧时也结束等待', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancelled = vi.fn()
+      const response = new Response(new ReadableStream<Uint8Array>({ cancel: cancelled }))
+      const { calls, fetcher } = scriptedFetcher([() => response])
+      const started = await startTurn(CONVERSATION, '改面料', [], undefined, undefined, fetcher)
+      if (started.kind !== 'frames') throw new Error('起轮没拿到帧流')
+      const turn = followTurn(CONVERSATION, { frames: started.frames }, { fetcher })
+      const collected = collect(turn)
+
+      await vi.advanceTimersByTimeAsync(AGENT_SSE_HEARTBEAT_MS * 3)
+
+      expect(await collected).toEqual([])
+      expect(turn.outcome).toBe('unreachable')
+      expect(cancelled).toHaveBeenCalledOnce()
+      expect(calls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('长任务持续收到心跳时保持连接，收到终帧后释放流', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancelled = vi.fn()
+      let stream!: ReadableStreamDefaultController<Uint8Array>
+      const encoder = new TextEncoder()
+      const response = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            stream = controller
+            controller.enqueue(encoder.encode(encodeAgentFrame(1, TURN_START)))
+          },
+          cancel: cancelled,
+        }),
+      )
+      const { calls, fetcher } = scriptedFetcher([() => response])
+      const started = await startTurn(CONVERSATION, '改面料', [], undefined, undefined, fetcher)
+      if (started.kind !== 'frames') throw new Error('起轮没拿到帧流')
+      const turn = followTurn(CONVERSATION, { frames: started.frames }, { fetcher })
+      const collected = collect(turn)
+      for (let index = 0; index < 6; index++) {
+        await vi.advanceTimersByTimeAsync(AGENT_SSE_HEARTBEAT_MS)
+        stream.enqueue(encoder.encode(agentHeartbeatFrame()))
+      }
+      expect(calls[0]!.init?.signal?.aborted).toBe(false)
+      stream.enqueue(encoder.encode(encodeAgentFrame(2, TURN_END)))
+      expect(await collected).toEqual([TURN_START, TURN_END])
+      expect(turn.outcome).toBe('ended')
+      expect(calls).toHaveLength(1)
+      expect(cancelled).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('续播端点没有响应时结束有界重连', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetcher = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), {
+              once: true,
+            })
+          }),
+      )
+      const turn = followTurn(CONVERSATION, { turnId: TURN }, { fetcher, delaysMs: [] })
+      const collected = collect(turn)
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(await collected).toEqual([])
+      expect(turn.outcome).toBe('unreachable')
+      expect(fetcher).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
 
 describe('跟一轮到底', () => {
   it('断在半路时带断点续播，重发过的帧不再交第二遍', async () => {
