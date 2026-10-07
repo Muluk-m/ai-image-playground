@@ -1,7 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { OpsBoard } from '@/components/ops/OpsBoard'
-import { ServerLogsBlock } from '@/components/ops/ServerLogsBlock'
 import { ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
 import { useOps } from '@/lib/queries'
@@ -63,7 +62,6 @@ function OpsPage() {
       ) : (
         <PendingState label="正在查看部署状况" />
       )}
-      <ServerLogsBlock />
     </Page>
   )
 }

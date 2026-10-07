@@ -158,7 +158,7 @@ export function ServerLogsBlock() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return (
-    <Card role="region" aria-label="服务端日志" className="mt-4">
+    <Card role="region" aria-label="服务端日志">
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <CardTitle className="text-sm">服务端日志</CardTitle>
