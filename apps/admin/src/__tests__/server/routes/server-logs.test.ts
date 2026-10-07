@@ -20,7 +20,11 @@ const rows = Array.from({ length: 105 }, (_, index) => ({
   message: index === 0 ? 'literal 100%_failure' : 'task failed',
   request_id: `request-${index}`,
   task_id: 'task-1',
-  fields: { err: { stack: 'at worker.ts:42' } },
+  fields: {
+    err: { stack: 'at worker.ts:42' },
+    userId: index === 5 ? 'user-a' : 'user-b',
+    mediaId: `media-${index}`,
+  },
 }))
 await writer.db.insert(writer.schema.server_logs).values([
   ...rows,
@@ -100,6 +104,7 @@ describe('authenticated server log explorer', () => {
     expect(result.trend.some((point) => point.count === 0)).toBe(true)
     expect(result.entries[0]!.at).toBe(now - 60_000)
     expect(result.entries[0]!.fields).toEqual(rows[0]!.fields)
+    expect(result.coverage).toEqual({ first_at: now - 2 * 3600_000, last_at: now - 60000 })
     expect(result.collectors.map((collector) => collector.instance)).toEqual([
       'live-collector',
       'stale-worker',
@@ -133,5 +138,18 @@ describe('authenticated server log explorer', () => {
     expect(correlated.entries.map((row) => row.id)).toEqual(['entry-005'])
     const injection = (await (await request('&q=%27%20OR%201%3D1--')).json()) as ServerLogsResult
     expect(injection.summary.total).toBe(0)
+  })
+  it('filters exact user, media, instance and version without crossing user boundaries', async () => {
+    const matched = (await (
+      await request('&userId=user-a&mediaId=media-5&instance=old-container&version=old-release')
+    ).json()) as ServerLogsResult
+    expect(matched.entries.map((row) => row.id)).toEqual(['entry-005'])
+    expect(matched.summary.total).toBe(1)
+    const other = (await (
+      await request('&userId=user-b&mediaId=media-5')
+    ).json()) as ServerLogsResult
+    expect(other.summary.total).toBe(0)
+    expect(other.coverage).toEqual(matched.coverage)
+    expect((await request('&instance=' + 'x'.repeat(401))).status).toBe(400)
   })
 })

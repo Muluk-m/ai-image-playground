@@ -31,7 +31,16 @@ export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) 
     if (!SERVER_LOG_LEVELS.includes(query.level as never)) throw new LogQueryError('无效的日志级别')
     filters.level = query.level as ServerLogFilters['level']
   }
-  for (const key of ['q', 'requestId', 'taskId', 'group'] as const) {
+  for (const key of [
+    'q',
+    'requestId',
+    'taskId',
+    'userId',
+    'mediaId',
+    'instance',
+    'version',
+    'group',
+  ] as const) {
     if (query[key] === undefined || query[key] === '') continue
     if (typeof query[key] !== 'string' || query[key].length > 400)
       throw new LogQueryError('筛选条件过长')
@@ -69,6 +78,10 @@ export async function readServerLogs(
   if (filters.requestId) conditions.push(sql`request_id = ${filters.requestId}`)
   if (filters.taskId) conditions.push(sql`task_id = ${filters.taskId}`)
   if (filters.group) conditions.push(sql`group_key = ${filters.group}`)
+  if (filters.instance) conditions.push(sql`instance = ${filters.instance}`)
+  if (filters.version) conditions.push(sql`version = ${filters.version}`)
+  if (filters.userId) conditions.push(sql`fields->>'userId' = ${filters.userId}`)
+  if (filters.mediaId) conditions.push(sql`fields->>'mediaId' = ${filters.mediaId}`)
   // strpos is a literal case-insensitive substring, so %, _ and quotes have no query syntax.
   if (filters.q)
     conditions.push(
@@ -96,7 +109,7 @@ export async function readServerLogs(
   }
   // Later pages only need records. Full-window statistics remain on page one.
   if (cursor) return readPage()
-  const [records, totals, groups, points, collectors] = await Promise.all([
+  const [records, totals, groups, points, collectors, coverage] = await Promise.all([
     readPage(),
     db.execute(sql`SELECT count(*)::int AS total,
       count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors,
@@ -114,6 +127,9 @@ export async function readServerLogs(
     ) SELECT service, instance, last_seen_at, logs FROM beats
       WHERE last_seen_at >= ${new Date(Date.now() - 120_000)} OR latest = 1
       ORDER BY last_seen_at DESC LIMIT 10`),
+    db.execute(sql`SELECT
+      (SELECT at FROM server_logs ORDER BY at ASC, id ASC LIMIT 1) AS first_at,
+      (SELECT at FROM server_logs ORDER BY at DESC, id DESC LIMIT 1) AS last_at`),
   ])
   const pointMap = new Map(
     (points as unknown as Array<Record<string, unknown>>).map((row) => [
@@ -131,6 +147,10 @@ export async function readServerLogs(
   }
   return {
     ...records,
+    coverage: {
+      first_at: coverage[0]?.first_at == null ? null : epoch(coverage[0].first_at),
+      last_at: coverage[0]?.last_at == null ? null : epoch(coverage[0].last_at),
+    },
     summary: totals[0] as ServerLogsResult['summary'],
     groups: (groups as unknown as Array<Record<string, unknown>>).map((row) => ({
       ...row,
