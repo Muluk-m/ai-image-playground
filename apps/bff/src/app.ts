@@ -6,6 +6,7 @@ import { config } from './config'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
+import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
@@ -159,6 +160,17 @@ export const app = new Elysia()
     if (startedAt === undefined) return
     const { pathname } = new URL(request.url)
     if (!isApiPath(pathname) || !isCountedPath(pathname)) return
+    const status = responseStatus(responseValue, set.status)
+    const durationMs = performance.now() - startedAt
+    const fields = {
+      event: 'http.request',
+      route: `${request.method} ${route || '（未匹配的路径）'}`,
+      status,
+      durationMs: Math.round(durationMs),
+    }
+    if (status >= 500) log.error(fields, 'API request failed')
+    else if (status >= 400) log.warn(fields, 'API request rejected')
+    else log.info(fields, 'API request completed')
     apiMetrics.record({
       at: Date.now(),
       route: `${request.method} ${route || '（未匹配的路径）'}`,

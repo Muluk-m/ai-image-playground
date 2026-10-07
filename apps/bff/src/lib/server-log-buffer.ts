@@ -1,0 +1,136 @@
+import type { ServerLogEntry, ServerLogLevel, ServerLogService } from '@image-playground/shared'
+
+const LEVELS: Record<number, ServerLogLevel> = {
+  10: 'trace',
+  20: 'debug',
+  30: 'info',
+  40: 'warn',
+  50: 'error',
+  60: 'fatal',
+}
+// Exclude raw user content and credentials, including nested error/request objects.
+const PRIVATE_FIELD =
+  /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
+
+export function redactLogText(value: string): string {
+  return value
+    .replace(/\b(Bearer|Basic)\s+[^\s"'<>]+/gi, '$1 [REDACTED]')
+    .replace(/\b(?:sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\b/gi, '[REDACTED]')
+    .replace(
+      /((?:api[_-]?key|token|password|secret|signature|credential)["']?\s*[:=]\s*["']?)[^\s&#"',}]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@')
+    .replace(/data:[^;\s]+;base64,[a-z0-9+/=]+/gi, '[BINARY REDACTED]')
+    .slice(0, 4000)
+}
+
+function sanitize(value: unknown, depth = 0): unknown {
+  if (depth > 5) return '[TRUNCATED]'
+  if (typeof value === 'string') return redactLogText(value)
+  if (Array.isArray(value)) return value.slice(0, 30).map((one) => sanitize(one, depth + 1))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 60)
+        .map(([key, one]) => [
+          key,
+          PRIVATE_FIELD.test(key) ? '[REDACTED]' : sanitize(one, depth + 1),
+        ]),
+    )
+  }
+  return value
+}
+
+export function parseServerLog(
+  line: string,
+  identity: { service: ServerLogService; instance: string; version: string },
+): ServerLogEntry | null {
+  try {
+    const raw = JSON.parse(line) as Record<string, unknown>
+    const level = LEVELS[Number(raw.level)]
+    const at = typeof raw.time === 'number' ? raw.time : Date.parse(String(raw.time))
+    if (!level || !Number.isFinite(at)) return null
+    const cleaned = sanitize(raw) as Record<string, unknown>
+    const message = redactLogText(String(raw.msg ?? ''))
+    const text = (key: string) =>
+      typeof cleaned[key] === 'string' ? String(cleaned[key]).slice(0, 200) : null
+    const event = text('event')
+    for (const key of ['level', 'time', 'msg', 'service']) delete cleaned[key]
+    const fields = JSON.stringify(cleaned).length > 12_000 ? { truncated: true, event } : cleaned
+    return {
+      id: crypto.randomUUID(),
+      at,
+      ...identity,
+      level,
+      event,
+      group_key:
+        event ??
+        message
+          .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '<id>')
+          .replace(/\b\d+\b/g, '<n>')
+          .slice(0, 400),
+      message,
+      request_id: text('requestId'),
+      task_id: text('taskId') ?? text('task_id'),
+      fields,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Bounded, retryable batches. Writer failure never escapes into business requests. */
+export function createServerLogBuffer(options: {
+  write: (entries: ServerLogEntry[]) => Promise<void>
+  onFailure: (error: unknown) => void
+  maxEntries?: number
+  batchSize?: number
+}) {
+  const queue: ServerLogEntry[] = []
+  const maxEntries = options.maxEntries ?? 500
+  const batchSize = options.batchSize ?? 100
+  let pending: Promise<void> | undefined
+  let dropped = 0
+  let failures = 0
+  let lastWrittenAt: number | null = null
+  function enqueue(entry: ServerLogEntry) {
+    if (queue.length >= maxEntries) {
+      dropped++
+      return
+    }
+    queue.push(entry)
+  }
+  function flush(): Promise<void> {
+    if (pending) return pending
+    if (!queue.length) return Promise.resolve()
+    const batch = queue.slice(0, batchSize)
+    pending = Promise.resolve()
+      .then(() => options.write(batch))
+      .then(() => {
+        queue.splice(0, batch.length)
+        lastWrittenAt = Date.now()
+      })
+      .catch((error: unknown) => {
+        failures++
+        options.onFailure(error)
+      })
+      .finally(() => {
+        pending = undefined
+      })
+    return pending
+  }
+  async function drain() {
+    while (queue.length) {
+      const before = queue.length
+      await flush()
+      if (queue.length >= before) break
+    }
+  }
+  return {
+    enqueue,
+    flush,
+    drain,
+    stats: () => ({ pending: queue.length, dropped, failures, last_written_at: lastWrittenAt }),
+  }
+}

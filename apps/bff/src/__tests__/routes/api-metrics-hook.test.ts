@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { eq } from 'drizzle-orm'
 
 const bffRoot = resolve(import.meta.dir, '../../..')
 process.env.PORT = '0'
@@ -9,7 +10,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(bffRoot, 'operator-config.example.jso
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
 const { app, apiMetrics } = await import('../../app')
-const { close } = await import('../../db/client')
+const { close, db, schema } = await import('../../db/client')
+const { log, serverLogBuffer } = await import('../../lib/logger')
+const { withRequestContext } = await import('../../lib/request-context')
 
 afterAll(async () => {
   await close()
@@ -20,6 +23,40 @@ function get(path: string, headers: Record<string, string> = {}): Promise<Respon
 }
 
 describe('API statistics on the real request pipeline', () => {
+  it('persists access logs with request correlation and a template route, excluding health and internal requests', async () => {
+    const handler = withRequestContext((request) => app.handle(request))
+    await handler(
+      new Request('http://localhost/api/capabilities', {
+        headers: { 'x-request-id': 'access-log-request' },
+      }),
+    )
+    await handler(
+      new Request('http://localhost/api/no-such-endpoint', {
+        headers: { 'x-request-id': 'rejected-log-request' },
+      }),
+    )
+    await handler(
+      new Request('http://localhost/health', {
+        headers: { 'x-request-id': 'excluded-health-request' },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await serverLogBuffer.drain()
+    const records = await db
+      .select()
+      .from(schema.server_logs)
+      .where(eq(schema.server_logs.event, 'http.request'))
+    const successful = records.find((row) => row.request_id === 'access-log-request')
+    const rejected = records.find((row) => row.request_id === 'rejected-log-request')
+    expect(successful).toMatchObject({
+      level: 'info',
+      fields: { status: 200, route: 'GET /api/capabilities' },
+    })
+    expect(rejected).toMatchObject({ level: 'warn', fields: { status: 404 } })
+    expect(records.some((row) => row.request_id === 'excluded-health-request')).toBe(false)
+    log.flush()
+  })
+
   it('counts user-facing API calls by route template and status, and nothing else', async () => {
     apiMetrics.drain(Date.now(), true)
 
