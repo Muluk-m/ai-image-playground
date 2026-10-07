@@ -59,8 +59,8 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       # Per-process connection caps. Both deployments share one PostgreSQL (max_connections 100),
-      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 3) = 26
-      # steady, under 50 with both deployments mid-rollout plus migrate and pg-backup. Queries past
+      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 3 + 1 + 1) = 30
+      # steady (including a single log connection per bff/worker), under 60 with both deployments mid-rollout plus migrate and pg-backup. Queries past
       # the cap wait for a free connection instead of failing. The BFF's work is short
       # transactions; its background sweeps (agent inbox pickup, retries, purge, heartbeat) each
       # hold one at a time, leaving most for requests. scripts/rollout-runtime.sh repeats the bff
