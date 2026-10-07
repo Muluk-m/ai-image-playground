@@ -25,6 +25,10 @@ export interface ServerLogFilters {
   q?: string
   requestId?: string
   taskId?: string
+  userId?: string
+  mediaId?: string
+  instance?: string
+  version?: string
   group?: string
 }
 
@@ -43,6 +47,7 @@ export interface ServerLogPage {
 }
 
 export interface ServerLogsResult extends ServerLogPage {
+  coverage?: { first_at: number | null; last_at: number | null }
   summary: { total: number; errors: number; warnings: number }
   groups: ServerLogGroup[]
   trend: Array<{ at: number; count: number; errors: number }>

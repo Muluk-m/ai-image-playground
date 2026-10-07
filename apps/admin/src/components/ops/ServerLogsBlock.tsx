@@ -12,10 +12,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { apiClient } from '@/lib/api-client'
+import { LOG_RANGES, type ServerLogSearch, serverLogFilters } from '@/lib/server-log-search'
 
-const RANGES = { '15m': 900_000, '1h': 3600_000, '24h': 86400_000, '7d': 7 * 86400_000 }
+const RANGES = LOG_RANGES
 const SELECT_STYLE = 'h-9 rounded-md border bg-background px-2 text-sm'
-const time = (at: number) => new Date(at).toLocaleString('zh-CN', { hour12: false })
+const time = (at: number) =>
+  new Date(at).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
 
 function LogDetails({
   entry,
@@ -63,6 +65,29 @@ function LogDetails({
           实例 {entry.instance} · 版本 {entry.version} · 日志 ID {entry.id}
         </p>
         <div className="flex flex-wrap gap-2">
+          {(['userId', 'mediaId'] as const).map((key) =>
+            typeof entry.fields[key] === 'string' ? (
+              <Button
+                key={key}
+                size="sm"
+                variant="outline"
+                className="max-w-full whitespace-normal break-all text-left"
+                onClick={() => onFilter({ [key]: String(entry.fields[key]) })}
+              >
+                {key === 'userId' ? '同用户' : '同图片'} {String(entry.fields[key])}
+              </Button>
+            ) : null,
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onFilter({ instance: entry.instance })}
+          >
+            同实例
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onFilter({ version: entry.version })}>
+            同版本
+          </Button>
           {entry.request_id ? (
             <Button
               size="sm"
@@ -101,19 +126,36 @@ function LogDetails({
   )
 }
 
-export function ServerLogsBlock() {
-  const [range, setRange] = useState<keyof typeof RANGES>('1h')
+export function ServerLogsBlock({
+  searchState,
+  onSearchChange,
+}: {
+  searchState?: ServerLogSearch
+  onSearchChange?: (next: ServerLogSearch) => void
+} = {}) {
+  const [localState, setLocalState] = useState<ServerLogSearch>({})
+  const state = searchState ?? localState
+  const change = (next: ServerLogSearch) =>
+    onSearchChange ? onSearchChange(next) : setLocalState(next)
+  const range = state.range ?? '24h'
+  const custom =
+    state.from !== undefined && state.to !== undefined ? { from: state.from, to: state.to } : null
+  const filters = serverLogFilters(state)
+  const setFilters = (values: Partial<ServerLogFilters>) =>
+    change({ range: state.range, from: state.from, to: state.to, ...values })
+  const setCustom = (value: { from: number; to: number } | null) =>
+    change({ ...state, from: value?.from, to: value?.to })
   const [end, setEnd] = useState(() => Date.now())
-  const [live, setLive] = useState(true)
-  const [custom, setCustom] = useState<{ from: number; to: number } | null>(null)
-  const [filters, setFilters] = useState<Partial<ServerLogFilters>>({})
-  const [search, setSearch] = useState('')
+  const [live, setLive] = useState(!custom)
+  const [search, setSearch] = useState(state.q ?? '')
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  useEffect(() => setSearch(state.q ?? ''), [state.q])
   const [dateError, setDateError] = useState('')
   useEffect(() => {
-    if (!live || custom) return
+    if (!live || (state.from !== undefined && state.to !== undefined)) return
     const timer = setInterval(() => setEnd(Date.now()), 10_000)
     return () => clearInterval(timer)
-  }, [live, custom])
+  }, [live, state.from, state.to])
   const window = custom ?? { from: end - RANGES[range], to: end }
   const signature = JSON.stringify([filters, custom ?? range])
   const query = useInfiniteQuery({
@@ -143,8 +185,7 @@ export function ServerLogsBlock() {
   const firstPage = retained?.pages[0]
   const data = firstPage && 'summary' in firstPage ? firstPage : undefined
   const entries = retained?.pages.flatMap((page) => page.entries) ?? []
-  const update = (values: Partial<ServerLogFilters>) =>
-    setFilters((previous) => ({ ...previous, ...values }))
+  const update = (values: Partial<ServerLogFilters>) => change({ ...state, ...values })
   const max = Math.max(1, ...(data?.trend.map((point) => point.count) ?? []))
   const exportLogs = () => {
     const blob = new Blob([entries.map((entry) => JSON.stringify(entry)).join('\n')], {
@@ -158,7 +199,7 @@ export function ServerLogsBlock() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return (
-    <Card role="region" aria-label="服务端日志" className="mt-4">
+    <Card role="region" aria-label="服务端日志">
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <CardTitle className="text-sm">服务端日志</CardTitle>
@@ -167,6 +208,27 @@ export function ServerLogsBlock() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              const url = new URL('/logs', globalThis.location.href)
+              for (const [key, value] of Object.entries({
+                ...filters,
+                from: window.from,
+                to: window.to,
+              }))
+                if (value !== undefined) url.searchParams.set(key, String(value))
+              try {
+                await navigator.clipboard.writeText(url.href)
+                setCopyStatus('copied')
+              } catch {
+                setCopyStatus('error')
+              }
+            }}
+          >
+            {copyStatus === 'copied' ? '已复制查询链接' : '复制查询链接'}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -197,18 +259,29 @@ export function ServerLogsBlock() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
+        {copyStatus === 'error' ? (
+          <p role="alert" className="text-xs text-danger">
+            复制失败，请允许剪贴板访问后重试。
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <select
             aria-label="日志时间范围"
             className={SELECT_STYLE}
-            value={range}
+            value={custom ? 'custom' : range}
             onChange={(event) => {
-              setRange(event.target.value as keyof typeof RANGES)
-              setCustom(null)
+              change({
+                ...state,
+                range: event.target.value as keyof typeof RANGES,
+                from: undefined,
+                to: undefined,
+              })
+              setLive(true)
               setEnd(Date.now())
               setDateError('')
             }}
           >
+            {custom ? <option value="custom">自定义范围</option> : null}
             <option value="15m">近 15 分钟</option>
             <option value="1h">近 1 小时</option>
             <option value="24h">近 24 小时</option>
@@ -262,15 +335,17 @@ export function ServerLogsBlock() {
         </div>
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">
-            自定义时间范围 / 请求与任务定位
+            精确定位 / 自定义时间范围
           </summary>
           <form
-            className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+            className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
             onSubmit={(event) => {
               event.preventDefault()
               const form = new FormData(event.currentTarget)
-              const from = new Date(String(form.get('from'))).getTime()
-              const to = new Date(String(form.get('to'))).getTime()
+              const fromText = String(form.get('from') || '')
+              const toText = String(form.get('to') || '')
+              const from = fromText ? new Date(`${fromText}+08:00`).getTime() : window.from
+              const to = toText ? new Date(`${toText}+08:00`).getTime() : window.to
               if (
                 !Number.isFinite(from) ||
                 !Number.isFinite(to) ||
@@ -282,30 +357,48 @@ export function ServerLogsBlock() {
                 return
               }
               setDateError('')
-              setCustom({ from, to })
-              setLive(false)
-              update({
-                requestId: String(form.get('requestId') || '') || undefined,
-                taskId: String(form.get('taskId') || '') || undefined,
-              })
+              const located = Object.fromEntries(
+                ['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'].map((key) => [
+                  key,
+                  String(form.get(key) || '') || undefined,
+                ]),
+              )
+              change({ ...state, ...located, ...(fromText || toText ? { from, to } : {}) })
+              if (fromText || toText) setLive(false)
             }}
           >
             <label>
-              开始时间
-              <Input name="from" type="datetime-local" required />
+              开始时间（北京时间）
+              <Input name="from" type="datetime-local" />
             </label>
             <label>
-              结束时间
-              <Input name="to" type="datetime-local" required />
+              结束时间（北京时间）
+              <Input name="to" type="datetime-local" />
             </label>
             <label>
               请求 ID
-              <Input name="requestId" maxLength={200} />
+              <Input
+                name="requestId"
+                defaultValue={filters.requestId}
+                key={`request:${filters.requestId}`}
+                maxLength={200}
+              />
             </label>
             <label>
               任务 ID
-              <Input name="taskId" maxLength={200} />
+              <Input
+                name="taskId"
+                defaultValue={filters.taskId}
+                key={`task:${filters.taskId}`}
+                maxLength={200}
+              />
             </label>
+            {(['userId', 'mediaId', 'instance', 'version'] as const).map((key) => (
+              <label key={key}>
+                {{ userId: '用户 ID', mediaId: '图片 ID', instance: '实例', version: '版本' }[key]}
+                <Input name={key} defaultValue={filters[key]} key={filters[key]} maxLength={400} />
+              </label>
+            ))}
             <Button className="self-end" size="sm" variant="outline" type="submit">
               应用范围与定位
             </Button>
@@ -318,12 +411,19 @@ export function ServerLogsBlock() {
         </details>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <span>
-            {time(window.from)} — {time(window.to)}
+            {time(window.from)} — {time(window.to)} · 北京时间
           </span>
           <span>{live && !custom ? '每 10 秒刷新' : '已暂停自动刷新'}</span>
           {filters.group ? <span>事件：{filters.group}</span> : null}
           {filters.requestId ? <span>请求：{filters.requestId}</span> : null}
           {filters.taskId ? <span>任务：{filters.taskId}</span> : null}
+          {(['userId', 'mediaId', 'instance', 'version'] as const).map((key) =>
+            filters[key] ? (
+              <span key={key} className="break-all">
+                {key}：{filters[key]}
+              </span>
+            ) : null,
+          )}
           {Object.values(filters).some(Boolean) ? (
             <Button
               size="sm"
@@ -356,6 +456,18 @@ export function ServerLogsBlock() {
         ) : null}
         {data ? (
           <>
+            {data.coverage ? (
+              <div role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
+                {data.coverage.first_at === null
+                  ? '日志库尚无记录'
+                  : `当前留存记录：${time(data.coverage.first_at)} — ${time(data.coverage.last_at ?? data.coverage.first_at)}`}
+                {data.coverage.first_at !== null && window.from < data.coverage.first_at ? (
+                  <p className="mt-1 text-amber-600">
+                    查询包含留存起点之前的时段；此前记录可能尚未采集或已清理，无法据此判断没有故障。
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {data.collectors.some(
               (collector) =>
                 collector.dropped > 0 ||
