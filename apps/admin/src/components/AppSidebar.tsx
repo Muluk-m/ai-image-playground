@@ -10,6 +10,7 @@ import {
   type LucideIcon,
   ReceiptText,
   RefreshCw,
+  ScrollText,
   Settings,
   Shapes,
   Sparkles,
@@ -43,6 +44,7 @@ export type NavTo =
   | '/inspirations/categories'
   | '/ops'
   | '/errors'
+  | '/logs'
   | '/audit'
 
 export interface NavEntry {
@@ -90,6 +92,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/ops', icon: HeartPulse, label: '运维看板' },
       { to: '/errors', icon: Bug, label: '前端错误' },
+      { to: '/logs', icon: ScrollText, label: '服务端日志' },
     ],
   },
   {
