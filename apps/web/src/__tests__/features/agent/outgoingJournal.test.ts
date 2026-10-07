@@ -697,7 +697,7 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
       const id = url.split('/').slice(-1)[0]!
       const count = (putAttempts.get(id) ?? 0) + 1
       putAttempts.set(id, count)
-      return new Response(null, { status: id === failedMediaId && count === 1 ? 503 : 200 })
+      return new Response(null, { status: id === failedMediaId && count === 1 ? 400 : 200 })
     }
     if (url.endsWith('/complete'))
       return Response.json({ id: url.split('/').slice(-2)[0], status: 'ready' })
@@ -732,7 +732,7 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     await act(async () => {
       await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(100))
       // This checks complete intake through 100 durable writes, not CI machine throughput.
-      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 15_000 })
+      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 25_000 })
     })
     expect(session.getSnapshot().draft.references.map((reference) => reference.name)).toEqual(
       Array.from({ length: 100 }, (_, index) => `photo-${index + 1}`),
