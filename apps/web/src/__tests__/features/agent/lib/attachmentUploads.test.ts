@@ -46,7 +46,7 @@ it('one failed upload prevents sending the whole snapshot; retry reuses successf
       }
       if (input.startsWith('https://storage.test/')) {
         uploads.push(input)
-        return new Response(null, { status: input.endsWith('two') && failed ? 503 : 200 })
+        return new Response(null, { status: input.endsWith('two') && failed ? 400 : 200 })
       }
       if (input.endsWith('/complete'))
         return Response.json({ id: input.includes('/one/') ? 'one' : 'two', status: 'ready' })
