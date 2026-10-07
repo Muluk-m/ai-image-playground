@@ -1,7 +1,17 @@
+import { defaultParseSearch, defaultStringifySearch } from '@tanstack/react-router'
 import { describe, expect, it } from 'vitest'
 import { LOG_RANGES, parseServerLogSearch, serverLogFilters } from '../../lib/server-log-search'
 
 describe('shareable server log queries', () => {
+  it('preserves exact event groups with whitespace through route and share serialization', () => {
+    for (const group of [' leading ', `${'x'.repeat(399)} `, '  ']) {
+      const search = parseServerLogSearch({ group })
+      expect(search.group).toBe(group)
+      expect(parseServerLogSearch(defaultParseSearch(defaultStringifySearch(search))).group).toBe(
+        group,
+      )
+    }
+  })
   it('restores a frozen query and exact correlations without a cursor', () => {
     const to = Date.now()
     const search = parseServerLogSearch({
