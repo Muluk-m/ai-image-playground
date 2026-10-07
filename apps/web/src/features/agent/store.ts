@@ -1810,7 +1810,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           return
         }
         if (submission.cancelled) return await cancelUnsent()
-        const prepared = await prepare()
+        let prepared: TurnSubmissionSnapshot | null
+        try {
+          prepared = await prepare()
+        } catch (thrown) {
+          if (submission.cancelled) return await cancelUnsent()
+          if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED(), thrown)
+          await turnDelivery.settled()
+          return
+        }
         if (!prepared) {
           if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED())
           await turnDelivery.settled()
