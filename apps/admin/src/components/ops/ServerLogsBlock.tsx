@@ -6,7 +6,7 @@ import {
   type ServerLogsResult,
 } from '@image-playground/shared'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { defaultStringifySearch, Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -213,12 +213,11 @@ export function ServerLogsBlock({
             variant="outline"
             onClick={async () => {
               const url = new URL('/logs', globalThis.location.href)
-              for (const [key, value] of Object.entries({
+              url.search = defaultStringifySearch({
                 ...filters,
                 from: window.from,
                 to: window.to,
-              }))
-                if (value !== undefined) url.searchParams.set(key, String(value))
+              })
               try {
                 await navigator.clipboard.writeText(url.href)
                 setCopyStatus('copied')

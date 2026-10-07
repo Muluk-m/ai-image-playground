@@ -1,9 +1,11 @@
 import type { ServerLogsResult } from '@image-playground/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { defaultParseSearch } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ServerLogsBlock } from '../../components/ops/ServerLogsBlock'
 import { apiClient } from '../../lib/api-client'
+import { parseServerLogSearch } from '../../lib/server-log-search'
 
 const now = Date.now()
 const result: ServerLogsResult = {
@@ -88,10 +90,33 @@ describe('server log exploration', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('复制失败')
     fireEvent.click(screen.getByRole('button', { name: '复制查询链接' }))
     await screen.findByRole('button', { name: '已复制查询链接' })
-    const params = new URL(writeText.mock.lastCall![0]).searchParams
-    expect(params.get('q')).toBe('decode failed')
-    expect(Number(params.get('to')) - Number(params.get('from'))).toBe(86400_000)
+    const restored = parseServerLogSearch(
+      defaultParseSearch(new URL(writeText.mock.lastCall![0]).search),
+    )
+    expect(restored.q).toBe('decode failed')
+    expect(restored.to! - restored.from!).toBe(86400_000)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+  it.each([
+    '500',
+    'true',
+    'null',
+  ])('preserves literal %s in a reopened copied link', async (literal) => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    setup()
+    await screen.findByText('201')
+    fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: literal } })
+    fireEvent.change(screen.getByLabelText('版本'), { target: { value: literal } })
+    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制查询链接' }))
+    await screen.findByRole('button', { name: '已复制查询链接' })
+    const restored = parseServerLogSearch(
+      defaultParseSearch(new URL(writeText.mock.lastCall![0]).search),
+    )
+    expect(restored.q).toBe(literal)
+    expect(restored.version).toBe(literal)
   })
   it('defaults to a day and exposes the retained boundary before interpreting no matches', async () => {
     setup()
