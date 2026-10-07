@@ -16,6 +16,36 @@ const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')
 const source = await png([255, 0, 0, 255, 0, 255, 0, 255, 255, 0, 0, 255])
 const mask = await png([0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 128], true)
 
+it('accepts fine texture changes on a flat background but rejects a different background tone', async () => {
+  const width = 768,
+    height = 768
+  const source = Buffer.alloc(width * height * 4),
+    candidate = Buffer.alloc(source.length),
+    mask = Buffer.alloc(source.length, 255)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      const texture = (x + y) % 2 ? 30 : -30
+      source.set([128 + texture, 128 + texture, 128 + texture, 255], i)
+      candidate.set([128 - texture, 128 - texture, 128 - texture, 255], i)
+      if (x > 390 && y > 390) mask[i + 3] = 0
+    }
+  const encode = (data: Buffer) =>
+    sharp(data, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+  const protect = await protectMaskedOutput(url(await encode(source)), url(await encode(mask)))
+  const result = await protect(await encode(candidate))
+  expect(result.inspection.texturedRegions).toBe(0)
+  const output = await sharp(result.bytes).raw().toBuffer()
+  for (let i = 0; i < source.length; i += 4)
+    if (mask[i + 3] === 255 && !source.subarray(i, i + 4).equals(output.subarray(i, i + 4)))
+      throw new Error('changed protected pixel')
+  for (let i = 0; i < candidate.length; i += 4)
+    for (let channel = 0; channel < 3; channel++) candidate[i + channel]! += 20
+  await expect(protect(await encode(candidate))).rejects.toThrow('位置对应无法确认')
+})
+
 it('accepts a product edit with regenerated fine texture but rejects shifted protected objects', async () => {
   const width = 768,
     height = 768
