@@ -159,4 +159,40 @@ describe('structured server log collection', () => {
     expect(calls).toBe(1)
     expect(buffer.stats().pending).toBe(1)
   })
+  it('scrubs independent and malformed JSON fragments and checks long keys before truncating', () => {
+    const multiple = entry(
+      'upstream {"responseBody":"private original", "headers":{"cookie":"session=private"}} {"code":"failed"}',
+    )
+    expect(multiple.message).not.toContain('private original')
+    expect(multiple.message).not.toContain('session=private')
+    expect(multiple.message).toContain('failed')
+    const broken = entry(
+      'upstream {"ResponseBody":"private original", "HEADERS":{"Cookie":"private session"}',
+    )
+    expect(broken.message).not.toContain('private original')
+    expect(broken.message).not.toContain('private session')
+    const longKey = 'x'.repeat(200) + 'token'
+    const row = parseServerLog(
+      JSON.stringify({
+        level: 30,
+        time: Date.now(),
+        msg: 'error',
+        [longKey]: 'unprefixed-secret-value',
+      }),
+      identity,
+    )!
+    expect(JSON.stringify(row)).not.toContain('unprefixed-secret-value')
+    expect(row.fields['x'.repeat(200)]).toBe('[REDACTED]')
+    // Braces inside quoted JSON strings must not split fragments.
+    const quoted = entry(
+      'upstream {"prompt":"private } original", "reason":"brace { inside"} {"code":"failed"}',
+    )
+    expect(quoted.message).not.toContain('private } original')
+    expect(quoted.message).toContain('failed')
+  })
+
+  it('bounds malformed text scanning before processing large input', () => {
+    expect(entry('{'.repeat(10_000)).message).toBe('[REDACTED PAYLOAD]')
+    expect(entry('{'.repeat(100_000)).message).toBe('[TRUNCATED LOG TEXT]')
+  })
 })

@@ -12,18 +12,57 @@ const LEVELS: Record<number, ServerLogLevel> = {
 const PRIVATE_FIELD =
   /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|payloadPreview|responseBody|errorBody|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
 
-export function redactLogText(value: string, depth = 0): string {
-  const withoutNul = value.replace(/\u0000/g, '')
-  if (depth > 5) return '[TRUNCATED]'
-  const structured = withoutNul.replace(/\{[\s\S]*\}|\[[\s\S]*\]/g, (candidate) => {
-    try {
-      return JSON.stringify(sanitize(JSON.parse(candidate), depth + 1))
-    } catch {
-      return /["'](?:prompt|content|messages|payload|body)["']\s*:/.test(candidate)
-        ? '[REDACTED PAYLOAD]'
-        : candidate
+/** Single pass, quote-aware JSON fragment scanning; malformed fragments fail closed. */
+function redactStructuredText(value: string, depth: number): string {
+  const chunks: string[] = []
+  let plainStart = 0
+  let cursor = 0
+  while (cursor < value.length) {
+    const opener = value[cursor]
+    if (opener !== '{' && opener !== '[') {
+      cursor++
+      continue
     }
-  })
+    chunks.push(value.slice(plainStart, cursor))
+    const start = cursor++
+    const stack = [opener]
+    let quoted = false
+    let escaped = false
+    while (cursor < value.length && stack.length) {
+      const char = value[cursor++]
+      if (quoted) {
+        if (escaped) escaped = false
+        else if (char === '\\') escaped = true
+        else if (char === '"') quoted = false
+      } else if (char === '"') quoted = true
+      else if (char === '{' || char === '[') stack.push(char)
+      else if (char === '}' || char === ']') {
+        const opening = stack.pop()
+        if ((opening === '{' && char !== '}') || (opening === '[' && char !== ']')) {
+          // A broken fragment has no trustworthy end boundary; hide its entire remainder.
+          cursor = value.length
+          stack.push('{')
+        }
+      }
+    }
+    if (stack.length) chunks.push('[REDACTED PAYLOAD]')
+    else {
+      try {
+        chunks.push(JSON.stringify(sanitize(JSON.parse(value.slice(start, cursor)), depth + 1)))
+      } catch {
+        chunks.push('[REDACTED PAYLOAD]')
+      }
+    }
+    plainStart = cursor
+  }
+  chunks.push(value.slice(plainStart))
+  return chunks.join('')
+}
+
+export function redactLogText(value: string, depth = 0): string {
+  if (depth > 5 || value.length > 16_000) return '[TRUNCATED LOG TEXT]'
+  const withoutNul = value.replace(/\u0000/g, '')
+  const structured = redactStructuredText(withoutNul, depth)
   return structured
     .replace(/\b(Bearer|Basic)\s+[^\s"'<>]+/gi, '$1 [REDACTED]')
     .replace(/\b(?:sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\b/gi, '[REDACTED]')
@@ -45,9 +84,9 @@ function sanitize(value: unknown, depth = 0): unknown {
       Object.entries(value)
         .slice(0, 60)
         .map(([key, one]) => {
-          const cleanedKey = key.replace(/\u0000/g, '').slice(0, 200)
+          const cleanedKey = key.replace(/\u0000/g, '')
           return [
-            cleanedKey,
+            cleanedKey.slice(0, 200),
             PRIVATE_FIELD.test(cleanedKey) ? '[REDACTED]' : sanitize(one, depth + 1),
           ]
         }),
