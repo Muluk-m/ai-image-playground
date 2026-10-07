@@ -6,8 +6,9 @@ import { recoverAnalysisTasks } from './lib/analysis-tasks'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
-import { log } from './lib/logger'
+import { log, serverLogBuffer } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
+import { startServerLogs } from './lib/server-logs'
 import { createAlertSender } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
@@ -15,6 +16,7 @@ import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
 import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
 
+const stopServerLogs = startServerLogs()
 config.assertValid()
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -47,6 +49,7 @@ const activationTimer =
 const stopHeartbeat = startHeartbeat({
   service: 'worker',
   detail: () => ({
+    logs: serverLogBuffer.stats(),
     last_successful_poll_at: scheduler.lastSuccessfulPollAt(),
     alerts_configured: Boolean(process.env.OPS_ALERT_WEBHOOK_URL?.trim()),
   }),
@@ -112,6 +115,7 @@ log.info(
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
+  await stopServerLogs()
   await closeDb()
   log.flush()
   process.exit(exitCode)
