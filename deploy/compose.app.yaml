@@ -349,6 +349,10 @@ services:
   # would loop. No database or provider credential; only the internal token for the ingest call.
   log-collector:
     image: fluent/fluent-bit:5.1.3
+    # Inline config contents did not recreate an existing collector during rollout. Include its
+    # rendered destination in the service configuration so a target change reloads the config.
+    labels:
+      ai.image-playground.log-ingest-host: ${LOG_INGEST_HOST:-bff-logs}
     restart: unless-stopped
     command: ["-c", "/etc/fluent-bit/collector.yaml"]
     environment:
