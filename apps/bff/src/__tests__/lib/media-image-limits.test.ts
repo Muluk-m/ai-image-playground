@@ -27,3 +27,12 @@ it('distinguishes progressive allocation from streaming the same image dimension
   )
   expect(() => assertMediaImageProcessingBudget({ ...png, isProgressive: true })).not.toThrow()
 })
+
+it('budgets full-frame WebP buffers even without progressive scans', () => {
+  const webp = { ...png, format: 'webp', width: 12000, height: 12000 } as const
+  expect(() => assertMediaImageProcessingBudget(webp)).toThrow('processing_budget')
+  expect(() =>
+    assertMediaImageProcessingBudget({ ...webp, width: 10000, height: 10000 }),
+  ).not.toThrow()
+  expect(() => assertMediaImageProcessingBudget({ ...webp, format: 'png' })).not.toThrow()
+})
