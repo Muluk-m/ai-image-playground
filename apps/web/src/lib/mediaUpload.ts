@@ -112,6 +112,9 @@ export async function uploadMediaSource(
     )
   } catch (error) {
     options.onState?.('failed')
+    if (error instanceof TypeError) throw new MediaRequestError(503, 'media_network_error')
+    if (error instanceof DOMException && error.name === 'TimeoutError')
+      throw new MediaRequestError(408, 'media_timeout')
     throw error
   }
 }

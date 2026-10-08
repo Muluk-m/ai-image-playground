@@ -100,9 +100,26 @@
   "attachment": {
     "attachment_capability_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",
     "media_unsupported_image": "请先转换为 PNG、JPEG 或 WebP 格式。",
-    "media_image_too_large": "图片超过上传大小限制，请移除后重新选择。",
+    "media_image_too_large": "图片文件过大：最多支持 {{maxSize}}。请压缩文件后重新上传。",
     "attachment_storage_failed": "无法在本机保存图片，请释放空间后移除并重新选择。",
     "attachment_read_failed": "无法读取图片，请移除后重新选择。",
-    "fallback": "图片上传失败，请重试或移除后重新选择。"
+    "fallback": "图片上传失败，请重试或移除后重新选择。",
+    "media_image_pixels_exceeded": "图片分辨率过高：最多支持 {{maxPixels}} 像素。请缩小尺寸后重新上传。",
+    "media_quota_exceeded": "云端存储空间不足，请清理不需要的资产后重试。",
+    "media_invalid_image": "无法解析这张图片，可能已损坏或编码不受支持。请重新导出为 PNG、JPEG 或 WebP 后上传。",
+    "media_processing_busy": "图片处理服务繁忙，请稍后点击重试。",
+    "media_storage_unavailable": "图片存储服务暂时不可用，请稍后点击重试。",
+    "media_upload_expired": "这次上传已过期，请点击重试重新上传。",
+    "media_hash_mismatch": "图片上传校验未通过，请点击重试重新上传。",
+    "media_descriptor_mismatch": "这张图片的文件信息不一致，请移除后重新选择。",
+    "media_upload_failed": "图片传输未成功，请检查网络后点击重试。",
+    "media_network_error": "网络连接失败，请检查网络后点击重试。",
+    "media_timeout": "图片上传超时，请检查网络后点击重试。",
+    "unauthorized": "登录已过期，请重新登录后重试上传。",
+    "image_limit_unknown": "图片超过当前上传限制，请压缩文件或缩小尺寸后重新上传。",
+    "attachment_uploads_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",
+    "media_too_large": "图片文件过大：最多支持 {{maxSize}}。请压缩文件后重新上传。",
+    "media_not_readable": "图片存储服务暂时不可用，请稍后点击重试。",
+    "media_size_mismatch": "图片上传校验未通过，请点击重试重新上传。"
   }
 }

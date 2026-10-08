@@ -201,3 +201,19 @@ it('stops retrying when removed during backoff', async () => {
   await vi.advanceTimersByTimeAsync(5000)
   expect(confirmations).toBe(1)
 })
+
+it.each([
+  [new TypeError('Failed to fetch'), 'media_network_error'],
+  [new DOMException('timed out', 'TimeoutError'), 'media_timeout'],
+])('preserves a useful failure code when reading the upload source fails: %s', async (error, code) => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error))
+  const states: string[] = []
+  await expect(
+    uploadMediaSource(source, {
+      signal: new AbortController().signal,
+      purpose: 'conversation-attachment',
+      onState: (state) => states.push(state),
+    }),
+  ).rejects.toThrow(code)
+  expect(states[states.length - 1]).toBe('failed')
+})

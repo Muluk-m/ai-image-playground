@@ -87,6 +87,10 @@ import {
   setAgentComposerAttach,
 } from '../lib/attachments'
 import {
+  attachmentUploadErrorMessage,
+  canRetryAttachmentUpload,
+} from '../lib/attachmentUploadErrors'
+import {
   attachmentUploadError,
   attachmentUploadRevision,
   attachmentUploadState,
@@ -879,8 +883,8 @@ export default function AgentComposer({
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
                     <span
-                      role="status"
-                      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                      role={uploadState === 'failed' ? 'alert' : 'status'}
+                      className={`inline-flex items-center gap-1.5 text-xs ${uploadState === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
                     >
                       {['queued', 'uploading', 'verifying'].includes(uploadState) && (
                         <LoaderCircle
@@ -888,34 +892,21 @@ export default function AgentComposer({
                           className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
                         />
                       )}
-                      {uploadError === 'attachment_capability_unavailable'
-                        ? t('errors:attachment.attachment_capability_unavailable')
-                        : uploadError === 'media_unsupported_image'
-                          ? t('errors:attachment.media_unsupported_image')
-                          : uploadError === 'media_image_too_large'
-                            ? t('errors:attachment.media_image_too_large')
-                            : uploadError === 'attachment_storage_failed'
-                              ? t('errors:attachment.attachment_storage_failed')
-                              : uploadError === 'attachment_read_failed'
-                                ? t('errors:attachment.attachment_read_failed')
-                                : uploadState === 'failed'
-                                  ? t('errors:attachment.fallback')
-                                  : t(`composer.upload.${uploadState}`)}
+                      {uploadState === 'failed'
+                        ? attachmentUploadErrorMessage(uploadError, getAttachmentLimits())
+                        : t(`composer.upload.${uploadState}`)}
                     </span>
                   )}
-                  {uploadState === 'failed' &&
-                    !['attachment_storage_failed', 'attachment_capability_unavailable'].includes(
-                      uploadError ?? '',
-                    ) && (
-                      <button
-                        type="button"
-                        className={GHOST_LINK}
-                        aria-label={t('composer.retryUploadAria', { label })}
-                        onClick={() => retryUpload(reference)}
-                      >
-                        {t('composer.retryUpload')}
-                      </button>
-                    )}
+                  {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
+                    <button
+                      type="button"
+                      className={GHOST_LINK}
+                      aria-label={t('composer.retryUploadAria', { label })}
+                      onClick={() => retryUpload(reference)}
+                    >
+                      {t('composer.retryUpload')}
+                    </button>
+                  )}
                   <button
                     type="button"
                     aria-label={
