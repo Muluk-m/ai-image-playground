@@ -4,7 +4,8 @@ import {
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
-import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
+import { blobDataUrl } from '../../../lib/cloudMedia'
+import { preprocessImageFile } from '../../../lib/imagePreprocessing'
 import { registerLocalAttachmentSource } from '../../../lib/localAttachmentSources'
 import {
   attachReferences as admitReferences,
@@ -45,15 +46,6 @@ export function referenceLimitMessage(
       })
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
-
 function fileStem(name: string): string {
   const stem = name.replace(/\.[^.]+$/, '').trim()
   return (stem || name).slice(0, 60)
@@ -61,7 +53,7 @@ function fileStem(name: string): string {
 
 /**
  * 拖进来 / 粘贴 / 选出来的图片文件 → 参考图。id 现造：它不是画布对象也不是素材，
- * 模型改图时靠它指认这一张。引用上传保留原件；兼容内联入口仍按请求体预算压缩。
+ * 模型改图时靠它指认这一张。先按传输预算预处理；文件、拖拽、粘贴与兼容内联入口共用同一条串行处理链。
  */
 export function filesToReferences(
   files: readonly File[],
@@ -70,15 +62,16 @@ export function filesToReferences(
   if (attachmentUploadsEnabled() && limits) {
     return files.map((file) => ({
       id: `file_${crypto.randomUUID()}`,
-      dataUrl: registerLocalAttachmentSource(file, limits.imageBytes),
+      dataUrl: registerLocalAttachmentSource(file, limits.imageBytes, limits.imagePixels),
       name: fileStem(file.name),
     }))
   }
   return (async () => {
-    const originals = await Promise.all(files.map(fileToDataUrl))
-    const sources = attachmentUploadsEnabled()
-      ? originals
-      : await compressInputImageDataUrls(originals)
+    const sources: string[] = []
+    for (const file of files) {
+      const image = await preprocessImageFile(file)
+      sources.push(await blobDataUrl(new Blob([image.data], { type: image.contentType })))
+    }
     return files.map((file, at) => ({
       id: `file_${crypto.randomUUID()}`,
       dataUrl: sources[at]!,

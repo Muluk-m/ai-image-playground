@@ -6,25 +6,18 @@ import {
   STORE_ATTACHMENT_OWNERS,
   STORE_ATTACHMENT_SOURCES,
 } from './db'
+import { IMAGE_PREPROCESSING, preprocessImageFile } from './imagePreprocessing'
 import type { MediaUploadResult } from './mediaUpload'
 
 interface StoredSource {
   id: string
   data: ArrayBuffer
   contentType: string
+  preparation?: { originalBytes: number; width: number; height: number }
 }
 
 export function localAttachmentIdentity(source: string): string | undefined {
   return /^aip-local:([0-9a-f-]{36})$/i.exec(source)?.[1]
-}
-
-function fileBytes(file: Blob): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as ArrayBuffer)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsArrayBuffer(file)
-  })
 }
 
 export function localAttachmentFailure(source: string): string | undefined {
@@ -34,6 +27,7 @@ export function localAttachmentFailure(source: string): string | undefined {
 interface PendingSource {
   reserved: Promise<void>
   settled: Promise<void>
+  controller: AbortController
 }
 const pendingSources = new Map<string, PendingSource>()
 const writerId = crypto.randomUUID()
@@ -72,11 +66,16 @@ export async function withAttachmentDocumentLock<T>(
 let sourceWriter = Promise.resolve()
 
 /** Register existing canvas/library pixels without copying them into a draft or decoding the queue. */
-export function registerLocalAttachmentSource(source: string | File, maxBytes: number): string {
+export function registerLocalAttachmentSource(
+  source: string | File,
+  maxBytes: number,
+  maxPixels = IMAGE_PREPROCESSING.maxPixels,
+): string {
   if (typeof source === 'string' && !source.startsWith('data:image/')) return source
   const id = crypto.randomUUID()
   const handle = `aip-local:${id}`
   const current = accountScope()
+  const controller = new AbortController()
   const dbName = scopedStorageName(BASE_DB_NAME)
   const reserved = (async () => {
     await writerLease(dbName)
@@ -105,6 +104,9 @@ export function registerLocalAttachmentSource(source: string | File, maxBytes: n
       if (!current()) return
       let data: ArrayBuffer | undefined
       let errorCode: string | undefined
+      let contentType =
+        typeof source === 'string' ? source.slice(5, source.indexOf(';')) : source.type
+      let preparation: StoredSource['preparation']
       const encoded =
         typeof source === 'string' && source.slice(0, source.indexOf(',')).endsWith(';base64')
       const estimatedBytes =
@@ -113,19 +115,31 @@ export function registerLocalAttachmentSource(source: string | File, maxBytes: n
           : encoded
             ? Math.floor(((source.length - source.indexOf(',') - 1) * 3) / 4)
             : source.length
-      if (estimatedBytes > maxBytes + (encoded ? 2 : 0)) errorCode = 'media_image_too_large'
+      if (typeof source === 'string' && estimatedBytes > maxBytes + (encoded ? 2 : 0))
+        errorCode = 'media_image_too_large'
       else {
         try {
-          data =
-            typeof source === 'string'
-              ? await (await fetch(source)).arrayBuffer()
-              : await fileBytes(source)
+          if (typeof source === 'string') data = await (await fetch(source)).arrayBuffer()
+          else {
+            const prepared = await preprocessImageFile(
+              source,
+              { maxBytes, maxPixels },
+              controller.signal,
+            )
+            data = prepared.data
+            contentType = prepared.contentType
+            preparation = {
+              originalBytes: prepared.originalBytes,
+              width: prepared.width,
+              height: prepared.height,
+            }
+          }
           if (data.byteLength > maxBytes) {
             data = undefined
             errorCode = 'media_image_too_large'
           }
-        } catch {
-          errorCode = 'attachment_read_failed'
+        } catch (error) {
+          errorCode = error instanceof Error ? error.message : 'attachment_read_failed'
         }
       }
       if (!current()) return
@@ -147,8 +161,8 @@ export function registerLocalAttachmentSource(source: string | File, maxBytes: n
                 tx.objectStore(STORE_ATTACHMENT_SOURCES).put({
                   id,
                   data,
-                  contentType:
-                    typeof source === 'string' ? source.slice(5, source.indexOf(';')) : source.type,
+                  contentType,
+                  ...(preparation ? { preparation } : {}),
                 } satisfies StoredSource)
               const { errorCode: _pending, ...rest } = row
               metadata.put({
@@ -189,7 +203,7 @@ export function registerLocalAttachmentSource(source: string | File, maxBytes: n
       }
     })
   sourceWriter = settled
-  pendingSources.set(handle, { reserved, settled })
+  pendingSources.set(handle, { reserved, settled, controller })
   void reserved.catch(() => {})
   void settled.finally(() => {
     pendingSources.delete(handle)
@@ -402,6 +416,7 @@ function receiveAttachmentChange(change: AttachmentChange) {
   if (change.kind === 'upload') {
     for (const listener of uploadListeners) listener(change)
   } else {
+    for (const source of change.sources) pendingSources.get(source)?.controller.abort()
     for (const listener of releaseListeners) listener(change)
   }
 }

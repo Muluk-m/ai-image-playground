@@ -104,7 +104,7 @@ it.each([
   ['media_image_pixels_exceeded', '40,000,000', false],
   ['media_too_large', '10 MiB', false],
   ['media_quota_exceeded', '云端存储空间不足', true],
-  ['media_invalid_image', '无法解析', true],
+  ['media_invalid_image', '无法解析', false],
 ])('shows the upload rejection %s on the actual composer and keeps send blocked', async (code, message, retryable) => {
   vi.stubGlobal('crypto', webcrypto)
   setClientStorageScope(`composer-error-${code}`)

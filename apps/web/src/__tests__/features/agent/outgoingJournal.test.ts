@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+
+vi.mock('../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
 import type { AgentTurnEvent } from '@image-playground/shared'
@@ -823,7 +829,7 @@ it('keeps an oversized attachment in the selected scope until the user explicitl
         { type: 'image/png' },
       ),
   )
-  Object.defineProperty(files[2], 'size', { value: 10 * 1024 * 1024 + 1 })
+  Object.defineProperty(files[2], 'size', { value: 100 * 1024 * 1024 + 1 })
   const reads: Blob[] = []
   const originalRead = FileReader.prototype.readAsArrayBuffer
   const reader = vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementation(function (
