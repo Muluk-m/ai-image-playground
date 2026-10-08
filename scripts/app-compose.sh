@@ -96,6 +96,13 @@ DEPLOYMENTS_LOG_SOURCE=$ops_root/deployments.log
 [ -f "$DEPLOYMENTS_LOG_SOURCE" ] || DEPLOYMENTS_LOG_SOURCE=/dev/null
 export OPS_BOARD_DIR DEPLOYMENTS_LOG_SOURCE
 
+# The log collector's Unix socket. Docker's fluentd driver dials it from the host, so the path is
+# the same on both sides; one directory per deployment keeps their logs apart. rollout-runtime.sh
+# derives the same path for the containers it creates.
+LOG_FORWARD_DIR=$ops_root/log-forward/$project
+mkdir -p "$LOG_FORWARD_DIR"
+export LOG_FORWARD_DIR
+
 write_container_names() {
   names=$OPS_BOARD_DIR/container-names.tsv
   if docker ps --all --no-trunc --format '{{.ID}}	{{.Names}}' >"$names.next"; then
@@ -130,7 +137,15 @@ require_tunnel_credentials() {
   fi
 }
 
+# Before anything else is (re)created, so their first lines have somewhere to go. Not waited on and
+# never fatal: the containers forward asynchronously and catch up once it answers.
+start_log_collector() {
+  compose up --detach --no-deps log-collector ||
+    echo "Warning: the log collector did not start; containers keep running and logs stay in docker logs." >&2
+}
+
 activate_backend_then_ingress() {
+  start_log_collector
   compose up --detach --wait dependency-check bff worker admin
   compose up --detach --wait cloudflared pg-backup
   write_container_names
@@ -148,6 +163,7 @@ case "$command" in
     # Release-managed once `current` exists, even after the Compose BFF has been retired.
     if [ -f "$APP_CONFIG_DIR/releases/current" ] || docker inspect "$project-bff-1" >/dev/null 2>&1; then
       rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
+      start_log_collector
       "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollout_image"
     else
       activate_backend_then_ingress
@@ -174,6 +190,7 @@ case "$command" in
     require_tunnel_credentials
     APP_IMAGE=$rollback_image
     export APP_IMAGE
+    start_log_collector
     "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollback_image"
     ;;
   *)

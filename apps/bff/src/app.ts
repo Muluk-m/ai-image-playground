@@ -19,6 +19,7 @@ import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalDrainRoutes } from './routes/internal-drain'
+import { internalLogRoutes } from './routes/internal-logs'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalTaskReconciliationRoutes } from './routes/internal-task-reconciliation'
 import { internalUserRoutes } from './routes/internal-users'
@@ -203,6 +204,7 @@ export const app = new Elysia()
   .use(internalUserRoutes)
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
+  .use(internalLogRoutes)
   .use(internalInspirationRoutes)
   .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)

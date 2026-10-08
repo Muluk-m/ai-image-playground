@@ -8,7 +8,7 @@ import { initChannels } from './lib/channels'
 import { purgeOldClientErrors } from './lib/client-errors'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
-import { log, serverLogBuffer } from './lib/logger'
+import { log } from './lib/logger'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { withRequestContext } from './lib/request-context'
@@ -181,10 +181,7 @@ log.info(
 )
 
 // 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
-const stopHeartbeat = startHeartbeat({
-  service: 'bff',
-  detail: () => ({ logs: serverLogBuffer.stats() }),
-})
+const stopHeartbeat = startHeartbeat({ service: 'bff' })
 
 // 排队消息与唤醒的兜底：收尾那个实例正在下线或半路没了时由这里接着开轮；worker 写进收件箱的
 // 唤醒、等太久先唤醒的那一批也由这里起轮。开机先巡一次。
