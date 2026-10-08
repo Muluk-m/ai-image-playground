@@ -1,6 +1,13 @@
 import { authenticatedBffFetch } from './authClient'
 import { scopedStorageName } from './authScope'
-import { type CachedMedia, getCachedMedia, pruneCachedMedia, putCachedMedia } from './db'
+import {
+  type CachedMedia,
+  dbTransaction,
+  getCachedMedia,
+  pruneCachedMedia,
+  putCachedMedia,
+  STORE_MEDIA,
+} from './db'
 import { bffBaseUrl } from './runtimeConfig'
 
 export function mediaIdentity(source: string | undefined): string | undefined {
@@ -14,6 +21,7 @@ interface Access {
 type Variant = 'original' | 'preview'
 const loaded = new Map<string, string>()
 const loading = new Map<string, Promise<string>>()
+const bypassDiskCache = new Set<string>()
 let cacheSize = 0
 const CACHE_BYTES = 32 * 1024 * 1024
 /**
@@ -94,6 +102,28 @@ export function blobDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+/** Discard only a failed preview; originals and attachment upload leases remain untouched. */
+export async function invalidateMediaPreview(source: string): Promise<void> {
+  const id = mediaIdentity(source)
+  if (!id) return
+  const scope = scopedStorageName('media')
+  const cacheId = `${id}:preview`
+  const key = `${scope}:${cacheId}`
+  await loading.get(key)?.catch(() => {})
+  if (scope !== scopedStorageName('media')) throw new Error('media_scope_changed')
+  const previous = loaded.get(key)
+  if (previous) {
+    cacheSize -= previous.length
+    loaded.delete(key)
+  }
+  bypassDiskCache.add(key)
+  // Storage failure must still permit a network retry instead of trapping the failed preview.
+  await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.delete(cacheId)).then(
+    () => bypassDiskCache.delete(key),
+    () => {},
+  )
+}
+
 /** 会话内的热表：落盘的是 Blob，这里存换算好的 data URL，省掉重复解码。 */
 function remember(key: string, data: string): void {
   if (data.length > CACHE_BYTES) return
@@ -107,12 +137,13 @@ function remember(key: string, data: string): void {
 }
 
 /** 缓存是尽力而为：配额满、隐私模式、库被清掉都只该退化成回源，不该让取图失败。 */
-async function persist(media: CachedMedia): Promise<void> {
+async function persist(media: CachedMedia): Promise<boolean> {
   try {
     await pruneCachedMedia(Math.max(diskBudget - media.bytes, 0))
     await putCachedMedia(media)
+    return true
   } catch {
-    // best effort
+    return false
   }
 }
 
@@ -144,7 +175,9 @@ export async function resolveMediaSource(
   const pending = loading.get(key)
   if (pending) return pending
   const operation = (async () => {
-    const cached = await getCachedMedia(cacheId).catch(() => undefined)
+    const cached = bypassDiskCache.has(key)
+      ? undefined
+      : await getCachedMedia(cacheId).catch(() => undefined)
     assertScope()
     if (cached) {
       const data = await blobDataUrl(new Blob([cached.data], { type: cached.contentType }))
@@ -178,13 +211,16 @@ export async function resolveMediaSource(
         const data = await blobDataUrl(new Blob([bytes], { type: contentType }))
         assertScope()
         remember(key, data)
-        await persist({
-          id: cacheId,
-          data: bytes,
-          contentType,
-          bytes: bytes.byteLength,
-          lastUsedAt: Date.now(),
-        })
+        if (
+          await persist({
+            id: cacheId,
+            data: bytes,
+            contentType,
+            bytes: bytes.byteLength,
+            lastUsedAt: Date.now(),
+          })
+        )
+          bypassDiskCache.delete(key)
         return data
       }
       throw new Error('media_download_failed')

@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 
+vi.mock('../../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import type { AgentMode, AgentSkillSummary, AgentTurnReference } from '@image-playground/shared'
 import { act } from 'react'

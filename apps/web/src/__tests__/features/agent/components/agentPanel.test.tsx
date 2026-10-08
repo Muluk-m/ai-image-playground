@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+
+vi.mock('../../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -763,7 +769,7 @@ describe('AgentPanel', () => {
     })
 
     expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
-    expect(host.textContent).toContain('ref')
+    expect(host.querySelector('img')?.getAttribute('alt')).toContain('ref')
   })
 
   it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {

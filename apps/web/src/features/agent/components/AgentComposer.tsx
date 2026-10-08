@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { FolderOpen, Images, LoaderCircle, Zap } from 'lucide-react'
+import { CircleAlert, FolderOpen, Images, LoaderCircle, RotateCw, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -47,7 +47,12 @@ import {
 import { accountScope } from '../../../lib/authScope'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
-import { blobDataUrl, mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
+import {
+  blobDataUrl,
+  invalidateMediaPreview,
+  mediaIdentity,
+  resolveMediaSource,
+} from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
@@ -56,9 +61,11 @@ import {
   hasLocalAttachmentSources,
   localAttachmentFailure,
   localAttachmentIdentity,
+  readAttachmentUpload,
   readLocalAttachment,
 } from '../../../lib/localAttachmentSources'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -142,27 +149,61 @@ const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 function ComposerAttachmentThumb({
   src,
   className,
+  frameClassName = '',
+  alt = '',
   uploading = false,
   failed = false,
+  retryPreview = false,
 }: {
   src: string
   className: string
+  frameClassName?: string
+  alt?: string
   uploading?: boolean
   failed?: boolean
+  retryPreview?: boolean
 }) {
+  const { t } = useTranslation('agent')
+  const [revision, setRevision] = useState(0)
+  const [retrying, setRetrying] = useState(false)
+  const latestSource = useRef(src)
+  latestSource.current = src
   const deferred = Boolean(
     mediaIdentity(src) || localAttachmentIdentity(src) || localAttachmentFailure(src),
   )
   const [settled, setSettled] = useState<{ src: string; ok: boolean }>()
   const here = settled?.src === src ? settled : undefined
-  const pending = deferred && !failed && here === undefined
+  const pending = retrying || ((deferred || revision > 0) && !failed && here === undefined)
   const hide = uploading || pending || failed || here?.ok === false
+  const previewFailed = !retrying && !uploading && !failed && here?.ok === false
   const onResolveError = useCallback(() => setSettled({ src, ok: false }), [src])
+  const reloadPreview = async () => {
+    const accountCurrent = accountScope()
+    const backend = bffBaseUrl()
+    const current = () =>
+      accountCurrent() && backend === bffBaseUrl() && latestSource.current === src
+    setRetrying(true)
+    try {
+      const upload = localAttachmentIdentity(src) ? await readAttachmentUpload(src, backend) : null
+      if (!current()) return
+      await invalidateMediaPreview(
+        upload?.state === 'ready' ? `aip-media:${upload.result.id}` : src,
+      )
+      if (!current()) return
+      setSettled(undefined)
+      setRevision((one) => one + 1)
+    } catch {
+      // Keep the explicit failed preview and its retry action if cache invalidation failed.
+    } finally {
+      setRetrying(false)
+    }
+  }
   return (
-    <span className="relative inline-flex shrink-0">
+    <span className={`relative inline-flex shrink-0 ${frameClassName}`}>
       <MediaImage
+        key={revision}
         src={src}
-        alt=""
+        alt={alt}
         draggable={false}
         onLoad={(event) => {
           if (!event.currentTarget.getAttribute('src')) return
@@ -183,6 +224,39 @@ function ComposerAttachmentThumb({
           <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
         </span>
       )}
+      {previewFailed &&
+        (retryPreview ? (
+          <>
+            <span
+              role="img"
+              aria-label={t('tool.previewUnavailable')}
+              className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-background/90 pb-8 text-destructive"
+            >
+              <CircleAlert className="h-4 w-4" />
+              <span className="text-[10px]">{t('tool.previewUnavailable')}</span>
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title={t('tool.retryPreview')}
+              aria-label={`${t('tool.previewUnavailable')}：${t('tool.retryPreview')} ${alt}`}
+              className="absolute bottom-0 right-0 z-10 h-11 w-11 text-destructive"
+              onClick={() => void reloadPreview()}
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+          </>
+        ) : (
+          <span
+            role="img"
+            aria-label={t('tool.previewUnavailable')}
+            title={t('tool.previewUnavailable')}
+            className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+          >
+            <CircleAlert className="h-4 w-4" />
+          </span>
+        ))}
     </span>
   )
 }
@@ -347,7 +421,17 @@ export default function AgentComposer({
           .then((references) => {
             setDraft((current) => attachReferences(current, references, transportRef.current))
           })
-          .catch(() => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error'))
+          .catch((error: unknown) =>
+            useStore
+              .getState()
+              .showToast(
+                attachmentUploadErrorMessage(
+                  error instanceof Error ? error.message : undefined,
+                  getAttachmentLimits(),
+                ),
+                'error',
+              ),
+          )
       }
     })
   }
@@ -919,35 +1003,73 @@ export default function AgentComposer({
               const uploadError = attachmentUploadError(uploadReference(reference))
               const isUploading = ['queued', 'uploading', 'verifying'].includes(uploadState ?? '')
               return (
-                <div
-                  key={reference.id}
-                  className="group flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5"
-                >
-                  <div className="relative shrink-0">
+                <div key={reference.id} className="group flex max-w-full items-start gap-2">
+                  <div
+                    title={label}
+                    className={`relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border bg-muted/60 ${uploadState === 'failed' ? 'border-destructive' : 'border-border'}`}
+                  >
                     <ComposerAttachmentThumb
                       src={reference.dataUrl}
                       uploading={isUploading}
                       failed={uploadState === 'failed'}
-                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                      frameClassName="h-full w-full"
+                      className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                      alt={label}
+                      retryPreview
                     />
                     {masked && (
                       <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
                         MASK
                       </span>
                     )}
+                    {uploadState === 'failed' && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                      >
+                        <CircleAlert className="h-6 w-6" />
+                      </span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={
+                        masked
+                          ? t('composer.editMaskAria', { label })
+                          : t('composer.drawMaskAria', { label })
+                      }
+                      className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      onClick={() => editMask(reference)}
+                    >
+                      <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                        <MaskBrushIcon className="h-3.5 w-3.5" />
+                      </span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('composer.removeReferenceAria', { label })}
+                      className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      onClick={() => setDraft(removeReference(draft, index))}
+                    >
+                      <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                        <CloseIcon className="h-3.5 w-3.5" />
+                      </span>
+                    </Button>
                   </div>
-                  <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
                     <span
                       role={uploadState === 'failed' ? 'alert' : 'status'}
                       className={
                         uploadState === 'failed'
-                          ? 'inline-flex items-center gap-1.5 text-xs text-destructive'
+                          ? 'max-w-56 self-center text-xs text-destructive'
                           : 'sr-only'
                       }
                     >
                       {uploadState === 'failed'
-                        ? attachmentUploadErrorMessage(uploadError, getAttachmentLimits())
+                        ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
                         : t(`composer.upload.${uploadState}`)}
                     </span>
                   )}
@@ -961,26 +1083,6 @@ export default function AgentComposer({
                       {t('composer.retryUpload')}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    aria-label={
-                      masked
-                        ? t('composer.editMaskAria', { label })
-                        : t('composer.drawMaskAria', { label })
-                    }
-                    className={`shrink-0 ${ICON_BUTTON}`}
-                    onClick={() => editMask(reference)}
-                  >
-                    <MaskBrushIcon className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('composer.removeReferenceAria', { label })}
-                    className={`shrink-0 ${ICON_BUTTON}`}
-                    onClick={() => setDraft(removeReference(draft, index))}
-                  >
-                    <CloseIcon className="h-3 w-3" />
-                  </button>
                 </div>
               )
             })}
