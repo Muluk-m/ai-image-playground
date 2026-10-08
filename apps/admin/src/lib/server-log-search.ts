@@ -73,7 +73,7 @@ export function parseLogExpression(input: string): Partial<ServerLogFilters> {
     /(\w+):(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|(\S+))|(\S+)/g,
   )) {
     const key = aliases[token[1] ?? ''] ?? token[1]
-    if (!key || !LOG_FILTER_KEYS.includes(key as never) || key === 'q') {
+    if (!key || !LOG_FILTER_KEYS.includes(key as never)) {
       text.push(token[0])
       continue
     }
@@ -81,6 +81,10 @@ export function parseLogExpression(input: string): Partial<ServerLogFilters> {
       token[2] !== undefined
         ? (JSON.parse('\"' + token[2] + '\"') as string)
         : (token[3]?.replace(/\\([\\'"])/g, '$1') ?? token[4] ?? '')
+    if (key === 'q') {
+      text.push(value)
+      continue
+    }
     if (!value || value.length > 400) throw new Error('查询字段不能为空或超过 400 个字符')
     if (key === 'service' && !SERVER_LOG_SERVICES.includes(value as never))
       throw new Error('服务名称无效')
@@ -113,6 +117,6 @@ export function formatLogExpression(filters: Partial<ServerLogFilters>) {
   const tokens = Object.entries(filters)
     .filter(([key, value]) => key !== 'q' && value !== undefined)
     .map(([key, value]) => `${key}:${JSON.stringify(value)}`)
-  if (filters.q) tokens.push(filters.q)
+  if (filters.q) tokens.push(`q:${JSON.stringify(filters.q)}`)
   return tokens.join(' ')
 }

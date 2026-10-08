@@ -280,7 +280,7 @@ describe('server log exploration', () => {
     expect(screen.getByLabelText('日志关键词')).toHaveValue('service:worker level:error timeout')
     fireEvent.click(screen.getByRole('button', { name: '全部级别' }))
     await waitFor(() =>
-      expect(screen.getByLabelText('日志关键词')).toHaveValue('service:"worker" timeout'),
+      expect(screen.getByLabelText('日志关键词')).toHaveValue('service:"worker" q:"timeout"'),
     )
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => expect(get.mock.lastCall![0]).not.toContain('level=error'))
@@ -311,7 +311,7 @@ describe('server log exploration', () => {
     view.rerender(block(onSearchChange.mock.lastCall![0]))
     view.rerender(block({ level: 'error', q: 'newword' }))
     await waitFor(() =>
-      expect(screen.getByLabelText('日志关键词')).toHaveValue('level:"error" newword'),
+      expect(screen.getByLabelText('日志关键词')).toHaveValue('level:"error" q:"newword"'),
     )
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     expect(onSearchChange.mock.lastCall![0].q).toBe('newword')
@@ -323,7 +323,24 @@ describe('server log exploration', () => {
     view.rerender(block(onSearchChange.mock.lastCall![0]))
     expect(screen.getByLabelText('日志关键词')).toHaveValue('')
     view.rerender(block({ q: 'restored' }))
-    await waitFor(() => expect(screen.getByLabelText('日志关键词')).toHaveValue('restored'))
+    await waitFor(() => expect(screen.getByLabelText('日志关键词')).toHaveValue('q:"restored"'))
+  })
+  it('preserves literal field-like keywords restored from a query link', async () => {
+    get.mockResolvedValue(result)
+    const onSearchChange = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ServerLogsBlock
+          searchState={{ q: 'level:error taskId:xxx' }}
+          onSearchChange={onSearchChange}
+        />
+      </QueryClientProvider>,
+    )
+    await screen.findByText('201')
+    expect(screen.getByLabelText('日志关键词')).toHaveValue('q:"level:error taskId:xxx"')
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    expect(onSearchChange.mock.lastCall![0]).toEqual({ q: 'level:error taskId:xxx' })
   })
   it('loads context only after opening a log and requesting it', async () => {
     setup()

@@ -98,6 +98,22 @@ describe('trend selection', () => {
 })
 
 describe('expression serialization', () => {
+  it('round trips literal field-like keywords without creating filters', () => {
+    for (const q of [
+      'level:error',
+      'taskId:xxx',
+      'q:literal',
+      'level:error taskId:xxx',
+      'both \' and " quotes',
+      'line\nnext',
+    ]) {
+      const filters = { service: 'worker' as const, q }
+      expect(parseLogExpression(formatLogExpression(filters))).toEqual(filters)
+    }
+    expect(() => parseLogExpression('q:"' + 'x'.repeat(401) + '"')).toThrow(
+      '关键词不能超过 400 个字符',
+    )
+  })
   it('round trips exact quoted and escaped identities', () => {
     for (const instance of ['"abc"', 'both \' and " quotes', 'a\\b', 'line\nnext', ' leading ']) {
       const filters = { instance, q: 'timeout' }

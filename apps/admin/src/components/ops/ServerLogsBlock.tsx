@@ -139,7 +139,7 @@ export function ServerLogsBlock({
     if (previouslyFixed.current && !fixed) setEnd(Date.now())
     previouslyFixed.current = fixed
   }, [fixed])
-  const [search, setSearch] = useState(state.q ?? '')
+  const [search, setSearch] = useState(() => formatLogExpression({ q: state.q }))
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const expressionFilters = useRef<Partial<ServerLogFilters> | null>(null)
   const syncedQuery = useRef(state.q)
@@ -165,7 +165,7 @@ export function ServerLogsBlock({
       if (state.q) remaining.q = state.q
       expressionFilters.current = Object.keys(remaining).length ? remaining : null
       setSearch(formatLogExpression(remaining))
-    } else if (previousQuery !== state.q) setSearch(state.q ?? '')
+    } else if (previousQuery !== state.q) setSearch(formatLogExpression({ q: state.q }))
   }, [filterSignature, state.q])
   const [selected, setSelected] = useState<ServerLogEntry | null>(null)
   const [showContext, setShowContext] = useState(false)
