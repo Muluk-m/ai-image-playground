@@ -69,13 +69,18 @@ export function parseLogExpression(input: string): Partial<ServerLogFilters> {
   const filters: Partial<ServerLogFilters> = {}
   const text: string[] = []
   const aliases: Record<string, string> = { container: 'instance', event: 'group' }
-  for (const token of input.matchAll(/(\w+):(?:"([^"]*)"|'([^']*)'|(\S+))|(\S+)/g)) {
+  for (const token of input.matchAll(
+    /(\w+):(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|(\S+))|(\S+)/g,
+  )) {
     const key = aliases[token[1] ?? ''] ?? token[1]
-    const value = token[2] ?? token[3] ?? token[4] ?? ''
     if (!key || !LOG_FILTER_KEYS.includes(key as never) || key === 'q') {
       text.push(token[0])
       continue
     }
+    const value =
+      token[2] !== undefined
+        ? (JSON.parse('\"' + token[2] + '\"') as string)
+        : (token[3]?.replace(/\\([\\'"])/g, '$1') ?? token[4] ?? '')
     if (!value || value.length > 400) throw new Error('查询字段不能为空或超过 400 个字符')
     if (key === 'service' && !SERVER_LOG_SERVICES.includes(value as never))
       throw new Error('服务名称无效')
@@ -102,4 +107,12 @@ export function logTrendSelection(
 ) {
   const range = { from: Math.max(from, first), to: Math.min(to, last + bucket) }
   return range.to > range.from ? range : null
+}
+
+export function formatLogExpression(filters: Partial<ServerLogFilters>) {
+  const tokens = Object.entries(filters)
+    .filter(([key, value]) => key !== 'q' && value !== undefined)
+    .map(([key, value]) => `${key}:${JSON.stringify(value)}`)
+  if (filters.q) tokens.push(filters.q)
+  return tokens.join(' ')
 }

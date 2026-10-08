@@ -280,7 +280,7 @@ describe('server log exploration', () => {
     expect(screen.getByLabelText('日志关键词')).toHaveValue('service:worker level:error timeout')
     fireEvent.click(screen.getByRole('button', { name: '全部级别' }))
     await waitFor(() =>
-      expect(screen.getByLabelText('日志关键词')).toHaveValue('service:worker timeout'),
+      expect(screen.getByLabelText('日志关键词')).toHaveValue('service:"worker" timeout'),
     )
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => expect(get.mock.lastCall![0]).not.toContain('level=error'))
@@ -292,6 +292,38 @@ describe('server log exploration', () => {
     fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: 'level:banana' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('日志级别无效')
+  })
+  it('syncs route keywords after external changes and after the last expression field is removed', async () => {
+    get.mockResolvedValue(result)
+    const onSearchChange = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const block = (searchState: ServerLogSearch) => (
+      <QueryClientProvider client={client}>
+        <ServerLogsBlock searchState={searchState} onSearchChange={onSearchChange} />
+      </QueryClientProvider>
+    )
+    const view = render(block({}))
+    await screen.findByText('201')
+    fireEvent.change(screen.getByLabelText('日志关键词'), {
+      target: { value: 'level:error oldword' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    view.rerender(block(onSearchChange.mock.lastCall![0]))
+    view.rerender(block({ level: 'error', q: 'newword' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('日志关键词')).toHaveValue('level:"error" newword'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    expect(onSearchChange.mock.lastCall![0].q).toBe('newword')
+    view.rerender(block(onSearchChange.mock.lastCall![0]))
+    fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: 'level:error' } })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    view.rerender(block(onSearchChange.mock.lastCall![0]))
+    fireEvent.click(screen.getByRole('button', { name: '全部级别' }))
+    view.rerender(block(onSearchChange.mock.lastCall![0]))
+    expect(screen.getByLabelText('日志关键词')).toHaveValue('')
+    view.rerender(block({ q: 'restored' }))
+    await waitFor(() => expect(screen.getByLabelText('日志关键词')).toHaveValue('restored'))
   })
   it('loads context only after opening a log and requesting it', async () => {
     setup()
