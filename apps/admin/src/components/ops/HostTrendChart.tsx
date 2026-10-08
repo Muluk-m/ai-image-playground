@@ -21,9 +21,9 @@ export interface HostTrendChartProps {
 }
 
 const CHART_CONFIG = {
-  disk: { label: '磁盘已用', color: 'hsl(var(--danger))' },
-  memory: { label: '内存已用', color: 'hsl(var(--success))' },
-  cpu: { label: 'CPU', color: 'hsl(var(--primary))' },
+  disk: { label: '磁盘已用', color: '#0ea5e9' },
+  memory: { label: '内存已用', color: '#8b5cf6' },
+  cpu: { label: 'CPU', color: '#06b6d4' },
 } satisfies ChartConfig
 
 interface TrendRow {
@@ -137,8 +137,8 @@ function HostTrendChartImpl({ series, stepMs, diskAlertRatio, label }: HostTrend
             dataKey="cpu"
             stroke="var(--color-cpu)"
             dot={false}
-            strokeWidth={1}
-            strokeOpacity={0.7}
+            strokeWidth={2}
+            strokeOpacity={0.9}
             isAnimationActive={false}
           />
         ) : null}

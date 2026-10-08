@@ -8,10 +8,20 @@ import {
 } from '@image-playground/shared'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { defaultStringifySearch, Link } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { LogTimeRangePicker } from '@/components/ops/LogTimeRangePicker'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -30,15 +40,21 @@ import {
 } from '@/lib/server-log-search'
 
 const RANGES = LOG_RANGES
-const SELECT_STYLE = 'h-9 rounded-md border bg-background px-2 text-sm'
 const time = (at: number) =>
   new Date(at).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
-const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, -1)
 
 function levelStyle(level: string) {
   if (level === 'error' || level === 'fatal') return 'text-danger bg-danger/5'
   if (level === 'warn') return 'text-amber-600 bg-amber-500/5'
   return 'text-muted-foreground'
+}
+
+function logStack(entry: ServerLogEntry): string | null {
+  if (typeof entry.fields.stack === 'string') return entry.fields.stack
+  const err = entry.fields.err
+  return err && typeof err === 'object' && 'stack' in err && typeof err.stack === 'string'
+    ? err.stack
+    : null
 }
 
 function LogDetailContent({
@@ -118,6 +134,10 @@ export function ServerLogsBlock({
   searchState?: ServerLogSearch
   onSearchChange?: (next: ServerLogSearch) => void
 } = {}) {
+  const advancedId = useId()
+  const groupsId = useId()
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [groupsOpen, setGroupsOpen] = useState(false)
   const [localState, setLocalState] = useState<ServerLogSearch>({})
   const state = searchState ?? localState
   const change = (next: ServerLogSearch) =>
@@ -178,7 +198,6 @@ export function ServerLogsBlock({
       apiClient.get<{ entries: ServerLogEntry[] }>(`/api/ops/logs/context?id=${selected!.id}`),
     enabled: Boolean(selected && showContext),
   })
-  const [dateError, setDateError] = useState('')
   useEffect(() => {
     if (!live || (state.from !== undefined && state.to !== undefined)) return
     const timer = setInterval(() => setEnd(Date.now()), 10_000)
@@ -300,56 +319,58 @@ export function ServerLogsBlock({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 p-3">
-        <div className="grid gap-2 lg:grid-cols-[auto_auto_auto_1fr]">
-          <select
-            aria-label="日志时间范围"
-            className={SELECT_STYLE}
-            value={custom ? 'custom' : range}
-            onChange={(event) => {
-              change({
-                ...state,
-                range: event.target.value as keyof typeof RANGES,
-                from: undefined,
-                to: undefined,
+        <LogTimeRangePicker
+          window={window}
+          range={range}
+          fixed={fixed}
+          onPreset={(range) => {
+            change({ ...state, range, from: undefined, to: undefined })
+            setLive(true)
+            setEnd(Date.now())
+          }}
+          onWindow={(window) => {
+            setCustom(window)
+            setLive(false)
+          }}
+        />
+        <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr]">
+          <Select
+            value={filters.service ?? 'all'}
+            onValueChange={(value) =>
+              update({
+                service: value === 'all' ? undefined : (value as ServerLogFilters['service']),
               })
-              setLive(true)
-              setEnd(Date.now())
-              setDateError('')
-            }}
-          >
-            {custom ? <option value="custom">自定义范围</option> : null}
-            <option value="15m">近 15 分钟</option>
-            <option value="1h">近 1 小时</option>
-            <option value="24h">近 24 小时</option>
-            <option value="7d">近 7 天</option>
-          </select>
-          <select
-            aria-label="日志服务"
-            className={SELECT_STYLE}
-            value={filters.service ?? ''}
-            onChange={(event) =>
-              update({ service: (event.target.value || undefined) as ServerLogFilters['service'] })
             }
           >
-            <option value="">全部服务</option>
-            {SERVER_LOG_SERVICES.map((service) => (
-              <option key={service} value={service}>
-                {service}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="日志输出流"
-            className={SELECT_STYLE}
-            value={filters.stream ?? ''}
-            onChange={(event) =>
-              update({ stream: (event.target.value || undefined) as ServerLogFilters['stream'] })
+            <SelectTrigger aria-label="日志服务" className="sm:min-w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部服务</SelectItem>
+              {SERVER_LOG_SERVICES.map((service) => (
+                <SelectItem key={service} value={service}>
+                  {service}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={filters.stream ?? 'all'}
+            onValueChange={(value) =>
+              update({
+                stream: value === 'all' ? undefined : (value as ServerLogFilters['stream']),
+              })
             }
           >
-            <option value="">stdout + stderr</option>
-            <option value="stdout">stdout</option>
-            <option value="stderr">stderr</option>
-          </select>
+            <SelectTrigger aria-label="日志输出流" className="sm:min-w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">stdout + stderr</SelectItem>
+              <SelectItem value="stdout">stdout</SelectItem>
+              <SelectItem value="stderr">stderr</SelectItem>
+            </SelectContent>
+          </Select>
           <form
             className="flex min-w-0 gap-2"
             onSubmit={(event) => {
@@ -404,118 +425,95 @@ export function ServerLogsBlock({
               {level.toUpperCase()} {data?.levelCounts ? (data.levelCounts[level] ?? 0) : '—'}
             </Button>
           ))}
-          <details className="ml-auto text-xs">
-            <summary className="cursor-pointer rounded-md border px-3 py-2">更多查询条件</summary>
-            <form
-              className="mt-3 grid gap-3 rounded-md border p-3 sm:grid-cols-2 lg:grid-cols-4"
-              onSubmit={(event) => {
-                event.preventDefault()
-                const form = new FormData(event.currentTarget)
-                const fromText = String(form.get('from') || ''),
-                  toText = String(form.get('to') || '')
-                const from = fromText ? new Date(`${fromText}+08:00`).getTime() : window.from
-                const to = toText ? new Date(`${toText}+08:00`).getTime() : window.to
-                if (
-                  !Number.isFinite(from) ||
-                  !Number.isFinite(to) ||
-                  to <= from ||
-                  to - from > RANGES['7d'] ||
-                  to > Date.now() + 60_000
-                ) {
-                  setDateError('请填写有效时间，跨度不超过 7 天，结束时间不能晚于当前时间')
-                  return
-                }
-                setDateError('')
-                const located = Object.fromEntries(
-                  [
-                    'requestId',
-                    'taskId',
-                    'userId',
-                    'mediaId',
-                    'instance',
-                    'version',
-                    'deployment',
-                  ].map((key) => [key, String(form.get(key) || '') || undefined]),
-                )
-                change({ ...state, ...located, ...(fromText || toText ? { from, to } : {}) })
-              }}
-            >
-              <label>
-                开始时间（北京时间）
-                <Input
-                  name="from"
-                  type="datetime-local"
-                  step="0.001"
-                  key={`from:${custom?.from ?? range}`}
-                  defaultValue={custom ? dateInput(custom.from) : ''}
-                />
-              </label>
-              <label>
-                结束时间（北京时间）
-                <Input
-                  name="to"
-                  type="datetime-local"
-                  step="0.001"
-                  key={`to:${custom?.to ?? range}`}
-                  defaultValue={custom ? dateInput(custom.to) : ''}
-                />
-              </label>
-              {(['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'] as const).map(
-                (key) => (
-                  <label key={key}>
-                    {
-                      {
-                        requestId: '请求 ID',
-                        taskId: '任务 ID',
-                        userId: '用户 ID',
-                        mediaId: '图片 ID',
-                        instance: '容器',
-                        version: '版本',
-                      }[key]
-                    }
-                    <Input
-                      name={key}
-                      defaultValue={filters[key]}
-                      key={filters[key] ?? ''}
-                      maxLength={400}
-                    />
-                  </label>
-                ),
-              )}
-              <label>
-                部署
-                <select
-                  name="deployment"
-                  className={`${SELECT_STYLE} w-full`}
-                  key={filters.deployment ?? ''}
-                  defaultValue={filters.deployment ?? ''}
-                >
-                  <option value="">全部部署</option>
-                  <option value="paid">付费</option>
-                  <option value="internal">内部</option>
-                  <option value="test">测试</option>
-                </select>
-              </label>
-              <Button className="self-end" size="sm" variant="outline" type="submit">
-                应用范围与定位
-              </Button>
-            </form>
-            {dateError ? (
-              <p role="alert" className="mt-2 text-danger">
-                {dateError}
-              </p>
-            ) : null}
-          </details>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto text-muted-foreground"
+            aria-expanded={advancedOpen}
+            aria-controls={advancedId}
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          >
+            更多查询条件{' '}
+            <ChevronDown
+              className={`ml-2 size-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+            />
+          </Button>
         </div>
+        <form
+          id={advancedId}
+          hidden={!advancedOpen}
+          className={`${advancedOpen ? 'grid' : 'hidden'} mt-3 gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3}`}
+          onSubmit={(event) => {
+            event.preventDefault()
+            const form = new FormData(event.currentTarget)
+            const located = Object.fromEntries(
+              ['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version', 'deployment'].map(
+                (key) => [
+                  key,
+                  key === 'deployment' && form.get(key) === 'all'
+                    ? undefined
+                    : String(form.get(key) || '') || undefined,
+                ],
+              ),
+            )
+            change({ ...state, ...located })
+          }}
+        >
+          {(['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'] as const).map(
+            (key) => (
+              <Label key={key}>
+                {
+                  {
+                    requestId: '请求 ID',
+                    taskId: '任务 ID',
+                    userId: '用户 ID',
+                    mediaId: '图片 ID',
+                    instance: '容器',
+                    version: '版本',
+                  }[key]
+                }
+                <Input
+                  name={key}
+                  defaultValue={filters[key]}
+                  key={filters[key] ?? ''}
+                  maxLength={400}
+                />
+              </Label>
+            ),
+          )}
+          <Label>
+            部署
+            <Select
+              name="deployment"
+              key={filters.deployment ?? 'all'}
+              defaultValue={filters.deployment ?? 'all'}
+            >
+              <SelectTrigger aria-label="部署">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部部署</SelectItem>
+                <SelectItem value="paid">付费</SelectItem>
+                <SelectItem value="internal">内部</SelectItem>
+                <SelectItem value="test">测试</SelectItem>
+              </SelectContent>
+            </Select>
+          </Label>
+          <Button className="self-end" size="sm" variant="outline" type="submit">
+            应用定位条件
+          </Button>
+        </form>
         {Object.values(filters).some(Boolean) ? (
           <div className="flex flex-wrap gap-2 text-xs">
             {Object.entries(filters)
               .filter(([, value]) => value)
               .map(([key, value]) => (
-                <button
+                <Button
                   type="button"
                   key={key}
-                  className="max-w-full truncate rounded-full border bg-muted/40 px-2 py-1 font-mono"
+                  size="sm"
+                  variant="outline"
+                  className="max-w-full truncate rounded-full bg-muted/40 font-mono text-xs"
                   onClick={() => {
                     update({ [key]: undefined })
                     if (key === 'q') setSearch('')
@@ -523,7 +521,7 @@ export function ServerLogsBlock({
                   title={`移除 ${key}`}
                 >
                   {key}:{String(value)} ×
-                </button>
+                </Button>
               ))}
             <Button
               size="sm"
@@ -663,28 +661,23 @@ export function ServerLogsBlock({
             <div
               ref={list}
               aria-label="日志记录"
-              className="max-h-[65vh] overflow-auto rounded-md border"
+              className="max-h-[65vh] overflow-auto rounded-md border bg-muted/20 p-3"
               onScroll={(event) => {
                 if (live && event.currentTarget.scrollTop > 48) setLive(false)
               }}
             >
-              <div className="sticky top-0 z-10 grid min-w-[720px] grid-cols-[170px_70px_110px_1fr] gap-3 border-b bg-muted px-3 py-2 text-xs font-medium">
-                <span>时间</span>
-                <span>级别</span>
-                <span>服务</span>
-                <span>消息</span>
-              </div>
               {!entries.length ? (
                 <p className="px-3 py-8 text-sm text-muted-foreground">
                   此范围内没有匹配日志。可扩大时间范围或清空筛选。
                 </p>
               ) : (
                 entries.map((entry) => (
-                  <button
+                  <Button
                     key={entry.id}
                     type="button"
                     aria-label={`${entry.level.toUpperCase()} ${entry.service} ${entry.message}`}
-                    className={`grid w-full min-w-[720px] grid-cols-[170px_70px_110px_1fr] items-baseline gap-3 border-b px-3 py-2 text-left font-mono text-xs hover:bg-muted/60 ${levelStyle(entry.level)}`}
+                    variant="ghost"
+                    className={`block h-auto min-w-full rounded-none px-1 py-1 text-left font-mono text-xs hover:bg-muted/60 ${levelStyle(entry.level)}`}
                     onClick={() => openLog(entry)}
                   >
                     <time
@@ -693,12 +686,15 @@ export function ServerLogsBlock({
                     >
                       {time(entry.at)}
                     </time>
-                    <span className="font-semibold">{entry.level.toUpperCase()}</span>
+                    <span className="mx-2 font-semibold">{entry.level.toUpperCase()}</span>
                     <span>{entry.service}</span>
-                    <span className="truncate text-foreground" title={entry.message}>
+                    <pre className="whitespace-pre leading-5 text-foreground">
                       {entry.message || entry.event || '日志'}
-                    </span>
-                  </button>
+                      {logStack(entry) && !entry.message.includes(logStack(entry)!)
+                        ? `\n${logStack(entry)}`
+                        : ''}
+                    </pre>
+                  </Button>
                 ))
               )}
             </div>
@@ -718,36 +714,49 @@ export function ServerLogsBlock({
                 </Button>
               ) : null}
             </div>
-            <details className="text-xs text-muted-foreground">
-              <summary className="cursor-pointer">事件聚合与留存范围</summary>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {data.groups.map((group) => (
-                  <Button
-                    key={`${group.service}:${group.level}:${group.key}`}
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      update({ service: group.service, level: group.level, group: group.key })
-                    }
-                  >
-                    {group.service} / {group.level} · {group.key || '无消息'} · {group.count}
-                  </Button>
-                ))}
-              </div>
-              {data.coverage ? (
-                <p className="mt-2">
-                  {data.coverage.first_at === null
-                    ? '日志库尚无记录'
-                    : `当前留存记录：${time(data.coverage.first_at)} — ${time(data.coverage.last_at ?? data.coverage.first_at)}`}
-                </p>
+            <div className="text-xs text-muted-foreground">
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-expanded={groupsOpen}
+                aria-controls={groupsId}
+                onClick={() => setGroupsOpen(!groupsOpen)}
+              >
+                事件聚合与留存范围{' '}
+                <ChevronDown className={`ml-2 size-4 ${groupsOpen ? 'rotate-180' : ''}`} />
+              </Button>
+              {groupsOpen ? (
+                <div id={groupsId}>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {data.groups.map((group) => (
+                      <Button
+                        key={`${group.service}:${group.level}:${group.key}`}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          update({ service: group.service, level: group.level, group: group.key })
+                        }
+                      >
+                        {group.service} / {group.level} · {group.key || '无消息'} · {group.count}
+                      </Button>
+                    ))}
+                  </div>
+                  {data.coverage ? (
+                    <p className="mt-2">
+                      {data.coverage.first_at === null
+                        ? '日志库尚无记录'
+                        : `当前留存记录：${time(data.coverage.first_at)} — ${time(data.coverage.last_at ?? data.coverage.first_at)}`}
+                    </p>
+                  ) : null}
+                  {data.coverage?.first_at != null && window.from < data.coverage.first_at ? (
+                    <p className="mt-1 text-amber-600">
+                      查询包含留存起点之前的时段；此前记录可能尚未采集或已清理，无法据此判断没有故障。
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
-              {data.coverage?.first_at != null && window.from < data.coverage.first_at ? (
-                <p className="mt-1 text-amber-600">
-                  查询包含留存起点之前的时段；此前记录可能尚未采集或已清理，无法据此判断没有故障。
-                </p>
-              ) : null}
-            </details>
+            </div>
           </>
         ) : null}
       </CardContent>
@@ -793,23 +802,24 @@ export function ServerLogsBlock({
                   {context.isError ? (
                     <p role="alert" className="text-danger">
                       上下文读取失败{' '}
-                      <button type="button" onClick={() => void context.refetch()}>
+                      <Button size="sm" variant="link" onClick={() => void context.refetch()}>
                         重试
-                      </button>
+                      </Button>
                     </p>
                   ) : null}
                   {context.data?.entries.map((entry) => (
-                    <button
+                    <Button
                       key={entry.id}
                       type="button"
-                      className={`block w-full break-all rounded p-2 text-left hover:bg-muted ${entry.id === selected.id ? 'bg-primary/10 ring-1 ring-primary' : levelStyle(entry.level)}`}
+                      variant="ghost"
+                      className={`block h-auto w-full whitespace-pre-wrap break-all rounded p-2 text-left font-mono text-xs hover:bg-muted ${entry.id === selected.id ? 'bg-primary/10 ring-1 ring-primary' : levelStyle(entry.level)}`}
                       onClick={() => {
                         setSelected(entry)
                         setShowContext(false)
                       }}
                     >
                       {time(entry.at)} {entry.level.toUpperCase()} {entry.message}
-                    </button>
+                    </Button>
                   ))}
                   {context.data && !context.data.entries.length ? (
                     <p>这条日志已不在留存范围内。</p>

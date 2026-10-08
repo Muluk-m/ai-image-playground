@@ -620,6 +620,7 @@ export interface GenerationTasksResult {
 }
 
 export interface TodayErrorItem {
+  instance?: string | null
   source: 'server' | 'client'
   id: string
   at: number

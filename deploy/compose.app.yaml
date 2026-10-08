@@ -353,6 +353,7 @@ services:
     # rendered destination in the service configuration so a target change reloads the config.
     labels:
       ai.image-playground.log-ingest-host: ${LOG_INGEST_HOST:-bff-logs}
+      ai.image-playground.log-format: multiline-v1
     restart: unless-stopped
     command: ["-c", "/etc/fluent-bit/collector.yaml"]
     environment:
@@ -386,12 +387,39 @@ configs:
         log_level: warn
         storage.path: /buffer
         storage.max_chunks_up: 64
+      multiline_parsers:
+        - name: terminal-stack
+          type: regex
+          key_content: log
+          flush_timeout: 1000
+          rules:
+            - state: start_state
+              regex: '/^(?i:(?:warn|warning|error|fatal|panic|[a-z]*error|exception)\b)/'
+              next_state: cont
+            - state: cont
+              regex: '/^(?:\s+at\s|\s*$$|\s*\.\.\.|\s*Caused by:)/'
+              next_state: cont
       pipeline:
         inputs:
           - name: forward
             unix_path: /run/log-forward/forward.sock
             unix_perm: "0660"
             storage.type: filesystem
+        filters:
+          # Only raw Docker tags have no dot. Re-emitted records bypass this filter.
+          - name: rewrite_tag
+            match_regex: '^[^.]+$$'
+            rule: '$$source ^(stdout|stderr)$$ $$TAG.$$1 false'
+            emitter_storage.type: filesystem
+            emitter_mem_buf_limit: 8M
+          - name: multiline
+            match: "*"
+            multiline.key_content: log
+            multiline.parser: terminal-stack
+            buffer: on
+            flush_ms: 1000
+            emitter_storage.type: filesystem
+            emitter_mem_buf_limit: 8M
         outputs:
           - name: http
             match: "*"

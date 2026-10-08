@@ -36,8 +36,10 @@ export function containerService(name: string): ServerLogService {
 
 /** Text lines carry their level as a word (cloudflared `ERR`, postgres `ERROR:`, `[warn]`). */
 function textLevel(line: string, stream: string): ServerLogLevel {
+  if (/^\s*at\s/.test(line)) return stream === 'stderr' ? 'warn' : 'info'
+  if (/^(?:warn|warning)\b/i.test(line)) return 'warn'
   if (/\b(?:FATAL|PANIC|CRIT(?:ICAL)?)\b/i.test(line)) return 'fatal'
-  if (/\b(?:ERR|ERROR|EXCEPTION)\b|^\s*at\s|Error:/i.test(line)) return 'error'
+  if (/\b(?:ERR|ERROR|EXCEPTION)\b|Error:/i.test(line)) return 'error'
   if (/\b(?:WRN|WARN|WARNING)\b/i.test(line)) return 'warn'
   if (/\b(?:DBG|DEBUG)\b/i.test(line)) return 'debug'
   if (/\b(?:INF|INFO|LOG|NOTICE)\b/i.test(line)) return 'info'
@@ -75,16 +77,25 @@ export function parseContainerLog(record: unknown): ServerLogEntry | null {
     const entry = parseServerLog(line, { service, instance, version })
     if (entry) return { ...entry, id, at, fields: { ...entry.fields, stream } }
   }
-  const message = redactLogText(line)
+  // Classify the header, not words or `at` frames buried in its stack.
+  const header = line.split('\n', 1)[0]!
+  const multiline = line.includes('\n')
+  const suffix = multiline && line.length > 16_000 ? '\n[TRUNCATED LOG TEXT]' : ''
+  // Cut at a complete line before scanning the whole prefix. A cut credential/URI
+  // could otherwise lose the delimiter that allows the redactor to recognize it.
+  const prefix = suffix
+    ? line.slice(0, Math.max(0, line.lastIndexOf('\n', 16_000 - suffix.length)))
+    : line
+  const message = redactLogText(prefix, 0, multiline ? 16_000 - suffix.length : 4000) + suffix
   return {
     id,
     at,
     service,
     instance,
     version: '',
-    level: textLevel(line, stream),
+    level: textLevel(header, stream),
     event: null,
-    group_key: message
+    group_key: redactLogText(header)
       .replace(/^\S*\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s*/, '')
       .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '<id>')
       .replace(/\b[0-9a-f]{12,}\b/gi, '<hex>')

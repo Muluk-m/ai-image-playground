@@ -32,15 +32,29 @@ export function OpsBlockCard<T>({
       role="region"
       aria-label={title}
       className={cn(
+        'overflow-hidden bg-card shadow-sm',
         issues.length > 0 && 'border-danger/60',
         !block.ok && 'border-dashed',
         className,
       )}
     >
-      <CardHeader className="p-4 pb-2">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b bg-muted/15 px-5 py-4">
         <CardTitle className="text-sm">{title}</CardTitle>
+        <span
+          className={cn(
+            'flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px]',
+            !block.ok
+              ? 'bg-muted text-muted-foreground'
+              : issues.length
+                ? 'bg-danger/10 text-danger'
+                : 'bg-success/10 text-success',
+          )}
+        >
+          <span className="size-1.5 rounded-full bg-current" />
+          {!block.ok ? '读取失败' : issues.length ? `${issues.length} 项需处理` : '未触发告警'}
+        </span>
       </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-0">
+      <CardContent className="space-y-4 p-5">
         {!block.ok ? (
           <div>
             <p className="text-sm font-medium text-muted-foreground">取不到</p>
