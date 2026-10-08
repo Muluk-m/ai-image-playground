@@ -11,9 +11,25 @@ export interface AssetItem {
   readonly media: 'image' | 'video'
   readonly load: () => Promise<string | null>
   readonly open:
-    | { readonly kind: 'source'; readonly mediaId?: string }
+    | {
+        readonly kind: 'source'
+        readonly mediaId?: string
+        readonly reference?: {
+          readonly conversationId: string
+          readonly messageId: string
+          readonly index: number
+        }
+      }
     | { readonly kind: 'result'; readonly message: AgentToolMessage }
 }
+
+/** 历史消息里的对象快照没有像素，按会话、消息和下标去取。 */
+export type StoredReferenceLoader = (
+  conversationId: string,
+  messageId: string,
+  index: number,
+  variant: 'preview' | 'original',
+) => Promise<string | null>
 
 /** 批次计划里能列进资产库的那一页。只要条目、进度和产物。 */
 export interface BatchAssetPage {
@@ -36,13 +52,50 @@ function mediaSource(mediaId: string): AssetItem['load'] {
 }
 
 /** 格子里用预览图；点开时取原图，原图失败再退回预览。 */
-export function loadAssetOriginal(item: AssetItem): Promise<string | null> {
+export function loadAssetOriginal(
+  item: AssetItem,
+  loadReference?: StoredReferenceLoader,
+): Promise<string | null> {
   if (item.open.kind === 'source' && item.open.mediaId) {
     return resolveMediaSource(`aip-media:${item.open.mediaId}`, 'original', true).catch(() =>
       item.load(),
     )
   }
+  const reference = item.open.kind === 'source' ? item.open.reference : undefined
+  if (reference && loadReference) {
+    return loadReference(
+      reference.conversationId,
+      reference.messageId,
+      reference.index,
+      'original',
+    ).catch(() => item.load())
+  }
   return item.load()
+}
+
+/**
+ * 计划还在跑，或者暂停后仍有已提交的任务，资产库就要继续刷新。
+ * 和计划卡片的 hasActiveWork 同一条：暂停本身不代表格子里的任务停了。
+ */
+export function batchNeedsRefresh(page: {
+  readonly batch: { readonly status: string }
+  readonly items: readonly {
+    readonly progress?: string
+    readonly execution?: { readonly status: string }
+  }[]
+}): boolean {
+  return (
+    page.batch.status === 'running' ||
+    (page.batch.status === 'paused' &&
+      page.items.some(
+        (item) =>
+          item.progress === 'reconciling' ||
+          Boolean(
+            item.execution &&
+              ['queued', 'in_progress', 'reconciling'].includes(item.execution.status),
+          ),
+      ))
+  )
 }
 
 function named(name: string | undefined): string {
@@ -53,7 +106,10 @@ function named(name: string | undefined): string {
  * 这条对话里已经落在消息上的图：生成结果、抓回来的网图，以及用户附上的参考图。
  * 结果在前，新的在上；参考图按消息顺序补在后面，和结果重复的不再列一次。
  */
-export function assetsFromMessages(messages: readonly AgentPanelMessage[]): AssetItem[] {
+export function assetsFromMessages(
+  messages: readonly AgentPanelMessage[],
+  stored?: { readonly conversationId: string; readonly loadReference: StoredReferenceLoader },
+): AssetItem[] {
   const results = messages
     .flatMap((message) => {
       if (message.kind !== 'tool' || message.status !== 'succeeded') return []
@@ -85,7 +141,7 @@ export function assetsFromMessages(messages: readonly AgentPanelMessage[]): Asse
   for (const message of messages) {
     if (message.kind !== 'text') continue
     message.references?.forEach((reference, index) => {
-      const item = referenceAsset(message, reference, index)
+      const item = referenceAsset(message, reference, index, stored)
       if (!item || seen.has(item.id)) return
       seen.add(item.id)
       sources.push(item)
@@ -98,6 +154,7 @@ function referenceAsset(
   message: AgentTextMessage,
   reference: NonNullable<AgentTextMessage['references']>[number],
   index: number,
+  stored?: { readonly conversationId: string; readonly loadReference: StoredReferenceLoader },
 ): AssetItem | null {
   const title = named('name' in reference ? reference.name : undefined)
   if ('mediaId' in reference && reference.mediaId) {
@@ -117,6 +174,18 @@ function referenceAsset(
       media: 'image',
       load: async () => source,
       open: { kind: 'source' },
+    }
+  }
+  // 重新打开对话后，内联参考图只剩对象存储快照，像素要按消息下标再取。
+  if ('image' in reference && stored) {
+    const messageId = message.id
+    const conversationId = stored.conversationId
+    return {
+      id: `ref:${messageId}:${index}`,
+      title,
+      media: 'image',
+      load: () => stored.loadReference(conversationId, messageId, index, 'preview'),
+      open: { kind: 'source', reference: { conversationId, messageId, index } },
     }
   }
   return null
