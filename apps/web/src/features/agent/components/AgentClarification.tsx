@@ -18,6 +18,9 @@ function AnsweredClarification({
   const { t } = useTranslation('agent')
   const [expanded, setExpanded] = useState(false)
   const chosen = t('clarification.chosen', { answer })
+  const answerDescription = message.options.includes(answer)
+    ? t('clarification.selected')
+    : `${t('clarification.otherAria')} · ${t('clarification.selected')}`
   return (
     <div className="studio-clarification-answered">
       <Button
@@ -38,12 +41,7 @@ function AnsweredClarification({
             options={[...new Set([...message.options, answer])].map((option) => ({
               id: option,
               label: option,
-              description:
-                option === answer
-                  ? message.options.includes(answer)
-                    ? t('clarification.selected')
-                    : `${t('clarification.otherAria')} · ${t('clarification.selected')}`
-                  : undefined,
+              description: option === answer ? answerDescription : undefined,
             }))}
             choice={[answer]}
             aria-label={message.question}
