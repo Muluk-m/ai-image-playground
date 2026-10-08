@@ -33,6 +33,8 @@ export interface ServerLogEntry {
 export interface ServerLogFilters {
   from: number
   to: number
+  deployment?: 'paid' | 'internal' | 'test'
+  stream?: 'stdout' | 'stderr'
   service?: ServerLogService
   level?: ServerLogLevel
   q?: string
@@ -61,9 +63,10 @@ export interface ServerLogPage {
 
 export interface ServerLogsResult extends ServerLogPage {
   coverage?: { first_at: number | null; last_at: number | null }
+  levelCounts?: Partial<Record<ServerLogLevel, number>>
   summary: { total: number; errors: number; warnings: number }
   groups: ServerLogGroup[]
-  trend: Array<{ at: number; count: number; errors: number }>
+  trend: Array<{ at: number; count: number; errors: number; warnings?: number }>
   bucket_ms: number
   collectors: Array<{
     service: ServerLogService

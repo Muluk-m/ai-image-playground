@@ -64,13 +64,15 @@ function setup() {
       ? { ...result, entries: [{ ...result.entries[0]!, id: 'older-log' }], nextCursor: null }
       : result,
   )
-  return render(
+  const view = render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
       <ServerLogsBlock />
     </QueryClientProvider>,
   )
+  fireEvent.click(screen.getByText('更多查询条件'))
+  return view
 }
 
 describe('server log exploration', () => {
@@ -168,6 +170,8 @@ describe('server log exploration', () => {
   })
   it('defaults to a day and exposes the retained boundary before interpreting no matches', async () => {
     setup()
+    await screen.findByText('201')
+    fireEvent.click(await screen.findByText('事件聚合与留存范围'))
     await screen.findByText(/当前留存记录/)
     const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
     expect(Number(params.get('to')) - Number(params.get('from'))).toBe(86400_000)
@@ -187,6 +191,7 @@ describe('server log exploration', () => {
       </QueryClientProvider>,
     )
     await screen.findByText('201')
+    fireEvent.click(screen.getByText('更多查询条件'))
     expect(get.mock.lastCall![0]).toContain('userId=u-1')
     expect(get.mock.lastCall![0]).toContain('mediaId=m-1')
     fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: 'u-2' } })
@@ -201,6 +206,7 @@ describe('server log exploration', () => {
     fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: '100%_timeout' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('q=100%25_timeout'))
+    fireEvent.click(await screen.findByText('事件聚合与留存范围'))
     fireEvent.click(await screen.findByRole('button', { name: /worker \/ error.*task.failed/ }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('group=task.failed'))
     expect(get.mock.lastCall![0]).toContain('service=worker')
@@ -208,19 +214,23 @@ describe('server log exploration', () => {
   })
   it('opens structured detail, correlates a request, and pauses when loading older logs', async () => {
     setup()
-    await screen.findByText('upstream timeout', { selector: 'summary span' })
+    await screen.findByText('upstream timeout', { selector: 'button span' })
+    fireEvent.click(await screen.findByText('事件聚合与留存范围'))
     fireEvent.click(await screen.findByRole('button', { name: /worker \/ error.*task.failed/ }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('group=task.failed'))
+    fireEvent.click(await screen.findByRole('button', { name: 'ERROR worker upstream timeout' }))
     fireEvent.click(await screen.findByRole('button', { name: '同请求 request-1' }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('requestId=request-1'))
     const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
     for (const key of ['service', 'level', 'q', 'group', 'taskId'])
       expect(params.has(key)).toBe(false)
+    fireEvent.click(await screen.findByRole('button', { name: 'ERROR worker upstream timeout' }))
     expect(await screen.findByText(/worker.ts:42/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     fireEvent.click(screen.getByRole('button', { name: '加载更早日志（暂停自动刷新）' }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('cursor=older-page'))
     expect(await screen.findByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
-    expect(await screen.findByText(/累计丢弃 2/)).toBeInTheDocument()
+    expect(screen.queryByText(/累计丢弃 2/)).not.toBeInTheDocument()
   })
   it('makes read failures visible and keeps a retry control', async () => {
     get.mockRejectedValue(new Error('unavailable'))
@@ -256,5 +266,31 @@ describe('server log exploration', () => {
     fireEvent.change(screen.getByLabelText('日志服务'), { target: { value: 'bff' } })
     await waitFor(() => expect(screen.queryByText('201')).not.toBeInTheDocument())
     expect(await screen.findByRole('alert')).toHaveTextContent('日志加载失败')
+  })
+  it('applies typed field search and refuses invalid field values', async () => {
+    setup()
+    await screen.findByText('201')
+    fireEvent.change(screen.getByLabelText('日志关键词'), {
+      target: { value: 'service:worker level:error timeout' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    await waitFor(() => expect(get.mock.lastCall![0]).toContain('service=worker'))
+    expect(get.mock.lastCall![0]).toContain('level=error')
+    expect(get.mock.lastCall![0]).toContain('q=timeout')
+    fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: 'level:banana' } })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('日志级别无效')
+  })
+  it('loads context only after opening a log and requesting it', async () => {
+    setup()
+    await screen.findByText('201')
+    expect(get.mock.calls.some(([url]) => url.includes('/context'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR worker upstream timeout' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看同容器前后 50 行' }))
+    await waitFor(() => expect(get.mock.lastCall![0]).toBe('/api/ops/logs/context?id=log-1'))
+    expect(await screen.findByLabelText('日志上下文')).toHaveTextContent('upstream timeout')
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(screen.getByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
   })
 })

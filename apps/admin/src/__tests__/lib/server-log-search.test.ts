@@ -1,6 +1,32 @@
 import { defaultParseSearch, defaultStringifySearch } from '@tanstack/react-router'
 import { describe, expect, it } from 'vitest'
-import { LOG_RANGES, parseServerLogSearch, serverLogFilters } from '../../lib/server-log-search'
+import {
+  LOG_RANGES,
+  parseLogExpression,
+  parseServerLogSearch,
+  serverLogFilters,
+} from '../../lib/server-log-search'
+
+describe('field search', () => {
+  it('parses exact fields, quoted values and literal URL text', () => {
+    expect(
+      parseLogExpression('service:worker level:error container:"old worker" https://host timeout'),
+    ).toEqual({
+      service: 'worker',
+      level: 'error',
+      instance: 'old worker',
+      q: 'https://host timeout',
+    })
+    expect(parseLogExpression('stream:stderr deployment:paid taskId:t-1')).toEqual({
+      stream: 'stderr',
+      deployment: 'paid',
+      taskId: 't-1',
+      q: undefined,
+    })
+    expect(() => parseLogExpression('level:unknown')).toThrow('日志级别无效')
+    expect(() => parseLogExpression('stream:unknown')).toThrow()
+  })
+})
 
 describe('shareable server log queries', () => {
   it('preserves exact event groups with whitespace through route and share serialization', () => {
