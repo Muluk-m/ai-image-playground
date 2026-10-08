@@ -195,13 +195,13 @@ export default function AgentAssetDrawer({
               )
             if (nextConversation >= conversations.length) break
             const olderId = conversations[nextConversation]!.id
-            nextConversation += 1
             const history = await fetchMessages(olderId)
             pending = assetsFromMessages(panelStateFromHistory(history).messages, {
               conversationId: olderId,
               loadReference: (targetConversationId, messageId, index, variant) =>
                 loadReferenceRef.current(targetConversationId, messageId, index, variant),
             })
+            nextConversation += 1
           }
         }
       } catch {

@@ -193,6 +193,42 @@ it('loads only the visible page and fetches older conversation histories as the 
   expect(document.querySelector('.studio-assets-end')).toBeNull()
 })
 
+it('retries the same older conversation when its history fails to load', async () => {
+  let attempts = 0
+  fixture.fetchMessages.mockImplementation(async (id: string) => {
+    if (id === 'other-1' && attempts === 0) {
+      attempts += 1
+      throw new Error('down')
+    }
+    return history(id, 2)
+  })
+  await act(async () => {
+    root.render(
+      <AgentAssetDrawer
+        messages={Array.from({ length: 30 }, (_, index) => item(`current-${index}`))}
+        onClose={() => {}}
+        onPreview={() => {}}
+      />,
+    )
+  })
+  const all = [...document.querySelectorAll<HTMLButtonElement>('.studio-assets-tabs button')][1]!
+  await act(async () => all.click())
+  await scrollToEnd()
+  expect(document.body.textContent).toContain('部分对话暂时无法加载')
+  expect(fixture.fetchMessages).toHaveBeenCalledTimes(1)
+  expect(fixture.fetchMessages).toHaveBeenLastCalledWith('other-1')
+  const retry = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '重试',
+  )
+  expect(retry).toBeDefined()
+  await act(async () => retry!.click())
+  expect(fixture.fetchMessages.mock.calls.map((call) => call[0])).toEqual([
+    'other-1',
+    'other-1',
+    'other-2',
+  ])
+})
+
 it('lists the source images of a batch plan when the chat itself has no generated results', async () => {
   fixture.fetchBatchPlan.mockResolvedValue({
     batch: { status: 'paused' },

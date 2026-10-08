@@ -127,4 +127,15 @@ it('loads a stored reference snapshot by its message index', async () => {
   expect(await loadAssetOriginal(items[0]!, async () => 'original:user-1:0')).toBe(
     'original:user-1:0',
   )
+  const missingOriginal = async (
+    _conversationId: string,
+    messageId: string,
+    index: number,
+    variant: 'preview' | 'original',
+  ) => (variant === 'original' ? null : `preview:${messageId}:${index}`)
+  const fallback = assetsFromMessages([message], {
+    conversationId: 'conversation-1',
+    loadReference: missingOriginal,
+  })
+  expect(await loadAssetOriginal(fallback[0]!, missingOriginal)).toBe('preview:user-1:0')
 })
