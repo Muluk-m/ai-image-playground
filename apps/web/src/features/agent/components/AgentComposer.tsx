@@ -863,17 +863,26 @@ export default function AgentComposer({
               const masked = Boolean(reference.maskDataUrl)
               const uploadState = attachmentUploadState(uploadReference(reference))
               const uploadError = attachmentUploadError(uploadReference(reference))
+              const isUploading = ['queued', 'uploading', 'verifying'].includes(uploadState ?? '')
               return (
                 <div
                   key={reference.id}
                   className="group flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5"
                 >
-                  <div className="relative">
+                  <div className="relative shrink-0">
                     <MediaImage
                       src={reference.dataUrl}
-                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''} ${isUploading ? 'opacity-0' : ''}`}
                       alt=""
                     />
+                    {isUploading && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-foreground"
+                      >
+                        <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                      </span>
+                    )}
                     {masked && (
                       <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
                         MASK
@@ -884,14 +893,12 @@ export default function AgentComposer({
                   {uploadState && (
                     <span
                       role={uploadState === 'failed' ? 'alert' : 'status'}
-                      className={`inline-flex items-center gap-1.5 text-xs ${uploadState === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
+                      className={
+                        uploadState === 'failed'
+                          ? 'inline-flex items-center gap-1.5 text-xs text-destructive'
+                          : 'sr-only'
+                      }
                     >
-                      {['queued', 'uploading', 'verifying'].includes(uploadState) && (
-                        <LoaderCircle
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
-                        />
-                      )}
                       {uploadState === 'failed'
                         ? attachmentUploadErrorMessage(uploadError, getAttachmentLimits())
                         : t(`composer.upload.${uploadState}`)}
