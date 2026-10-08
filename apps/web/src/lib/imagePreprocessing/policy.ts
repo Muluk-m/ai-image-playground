@@ -6,8 +6,7 @@ export const IMAGE_PREPROCESSING = {
   maxEdge: 2048,
   maxPixels: 2048 * 2048,
   maxBytes: 2 * 1024 * 1024,
-  minEdge: 256,
-  qualitySteps: [0.9, 0.82, 0.74],
+  quality: 0.9,
   timeoutMs: 45_000,
 } as const
 
