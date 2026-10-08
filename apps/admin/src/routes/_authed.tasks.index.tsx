@@ -54,14 +54,13 @@ function GenerationTasksPage() {
       : defaultWindow
   const query = useGenerationTasks({ ...filters, ...window })
   const tasks = query.data?.pages.flatMap((page) => page.tasks) ?? []
-  const owner =
-    tasks[0]?.username ??
-    search.userId ??
-    (search.deviceId
+  const owner = search.userId
+    ? (tasks[0]?.username ?? search.userId)
+    : search.deviceId
       ? `匿名设备 ${shortId(search.deviceId)}`
       : search.unassigned
         ? '未关联用户或设备'
-        : null)
+        : null
   const closeTask = () => {
     void navigate({ search: clearTaskView })
   }
