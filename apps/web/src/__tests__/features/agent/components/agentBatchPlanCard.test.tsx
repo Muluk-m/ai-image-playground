@@ -124,22 +124,95 @@ it('groups a running batch by status and leaves the waiting pile collapsed', asy
     ),
   }
   await render()
-  const running = host.querySelector('[data-batch-status="in_flight"]')
-  const waiting = host.querySelector('[data-batch-status="ready"]')
-  expect(running?.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
-  expect(running?.querySelectorAll('details')).toHaveLength(1)
-  expect(running?.textContent).toContain('执行中')
-  expect(waiting?.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
-  expect(waiting?.textContent).toContain('待派发')
-  expect(waiting?.textContent).toContain('99')
-  expect(waiting?.querySelector('details')).toBeNull()
-  expect(waiting?.querySelector('img')).toBeNull()
+  const group = (status: string) => host.querySelector(`[data-batch-group="${status}"]`)
+  const rows = (status: string) => host.querySelectorAll(`details[data-batch-status="${status}"]`)
+  expect(group('in_flight')?.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+  expect(rows('in_flight')).toHaveLength(1)
+  expect(group('in_flight')?.textContent).toContain('执行中')
+  expect(group('ready')?.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
+  expect(group('ready')?.textContent).toContain('待派发')
+  expect(group('ready')?.textContent).toContain('99')
+  expect(rows('ready')).toHaveLength(0)
   expect(host.querySelectorAll('summary img')).toHaveLength(1)
   expect(host.querySelector('nav')).toBeNull()
-  act(() => waiting?.querySelector('button')?.click())
-  expect(waiting?.querySelectorAll('details')).toHaveLength(20)
-  expect(waiting?.textContent).toContain('1 / 5')
+  act(() => group('ready')?.querySelector<HTMLButtonElement>('button')?.click())
+  expect(rows('ready')).toHaveLength(20)
+  expect(host.textContent).toContain('1 / 5')
   expect(host.querySelectorAll('summary img')).toHaveLength(21)
+})
+
+it('keeps an expanded execution row mounted when that item finishes', async () => {
+  vi.useFakeTimers()
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      itemCount: 2,
+      status: 'running',
+      submittedCount: 2,
+      executionEnabled: true,
+    },
+    items: saved.items.slice(0, 2).map((item, index) => ({
+      ...item,
+      progress: index === 0 ? ('in_flight' as const) : ('ready' as const),
+      execution:
+        index === 0
+          ? { taskId: 'task-0', status: 'in_progress' as const, attempt: 1, actualCredits: null }
+          : undefined,
+    })),
+  }
+  try {
+    const message = panelMessage('message-1', 'turn-1', 'assistant', [
+      {
+        type: 'toolResult',
+        toolName: 'planImageBatch',
+        toolCallId: 'call-1',
+        title: '商品白底图',
+        status: 'succeeded',
+        batchId: 'batch-1',
+      },
+    ])
+    if (message.kind !== 'tool') throw new Error('expected tool message')
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() =>
+      expect(host.querySelector('details[data-item-key="item-0"]')).not.toBeNull(),
+    )
+    const row = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')!
+    act(() => {
+      row.open = true
+      row.dispatchEvent(new Event('toggle', { bubbles: false }))
+    })
+    expect(row.open).toBe(true)
+    saved = {
+      ...saved,
+      items: saved.items.map((item) =>
+        item.key === 'item-0'
+          ? {
+              ...item,
+              progress: 'completed',
+              execution: {
+                taskId: 'task-0',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 1,
+              },
+            }
+          : item,
+      ),
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100)
+    })
+    const moved = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')
+    expect(moved).toBe(row)
+    expect(moved?.open).toBe(true)
+    expect(moved?.getAttribute('data-batch-status')).toBe('completed')
+    expect(
+      host.querySelector('[data-batch-group="completed"] button')?.getAttribute('aria-expanded'),
+    ).toBe('true')
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('keeps plan fields to the card scale so a long rule stays in its box', async () => {
