@@ -18,7 +18,7 @@
 
 静态资源缺失不得回退首页：web 使用顶层 `404.html` 关闭 Pages 默认 SPA 回退，`_redirects` 只列真实业务路由，构建时由 `apps/web/src/lib/pagesRedirects.ts` 从 `appPaths.ts` 生成，新增入口只改 `appPaths.ts`。`/assets/*` 使用一年 `immutable`：Pages 的 `_headers` 不作用于 404，发布校验也会确认缺失资源返回不可复用的 404；前提是不恢复全站 SPA 回退。资产页路由同样是 `/assets`：带斜杠的 `/assets/` 落在这条规则里，只做 301 跳到 `/assets`，不回退 SPA；发布校验会拒绝带长缓存的业务深链。
 
-2026-10-01 启动故障的错误脚本缓存已单 URL 清除。旧的浏览器缓存仍可需要强制刷新；新版本通过独立内联脚本在入口脚本或样式加载失败、或 30 秒内 React 未渲染出任何界面时显示重试；React 渲染后加载、登录与错误界面由应用接管，遇到已删除的分片（`vite:preloadError`）自动重载一次，一分钟内再失败才显示重试，不清理账号、IndexedDB 或用户作品。
+2026-10-01 启动故障的错误脚本缓存已单 URL 清除。独立内联脚本在入口脚本、必需样式或分片（`vite:preloadError`）加载失败时，自动用带 `__aip_reload` 时间戳的当前页面 URL 重载一次，让 HTML 重新获取对应版本的哈希资源；一分钟内再次失败、离线或 sessionStorage 不可写时显示重试，避免循环刷新。按钮也使用新的 HTML URL，保留原路径、其他查询参数和 hash，首次 React 渲染后移除恢复参数；不清理账号、IndexedDB 或用户作品。30 秒仍未渲染时显示重试，React 渲染后的业务加载与错误由应用接管。外部字体样式独立、非阻塞加载，失败回退系统字体，不再触发启动失败。
 
 ### Secrets（仓库 `Muluk-m/ai-image-playground`）
 
