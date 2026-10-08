@@ -43,8 +43,6 @@ export function OptionList({
   className,
   ...props
 }: OptionListProps) {
-  const chosen =
-    choice === undefined ? options : options.filter((option) => choice.includes(option.id))
   return (
     <div
       role="group"
@@ -54,10 +52,19 @@ export function OptionList({
       className={cn(paper, 'flex w-full max-w-md flex-col gap-1 rounded-2xl p-2', className)}
       {...props}
     >
-      {chosen.map((option) =>
+      {options.map((option) =>
         choice !== undefined || !onConfirm ? (
-          <div key={option.id} className={cn(row, 'text-muted-foreground')}>
-            {choice !== undefined && (
+          <div
+            key={option.id}
+            data-selected={choice?.includes(option.id) || undefined}
+            className={cn(
+              row,
+              choice?.includes(option.id)
+                ? 'bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20'
+                : 'text-muted-foreground',
+            )}
+          >
+            {choice?.includes(option.id) && (
               <CheckIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
             )}
             <OptionText option={option} />

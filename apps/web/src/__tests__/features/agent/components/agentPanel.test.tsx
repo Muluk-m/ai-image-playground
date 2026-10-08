@@ -1026,11 +1026,42 @@ describe('AgentPanel', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(host.textContent).toContain('要哪种风格？')
-    expect(host.querySelector('.studio-clarification-answered-detail')?.textContent).toContain(
+    const options = host.querySelector('[data-slot="option-list"][data-state="receipt"]')!
+    expect([...options.children].map((option) => option.textContent)).toEqual([
+      '写实照片已选',
       '扁平插画',
-    )
+    ])
+    expect(options.querySelectorAll('[data-selected]')).toHaveLength(1)
+    expect(options.querySelector('[data-selected]')?.textContent).toBe('写实照片已选')
     expect(host.querySelector('.studio-clarification-answered-detail button')).toBeNull()
     expect(texts('button')).not.toContain('其他…')
+  })
+
+  it('展开自写回答保留全部原选项，并单独标明最终回答', () => {
+    const send = vi.fn(async () => {})
+    useAgentStore.setState({ send })
+    answeredClarification('水墨国风')
+    render()
+
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('已选：水墨国风'),
+    ) as HTMLButtonElement
+    act(() => toggle.click())
+
+    const options = host.querySelector('[data-slot="option-list"][data-state="receipt"]')!
+    expect([...options.children].map((option) => option.textContent)).toEqual([
+      '写实照片',
+      '扁平插画',
+      '水墨国风其他回答 · 已选',
+    ])
+    expect(options.querySelectorAll('[data-selected]')).toHaveLength(1)
+    expect(options.querySelector('[data-selected]')?.textContent).toBe('水墨国风其他回答 · 已选')
+    expect(options.querySelector('button')).toBeNull()
+    act(() => (options.firstElementChild as HTMLElement).click())
+    expect(send).not.toHaveBeenCalled()
+    act(() => toggle.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(host.querySelector('.studio-clarification-answered-detail')).toBeNull()
   })
 
   it('被后一张澄清顶掉、却没有回答可折叠的澄清，仍标「已回答」并锁住选项', () => {

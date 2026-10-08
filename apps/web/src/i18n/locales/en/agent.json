@@ -300,6 +300,7 @@
     "stopping": "Stopping"
   },
   "clarification": {
+    "selected": "Selected",
     "chosen": "Chose: {{answer}}",
     "answered": "Answered",
     "other": "Other…",
