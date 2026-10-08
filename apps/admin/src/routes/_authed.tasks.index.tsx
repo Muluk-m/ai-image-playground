@@ -52,8 +52,12 @@ function GenerationTasksPage() {
   const navigate = Route.useNavigate()
   const [defaultWindow, setDefaultWindow] = useState(todayWindow)
   useEffect(() => {
-    const refresh = () => {
-      if (search.from === undefined && search.to === undefined) setDefaultWindow(todayWindow())
+    const refresh = (event: Event) => {
+      if (search.from === undefined && search.to === undefined) {
+        // 新查询键会重置分页，侧栏无需再重拉旧时间窗。
+        event.preventDefault()
+        setDefaultWindow(todayWindow())
+      }
     }
     window.addEventListener(ADMIN_REFRESH_EVENT, refresh)
     return () => window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
