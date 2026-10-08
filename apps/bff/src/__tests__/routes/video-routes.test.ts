@@ -227,8 +227,8 @@ describe('video submit validation', () => {
     expect(json).toMatchObject({ status: 'queued' })
   })
 
-  it('rejects a last frame on a model that only supports a first frame', async () => {
-    const { status, json } = await submit('grok-imagine-video', {
+  it('queues a 720p Grok last frame and rejects one at 1080p', async () => {
+    const accepted = await submit('grok-imagine-video', {
       input_images: [TINY_PNG],
       video: {
         duration_seconds: 5,
@@ -238,9 +238,42 @@ describe('video submit validation', () => {
       },
     })
 
-    expect(status).toBe(400)
-    expect(json.error).toBe('invalid_video_request')
-    expect(String(json.message)).toContain('尾帧')
+    expect(accepted.status).toBe(200)
+    expect(await storedVideo(accepted.json.request_id)).toMatchObject({ last_frame_index: 0 })
+
+    const capped = await submit('grok-imagine-video', {
+      input_images: [TINY_PNG],
+      video: {
+        duration_seconds: 5,
+        aspect_ratio: '16:9',
+        resolution: '1080p',
+        last_frame_index: 0,
+      },
+    })
+    expect(capped.status).toBe(400)
+    expect(capped.json.error).toBe('invalid_video_request')
+    expect(String(capped.json.message)).toContain('720p')
+  })
+
+  it('keeps preset voices and keyframes on the queued Grok request', async () => {
+    const { status, json } = await submit('grok-imagine-video', {
+      input_images: [TINY_PNG, TINY_PNG],
+      video: {
+        duration_seconds: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        reference_image_indices: [0],
+        keyframes: [{ image_index: 1, timestamp_seconds: 2 }],
+        voices: ['eve'],
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(await storedVideo(json.request_id)).toMatchObject({
+      reference_image_indices: [0],
+      keyframes: [{ image_index: 1, timestamp_seconds: 2 }],
+      voices: ['eve'],
+    })
   })
 
   it('rejects a resolution the model does not offer', async () => {

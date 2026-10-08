@@ -128,6 +128,8 @@
     "firstFrame": "首帧",
     "lastFrame": "尾帧",
     "references_other": "{{count}} 张参考图",
+    "keyframes_other": "{{count}} 个关键帧",
+    "voices_other": "{{count}} 个声音",
     "estimatedCost": "预估消耗",
     "playbackFailed": "视频暂时无法播放，请重新加载。",
     "reload": "重新加载",

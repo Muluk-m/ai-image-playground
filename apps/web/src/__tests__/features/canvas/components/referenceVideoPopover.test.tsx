@@ -209,6 +209,32 @@ describe('选中即参考', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('720p')
   })
 
+  it('offers a keyframe role and a snapped time on Grok', () => {
+    act(() => button('用 3 张图生成视频').click())
+    const trigger = document.querySelector<HTMLElement>('[aria-label="第 1 张的用法"]')!
+    act(() => {
+      trigger.dispatchEvent(pointer('pointerdown'))
+    })
+    expect(
+      Array.from(document.querySelectorAll('[role="option"]')).map((one) =>
+        one.textContent?.trim(),
+      ),
+    ).toEqual(['参考图', '首帧', '尾帧', '关键帧'])
+    chooseOption('第 1 张的用法', '关键帧')
+    const time = document.querySelector<HTMLInputElement>(
+      '[aria-label="第 1 张的关键帧时间（秒）"]',
+    )
+    expect(time?.value).toBe('2.333')
+  })
+
+  it('adds a preset voice from the shared draft', () => {
+    act(() => button('用 3 张图生成视频').click())
+    chooseOption('声音', 'Eve · 活泼')
+    expect(useVideoStore.getState().draft.voices).toEqual(['eve'])
+    act(() => button('移除 Eve · 活泼').click())
+    expect(useVideoStore.getState().draft.voices).toBeUndefined()
+  })
+
   it('offers only references on a model that cannot combine them with frames', () => {
     act(() => button('用 3 张图生成视频').click())
     chooseOption('模型', 'Seedance')

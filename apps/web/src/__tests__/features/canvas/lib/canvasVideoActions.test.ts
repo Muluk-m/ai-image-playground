@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     setDuration: vi.fn(),
     setAspectRatio: vi.fn(),
     setResolution: vi.fn(),
+    setVoices: vi.fn(),
   },
 }))
 
@@ -297,9 +298,29 @@ describe('改参数重新生成', () => {
   it('explains in the dialog when the chosen model cannot take the kept inputs', () => {
     const draft = { model: GROK, duration: 5, aspectRatio: '16:9', resolution: '720p' } as const
     expect(actions.regenerateInputRefusal({ firstFrameId: 'a' }, draft)).toBeNull()
+    // Grok 现在收尾帧，但尾帧把请求收成参考生视频，1080p 仍然不行。
     expect(
       actions.regenerateInputRefusal({ firstFrameId: 'a', lastFrameId: 'b' }, draft),
-    ).toContain('Grok')
+    ).toBeNull()
+    expect(
+      actions.regenerateInputRefusal(
+        { firstFrameId: 'a', lastFrameId: 'b' },
+        { ...draft, resolution: '1080p' },
+      ),
+    ).toContain('720p')
+    const veo = 'veo-3.1-lite-generate-preview'
+    mocks.options.current = [
+      ...mocks.options.current,
+      {
+        channelId: 'veo',
+        modelId: veo,
+        label: 'Veo',
+        support: VIDEO_MODEL_SUPPORT[veo],
+      },
+    ]
+    expect(
+      actions.regenerateInputRefusal({ lastFrameId: 'b' }, { ...draft, model: veo, duration: 4 }),
+    ).toContain('尾帧')
     expect(actions.regenerateInputRefusal({}, draft)).toBeNull()
     expect(actions.regenerateInputRefusal({ referenceIds: ['a', 'b'] }, draft)).toBeNull()
     expect(

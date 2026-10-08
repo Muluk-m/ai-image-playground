@@ -57,4 +57,34 @@ describe('选中即参考的输入图', () => {
     expect(inputIndices({ lastFrameId: 'l' })).toEqual({ last_frame_index: 0 })
     expect(inputIndices({})).toEqual({})
   })
+
+  it('关键帧排在参考图后面，并带上还空着的时间', () => {
+    let items = defaultInputItems([entry('a', 0), entry('b', 100), entry('c', 200)])
+    items = setInputRole(items, 0, 'first')
+    items = setInputRole(items, 2, 'keyframe', 5)
+    const record = generationInputs(items)
+    expect(record).toEqual({
+      firstFrameId: 'a',
+      referenceIds: ['b'],
+      keyframes: [{ imageId: 'c', timestampSeconds: 7 / 3 }],
+    })
+    expect(generationInputIds(record)).toEqual(['a', 'b', 'c'])
+    expect(inputIndices(record)).toEqual({
+      first_frame_index: 0,
+      reference_image_indices: [1],
+      keyframes: [{ image_index: 2, timestamp_seconds: 7 / 3 }],
+    })
+  })
+
+  it('关键帧到 4 张就不再加', () => {
+    let items = defaultInputItems([0, 1, 2, 3, 4].map((index) => entry(String(index), index * 100)))
+    for (let index = 0; index < 5; index++) items = setInputRole(items, index, 'keyframe', 5)
+    expect(items.map((item) => item.role)).toEqual([
+      'keyframe',
+      'keyframe',
+      'keyframe',
+      'keyframe',
+      'reference',
+    ])
+  })
 })

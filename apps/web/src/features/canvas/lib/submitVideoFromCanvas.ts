@@ -92,7 +92,11 @@ export function canvasVideoRequest(
       source_output_index: source.video.outputIndex,
     }
   }
-  return { ...base, ...inputIndices(generation) }
+  return {
+    ...base,
+    ...inputIndices(generation),
+    ...(generation.voices?.length ? { voices: [...generation.voices] } : {}),
+  }
 }
 
 /** 视频档实际送出的描述：文字标注在前、输入框在后。 */
@@ -166,6 +170,7 @@ export async function submitVideoFromCanvas(
     resolution: draft.resolution,
     ...(plan.frames[0] ? { firstFrameId: plan.frames[0].imageId } : {}),
     ...(plan.frames[1] ? { lastFrameId: plan.frames[1].imageId } : {}),
+    ...(draft.voices?.length ? { voices: [...draft.voices] } : {}),
   }
   const frameCount = plan.frames.length
   const rejected = videoOptionRejection(
@@ -235,6 +240,7 @@ function referenceGeneration(
     aspectRatio: draft.aspectRatio,
     resolution: draft.resolution,
     ...generationInputs(items),
+    ...(draft.voices?.length ? { voices: [...draft.voices] } : {}),
   }
 }
 

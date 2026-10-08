@@ -6,6 +6,7 @@ import {
   type VideoRequest,
   videoPromptRejection,
   videoRequestRejection,
+  videoSupportForCapabilities,
 } from '@image-playground/shared'
 import { config } from '../../config'
 import { isCapabilityEnabled } from '../capabilities'
@@ -26,10 +27,9 @@ export function agentVideoModels(): AgentVideoModel[] {
       const matrix = VIDEO_MODEL_SUPPORT[model.id]
       const target = resolveQueueModel('video', model.id)
       if (!matrix || !target) continue
-      const { referenceImages: _references, ...base } = matrix
       found.set(model.id, {
         target,
-        support: model.capabilities.includes('reference_images') ? matrix : base,
+        support: videoSupportForCapabilities(matrix, model.capabilities),
       })
     }
   }
@@ -57,6 +57,10 @@ export function agentVideoRequestError(
     return { code: 'invalid_params', message: '视频提示词为空或过长' }
   if (video.reference_image_indices?.length && !resolved.support.referenceImages)
     return { code: 'invalid_params', message: '当前渠道不支持参考图' }
+  if (video.voices?.length && !resolved.support.voices)
+    return { code: 'invalid_params', message: '当前渠道不支持预设声音' }
+  if (video.keyframes?.length && !resolved.support.keyframes)
+    return { code: 'invalid_params', message: '当前渠道不支持关键帧' }
   const rejected =
     videoPromptRejection(model, prompt) ?? videoRequestRejection(model, video, imageCount)
   return rejected ? { code: 'invalid_params', message: rejected.reason } : null
