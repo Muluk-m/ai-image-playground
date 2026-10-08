@@ -360,6 +360,7 @@ describe('generation task drill-down', () => {
     try {
       renderAt('/tasks')
       await screen.findByRole('button', { name: '商品主图' })
+      expect(screen.getByText(/· 北京时间$/)).toBeInTheDocument()
       fireEvent.click(screen.getByRole('radio', { name: '失败' }))
       await waitFor(() => expect(requests.some((url) => url.includes('status=failed'))).toBe(true))
       await waitFor(() =>
