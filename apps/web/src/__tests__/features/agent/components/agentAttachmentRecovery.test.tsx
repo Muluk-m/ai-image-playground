@@ -95,7 +95,9 @@ it('restores ready and failed local attachments after restart without uploading 
         ),
       })
       input.dispatchEvent(new Event('change', { bubbles: true }))
-      await vi.waitFor(() => expect(first.host.textContent).toContain('上传失败'))
+      await vi.waitFor(() =>
+        expect(first.host.textContent).toContain('图片传输未成功，请检查网络后点击重试。'),
+      )
     })
     const names = first.session.getSnapshot().draft.references.map((reference) => reference.name)
     await first.session.flush()
@@ -107,7 +109,9 @@ it('restores ready and failed local attachments after restart without uploading 
     const restored = mounted
     await act(async () => {
       restored.session.restoreUnsent()
-      await vi.waitFor(() => expect(restored.host.textContent).toContain('上传失败'))
+      await vi.waitFor(() =>
+        expect(restored.host.textContent).toContain('图片传输未成功，请检查网络后点击重试。'),
+      )
     })
     expect(
       restored.session.getSnapshot().draft.references.map((reference) => reference.name),
