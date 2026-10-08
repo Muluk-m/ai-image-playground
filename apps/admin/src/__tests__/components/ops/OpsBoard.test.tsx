@@ -244,6 +244,36 @@ describe('运维看板', () => {
     expect(within(block('数据库')).getByText('tasks')).toBeTruthy()
   })
 
+  it('没有采样时以未知状态展示，不把零异常当作成功', () => {
+    const base = snapshot()
+    if (!base.reliability.ok) throw Error('fixture')
+    const windows = base.reliability.data.windows.map((window) => ({
+      ...window,
+      requests: 0,
+      server_errors: 0,
+      availability: null,
+      last_api_sample_at: null,
+      generation_completed: 0,
+      generation_failed: 0,
+      agent_completed: 0,
+      agent_failed: 0,
+    }))
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          reliability: { ok: true, data: { ...base.reliability.data, windows, exceptions: [] } },
+        })}
+        range="7d"
+      />,
+    )
+    expect(
+      within(block('SLA 与异常')).getByText('暂无样本，暂不能判断接口和任务表现。'),
+    ).toBeTruthy()
+    expect(
+      within(block('SLA 与异常')).queryByText('已采集的接口、生成和 Agent 轮次没有失败。'),
+    ).toBeNull()
+  })
+
   it('队列为空时不把「没有在等的任务」显示成 0 秒', () => {
     render(
       <OpsBoard
@@ -542,7 +572,8 @@ describe('运维看板', () => {
     const host = block('宿主机')
     expect(within(host).getByText('64%')).toBeTruthy()
     expect(within(host).getByText(/剩 18\.0 GB/)).toBeTruthy()
-    expect(within(host).getByText('1.5 GB')).toBeTruthy()
+    expect(within(host).getByText(/可用 1.5 GB/)).toBeTruthy()
+    expect(within(host).getByRole('img', { name: '内存已用 63%' })).toBeTruthy()
     expect(within(host).getByRole('img', { name: /磁盘、内存与 CPU/ })).toBeTruthy()
     expect(within(host).queryByRole('list', { name: '需要处理' })).toBeNull()
   })

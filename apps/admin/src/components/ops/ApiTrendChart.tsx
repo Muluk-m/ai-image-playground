@@ -18,7 +18,7 @@ export interface ApiTrendChartProps {
 }
 
 const CHART_CONFIG = {
-  requests: { label: '请求', color: 'hsl(var(--primary))' },
+  requests: { label: '请求', color: '#0ea5e9' },
   server_errors: { label: '5xx', color: 'hsl(var(--danger))' },
 } satisfies ChartConfig
 
