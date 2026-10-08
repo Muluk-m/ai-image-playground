@@ -1,4 +1,10 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import type {
+  GenerationTaskFilters,
+  GenerationTasksResult,
+  TodayErrorsResult,
+  TodayOverviewResult,
+} from '../../contracts'
 
 import { apiClient } from './api-client'
 import type {
@@ -17,6 +23,8 @@ import type {
   UserDetailResult,
   UserTasksResult,
 } from './types'
+
+export const ADMIN_REFRESH_EVENT = 'admin:refresh'
 
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
@@ -141,5 +149,35 @@ export function useClientErrorEvents(fingerprint: string | undefined, range: Ran
     // 全局默认 staleTime 是 Infinity；明细要跟列表一起刷新，重新打开同一问题也要重拉。
     staleTime: 0,
     refetchInterval: 60_000,
+  })
+}
+
+export function useTodayOverview() {
+  return useQuery({
+    queryKey: ['overview-today'],
+    queryFn: () => apiClient.get<TodayOverviewResult>('/api/overview/today'),
+    refetchInterval: 30_000,
+  })
+}
+export function useTodayErrors() {
+  return useQuery({
+    queryKey: ['overview-errors'],
+    queryFn: () => apiClient.get<TodayErrorsResult>('/api/overview/errors'),
+    refetchInterval: 30_000,
+  })
+}
+export function useGenerationTasks(filters: GenerationTaskFilters) {
+  return useInfiniteQuery({
+    queryKey: ['generation-tasks', filters],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams()
+      for (const [key, value] of Object.entries(filters))
+        if (value !== undefined) params.set(key, String(value))
+      if (pageParam) params.set('cursor', pageParam)
+      return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    staleTime: 0,
   })
 }
