@@ -37,6 +37,7 @@ import { usePrivateAdminNavigation } from '@/lib/private-overlay'
 
 export type NavTo =
   | '/overview'
+  | '/tasks'
   | '/users'
   | '/devices'
   | '/inspirations'
@@ -76,7 +77,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
-      { to: '/devices', icon: ClipboardList, label: '任务与设备' },
+      { to: '/tasks', icon: ClipboardList, label: '生成任务' },
+      { to: '/devices', icon: ClipboardList, label: '设备' },
     ],
   },
   {

@@ -183,6 +183,26 @@ export function healthTiles(input: SignalInput): HealthTile[] {
     to: '/ops',
   }
 
+  const frontend: HealthTile = errors
+    ? {
+        key: 'frontend',
+        label: '前端',
+        value: String(errors.summary.boot_events),
+        note: `启动失败 · 共 ${errors.summary.events} 次错误 · ${errors.summary.devices} 台设备`,
+        tone: errors.summary.boot_events > 0 ? 'warn' : 'ok',
+        to: '/errors',
+      }
+    : pendingTile('frontend', '前端', errorsState, '/errors')
+
+  const [api, queue, services, host, backup] = operationHealthTiles(ops, opsState)
+  return [generation, agent, api, frontend, queue, services, host, backup]
+}
+
+export function operationHealthTiles(
+  ops: OpsSnapshot | undefined,
+  opsState: SourceState = 'loading',
+): [HealthTile, HealthTile, HealthTile, HealthTile, HealthTile] {
+  const problems = ops ? opsProblems(ops) : []
   const api = opsTile(
     'api',
     '接口',
@@ -201,17 +221,6 @@ export function healthTiles(input: SignalInput): HealthTile[] {
       }
     },
   )
-
-  const frontend: HealthTile = errors
-    ? {
-        key: 'frontend',
-        label: '前端',
-        value: String(errors.summary.boot_events),
-        note: `启动失败 · 共 ${errors.summary.events} 次错误 · ${errors.summary.devices} 台设备`,
-        tone: errors.summary.boot_events > 0 ? 'warn' : 'ok',
-        to: '/errors',
-      }
-    : pendingTile('frontend', '前端', errorsState, '/errors')
 
   const queue = opsTile(
     'queue',
@@ -277,7 +286,7 @@ export function healthTiles(input: SignalInput): HealthTile[] {
     },
   )
 
-  return [generation, agent, api, frontend, queue, services, host, backup]
+  return [api, queue, services, host, backup]
 }
 
 const OPS_SOURCE_LABEL: Record<OpsSource, string> = {

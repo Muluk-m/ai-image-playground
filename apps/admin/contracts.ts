@@ -8,6 +8,7 @@ import type {
   OpsBackups,
   TaskStatus,
 } from '@image-playground/shared'
+import { TASK_STATUSES } from '@image-playground/shared'
 
 export const RANGES = ['1d', '7d', '30d'] as const
 export type Range = (typeof RANGES)[number]
@@ -525,4 +526,113 @@ export interface ClientErrorEventsResult {
   fingerprint: string
   /** 时间窗内最近的 50 次。 */
   events: ClientErrorEvent[]
+}
+
+export interface TimeWindow {
+  from: number
+  to: number
+}
+
+const DAY_MS = 86400_000
+const BEIJING_OFFSET = 8 * 3600_000
+
+export function todayWindow(now = Date.now()): TimeWindow {
+  return { from: Math.floor((now + BEIJING_OFFSET) / DAY_MS) * DAY_MS - BEIJING_OFFSET, to: now }
+}
+
+export function parseTimeWindow(
+  input: Record<string, unknown>,
+  now = Date.now(),
+): TimeWindow | undefined {
+  if (input.from === undefined || input.to === undefined) return undefined
+  const from = Number(input.from)
+  const to = Number(input.to)
+  return Number.isSafeInteger(from) &&
+    Number.isSafeInteger(to) &&
+    from >= 0 &&
+    to > from &&
+    to - from <= 31 * DAY_MS &&
+    to <= now + 60_000
+    ? { from, to }
+    : undefined
+}
+
+export interface GenerationTaskFilters {
+  userId?: string
+  deviceId?: string
+  unassigned?: '1'
+  status?: TaskStatus
+  from?: number
+  to?: number
+}
+
+export function parseGenerationTaskFilters(input: Record<string, unknown>): GenerationTaskFilters {
+  const out: GenerationTaskFilters = { ...parseTimeWindow(input) }
+  for (const key of ['userId', 'deviceId'] as const) {
+    if (typeof input[key] === 'string' && input[key].trim().length > 0 && input[key].length <= 128)
+      out[key] = input[key].trim()
+  }
+  if (input.unassigned === '1') out.unassigned = '1'
+  if (TASK_STATUSES.includes(input.status as TaskStatus)) out.status = input.status as TaskStatus
+  return out
+}
+
+export interface GenerationActor {
+  kind: 'user' | 'device' | 'unassigned'
+  id: string | null
+  username: string | null
+  note: string | null
+  tasks: number
+  completed: number
+  failed: number
+  in_progress: number
+  queued: number
+  reconciling: number
+  last_submitted_at: number
+}
+
+export interface TodayOverviewResult {
+  window: TimeWindow
+  actors: GenerationActor[]
+  truncated: boolean
+  summary: {
+    users: number
+    devices: number
+    tasks: number
+    completed: number
+    failed: number
+    in_progress: number
+    queued: number
+    reconciling: number
+  }
+}
+
+export interface GenerationTaskItem extends TaskListItem {
+  user_id: string | null
+  device_id: string | null
+  username: string | null
+}
+
+export interface GenerationTasksResult {
+  window: TimeWindow
+  tasks: GenerationTaskItem[]
+  nextCursor: string | null
+}
+
+export interface TodayErrorItem {
+  source: 'server' | 'client'
+  id: string
+  at: number
+  service: string
+  message: string
+  task_id: string | null
+  request_id: string | null
+  group: string | null
+  stack: string | null
+}
+
+export interface TodayErrorsResult {
+  window: TimeWindow
+  total: number
+  entries: TodayErrorItem[]
 }

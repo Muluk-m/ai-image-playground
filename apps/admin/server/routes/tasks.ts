@@ -1,10 +1,43 @@
 import { Elysia, t } from 'elysia'
+import { parseGenerationTaskFilters, parseTimeWindow } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
 import { getTask } from '../lib/queries'
 import { forwardTaskReconciliation } from '../lib/task-reconciliation'
+import { getGenerationTasks, TaskQueryError } from '../lib/today'
 
 export const tasksRoutes = new Elysia()
   .use(requireAuth)
+  .get(
+    '/api/tasks',
+    async ({ query, status }) => {
+      const filters = parseGenerationTaskFilters(query)
+      if ((query.from !== undefined || query.to !== undefined) && !parseTimeWindow(query))
+        return status(400, { error: '无效的任务时间范围' })
+      for (const key of ['userId', 'deviceId', 'unassigned', 'status'] as const) {
+        if (query[key] !== undefined && query[key] !== filters[key])
+          return status(400, { error: '无效的任务筛选条件' })
+      }
+      if ([filters.userId, filters.deviceId, filters.unassigned].filter(Boolean).length > 1)
+        return status(400, { error: '只能选择一种任务归属' })
+      try {
+        return await getGenerationTasks(filters, query.cursor)
+      } catch (error) {
+        if (error instanceof TaskQueryError) return status(400, { error: error.message })
+        throw error
+      }
+    },
+    {
+      query: t.Object({
+        from: t.Optional(t.String()),
+        to: t.Optional(t.String()),
+        userId: t.Optional(t.String()),
+        deviceId: t.Optional(t.String()),
+        unassigned: t.Optional(t.String()),
+        status: t.Optional(t.String()),
+        cursor: t.Optional(t.String({ maxLength: 300 })),
+      }),
+    },
+  )
   .get(
     '/api/tasks/:id',
     async ({ params, set }) => {
