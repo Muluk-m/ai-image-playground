@@ -1,6 +1,11 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { expect, it } from 'vitest'
-import { assetsFromBatch, assetsFromMessages } from '../../../../features/agent/lib/assetItems'
+import {
+  assetsFromBatch,
+  assetsFromMessages,
+  batchNeedsRefresh,
+  loadAssetOriginal,
+} from '../../../../features/agent/lib/assetItems'
 import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
 
 function tool(id: string, extra: Partial<AgentToolMessage> = {}): AgentToolMessage {
@@ -84,5 +89,42 @@ it('lists a batch plan in order, including finished results and skipping duplica
   const result = items[2]!
   expect(result.open.kind === 'result' && result.open.message.artifacts?.[0]?.artifactId).toBe(
     'out-2',
+  )
+  expect(
+    batchNeedsRefresh({
+      batch: { status: 'paused' },
+      items: [{ progress: 'in_flight', execution: { status: 'in_progress' } }],
+    }),
+  ).toBe(true)
+  expect(
+    batchNeedsRefresh({
+      batch: { status: 'paused' },
+      items: [{ progress: 'ready' }],
+    }),
+  ).toBe(false)
+})
+
+it('loads a stored reference snapshot by its message index', async () => {
+  const message: AgentPanelMessage = {
+    kind: 'text',
+    id: 'user-1',
+    turnId: 'turn-1',
+    role: 'user',
+    text: '优化',
+    streaming: false,
+    references: [{ imageId: 'img-1', name: '草图', image: { object: 'obj-1', mime: 'image/png' } }],
+  }
+  expect(assetsFromMessages([message])).toEqual([])
+  const items = assetsFromMessages([message], {
+    conversationId: 'conversation-1',
+    loadReference: async (_conversationId, messageId, index, variant) =>
+      `${variant}:${messageId}:${index}`,
+  })
+  expect(items.map((item) => [item.id, item.title, item.open.kind])).toEqual([
+    ['ref:user-1:0', '草图', 'source'],
+  ])
+  expect(await items[0]?.load()).toBe('preview:user-1:0')
+  expect(await loadAssetOriginal(items[0]!, async () => 'original:user-1:0')).toBe(
+    'original:user-1:0',
   )
 })

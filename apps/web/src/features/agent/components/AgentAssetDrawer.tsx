@@ -3,12 +3,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
 import { useTranslation } from '../../../i18n'
-import { fetchBatchPlan, fetchConversations, fetchMessages } from '../lib/agentClient'
+import { blobDataUrl } from '../../../lib/cloudMedia'
+import {
+  fetchBatchPlan,
+  fetchConversations,
+  fetchMessageReference,
+  fetchMessages,
+} from '../lib/agentClient'
 import {
   type AssetItem,
   assetsFromBatch,
   assetsFromMessages,
+  batchNeedsRefresh,
   loadAssetOriginal,
+  type StoredReferenceLoader,
 } from '../lib/assetItems'
 import { panelStateFromHistory } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
@@ -34,12 +42,13 @@ export default function AgentAssetDrawer({
   const [loadingAll, setLoadingAll] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
   const [hasMore, setHasMore] = useState(false)
-  const [batchItems, setBatchItems] = useState<readonly AssetItem[]>([])
+  const [batchById, setBatchById] = useState<Readonly<Record<string, readonly AssetItem[]>>>({})
   const [batchLoading, setBatchLoading] = useState(false)
   const [batchFailed, setBatchFailed] = useState(false)
   const [sourcePreview, setSourcePreview] = useState<string | null>(null)
   const sourcePreviewRef = useRef<string | null>(null)
   sourcePreviewRef.current = sourcePreview
+  const previewToken = useRef(0)
   const gridRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const loadNextRef = useRef<() => void>(() => {})
@@ -56,9 +65,21 @@ export default function AgentAssetDrawer({
   }, [messages])
   const batchKey = batchIds.join('\n')
   const reloadBatchRef = useRef<() => void>(() => {})
+  const loadReferenceRef = useRef<StoredReferenceLoader>(async () => null)
+  loadReferenceRef.current = async (targetConversationId, messageId, index, variant) => {
+    try {
+      const blob = await fetchMessageReference(targetConversationId, messageId, index, {
+        signal: AbortSignal.timeout(30_000),
+        ...(variant === 'original' ? { variant: 'original' as const } : {}),
+      })
+      return await blobDataUrl(blob)
+    } catch {
+      return null
+    }
+  }
   useEffect(() => {
     if (!batchKey) {
-      setBatchItems([])
+      setBatchById({})
       setBatchLoading(false)
       setBatchFailed(false)
       reloadBatchRef.current = () => {}
@@ -66,40 +87,79 @@ export default function AgentAssetDrawer({
     }
     const ids = batchKey.split('\n')
     let cancelled = false
+    let generation = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = async (initial: boolean) => {
+      const token = ++generation
+      if (timer) clearTimeout(timer)
+      timer = undefined
       if (initial) setBatchLoading(true)
-      setBatchFailed(false)
-      try {
-        const pages = await Promise.all(ids.map((id) => fetchBatchPlan(id)))
-        if (cancelled) return
-        const loaded = pages.flatMap((page, index) => {
-          const message = messagesRef.current.find(
-            (one): one is AgentToolMessage => one.kind === 'tool' && one.batchId === ids[index],
-          )
-          return message ? assetsFromBatch(message, page) : []
-        })
-        setBatchItems(loaded)
-        if (pages.some((page) => page.batch.status === 'running'))
-          timer = setTimeout(() => void load(false), BATCH_REFRESH_MS)
-      } catch {
-        if (!cancelled) setBatchFailed(true)
-      } finally {
-        if (!cancelled) setBatchLoading(false)
-      }
+      const settled = await Promise.allSettled(ids.map((id) => fetchBatchPlan(id)))
+      if (cancelled || token !== generation) return
+      const failed: string[] = []
+      const loaded = new Map<string, readonly AssetItem[]>()
+      let refresh = false
+      settled.forEach((result, index) => {
+        const id = ids[index]!
+        if (result.status === 'rejected') {
+          failed.push(id)
+          return
+        }
+        const message = messagesRef.current.find(
+          (one): one is AgentToolMessage => one.kind === 'tool' && one.batchId === id,
+        )
+        loaded.set(id, message ? assetsFromBatch(message, result.value) : [])
+        if (batchNeedsRefresh(result.value)) refresh = true
+      })
+      setBatchById((current) => {
+        const next: Record<string, readonly AssetItem[]> = {}
+        for (const id of ids) {
+          const fresh = loaded.get(id)
+          if (fresh) next[id] = fresh
+          else if (current[id]) next[id] = current[id]
+        }
+        return next
+      })
+      setBatchFailed(failed.length > 0)
+      setBatchLoading(false)
+      if (refresh) timer = setTimeout(() => void load(false), BATCH_REFRESH_MS)
     }
     reloadBatchRef.current = () => void load(true)
     void load(true)
     return () => {
       cancelled = true
+      generation += 1
       if (timer) clearTimeout(timer)
       reloadBatchRef.current = () => {}
     }
   }, [batchKey])
-  const generatedItems = useMemo(() => assetsFromMessages(messages), [messages])
+  const batchItems = useMemo(
+    () => batchIds.flatMap((id) => batchById[id] ?? []),
+    [batchIds, batchById],
+  )
+  const generatedItems = useMemo(
+    () =>
+      assetsFromMessages(
+        messages,
+        conversationId
+          ? {
+              conversationId,
+              loadReference: (targetConversationId, messageId, index, variant) =>
+                loadReferenceRef.current(targetConversationId, messageId, index, variant),
+            }
+          : undefined,
+      ),
+    [messages, conversationId],
+  )
   const sessionItems = useMemo(() => {
-    const seen = new Set(generatedItems.map((item) => item.id))
-    return [...generatedItems, ...batchItems.filter((item) => !seen.has(item.id))]
+    const seen = new Set<string>()
+    const items: AssetItem[] = []
+    for (const item of [...generatedItems, ...batchItems]) {
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      items.push(item)
+    }
+    return items
   }, [generatedItems, batchItems])
   const sessionItemsRef = useRef(sessionItems)
   const initialSessionIds = useRef(new Set<string>())
@@ -134,9 +194,14 @@ export default function AgentAssetDrawer({
                 (one) => one.id !== conversationId,
               )
             if (nextConversation >= conversations.length) break
-            const history = await fetchMessages(conversations[nextConversation]!.id)
+            const olderId = conversations[nextConversation]!.id
             nextConversation += 1
-            pending = assetsFromMessages(panelStateFromHistory(history).messages)
+            const history = await fetchMessages(olderId)
+            pending = assetsFromMessages(panelStateFromHistory(history).messages, {
+              conversationId: olderId,
+              loadReference: (targetConversationId, messageId, index, variant) =>
+                loadReferenceRef.current(targetConversationId, messageId, index, variant),
+            })
           }
         }
       } catch {
@@ -191,6 +256,24 @@ export default function AgentAssetDrawer({
     observer.observe(end)
     return () => observer.disconnect()
   }, [scope, hasMore, loadingAll, loadFailed, shown.length])
+  useEffect(
+    () => () => {
+      previewToken.current += 1
+    },
+    [],
+  )
+  const openSource = (item: AssetItem) => {
+    const token = ++previewToken.current
+    void loadAssetOriginal(item, (targetConversationId, messageId, index, variant) =>
+      loadReferenceRef.current(targetConversationId, messageId, index, variant),
+    ).then((source) => {
+      if (token === previewToken.current && source) setSourcePreview(source)
+    })
+  }
+  const closeSource = () => {
+    previewToken.current += 1
+    setSourcePreview(null)
+  }
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       // 原图预览自己吃掉这一下；这里再关，会连抽屉一起收掉。
@@ -262,9 +345,7 @@ export default function AgentAssetDrawer({
               label={item.title || t('assets.untitled')}
               onClick={() => {
                 if (item.open.kind === 'source') {
-                  void loadAssetOriginal(item).then((source) => {
-                    if (source) setSourcePreview(source)
-                  })
+                  openSource(item)
                   return
                 }
                 onClose()
@@ -322,9 +403,7 @@ export default function AgentAssetDrawer({
               </p>
             )}
         </div>
-        {sourcePreview && (
-          <ImagePreview src={sourcePreview} onClose={() => setSourcePreview(null)} />
-        )}
+        {sourcePreview && <ImagePreview src={sourcePreview} onClose={closeSource} />}
       </aside>
     </div>,
     document.body,
