@@ -231,7 +231,7 @@ it('enforces advertised original budgets on uploads and existing project media b
   const tooManyPixels = await upload(8, 7, true)
   const rejectedCompletion = await request(`media/${tooManyPixels.id}/complete`, {})
   expect(rejectedCompletion.status).toBe(422)
-  expect(await rejectedCompletion.json()).toEqual({ error: 'media_invalid_image' })
+  expect(await rejectedCompletion.json()).toEqual({ error: 'media_image_pixels_exceeded' })
   const projectImage = await upload(9, 6, false)
   expect((await request(`media/${projectImage.id}/complete`, {})).status).toBe(200)
   const calls: AgentCall[] = []
@@ -250,4 +250,45 @@ it('enforces advertised original budgets on uploads and existing project media b
   expect((await (await request(`${path}/messages`)).json()).messages).toEqual([])
   expect(calls).toHaveLength(0)
   expect((await request(`media/${projectImage.id}/access`)).status).toBe(200)
+})
+
+it('accepts a 3000 by 2700 JPEG original under the 40 megapixel attachment budget', async () => {
+  const { config } = await import('../../config')
+  const previous = config.operator
+  config.operator = {
+    ...previous,
+    quotas: {
+      ...previous.quotas,
+      'agent:attachment-image-bytes': 10 * 1024 * 1024,
+      'agent:attachment-image-pixels': 40_000_000,
+    },
+  }
+  try {
+    const manifest = await (await request('capabilities')).json()
+    expect(manifest.attachmentLimits.imagePixels).toBe(40_000_000)
+    const bytes = await sharp({
+      create: { width: 3000, height: 2700, channels: 3, background: '#eeeeee' },
+    })
+      .jpeg()
+      .toBuffer()
+    const descriptor = {
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      bytes: bytes.length,
+      contentType: 'image/jpeg',
+      purpose: 'conversation-attachment',
+    }
+    const reserved = await request('media/uploads', descriptor)
+    expect(reserved.status).toBe(200)
+    const upload = await reserved.json()
+    await storage.write(new URL(upload.uploadUrl).pathname.slice(1), bytes, 'image/jpeg')
+    const complete = await request(`media/${upload.id}/complete`, {})
+    expect(complete.status).toBe(200)
+    expect(await complete.json()).toMatchObject({ status: 'ready', width: 3000, height: 2700 })
+    const access = await (await request(`media/${upload.id}/access`)).json()
+    expect(storage.objects.get(new URL(access.originalUrl).pathname.slice(1))?.bytes).toEqual(
+      new Uint8Array(bytes),
+    )
+  } finally {
+    config.operator = previous
+  }
 })
