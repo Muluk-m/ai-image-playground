@@ -1,12 +1,27 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import type { AgentBatchPage, AgentBatchUpdate } from '@image-playground/shared'
+import type { AgentBatchPage, AgentBatchUpdate, AgentToolArtifact } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+
+const exportedIds = vi.hoisted(() => [] as string[][])
+
+vi.mock('../../../../features/agent/lib/batchResultExport', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../../features/agent/lib/batchResultExport')
+  >('../../../../features/agent/lib/batchResultExport')
+  return {
+    ...actual,
+    exportBatchResults: vi.fn(async (files: Array<{ artifact: { artifactId: string } }>) => {
+      exportedIds.push(files.map((file) => file.artifact.artifactId))
+      return { exported: files.length, failed: 0 }
+    }),
+  }
+})
 
 let host: HTMLDivElement
 let root: Root
@@ -19,6 +34,7 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   writes.length = 0
   cancellations.length = 0
+  exportedIds.length = 0
   saved = {
     batch: {
       id: 'batch-1',
@@ -291,7 +307,74 @@ it('keeps plan fields to the card scale so a long rule stays in its box', async 
   const thumb = host.querySelector('summary img')
   expect(thumb?.className).toContain('h-5')
   expect(thumb?.className).toContain('w-5')
+  expect(
+    [...host.querySelectorAll('button')].some((button) => button.textContent?.includes('导出')),
+  ).toBe(false)
 })
+
+it('exports every completed result without opening the finished rows', async () => {
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      itemCount: 4,
+      status: 'running',
+      submittedCount: 3,
+      executionEnabled: true,
+      title: '48张图片背景优化计划',
+    },
+    items: saved.items.slice(0, 4).map((item, index) => {
+      const progress =
+        index === 1
+          ? ('ready' as const)
+          : index === 3
+            ? ('failed' as const)
+            : ('completed' as const)
+      const artifacts: AgentToolArtifact[] =
+        index === 0
+          ? [batchArtifact('done-a'), batchArtifact('done-b')]
+          : index === 2
+            ? [batchArtifact('done-c')]
+            : [batchArtifact(index === 1 ? 'ready' : 'failed')]
+      return {
+        ...item,
+        progress,
+        execution: {
+          taskId: `task-${index}`,
+          status: progress === 'ready' ? ('queued' as const) : progress,
+          attempt: 1,
+          actualCredits: 1,
+          artifacts,
+        },
+      }
+    }),
+  }
+  const message = panelMessage('message-1', 'turn-1', 'assistant', [
+    {
+      type: 'toolResult',
+      toolName: 'planImageBatch',
+      toolCallId: 'call-1',
+      title: '48张图片背景优化计划',
+      status: 'succeeded',
+      batchId: 'batch-1',
+    },
+  ])
+  if (message.kind !== 'tool') throw new Error('expected tool message')
+  await act(async () => root.render(<AgentToolCard message={message} />))
+  await vi.waitFor(() => expect(host.textContent).toContain('导出 3 项'))
+  expect(host.querySelector('details[data-batch-status="completed"]')).toBeNull()
+  const button = [...host.querySelectorAll('button')].find((one) =>
+    one.textContent?.includes('导出 3 项'),
+  )
+  await act(async () => {
+    button?.click()
+  })
+  expect(exportedIds).toEqual([['done-a', 'done-b', 'done-c']])
+})
+
+function batchArtifact(id: string): AgentToolArtifact {
+  return { artifactId: id, media: 'image', taskId: `task-${id}`, outputIndex: 0, mime: 'image/png' }
+}
 
 async function render() {
   const message = panelMessage('message-1', 'turn-1', 'assistant', [
