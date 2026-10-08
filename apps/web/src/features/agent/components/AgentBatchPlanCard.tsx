@@ -43,6 +43,7 @@ import {
   type BatchDisplayStatus,
   batchGroupStartsOpen,
   batchItemStatus,
+  focusedBatchItemStatusChange,
   groupBatchItems,
 } from '../lib/batchStatusGroups'
 import { useAgentStore } from '../store'
@@ -151,29 +152,34 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [groupPage, setGroupPage] = useState<Record<string, number>>({})
   const [openItems, setOpenItems] = useState<ReadonlySet<string>>(() => new Set())
   const seenStatus = useRef(new Map<string, string>())
-  const focusedItem = useRef<string | null>(null)
+  // 这次渲染开始时，焦点若还在某一条上，记下它的 key。用户已经点到分页、输入框或卡片外时这里是 null，
+  // 随后的状态变化不能再把焦点抢回去。DOM 重排若发生在这次提交里，快照仍是重排前的那一条。
+  const focusInRow = useRef<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const working = useRef(false)
+  const operations = useRef(0)
+  const card = useRef<HTMLElement>(null)
+  if (card.current) {
+    const active = document.activeElement
+    const row = active instanceof Element ? active.closest('details[data-item-key]') : null
+    focusInRow.current =
+      row && card.current.contains(row) ? row.getAttribute('data-item-key') : null
+  }
   useLayoutEffect(() => {
     if (!page) return
-    let moved: string | null = null
-    for (const item of page.items) {
-      const status = batchItemStatus(item)
-      const previous = seenStatus.current.get(item.key)
-      if (previous && previous !== status && openItems.has(item.key)) moved = item.key
-      seenStatus.current.set(item.key, status)
-    }
-    if (!moved || focusedItem.current !== moved || !card.current) return
+    const moved = focusedBatchItemStatusChange(page.items, seenStatus.current, focusInRow.current)
+    for (const item of page.items) seenStatus.current.set(item.key, batchItemStatus(item))
+    if (!moved || !card.current) return
     const row = card.current.querySelector<HTMLElement>(
       `details[data-item-key="${CSS.escape(moved)}"]`,
     )
     if (!row) return
     const active = document.activeElement
     if (active && row.contains(active)) return
+    // 焦点已经在别的控件上（分页、输入框、卡片外的按钮）时不抢。落到 body 才是重排把焦点弄丢了。
+    if (active && active !== document.body && !row.contains(active)) return
     row.querySelector<HTMLElement>('summary')?.focus()
   }, [page, openItems])
-  const [busy, setBusy] = useState(false)
-  const working = useRef(false)
-  const operations = useRef(0)
-  const card = useRef<HTMLElement>(null)
   const commands = useMemo(() => batchCommands(batchId), [batchId])
   const [pending, setPending] = useState<AgentBatchCommand | null>(null)
   const [restored, setRestored] = useState(false)
@@ -491,9 +497,6 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       className={`px-2 py-1 text-xs ${className}`}
       open={openItems.has(item.key)}
       onToggle={(event) => rememberItemOpen(item.key, event.currentTarget.open)}
-      onFocus={() => {
-        focusedItem.current = item.key
-      }}
     >
       <summary className="cursor-pointer py-0.5 focus-visible:outline-ring">
         <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
@@ -813,11 +816,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         />
       </label>
       {grouped ? (
-        <div
-          className="flex max-h-64 flex-col overflow-y-auto"
-          role="group"
-          aria-label={t('batch.statusBoard')}
-        >
+        <div className="max-h-64 overflow-y-auto" role="group" aria-label={t('batch.statusBoard')}>
           {groups.flatMap((group, groupAt) => {
             const containsRetry = group.items.some((item) => retryMarked.has(item.key))
             const pinned = group.items.some((item) => openItems.has(item.key))

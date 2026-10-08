@@ -133,6 +133,7 @@ it('groups a running batch by status and leaves the waiting pile collapsed', asy
   expect(group('ready')?.textContent).toContain('待派发')
   expect(group('ready')?.textContent).toContain('99')
   expect(rows('ready')).toHaveLength(0)
+  expect(host.querySelector('[aria-label="任务状态"]')?.className).toBe('max-h-64 overflow-y-auto')
   expect(host.querySelectorAll('summary img')).toHaveLength(1)
   expect(host.querySelector('nav')).toBeNull()
   act(() => group('ready')?.querySelector<HTMLButtonElement>('button')?.click())
@@ -210,6 +211,65 @@ it('keeps an expanded execution row mounted when that item finishes', async () =
     expect(
       host.querySelector('[data-batch-group="completed"] button')?.getAttribute('aria-expanded'),
     ).toBe('true')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('leaves focus where the user moved it when an open row finishes', async () => {
+  vi.useFakeTimers()
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      itemCount: 2,
+      status: 'running',
+      submittedCount: 2,
+      executionEnabled: true,
+    },
+    items: saved.items.slice(0, 2).map((item, index) => ({
+      ...item,
+      progress: index === 0 ? ('in_flight' as const) : ('ready' as const),
+      execution:
+        index === 0
+          ? { taskId: 'task-0', status: 'in_progress' as const, attempt: 1, actualCredits: null }
+          : undefined,
+    })),
+  }
+  try {
+    await render()
+    const row = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')!
+    const summary = row.querySelector<HTMLElement>('summary')!
+    act(() => {
+      row.open = true
+      row.dispatchEvent(new Event('toggle', { bubbles: false }))
+      summary.focus()
+      summary.blur()
+    })
+    expect(row.contains(document.activeElement)).toBe(false)
+    saved = {
+      ...saved,
+      items: saved.items.map((item) =>
+        item.key === 'item-0'
+          ? {
+              ...item,
+              progress: 'completed',
+              execution: {
+                taskId: 'task-0',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 1,
+              },
+            }
+          : item,
+      ),
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100)
+    })
+    const moved = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')
+    expect(moved?.contains(document.activeElement)).toBe(false)
+    expect(moved?.open).toBe(true)
   } finally {
     vi.useRealTimers()
   }

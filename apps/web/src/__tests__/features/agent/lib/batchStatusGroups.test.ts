@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import {
   batchGroupStartsOpen,
   batchItemStatus,
+  focusedBatchItemStatusChange,
   groupBatchItems,
 } from '../../../../features/agent/lib/batchStatusGroups'
 
@@ -31,4 +32,22 @@ it('keeps a live row open and collapses a long waiting pile when several states 
   expect(batchGroupStartsOpen('failed', 99, 2, false)).toBe(false)
   expect(batchGroupStartsOpen('ready', 99, 1, false)).toBe(true)
   expect(batchGroupStartsOpen('ready', 40, 2, true)).toBe(true)
+})
+
+it('restores only the focused row when several open rows change status together', () => {
+  const items = [
+    { key: 'item-0', progress: 'completed' },
+    { key: 'item-1', progress: 'completed' },
+    { key: 'item-2', progress: 'ready' },
+  ]
+  const previous = new Map([
+    ['item-0', 'in_flight'],
+    ['item-1', 'in_flight'],
+    ['item-2', 'ready'],
+  ])
+  expect(focusedBatchItemStatusChange(items, previous, 'item-0')).toBe('item-0')
+  expect(focusedBatchItemStatusChange(items, previous, 'item-1')).toBe('item-1')
+  expect(focusedBatchItemStatusChange(items, previous, null)).toBeNull()
+  expect(focusedBatchItemStatusChange(items, previous, 'item-2')).toBeNull()
+  expect(focusedBatchItemStatusChange(items, previous, 'missing')).toBeNull()
 })

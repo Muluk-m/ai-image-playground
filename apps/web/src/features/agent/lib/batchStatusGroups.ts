@@ -29,6 +29,23 @@ export function batchItemStatus(item: {
     : 'pending'
 }
 
+/**
+ * 一次刷新里，只有当前聚焦的那一条换了状态才需要把焦点送回去。
+ * 同一次轮询里后面其它展开条目也完成时，不能让它们抢走这个位置。
+ */
+export function focusedBatchItemStatusChange<T extends Parameters<typeof batchItemStatus>[0]>(
+  items: readonly (T & { readonly key: string })[],
+  previous: ReadonlyMap<string, string>,
+  focusedKey: string | null,
+): string | null {
+  if (!focusedKey) return null
+  const item = items.find((entry) => entry.key === focusedKey)
+  if (!item) return null
+  const before = previous.get(focusedKey)
+  const status = batchItemStatus(item)
+  return before && before !== status ? focusedKey : null
+}
+
 export interface BatchStatusGroup<T> {
   readonly status: BatchDisplayStatus
   readonly items: readonly T[]
