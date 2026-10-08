@@ -18,7 +18,7 @@ import {
   Scan,
   TriangleAlert,
 } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Checkbox } from '../../../components/Checkbox'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
@@ -149,6 +149,27 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [reviewPage, setReviewPage] = useState<{ key: string; index: number }>()
   const [groupOverride, setGroupOverride] = useState<Record<string, boolean>>({})
   const [groupPage, setGroupPage] = useState<Record<string, number>>({})
+  const [openItems, setOpenItems] = useState<ReadonlySet<string>>(() => new Set())
+  const seenStatus = useRef(new Map<string, string>())
+  const focusedItem = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    if (!page) return
+    let moved: string | null = null
+    for (const item of page.items) {
+      const status = batchItemStatus(item)
+      const previous = seenStatus.current.get(item.key)
+      if (previous && previous !== status && openItems.has(item.key)) moved = item.key
+      seenStatus.current.set(item.key, status)
+    }
+    if (!moved || focusedItem.current !== moved || !card.current) return
+    const row = card.current.querySelector<HTMLElement>(
+      `details[data-item-key="${CSS.escape(moved)}"]`,
+    )
+    if (!row) return
+    const active = document.activeElement
+    if (active && row.contains(active)) return
+    row.querySelector<HTMLElement>('summary')?.focus()
+  }, [page, openItems])
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
@@ -448,12 +469,32 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const grouped = page.items.some((item) => item.progress || item.execution)
   const groups = grouped ? groupBatchItems(page.items) : []
   const retryMarked = new Set(page.batch.retryItemKeys ?? [])
+  const rememberItemOpen = (key: string, open: boolean) => {
+    setOpenItems((current) => {
+      if (current.has(key) === open) return current
+      const next = new Set(current)
+      if (open) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
   const itemRow = (
     item: AgentBatchPage['items'][number],
     position: number,
     showStatus: boolean,
+    className = '',
   ) => (
-    <details key={item.key} className="px-2 py-1 text-xs">
+    <details
+      key={item.key}
+      data-item-key={item.key}
+      data-batch-status={showStatus ? undefined : batchItemStatus(item)}
+      className={`px-2 py-1 text-xs ${className}`}
+      open={openItems.has(item.key)}
+      onToggle={(event) => rememberItemOpen(item.key, event.currentTarget.open)}
+      onFocus={() => {
+        focusedItem.current = item.key
+      }}
+    >
       <summary className="cursor-pointer py-0.5 focus-visible:outline-ring">
         <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
           <span className="shrink-0 tabular-nums">{position}.</span>
@@ -772,29 +813,47 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         />
       </label>
       {grouped ? (
-        <div className="grid gap-1" role="group" aria-label={t('batch.statusBoard')}>
-          {groups.map((group) => {
+        <div
+          className="flex max-h-64 flex-col overflow-y-auto"
+          role="group"
+          aria-label={t('batch.statusBoard')}
+        >
+          {groups.flatMap((group, groupAt) => {
             const containsRetry = group.items.some((item) => retryMarked.has(item.key))
+            const pinned = group.items.some((item) => openItems.has(item.key))
             const open =
               groupOverride[group.status] ??
-              batchGroupStartsOpen(group.status, group.items.length, groups.length, containsRetry)
+              (pinned ||
+                batchGroupStartsOpen(
+                  group.status,
+                  group.items.length,
+                  groups.length,
+                  containsRetry,
+                ))
             const groupPageCount = Math.max(1, Math.ceil(group.items.length / BATCH_ITEM_PAGE_SIZE))
             const groupIndex = Math.min(groupPageCount - 1, groupPage[group.status] ?? 0)
-            const slice = group.items.slice(
-              groupIndex * BATCH_ITEM_PAGE_SIZE,
-              groupIndex * BATCH_ITEM_PAGE_SIZE + BATCH_ITEM_PAGE_SIZE,
-            )
+            const start = groupIndex * BATCH_ITEM_PAGE_SIZE
+            const pageItems = group.items.slice(start, start + BATCH_ITEM_PAGE_SIZE)
+            const visible = [
+              ...pageItems,
+              ...group.items.filter(
+                (item, index) =>
+                  openItems.has(item.key) &&
+                  (index < start || index >= start + BATCH_ITEM_PAGE_SIZE),
+              ),
+            ]
+            const showPager = open && groupPageCount > 1
             const Icon = statusIcon(group.status)
             const live = group.status === 'in_flight' || group.status === 'in_progress'
             const urgent =
               group.status === 'failed' ||
               group.status === 'blocked' ||
               group.status === 'reconciling'
-            return (
-              <section
-                key={group.status}
-                data-batch-status={group.status}
-                className="overflow-hidden rounded-lg border border-border bg-background"
+            const header = (
+              <div
+                key={`group:${group.status}`}
+                data-batch-group={group.status}
+                className={`${groupAt === 0 ? '' : 'mt-1'} overflow-hidden border border-border bg-background ${open ? 'rounded-t-lg border-b-0' : 'rounded-lg'}`}
               >
                 <button
                   type="button"
@@ -817,58 +876,60 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                     {group.items.length}
                   </span>
                 </button>
-                {open && (
-                  <div className="max-h-64 divide-y divide-border overflow-y-auto border-t border-border">
-                    {slice.map((item) =>
-                      itemRow(
-                        item,
-                        page.items.findIndex((entry) => entry.key === item.key) + 1,
-                        false,
-                      ),
-                    )}
-                  </div>
-                )}
-                {open && groupPageCount > 1 && (
-                  <nav
-                    aria-label={t('batch.pagination')}
-                    className="flex items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs"
-                  >
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={groupIndex === 0}
-                      onClick={() =>
-                        setGroupPage((current) => ({
-                          ...current,
-                          [group.status]: groupIndex - 1,
-                        }))
-                      }
-                    >
-                      {t('batch.previousPage')}
-                    </Button>
-                    <span className="tabular-nums">
-                      {t('batch.pagePosition', {
-                        current: groupIndex + 1,
-                        total: groupPageCount,
-                      })}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={groupIndex + 1 === groupPageCount}
-                      onClick={() =>
-                        setGroupPage((current) => ({
-                          ...current,
-                          [group.status]: groupIndex + 1,
-                        }))
-                      }
-                    >
-                      {t('batch.nextPage')}
-                    </Button>
-                  </nav>
-                )}
-              </section>
+              </div>
             )
+            if (!open) return [header]
+            const rows = visible.map((item, index) =>
+              itemRow(
+                item,
+                page.items.findIndex((entry) => entry.key === item.key) + 1,
+                false,
+                `border-x border-t border-border bg-background ${index === visible.length - 1 && !showPager ? 'rounded-b-lg border-b' : ''}`,
+              ),
+            )
+            if (!showPager) return [header, ...rows]
+            return [
+              header,
+              ...rows,
+              <nav
+                key={`pages:${group.status}`}
+                aria-label={t('batch.pagination')}
+                className="flex items-center justify-between gap-2 rounded-b-lg border border-t-0 border-border bg-background px-2 py-1 text-xs"
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={groupIndex === 0}
+                  onClick={() =>
+                    setGroupPage((current) => ({
+                      ...current,
+                      [group.status]: groupIndex - 1,
+                    }))
+                  }
+                >
+                  {t('batch.previousPage')}
+                </Button>
+                <span className="tabular-nums">
+                  {t('batch.pagePosition', {
+                    current: groupIndex + 1,
+                    total: groupPageCount,
+                  })}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={groupIndex + 1 === groupPageCount}
+                  onClick={() =>
+                    setGroupPage((current) => ({
+                      ...current,
+                      [group.status]: groupIndex + 1,
+                    }))
+                  }
+                >
+                  {t('batch.nextPage')}
+                </Button>
+              </nav>,
+            ]
           })}
         </div>
       ) : (
