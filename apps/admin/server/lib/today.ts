@@ -11,6 +11,7 @@ import {
 } from '../../contracts'
 import { getDbHandle } from './db'
 import { mapTaskListItem } from './queries'
+import { effectiveLogLevel } from './server-logs'
 
 type Row = Record<string, unknown>
 const epoch = (value: unknown) =>
@@ -85,13 +86,13 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   const window = todayWindow(now)
   const rows = (await getDbHandle().db.execute(sql`
     WITH errors AS (
-      SELECT 'server' AS source, id, at, service, message, task_id, request_id, group_key AS "group",
+      SELECT 'server' AS source, id, at, service, instance, message, task_id, request_id, group_key AS "group",
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack
       FROM server_logs
       WHERE at >= ${new Date(window.from)} AND at <= ${new Date(window.to)}
-        AND level IN ('error', 'fatal')
+        AND ${effectiveLogLevel} IN ('error', 'fatal')
       UNION ALL
-      SELECT 'client' AS source, id, received_at AS at, '前端' AS service,
+      SELECT 'client' AS source, id, received_at AS at, '前端' AS service, NULL::text AS instance,
         CASE WHEN name IS NULL THEN message ELSE name || ': ' || message END AS message,
         NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack
       FROM client_errors
@@ -108,6 +109,7 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
         id: String(row.id),
         at: epoch(row.at),
         service: String(row.service),
+        instance: nullableText(row.instance),
         message: String(row.message),
         task_id: nullableText(row.task_id),
         request_id: nullableText(row.request_id),

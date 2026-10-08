@@ -104,7 +104,7 @@ function redactStructuredText(value: string, depth: number): string {
   return chunks.join('')
 }
 
-export function redactLogText(value: string, depth = 0): string {
+export function redactLogText(value: string, depth = 0, maxLength = 4000): string {
   if (depth > 5 || value.length > 16_000) return '[TRUNCATED LOG TEXT]'
   const withoutNul = value
     .replace(/\u0000/g, '')
@@ -119,7 +119,7 @@ export function redactLogText(value: string, depth = 0): string {
     )
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@')
     .replace(/data:[^;\s]+;base64,[a-z0-9+/=]+/gi, '[BINARY REDACTED]')
-    .slice(0, 4000)
+    .slice(0, maxLength)
 }
 
 function sanitize(value: unknown, depth = 0): unknown {
