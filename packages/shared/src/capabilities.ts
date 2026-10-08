@@ -1,3 +1,4 @@
+import { MAX_IMAGE_UPLOAD_BYTES } from './media-limits'
 import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from './project-protocol'
 
 export const CAPABILITIES = {
@@ -103,7 +104,7 @@ export const QUOTAS = {
   'generation:daily-images': { defaultValue: 0 },
   'sync:user-media-bytes': { defaultValue: 10 * 1024 * 1024 * 1024 },
   'sync:attachment-lease-seconds': { defaultValue: 0 },
-  'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
+  'sync:asset-image-bytes': { defaultValue: MAX_IMAGE_UPLOAD_BYTES },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
   'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },
   'sync:project-elements': { defaultValue: PROJECT_ELEMENT_MAX_COUNT },

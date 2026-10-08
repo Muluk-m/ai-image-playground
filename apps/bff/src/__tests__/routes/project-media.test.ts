@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, it, spyOn } from 'bun:test'
-import { createHash } from 'node:crypto'
+import { createHash, randomFillSync } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import sharp from 'sharp'
@@ -394,3 +394,101 @@ it('申报了不收的类型：400 带一行可读原因，而不是整份校验
   expect(body.message).toStartWith('/contentType: ')
   expect(body.message).not.toContain('\n')
 })
+
+it('reserves 50 MiB originals but rejects the first byte beyond the configured file budget', async () => {
+  const { config } = await import('../../config')
+  const previous = config.operator
+  config.operator = {
+    ...previous,
+    quotas: {
+      ...previous.quotas,
+      'sync:user-media-bytes': 512 * 1024 * 1024,
+      'sync:asset-image-bytes': 50 * 1024 * 1024,
+    },
+  }
+  try {
+    const descriptor = { bytes: 50 * 1024 * 1024, sha256: 'c'.repeat(64), contentType: 'image/png' }
+    expect((await request('media/uploads', deviceA, descriptor)).status).toBe(200)
+    const rejected = await request('media/uploads', deviceA, {
+      ...descriptor,
+      bytes: descriptor.bytes + 1,
+      sha256: 'd'.repeat(64),
+    })
+    expect(rejected.status).toBe(413)
+    expect(await rejected.json()).toEqual({ error: 'media_too_large' })
+  } finally {
+    config.operator = previous
+  }
+})
+
+it('refuses an unsafe scanline width before allocating a full decode and explains the failure', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#abcdef' } })
+    .png()
+    .toBuffer()
+  const safe = await sharp(bytes).metadata()
+  const metadata = spyOn(sharp.prototype, 'metadata').mockResolvedValue({
+    ...safe,
+    width: 1_000_000,
+    height: 100,
+  })
+  try {
+    const reserved = await request('media/uploads', deviceA, {
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      contentType: 'image/png',
+    })
+    const upload = await reserved.json()
+    await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+    const completed = await request(`media/${upload.id}/complete`, deviceA, {})
+    expect(completed.status).toBe(422)
+    expect(await completed.json()).toEqual({ error: 'media_image_processing_limit' })
+    expect((await request(`media/${upload.id}/access`, deviceA)).status).toBe(409)
+  } finally {
+    metadata.mockRestore()
+  }
+})
+
+it('confirms an actual 48 MiB PNG and retains its original alongside a small preview', async () => {
+  const { config } = await import('../../config')
+  const previous = config.operator
+  config.operator = {
+    ...previous,
+    quotas: {
+      ...previous.quotas,
+      'sync:user-media-bytes': 512 * 1024 * 1024,
+      'sync:asset-image-bytes': 50 * 1024 * 1024,
+    },
+  }
+  try {
+    const pixels = randomFillSync(Buffer.alloc(4096 * 4096 * 3))
+    const bytes = await sharp(pixels, { raw: { width: 4096, height: 4096, channels: 3 } })
+      .png({ compressionLevel: 0 })
+      .toBuffer()
+    expect(bytes.length).toBeGreaterThan(48 * 1024 * 1024)
+    expect(bytes.length).toBeLessThan(50 * 1024 * 1024)
+    const reserved = await request('media/uploads', deviceA, {
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      contentType: 'image/png',
+    })
+    expect(reserved.status).toBe(200)
+    const upload = await reserved.json()
+    await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+    const completed = await request(`media/${upload.id}/complete`, deviceA, {})
+    expect(completed.status).toBe(200)
+    expect(await completed.json()).toMatchObject({ status: 'ready' })
+    const access = await request(`media/${upload.id}/access`, deviceA)
+    expect(access.status).toBe(200)
+    const urls = await access.json()
+    expect(
+      createHash('sha256')
+        .update(await storage.read(key(urls.originalUrl)))
+        .digest('hex'),
+    ).toBe(createHash('sha256').update(bytes).digest('hex'))
+    const preview = await sharp(await storage.read(key(urls.previewUrl))).metadata()
+    expect(preview.width).toBeLessThanOrEqual(1024)
+    expect(preview.height).toBeLessThanOrEqual(1024)
+  } finally {
+    config.operator = previous
+  }
+}, 30_000)

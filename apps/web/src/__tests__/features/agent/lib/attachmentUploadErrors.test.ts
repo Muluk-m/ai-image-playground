@@ -42,3 +42,10 @@ it('uses a useful message when an older server has no advertised budgets', () =>
   expect(attachmentUploadErrorMessage('media_image_pixels_exceeded')).not.toContain('{{')
   expect(attachmentUploadErrorMessage('media_too_large')).not.toContain('{{')
 })
+
+it('explains the processing budget and does not offer an identical unsafe retry', () => {
+  expect(attachmentUploadErrorMessage('media_image_processing_limit', limits)).toContain(
+    '处理开销过大',
+  )
+  expect(canRetryAttachmentUpload('media_image_processing_limit')).toBe(false)
+})
