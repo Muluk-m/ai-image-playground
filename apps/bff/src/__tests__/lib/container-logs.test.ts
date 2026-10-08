@@ -61,6 +61,8 @@ describe('container log records', () => {
     expect(level('[ops] snapshot built in 41ms')).toBe('info')
     expect(level('something odd happened', 'stderr')).toBe('warn')
     expect(level('    at callProvider (queue/run.ts:214)', 'stderr')).toBe('warn')
+    expect(level('    at Logger.error (/app/error.ts:12:3)', 'stderr')).toBe('warn')
+    expect(level('    at Logger.error (/app/error.ts:12:3)')).toBe('info')
   })
 
   it('timestamps text lines from the driver, groups them without numbers and redacts secrets', () => {
@@ -127,6 +129,24 @@ describe('container log records', () => {
     const entry = parseContainerLog(record('Error: body: first-secret\nsecond-secret'))!
     expect(entry.message).not.toContain('first-secret')
     expect(entry.message).not.toContain('second-secret')
+  })
+
+  it('keeps the redacted complete-line prefix of stacks beyond the size limit', () => {
+    const header = 'Error: broken\nBearer secret-token-value\n'
+    const frames = '    at handle (/app/module/file.ts:1:2)\n'.repeat(500)
+    const entry = parseContainerLog(record(header + frames))!
+    expect(entry.message).toStartWith('Error: broken\nBearer [REDACTED]\n    at handle')
+    expect(entry.message).toEndWith('\n[TRUNCATED LOG TEXT]')
+    expect(entry.message.length).toBeLessThanOrEqual(16_000)
+    expect(entry.message).not.toContain('secret-token-value')
+    const incompleteCredential = parseContainerLog(
+      record('Error: broken\nredis://user:' + 'sensitive-password'.repeat(2000) + '@db/0'),
+    )!
+    expect(incompleteCredential.message).toBe('Error: broken\n[TRUNCATED LOG TEXT]')
+    const payload = parseContainerLog(record('Error: body: first-secret\n' + frames))!
+    expect(payload.message).not.toContain('first-secret')
+    expect(payload.message).not.toContain('at handle')
+    expect(payload.message).toContain('[REDACTED PAYLOAD]')
   })
 
   it('drops records without a line or container', () => {
