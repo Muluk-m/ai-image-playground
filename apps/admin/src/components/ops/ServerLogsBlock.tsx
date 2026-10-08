@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/sheet'
 import { apiClient } from '@/lib/api-client'
 import {
+  formatLogExpression,
   LOG_RANGES,
   logTrendSelection,
   parseLogExpression,
@@ -149,6 +150,7 @@ export function ServerLogsBlock({
     const expression = expressionFilters.current
     if (
       expression &&
+      expression.q === state.q &&
       Object.entries(expression).every(
         ([key, value]) => state[key as keyof ServerLogFilters] === value,
       )
@@ -157,23 +159,12 @@ export function ServerLogsBlock({
     if (expression) {
       const remaining = Object.fromEntries(
         Object.entries(expression).filter(
-          ([key, value]) => state[key as keyof ServerLogFilters] === value,
+          ([key, value]) => key !== 'q' && state[key as keyof ServerLogFilters] === value,
         ),
       )
-      expressionFilters.current = remaining
-      const tokens = Object.entries(remaining)
-        .filter(([key, value]) => key !== 'q' && value)
-        .map(([key, value]) => {
-          const text = String(value)
-          let quoted = text
-          if (/\s/.test(text)) {
-            const quote = text.includes('"') ? "'" : '"'
-            quoted = quote + text + quote
-          }
-          return `${key}:${quoted}`
-        })
-      if (remaining.q) tokens.push(String(remaining.q))
-      setSearch(tokens.join(' '))
+      if (state.q) remaining.q = state.q
+      expressionFilters.current = Object.keys(remaining).length ? remaining : null
+      setSearch(formatLogExpression(remaining))
     } else if (previousQuery !== state.q) setSearch(state.q ?? '')
   }, [filterSignature, state.q])
   const [selected, setSelected] = useState<ServerLogEntry | null>(null)
@@ -368,7 +359,11 @@ export function ServerLogsBlock({
                 const next = { ...state }
                 for (const key of Object.keys(expressionFilters.current ?? {}))
                   delete next[key as keyof ServerLogFilters]
-                expressionFilters.current = parsed
+                expressionFilters.current = Object.values(parsed).some(
+                  (value) => value !== undefined,
+                )
+                  ? parsed
+                  : null
                 change({ ...next, ...parsed })
                 setSearchError('')
               } catch (error) {

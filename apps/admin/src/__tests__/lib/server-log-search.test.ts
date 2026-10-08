@@ -1,6 +1,7 @@
 import { defaultParseSearch, defaultStringifySearch } from '@tanstack/react-router'
 import { describe, expect, it } from 'vitest'
 import {
+  formatLogExpression,
   LOG_RANGES,
   logTrendSelection,
   parseLogExpression,
@@ -93,5 +94,14 @@ describe('trend selection', () => {
   it('ignores the empty last bucket at an exact end boundary', () => {
     expect(logTrendSelection(0, 60000, 60000, 60000, 60000)).toBeNull()
     expect(logTrendSelection(0, 60000, 0, 60000, 60000)).toEqual({ from: 0, to: 60000 })
+  })
+})
+
+describe('expression serialization', () => {
+  it('round trips exact quoted and escaped identities', () => {
+    for (const instance of ['"abc"', 'both \' and " quotes', 'a\\b', 'line\nnext', ' leading ']) {
+      const filters = { instance, q: 'timeout' }
+      expect(parseLogExpression(formatLogExpression(filters))).toEqual(filters)
+    }
   })
 })
