@@ -114,7 +114,7 @@ function TodayUsers({ overview }: { overview: TodayOverviewResult }) {
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           {overview.actors.length ? (
-            <Table>
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">用户</TableHead>

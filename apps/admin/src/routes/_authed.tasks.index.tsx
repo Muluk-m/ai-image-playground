@@ -122,7 +122,7 @@ function GenerationTasksPage() {
             </p>
             {tasks.length ? (
               <Card className="overflow-x-auto">
-                <Table>
+                <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>提交时间</TableHead>
