@@ -5,81 +5,38 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const session = vi.hoisted(() => ({ accountsLogin: true, accountsSync: true }))
+const session = vi.hoisted(() => ({ accountsLogin: true, accountsSync: true, failToday: false }))
+const requests = vi.hoisted(() => [] as string[])
 const patch = vi.hoisted(() => vi.fn(async () => ({ note: '合作方' })))
 
 vi.mock('../../lib/api-client', () => {
+  const window = { from: Date.now() - 1000, to: Date.now() }
   const overview = {
+    window,
+    truncated: false,
     summary: {
-      total: 3,
+      users: 1,
+      devices: 0,
+      tasks: 3,
       completed: 2,
       failed: 1,
-      success_rate: 2 / 3,
-      p50_duration_ms: 1200,
-      p95_duration_ms: 4200,
-      upstream_invocations: 4,
-      queue_p50_ms: 800,
+      queued: 0,
+      in_progress: 0,
+      reconciling: 0,
     },
-    pulse: {
-      current: {
+    actors: [
+      {
+        kind: 'user',
+        id: 'user-1',
+        username: 'alice',
+        note: '设计师',
         tasks: 3,
         completed: 2,
         failed: 1,
-        images: 5,
-        active: 2,
-        signups: 1,
-        agent_turns: 4,
-        agent_failed: 0,
-        agent_aborted: 1,
-      },
-      previous: {
-        tasks: 2,
-        completed: 2,
-        failed: 0,
-        images: 4,
-        active: 2,
-        signups: 0,
-        agent_turns: 1,
-        agent_failed: 0,
-        agent_aborted: 0,
-      },
-      series: [
-        {
-          bucket_at: Date.now(),
-          tasks: 3,
-          images: 5,
-          active: 2,
-          signups: 1,
-          agent_completed: 3,
-          agent_failed: 0,
-          agent_aborted: 1,
-        },
-      ],
-    },
-    volume: [{ bucket_at: Date.now(), total: 3, completed: 2, failed: 1 }],
-    volume_bucket: 'day',
-    failures: [{ error_type: 'upstream_timeout', count: 1, previous_count: 0 }],
-    agent_cache: {
-      calls: 2,
-      input_tokens: 1000,
-      cache_read_tokens: 640,
-      first_call: { calls: 1, input_tokens: 900, cache_read_tokens: 600 },
-      continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
-      models: [
-        { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
-        { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
-      ],
-    },
-    models: [
-      {
-        model: 'gpt-image-2',
-        count: 3,
-        upstream_invocations: 4,
-        average_multiplier: 1.33,
-        completed: 2,
-        failed: 1,
-        queue_p50_ms: 800,
-        run_p95_ms: 4200,
+        queued: 0,
+        in_progress: 0,
+        reconciling: 0,
+        last_submitted_at: Date.now(),
       },
     ],
   }
@@ -99,6 +56,7 @@ vi.mock('../../lib/api-client', () => {
   }
 
   async function get(url: string): Promise<unknown> {
+    requests.push(url)
     if (url === '/api/me') {
       return {
         ok: true,
@@ -107,7 +65,11 @@ vi.mock('../../lib/api-client', () => {
       }
     }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
-    if (url.startsWith('/api/overview')) return overview
+    if (url.startsWith('/api/overview/errors')) return { window, total: 0, entries: [] }
+    if (url.startsWith('/api/overview')) {
+      if (session.failToday) throw new Error('today unavailable')
+      return overview
+    }
     if (url.startsWith('/api/client-errors')) {
       return {
         range: '7d',
@@ -131,6 +93,30 @@ vi.mock('../../lib/api-client', () => {
         ],
       }
     }
+    if (url.startsWith('/api/tasks?'))
+      return {
+        window,
+        tasks: [
+          {
+            id: 'task-1',
+            user_id: 'user-1',
+            device_id: 'device-1',
+            username: 'alice',
+            provider: 'openai-compat',
+            model: 'gpt-image-2',
+            status: 'failed',
+            submitted_at: Date.now(),
+            started_at: null,
+            completed_at: null,
+            error_type: 'upstream_error',
+            upstream_status: 500,
+            prompt: '商品主图',
+            attempt_count: 1,
+            upstream_invocation_count: 1,
+          },
+        ],
+        nextCursor: null,
+      }
     if (url.includes('/tasks')) return { tasks: [], nextCursor: null }
     if (url.startsWith('/api/users/')) {
       return {
@@ -196,6 +182,8 @@ function renderAt(path: string): void {
 
 beforeEach(() => {
   patch.mockClear()
+  requests.length = 0
+  session.failToday = false
   session.accountsLogin = true
   session.accountsSync = true
   document.cookie = 'sidebar_state=; path=/; max-age=0'
@@ -225,7 +213,7 @@ describe('sidebar navigation', () => {
     const business = await navGroup('经营')
     expect(await business.findByRole('link', { name: '用户' })).toBeInTheDocument()
     expect(business.getByRole('link', { name: '概览' })).toBeInTheDocument()
-    expect(business.getByRole('link', { name: '任务与设备' })).toBeInTheDocument()
+    expect(business.getByRole('link', { name: '生成任务' })).toBeInTheDocument()
   })
 
   it('hides the user entry when accounts:login is disabled', async () => {
@@ -293,48 +281,50 @@ describe('sync footprint', () => {
   })
 })
 
-describe('概览 command center', () => {
-  it('compares business numbers with the previous window', async () => {
+describe('今日概览', () => {
+  it('shows generation users and links to their exact daily tasks instead of unrelated statistics', async () => {
     renderAt('/overview')
-    const kpis = within(await screen.findByRole('region', { name: '业务指标' }))
-    expect(kpis.getByText('提交任务')).toBeInTheDocument()
-    expect(kpis.getByText('+50.0%')).toBeInTheDocument()
-    expect(kpis.getByText('新注册')).toBeInTheDocument()
+    expect(await screen.findByText('今天谁在生成')).toBeInTheDocument()
+    const user = await screen.findByRole('link', { name: '设计师' })
+    expect(user.getAttribute('href')).toMatch(/userId=user-1/)
+    expect(user.getAttribute('href')).toMatch(/from=/)
+    expect(user.getAttribute('href')).toMatch(/to=/)
+    expect(screen.getByRole('link', { name: '设计师的失败任务' }).getAttribute('href')).toMatch(
+      /status=failed/,
+    )
+    expect(screen.queryByText('Agent 输入缓存')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('时间范围')).not.toBeInTheDocument()
   })
 
-  it('lights each subsystem and lists boot failures under 需要处理', async () => {
+  it('opens the same user and time window in the task list', async () => {
     renderAt('/overview')
-    const health = within(await screen.findByRole('region', { name: '系统健康' }))
-    // 带着概览的时间窗过去，详情页看到的是同一批错误。
-    expect(health.getByRole('link', { name: /前端：注意，2/ })).toHaveAttribute(
-      'href',
-      '/errors?range=7d',
-    )
-    // 运维快照每一栏都取不到：灯显示取不到，不冒充正常。
-    expect(health.getByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
-    expect(
-      await screen.findByText('2 次启动失败，用户看到「工作台暂时无法打开」'),
-    ).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('link', { name: '设计师的失败任务' }))
+    expect(await screen.findByRole('button', { name: '商品主图' })).toBeInTheDocument()
+    const url = requests.find((url) => url.startsWith('/api/tasks?'))!
+    const params = new URLSearchParams(url.split('?')[1])
+    expect(params.get('userId')).toBe('user-1')
+    expect(params.get('status')).toBe('failed')
+    expect(params.has('from')).toBe(true)
+    expect(params.has('to')).toBe(true)
+  })
+
+  it('still shows errors and health when the daily task query fails', async () => {
+    session.failToday = true
+    renderAt('/overview')
+    expect(await screen.findByText(/今日任务加载失败/)).toBeInTheDocument()
+    expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '服务健康' })).toBeInTheDocument()
+  })
+
+  it('keeps missing health data visibly unknown and shows the daily error list independently', async () => {
+    renderAt('/overview')
+    const health = within(await screen.findByRole('region', { name: '服务健康' }))
+    expect(await health.findByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
+    expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
   })
 })
 
-describe('time range placement', () => {
-  it('shows the token-weighted Agent cache hit rate and per-model usage', async () => {
-    renderAt('/overview')
-    expect(await screen.findByText('Agent 输入缓存 · 7 天')).toBeInTheDocument()
-    expect(screen.getByText('64.0%')).toBeInTheDocument()
-    expect(screen.getByText('每轮首调')).toBeInTheDocument()
-    expect(screen.getByText('轮内续调')).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('row', { name: /model-b/ })).getByText('66.7%'),
-    ).toBeInTheDocument()
-  })
-
-  it('renders one range control for the whole 概览 page', async () => {
-    renderAt('/overview')
-    expect(await screen.findAllByLabelText('时间范围')).toHaveLength(1)
-  })
-
+describe('user detail controls', () => {
   it('renders no range control on the user detail page', async () => {
     renderAt('/users/user-1')
     expect(await screen.findByLabelText('任务状态筛选')).toBeInTheDocument()

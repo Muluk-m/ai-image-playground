@@ -10,9 +10,11 @@ import {
   DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
+  type GenerationTaskFilters,
   OPS_RANGE_LABEL,
   OPS_RANGES,
   type OpsRange,
+  parseGenerationTaskFilters,
   parseOpsRange,
   parseRange,
   parseSort,
@@ -201,4 +203,9 @@ export function clearInspirationItem<T extends { item?: string }>(
 ): Omit<T, 'item'> {
   const { item: _item, ...rest } = previous ?? ({} as T)
   return rest
+}
+
+export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {}
+export function parseGenerationTasksSearch(input: Record<string, unknown>): GenerationTasksSearch {
+  return { ...parseGenerationTaskFilters(input), ...parseTaskViewSearch(input) }
 }
