@@ -303,12 +303,14 @@ export async function completeMedia(userId: string, id: string) {
                     : observed
                       ? 'preview_failed'
                       : 'decode_failed'
+          const errorCode =
+            reason === 'pixel_limit' ? 'media_image_pixels_exceeded' : 'media_invalid_image'
           log.warn(
             {
               event: 'media.validation_failed',
               userId,
               mediaId: id,
-              errorCode: 'media_invalid_image',
+              errorCode,
               reason,
               bytes: row.bytes,
               declaredContentType: row.content_type,
@@ -320,7 +322,7 @@ export async function completeMedia(userId: string, id: string) {
             },
             'uploaded image validation failed',
           )
-          throw new MediaError(422, 'media_invalid_image')
+          throw new MediaError(422, errorCode)
         }
         // Never publish the client-writable key. This verified buffer is written to a fresh server-only key.
         const prefix = `objects/${userId}/${id}/${crypto.randomUUID()}`

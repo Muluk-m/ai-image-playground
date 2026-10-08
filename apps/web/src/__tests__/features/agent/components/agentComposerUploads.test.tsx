@@ -99,3 +99,78 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     vi.unstubAllGlobals()
   }
 })
+
+it.each([
+  ['media_image_pixels_exceeded', '40,000,000', false],
+  ['media_too_large', '10 MiB', false],
+  ['media_quota_exceeded', '云端存储空间不足', true],
+  ['media_invalid_image', '无法解析', true],
+])('shows the upload rejection %s on the actual composer and keeps send blocked', async (code, message, retryable) => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(`composer-error-${code}`)
+  const source = 'data:image/png;base64,iVBORw0KGgo='
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/api/capabilities'))
+        return Response.json({
+          'agent:attachments': true,
+          'agent:bulk-attachments': true,
+          attachmentLimits: {
+            logicalReferences: 100,
+            imageBytes: 10 * 1024 * 1024,
+            imagePixels: 40_000_000,
+            uploadConcurrency: 1,
+          },
+        })
+      if (input === source) return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]))
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({
+          id: 'rejected',
+          status: 'pending',
+          uploadUrl: 'https://storage.test/rejected',
+        })
+      if (input === 'https://storage.test/rejected') return new Response(null, { status: 200 })
+      if (input.endsWith('/complete')) return Response.json({ error: code }, { status: 422 })
+      return Response.json([])
+    }),
+  )
+  await loadRuntimeConfig(async () => Response.json({ bff: { enabled: true, baseUrl: '' } }))
+  await bootstrapClientCapabilities(true, '')
+  const session = agentDraft(null)
+  await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+  session.update({ prompt: 'inspect this', references: [{ id: 'attachment', dataUrl: source }] })
+  const send = vi.fn(async () => {})
+  useAgentStore.setState({
+    conversationId: null,
+    historyLoading: false,
+    historyFailed: false,
+    turn: 'idle',
+    send,
+  })
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(<AgentComposer doc={new CanvasDoc()} />)
+    })
+    await vi.waitFor(() =>
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain(message),
+    )
+    expect(host.querySelector('[role="alert"]')?.className).toContain('text-destructive')
+    expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')?.disabled).toBe(
+      true,
+    )
+    expect(
+      [...host.querySelectorAll('button')].some((button) => button.textContent?.includes('重试')),
+    ).toBe(retryable)
+    expect(send).not.toHaveBeenCalled()
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    vi.unstubAllGlobals()
+  }
+})
