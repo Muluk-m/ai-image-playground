@@ -10,12 +10,15 @@ import {
   DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
+  type GenerationTaskFilters,
   OPS_RANGE_LABEL,
   OPS_RANGES,
   type OpsRange,
+  parseGenerationTaskFilters,
   parseOpsRange,
   parseRange,
   parseSort,
+  parseTimeWindow,
   RANGE_LABEL,
   RANGES,
   type Range,
@@ -201,4 +204,11 @@ export function clearInspirationItem<T extends { item?: string }>(
 ): Omit<T, 'item'> {
   const { item: _item, ...rest } = previous ?? ({} as T)
   return rest
+}
+
+export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {}
+export function parseGenerationTasksSearch(input: Record<string, unknown>): GenerationTasksSearch {
+  if ((input.from !== undefined || input.to !== undefined) && !parseTimeWindow(input))
+    throw new Error('任务时间范围无效：需要完整的起止时间，范围不超过 31 天，且不能在未来。')
+  return { ...parseGenerationTaskFilters(input), ...parseTaskViewSearch(input) }
 }

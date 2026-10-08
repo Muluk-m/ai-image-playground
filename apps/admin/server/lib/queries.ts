@@ -668,7 +668,7 @@ const TASK_LIST_COLUMNS = sql`
   t.upstream_invocation_count
 `
 
-function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
+export function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
   return {
     id: String(row.id),
     kind: row.kind === 'analysis' ? 'analysis' : 'queue',
@@ -680,7 +680,7 @@ function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
     completed_at: nullableEpochMs(row.completed_at),
     error_type: row.error_type === null ? null : String(row.error_type),
     upstream_status: nullableNumber(row.upstream_status),
-    prompt: extractPrompt(row.request_payload),
+    prompt: typeof row.prompt === 'string' ? row.prompt : extractPrompt(row.request_payload),
     upstream_invocation_count: Number(row.upstream_invocation_count),
     attempt_count: Number(row.attempt_count),
   }

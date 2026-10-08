@@ -34,9 +34,11 @@ import {
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
 import { usePrivateAdminNavigation } from '@/lib/private-overlay'
+import { ADMIN_REFRESH_EVENT } from '@/lib/queries'
 
 export type NavTo =
   | '/overview'
+  | '/tasks'
   | '/users'
   | '/devices'
   | '/inspirations'
@@ -76,7 +78,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
-      { to: '/devices', icon: ClipboardList, label: '任务与设备' },
+      { to: '/tasks', icon: ClipboardList, label: '生成任务' },
+      { to: '/devices', icon: ClipboardList, label: '设备' },
     ],
   },
   {
@@ -129,8 +132,14 @@ export function AppSidebar() {
   const privateNavigation = usePrivateAdminNavigation()
 
   function refresh(): void {
+    const refreshEvent = new Event(ADMIN_REFRESH_EVENT, { cancelable: true })
+    window.dispatchEvent(refreshEvent)
     // 刷新只重拉数据，'me' 留着：动它会把登录态重检也拖进来。
-    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'me' })
+    void queryClient.invalidateQueries({
+      predicate: (query) =>
+        query.queryKey[0] !== 'me' &&
+        !(refreshEvent.defaultPrevented && query.queryKey[0] === 'generation-tasks'),
+    })
   }
 
   async function logout(): Promise<void> {

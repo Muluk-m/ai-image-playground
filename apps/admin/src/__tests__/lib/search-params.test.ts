@@ -4,6 +4,7 @@ import {
   parseDeviceDetailSearch,
   parseDevicesSearch,
   parseFullscreen,
+  parseGenerationTasksSearch,
   parseImgIdx,
   parseImgKind,
   parseRange,
@@ -141,5 +142,25 @@ describe('search-params', () => {
         status: 'failed',
       })
     })
+  })
+})
+
+describe('generation task time windows', () => {
+  it('defaults only when both time parameters are absent', () => {
+    expect(parseGenerationTasksSearch({})).toEqual({})
+    const to = Date.now(),
+      from = to - 1000
+    expect(parseGenerationTasksSearch({ from, to })).toMatchObject({ from, to })
+  })
+  it('rejects incomplete, malformed and oversized explicit ranges', () => {
+    const to = Date.now()
+    for (const input of [
+      { from: to - 1000 },
+      { to },
+      { from: 'bad', to },
+      { from: to - 32 * 86400_000, to },
+    ]) {
+      expect(() => parseGenerationTasksSearch(input)).toThrow('任务时间范围无效')
+    }
   })
 })
