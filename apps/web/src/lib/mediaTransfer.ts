@@ -84,7 +84,7 @@ export async function transferMedia(
         sent = await fetch(upload.uploadUrl, {
           method: 'PUT',
           credentials: 'omit',
-          signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+          signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]),
           headers: { 'content-type': contentType },
           body,
         })
@@ -110,12 +110,16 @@ export async function transferMedia(
   const complete = () =>
     retry(
       () =>
-        mediaJson<Upload>(`/${upload.id}/complete`, {
-          method: 'POST',
-          signal,
-          headers: { 'content-type': 'application/json' },
-          body: '{}',
-        }),
+        mediaJson<Upload>(
+          `/${upload.id}/complete`,
+          {
+            method: 'POST',
+            signal,
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          },
+          90_000,
+        ),
       signal,
       current,
     )

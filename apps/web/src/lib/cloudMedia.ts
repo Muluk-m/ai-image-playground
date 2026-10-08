@@ -66,13 +66,17 @@ export class MediaRequestError extends Error {
   }
 }
 
-export async function mediaJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function mediaJson<T>(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = 30_000,
+): Promise<T> {
   const response = await authenticatedBffFetch(`${bffBaseUrl()}/api/media${path}`, {
     ...init,
     cache: 'no-store',
     signal: init.signal
-      ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)])
-      : AbortSignal.timeout(30000),
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: string }
@@ -157,7 +161,7 @@ export async function resolveMediaSource(
         try {
           response = await fetch(variant === 'preview' ? access.previewUrl : access.originalUrl, {
             credentials: 'omit',
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(variant === 'original' ? 300_000 : 30_000),
           })
         } catch (error) {
           assertScope()
