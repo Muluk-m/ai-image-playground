@@ -2,6 +2,7 @@ import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
 import { FolderOpen, Images, LoaderCircle, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -53,6 +54,7 @@ import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
   attachmentSourceOwner,
   hasLocalAttachmentSources,
+  localAttachmentFailure,
   localAttachmentIdentity,
   readLocalAttachment,
 } from '../../../lib/localAttachmentSources'
@@ -132,6 +134,58 @@ const EDITOR_CLASS =
   'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
 
 const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
+
+/**
+ * 本地附件只渲染确认后的云端预览。上传刚就绪时字节还没换上，空 src 会被画成裂图，
+ * 所以转圈一直盖到 onLoad。
+ */
+function ComposerAttachmentThumb({
+  src,
+  className,
+  uploading = false,
+  failed = false,
+}: {
+  src: string
+  className: string
+  uploading?: boolean
+  failed?: boolean
+}) {
+  const deferred = Boolean(
+    mediaIdentity(src) || localAttachmentIdentity(src) || localAttachmentFailure(src),
+  )
+  const [settled, setSettled] = useState<{ src: string; ok: boolean }>()
+  const here = settled?.src === src ? settled : undefined
+  const pending = deferred && !failed && here === undefined
+  const hide = uploading || pending || failed || here?.ok === false
+  const onResolveError = useCallback(() => setSettled({ src, ok: false }), [src])
+  return (
+    <span className="relative inline-flex shrink-0">
+      <MediaImage
+        src={src}
+        alt=""
+        draggable={false}
+        onLoad={(event) => {
+          if (!event.currentTarget.getAttribute('src')) return
+          setSettled({ src, ok: true })
+        }}
+        onError={(event) => {
+          if (!event.currentTarget.getAttribute('src')) return
+          setSettled({ src, ok: false })
+        }}
+        onResolveError={onResolveError}
+        className={[className, hide ? 'opacity-0' : ''].filter(Boolean).join(' ')}
+      />
+      {(uploading || pending) && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-foreground"
+        >
+          <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+        </span>
+      )}
+    </span>
+  )
+}
 
 /** 附件菜单贴在回形针上方：两条目加内边距的实测高度，越界的那点由 ContextMenu 夹回视口。 */
 const ATTACH_MENU_HEIGHT = 96
@@ -432,12 +486,13 @@ export default function AgentComposer({
     renderMention: (imageIndex) => {
       const reference = draft.references[imageIndex]
       if (!reference) return null
+      const mentionUpload = attachmentUploadState(uploadReference(reference))
       return (
         <>
-          <MediaImage
+          <ComposerAttachmentThumb
             src={reference.dataUrl}
-            alt=""
-            draggable={false}
+            uploading={['queued', 'uploading', 'verifying'].includes(mentionUpload ?? '')}
+            failed={mentionUpload === 'failed'}
             className="h-6 w-6 shrink-0 rounded object-cover"
           />
           {referenceNames[imageIndex] && (
@@ -831,11 +886,10 @@ export default function AgentComposer({
               <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
                 <div className="flex -space-x-3">
                   {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
-                    <MediaImage
+                    <ComposerAttachmentThumb
                       key={one.id}
                       src={one.dataUrl}
                       className={`${STRIP_THUMB} ring-2 ring-muted`}
-                      alt=""
                     />
                   ))}
                 </div>
@@ -870,19 +924,12 @@ export default function AgentComposer({
                   className="group flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5"
                 >
                   <div className="relative shrink-0">
-                    <MediaImage
+                    <ComposerAttachmentThumb
                       src={reference.dataUrl}
-                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''} ${isUploading ? 'opacity-0' : ''}`}
-                      alt=""
+                      uploading={isUploading}
+                      failed={uploadState === 'failed'}
+                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
                     />
-                    {isUploading && (
-                      <span
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-foreground"
-                      >
-                        <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                      </span>
-                    )}
                     {masked && (
                       <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
                         MASK
