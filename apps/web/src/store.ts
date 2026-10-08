@@ -3,7 +3,9 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { accountRequired, requireAccount } from './auth/loginPrompt'
 import { discardPendingSubmission, queuePendingSubmission } from './auth/pendingSubmission'
+import { projectExperience } from './features/canvas/lib/projectRepository'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
+import { useCanvasProjectStore } from './features/canvas/projectStore'
 import { describeError, i18next } from './i18n'
 import {
   type ApiProfile,
@@ -457,9 +459,28 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
 /** 侧栏顶部列的三项。画布不在这里：它是下面那段列表，「全部」才去项目页。 */
 export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library', 'tools']
 
-/** 工作台入口：主区本身就要吃掉整屏宽度，侧栏在这里不出现。 */
+/** 工作台入口：主区铺满。侧栏开合见 `defaultSidebarExpanded`。 */
 export function isWorkbenchMode(mode: AppMode): boolean {
   return mode === 'canvas'
+}
+
+/**
+ * 侧栏没被手动开合时的默认。
+ * 首页等入口摊开。工作台里对话也摊开，发出消息不收起；画布才收起。
+ * 项目还没对上号时先收着，避免打开画布地址时宽栏闪一下。
+ */
+export function defaultSidebarExpanded(
+  appMode: AppMode,
+  experience: 'chat' | 'canvas' | null,
+): boolean {
+  if (!isWorkbenchMode(appMode)) return true
+  return experience === 'chat'
+}
+
+function currentSidebarExperience(): 'chat' | 'canvas' | null {
+  const { projects, activeId } = useCanvasProjectStore.getState()
+  const project = projects.find((one) => one.id === activeId)
+  return project ? projectExperience(project) : null
 }
 
 export function getPersistedState(state: AppState) {
@@ -639,8 +660,8 @@ interface AppState {
   createTarget: 'generate' | 'chat' | 'canvas'
   setCreateTarget: (target: 'generate' | 'chat' | 'canvas') => void
   /**
-   * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
-   * 用户按折叠键就以他的选择为准，换入口时回到默认。
+   * 侧栏此刻摊开还是收起。`null` 表示按入口默认：首页与对话摊开，画布收起。
+   * 用户按折叠键就写成明确的开或关，换入口时回到默认。
    */
   sidebarExpanded: boolean | null
   toggleSidebar: () => void
@@ -887,7 +908,11 @@ export const useStore = create<AppState>()(
       setCreateTarget: (createTarget) => set({ createTarget }),
       sidebarExpanded: null,
       toggleSidebar: () =>
-        set((s) => ({ sidebarExpanded: !(s.sidebarExpanded ?? !isWorkbenchMode(s.appMode)) })),
+        set((s) => ({
+          sidebarExpanded: !(
+            s.sidebarExpanded ?? defaultSidebarExpanded(s.appMode, currentSidebarExperience())
+          ),
+        })),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
         set((s) => ({ pendingCanvasImages: [...s.pendingCanvasImages, ...dataUrls] })),

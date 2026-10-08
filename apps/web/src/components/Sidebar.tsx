@@ -20,7 +20,13 @@ import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
 import { BRAND_WORDMARK, brandNeedsWordmark, currentLocale, useTranslation } from '../i18n'
 
-import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
+import {
+  APP_MODE_LABELS,
+  type AppMode,
+  defaultSidebarExpanded,
+  NAV_APP_MODES,
+  useStore,
+} from '../store'
 import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon, ToolboxIcon } from './icons'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
@@ -51,10 +57,13 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
-  // 工作台（对话与画布）是沉浸式的：默认不摊开这条宽栏，左上角 logo 回首页、旁边按钮可手动展开。
+  // 对话留着这条宽栏，发出消息也不收。画布默认收起：左上角 logo 回首页，旁边按钮可手动展开。
   // 别处默认摊开；用户在当前入口手动开合过，就以他的选择为准。
   const activeProject = projects.find((project) => project.id === activeId)
-  const expanded = useStore((state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode))
+  const sidebarPreference = useStore((state) => state.sidebarExpanded)
+  const expanded =
+    sidebarPreference ??
+    defaultSidebarExpanded(appMode, activeProject ? projectExperience(activeProject) : null)
   const toggleSidebar = () => useStore.setState({ sidebarExpanded: !expanded })
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
