@@ -44,6 +44,17 @@ describe('image admission before decoding', () => {
     await expect(prepareImage(animated, limits)).rejects.toThrow('attachment_animated_image')
     expect(decode).not.toHaveBeenCalled()
   })
+  it('finds JPEG EOI structurally and ignores exporter trailers, including stuffed entropy and progressive scans', () => {
+    const jpeg = Uint8Array.from([
+      255, 216,
+      // An EOI-looking byte sequence inside APP metadata is not the image end.
+      255, 224, 0, 6, 255, 217, 1, 2, 255, 194, 0, 8, 8, 0, 100, 0, 200, 1, 255, 218, 0, 2, 7, 255,
+      0, 9, 255, 208, 10, 255, 196, 0, 2, 255, 218, 0, 2, 11, 255, 255, 217, 58, 97, 99, 16, 0, 0,
+      0, 0,
+    ])
+    expect(inspectImage(jpeg.buffer)).toMatchObject({ width: 200, height: 100, dataEnd: 43 })
+    expect(() => inspectImage(jpeg.slice(0, 41).buffer)).toThrow('media_invalid_image')
+  })
   it('keeps thin images within a strict area cap even when the short side is pinned to one pixel', () => {
     expect(preparedDimensions(32768, 1, { ...limits, maxPixels: 1024 })).toEqual({
       width: 1024,
@@ -145,6 +156,16 @@ it('does not inflate a small validated original', async () => {
   const output = await prepareImage(input, limits)
   expect(output.data).toBe(input)
   expect(output.contentType).toBe('image/png')
+})
+it('removes JPEG exporter trailers even when the smaller original is retained', async () => {
+  codec({ width: 200, height: 100 })
+  const image = Uint8Array.from([255, 216, 255, 192, 0, 8, 8, 0, 100, 0, 200, 1, 255, 217])
+  const input = new Uint8Array(image.length + 24)
+  input.set(image)
+  input.set([58, 97, 99, 16], image.length)
+  const output = await prepareImage(input.buffer, limits)
+  expect(output.originalBytes).toBe(input.length)
+  expect(new Uint8Array(output.data)).toEqual(image)
 })
 it('fails explicitly when no encoder can meet the budget; never returns the original', async () => {
   codec({ encode: () => 3000000 })
