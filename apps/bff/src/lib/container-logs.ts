@@ -36,6 +36,7 @@ export function containerService(name: string): ServerLogService {
 
 /** Text lines carry their level as a word (cloudflared `ERR`, postgres `ERROR:`, `[warn]`). */
 function textLevel(line: string, stream: string): ServerLogLevel {
+  if (/^\s*at\s/.test(line)) return stream === 'stderr' ? 'warn' : 'info'
   if (/^(?:warn|warning)\b/i.test(line)) return 'warn'
   if (/\b(?:FATAL|PANIC|CRIT(?:ICAL)?)\b/i.test(line)) return 'fatal'
   if (/\b(?:ERR|ERROR|EXCEPTION)\b|Error:/i.test(line)) return 'error'
@@ -78,7 +79,14 @@ export function parseContainerLog(record: unknown): ServerLogEntry | null {
   }
   // Classify the header, not words or `at` frames buried in its stack.
   const header = line.split('\n', 1)[0]!
-  const message = redactLogText(line, 0, line.includes('\n') ? 16_000 : 4000)
+  const multiline = line.includes('\n')
+  const suffix = multiline && line.length > 16_000 ? '\n[TRUNCATED LOG TEXT]' : ''
+  // Cut at a complete line before scanning the whole prefix. A cut credential/URI
+  // could otherwise lose the delimiter that allows the redactor to recognize it.
+  const prefix = suffix
+    ? line.slice(0, Math.max(0, line.lastIndexOf('\n', 16_000 - suffix.length)))
+    : line
+  const message = redactLogText(prefix, 0, multiline ? 16_000 - suffix.length : 4000) + suffix
   return {
     id,
     at,
