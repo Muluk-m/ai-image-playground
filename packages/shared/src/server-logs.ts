@@ -1,6 +1,19 @@
 export const SERVER_LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const
 export type ServerLogLevel = (typeof SERVER_LOG_LEVELS)[number]
-export type ServerLogService = 'bff' | 'worker'
+/** Every container of a deployment that forwards its stdout/stderr (docs/deploy/server-logs.md). */
+export const SERVER_LOG_SERVICES = [
+  'bff',
+  'worker',
+  'admin',
+  'router',
+  'cloudflared',
+  'host-collector',
+  'pg-backup',
+  'migrate',
+  'web',
+  'other',
+] as const
+export type ServerLogService = (typeof SERVER_LOG_SERVICES)[number]
 
 export interface ServerLogEntry {
   id: string

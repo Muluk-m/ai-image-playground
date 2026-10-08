@@ -83,7 +83,7 @@ describe('authenticated server log explorer', () => {
     expect((await app.handle(new Request(`http://localhost${base}`))).status).toBe(401)
     for (const extra of [
       '&level=bad',
-      '&service=admin',
+      '&service=not-a-service',
       '&cursor=broken',
       `&from=${now - 8 * 86400_000}`,
       `&to=${now - 2 * 3600_000}`,

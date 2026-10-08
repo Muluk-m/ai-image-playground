@@ -421,6 +421,13 @@
       "when": 1790853000012,
       "tag": "0060_server_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1790853000013,
+      "tag": "0061_server_logs_containers",
+      "breakpoints": true
     }
   ]
 }

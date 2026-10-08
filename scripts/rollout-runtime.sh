@@ -27,9 +27,23 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 config_dir=${APP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/apps/$project}
 state_dir=$config_dir/releases
 mkdir -p "$state_dir/activated"
-if ! mkdir "$state_dir/lock" 2>/dev/null; then echo "Another rollout owns $state_dir/lock" >&2; exit 1; fi
 
 app_env=$config_dir/app.env
+# Docker's daemon dials the same Unix socket configured by app-compose.sh.
+log_forward_dir=${LOG_FORWARD_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/log-forward/$project}
+mkdir -p "$log_forward_dir"
+if ! mkdir "$state_dir/lock" 2>/dev/null; then echo "Another rollout owns $state_dir/lock" >&2; exit 1; fi
+
+logged_docker() {
+  operation=$1
+  shift
+  docker "$operation" --log-driver fluentd \
+    --log-opt "fluentd-address=unix://$log_forward_dir/forward.sock" \
+    --log-opt fluentd-async=true --log-opt fluentd-sub-second-precision=true \
+    --log-opt fluentd-buffer-limit=4096 --log-opt fluentd-write-timeout=1s \
+    --log-opt mode=non-blocking --log-opt max-buffer-size=1m \
+    --log-opt cache-disabled=false --log-opt cache-max-size=10m --log-opt cache-max-file=3 "$@"
+}
 network=${project}_application
 infra=${INFRA_NETWORK_NAME:-image-playground-infra}
 release=$project-r$(date -u +%Y%m%d%H%M%S)-$$
@@ -111,7 +125,7 @@ runtime() {
   role=$1
   name=$release-$role
   created="$created $name"
-  docker create --name "$name" --init --restart unless-stopped \
+  logged_docker create --name "$name" --init --restart unless-stopped \
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
     --network "$network" --env-file "$app_env" \
     -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \
@@ -126,7 +140,7 @@ runtime() {
 }
 
 start_router() {
-  docker run -d --name "$router" --init --restart unless-stopped --network "$network" \
+  logged_docker run -d --name "$router" --init --restart unless-stopped --network "$network" \
     --network-alias release-router --entrypoint bun \
     --mount "type=bind,source=$state_dir,target=/run/release,readonly" \
     "$image" run /app/scripts/release-router.ts >/dev/null
@@ -204,7 +218,7 @@ fi
 
 # --- New generation ---------------------------------------------------------------------------
 # Additive migrations are applied without touching any live application container.
-docker run --rm --network "$infra" --env-file "$app_env" \
+logged_docker run --rm --name "$release-migrate" --network "$infra" --env-file "$app_env" \
   --env-file "$config_dir/migrate.env" -e APP_ROLE=migrate \
   --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
   "$image" bun run /app/apps/bff/src/db/migrate.ts
@@ -367,4 +381,4 @@ fi
 # Ancillary services have no generation execution state. Their writes use the stable ingress.
 APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
   "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps \
-  admin host-collector pg-backup
+  admin host-collector pg-backup cloudflared
