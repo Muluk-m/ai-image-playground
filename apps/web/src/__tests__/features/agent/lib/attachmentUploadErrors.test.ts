@@ -49,3 +49,16 @@ it('explains the processing budget and does not offer an identical unsafe retry'
   )
   expect(canRetryAttachmentUpload('media_image_processing_limit')).toBe(false)
 })
+
+it('asks users to reselect local preprocessing failures instead of offering an ineffective upload retry', () => {
+  for (const code of [
+    'attachment_input_too_large',
+    'attachment_decode_limit',
+    'attachment_animated_image',
+    'attachment_compression_failed',
+    'attachment_compression_timeout',
+  ]) {
+    expect(canRetryAttachmentUpload(code)).toBe(false)
+    expect(attachmentUploadErrorMessage(code)).not.toContain('上传失败，请')
+  }
+})

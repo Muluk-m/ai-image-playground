@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+
+vi.mock('../../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import { describe, expect, it, vi } from 'vitest'
 import { agentDraft, DraftSession, removeProjectDraft } from '../../../../features/agent/lib/drafts'

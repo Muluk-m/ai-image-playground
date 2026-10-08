@@ -2,6 +2,12 @@ import type { AttachmentLimits } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 
 const messages = {
+  attachment_input_too_large: 'attachment.attachment_input_too_large',
+  attachment_decode_limit: 'attachment.attachment_decode_limit',
+  attachment_animated_image: 'attachment.attachment_animated_image',
+  attachment_compression_failed: 'attachment.attachment_compression_failed',
+  attachment_compression_timeout: 'attachment.attachment_compression_timeout',
+
   attachment_capability_unavailable: 'attachment.attachment_capability_unavailable',
   attachment_uploads_unavailable: 'attachment.attachment_uploads_unavailable',
   media_unsupported_image: 'attachment.media_unsupported_image',
@@ -44,6 +50,12 @@ export function attachmentUploadErrorMessage(code: string | undefined, limits?: 
 
 export function canRetryAttachmentUpload(code: string | undefined) {
   return ![
+    'attachment_input_too_large',
+    'attachment_decode_limit',
+    'attachment_animated_image',
+    'attachment_compression_failed',
+    'attachment_compression_timeout',
+    'media_invalid_image',
     'attachment_storage_failed',
     'attachment_read_failed',
     'attachment_capability_unavailable',
