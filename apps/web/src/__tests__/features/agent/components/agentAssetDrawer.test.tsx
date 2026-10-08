@@ -8,11 +8,15 @@ import type { AgentToolMessage } from '../../../../features/agent/types'
 const fixture = vi.hoisted(() => ({
   fetchConversations: vi.fn(async () => [{ id: 'other-1' }, { id: 'other-2' }]),
   fetchMessages: vi.fn(async (_id: string): Promise<unknown> => ({ messages: [], turns: [] })),
+  fetchBatchPlan: vi.fn(
+    async (_id: string): Promise<unknown> => ({ batch: { status: 'paused' }, items: [] }),
+  ),
 }))
 
 vi.mock('../../../../features/agent/lib/agentClient', () => ({
   fetchConversations: fixture.fetchConversations,
   fetchMessages: fixture.fetchMessages,
+  fetchBatchPlan: fixture.fetchBatchPlan,
 }))
 vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: (select: (state: { conversationId: string }) => unknown) =>
@@ -84,6 +88,8 @@ beforeEach(() => {
   observed.clear()
   fixture.fetchConversations.mockClear()
   fixture.fetchMessages.mockReset()
+  fixture.fetchBatchPlan.mockReset()
+  fixture.fetchBatchPlan.mockResolvedValue({ batch: { status: 'paused' }, items: [] })
   fixture.fetchMessages.mockImplementation(async (id) => history(id, id === 'other-1' ? 30 : 2))
   vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
   host = document.createElement('div')
@@ -161,4 +167,41 @@ it('loads only the visible page and fetches older conversation histories as the 
   expect(fixture.fetchMessages).toHaveBeenCalledTimes(2)
   expect(fixture.fetchMessages).toHaveBeenLastCalledWith('other-2')
   expect(document.querySelector('.studio-assets-end')).toBeNull()
+})
+
+it('lists the source images of a batch plan when the chat itself has no generated results', async () => {
+  fixture.fetchBatchPlan.mockResolvedValue({
+    batch: { status: 'paused' },
+    items: [
+      { inputs: [{ imageId: 'i1', mediaId: 'm1', name: '01-主图场景' }], progress: 'ready' },
+      {
+        inputs: [{ imageId: 'i2', mediaId: 'm2', name: '02-场景二-烛光深色墙' }],
+        progress: 'ready',
+      },
+    ],
+  })
+  await act(async () => {
+    root.render(
+      <AgentAssetDrawer
+        messages={[
+          {
+            kind: 'tool',
+            id: 'plan',
+            turnId: 'turn',
+            toolCallId: 'call',
+            batchId: 'batch-1',
+            title: '48张图片背景优化计划',
+            status: 'succeeded',
+          },
+        ]}
+        onClose={() => {}}
+        onPreview={() => {}}
+      />,
+    )
+  })
+  await vi.waitFor(() => expect(document.body.textContent).toContain('01-主图场景'))
+  expect(document.body.textContent).toContain('02-场景二-烛光深色墙')
+  expect(document.body.textContent).not.toContain('这段对话还没有产物')
+  expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('batch-1')
+  expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(2)
 })
