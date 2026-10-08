@@ -44,7 +44,9 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-it('honors the server upload concurrency of one across independent attachment uploads', async () => {
+it.each([
+  1, 4,
+])('honors server upload concurrency %i across independent attachments', async (concurrency) => {
   let reservations = 0
   let release!: () => void
   const barrier = new Promise<void>((resolve) => {
@@ -52,7 +54,11 @@ it('honors the server upload concurrency of one across independent attachment up
   })
   await boot(async (input, init) => {
     const url = String(input)
-    if (url.endsWith('/api/capabilities')) return Response.json(manifest)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        ...manifest,
+        attachmentLimits: { ...manifest.attachmentLimits, uploadConcurrency: concurrency },
+      })
     if (url.startsWith('data:'))
       return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
     if (url.endsWith('/uploads')) {
@@ -69,7 +75,7 @@ it('honors the server upload concurrency of one across independent attachment up
     }
     return Response.json({ id: url.split('/').slice(-2)[0], status: 'ready' })
   })
-  const originals = [1, 2, 3].map((value) =>
+  const originals = [1, 2, 3, 4, 5, 6, 7].map((value) =>
     registerLocalAttachmentSource(
       `data:image/png;base64,${btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10, value))}`,
       1024,
@@ -88,12 +94,12 @@ it('honors the server upload concurrency of one across independent attachment up
   try {
     await vi.waitFor(() => expect(reservations).toBeGreaterThan(0))
     await new Promise((resolve) => setTimeout(resolve, 40))
-    expect(reservations).toBe(1)
+    expect(reservations).toBe(concurrency)
   } finally {
     release()
     await uploading
   }
-  expect(reservations).toBe(3)
+  expect(reservations).toBe(7)
 })
 
 it.each([

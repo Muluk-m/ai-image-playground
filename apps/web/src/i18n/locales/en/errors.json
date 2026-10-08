@@ -120,6 +120,7 @@
     "attachment_uploads_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",
     "media_too_large": "This image file exceeds the {{maxSize}} limit. Compress it and upload it again.",
     "media_not_readable": "Image storage is temporarily unavailable. Please retry shortly.",
-    "media_size_mismatch": "The uploaded image failed verification. Retry to upload it again."
+    "media_size_mismatch": "The uploaded image failed verification. Retry to upload it again.",
+    "media_image_processing_limit": "This image requires too much processing. Reduce its dimensions or export it again before uploading."
   }
 }

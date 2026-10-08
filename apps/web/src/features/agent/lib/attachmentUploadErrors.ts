@@ -10,6 +10,7 @@ const messages = {
   media_image_pixels_exceeded: 'attachment.media_image_pixels_exceeded',
   media_quota_exceeded: 'attachment.media_quota_exceeded',
   media_invalid_image: 'attachment.media_invalid_image',
+  media_image_processing_limit: 'attachment.media_image_processing_limit',
   media_processing_busy: 'attachment.media_processing_busy',
   media_storage_unavailable: 'attachment.media_storage_unavailable',
   media_not_readable: 'attachment.media_not_readable',
@@ -50,6 +51,7 @@ export function canRetryAttachmentUpload(code: string | undefined) {
     'media_image_too_large',
     'media_too_large',
     'media_image_pixels_exceeded',
+    'media_image_processing_limit',
     'media_unsupported_image',
     'media_descriptor_mismatch',
   ].includes(code ?? '')
