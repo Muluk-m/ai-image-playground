@@ -10,6 +10,7 @@ import {
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
+import { useHeldLoading } from '../../../hooks/useHeldLoading'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
@@ -74,6 +75,8 @@ export default function CanvasMode() {
   const projectsLoaded = useCanvasProjectStore((state) => state.loaded)
   const routeError = useCanvasProjectStore((state) => state.routeError)
   const projectError = useCanvasProjectStore((state) => state.error)
+  const catalogPending = !projectsLoaded && !routeError && !projectError
+  const showCatalogMark = useHeldLoading(catalogPending)
   useEffect(() => {
     void openCurrentProject()
   }, [])
@@ -107,22 +110,38 @@ export default function CanvasMode() {
         </div>
       </div>
     ) : (
-      <CanvasLoading label={t('project.restoring')} />
+      <CanvasLoading label={t('project.restoring')} mark={showCatalogMark} />
     )
   return <CanvasWorkspaceView key={workspace.id} workspace={workspace} />
 }
 
 /**
- * 打开画布时的等待：和画布同一张点阵底，中间只有呼吸的品牌标。文字留给读屏，不摆在面上。
- * 淡入有延迟——本机缓存命中时几十毫秒就读完，一闪而过的遮罩比没有更扎眼。
+ * 打开画布时的等待。目录还没到时底下什么都没有，点阵先垫上；
+ * 品牌标要等读取真的久了才出现，短等待不画它。
+ * `decorative` 时只负责看见的那一层，读屏状态由外层另给——画布在对话视图里是藏起来的。
  */
-function CanvasLoading({ label }: { label: string }) {
+function CanvasLoading({
+  label,
+  mark = true,
+  decorative = false,
+}: {
+  label: string
+  mark?: boolean
+  decorative?: boolean
+}) {
   return (
-    <div role="status" aria-label={label} className="studio-canvas-loading">
-      <div className="studio-canvas-loading-mark">
-        <img src="/brand/muvloom-mark.svg" alt="" />
-      </div>
-      <span className="sr-only">{label}</span>
+    <div
+      className="studio-canvas-loading"
+      role={decorative ? undefined : 'status'}
+      aria-label={decorative ? undefined : label}
+      aria-hidden={decorative ? true : undefined}
+    >
+      {mark && (
+        <div className="studio-canvas-loading-mark">
+          <img src="/brand/muvloom-mark.svg" alt="" />
+        </div>
+      )}
+      {!decorative && <span className="sr-only">{label}</span>}
     </div>
   )
 }
@@ -372,6 +391,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     workspace.subscribe,
     workspace.getSnapshot,
   )
+  const showRestoreMark = useHeldLoading(loading && !loadFailed)
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(window as unknown as { __canvasEditor?: CanvasEditor }).__canvasEditor = editor
@@ -389,6 +409,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       className="studio-shell fixed bottom-0 right-0 z-30"
       style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
     >
+      {loading && !loadFailed && (
+        <span className="sr-only" role="status">
+          {t('loading.restoring')}
+        </span>
+      )}
       {showWelcome && !mobile && !loading && !loadFailed && !hasAgent ? (
         <ProjectWelcome workspace={workspace} />
       ) : (
@@ -481,7 +506,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             data-project-view={hasAgent ? projectView : undefined}
             data-mobile-view={projectView}
             data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
-            inert={loading || loadFailed}
+            inert={loadFailed}
           >
             {!hasAgent && (
               <div
@@ -509,6 +534,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             {open || mobile || (hasAgent && projectView === 'chat') ? (
               <div
                 className={`studio-chat-column ${hasAgent && projectView === 'chat' ? 'studio-chat-column--page' : ''}`}
+                inert={!hasAgent && (loading || loadFailed)}
               >
                 {mobileChatSheet && mobileChatOpen && (
                   <button
@@ -751,8 +777,12 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <section
               className="studio-canvas"
               aria-label={t('workspace.canvasAria')}
-              inert={hasAgent && projectView !== 'canvas'}
+              inert={loading || loadFailed || (hasAgent && projectView !== 'canvas')}
             >
+              {(loading || loadFailed) && (
+                <div className="studio-canvas-ground" aria-hidden="true" />
+              )}
+              {showRestoreMark && <CanvasLoading label={t('loading.restoring')} decorative />}
               {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
               <PlaceholderOverlay editor={editor} />
               <CanvasVideoOverlay editor={editor} />
@@ -851,9 +881,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             </button>
           </div>
         </div>
-      ) : (
-        loading && <CanvasLoading label={t('loading.restoring')} />
-      )}
+      ) : null}
     </div>
   )
 }
