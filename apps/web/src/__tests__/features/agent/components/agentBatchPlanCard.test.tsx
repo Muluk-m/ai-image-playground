@@ -104,6 +104,44 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('groups a running batch by status and leaves the waiting pile collapsed', async () => {
+  saved = {
+    ...saved,
+    batch: { ...saved.batch, status: 'running', submittedCount: 1, executionEnabled: true },
+    items: saved.items.map((item, index) =>
+      index === 0
+        ? {
+            ...item,
+            progress: 'in_flight',
+            execution: {
+              taskId: 'task-0',
+              status: 'in_progress',
+              attempt: 1,
+              actualCredits: null,
+            },
+          }
+        : { ...item, progress: 'ready' },
+    ),
+  }
+  await render()
+  const running = host.querySelector('[data-batch-status="in_flight"]')
+  const waiting = host.querySelector('[data-batch-status="ready"]')
+  expect(running?.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+  expect(running?.querySelectorAll('details')).toHaveLength(1)
+  expect(running?.textContent).toContain('执行中')
+  expect(waiting?.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
+  expect(waiting?.textContent).toContain('待派发')
+  expect(waiting?.textContent).toContain('99')
+  expect(waiting?.querySelector('details')).toBeNull()
+  expect(waiting?.querySelector('img')).toBeNull()
+  expect(host.querySelectorAll('summary img')).toHaveLength(1)
+  expect(host.querySelector('nav')).toBeNull()
+  act(() => waiting?.querySelector('button')?.click())
+  expect(waiting?.querySelectorAll('details')).toHaveLength(20)
+  expect(waiting?.textContent).toContain('1 / 5')
+  expect(host.querySelectorAll('summary img')).toHaveLength(21)
+})
+
 it('keeps plan fields to the card scale so a long rule stays in its box', async () => {
   await render()
   const rule = [...host.querySelectorAll('label')].find((label) =>

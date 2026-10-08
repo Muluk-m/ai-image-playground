@@ -652,6 +652,7 @@
     "confirmationItem": "Included in this confirmation",
     "phaseKeepsPaused": "The batch will remain paused after confirmation",
     "phaseConfirmedPaused": "Confirmed. The batch remains paused",
+    "statusBoard": "Task status",
     "pagination": "Batch item pages",
     "previousPage": "Previous page",
     "nextPage": "Next page",
