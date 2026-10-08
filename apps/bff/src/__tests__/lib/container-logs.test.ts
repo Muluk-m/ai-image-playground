@@ -88,4 +88,19 @@ describe('container log records', () => {
     expect(parseContainerLog(42)).toBeNull()
     expect(parseContainerLog({ ...record('x'), date: 1e20 })).toBeNull()
   })
+  it('cleans version strings and connection URI credentials before storage', () => {
+    const input = record(
+      JSON.stringify({
+        level: 30,
+        time: Date.now(),
+        version: 'v\u0000x',
+        msg: 'failed: postgresql://app:plain-password@db/app',
+      }),
+    )
+    const entry = parseContainerLog(input)!
+    expect(entry.version).toBe('vx')
+    expect(JSON.stringify(entry)).not.toContain('plain-password')
+    const text = parseContainerLog(record('failed: redis://user:plain-password@db/0'))!
+    expect(text.message).not.toContain('plain-password')
+  })
 })

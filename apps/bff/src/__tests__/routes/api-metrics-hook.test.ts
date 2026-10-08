@@ -120,4 +120,29 @@ describe('API statistics on the real request pipeline', () => {
     expect(requests).toBe(2)
     expect(clientErrors).toBe(1)
   })
+  it('rejects oversized bodies before parsing and invalid batch envelopes', async () => {
+    const send = (body: BodyInit, headers: Record<string, string> = {}) =>
+      app.handle(
+        new Request('http://localhost/internal/logs/ingest', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer fixture-service-credential-alpha',
+            'content-type': 'application/json',
+            ...headers,
+          },
+          body,
+        }),
+      )
+    expect((await send('[]', { 'content-length': String(9 * 1024 * 1024) })).status).toBe(413)
+    expect((await send(JSON.stringify(Array(20_001).fill(null)))).status).toBe(413)
+    expect((await send('{')).status).toBe(400)
+    expect((await send('{}')).status).toBe(400)
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1))
+        controller.close()
+      },
+    })
+    expect((await send(stream)).status).toBe(413)
+  })
 })

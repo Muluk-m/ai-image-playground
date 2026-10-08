@@ -247,6 +247,33 @@ afterEach(() => {
 })
 
 describe('rollout-runtime.sh: finite drain', () => {
+  it('preserves a socket path with spaces as one Docker argument', () => {
+    currentGeneration()
+    const docker = join(root, 'bin/docker')
+    const source = readFileSync(docker, 'utf8')
+    writeFileSync(
+      docker,
+      source.replace(
+        'cmd=$1',
+        `for arg in "$@"; do printf '%s\\n' "$arg" >> "$MOCK_ROOT/args"; done\ncmd=$1`,
+      ),
+    )
+    const socketDir = join(root, 'path with spaces')
+    expect(run({ LOG_FORWARD_DIR: socketDir }).status).toBe(0)
+    const args = readFileSync(join(root, 'args'), 'utf8').split('\n')
+    expect(
+      args.filter((arg) => arg === `fluentd-address=unix://${socketDir}/forward.sock`),
+    ).toHaveLength(3)
+    expect(args).not.toContain(`fluentd-address=unix://${root}/path`)
+  })
+  it('does not leave a rollout lock when its log directory cannot be created', () => {
+    currentGeneration()
+    const blocked = join(root, 'blocked')
+    writeFileSync(blocked, 'file')
+    expect(run({ LOG_FORWARD_DIR: join(blocked, 'child') }).status).not.toBe(0)
+    expect(existsSync(releases('lock'))).toBe(false)
+    expect(run().status).toBe(0)
+  })
   it('drains the previous generation, then stops and removes it and updates the ancillary services', () => {
     currentGeneration()
     const result = run()
@@ -506,7 +533,7 @@ describe('rollout-runtime.sh: release router', () => {
       result.log,
       /^rename fixture-release-router fixture-release-router-retiring$/,
     )
-    const started = indexOf(result.log, /^run -d --name fixture-release-router .*fixture:new/)
+    const started = indexOf(result.log, /^run .* -d --name fixture-release-router .*fixture:new/)
     const retired = indexOf(result.log, /^stop -t \d+ fixture-release-router-retiring$/)
     expect(renamed).toBeGreaterThan(-1)
     expect(started).toBeGreaterThan(renamed)

@@ -68,7 +68,7 @@ export function parseContainerLog(record: unknown): ServerLogEntry | null {
     let version = ''
     try {
       const value = (JSON.parse(line) as { version?: unknown }).version
-      if (typeof value === 'string') version = value.slice(0, 200)
+      if (typeof value === 'string') version = redactLogText(value).slice(0, 200)
     } catch {
       /* Not JSON after all: kept below as text. */
     }
