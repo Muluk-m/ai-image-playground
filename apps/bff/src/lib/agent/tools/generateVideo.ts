@@ -8,6 +8,7 @@ import type {
 import {
   AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
   agentTitleLine,
+  canonicalVideoVoice,
   clampVideoPreset,
   VIDEO_ASPECT_RATIOS,
   VIDEO_DURATIONS,
@@ -38,6 +39,8 @@ function videoRecord(
   firstFrameId: string | null,
   referenceIds: readonly string[] = [],
   lastFrameId?: string,
+  keyframes: readonly { imageId: string; timestampSeconds: number }[] = [],
+  voices: readonly string[] = [],
 ): VideoGenerationRecord {
   return {
     model,
@@ -47,18 +50,68 @@ function videoRecord(
     ...(firstFrameId ? { firstFrameId } : {}),
     ...(lastFrameId ? { lastFrameId } : {}),
     ...(referenceIds.length ? { referenceIds: [...referenceIds] } : {}),
+    ...(keyframes.length
+      ? {
+          keyframes: keyframes.map((frame) => ({
+            imageId: frame.imageId,
+            timestampSeconds: frame.timestampSeconds,
+          })),
+        }
+      : {}),
+    ...(voices.length ? { voices: [...voices] } : {}),
   }
 }
 
-/** 参考图 id：去重，并去掉与起始帧相同的那张——一张图在一段视频里只有一种用法。 */
+function stringIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((id): id is string => typeof id === 'string' && id !== '')
+}
+
+/** 参考图 id：去重，并去掉与首尾帧相同的那张——一张图在一段视频里只有一种用法。 */
 function referenceIdsOf(
   imageId: unknown,
   referenceImageIds: unknown,
   lastFrameId?: unknown,
 ): string[] {
-  if (!Array.isArray(referenceImageIds)) return []
-  const ids = referenceImageIds.filter((id): id is string => typeof id === 'string' && id !== '')
-  return [...new Set(ids)].filter((id) => id !== imageId && id !== lastFrameId)
+  return [...new Set(stringIds(referenceImageIds))].filter(
+    (id) => id !== imageId && id !== lastFrameId,
+  )
+}
+
+interface PlannedKeyframe {
+  readonly imageId: string
+  readonly timestampSeconds: number
+}
+
+/** 模型填的关键帧。残缺项丢掉，剩下的交给共享校验说清楚为什么不行。 */
+function keyframePlans(value: unknown): PlannedKeyframe[] {
+  if (!Array.isArray(value)) return []
+  const plans: PlannedKeyframe[] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue
+    const imageId = (item as { imageId?: unknown }).imageId
+    const timestampSeconds = (item as { timestampSeconds?: unknown }).timestampSeconds
+    if (typeof imageId !== 'string' || imageId === '') continue
+    if (typeof timestampSeconds !== 'number') continue
+    plans.push({ imageId, timestampSeconds })
+  }
+  return plans
+}
+
+/** 认得出的声音收成规范 id；认不出的原样留下，好让校验报「不认识」。 */
+function voicePlans(value: unknown): string[] {
+  return stringIds(value).map((id) => canonicalVideoVoice(id) ?? id)
+}
+
+/** 同一张图出现在两种角色里。参考图与首尾帧的别名重叠已在 referenceIdsOf 里去掉。 */
+function imageRoleClash(ids: readonly (string | null | undefined)[]): boolean {
+  const seen = new Set<string>()
+  for (const id of ids) {
+    if (!id) continue
+    if (seen.has(id)) return true
+    seen.add(id)
+  }
+  return false
 }
 
 /** 参数说明与系统提示里的参考图一句话，按矩阵写这个模型带不带得了、最多几张、清晰度封顶。 */
@@ -80,6 +133,7 @@ function referencePlan(
   referenceCount: number,
   hasFirstFrame: boolean,
   hasLastFrame = false,
+  guides: { keyframes?: readonly PlannedKeyframe[]; voices?: readonly string[] } = {},
 ): { preset: VideoPreset; rejection: VideoRejection | null } {
   // 共享校验读全局矩阵，看不到渠道开关；渠道没声明就在这里先按「带不了」驳回。
   if (referenceCount > 0 && !support.referenceImages)
@@ -89,6 +143,26 @@ function referencePlan(
         code: 'referenceUnsupported',
         params: { label: support.label },
         reason: `${support.label} 不支持参考图`,
+      },
+    }
+  const voices = (guides.voices ?? []).filter((id) => id !== '')
+  const keyframes = guides.keyframes ?? []
+  if (voices.length > 0 && !support.voices)
+    return {
+      preset,
+      rejection: {
+        code: 'voicesUnsupported',
+        params: { label: support.label },
+        reason: `${support.label} 不支持预设声音`,
+      },
+    }
+  if (keyframes.length > 0 && !support.keyframes)
+    return {
+      preset,
+      rejection: {
+        code: 'keyframesUnsupported',
+        params: { label: support.label },
+        reason: `${support.label} 不支持关键帧`,
       },
     }
   const cap = referenceCount > 0 ? support.referenceImages?.maxResolution : undefined
@@ -105,6 +179,7 @@ function referencePlan(
       : preset
   const first = hasFirstFrame ? 1 : 0
   const frames = first + (hasLastFrame ? 1 : 0)
+  const keyframeStart = frames + referenceCount
   const rejection = videoRequestRejection(
     modelId,
     {
@@ -113,11 +188,46 @@ function referencePlan(
       resolution: capped.resolution,
       ...(hasFirstFrame ? { first_frame_index: 0 } : {}),
       ...(hasLastFrame ? { last_frame_index: first } : {}),
-      reference_image_indices: Array.from({ length: referenceCount }, (_, i) => i + frames),
+      ...(referenceCount
+        ? {
+            reference_image_indices: Array.from(
+              { length: referenceCount },
+              (_, index) => index + frames,
+            ),
+          }
+        : {}),
+      ...(keyframes.length
+        ? {
+            keyframes: keyframes.map((frame, index) => ({
+              image_index: keyframeStart + index,
+              timestamp_seconds: frame.timestampSeconds,
+            })),
+          }
+        : {}),
+      ...(voices.length ? { voices: [...voices] } : {}),
     },
-    referenceCount + frames,
+    referenceCount + frames + keyframes.length,
   )
   return { preset: capped, rejection }
+}
+
+function roleRefusal(): {
+  content: [{ type: 'text'; text: string }]
+  details: Record<string, never>
+} {
+  return {
+    content: [
+      {
+        type: 'text',
+        text: [
+          '没有提交这次生视频：同一张图只能担任一种角色。',
+          '首帧、尾帧、参考图和关键帧各用不同的图，定了再重试。不要假装已经出片。',
+          'unsupported_video_references {"code":"keyframeImageMissing"}',
+        ].join('\n'),
+      },
+    ],
+    details: {},
+  }
 }
 
 function referenceRefusalText(
@@ -186,7 +296,7 @@ function videoParameters(support: VideoModelSupport | null) {
           agentVideoModels()
             .map(
               ({ target, support }) =>
-                `${target.model}（${support.label}：${supportText(support)}；首帧${support.firstFrame ? '可用' : '不可用'}，尾帧${support.lastFrame ? '可用' : '不可用'}；${referenceText(support)}）`,
+                `${target.model}（${support.label}：${supportText(support)}；首帧${support.firstFrame ? '可用' : '不可用'}，尾帧${support.lastFrame ? '可用' : '不可用'}；${referenceText(support)}${support.voices ? `预设声音最多 ${support.voices.max} 个。` : ''}${support.keyframes ? `关键帧最多 ${support.keyframes.max} 个。` : ''}）`,
             )
             .join('；') || '暂无'
         }。`,
@@ -219,6 +329,26 @@ function videoParameters(support: VideoModelSupport | null) {
         description: `参考图的图片 id（全能参考）：人物、道具、场景各一张，按提示词里「图片1、图片2」的顺序排。${support ? referenceText(support) : ''}用户没给参考图就别填；只想让一张图动起来用 imageId。`,
       }),
     ),
+    voiceIds: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 32 }), {
+        maxItems: 3,
+        description:
+          '预设声音 id，按提示词里 <AUDIO_0> 的顺序，最多 3 个。常用 ara、eve、leo、rex、sal，其它预设 id 也可。不支持的模型别填。',
+      }),
+    ),
+    keyframes: Type.Optional(
+      Type.Array(
+        Type.Object({
+          imageId: Type.String({ minLength: 1, maxLength: 128 }),
+          timestampSeconds: Type.Number({ exclusiveMinimum: 0 }),
+        }),
+        {
+          maxItems: 4,
+          description:
+            '片中关键帧，最多 4 个。每项是图片 id 和秒。时间必须在成片内部并对齐到 1/3 秒，不能当作首尾帧。一张图只担任一种角色。',
+        },
+      ),
+    ),
     durationSeconds: Type.Optional(
       Type.Number({ description: `视频时长（秒）。${named} ${durations}。${ASK_ANYWAY}` }),
     ),
@@ -244,7 +374,7 @@ const GUIDANCE_BASE =
 function videoGuidance(): string {
   const support = videoModel()?.support
   if (!support) return GUIDANCE_BASE
-  return `${GUIDANCE_BASE}默认视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}工具 model 参数列出可用模型及能力；用户指定模型就原样填 ID，不指定时可根据首尾帧和参考图需求选择支持的模型。尾帧填 lastFrameId。用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档，按回执说明限制。不要声称看过生成视频的运动或音频内容；图片查看工具只能看封面。`
+  return `${GUIDANCE_BASE}默认视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}工具 model 参数列出可用模型及能力；用户指定模型就原样填 ID，不指定时可根据首尾帧和参考图需求选择支持的模型。尾帧填 lastFrameId。用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。预设声音按提示词里 <AUDIO_0> 的顺序填 voiceIds，片中时刻填 keyframes（落在成片内部，不能当首尾）。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档，按回执说明限制。不要声称看过生成视频的运动或音频内容；图片查看工具只能看封面。`
 }
 
 const FIELD_PARAMS: Record<VideoPresetConflict['field'], string> = {
@@ -305,6 +435,8 @@ function referenceRejectionFor(args: {
   readonly lastFrameId?: string | undefined
   readonly imageId: string | null
   readonly references: readonly string[]
+  readonly keyframes?: readonly PlannedKeyframe[]
+  readonly voices?: readonly string[]
   readonly durationSeconds?: number | undefined
   readonly resolution?: VideoPreset['resolution'] | undefined
   readonly aspectRatio?: VideoPreset['aspectRatio'] | undefined
@@ -324,6 +456,7 @@ function referenceRejectionFor(args: {
     args.references.length,
     args.imageId !== null,
     Boolean(args.lastFrameId),
+    { keyframes: args.keyframes, voices: args.voices },
   )
   return plan.rejection !== null
 }
@@ -352,27 +485,35 @@ export const generateVideo = defineAgentTool({
     lastFrameId,
     model,
     referenceImageIds,
+    voiceIds,
+    keyframes: keyframeArgs,
     durationSeconds,
     resolution,
     aspectRatio,
   }) {
     const written = typeof prompt === 'string' ? prompt : undefined
     const references = referenceIdsOf(imageId, referenceImageIds, lastFrameId)
+    const keyframes = keyframePlans(keyframeArgs)
+    const voices = voicePlans(voiceIds)
     const first = typeof imageId === 'string' && imageId ? imageId : null
-    // 档位或参考图做不到就不提交，也就不会有产物。画布跟着不占位——`outputCount` 必须与真正提交的
-    // 张数同一个算式，否则那里会空出一个永远填不上的框。
+    const last = typeof lastFrameId === 'string' && lastFrameId ? lastFrameId : undefined
+    // 档位、参考图、声音或关键帧做不到就不提交，也就不会有产物。画布跟着不占位——`outputCount`
+    // 必须与真正提交的张数同一个算式，否则那里会空出一个永远填不上的框。
     const refused =
       conflictsFor({ model, durationSeconds, resolution, aspectRatio }).length > 0 ||
+      imageRoleClash([first, last, ...references, ...keyframes.map((frame) => frame.imageId)]) ||
       referenceRejectionFor({
         imageId: first,
         model,
-        lastFrameId,
+        lastFrameId: last,
         references,
+        keyframes,
+        voices,
         durationSeconds,
         resolution,
         aspectRatio,
       })
-    const anchor = first ?? lastFrameId ?? references[0]
+    const anchor = first ?? last ?? references[0] ?? keyframes[0]?.imageId
     return {
       title: written?.trim() ? `视频：${agentTitleLine(written, TITLE_MAX_CHARS)}` : '生视频',
       // 视频任务一次只出一段，图片参数里的 n 对它没有意义。
@@ -383,8 +524,9 @@ export const generateVideo = defineAgentTool({
             anchor,
             references: [
               ...(first ? [first] : []),
-              ...(lastFrameId ? [lastFrameId] : []),
+              ...(last ? [last] : []),
               ...references,
+              ...keyframes.map((frame) => frame.imageId),
             ],
           }
         : {}),
@@ -421,6 +563,21 @@ export const generateVideo = defineAgentTool({
         params.referenceImageIds?.map((id) => context.images.identify(id)),
         lastFrameId,
       )
+      const keyframes = keyframePlans(params.keyframes).map((frame) => ({
+        ...frame,
+        imageId: context.images.identify(frame.imageId),
+      }))
+      const voices = voicePlans(params.voiceIds)
+      // 一张图两种角色是正常回执，不能抛：抛了 onError 会把整轮停掉。
+      if (
+        imageRoleClash([
+          firstFrameId,
+          lastFrameId,
+          ...referenceIds,
+          ...keyframes.map((frame) => frame.imageId),
+        ])
+      )
+        return roleRefusal()
       const plan = referencePlan(
         target.model,
         support,
@@ -429,6 +586,7 @@ export const generateVideo = defineAgentTool({
         referenceIds.length,
         Boolean(firstFrameId),
         Boolean(lastFrameId),
+        { keyframes, voices },
       )
       if (plan.rejection)
         return {
@@ -453,12 +611,25 @@ export const generateVideo = defineAgentTool({
           return true
         },
       )
-      if (source && last && source.imageId === last.imageId)
-        throw new AgentToolError('invalid_params', '首尾帧必须引用不同图片')
-      const inputImages = [...(source ? [source] : []), ...(last ? [last] : []), ...references].map(
-        (one) => one.dataUrl,
-      )
+      const keyframeImages = keyframes.length
+        ? await requireAgentImages(
+            context.images,
+            keyframes.map((frame) => frame.imageId),
+          )
+        : []
+      const ordered = [
+        ...(source ? [source] : []),
+        ...(last ? [last] : []),
+        ...references,
+        ...keyframeImages,
+      ]
+      const inputImages = ordered.map((one) => one.dataUrl)
       const referenceStart = (source ? 1 : 0) + (last ? 1 : 0)
+      const keyframeStart = referenceStart + references.length
+      const recordedKeyframes = keyframeImages.map((image, index) => ({
+        imageId: image.imageId,
+        timestampSeconds: keyframes[index]!.timestampSeconds,
+      }))
       const video = {
         duration_seconds: preset.duration,
         aspect_ratio: preset.aspectRatio,
@@ -466,14 +637,23 @@ export const generateVideo = defineAgentTool({
         ...(source ? { first_frame_index: 0 } : {}),
         ...(last ? { last_frame_index: source ? 1 : 0 } : {}),
         ...(references.length
-          ? { reference_image_indices: references.map((_, i) => referenceStart + i) }
+          ? { reference_image_indices: references.map((_, index) => referenceStart + index) }
           : {}),
+        ...(recordedKeyframes.length
+          ? {
+              keyframes: recordedKeyframes.map((frame, index) => ({
+                image_index: keyframeStart + index,
+                timestamp_seconds: frame.timestampSeconds,
+              })),
+            }
+          : {}),
+        ...(voices.length ? { voices: [...voices] } : {}),
       }
       const prompt = params.prompt.trim()
       const rejected = agentVideoRequestError(target.model, prompt, video, inputImages.length)
       if (rejected) throw new AgentToolError(rejected.code, rejected.message)
-      // 产出贴着起始帧放；没有起始帧就贴着第一张参考图。
-      const anchorImage = source ?? last ?? references[0]
+      // 产出贴着起始帧放；没有起始帧就贴着第一张参考图，再没有就贴着关键帧。
+      const anchorImage = source ?? last ?? references[0] ?? keyframeImages[0]
       const outcome = await draftQueueTask(
         context,
         {
@@ -482,9 +662,7 @@ export const generateVideo = defineAgentTool({
           toolCallId,
           target,
           prompt,
-          referenceIds: [...(source ? [source] : []), ...(last ? [last] : []), ...references].map(
-            (one) => one.imageId,
-          ),
+          referenceIds: ordered.map((one) => one.imageId),
           ...(inputImages.length ? { inputImages } : {}),
           video,
           // 档位随草稿冻结：确认提交时记到任务上，任务结束后再照它记到产物上。
@@ -494,6 +672,8 @@ export const generateVideo = defineAgentTool({
             source?.imageId ?? null,
             references.map((one) => one.imageId),
             last?.imageId,
+            recordedKeyframes,
+            voices,
           ),
           ...(anchorImage ? { anchorObjectId: anchorImage.imageId } : {}),
           review: params.reviewAfterCompletion === true,

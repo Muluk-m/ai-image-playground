@@ -41,7 +41,10 @@ describe('videoModelOptions', () => {
     const grok = videoModelOptions()[0]!
     expect(grok.channelId).toBe('grok-video')
     expect(grok.label).toBe('Grok')
-    expect(grok.support.lastFrame).toBe(false)
+    // 尾帧本来就在协议里，不跟渠道声明走；声音和关键帧是后加的，没声明就不开放。
+    expect(grok.support.lastFrame).toBe(true)
+    expect(grok.support.voices).toBeUndefined()
+    expect(grok.support.keyframes).toBeUndefined()
   })
 
   it('Veo 两个模型各带自己的标签', () => {
@@ -71,6 +74,19 @@ describe('参考图能力', () => {
       maxResolution: '720p',
       withFrames: true,
     })
+  })
+
+  it('渠道声明了声音和关键帧才按矩阵开放', () => {
+    const model = GROK_CHANNEL.models[0]!
+    setChannels([
+      {
+        ...GROK_CHANNEL,
+        models: [{ ...model, capabilities: [...model.capabilities, 'voices', 'keyframes'] }],
+      },
+    ])
+    expect(videoModelOptions()[0]!.support.voices).toEqual({ max: 3 })
+    expect(videoModelOptions()[0]!.support.keyframes).toEqual({ max: 4 })
+    expect(videoModelOptions()[0]!.support.lastFrame).toBe(true)
   })
 })
 

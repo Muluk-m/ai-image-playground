@@ -275,6 +275,67 @@ describe('Grok video upstream', () => {
     expect(body).not.toHaveProperty('image')
   })
 
+  it('sends a last frame, keyframes and preset voices to the 1.5 model', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_guide' })
+      if (url === `${GROK_BASE}/videos/req_guide`)
+        return json({ status: 'done', video: { duration: 5, url: '/v1/videos/req_guide/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+    const last = TINY_PNG_DATA_URL.replace('AAAA', 'AAAB')
+    const mid = TINY_PNG_DATA_URL.replace('AAAA', 'AAAC')
+
+    await run('grok-imagine-video', {
+      input_images: [TINY_PNG_DATA_URL, last, mid],
+      video: video({
+        first_frame_index: 0,
+        last_frame_index: 1,
+        keyframes: [{ image_index: 2, timestamp_seconds: 2 }],
+        voices: ['Eve'],
+      }),
+    })
+
+    expect(bodyOf(`${GROK_BASE}/videos/generations`)).toEqual({
+      model: 'grok-imagine-video-1.5',
+      prompt: 'a cat surfing',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      image: { url: TINY_PNG_DATA_URL },
+      last_frame: { url: last },
+      keyframes: [{ image: { url: mid }, timestamp_s: 2 }],
+      reference_audios: [{ voice_id: 'eve' }],
+    })
+  })
+
+  it('switches to the 1.5 model for preset voices alone', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_voice' })
+      if (url === `${GROK_BASE}/videos/req_voice`)
+        return json({ status: 'done', video: { duration: 5, url: '/v1/videos/req_voice/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    await run('grok-imagine-video', { video: video({ voices: ['ara'] }) })
+
+    const body = bodyOf(`${GROK_BASE}/videos/generations`)
+    expect(body).toMatchObject({
+      model: 'grok-imagine-video-1.5',
+      reference_audios: [{ voice_id: 'ara' }],
+    })
+    expect(body).not.toHaveProperty('image')
+  })
+
+  it('refuses a keyframe whose image is missing', async () => {
+    await expect(
+      run('grok-imagine-video', {
+        input_images: [TINY_PNG_DATA_URL],
+        video: video({ keyframes: [{ image_index: 1, timestamp_seconds: 2 }] }),
+      }),
+    ).rejects.toThrow('关键帧图片不存在')
+    expect(calls).toEqual([])
+  })
+
   it('reads the content endpoint with the channel credential', async () => {
     handler = (url) => {
       if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_3' })

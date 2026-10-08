@@ -171,6 +171,7 @@ export function loadGenerationIntoDraft(generation: VideoGenerationRecord): bool
   if ((VIDEO_DURATIONS as readonly number[]).includes(generation.duration))
     video.setDuration(generation.duration as VideoDuration)
   video.setAspectRatio(generation.aspectRatio)
+  video.setVoices(generation.voices ?? [])
   return true
 }
 
@@ -189,17 +190,26 @@ export function regenerateInputs(editor: CanvasEditor, node: CanvasVideoNode) {
 /** 所选模型与档位接不接得住要沿用的输入图；接不住给出弹窗里用的说明。 */
 export function regenerateInputRefusal(
   inputs: GenerationInputs,
-  draft: Pick<VideoGenerationRecord, 'model' | 'duration' | 'aspectRatio' | 'resolution'>,
+  draft: Pick<
+    VideoGenerationRecord,
+    'model' | 'duration' | 'aspectRatio' | 'resolution' | 'voices'
+  >,
 ): string | null {
-  const count = generationInputIds(inputs).length
-  if (count === 0 || !videoModelOptions().some((one) => one.modelId === draft.model)) return null
+  const { voices: _recordedVoices, ...kept } = inputs
+  const count = generationInputIds(kept).length
+  if (
+    (count === 0 && !(draft.voices?.length ?? 0)) ||
+    !videoModelOptions().some((one) => one.modelId === draft.model)
+  )
+    return null
   const rejected = videoOptionRejection(
     draft.model,
     {
       duration_seconds: draft.duration,
       aspect_ratio: draft.aspectRatio,
       resolution: draft.resolution,
-      ...inputIndices(inputs),
+      ...inputIndices(kept),
+      ...(draft.voices?.length ? { voices: [...draft.voices] } : {}),
     },
     count,
   )
@@ -230,12 +240,14 @@ export async function regenerateCanvasVideo(
   if (!prompt) return refuse(i18next.t('store.emptyPrompt', { ns: 'video' }))
   const inputs = options.keepFrames === false ? {} : regenerateInputs(editor, node).inputs
   const present = generationInputIds(inputs)
+  const { voices: _recordedVoices, ...keptInputs } = inputs
   const generation: VideoGenerationRecord = {
     model: option.modelId,
     duration: draft.duration,
     aspectRatio: draft.aspectRatio,
     resolution: draft.resolution,
-    ...inputs,
+    ...keptInputs,
+    ...(draft.voices?.length ? { voices: [...draft.voices] } : {}),
   }
   const rejected = videoOptionRejection(
     generation.model,

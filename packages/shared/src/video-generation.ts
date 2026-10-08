@@ -1,4 +1,6 @@
 import {
+  canonicalVideoVoice,
+  isVideoKeyframeTimestamp,
   VIDEO_ASPECT_RATIOS,
   VIDEO_DERIVE_MODES,
   VIDEO_RESOLUTIONS,
@@ -21,6 +23,10 @@ export interface VideoGenerationRecord {
   readonly lastFrameId?: string
   /** 参考图（全能参考），按提交时的顺序。 */
   readonly referenceIds?: readonly string[]
+  /** 片中关键帧，按提交时的顺序。时间是秒。 */
+  readonly keyframes?: readonly { readonly imageId: string; readonly timestampSeconds: number }[]
+  /** 预设声音 id，按 `<AUDIO_0>` 的顺序。 */
+  readonly voices?: readonly string[]
   readonly derivedFrom?: { readonly id: string; readonly mode: VideoDeriveMode }
 }
 
@@ -28,7 +34,12 @@ export type VideoGenerationSource = 'text' | 'image' | 'derived'
 
 export function videoGenerationSource(record: VideoGenerationRecord): VideoGenerationSource {
   if (record.derivedFrom) return 'derived'
-  return record.firstFrameId || record.lastFrameId || record.referenceIds?.length ? 'image' : 'text'
+  return record.firstFrameId ||
+    record.lastFrameId ||
+    record.referenceIds?.length ||
+    record.keyframes?.length
+    ? 'image'
+    : 'text'
 }
 
 const KEYS = new Set([
@@ -39,13 +50,15 @@ const KEYS = new Set([
   'firstFrameId',
   'lastFrameId',
   'referenceIds',
+  'keyframes',
+  'voices',
   'derivedFrom',
 ])
 
 /** 与队列一次请求的输入图上限一致。 */
 const REFERENCE_IDS_MAX = 16
 
-function objectId(value: unknown): boolean {
+function objectId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 128
 }
 
@@ -66,6 +79,33 @@ export function isVideoGenerationRecord(value: unknown): value is VideoGeneratio
     // 一张图只有一种用法：重复或与首尾帧重合的记录提交时会被驳回，也就不该被当成合法记录读进来。
     const used = [record.firstFrameId, record.lastFrameId, ...ids].filter(Boolean)
     if (new Set(used).size !== used.length) return false
+  }
+  if (record.keyframes !== undefined) {
+    const frames = record.keyframes
+    if (!Array.isArray(frames) || frames.length > 4) return false
+    const ids: string[] = []
+    for (const frame of frames) {
+      if (typeof frame !== 'object' || frame === null) return false
+      const { imageId, timestampSeconds, ...rest } = frame as Record<string, unknown>
+      if (Object.keys(rest).length > 0 || !objectId(imageId)) return false
+      if (
+        typeof timestampSeconds !== 'number' ||
+        !isVideoKeyframeTimestamp(timestampSeconds, record.duration as number)
+      )
+        return false
+      ids.push(imageId)
+    }
+    const references = Array.isArray(record.referenceIds) ? record.referenceIds : []
+    const used = [record.firstFrameId, record.lastFrameId, ...references, ...ids].filter(Boolean)
+    if (new Set(used).size !== used.length) return false
+  }
+  if (record.voices !== undefined) {
+    const voices = record.voices
+    if (!Array.isArray(voices) || voices.length > 3) return false
+    const ids = voices.map((voice) =>
+      typeof voice === 'string' ? canonicalVideoVoice(voice) : null,
+    )
+    if (ids.some((id) => id === null) || new Set(ids).size !== ids.length) return false
   }
   if (record.derivedFrom !== undefined) {
     const derived = record.derivedFrom

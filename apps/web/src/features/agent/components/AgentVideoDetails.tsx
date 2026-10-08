@@ -23,6 +23,10 @@ export function AgentVideoDetails({ video }: { video: VideoGenerationRecord }) {
       {!!video.referenceIds?.length && (
         <span>{t('video.references', { count: video.referenceIds.length })}</span>
       )}
+      {!!video.keyframes?.length && (
+        <span>{t('video.keyframes', { count: video.keyframes.length })}</span>
+      )}
+      {!!video.voices?.length && <span>{t('video.voices', { count: video.voices.length })}</span>}
     </div>
   )
 }

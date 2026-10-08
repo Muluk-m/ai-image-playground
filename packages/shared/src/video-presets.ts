@@ -53,11 +53,24 @@ export interface VideoRequest {
   last_frame_index?: number
   /** 参考图在 `input_images` 里的下标，按用户排好的顺序；不与首尾帧重叠。只用于 generate。 */
   reference_image_indices?: number[]
+  /**
+   * 片中关键帧：输入图下标加秒。时间必须落在 (0, duration) 内，并落在 1/3 秒网格上，
+   * 彼此不能落进同一个格子。只用于 generate，不与首尾帧、参考图重叠。
+   */
+  keyframes?: VideoKeyframe[]
+  /** 预设声音 id，按提示词里 `<AUDIO_0>` 的顺序，最多 3 个。只用于 generate。 */
+  voices?: string[]
   /** 默认 generate；extend 从源片最后一帧续写，edit 按提示词改源片。 */
   mode?: VideoMode
   /** 源片：本人已完成的视频任务及其输出下标。extend / edit 必填。 */
   source_task_id?: string
   source_output_index?: number
+}
+
+/** 一张钉在成片内部某个时刻的图。下标指向同一次请求的 `input_images`。 */
+export interface VideoKeyframe {
+  image_index: number
+  timestamp_seconds: number
 }
 
 /** 模型能带几张参考图（全能参考）：主体、道具、场景各一张，由提示词说明怎么用。 */
@@ -89,6 +102,15 @@ export interface VideoModelSupport {
   readonly edit: boolean
   /** 缺省即不支持参考图。 */
   readonly referenceImages?: VideoReferenceSupport
+  /** 预设声音。缺省即不支持。 */
+  readonly voices?: { readonly max: number }
+  /** 片中关键帧。缺省即不支持。 */
+  readonly keyframes?: { readonly max: number }
+  /**
+   * 尾帧、关键帧或预设声音把这次请求变成参考生视频，清晰度封在这里。
+   * 单独的首帧仍是图生视频，不受这一条限制。
+   */
+  readonly guideMaxResolution?: VideoResolution
   /** 上游按 token 限描述长度；这里按「一个汉字一个 token」的最坏情况折成字符数。缺省不限。 */
   readonly promptMaxChars?: number
   /** 实测典型耗时，用于生成中卡片的等待提示。 */
@@ -105,11 +127,15 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     resolutions: ['720p', '1080p'],
     resolutionMultipliers: { '720p': 1, '1080p': 1.6 },
     firstFrame: true,
-    lastFrame: false,
+    lastFrame: true,
     extend: true,
     edit: true,
-    // 只有 1.5 接参考图，BFF 带参考图时切到它；它在这个模式下封顶 720p。
+    // 只有 1.5 接参考图、尾帧、关键帧和预设声音。BFF 遇到其中任何一项就切到 1.5；
+    // 参考生视频封顶 720p。单独的首帧仍是图生视频，可以 1080p。
     referenceImages: { max: 7, maxResolution: '720p', withFrames: true },
+    voices: { max: 3 },
+    keyframes: { max: 4 },
+    guideMaxResolution: '720p',
     typicalSeconds: 40,
     tagline: '高清',
   },
@@ -196,6 +222,15 @@ export type VideoRejectionCode =
   | 'referenceResolutionUnsupported'
   | 'referenceFramesRejected'
   | 'referenceImageMissing'
+  | 'keyframesUnsupported'
+  | 'keyframesTooMany'
+  | 'keyframeImageMissing'
+  | 'keyframeTimestampInvalid'
+  | 'voicesUnsupported'
+  | 'voicesTooMany'
+  | 'voiceUnknown'
+  | 'voiceDuplicate'
+  | 'guideResolutionUnsupported'
 
 /**
  * 渲染驳回文案要的原始数据。这里一律不放译好的词 —— 首帧/尾帧、续写/改视频只给枚举值，
@@ -213,6 +248,8 @@ export interface VideoRejectionParams {
   readonly resolution?: string
   readonly frame?: 'first' | 'last'
   readonly mode?: VideoDeriveMode
+  /** 不认识的预设声音 id，原样回给界面。 */
+  readonly id?: string
 }
 
 export interface VideoRejection {
@@ -452,7 +489,95 @@ export function videoRequestRejection(
       return rejection('frameImageMissing', { frame }, `${FRAME_NAMES[frame]}图片不存在`)
   }
 
-  return referenceRejection(support, video, inputImageCount)
+  return (
+    referenceRejection(support, video, inputImageCount) ??
+    guideRejection(support, video, inputImageCount)
+  )
+}
+
+/**
+ * 文字转语音同一套预设声音。id 大小写不敏感。自备音频不在这份名单里。
+ * 顺序：五个旗舰音色在前，其余按字母。
+ */
+export const VIDEO_PRESET_VOICES = [
+  'ara',
+  'eve',
+  'leo',
+  'rex',
+  'sal',
+  'altair',
+  'atlas',
+  'aurora',
+  'carina',
+  'castor',
+  'celeste',
+  'cosmo',
+  'helios',
+  'helix',
+  'iris',
+  'kepler',
+  'liora',
+  'lumen',
+  'luna',
+  'lux',
+  'naksh',
+  'orion',
+  'perseus',
+  'rigel',
+  'sirius',
+  'ursa',
+  'zagan',
+  'zenith',
+] as const
+
+export type VideoPresetVoice = (typeof VIDEO_PRESET_VOICES)[number]
+
+const VIDEO_PRESET_VOICE_SET = new Set<string>(VIDEO_PRESET_VOICES)
+
+/** 认成预设声音 id；认不出返回 null。 */
+export function canonicalVideoVoice(value: string): VideoPresetVoice | null {
+  const id = value.trim().toLowerCase()
+  return VIDEO_PRESET_VOICE_SET.has(id) ? (id as VideoPresetVoice) : null
+}
+
+/** 关键帧时间落在第几个 1/3 秒格子上。 */
+export function videoKeyframeSlot(seconds: number): number {
+  return Math.round(seconds * 3)
+}
+
+/** 时间严格落在成片内部，并且已经对齐到 1/3 秒。 */
+export function isVideoKeyframeTimestamp(seconds: number, duration: number): boolean {
+  if (!Number.isFinite(seconds) || !Number.isFinite(duration)) return false
+  if (!(seconds > 0 && seconds < duration)) return false
+  return Math.abs(seconds * 3 - videoKeyframeSlot(seconds)) < 1e-6
+}
+
+/**
+ * 把一个秒数收进成片内部的 1/3 秒网格。收不进去（片子短于一格）返回 null。
+ */
+export function snapVideoKeyframeTimestamp(seconds: number, duration: number): number | null {
+  if (!Number.isFinite(seconds) || !(duration > 1 / 3)) return null
+  const maxSlot = Math.ceil(duration * 3 - 1e-9) - 1
+  if (maxSlot < 1) return null
+  const slot = Math.min(maxSlot, Math.max(1, videoKeyframeSlot(seconds)))
+  return slot / 3
+}
+
+/** 离成片中点最近、还没被占用的一格。没有空格时返回 null。 */
+export function nextVideoKeyframeTimestamp(
+  duration: number,
+  taken: readonly number[],
+): number | null {
+  const used = new Set(taken.map((seconds) => videoKeyframeSlot(seconds)))
+  const free: number[] = []
+  const maxSlot = Math.ceil(duration * 3 - 1e-9) - 1
+  for (let slot = 1; slot <= maxSlot; slot++) {
+    if (!used.has(slot)) free.push(slot / 3)
+  }
+  if (free.length === 0) return null
+  const mid = duration / 2
+  free.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b)
+  return free[0]!
 }
 
 function referenceRejection(
@@ -496,6 +621,96 @@ function referenceRejection(
   return null
 }
 
+/** 尾帧、关键帧、预设声音：参考生视频的清晰度上限，以及这两项自己的形状。 */
+function guideRejection(
+  support: VideoModelSupport,
+  video: VideoRequest,
+  inputImageCount: number,
+): VideoRejection | null {
+  const voices = video.voices ?? []
+  const keyframes = video.keyframes ?? []
+  const guided = video.last_frame_index !== undefined || voices.length > 0 || keyframes.length > 0
+  if (!guided) return null
+  const cap = support.guideMaxResolution
+  if (cap && VIDEO_RESOLUTIONS.indexOf(video.resolution) > VIDEO_RESOLUTIONS.indexOf(cap)) {
+    const resolution = VIDEO_RESOLUTION_LABELS[cap]
+    return rejection(
+      'guideResolutionUnsupported',
+      { label: support.label, resolution },
+      `${support.label} 带尾帧、关键帧或声音时清晰度最高 ${resolution}`,
+    )
+  }
+  return (
+    voiceRejection(support, voices) ?? keyframeRejection(support, video, keyframes, inputImageCount)
+  )
+}
+
+function voiceRejection(
+  support: VideoModelSupport,
+  voices: readonly string[],
+): VideoRejection | null {
+  if (voices.length === 0) return null
+  const { label } = support
+  const allowed = support.voices
+  if (!allowed) return rejection('voicesUnsupported', { label }, `${label} 不支持预设声音`)
+  if (voices.length > allowed.max)
+    return rejection(
+      'voicesTooMany',
+      { label, max: allowed.max },
+      `${label} 最多 ${allowed.max} 个预设声音`,
+    )
+  const seen = new Set<string>()
+  for (const raw of voices) {
+    const id = typeof raw === 'string' ? canonicalVideoVoice(raw) : null
+    if (!id) return rejection('voiceUnknown', { id: String(raw) }, '不认识的声音')
+    if (seen.has(id)) return rejection('voiceDuplicate', { id }, '同一个声音只能选一次')
+    seen.add(id)
+  }
+  return null
+}
+
+function keyframeRejection(
+  support: VideoModelSupport,
+  video: VideoRequest,
+  keyframes: readonly VideoKeyframe[],
+  inputImageCount: number,
+): VideoRejection | null {
+  if (keyframes.length === 0) return null
+  const { label } = support
+  const allowed = support.keyframes
+  if (!allowed) return rejection('keyframesUnsupported', { label }, `${label} 不支持关键帧`)
+  if (keyframes.length > allowed.max)
+    return rejection(
+      'keyframesTooMany',
+      { label, max: allowed.max },
+      `${label} 最多 ${allowed.max} 个关键帧`,
+    )
+  const used = new Set<number>(
+    [
+      video.first_frame_index,
+      video.last_frame_index,
+      ...(video.reference_image_indices ?? []),
+    ].filter((index): index is number => index !== undefined),
+  )
+  const slots = new Set<number>()
+  for (const frame of keyframes) {
+    const index = frame?.image_index
+    if (!Number.isInteger(index) || index < 0 || index >= inputImageCount || used.has(index))
+      return rejection('keyframeImageMissing', {}, '关键帧图片不存在')
+    used.add(index)
+    const timestamp = frame.timestamp_seconds
+    const slot = videoKeyframeSlot(timestamp)
+    if (!isVideoKeyframeTimestamp(timestamp, video.duration_seconds) || slots.has(slot))
+      return rejection(
+        'keyframeTimestampInvalid',
+        {},
+        '关键帧时间必须落在成片内部，并且彼此至少隔 1/3 秒',
+      )
+    slots.add(slot)
+  }
+  return null
+}
+
 function videoSourceRejection(
   support: VideoModelSupport,
   mode: VideoMode,
@@ -509,11 +724,31 @@ function videoSourceRejection(
   if (
     video.first_frame_index !== undefined ||
     video.last_frame_index !== undefined ||
-    (video.reference_image_indices?.length ?? 0) > 0
+    (video.reference_image_indices?.length ?? 0) > 0 ||
+    (video.keyframes?.length ?? 0) > 0 ||
+    (video.voices?.length ?? 0) > 0
   )
-    return rejection('deriveFramesRejected', {}, '续写和改视频不接受首尾帧或参考图')
+    return rejection('deriveFramesRejected', {}, '续写和改视频不接受首尾帧、参考图、关键帧或声音')
   const index = video.source_output_index
   if (!video.source_task_id || index === undefined || !Number.isInteger(index) || index < 0)
     return rejection('deriveSourceMissing', { mode }, `${name}缺少源视频`)
   return null
+}
+
+/**
+ * 渠道能力开关盖在矩阵上。参考图、预设声音、关键帧都是后加的字段：渠道没声明时前端不放出入口，
+ * 免得旧后端把它们静默丢掉、照样扣费。尾帧的字段本来就在协议里，不在这里收。
+ */
+export function videoSupportForCapabilities(
+  support: VideoModelSupport,
+  capabilities: readonly string[] | undefined,
+): VideoModelSupport {
+  const declared = new Set(capabilities ?? [])
+  const { referenceImages, voices, keyframes, ...rest } = support
+  return {
+    ...rest,
+    ...(declared.has('reference_images') && referenceImages ? { referenceImages } : {}),
+    ...(declared.has('voices') && voices ? { voices } : {}),
+    ...(declared.has('keyframes') && keyframes ? { keyframes } : {}),
+  }
 }
