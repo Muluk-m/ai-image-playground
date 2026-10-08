@@ -1,6 +1,13 @@
 import { authenticatedBffFetch } from './authClient'
 import { scopedStorageName } from './authScope'
-import { type CachedMedia, getCachedMedia, pruneCachedMedia, putCachedMedia } from './db'
+import {
+  type CachedMedia,
+  dbTransaction,
+  getCachedMedia,
+  pruneCachedMedia,
+  putCachedMedia,
+  STORE_MEDIA,
+} from './db'
 import { bffBaseUrl } from './runtimeConfig'
 
 export function mediaIdentity(source: string | undefined): string | undefined {
@@ -92,6 +99,23 @@ export function blobDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(blob)
   })
+}
+
+/** Discard only a failed preview; originals and attachment upload leases remain untouched. */
+export async function invalidateMediaPreview(source: string): Promise<void> {
+  const id = mediaIdentity(source)
+  if (!id) return
+  const scope = scopedStorageName('media')
+  const cacheId = `${id}:preview`
+  const key = `${scope}:${cacheId}`
+  await loading.get(key)?.catch(() => {})
+  if (scope !== scopedStorageName('media')) throw new Error('media_scope_changed')
+  const previous = loaded.get(key)
+  if (previous) {
+    cacheSize -= previous.length
+    loaded.delete(key)
+  }
+  await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.delete(cacheId))
 }
 
 /** 会话内的热表：落盘的是 Blob，这里存换算好的 data URL，省掉重复解码。 */
