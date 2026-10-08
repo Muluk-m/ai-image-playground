@@ -146,7 +146,7 @@ export function LogTimeRangePicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[min(560px,calc(100vw-2rem))] overflow-hidden p-0"
+          className="w-[min(560px,calc(100vw-2rem))] max-h-[min(calc(100dvh-2rem),var(--radix-popover-content-available-height))] overflow-y-auto p-0"
           align="start"
           aria-label="选择时间范围"
         >
@@ -196,7 +196,7 @@ export function LogTimeRangePicker({
               {error}
             </p>
           ) : null}
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-popover px-4 py-3">
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
               取消
             </Button>

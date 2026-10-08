@@ -80,6 +80,25 @@ function setup() {
 }
 
 describe('server log exploration', () => {
+  it('keeps unsubmitted identity and deployment drafts when advanced conditions are collapsed', async () => {
+    setup()
+    await screen.findByText('201')
+    fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: 'draft-user' } })
+    await choose('部署', '测试')
+    const toggle = screen.getByRole('button', { name: '更多查询条件' })
+    fireEvent.click(toggle)
+    expect(screen.queryByRole('combobox', { name: '部署' })).not.toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.getByLabelText('用户 ID')).toHaveValue('draft-user')
+    expect(screen.getByRole('combobox', { name: '部署' })).toHaveTextContent('测试')
+    fireEvent.click(screen.getByRole('button', { name: '应用定位条件' }))
+    await waitFor(() => {
+      const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
+      expect(params.get('userId')).toBe('draft-user')
+      expect(params.get('deployment')).toBe('test')
+    })
+  })
+
   it('uses shadcn selectors for service, stream and deployment and submits the selected deployment', async () => {
     const view = setup()
     await screen.findByText('201')
