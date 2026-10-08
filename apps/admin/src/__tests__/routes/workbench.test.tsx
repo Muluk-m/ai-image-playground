@@ -375,11 +375,15 @@ describe('generation task drill-down', () => {
         expect(params.get('status')).toBe('failed')
       })
       clock.mockReturnValue(start + 240_000)
+      const beforeGlobalRefresh = requests.filter((url) => url.startsWith('/api/tasks?')).length
       fireEvent.click(screen.getAllByRole('button', { name: '刷新' })[0]!)
       await waitFor(() => {
         const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
         expect(Number(new URLSearchParams(url.split('?')[1]).get('to'))).toBe(start + 240_000)
       })
+      expect(requests.filter((url) => url.startsWith('/api/tasks?'))).toHaveLength(
+        beforeGlobalRefresh + 1,
+      )
     } finally {
       clock.mockRestore()
     }
