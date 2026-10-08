@@ -290,7 +290,7 @@ it('selects and remembers thinking depth independently of the image model', () =
   expect(option('思考深度', '深度').getAttribute('aria-pressed')).toBe('true')
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
-  // 思考深度不进摘要（对话面板放不下），偏离默认时 chip 上亮点提示。
+  // 思考深度不进摘要；偏离默认时保留状态标记。
   expect(trigger().hasAttribute('data-dirty')).toBe(true)
 })
 

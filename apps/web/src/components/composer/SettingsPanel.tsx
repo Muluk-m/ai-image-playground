@@ -59,7 +59,7 @@ export function SettingsPopover({
   summary: string
   icon?: ReactNode
   title: string
-  /** 摘要里看不到的参数偏离了默认值：chip 右上角亮一个点。 */
+  /** 摘要里看不到的参数是否偏离默认值。 */
   dirty?: boolean
   size?: ComposerControlSize
   onReset?: () => void
@@ -86,12 +86,6 @@ export function SettingsPopover({
         >
           {icon && <span className="flex shrink-0 text-muted-foreground">{icon}</span>}
           <span className="truncate tabular-nums">{summary}</span>
-          {dirty && (
-            <span
-              aria-hidden="true"
-              className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary"
-            />
-          )}
         </button>
       </PopoverTrigger>
       <PopoverContent
