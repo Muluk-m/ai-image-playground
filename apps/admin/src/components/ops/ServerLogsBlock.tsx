@@ -22,6 +22,7 @@ import {
 import { apiClient } from '@/lib/api-client'
 import {
   LOG_RANGES,
+  logTrendSelection,
   parseLogExpression,
   type ServerLogSearch,
   serverLogFilters,
@@ -33,12 +34,11 @@ const time = (at: number) =>
   new Date(at).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
 const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, -1)
 
-const levelStyle = (level: string) =>
-  level === 'error' || level === 'fatal'
-    ? 'text-danger bg-danger/5'
-    : level === 'warn'
-      ? 'text-amber-600 bg-amber-500/5'
-      : 'text-muted-foreground'
+function levelStyle(level: string) {
+  if (level === 'error' || level === 'fatal') return 'text-danger bg-danger/5'
+  if (level === 'warn') return 'text-amber-600 bg-amber-500/5'
+  return 'text-muted-foreground'
+}
 
 function LogDetailContent({
   entry,
@@ -140,7 +140,23 @@ export function ServerLogsBlock({
   }, [fixed])
   const [search, setSearch] = useState(state.q ?? '')
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
-  useEffect(() => setSearch(state.q ?? ''), [state.q])
+  const expressionFilters = useRef<Partial<ServerLogFilters> | null>(null)
+  const syncedQuery = useRef(state.q)
+  const filterSignature = JSON.stringify(filters)
+  useEffect(() => {
+    const previousQuery = syncedQuery.current
+    syncedQuery.current = state.q
+    const expression = expressionFilters.current
+    if (
+      expression &&
+      Object.entries(expression).every(
+        ([key, value]) => state[key as keyof ServerLogFilters] === value,
+      )
+    )
+      return
+    expressionFilters.current = null
+    if (previousQuery !== state.q) setSearch(state.q ?? '')
+  }, [filterSignature, state.q])
   const [selected, setSelected] = useState<ServerLogEntry | null>(null)
   const [showContext, setShowContext] = useState(false)
   const [searchError, setSearchError] = useState('')
@@ -329,7 +345,12 @@ export function ServerLogsBlock({
             onSubmit={(event) => {
               event.preventDefault()
               try {
-                update(parseLogExpression(search))
+                const parsed = parseLogExpression(search)
+                const next = { ...state }
+                for (const key of Object.keys(expressionFilters.current ?? {}))
+                  delete next[key as keyof ServerLogFilters]
+                expressionFilters.current = parsed
+                change({ ...next, ...parsed })
                 setSearchError('')
               } catch (error) {
                 setSearchError((error as Error).message)
@@ -366,7 +387,7 @@ export function ServerLogsBlock({
               aria-pressed={filters.level === level}
               onClick={() => update({ level: filters.level === level ? undefined : level })}
             >
-              {level.toUpperCase()} {data?.levelCounts?.[level] ?? '—'}
+              {level.toUpperCase()} {data?.levelCounts ? (data.levelCounts[level] ?? 0) : '—'}
             </Button>
           ))}
           <details className="ml-auto text-xs">
@@ -537,6 +558,9 @@ export function ServerLogsBlock({
                 <strong className="text-danger">{data.summary.errors}</strong> · 警告{' '}
                 <strong className="text-amber-600">{data.summary.warnings}</strong>
               </p>
+              <a href="/ops" className="ml-auto underline text-muted-foreground">
+                采集容器状态
+              </a>
               <span className="text-muted-foreground">
                 {live && !custom ? '● 跟随最新 · 每 10 秒刷新' : '已暂停自动刷新'}
               </span>
@@ -559,11 +583,17 @@ export function ServerLogsBlock({
                   first = data.trend[Math.min(drag.start, endIndex)],
                   last = data.trend[Math.max(drag.start, endIndex)]
                 if (first && last) {
-                  setLive(false)
-                  setCustom({
-                    from: Math.max(window.from, first.at),
-                    to: Math.min(window.to, last.at + data.bucket_ms),
-                  })
+                  const selection = logTrendSelection(
+                    window.from,
+                    window.to,
+                    first.at,
+                    last.at,
+                    data.bucket_ms,
+                  )
+                  if (selection) {
+                    setLive(false)
+                    setCustom(selection)
+                  }
                 }
                 setDrag(null)
               }}

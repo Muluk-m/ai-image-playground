@@ -2,6 +2,7 @@ import { defaultParseSearch, defaultStringifySearch } from '@tanstack/react-rout
 import { describe, expect, it } from 'vitest'
 import {
   LOG_RANGES,
+  logTrendSelection,
   parseLogExpression,
   parseServerLogSearch,
   serverLogFilters,
@@ -25,6 +26,8 @@ describe('field search', () => {
     })
     expect(() => parseLogExpression('level:unknown')).toThrow('日志级别无效')
     expect(() => parseLogExpression('stream:unknown')).toThrow()
+    expect(() => parseLogExpression('x'.repeat(401))).toThrow('关键词不能超过 400 个字符')
+    expect(() => parseLogExpression('service:bff ' + 'x'.repeat(401))).toThrow()
   })
 })
 
@@ -83,5 +86,12 @@ describe('shareable server log queries', () => {
       range: '24h',
       q: 'decode failed',
     })
+  })
+})
+
+describe('trend selection', () => {
+  it('ignores the empty last bucket at an exact end boundary', () => {
+    expect(logTrendSelection(0, 60000, 60000, 60000, 60000)).toBeNull()
+    expect(logTrendSelection(0, 60000, 0, 60000, 60000)).toEqual({ from: 0, to: 60000 })
   })
 })
