@@ -915,20 +915,24 @@ export default function AgentComposer({
                           ? t('composer.editMaskAria', { label })
                           : t('composer.drawMaskAria', { label })
                       }
-                      className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-background/80 text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                       onClick={() => editMask(reference)}
                     >
-                      <MaskBrushIcon className="h-3.5 w-3.5" />
+                      <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                        <MaskBrushIcon className="h-3.5 w-3.5" />
+                      </span>
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       aria-label={t('composer.removeReferenceAria', { label })}
-                      className="absolute right-0 top-0 h-11 w-11 rounded-none bg-background/80 text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      className="absolute right-0 top-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                       onClick={() => setDraft(removeReference(draft, index))}
                     >
-                      <CloseIcon className="h-3.5 w-3.5" />
+                      <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                        <CloseIcon className="h-3.5 w-3.5" />
+                      </span>
                     </Button>
                   </div>
                   {uploadState && (
