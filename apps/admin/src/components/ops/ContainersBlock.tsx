@@ -1,3 +1,12 @@
+import { Progress } from '@/components/ui/progress'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { bytes, shortId } from '@/lib/format'
 import type { OpsContainer, OpsContainers } from '@/lib/types'
 
@@ -35,27 +44,29 @@ export function ContainersBody({ containers, now }: { containers: OpsContainers;
       {stale ? (
         <p className="mb-2 text-xs text-danger">这批读数已经过时，下面的数字不是现在的。</p>
       ) : null}
-      <table className="w-full min-w-[520px] text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1 pr-3 font-medium">容器</th>
-            <th className="py-1 pr-3 text-right font-medium">CPU</th>
-            <th className="py-1 pr-3 text-right font-medium">内存</th>
-            <th className="py-1 pr-3 text-right font-medium">7 天峰值</th>
-            <th className="py-1 text-right font-medium">OOM</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
+      <Table className="w-full min-w-[520px] text-left text-xs">
+        <TableHeader className="text-muted-foreground">
+          <TableRow>
+            <TableHead className="py-1 pr-3 font-medium">容器</TableHead>
+            <TableHead className="py-1 pr-3 text-right font-medium">CPU</TableHead>
+            <TableHead className="py-1 pr-3 text-right font-medium">内存</TableHead>
+            <TableHead className="py-1 pr-3 text-right font-medium">7 天峰值</TableHead>
+            <TableHead className="py-1 text-right font-medium">OOM</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody className="divide-y">
           {containers.containers.map((container) => (
-            <tr key={container.container_id}>
-              <td
+            <TableRow key={container.container_id}>
+              <TableCell
                 className="max-w-[240px] truncate py-1.5 pr-3 font-mono"
                 title={container.container_id}
               >
                 {containerLabel(container)}
-              </td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{cores(container.cpu_cores)}</td>
-              <td className="py-2.5 pr-3 text-right tabular-nums">
+              </TableCell>
+              <TableCell className="py-1.5 pr-3 text-right tabular-nums">
+                {cores(container.cpu_cores)}
+              </TableCell>
+              <TableCell className="py-2.5 pr-3 text-right tabular-nums">
                 {bytes(container.mem_bytes)}
                 {container.mem_limit_bytes !== null ? (
                   <span className="text-muted-foreground">
@@ -63,33 +74,32 @@ export function ContainersBody({ containers, now }: { containers: OpsContainers;
                     / {bytes(container.mem_limit_bytes)}
                   </span>
                 ) : null}
-                <div
-                  className="mt-1.5 ml-auto h-1.5 w-28 overflow-hidden rounded-full bg-muted"
-                  role="img"
-                  aria-label={`${containerLabel(container)} 内存使用 ${container.mem_limit_bytes ? Math.round((container.mem_bytes / container.mem_limit_bytes) * 100) + '%' : '相对当前最大容器'}`}
-                >
-                  <div
-                    className="h-full bg-violet-500"
-                    style={{
-                      width: `${Math.min(100, (container.mem_bytes / (container.mem_limit_bytes || Math.max(1, ...containers.containers.map((one) => one.mem_bytes)))) * 100)}%`,
-                    }}
-                  />
-                </div>
-              </td>
-              <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">
+                <Progress
+                  className="mt-1.5 ml-auto h-1.5 w-28 bg-muted [&>div]:bg-violet-500"
+                  aria-label={`${containerLabel(container)} 内存使用${container.mem_limit_bytes ? '' : '（相对当前最大容器）'}`}
+                  value={Math.min(
+                    100,
+                    (container.mem_bytes /
+                      (container.mem_limit_bytes ||
+                        Math.max(1, ...containers.containers.map((one) => one.mem_bytes)))) *
+                      100,
+                  )}
+                />
+              </TableCell>
+              <TableCell className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">
                 {bytes(container.peak_mem_bytes)}
-              </td>
-              <td
+              </TableCell>
+              <TableCell
                 className={`py-1.5 text-right tabular-nums ${container.recent_oom_kills > 0 ? 'font-medium text-danger' : 'text-muted-foreground'}`}
               >
                 {container.oom_kills}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        整台宿主机上的全部容器，按当前内存排序；同机的另一套部署和数据库也在里面。
+        整台宿主机上的全部容器，按当前内存排序；无限额容器的条形图按当前最大容器对比。同机的另一套部署和数据库也在里面。
       </p>
     </div>
   )

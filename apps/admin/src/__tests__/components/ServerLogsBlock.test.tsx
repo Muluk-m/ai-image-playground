@@ -58,6 +58,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
+async function choose(label: string, value: string) {
+  fireEvent.keyDown(screen.getByRole('combobox', { name: label }), { key: 'ArrowDown' })
+  fireEvent.click(await screen.findByRole('option', { name: value }))
+}
 function setup() {
   get.mockImplementation(async (url) =>
     url.includes('cursor=')
@@ -76,6 +80,51 @@ function setup() {
 }
 
 describe('server log exploration', () => {
+  it('uses shadcn selectors for service, stream and deployment and submits the selected deployment', async () => {
+    const view = setup()
+    await screen.findByText('201')
+    expect(
+      view.container.querySelector(
+        'select:not([aria-hidden="true"]), details, input[type="time"], input[type="datetime-local"]',
+      ),
+    ).toBeNull()
+    await choose('日志服务', 'bff')
+    await choose('日志输出流', 'stderr')
+    await choose('部署', '测试')
+    fireEvent.click(screen.getByRole('button', { name: '应用定位条件' }))
+    await waitFor(() => {
+      const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
+      expect(params.get('service')).toBe('bff')
+      expect(params.get('stream')).toBe('stderr')
+      expect(params.get('deployment')).toBe('test')
+    })
+    fireEvent.change(screen.getByLabelText('版本'), { target: { value: 'all' } })
+    await choose('部署', '全部部署')
+    fireEvent.click(screen.getByRole('button', { name: '应用定位条件' }))
+    await waitFor(() => {
+      const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
+      expect(params.has('deployment')).toBe(false)
+      expect(params.get('version')).toBe('all')
+    })
+  })
+
+  it('keeps both exact millisecond boundaries when applying an unchanged calendar range', async () => {
+    get.mockResolvedValue(result)
+    const onSearchChange = vi.fn()
+    const from = now - 3600000 + 123,
+      to = now - 1000 + 456
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ServerLogsBlock searchState={{ from, to }} onSearchChange={onSearchChange} />
+      </QueryClientProvider>,
+    )
+    await screen.findByText('201')
+    fireEvent.click(screen.getByRole('button', { name: '自定义时间范围' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用时间范围' }))
+    expect(onSearchChange).toHaveBeenLastCalledWith(expect.objectContaining({ from, to }))
+  })
   it('renders the message and stack together as unwrapped terminal text', async () => {
     setup()
     const button = await screen.findByRole('button', { name: 'ERROR worker upstream timeout' })
@@ -115,22 +164,18 @@ describe('server log exploration', () => {
     expect(screen.queryByLabelText('开始时间（北京时间）')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '自定义时间范围' }))
     fireEvent.click(screen.getByRole('button', { name: '今天 00:00 至现在' }))
-    fireEvent.change(screen.getByLabelText('结束时刻（北京时间）'), {
-      target: { value: '00:00:00' },
-    })
+    for (const unit of ['时', '分', '秒']) await choose(`结束${unit}（北京时间）`, '00')
     fireEvent.click(screen.getByRole('button', { name: '应用时间范围' }))
     expect(screen.getByRole('alert')).toHaveTextContent('有效的起止时间')
     const beijing = new Date(now + 8 * 3600_000).toISOString()
-    fireEvent.change(screen.getByLabelText('结束时刻（北京时间）'), {
-      target: { value: beijing.slice(11, 19) },
-    })
+    fireEvent.click(screen.getByRole('button', { name: '今天 00:00 至现在' }))
     fireEvent.click(screen.getByRole('button', { name: '应用时间范围' }))
     const midnight = Date.parse(beijing.slice(0, 10) + 'T00:00:00+08:00')
     await waitFor(() => expect(get.mock.lastCall![0]).toContain(`from=${midnight}`))
     expect(screen.getByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '1 小时' }))
     fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: 'user-new' } })
-    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用定位条件' }))
     await waitFor(() => {
       const params = new URL(get.mock.lastCall![0], 'http://localhost').searchParams
       expect(params.get('userId')).toBe('user-new')
@@ -172,7 +217,7 @@ describe('server log exploration', () => {
     await screen.findByText('201')
     fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: literal } })
     fireEvent.change(screen.getByLabelText('版本'), { target: { value: literal } })
-    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用定位条件' }))
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     fireEvent.click(screen.getByRole('button', { name: '复制查询链接' }))
     await screen.findByRole('button', { name: '已复制查询链接' })
@@ -209,7 +254,7 @@ describe('server log exploration', () => {
     expect(get.mock.lastCall![0]).toContain('userId=u-1')
     expect(get.mock.lastCall![0]).toContain('mediaId=m-1')
     fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: 'u-2' } })
-    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用定位条件' }))
     expect(onSearchChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ from: now - 3600000, to: now, userId: 'u-2', mediaId: 'm-1' }),
     )
@@ -279,7 +324,7 @@ describe('server log exploration', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('保留上次成功读取')
     expect(screen.getByText('201')).toBeInTheDocument()
     get.mockRejectedValue(new Error('offline'))
-    fireEvent.change(screen.getByLabelText('日志服务'), { target: { value: 'bff' } })
+    await choose('日志服务', 'bff')
     await waitFor(() => expect(screen.queryByText('201')).not.toBeInTheDocument())
     expect(await screen.findByRole('alert')).toHaveTextContent('日志加载失败')
   })

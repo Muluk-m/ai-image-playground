@@ -3,8 +3,14 @@ import { useState } from 'react'
 import type { DateRange } from 'react-day-picker'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
-import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { LOG_RANGES } from '@/lib/server-log-search'
 
 type Window = { from: number; to: number }
@@ -18,6 +24,51 @@ const beijing = (at: number) => new Date(at + 8 * 3600_000).toISOString()
 const day = (at: number) => new Date(beijing(at).slice(0, 10) + 'T00:00:00')
 const dateText = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+function TimeSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const parts = value.split(':')
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label={`${label}时刻（北京时间）`}>
+      {(['时', '分', '秒'] as const).map((unit, index) => (
+        <Select
+          key={unit}
+          value={parts[index]}
+          onValueChange={(next) => {
+            const updated = [...parts]
+            updated[index] = next
+            onChange(updated.join(':'))
+          }}
+        >
+          <SelectTrigger
+            className="w-[4.5rem] px-2 font-mono"
+            aria-label={`${label}${unit}（北京时间）`}
+          >
+            <SelectValue>
+              {parts[index]} {unit}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: index === 0 ? 24 : 60 }, (_, number) =>
+              String(number).padStart(2, '0'),
+            ).map((number) => (
+              <SelectItem key={number} value={number}>
+                {number}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ))}
+    </div>
+  )
+}
 
 export function LogTimeRangePicker({
   window,
@@ -37,6 +88,7 @@ export function LogTimeRangePicker({
   const [fromTime, setFromTime] = useState('00:00:00')
   const [toTime, setToTime] = useState('23:59:59')
   const [error, setError] = useState('')
+  const [original, setOriginal] = useState(window)
   const today = day(Date.now())
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="日志时间范围">
@@ -73,6 +125,7 @@ export function LogTimeRangePicker({
         open={open}
         onOpenChange={(next) => {
           if (next) {
+            setOriginal(window)
             setDates({ from: day(window.from), to: day(window.to) })
             setFromTime(beijing(window.from).slice(11, 19))
             setToTime(beijing(window.to).slice(11, 19))
@@ -95,6 +148,7 @@ export function LogTimeRangePicker({
         <PopoverContent
           className="w-[min(560px,calc(100vw-2rem))] overflow-hidden p-0"
           align="start"
+          aria-label="选择时间范围"
         >
           <div className="border-b px-4 py-3">
             <p className="text-sm font-semibold">选择时间范围</p>
@@ -110,28 +164,20 @@ export function LogTimeRangePicker({
               defaultMonth={day(window.from)}
               disabled={{ after: today }}
               className="mx-auto shrink-0"
+              classNames={{
+                selected: '[&>button]:bg-success [&>button]:text-white',
+                range_middle: 'bg-success/10 [&>button]:!bg-transparent [&>button]:!text-success',
+              }}
             />
             <div className="flex-1 space-y-4 border-t bg-muted/20 p-4 sm:border-l sm:border-t-0">
-              <label className="block space-y-2 text-xs text-muted-foreground">
+              <div className="block space-y-2 text-xs text-muted-foreground">
                 <span>开始 · {dates?.from ? dateText(dates.from) : '选择日期'}</span>
-                <Input
-                  aria-label="开始时刻（北京时间）"
-                  type="time"
-                  step="1"
-                  value={fromTime}
-                  onChange={(event) => setFromTime(event.target.value)}
-                />
-              </label>
-              <label className="block space-y-2 text-xs text-muted-foreground">
+                <TimeSelect label="开始" value={fromTime} onChange={setFromTime} />
+              </div>
+              <div className="block space-y-2 text-xs text-muted-foreground">
                 <span>结束 · {dates?.to ? dateText(dates.to) : '选择日期'}</span>
-                <Input
-                  aria-label="结束时刻（北京时间）"
-                  type="time"
-                  step="1"
-                  value={toTime}
-                  onChange={(event) => setToTime(event.target.value)}
-                />
-              </label>
+                <TimeSelect label="结束" value={toTime} onChange={setToTime} />
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -157,8 +203,17 @@ export function LogTimeRangePicker({
             <Button
               size="sm"
               onClick={() => {
-                const from = dates?.from && Date.parse(`${dateText(dates.from)}T${fromTime}+08:00`)
-                const to = dates?.to && Date.parse(`${dateText(dates.to)}T${toTime}+08:00`)
+                // Keep hidden milliseconds when a boundary was not edited.
+                const fromText = dates?.from && `${dateText(dates.from)}T${fromTime}`
+                const toText = dates?.to && `${dateText(dates.to)}T${toTime}`
+                const from =
+                  fromText === beijing(original.from).slice(0, 19)
+                    ? original.from
+                    : fromText && Date.parse(`${fromText}+08:00`)
+                const to =
+                  toText === beijing(original.to).slice(0, 19)
+                    ? original.to
+                    : toText && Date.parse(`${toText}+08:00`)
                 if (
                   !from ||
                   !to ||
