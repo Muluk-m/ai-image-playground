@@ -154,8 +154,27 @@ export function ServerLogsBlock({
       )
     )
       return
-    expressionFilters.current = null
-    if (previousQuery !== state.q) setSearch(state.q ?? '')
+    if (expression) {
+      const remaining = Object.fromEntries(
+        Object.entries(expression).filter(
+          ([key, value]) => state[key as keyof ServerLogFilters] === value,
+        ),
+      )
+      expressionFilters.current = remaining
+      const tokens = Object.entries(remaining)
+        .filter(([key, value]) => key !== 'q' && value)
+        .map(([key, value]) => {
+          const text = String(value)
+          let quoted = text
+          if (/\s/.test(text)) {
+            const quote = text.includes('"') ? "'" : '"'
+            quoted = quote + text + quote
+          }
+          return `${key}:${quoted}`
+        })
+      if (remaining.q) tokens.push(String(remaining.q))
+      setSearch(tokens.join(' '))
+    } else if (previousQuery !== state.q) setSearch(state.q ?? '')
   }, [filterSignature, state.q])
   const [selected, setSelected] = useState<ServerLogEntry | null>(null)
   const [showContext, setShowContext] = useState(false)
