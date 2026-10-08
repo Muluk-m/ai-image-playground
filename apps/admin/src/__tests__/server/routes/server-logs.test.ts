@@ -198,4 +198,57 @@ describe('authenticated server log explorer', () => {
     ).json()) as ServerLogsResult
     expect(other.entries).toHaveLength(0)
   })
+  it('uses the same legacy-frame severity in filters, rows, counts, groups and trends', async () => {
+    await writer.db.insert(writer.schema.server_logs).values([
+      {
+        ...rows[0]!,
+        id: 'legacy-frame-stderr',
+        instance: 'legacy-fixture',
+        event: null,
+        message: '    at call (app.ts:1)',
+        fields: { stream: 'stderr' },
+      },
+      {
+        ...rows[0]!,
+        id: 'legacy-frame-stdout',
+        instance: 'legacy-fixture',
+        event: null,
+        message: '    at other (app.ts:2)',
+        fields: { stream: 'stdout' },
+      },
+      {
+        ...rows[0]!,
+        id: 'whole-error',
+        instance: 'legacy-fixture',
+        event: null,
+        message: 'TypeError: broken\n    at call (app.ts:1)',
+        fields: { stream: 'stderr' },
+      },
+    ])
+    const all = (await (await request('&instance=legacy-fixture')).json()) as ServerLogsResult
+    expect(all.summary).toEqual({ total: 3, errors: 1, warnings: 1 })
+    expect(all.levelCounts).toEqual({ error: 1, warn: 1, info: 1 })
+    expect(all.entries.find((row) => row.id === 'legacy-frame-stderr')?.level).toBe('warn')
+    expect(all.entries.find((row) => row.id === 'legacy-frame-stdout')?.level).toBe('info')
+    expect(
+      all.groups
+        .filter((group) => group.level === 'error')
+        .reduce((n, group) => n + group.count, 0),
+    ).toBe(1)
+    expect(all.trend.reduce((n, point) => n + point.errors, 0)).toBe(1)
+    const errors = (await (
+      await request('&instance=legacy-fixture&level=error')
+    ).json()) as ServerLogsResult
+    expect(errors.entries.map((row) => row.id)).toEqual(['whole-error'])
+    expect(errors.summary.errors).toBe(1)
+    const contextResponse = await app.handle(
+      new Request('http://localhost/api/ops/logs/context?id=legacy-frame-stderr', {
+        headers: { cookie },
+      }),
+    )
+    const context = (await contextResponse.json()) as { entries: ServerLogsResult['entries'] }
+    expect(context.entries.find((row) => row.id === 'legacy-frame-stderr')?.level).toBe('warn')
+    expect(context.entries.find((row) => row.id === 'legacy-frame-stdout')?.level).toBe('info')
+    expect(context.entries.find((row) => row.id === 'whole-error')?.level).toBe('error')
+  })
 })
