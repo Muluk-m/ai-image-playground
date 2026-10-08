@@ -9,6 +9,7 @@ export function inspectImage(bytes: ArrayBuffer) {
   const b = new Uint8Array(bytes)
   let width = 0
   let height = 0
+  let dataEnd = bytes.byteLength
   const tag = (at: number) => String.fromCharCode(...b.subarray(at, at + 4))
   try {
     if (type === 'image/png') {
@@ -23,24 +24,40 @@ export function inspectImage(bytes: ArrayBuffer) {
         p += length + 12
       }
     } else if (type === 'image/jpeg') {
-      if (b[b.length - 2] !== 0xff || b[b.length - 1] !== 0xd9) throw new Error()
       let p = 2
+      let entropy = false
+      let ended = false
       while (p < b.length) {
+        if (entropy) {
+          p = b.indexOf(0xff, p)
+          if (p < 0) throw new Error()
+        }
         if (b[p++] !== 0xff) throw new Error()
         while (b[p] === 0xff) p++
         const marker = b[p++]!
-        if (marker === 0xda || marker === 0xd9) break
+        if (entropy && marker === 0x00) continue
+        if (marker === 0xd9) {
+          dataEnd = p
+          ended = true
+          break
+        }
+        if (marker === 0xd8 || marker === 0x00) throw new Error()
         if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue
+        entropy = false
         const length = view.getUint16(p)
         if (length < 2 || p + length > b.length) throw new Error()
         if ([0xc0, 0xc1, 0xc2].includes(marker)) {
           if (length < 8) throw new Error()
-          height = view.getUint16(p + 3)
-          width = view.getUint16(p + 5)
-          break
+          const frameHeight = view.getUint16(p + 3)
+          const frameWidth = view.getUint16(p + 5)
+          if (width && (width !== frameWidth || height !== frameHeight)) throw new Error()
+          height = frameHeight
+          width = frameWidth
         }
         p += length
+        if (marker === 0xda) entropy = true
       }
+      if (!ended) throw new Error()
     } else {
       if (view.getUint32(4, true) + 8 !== b.length) throw new Error()
       for (let p = 12; p + 8 <= b.length; ) {
@@ -77,5 +94,5 @@ export function inspectImage(bytes: ArrayBuffer) {
     Math.max(width, height) > IMAGE_PREPROCESSING.maxDecodeSide
   )
     throw new Error('attachment_decode_limit')
-  return { contentType: type, width, height }
+  return { contentType: type, width, height, dataEnd }
 }
