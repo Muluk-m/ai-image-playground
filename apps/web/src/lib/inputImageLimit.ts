@@ -1,13 +1,10 @@
-import { QUEUE_MAX_INPUT_IMAGES } from '@image-playground/shared'
+import { MAX_IMAGE_UPLOAD_BYTES, QUEUE_MAX_INPUT_IMAGES } from '@image-playground/shared'
 import { i18next } from '../i18n'
 /** API 支持的最大参考图数量。BFF 的提交校验用同一个数，超了会 400。 */
 export const API_MAX_IMAGES = QUEUE_MAX_INPUT_IMAGES
 
-/**
- * 单张参考图的上限。上游把图连同提示词一起放进一次请求里，太大的原图既传不上去也没意义
- * （模型端本来就会缩），所以在进输入框之前就拦掉，而不是等提交失败。
- */
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+/** 上传保留原件；模型输入的缩放和请求预算由提交路径处理。 */
+export const MAX_IMAGE_BYTES = MAX_IMAGE_UPLOAD_BYTES
 export const MAX_IMAGE_MB = MAX_IMAGE_BYTES / (1024 * 1024)
 
 function buildMaxInputImagesMessage(): string {

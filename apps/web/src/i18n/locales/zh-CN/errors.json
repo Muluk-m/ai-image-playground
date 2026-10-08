@@ -120,6 +120,7 @@
     "attachment_uploads_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",
     "media_too_large": "图片文件过大：最多支持 {{maxSize}}。请压缩文件后重新上传。",
     "media_not_readable": "图片存储服务暂时不可用，请稍后点击重试。",
-    "media_size_mismatch": "图片上传校验未通过，请点击重试重新上传。"
+    "media_size_mismatch": "图片上传校验未通过，请点击重试重新上传。",
+    "media_image_processing_limit": "这张图片的处理开销过大，请缩小尺寸或重新导出后上传。"
   }
 }

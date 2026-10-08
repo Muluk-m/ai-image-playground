@@ -6,13 +6,14 @@ import {
   type CapabilityValues,
   type ClientCapabilityKey,
   type ClientCapabilityManifest,
+  MAX_IMAGE_UPLOAD_BYTES,
   QUOTAS,
   type QuotaKey,
   type QuotaValues,
   RETIRED_CAPABILITIES,
   RETIRED_QUOTAS,
 } from '@image-playground/shared'
-import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
+import { MEDIA_UPLOAD_MAX_PIXELS } from './media-image-limits'
 import { isObject } from './type-guards'
 
 export type OperatorValueSource = 'default' | 'file' | `preset:${string}`
@@ -225,7 +226,7 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
   if (!capabilities['agent:batch-plans']) capabilities['agent:batch-execution'] = false
   for (const [key, maximum] of [
     ['agent:attachment-logical-references', 100],
-    ['agent:attachment-image-pixels', MEDIA_IMAGE_MAX_PIXELS],
+    ['agent:attachment-image-pixels', MEDIA_UPLOAD_MAX_PIXELS],
     ['agent:attachment-upload-concurrency', 4],
   ] as const) {
     if (quotas[key] > maximum) throw new Error(`${key} must not exceed ${maximum}`)
@@ -295,7 +296,7 @@ export function attachmentLimits(config: ResolvedOperatorConfig): AttachmentLimi
     imageBytes: Math.min(
       config.quotas['agent:attachment-image-bytes'],
       config.quotas['sync:asset-image-bytes'],
-      100_000_000,
+      MAX_IMAGE_UPLOAD_BYTES,
     ),
     imagePixels: config.quotas['agent:attachment-image-pixels'],
     uploadConcurrency: config.quotas['agent:attachment-upload-concurrency'],

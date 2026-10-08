@@ -19,7 +19,7 @@ import { PREVIEW_RESIZE } from './agent/modelImage'
 import { isCapabilityEnabled } from './capabilities'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
-import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
+import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
 import { attachmentLimits } from './operator-config'
 import type { BffTransaction } from './private-overlay'
@@ -268,7 +268,7 @@ export async function completeMedia(userId: string, id: string) {
         try {
           const decoded = await withMediaDecode(async () => {
             const image = sharp(bytes, {
-              limitInputPixels: limits?.imagePixels ?? MEDIA_IMAGE_MAX_PIXELS,
+              limitInputPixels: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
               failOn: 'warning',
             })
             const metadata = await image.metadata()
@@ -278,7 +278,9 @@ export async function completeMedia(userId: string, id: string) {
               `image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type
             )
               throw new Error('content_type_mismatch')
+            assertMediaImageProcessingBudget(metadata)
             const preview = await image
+              .timeout({ seconds: 15 })
               .rotate()
               .resize(PREVIEW_RESIZE)
               .webp({ quality: 75 })
@@ -291,20 +293,15 @@ export async function completeMedia(userId: string, id: string) {
           preview = decoded.preview
         } catch (error) {
           const message = error instanceof Error ? error.message : ''
-          const reason =
-            message === 'animated_image'
-              ? 'animated_image'
-              : message === 'content_type_mismatch'
-                ? 'content_type_mismatch'
-                : message === 'invalid_preview'
-                  ? 'invalid_preview'
-                  : /pixel limit/i.test(message)
-                    ? 'pixel_limit'
-                    : observed
-                      ? 'preview_failed'
-                      : 'decode_failed'
-          const errorCode =
-            reason === 'pixel_limit' ? 'media_image_pixels_exceeded' : 'media_invalid_image'
+          let reason = observed ? 'preview_failed' : 'decode_failed'
+          if (message === 'processing_budget' || /timeout/i.test(message))
+            reason = 'processing_budget'
+          else if (/pixel limit/i.test(message)) reason = 'pixel_limit'
+          else if (['animated_image', 'content_type_mismatch', 'invalid_preview'].includes(message))
+            reason = message
+          let errorCode = 'media_invalid_image'
+          if (reason === 'pixel_limit') errorCode = 'media_image_pixels_exceeded'
+          else if (reason === 'processing_budget') errorCode = 'media_image_processing_limit'
           log.warn(
             {
               event: 'media.validation_failed',
@@ -317,7 +314,7 @@ export async function completeMedia(userId: string, id: string) {
               detectedFormat: observed?.format,
               width: observed?.width,
               height: observed?.height,
-              pixelLimit: limits?.imagePixels ?? MEDIA_IMAGE_MAX_PIXELS,
+              pixelLimit: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
               err: error,
             },
             'uploaded image validation failed',
