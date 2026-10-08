@@ -159,16 +159,21 @@ it('当前项目恢复或切换后，标签跟到它那一类', () => {
   expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
 })
 
-it('\u8fdb\u5165\u5de5\u4f5c\u53f0\u9ed8\u8ba4\u4e0d\u644a\u5f00\u5bbd\u680f', () => {
+it('进入对话默认摊开宽栏，进入画布才收起', () => {
   act(() =>
     useCanvasProjectStore.setState({
-      projects: seed('chat', 1),
+      projects: [...seed('chat', 1), ...seed('canvas', 1)],
       cloudCatalog: {},
       activeId: 'chat-0',
       loaded: true,
     }),
   )
+  // 首页发出一条对话：切进工作台，侧栏保持摊开。
   act(() => useStore.getState().setAppMode('canvas'))
+  expect(host.querySelectorAll('nav')).toHaveLength(2)
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
+
+  act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
   expect(host.querySelectorAll('nav')).toHaveLength(1)
   expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
 
