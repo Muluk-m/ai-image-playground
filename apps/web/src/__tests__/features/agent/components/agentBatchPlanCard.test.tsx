@@ -104,6 +104,24 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('keeps plan fields to the card scale so a long rule stays in its box', async () => {
+  await render()
+  const rule = [...host.querySelectorAll('label')].find((label) =>
+    label.textContent?.includes('统一规则'),
+  )
+  const field = rule?.querySelector('textarea')
+  expect(field?.rows).toBe(3)
+  expect(field?.className).toContain('max-h-24')
+  expect(field?.className).toContain('text-xs')
+  const title = [...host.querySelectorAll('label')].find((label) =>
+    label.textContent?.includes('计划名称'),
+  )
+  expect(title?.querySelector('input')?.className).toContain('h-8')
+  const thumb = host.querySelector('summary img')
+  expect(thumb?.className).toContain('h-5')
+  expect(thumb?.className).toContain('w-5')
+})
+
 async function render() {
   const message = panelMessage('message-1', 'turn-1', 'assistant', [
     {
