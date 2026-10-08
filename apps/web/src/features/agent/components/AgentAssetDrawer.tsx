@@ -1,50 +1,29 @@
 import { FolderOpen, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ImagePreview } from '../../../components/Lightbox'
 import { useTranslation } from '../../../i18n'
-import { fetchConversations, fetchMessages } from '../lib/agentClient'
-import { fetchedCanvasId } from '../lib/artifactDelivery'
-import { artifactPreview, fetchedImagePreview } from '../lib/artifactPreview'
+import { blobDataUrl } from '../../../lib/cloudMedia'
+import {
+  fetchBatchPlan,
+  fetchConversations,
+  fetchMessageReference,
+  fetchMessages,
+} from '../lib/agentClient'
+import {
+  type AssetItem,
+  assetsFromBatch,
+  assetsFromMessages,
+  batchNeedsRefresh,
+  loadAssetOriginal,
+  type StoredReferenceLoader,
+} from '../lib/assetItems'
 import { panelStateFromHistory } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
-interface AssetItem {
-  message: AgentToolMessage
-  id: string
-  title: string
-  media: 'image' | 'video'
-  load: () => Promise<string | null>
-}
-
 const ASSET_PAGE_SIZE = 24
-
-function assetsFromMessages(messages: readonly AgentPanelMessage[]): AssetItem[] {
-  return messages
-    .flatMap((message) => {
-      if (message.kind !== 'tool' || message.status !== 'succeeded') return []
-      return [
-        ...(message.artifacts ?? []).map((artifact) => ({
-          message,
-          id: artifact.artifactId,
-          title: message.title,
-          media: artifact.media === 'video' ? ('video' as const) : ('image' as const),
-          load: async () => (await artifactPreview(artifact)).source,
-        })),
-        ...(message.fetchedImages ?? []).map((image, index) => {
-          const id = fetchedCanvasId(message.toolCallId, index)
-          return {
-            message,
-            id,
-            title: message.title,
-            media: 'image' as const,
-            load: async () => (await fetchedImagePreview(image, id)).source,
-          }
-        }),
-      ]
-    })
-    .reverse()
-}
+const BATCH_REFRESH_MS = 4_000
 
 export default function AgentAssetDrawer({
   messages,
@@ -63,11 +42,125 @@ export default function AgentAssetDrawer({
   const [loadingAll, setLoadingAll] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
   const [hasMore, setHasMore] = useState(false)
+  const [batchById, setBatchById] = useState<Readonly<Record<string, readonly AssetItem[]>>>({})
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchFailed, setBatchFailed] = useState(false)
+  const [sourcePreview, setSourcePreview] = useState<string | null>(null)
+  const sourcePreviewRef = useRef<string | null>(null)
+  sourcePreviewRef.current = sourcePreview
+  const previewToken = useRef(0)
   const gridRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const loadNextRef = useRef<() => void>(() => {})
   const conversationId = useAgentStore((state) => state.conversationId)
-  const sessionItems = useMemo(() => assetsFromMessages(messages), [messages])
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const batchIds = useMemo(() => {
+    const ids: string[] = []
+    for (const message of messages) {
+      if (message.kind === 'tool' && message.batchId && !ids.includes(message.batchId))
+        ids.push(message.batchId)
+    }
+    return ids
+  }, [messages])
+  const batchKey = batchIds.join('\n')
+  const reloadBatchRef = useRef<() => void>(() => {})
+  const loadReferenceRef = useRef<StoredReferenceLoader>(async () => null)
+  loadReferenceRef.current = async (targetConversationId, messageId, index, variant) => {
+    try {
+      const blob = await fetchMessageReference(targetConversationId, messageId, index, {
+        signal: AbortSignal.timeout(30_000),
+        ...(variant === 'original' ? { variant: 'original' as const } : {}),
+      })
+      return await blobDataUrl(blob)
+    } catch {
+      return null
+    }
+  }
+  useEffect(() => {
+    if (!batchKey) {
+      setBatchById({})
+      setBatchLoading(false)
+      setBatchFailed(false)
+      reloadBatchRef.current = () => {}
+      return
+    }
+    const ids = batchKey.split('\n')
+    let cancelled = false
+    let generation = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const load = async (initial: boolean) => {
+      const token = ++generation
+      if (timer) clearTimeout(timer)
+      timer = undefined
+      if (initial) setBatchLoading(true)
+      const settled = await Promise.allSettled(ids.map((id) => fetchBatchPlan(id)))
+      if (cancelled || token !== generation) return
+      const failed: string[] = []
+      const loaded = new Map<string, readonly AssetItem[]>()
+      let refresh = false
+      settled.forEach((result, index) => {
+        const id = ids[index]!
+        if (result.status === 'rejected') {
+          failed.push(id)
+          return
+        }
+        const message = messagesRef.current.find(
+          (one): one is AgentToolMessage => one.kind === 'tool' && one.batchId === id,
+        )
+        loaded.set(id, message ? assetsFromBatch(message, result.value) : [])
+        if (batchNeedsRefresh(result.value)) refresh = true
+      })
+      setBatchById((current) => {
+        const next: Record<string, readonly AssetItem[]> = {}
+        for (const id of ids) {
+          const fresh = loaded.get(id)
+          if (fresh) next[id] = fresh
+          else if (current[id]) next[id] = current[id]
+        }
+        return next
+      })
+      setBatchFailed(failed.length > 0)
+      setBatchLoading(false)
+      if (refresh) timer = setTimeout(() => void load(false), BATCH_REFRESH_MS)
+    }
+    reloadBatchRef.current = () => void load(true)
+    void load(true)
+    return () => {
+      cancelled = true
+      generation += 1
+      if (timer) clearTimeout(timer)
+      reloadBatchRef.current = () => {}
+    }
+  }, [batchKey])
+  const batchItems = useMemo(
+    () => batchIds.flatMap((id) => batchById[id] ?? []),
+    [batchIds, batchById],
+  )
+  const generatedItems = useMemo(
+    () =>
+      assetsFromMessages(
+        messages,
+        conversationId
+          ? {
+              conversationId,
+              loadReference: (targetConversationId, messageId, index, variant) =>
+                loadReferenceRef.current(targetConversationId, messageId, index, variant),
+            }
+          : undefined,
+      ),
+    [messages, conversationId],
+  )
+  const sessionItems = useMemo(() => {
+    const seen = new Set<string>()
+    const items: AssetItem[] = []
+    for (const item of [...generatedItems, ...batchItems]) {
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      items.push(item)
+    }
+    return items
+  }, [generatedItems, batchItems])
   const sessionItemsRef = useRef(sessionItems)
   const initialSessionIds = useRef(new Set<string>())
   sessionItemsRef.current = sessionItems
@@ -101,9 +194,14 @@ export default function AgentAssetDrawer({
                 (one) => one.id !== conversationId,
               )
             if (nextConversation >= conversations.length) break
-            const history = await fetchMessages(conversations[nextConversation]!.id)
+            const olderId = conversations[nextConversation]!.id
+            const history = await fetchMessages(olderId)
+            pending = assetsFromMessages(panelStateFromHistory(history).messages, {
+              conversationId: olderId,
+              loadReference: (targetConversationId, messageId, index, variant) =>
+                loadReferenceRef.current(targetConversationId, messageId, index, variant),
+            })
             nextConversation += 1
-            pending = assetsFromMessages(panelStateFromHistory(history).messages)
           }
         }
       } catch {
@@ -136,7 +234,7 @@ export default function AgentAssetDrawer({
   const shown = items.filter(
     (item) =>
       (media === 'all' || item.media === media) &&
-      `${item.title} ${item.message.prompt ?? ''}`
+      `${item.title} ${item.open.kind === 'result' ? (item.open.message.prompt ?? '') : ''}`
         .toLocaleLowerCase()
         .includes(search.trim().toLocaleLowerCase()),
   )
@@ -158,9 +256,29 @@ export default function AgentAssetDrawer({
     observer.observe(end)
     return () => observer.disconnect()
   }, [scope, hasMore, loadingAll, loadFailed, shown.length])
+  useEffect(
+    () => () => {
+      previewToken.current += 1
+    },
+    [],
+  )
+  const openSource = (item: AssetItem) => {
+    const token = ++previewToken.current
+    void loadAssetOriginal(item, (targetConversationId, messageId, index, variant) =>
+      loadReferenceRef.current(targetConversationId, messageId, index, variant),
+    ).then((source) => {
+      if (token === previewToken.current && source) setSourcePreview(source)
+    })
+  }
+  const closeSource = () => {
+    previewToken.current += 1
+    setSourcePreview(null)
+  }
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      // 原图预览自己吃掉这一下；这里再关，会连抽屉一起收掉。
+      if (event.key !== 'Escape' || sourcePreviewRef.current) return
+      onClose()
     }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
@@ -224,9 +342,14 @@ export default function AgentAssetDrawer({
             <AssetThumb
               key={item.id}
               item={item}
+              label={item.title || t('assets.untitled')}
               onClick={() => {
+                if (item.open.kind === 'source') {
+                  openSource(item)
+                  return
+                }
                 onClose()
-                onPreview(item.message, item.id)
+                onPreview(item.open.message, item.id)
               }}
             />
           ))}
@@ -251,19 +374,51 @@ export default function AgentAssetDrawer({
           {scope === 'all' && hasMore && !loadFailed && (
             <div ref={endRef} className="studio-assets-end" aria-hidden="true" />
           )}
-          {!shown.length && !loadingAll && !loadFailed && (scope === 'session' || !hasMore) && (
-            <p className="studio-assets-empty">
-              {t(items.length ? 'assets.noMatch' : 'assets.empty')}
+          {scope === 'session' && batchLoading && !shown.length && (
+            <div className="studio-assets-status" role="status">
+              <span className="studio-agent-history-pulse" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              {t('assets.loadingBatch')}
+            </div>
+          )}
+          {scope === 'session' && batchFailed && (
+            <p className="studio-assets-status" role="alert">
+              {t('assets.batchFailed')}{' '}
+              <button type="button" onClick={() => reloadBatchRef.current()}>
+                {t('assets.retry')}
+              </button>
             </p>
           )}
+          {!shown.length &&
+            !loadingAll &&
+            !batchLoading &&
+            !loadFailed &&
+            !batchFailed &&
+            (scope === 'session' || !hasMore) && (
+              <p className="studio-assets-empty">
+                {t(items.length ? 'assets.noMatch' : 'assets.empty')}
+              </p>
+            )}
         </div>
+        {sourcePreview && <ImagePreview src={sourcePreview} onClose={closeSource} />}
       </aside>
     </div>,
     document.body,
   )
 }
 
-function AssetThumb({ item, onClick }: { item: AssetItem; onClick: () => void }) {
+function AssetThumb({
+  item,
+  label,
+  onClick,
+}: {
+  item: AssetItem
+  label: string
+  onClick: () => void
+}) {
   const ref = useRef<HTMLButtonElement>(null)
   const [visible, setVisible] = useState(false)
   const [source, setSource] = useState<string | null>(null)
@@ -299,18 +454,12 @@ function AssetThumb({ item, onClick }: { item: AssetItem; onClick: () => void })
     }
   }, [item.id, visible])
   return (
-    <button
-      ref={ref}
-      type="button"
-      className="studio-assets-item"
-      title={item.title}
-      onClick={onClick}
-    >
+    <button ref={ref} type="button" className="studio-assets-item" title={label} onClick={onClick}>
       <span className="studio-assets-thumb">
         {source && <img src={source} alt="" loading="lazy" />}
         {item.media === 'video' && <span className="studio-assets-video">▶</span>}
       </span>
-      <span className="studio-assets-name">{item.title}</span>
+      <span className="studio-assets-name">{label}</span>
     </button>
   )
 }
