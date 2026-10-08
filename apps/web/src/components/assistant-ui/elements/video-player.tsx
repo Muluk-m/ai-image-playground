@@ -1,6 +1,20 @@
 import { useState } from 'react'
 import { Button } from '../../ui/button'
 
+/**
+ * 长边停在 65vh。播放器在纵向 flex 里会被撑满栏宽，只写 aspect-ratio 和
+ * max-height 时高度被截断、宽度不收回，9:16 就变成一块横着的空舞台。
+ * 这里改限制宽度，高度由比例自己算。
+ */
+const PLAYER_MAX_HEIGHT = '65vh'
+
+function playerWidth(aspectRatio: string): string {
+  const [width, height] = aspectRatio.split('/').map((part) => Number(part))
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+    return '100%'
+  return `min(100%, calc(${PLAYER_MAX_HEIGHT} * ${width} / ${height}))`
+}
+
 /** Native media controls keep playback keyboard accessible and avoid automatic playback. */
 export function VideoPlayer({
   src,
@@ -22,8 +36,8 @@ export function VideoPlayer({
   return (
     <div
       data-slot="video-player"
-      className="relative max-h-[65vh] overflow-hidden rounded-xl bg-black"
-      style={{ aspectRatio }}
+      className="relative max-w-full self-start overflow-hidden rounded-xl bg-black"
+      style={{ aspectRatio, width: playerWidth(aspectRatio), maxHeight: PLAYER_MAX_HEIGHT }}
     >
       <video
         key={`${src}:${attempt}`}
@@ -33,7 +47,7 @@ export function VideoPlayer({
         playsInline
         preload="none"
         aria-label={label}
-        className="h-full max-h-[65vh] w-full object-contain"
+        className="absolute inset-0 h-full w-full bg-black object-contain"
         onError={() => setFailure(src)}
         onLoadedData={() => setFailure(null)}
       />

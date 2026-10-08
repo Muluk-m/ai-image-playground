@@ -1,6 +1,6 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { Download, VideoIcon } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
 import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
 import { Button } from '../../../components/ui/button'
@@ -9,6 +9,7 @@ import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { downloadBlob } from '../../../lib/downloadImages'
+import { videoOutputFrame } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentRerunBlock, agentRetryAvailable } from '../lib/retry'
 import {
@@ -25,12 +26,34 @@ import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
 import { AgentVideoDetails, AgentVideoEstimate } from './AgentVideoDetails'
 
-function VideoResult({ artifact, title }: { artifact: AgentToolArtifact; title: string }) {
+function VideoResult({
+  artifact,
+  title,
+  aspectRatio,
+}: {
+  artifact: AgentToolArtifact
+  title: string
+  aspectRatio?: string
+}) {
   const { t } = useTranslation('agent')
   const busy = useRef(false)
   const [downloading, setDownloading] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [poster, setPoster] = useState<string>()
   const source = queueOutputUrl(artifact.taskId, artifact.outputIndex)
+  // 封面和画布用同一张首帧；抓取失败就保持可播放的空舞台，不拿纯色底冒充画面。
+  useEffect(() => {
+    let alive = true
+    setPoster(undefined)
+    void videoOutputFrame({ taskId: artifact.taskId, outputIndex: artifact.outputIndex }).then(
+      (frame) => {
+        if (alive && frame) setPoster(frame)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [artifact.taskId, artifact.outputIndex])
   const download = async () => {
     if (busy.current) return
     busy.current = true
@@ -55,10 +78,11 @@ function VideoResult({ artifact, title }: { artifact: AgentToolArtifact; title: 
     <div className="flex flex-col gap-2">
       <VideoPlayer
         src={source}
+        poster={poster}
         label={title}
         errorLabel={t('video.playbackFailed')}
         retryLabel={t('video.reload')}
-        aspectRatio={artifact.video?.aspectRatio.replace(':', ' / ')}
+        aspectRatio={(aspectRatio ?? artifact.video?.aspectRatio)?.replace(':', ' / ')}
       />
       <Button
         variant="ghost"
@@ -163,7 +187,12 @@ export default function AgentVideoToolCard({
       </div>
       {video && <AgentVideoDetails video={video} />}
       {artifacts.map((artifact) => (
-        <VideoResult key={artifact.artifactId} artifact={artifact} title={message.title} />
+        <VideoResult
+          key={artifact.artifactId}
+          artifact={artifact}
+          title={message.title}
+          aspectRatio={artifact.video?.aspectRatio ?? video?.aspectRatio}
+        />
       ))}
       {progress && !artifacts.length && (
         <>
