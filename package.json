@@ -22,5 +22,10 @@
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
     "turbo": "^2.5.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "exact-mirror": "0.2.7"
+    }
   }
 }
