@@ -12,6 +12,7 @@ import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../../features/library/store'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
+import * as mediaDb from '../../../../lib/db'
 import { getCachedMedia, putCachedMedia } from '../../../../lib/db'
 import { readAttachmentUpload } from '../../../../lib/localAttachmentSources'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
@@ -20,6 +21,7 @@ it.each([
   'success',
   'resolve failure',
   'decode failure',
+  'cache deletion failure',
 ])('keeps the preview covered and recovers without re-uploading: %s', async (scenario) => {
   vi.stubGlobal('crypto', webcrypto)
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -29,6 +31,8 @@ it.each([
   const previewGate = new Promise<void>((resolve) => {
     releasePreview = resolve
   })
+  const previewBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII='
   let uploads = 0
   let previews = 0
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
@@ -67,9 +71,9 @@ it.each([
       if (scenario === 'resolve failure' && previews === 1)
         return new Response('preview unavailable', { status: 503 })
       const data =
-        scenario === 'decode failure' && previews === 1
+        (scenario === 'decode failure' || scenario === 'cache deletion failure') && previews === 1
           ? Uint8Array.from([1, 2, 3])
-          : Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 3])
+          : Uint8Array.from(atob(previewBase64), (char) => char.charCodeAt(0))
       return new Response(data, {
         headers: { 'content-type': 'image/png' },
       })
@@ -125,7 +129,7 @@ it.each([
       expect(thumb().getAttribute('src')).toMatch(/^data:image\/png;base64,/)
     })
     expect(thumb().className).toContain('opacity-0')
-    if (scenario === 'decode failure') {
+    if (scenario === 'decode failure' || scenario === 'cache deletion failure') {
       expect(thumb().getAttribute('src')).toBe('data:image/png;base64,AQID')
       const upload = await readAttachmentUpload(
         session.getSnapshot().draft.references[0]!.dataUrl,
@@ -144,12 +148,14 @@ it.each([
       await act(async () => thumb().dispatchEvent(new Event('error')))
       expect(retry()).not.toBeNull()
       expect(host.querySelector('.animate-spin')).toBeNull()
+      if (scenario === 'cache deletion failure')
+        vi.spyOn(mediaDb, 'dbTransaction').mockRejectedValueOnce(new Error('storage unavailable'))
       await act(async () => retry().click())
       await vi.waitFor(async () => {
         await act(async () => {})
-        expect(thumb().getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgoD')
+        expect(thumb().getAttribute('src')).toBe(`data:image/png;base64,${previewBase64}`)
       })
-      expect((await getCachedMedia(`${mediaId}:preview`))?.bytes).toBe(9)
+      expect((await getCachedMedia(`${mediaId}:preview`))?.bytes).toBe(68)
       expect((await getCachedMedia(`${mediaId}:original`))?.data).toEqual(originalBytes)
     }
     await act(async () => {
@@ -169,5 +175,6 @@ it.each([
     setClientStorageScope(null)
     await bootstrapClientCapabilities(false, '')
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   }
 })
