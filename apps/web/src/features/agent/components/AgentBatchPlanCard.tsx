@@ -16,7 +16,7 @@ import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
-import { CARD, CARD_NOTE } from '../agentStyles'
+import { CARD, CARD_CONTROL, CARD_NOTE, CARD_TEXT } from '../agentStyles'
 import {
   type AgentBatchCommand,
   AgentRequestError,
@@ -424,7 +424,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         <span>{t('batch.version', { version: page.batch.version })}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
           <TargetIcon aria-hidden className="h-3 w-3" />
           {page.batch.experience === 'canvas' ? t('batch.targetCanvas') : t('batch.targetChat')}
         </span>
@@ -487,6 +487,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       <label className="grid gap-1 text-xs">
         {t('batch.title')}
         <Input
+          className={`${CARD_CONTROL} w-full`}
           value={page.batch.title}
           disabled={!editable}
           maxLength={120}
@@ -499,6 +500,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       <label className="grid gap-1 text-xs">
         {t('batch.rule')}
         <Textarea
+          className={`${CARD_TEXT} max-h-24`}
+          rows={3}
           value={page.batch.rule}
           disabled={!editable}
           maxLength={4000}
@@ -508,26 +511,26 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           }}
         />
       </label>
-      <div className="max-h-96 overflow-y-auto divide-y divide-border rounded-lg border border-border bg-background">
+      <div className="max-h-64 overflow-y-auto divide-y divide-border rounded-lg border border-border bg-background">
         {visibleItems.map((item, index) => (
-          <details key={item.key} className="px-2 py-1.5 text-xs">
-            <summary className="cursor-pointer py-1 focus-visible:outline-ring">
+          <details key={item.key} className="px-2 py-1 text-xs">
+            <summary className="cursor-pointer py-0.5 focus-visible:outline-ring">
               <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
                 <span className="shrink-0 tabular-nums">{firstItem + index + 1}.</span>
                 <AgentBatchItemStatus execution={item.execution} progress={item.progress} />
                 {item.kind === 'analysis' && (
-                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
                     <Scan aria-hidden className="h-3 w-3" />
                     {t('batch.analysisKind')}
                   </span>
                 )}
                 {phaseConfirmation?.itemKeys.includes(item.key) && (
-                  <span className="rounded-md border border-border bg-muted px-2 py-1">
+                  <span className="rounded-md border border-border bg-muted px-1.5 py-0.5">
                     {t('batch.confirmationItem')}
                   </span>
                 )}
                 {page.batch.retryItemKeys?.includes(item.key) && (
-                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
                     <RotateCcw aria-hidden className="h-3 w-3" />
                     {t('batch.retryItem')}
                   </span>
@@ -542,7 +545,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                       <MediaImage
                         src={`aip-media:${input.mediaId}`}
                         alt={name}
-                        className="h-7 w-7 shrink-0 rounded object-cover"
+                        className="h-5 w-5 shrink-0 rounded object-cover"
                         loading="lazy"
                       />
                       <span className="truncate">{name}</span>
@@ -555,7 +558,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               {item.blockedBy?.length ? (
                 <div className="flex flex-wrap gap-1">
                   {item.blockedBy.map((key) => (
-                    <span key={key} className="rounded-md border border-border bg-muted px-2 py-1">
+                    <span
+                      key={key}
+                      className="rounded-md border border-border bg-muted px-1.5 py-0.5"
+                    >
                       {t('batch.dependencyItem', {
                         index: page.items.findIndex((entry) => entry.key === key) + 1,
                       })}
@@ -604,6 +610,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               <label className="grid gap-1">
                 {t('batch.prompt')}
                 <Textarea
+                  className={`${CARD_TEXT} max-h-24`}
+                  rows={3}
                   value={item.prompt}
                   disabled={!itemEditable(item)}
                   maxLength={4000}
@@ -678,6 +686,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                   <label className="grid gap-1">
                     {t('batch.size')}
                     <Input
+                      className={`${CARD_CONTROL} w-full`}
                       aria-label={t('batch.size')}
                       value={
                         item.params.provider === 'gemini'

@@ -5,7 +5,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import ProductionDraftCard from '../../production/components/ProductionDraftCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
+import { CARD_NOTE, CARD_TEXT, GHOST_LINK } from '../agentStyles'
 import { agentDraftOutputCount, isProductionDraft } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
@@ -104,9 +104,9 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
         aria-describedby={noteId}
         aria-invalid={ready ? undefined : true}
         value={prompt}
-        rows={7}
+        rows={4}
         disabled={submitting}
-        className="max-h-64 min-h-32 w-full resize-y rounded-xl border border-input/60 bg-background/60 p-3 text-body-sm leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+        className={`${CARD_TEXT} max-h-36`}
         onChange={(event) =>
           useAgentStore.getState().setPromptDraft(message.id, event.target.value)
         }
