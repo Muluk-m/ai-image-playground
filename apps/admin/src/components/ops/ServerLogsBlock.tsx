@@ -1,5 +1,6 @@
 import {
   SERVER_LOG_LEVELS,
+  SERVER_LOG_SERVICES,
   type ServerLogEntry,
   type ServerLogFilters,
   type ServerLogPage,
@@ -304,8 +305,11 @@ export function ServerLogsBlock({
             }
           >
             <option value="">全部服务</option>
-            <option value="bff">BFF</option>
-            <option value="worker">worker</option>
+            {SERVER_LOG_SERVICES.map((service) => (
+              <option key={service} value={service}>
+                {service}
+              </option>
+            ))}
           </select>
           <select
             aria-label="日志级别"

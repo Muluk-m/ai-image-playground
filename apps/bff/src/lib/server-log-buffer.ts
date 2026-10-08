@@ -117,7 +117,7 @@ export function redactLogText(value: string, depth = 0): string {
       /((?:api[_-]?key|token|password|secret|signature|credential)["']?\s*[:=]\s*["']?)[^\s&#"',}]+/gi,
       '$1[REDACTED]',
     )
-    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@')
     .replace(/data:[^;\s]+;base64,[a-z0-9+/=]+/gi, '[BINARY REDACTED]')
     .slice(0, 4000)
 }

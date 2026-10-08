@@ -1,5 +1,5 @@
 import type { ServerLogFilters, ServerLogPage, ServerLogsResult } from '@image-playground/shared'
-import { SERVER_LOG_LEVELS } from '@image-playground/shared'
+import { SERVER_LOG_LEVELS, SERVER_LOG_SERVICES } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import { getDbHandle } from './db'
 
@@ -24,8 +24,8 @@ export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) 
   }
   const filters: ServerLogFilters = { from, to }
   if (query.service) {
-    if (query.service !== 'bff' && query.service !== 'worker') throw new LogQueryError('无效的服务')
-    filters.service = query.service
+    if (!SERVER_LOG_SERVICES.includes(query.service as never)) throw new LogQueryError('无效的服务')
+    filters.service = query.service as ServerLogFilters['service']
   }
   if (query.level) {
     if (!SERVER_LOG_LEVELS.includes(query.level as never)) throw new LogQueryError('无效的日志级别')

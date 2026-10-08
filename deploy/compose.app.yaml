@@ -3,11 +3,31 @@ x-application-environment: &application-environment
     - path: ${APP_ENV_FILE:?Set APP_ENV_FILE, or drive this file through scripts/app-compose.sh}
       required: true
 
+# Every container's stdout/stderr goes to this deployment's log-collector over a Unix socket the
+# Docker daemon dials from the host (docs/deploy/server-logs.md, ADR 0021). Docker keeps its own
+# local copy, so `docker logs` still works; async means a collector that is down never blocks or
+# fails a container, the driver reconnects and sends what it held. scripts/rollout-runtime.sh
+# repeats these options for the containers it creates itself.
+x-log-forward: &log-forward
+  driver: fluentd
+  options:
+    fluentd-address: unix://${LOG_FORWARD_DIR:?Set LOG_FORWARD_DIR, or drive this file through scripts/app-compose.sh}/forward.sock
+    fluentd-async: "true"
+    fluentd-sub-second-precision: "true"
+    fluentd-buffer-limit: "4096"
+    fluentd-write-timeout: "1s"
+    mode: non-blocking
+    max-buffer-size: "1m"
+    cache-disabled: "false"
+    cache-max-size: "10m"
+    cache-max-file: "3"
+
 x-application-service: &application-service
   <<: *application-environment
   image: ${APP_IMAGE:-ai-image-playground:local}
   init: true
   restart: unless-stopped
+  logging: *log-forward
 
 x-operator-config-volumes: &operator-config-volumes
   - type: bind
@@ -220,6 +240,7 @@ services:
     image: cloudflare/cloudflared:2026.8.2
     init: true
     restart: unless-stopped
+    logging: *log-forward
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:
       - type: bind
@@ -244,6 +265,7 @@ services:
     image: ${APP_IMAGE:-ai-image-playground:local}
     init: true
     restart: unless-stopped
+    logging: *log-forward
     environment:
       APP_ROLE: host-collector
       BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
@@ -295,6 +317,7 @@ services:
     image: ${BACKUP_IMAGE:-ai-image-playground-pg-backup:local}
     init: true
     restart: unless-stopped
+    logging: *log-forward
     # Named one by one rather than through app.env: this container must not hold provider
     # credentials, and its cron shim writes whatever it receives to a file.
     environment:
@@ -316,6 +339,68 @@ services:
       timeout: 10s
       retries: 1
       start_period: 30s
+
+  # Receives every container's output on the Unix socket in LOG_FORWARD_DIR and posts it to the
+  # BFF's /internal/logs/ingest through the stable router, which stores it for the Admin logs page.
+  # Chunks stay in the log-buffer volume until the BFF accepts them, so a BFF or database restart
+  # delays logs instead of losing them. Its own output stays with Docker: forwarding it here
+  # would loop. No database or provider credential; only the internal token for the ingest call.
+  log-collector:
+    image: fluent/fluent-bit:5.1.3
+    restart: unless-stopped
+    command: ["-c", "/etc/fluent-bit/collector.yaml"]
+    environment:
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+    configs:
+      - source: log-collector
+        target: /etc/fluent-bit/collector.yaml
+    volumes:
+      - type: bind
+        source: ${LOG_FORWARD_DIR:?Set LOG_FORWARD_DIR, or drive this file through scripts/app-compose.sh}
+        target: /run/log-forward
+        bind:
+          create_host_path: false
+      - log-buffer:/buffer
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 128m
+    networks:
+      - application
+
+configs:
+  log-collector:
+    # $$ leaves ${INTERNAL_API_TOKEN} for Fluent Bit to read from its environment, so the token
+    # never lands in the rendered file.
+    content: |
+      service:
+        flush: 2
+        log_level: warn
+        storage.path: /buffer
+        storage.max_chunks_up: 64
+      pipeline:
+        inputs:
+          - name: forward
+            unix_path: /run/log-forward/forward.sock
+            unix_perm: "0660"
+            storage.type: filesystem
+        outputs:
+          - name: http
+            match: "*"
+            host: ${LOG_INGEST_HOST:-release-router}
+            port: 37377
+            uri: /internal/logs/ingest
+            format: json
+            json_date_key: date
+            json_date_format: double
+            header: Authorization Bearer $${INTERNAL_API_TOKEN}
+            retry_limit: no_limits
+            storage.total_limit_size: 256M
+
+volumes:
+  log-buffer:
 
 networks:
   application:

@@ -46,6 +46,7 @@ describe('structured server log collection', () => {
     ])
       expect(stored).not.toContain(secret)
     expect(stored).toContain('Error at worker.ts:42')
+    expect(entry('failed postgresql://app:db-password@db/app').message).not.toContain('db-password')
   })
 
   it('groups unstructured messages without per-request numbers, rejects invalid lines and caps size', () => {

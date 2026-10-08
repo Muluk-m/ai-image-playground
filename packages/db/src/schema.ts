@@ -1478,7 +1478,7 @@ export const server_logs = pgTable(
   {
     id: text('id').primaryKey(),
     at: epochMs('at').notNull(),
-    service: text('service').$type<'bff' | 'worker'>().notNull(),
+    service: text('service').$type<import('@image-playground/shared').ServerLogService>().notNull(),
     instance: text('instance').notNull(),
     version: text('version').notNull(),
     level: text('level').$type<import('@image-playground/shared').ServerLogLevel>().notNull(),
@@ -1494,7 +1494,10 @@ export const server_logs = pgTable(
     index('idx_server_logs_service_level').on(t.service, t.level, t.at.desc()),
     index('idx_server_logs_request').on(t.request_id, t.at.desc()),
     index('idx_server_logs_task').on(t.task_id, t.at.desc()),
-    check('server_logs_service_check', sql`${t.service} IN ('bff', 'worker')`),
+    check(
+      'server_logs_service_check',
+      sql`${t.service} IN ('bff', 'worker', 'admin', 'router', 'cloudflared', 'host-collector', 'pg-backup', 'migrate', 'web', 'other')`,
+    ),
     check(
       'server_logs_level_check',
       sql`${t.level} IN ('trace', 'debug', 'info', 'warn', 'error', 'fatal')`,
