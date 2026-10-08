@@ -293,26 +293,15 @@ export async function completeMedia(userId: string, id: string) {
           preview = decoded.preview
         } catch (error) {
           const message = error instanceof Error ? error.message : ''
-          const reason =
-            message === 'processing_budget' || /timeout/i.test(message)
-              ? 'processing_budget'
-              : message === 'animated_image'
-                ? 'animated_image'
-                : message === 'content_type_mismatch'
-                  ? 'content_type_mismatch'
-                  : message === 'invalid_preview'
-                    ? 'invalid_preview'
-                    : /pixel limit/i.test(message)
-                      ? 'pixel_limit'
-                      : observed
-                        ? 'preview_failed'
-                        : 'decode_failed'
-          const errorCode =
-            reason === 'pixel_limit'
-              ? 'media_image_pixels_exceeded'
-              : reason === 'processing_budget'
-                ? 'media_image_processing_limit'
-                : 'media_invalid_image'
+          let reason = observed ? 'preview_failed' : 'decode_failed'
+          if (message === 'processing_budget' || /timeout/i.test(message))
+            reason = 'processing_budget'
+          else if (/pixel limit/i.test(message)) reason = 'pixel_limit'
+          else if (['animated_image', 'content_type_mismatch', 'invalid_preview'].includes(message))
+            reason = message
+          let errorCode = 'media_invalid_image'
+          if (reason === 'pixel_limit') errorCode = 'media_image_pixels_exceeded'
+          else if (reason === 'processing_budget') errorCode = 'media_image_processing_limit'
           log.warn(
             {
               event: 'media.validation_failed',
