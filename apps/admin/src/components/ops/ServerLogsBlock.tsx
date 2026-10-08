@@ -9,6 +9,7 @@ import {
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { defaultStringifySearch, Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { LogTimeRangePicker } from '@/components/ops/LogTimeRangePicker'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -33,7 +34,6 @@ const RANGES = LOG_RANGES
 const SELECT_STYLE = 'h-9 rounded-md border bg-background px-2 text-sm'
 const time = (at: number) =>
   new Date(at).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
-const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, -1)
 
 function levelStyle(level: string) {
   if (level === 'error' || level === 'fatal') return 'text-danger bg-danger/5'
@@ -186,7 +186,6 @@ export function ServerLogsBlock({
       apiClient.get<{ entries: ServerLogEntry[] }>(`/api/ops/logs/context?id=${selected!.id}`),
     enabled: Boolean(selected && showContext),
   })
-  const [dateError, setDateError] = useState('')
   useEffect(() => {
     if (!live || (state.from !== undefined && state.to !== undefined)) return
     const timer = setInterval(() => setEnd(Date.now()), 10_000)
@@ -308,29 +307,21 @@ export function ServerLogsBlock({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 p-3">
-        <div className="grid gap-2 lg:grid-cols-[auto_auto_auto_1fr]">
-          <select
-            aria-label="日志时间范围"
-            className={SELECT_STYLE}
-            value={custom ? 'custom' : range}
-            onChange={(event) => {
-              change({
-                ...state,
-                range: event.target.value as keyof typeof RANGES,
-                from: undefined,
-                to: undefined,
-              })
-              setLive(true)
-              setEnd(Date.now())
-              setDateError('')
-            }}
-          >
-            {custom ? <option value="custom">自定义范围</option> : null}
-            <option value="15m">近 15 分钟</option>
-            <option value="1h">近 1 小时</option>
-            <option value="24h">近 24 小时</option>
-            <option value="7d">近 7 天</option>
-          </select>
+        <LogTimeRangePicker
+          window={window}
+          range={range}
+          fixed={fixed}
+          onPreset={(range) => {
+            change({ ...state, range, from: undefined, to: undefined })
+            setLive(true)
+            setEnd(Date.now())
+          }}
+          onWindow={(window) => {
+            setCustom(window)
+            setLive(false)
+          }}
+        />
+        <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr]">
           <select
             aria-label="日志服务"
             className={SELECT_STYLE}
@@ -413,27 +404,14 @@ export function ServerLogsBlock({
             </Button>
           ))}
           <details className="ml-auto text-xs">
-            <summary className="cursor-pointer rounded-md border px-3 py-2">更多查询条件</summary>
+            <summary className="cursor-pointer rounded-md px-3 py-2 text-muted-foreground hover:bg-muted">
+              更多查询条件
+            </summary>
             <form
-              className="mt-3 grid gap-3 rounded-md border p-3 sm:grid-cols-2 lg:grid-cols-4"
+              className="mt-3 grid gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3"
               onSubmit={(event) => {
                 event.preventDefault()
                 const form = new FormData(event.currentTarget)
-                const fromText = String(form.get('from') || ''),
-                  toText = String(form.get('to') || '')
-                const from = fromText ? new Date(`${fromText}+08:00`).getTime() : window.from
-                const to = toText ? new Date(`${toText}+08:00`).getTime() : window.to
-                if (
-                  !Number.isFinite(from) ||
-                  !Number.isFinite(to) ||
-                  to <= from ||
-                  to - from > RANGES['7d'] ||
-                  to > Date.now() + 60_000
-                ) {
-                  setDateError('请填写有效时间，跨度不超过 7 天，结束时间不能晚于当前时间')
-                  return
-                }
-                setDateError('')
                 const located = Object.fromEntries(
                   [
                     'requestId',
@@ -445,29 +423,9 @@ export function ServerLogsBlock({
                     'deployment',
                   ].map((key) => [key, String(form.get(key) || '') || undefined]),
                 )
-                change({ ...state, ...located, ...(fromText || toText ? { from, to } : {}) })
+                change({ ...state, ...located })
               }}
             >
-              <label>
-                开始时间（北京时间）
-                <Input
-                  name="from"
-                  type="datetime-local"
-                  step="0.001"
-                  key={`from:${custom?.from ?? range}`}
-                  defaultValue={custom ? dateInput(custom.from) : ''}
-                />
-              </label>
-              <label>
-                结束时间（北京时间）
-                <Input
-                  name="to"
-                  type="datetime-local"
-                  step="0.001"
-                  key={`to:${custom?.to ?? range}`}
-                  defaultValue={custom ? dateInput(custom.to) : ''}
-                />
-              </label>
               {(['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'] as const).map(
                 (key) => (
                   <label key={key}>
@@ -508,11 +466,6 @@ export function ServerLogsBlock({
                 应用范围与定位
               </Button>
             </form>
-            {dateError ? (
-              <p role="alert" className="mt-2 text-danger">
-                {dateError}
-              </p>
-            ) : null}
           </details>
         </div>
         {Object.values(filters).some(Boolean) ? (

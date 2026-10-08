@@ -107,22 +107,28 @@ describe('server log exploration', () => {
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('q=timeout'))
     expect(screen.getByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
   })
-  it('reflects fixed dates and clears old date drafts before applying identity filters in a preset range', async () => {
+  it('edits time in its own calendar panel and leaves identity filters on the fresh preset', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now)
     setup()
     await screen.findByText('201')
-    const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, -1)
-    fireEvent.change(screen.getByLabelText('开始时间（北京时间）'), {
-      target: { value: dateInput(now - 7200000) },
+    expect(screen.queryByLabelText('开始时间（北京时间）')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '自定义时间范围' }))
+    fireEvent.click(screen.getByRole('button', { name: '今天 00:00 至现在' }))
+    fireEvent.change(screen.getByLabelText('结束时刻（北京时间）'), {
+      target: { value: '00:00:00' },
     })
-    fireEvent.change(screen.getByLabelText('结束时间（北京时间）'), {
-      target: { value: dateInput(now) },
+    fireEvent.click(screen.getByRole('button', { name: '应用时间范围' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('有效的起止时间')
+    const beijing = new Date(now + 8 * 3600_000).toISOString()
+    fireEvent.change(screen.getByLabelText('结束时刻（北京时间）'), {
+      target: { value: beijing.slice(11, 19) },
     })
-    fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
-    await waitFor(() => expect(get.mock.lastCall![0]).toContain(`from=${now - 7200000}`))
-    expect(screen.getByLabelText('开始时间（北京时间）')).toHaveValue(dateInput(now - 7200000))
-    fireEvent.change(screen.getByLabelText('日志时间范围'), { target: { value: '1h' } })
-    expect(screen.getByLabelText('开始时间（北京时间）')).toHaveValue('')
-    expect(screen.getByLabelText('结束时间（北京时间）')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: '应用时间范围' }))
+    const midnight = Date.parse(beijing.slice(0, 10) + 'T00:00:00+08:00')
+    await waitFor(() => expect(get.mock.lastCall![0]).toContain(`from=${midnight}`))
+    expect(screen.getByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '1 小时' }))
     fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: 'user-new' } })
     fireEvent.click(screen.getByRole('button', { name: '应用范围与定位' }))
     await waitFor(() => {
