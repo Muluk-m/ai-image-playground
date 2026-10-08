@@ -17,7 +17,12 @@
   "reference": {
     "view": "View reference image {{label}}",
     "loading": "Loading the original image…",
-    "unavailable": "The original image could not be loaded. Please try again later."
+    "unavailable": "The original image could not be loaded. Please try again later.",
+    "more_one": "{{count}} more image",
+    "more_other": "{{count}} more images",
+    "folded_one": "{{count}} reference image",
+    "folded_other": "{{count}} reference images",
+    "collapse": "Show less"
   },
   "panel": {
     "resizeAria": "Drag to resize the panel",
