@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react'
+import { Card } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 
 const colors = {
   blue: 'text-sky-600 dark:text-sky-400',
@@ -25,7 +27,7 @@ export function ResourceGauge({
 }) {
   const used = ratio === null ? null : Math.max(0, Math.min(1, ratio))
   return (
-    <div className="flex items-center gap-4 rounded-xl border bg-muted/20 p-4">
+    <Card className="flex items-center gap-4 bg-muted/20 p-4 shadow-none">
       <div className={`relative size-20 shrink-0 ${alert ? colors.red : colors[tone]}`}>
         <svg
           viewBox="0 0 100 100"
@@ -65,7 +67,7 @@ export function ResourceGauge({
         <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{note}</p>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -89,21 +91,11 @@ export function OutcomeBar({
         <span className="px-2 text-muted-foreground">/</span>
         <span className={failed ? 'text-danger' : 'text-muted-foreground'}>{failed}</span>
       </p>
-      <div
-        className="flex h-2 overflow-hidden rounded-full bg-muted"
-        role="img"
+      <Progress
+        className={`h-2 ${total ? 'bg-danger' : 'bg-muted'} ${tone === 'violet' ? '[&>div]:bg-violet-500' : '[&>div]:bg-success'}`}
         aria-label={`${label}：完成 ${completed}，失败 ${failed}`}
-      >
-        {total > 0 ? (
-          <>
-            <span
-              className={tone === 'violet' ? 'bg-violet-500' : 'bg-success'}
-              style={{ width: `${(completed / total) * 100}%` }}
-            />
-            <span className="bg-danger" style={{ width: `${(failed / total) * 100}%` }} />
-          </>
-        ) : null}
-      </div>
+        value={total ? (completed / total) * 100 : 0}
+      />
       <p className="text-[11px] text-muted-foreground">
         {total ? `完成率 ${((completed / total) * 100).toFixed(1)}%` : '暂无任务样本'}
       </p>
