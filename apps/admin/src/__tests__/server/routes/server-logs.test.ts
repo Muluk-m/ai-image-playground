@@ -152,4 +152,50 @@ describe('authenticated server log explorer', () => {
     expect(other.coverage).toEqual(matched.coverage)
     expect((await request('&instance=' + 'x'.repeat(401))).status).toBe(400)
   })
+  it('counts levels independently of the selected level and rejects invalid stream or deployment', async () => {
+    const result = (await (await request('&level=error')).json()) as ServerLogsResult
+    expect(result.levelCounts).toEqual({ error: 105, info: 1 })
+    expect(result.entries.every((entry) => entry.level === 'error')).toBe(true)
+    expect((await request('&stream=bad')).status).toBe(400)
+    expect((await request('&deployment=bad')).status).toBe(400)
+  })
+  it('reads at most 50 neighbors on each side from the selected container', async () => {
+    const url = 'http://localhost/api/ops/logs/context?id=entry-050'
+    expect((await app.handle(new Request(url))).status).toBe(401)
+    const response = await app.handle(new Request(url, { headers: { cookie } }))
+    const context = (await response.json()) as { entries: Array<{ id: string; instance: string }> }
+    expect(context.entries).toHaveLength(101)
+    expect(context.entries.some((entry) => entry.id === 'entry-050')).toBe(true)
+    expect(new Set(context.entries.map((entry) => entry.id)).size).toBe(101)
+    expect(context.entries.every((entry) => entry.instance === 'old-container')).toBe(true)
+    expect(
+      (
+        await app.handle(
+          new Request('http://localhost/api/ops/logs/context?id=bad%27id', { headers: { cookie } }),
+        )
+      ).status,
+    ).toBe(400)
+    const missing = await app.handle(
+      new Request('http://localhost/api/ops/logs/context?id=missing', { headers: { cookie } }),
+    )
+    expect(await missing.json()).toEqual({ entries: [] })
+  })
+  it('filters container streams and deployment identity', async () => {
+    await writer.db.insert(writer.schema.server_logs).values({
+      ...rows[0]!,
+      id: 'container-stderr',
+      service: 'admin',
+      level: 'warn',
+      instance: 'image-playground-paid-admin-1',
+      fields: { stream: 'stderr' },
+    })
+    const result = (await (
+      await request('&stream=stderr&deployment=paid')
+    ).json()) as ServerLogsResult
+    expect(result.entries.map((entry) => entry.id)).toEqual(['container-stderr'])
+    const other = (await (
+      await request('&stream=stderr&deployment=test')
+    ).json()) as ServerLogsResult
+    expect(other.entries).toHaveLength(0)
+  })
 })

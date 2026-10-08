@@ -22,6 +22,12 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('indexes ordered context queries within a container', async () => {
+    const [index] =
+      await connection.client`SELECT indexdef FROM pg_indexes WHERE tablename = 'server_logs' AND indexname = 'idx_server_logs_instance_at'`
+    expect(index?.indexdef).toContain('(instance, at DESC, id DESC)')
+  })
+
   it('records an ordered migration version', async () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',

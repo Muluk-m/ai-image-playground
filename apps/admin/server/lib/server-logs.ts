@@ -1,4 +1,9 @@
-import type { ServerLogFilters, ServerLogPage, ServerLogsResult } from '@image-playground/shared'
+import type {
+  ServerLogEntry,
+  ServerLogFilters,
+  ServerLogPage,
+  ServerLogsResult,
+} from '@image-playground/shared'
 import { SERVER_LOG_LEVELS, SERVER_LOG_SERVICES } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import { getDbHandle } from './db'
@@ -23,6 +28,12 @@ export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) 
     throw new LogQueryError('时间范围须有效且不超过 7 天')
   }
   const filters: ServerLogFilters = { from, to }
+  for (const key of ['deployment', 'stream'] as const) {
+    if (query[key] === undefined || query[key] === '') continue
+    const allowed = key === 'stream' ? ['stdout', 'stderr'] : ['paid', 'internal', 'test']
+    if (!allowed.includes(query[key] as string)) throw new LogQueryError('无效的部署或输出流')
+    Object.assign(filters, { [key]: query[key] })
+  }
   if (query.service) {
     if (!SERVER_LOG_SERVICES.includes(query.service as never)) throw new LogQueryError('无效的服务')
     filters.service = query.service as ServerLogFilters['service']
@@ -74,7 +85,9 @@ export async function readServerLogs(
   const db = getDbHandle().db
   const conditions = [sql`at >= ${new Date(filters.from)} AND at <= ${new Date(filters.to)}`]
   if (filters.service) conditions.push(sql`service = ${filters.service}`)
-  if (filters.level) conditions.push(sql`level = ${filters.level}`)
+  if (filters.deployment)
+    conditions.push(sql`strpos(instance, ${`image-playground-${filters.deployment}-`}) = 1`)
+  if (filters.stream) conditions.push(sql`fields->>'stream' = ${filters.stream}`)
   if (filters.requestId) conditions.push(sql`request_id = ${filters.requestId}`)
   if (filters.taskId) conditions.push(sql`task_id = ${filters.taskId}`)
   if (filters.group) conditions.push(sql`group_key = ${filters.group}`)
@@ -87,6 +100,8 @@ export async function readServerLogs(
     conditions.push(
       sql`strpos(lower(concat_ws(' ', message, event, request_id, task_id, fields::text)), lower(${filters.q})) > 0`,
     )
+  const facetWhere = sql.join(conditions, sql` AND `)
+  if (filters.level) conditions.push(sql`level = ${filters.level}`)
   const where = sql.join(conditions, sql` AND `)
   const page = cursor ? sql`${where} AND (at, id) < (${new Date(cursor.at)}, ${cursor.id})` : where
   const bucket_ms = Math.max(60_000, Math.ceil((filters.to - filters.from) / 60 / 60_000) * 60_000)
@@ -109,7 +124,7 @@ export async function readServerLogs(
   }
   // Later pages only need records. Full-window statistics remain on page one.
   if (cursor) return readPage()
-  const [records, totals, groups, points, collectors, coverage] = await Promise.all([
+  const [records, totals, groups, points, collectors, coverage, levels] = await Promise.all([
     readPage(),
     db.execute(sql`SELECT count(*)::int AS total,
       count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors,
@@ -118,7 +133,8 @@ export async function readServerLogs(
       min(at) AS first_at, max(at) AS last_at FROM server_logs WHERE ${where}
       GROUP BY service, level, group_key ORDER BY count DESC, max(at) DESC, service, level, group_key LIMIT 30`),
     db.execute(sql`SELECT floor(extract(epoch FROM at) * 1000 / ${bucket_ms}) * ${bucket_ms} AS at,
-      count(*)::int AS count, count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors
+      count(*)::int AS count, count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors,
+      count(*) FILTER (WHERE level = 'warn')::int AS warnings
       FROM server_logs WHERE ${where} GROUP BY 1 ORDER BY 1`),
     db.execute(sql`WITH beats AS (
       SELECT service, instance, last_seen_at, detail->'logs' AS logs,
@@ -130,11 +146,19 @@ export async function readServerLogs(
     db.execute(sql`SELECT
       (SELECT at FROM server_logs ORDER BY at ASC, id ASC LIMIT 1) AS first_at,
       (SELECT at FROM server_logs ORDER BY at DESC, id DESC LIMIT 1) AS last_at`),
+    db.execute(
+      sql`SELECT level, count(*)::int AS count FROM server_logs WHERE ${facetWhere} GROUP BY level`,
+    ),
   ])
   const pointMap = new Map(
     (points as unknown as Array<Record<string, unknown>>).map((row) => [
       Number(row.at),
-      { at: Number(row.at), count: Number(row.count), errors: Number(row.errors) },
+      {
+        at: Number(row.at),
+        count: Number(row.count),
+        errors: Number(row.errors),
+        warnings: Number(row.warnings),
+      },
     ]),
   )
   const trend: ServerLogsResult['trend'] = []
@@ -143,7 +167,7 @@ export async function readServerLogs(
     at <= filters.to;
     at += bucket_ms
   ) {
-    trend.push(pointMap.get(at) ?? { at, count: 0, errors: 0 })
+    trend.push(pointMap.get(at) ?? { at, count: 0, errors: 0, warnings: 0 })
   }
   return {
     ...records,
@@ -151,6 +175,7 @@ export async function readServerLogs(
       first_at: coverage[0]?.first_at == null ? null : epoch(coverage[0].first_at),
       last_at: coverage[0]?.last_at == null ? null : epoch(coverage[0].last_at),
     },
+    levelCounts: Object.fromEntries(levels.map((row) => [String(row.level), Number(row.count)])),
     summary: totals[0] as ServerLogsResult['summary'],
     groups: (groups as unknown as Array<Record<string, unknown>>).map((row) => ({
       ...row,
@@ -173,4 +198,23 @@ export async function readServerLogs(
       ...row.logs,
     })),
   }
+}
+
+/** Adjacent lines are scoped to the same container, independent of the current search filters. */
+export async function readLogContext(id: string): Promise<ServerLogEntry[]> {
+  if (!/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw new LogQueryError('无效的日志 ID')
+  const db = getDbHandle().db
+  const [target] = await db.execute(sql`SELECT id, at, instance FROM server_logs WHERE id = ${id}`)
+  if (!target) return []
+  const rows = await db.execute(sql`
+    (SELECT * FROM server_logs WHERE instance = ${target.instance}
+      AND (at, id) < (${target.at}, ${id}) ORDER BY at DESC, id DESC LIMIT 50)
+    UNION ALL
+    (SELECT * FROM server_logs WHERE id = ${id})
+    UNION ALL
+    (SELECT * FROM server_logs WHERE instance = ${target.instance}
+      AND (at, id) > (${target.at}, ${id}) ORDER BY at ASC, id ASC LIMIT 50)
+    ORDER BY at ASC, id ASC
+  `)
+  return rows.map((row) => ({ ...row, at: epoch(row.at) })) as unknown as ServerLogEntry[]
 }

@@ -247,6 +247,21 @@ afterEach(() => {
 })
 
 describe('rollout-runtime.sh: finite drain', () => {
+  it('exposes a direct ingestion alias only on compatible runtime generations', () => {
+    currentGeneration()
+    const result = run()
+    expect(result.status).toBe(0)
+    expect(
+      result.log.find((line) => line.startsWith('create ') && line.includes('APP_ROLE=bff ')),
+    ).toContain('--network-alias bff-logs')
+    expect(
+      result.log.find((line) => line.startsWith('create ') && line.includes('APP_ROLE=worker ')),
+    ).toContain('--network-alias worker-logs')
+    expect(readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')).toContain(
+      'host: ${LOG_INGEST_HOST:-bff-logs}',
+    )
+  })
+
   it('preserves a socket path with spaces as one Docker argument', () => {
     currentGeneration()
     const docker = join(root, 'bin/docker')
