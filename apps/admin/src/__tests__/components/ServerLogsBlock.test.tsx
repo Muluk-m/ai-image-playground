@@ -278,6 +278,12 @@ describe('server log exploration', () => {
     expect(get.mock.lastCall![0]).toContain('level=error')
     expect(get.mock.lastCall![0]).toContain('q=timeout')
     expect(screen.getByLabelText('日志关键词')).toHaveValue('service:worker level:error timeout')
+    fireEvent.click(screen.getByRole('button', { name: '全部级别' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('日志关键词')).toHaveValue('service:worker timeout'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    await waitFor(() => expect(get.mock.lastCall![0]).not.toContain('level=error'))
     fireEvent.change(screen.getByLabelText('日志关键词'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => expect(get.mock.lastCall![0]).not.toContain('level=error'))
