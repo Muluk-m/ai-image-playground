@@ -99,8 +99,10 @@ services:
         condition: service_completed_successfully
     stop_grace_period: 75s
     networks:
-      - application
-      - application-infra
+      application:
+        aliases:
+          - bff-logs
+      application-infra:
     volumes: *operator-config-volumes
     healthcheck:
       test:
@@ -389,7 +391,7 @@ configs:
         outputs:
           - name: http
             match: "*"
-            host: ${LOG_INGEST_HOST:-release-router}
+            host: ${LOG_INGEST_HOST:-bff-logs}
             port: 37377
             uri: /internal/logs/ingest
             format: json
