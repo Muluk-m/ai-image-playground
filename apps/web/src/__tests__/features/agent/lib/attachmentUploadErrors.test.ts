@@ -55,6 +55,7 @@ it('asks users to reselect local preprocessing failures instead of offering an i
     'attachment_input_too_large',
     'attachment_decode_limit',
     'attachment_animated_image',
+    'attachment_quality_limit',
     'attachment_compression_failed',
     'attachment_compression_timeout',
   ]) {

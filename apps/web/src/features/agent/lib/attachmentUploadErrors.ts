@@ -5,6 +5,7 @@ const messages = {
   attachment_input_too_large: 'attachment.attachment_input_too_large',
   attachment_decode_limit: 'attachment.attachment_decode_limit',
   attachment_animated_image: 'attachment.attachment_animated_image',
+  attachment_quality_limit: 'attachment.attachment_quality_limit',
   attachment_compression_failed: 'attachment.attachment_compression_failed',
   attachment_compression_timeout: 'attachment.attachment_compression_timeout',
 
@@ -53,6 +54,7 @@ export function canRetryAttachmentUpload(code: string | undefined) {
     'attachment_input_too_large',
     'attachment_decode_limit',
     'attachment_animated_image',
+    'attachment_quality_limit',
     'attachment_compression_failed',
     'attachment_compression_timeout',
     'media_invalid_image',
