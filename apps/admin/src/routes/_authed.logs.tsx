@@ -12,7 +12,7 @@ function ServerLogsPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   return (
-    <Page crumbs={[{ label: '服务端日志' }]} description="BFF / worker · 消息、错误栈与请求关联">
+    <Page crumbs={[{ label: '服务端日志' }]} description="容器运行日志">
       <ServerLogsBlock
         searchState={search}
         onSearchChange={(next) => {
