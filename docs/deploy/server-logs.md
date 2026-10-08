@@ -22,10 +22,10 @@ Admin 侧栏「运维 → 服务端日志」进入独立 `/logs` 页面，内容
 采集不改应用代码，走 Docker 本身的日志转发（ADR 0021）：
 
 1. `deploy/compose.app.yaml` 的 `x-log-forward` 把每个容器的日志驱动设为 `fluentd`，非阻塞异步发往本部署的 `log-collector`；`scripts/rollout-runtime.sh` 用同样的参数创建 BFF、worker、发布路由和迁移容器。Docker 本地缓存轮转上限为 3 × 10 MB，`docker logs` 照常可用；驱动或磁盘失败仍可能丢失缓存。
-2. `log-collector`（Fluent Bit 5.1）在 `$XDG_CONFIG_HOME/ai-image-playground/log-forward/<部署>/forward.sock` 上收日志，每 2 秒把一批记录发到 BFF 的 `/internal/logs/ingest`（经发布路由，内部令牌鉴权）。BFF 写入失败时回 503，采集容器保留这批数据，按退避重试；未送达的数据存在 `log-buffer` 卷，上限 256 MB。
+2. `log-collector`（Fluent Bit 5.1）在 `$XDG_CONFIG_HOME/ai-image-playground/log-forward/<部署>/forward.sock` 上收日志，每 2 秒把一批记录发到 BFF 的 `/internal/logs/ingest`（通过独立的 `bff-logs` 网络别名，内部令牌鉴权）。BFF 写入失败时回 503，采集容器保留这批数据，按退避重试；未送达的数据存在 `log-buffer` 卷，上限 256 MB。
 3. BFF 以容器、驱动时间戳和原始输出的摘要去重重试批次，解析每一行：pino 的 JSON 行保留级别、事件、请求 ID、任务 ID 和结构化字段；其他程序的纯文本行按 `ERR` / `WARN` / `INFO` 一类词判断级别，判断不出时 stderr 记为警告、stdout 记为信息。服务名取自容器名，无法识别的记为 `other`。
 
-采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。只用 Compose、没有发布路由的部署，需要在 app.env 设 `LOG_INGEST_HOST=bff`。发布收尾重建 cloudflared，将其切换到日志转发。
+采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。Compose BFF 和动态 BFF 都声明 `bff-logs` 别名。首个兼容 BFF 启动前，HTTP 连接失败由采集器缓冲重试，不向尚未支持接口的旧发布路由发送；后续新旧兼容实例可共同接收并去重。HTTP 400/401/404/413 等不可重试响应会丢弃该批次，不能用 Retry_Limit 声称所有错误都会补发。发布收尾重建 cloudflared，将其切换到日志转发。
 
 迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询；只有 BFF 写入，Admin 用现有只读数据库权限查询。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
 

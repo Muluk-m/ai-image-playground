@@ -127,7 +127,7 @@ runtime() {
   created="$created $name"
   logged_docker create --name "$name" --init --restart unless-stopped \
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
-    --network "$network" --env-file "$app_env" \
+    --network "$network" --network-alias "$role-logs" --env-file "$app_env" \
     -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \
     -e WORKER_HEALTH_PORT=37379 -e WORKER_START_PAUSED=true \
     -e WORKER_ACTIVATION_FILE="/run/operator/releases/activated/$release-worker" \
