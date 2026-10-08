@@ -86,7 +86,10 @@ function GenerationTasksPage() {
               size="sm"
               variant="outline"
               disabled={query.isFetching}
-              onClick={() => void query.refetch()}
+              onClick={() => {
+                if (search.from !== undefined && search.to !== undefined) void query.refetch()
+                else setDefaultWindow(todayWindow())
+              }}
             >
               <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
               刷新
@@ -102,7 +105,6 @@ function GenerationTasksPage() {
             void navigate({
               search: {
                 ...filters,
-                ...window,
                 status:
                   status === 'all' ? undefined : (status as NonNullable<typeof search.status>),
               },
@@ -157,9 +159,7 @@ function GenerationTasksPage() {
                           <button
                             type="button"
                             className="line-clamp-2 text-left text-xs hover:underline"
-                            onClick={() =>
-                              void navigate({ search: { ...search, ...window, task: task.id } })
-                            }
+                            onClick={() => void navigate({ search: { ...search, task: task.id } })}
                           >
                             {task.prompt || '查看任务'}
                           </button>
@@ -172,9 +172,7 @@ function GenerationTasksPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() =>
-                              void navigate({ search: { ...search, ...window, task: task.id } })
-                            }
+                            onClick={() => void navigate({ search: { ...search, task: task.id } })}
                           >
                             查看
                           </Button>
@@ -182,8 +180,12 @@ function GenerationTasksPage() {
                             to="/logs"
                             search={{
                               taskId: task.id,
-                              from: Math.max(window.from, window.to - 7 * 86400_000),
-                              to: window.to,
+                              from: Math.max(
+                                0,
+                                task.submitted_at - 60_000,
+                                (task.completed_at ?? Date.now()) + 60_000 - 7 * 86400_000,
+                              ),
+                              to: Math.min(Date.now(), (task.completed_at ?? Date.now()) + 60_000),
                             }}
                             className="ml-2 whitespace-nowrap text-xs text-success hover:underline"
                           >

@@ -5,7 +5,14 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const session = vi.hoisted(() => ({ accountsLogin: true, accountsSync: true, failToday: false }))
+const session = vi.hoisted(() => ({
+  accountsLogin: true,
+  accountsSync: true,
+  failToday: false,
+  showError: false,
+  taskAt: undefined as number | undefined,
+  completedAt: undefined as number | undefined,
+}))
 const requests = vi.hoisted(() => [] as string[])
 const patch = vi.hoisted(() => vi.fn(async () => ({ note: '合作方' })))
 
@@ -65,7 +72,26 @@ vi.mock('../../lib/api-client', () => {
       }
     }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
-    if (url.startsWith('/api/overview/errors')) return { window, total: 0, entries: [] }
+    if (url.startsWith('/api/overview/errors'))
+      return {
+        window,
+        total: session.showError ? 1 : 0,
+        entries: session.showError
+          ? [
+              {
+                source: 'server',
+                id: 'error-1',
+                at: Date.now(),
+                service: 'worker',
+                message: '上游请求失败',
+                stack: null,
+                task_id: null,
+                request_id: 'request-1',
+                group: 'generation.failed',
+              },
+            ]
+          : [],
+      }
     if (url.startsWith('/api/overview')) {
       if (session.failToday) throw new Error('today unavailable')
       return overview
@@ -105,9 +131,9 @@ vi.mock('../../lib/api-client', () => {
             provider: 'openai-compat',
             model: 'gpt-image-2',
             status: 'failed',
-            submitted_at: Date.now(),
+            submitted_at: session.taskAt ?? Date.now(),
             started_at: null,
-            completed_at: null,
+            completed_at: session.completedAt ?? null,
             error_type: 'upstream_error',
             upstream_status: 500,
             prompt: '商品主图',
@@ -184,6 +210,9 @@ beforeEach(() => {
   patch.mockClear()
   requests.length = 0
   session.failToday = false
+  session.showError = false
+  session.taskAt = undefined
+  session.completedAt = undefined
   session.accountsLogin = true
   session.accountsSync = true
   document.cookie = 'sidebar_state=; path=/; max-age=0'
@@ -321,6 +350,73 @@ describe('今日概览', () => {
     const health = within(await screen.findByRole('region', { name: '服务健康' }))
     expect(await health.findByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
     expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
+  })
+})
+
+describe('generation task drill-down', () => {
+  it('advances the default today window on refresh, including after filtering status', async () => {
+    const start = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
+    try {
+      renderAt('/tasks')
+      await screen.findByRole('button', { name: '商品主图' })
+      fireEvent.click(screen.getByRole('radio', { name: '失败' }))
+      await waitFor(() => expect(requests.some((url) => url.includes('status=failed'))).toBe(true))
+      await waitFor(() =>
+        expect(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]).not.toBeDisabled(),
+      )
+      clock.mockReturnValue(start + 120_000)
+      fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
+      await waitFor(() => {
+        const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
+        const params = new URLSearchParams(url.split('?')[1])
+        expect(Number(params.get('to'))).toBe(start + 120_000)
+        expect(params.get('status')).toBe('failed')
+      })
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('keeps an explicitly selected historical window on refresh', async () => {
+    const to = Date.now() - 86400_000,
+      from = to - 3600_000
+    renderAt(`/tasks?from=${from}&to=${to}&userId=user-1`)
+    await screen.findByRole('button', { name: '商品主图' })
+    const count = requests.filter((url) => url.startsWith('/api/tasks?')).length
+    fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
+    await waitFor(() =>
+      expect(requests.filter((url) => url.startsWith('/api/tasks?')).length).toBeGreaterThan(count),
+    )
+    const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
+    const params = new URLSearchParams(url.split('?')[1])
+    expect(Number(params.get('from'))).toBe(from)
+    expect(Number(params.get('to'))).toBe(to)
+    expect(params.get('userId')).toBe('user-1')
+  })
+
+  it('anchors a task log link to that task rather than the end of a long list window', async () => {
+    const to = Date.now(),
+      at = to - 20 * 86400_000
+    session.taskAt = at
+    session.completedAt = at + 30_000
+    renderAt(`/tasks?from=${at - 3600_000}&to=${to}`)
+    const link = await screen.findByRole('link', { name: '日志 →' })
+    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    expect(params.get('taskId')).toBe('task-1')
+    expect(Number(params.get('from'))).toBeLessThanOrEqual(at)
+    expect(Number(params.get('to'))).toBeGreaterThanOrEqual(session.completedAt)
+    expect(Number(params.get('to')) - Number(params.get('from'))).toBeLessThanOrEqual(7 * 86400_000)
+  })
+
+  it('opens all events in the same request without retaining the error group filter', async () => {
+    session.showError = true
+    renderAt('/overview')
+    fireEvent.click(await screen.findByText('上游请求失败'))
+    const link = screen.getByRole('link', { name: '相关日志 →' })
+    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    expect(params.get('requestId')).toBe('request-1')
+    expect(params.has('group')).toBe(false)
   })
 })
 
