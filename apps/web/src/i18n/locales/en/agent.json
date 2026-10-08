@@ -559,6 +559,13 @@
     "actualCost": "Settled cost",
     "chargeUnknown": "Awaiting settlement",
     "viewResult": "View result {{index}}",
+    "exportResults_one": "Export {{count}} result",
+    "exportResults_other": "Export {{count}} results",
+    "exporting": "Exporting {{done}}/{{total}}",
+    "exportDone_one": "Exported {{count}} result",
+    "exportDone_other": "Exported {{count}} results",
+    "exportPartial": "Exported {{count}}, {{failed}} could not be fetched",
+    "exportFailed": "Export failed, nothing could be fetched",
     "itemStatus": {
       "pending": "Pending",
       "queued": "Queued",

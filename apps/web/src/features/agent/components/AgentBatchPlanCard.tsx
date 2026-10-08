@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Download,
   Layers,
   Loader2,
   MessageSquare,
@@ -29,6 +30,7 @@ import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { useStore } from '../../../store'
 import { CARD, CARD_CONTROL, CARD_NOTE, CARD_TEXT } from '../agentStyles'
 import {
   type AgentBatchCommand,
@@ -38,6 +40,7 @@ import {
   updateBatchPlan,
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
+import { batchResultFiles, exportBatchResults } from '../lib/batchResultExport'
 import {
   BATCH_ITEM_PAGE_SIZE,
   type BatchDisplayStatus,
@@ -151,6 +154,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [groupOverride, setGroupOverride] = useState<Record<string, boolean>>({})
   const [groupPage, setGroupPage] = useState<Record<string, number>>({})
   const [openItems, setOpenItems] = useState<ReadonlySet<string>>(() => new Set())
+  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null)
+  const exporting = useRef(false)
   const seenStatus = useRef(new Map<string, string>())
   // 这次渲染开始时，焦点若还在某一条上，记下它的 key。用户已经点到分页、输入框或卡片外时这里是 null，
   // 随后的状态变化不能再把焦点抢回去。DOM 重排若发生在这次提交里，快照仍是重排前的那一条。
@@ -472,6 +477,35 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       // Page position is optional; the in-memory view remains usable without storage.
     }
   }
+  const resultFiles = batchResultFiles(
+    page.items.map((item) => ({
+      progress: item.progress,
+      execution: item.execution,
+      label: item.inputs.find((input) => input.name)?.name ?? '',
+    })),
+  )
+  const runExport = async () => {
+    if (exporting.current || resultFiles.length === 0) return
+    exporting.current = true
+    setExportProgress({ done: 0, total: resultFiles.length })
+    try {
+      const result = await exportBatchResults(resultFiles, {
+        baseName: page.batch.title,
+        onProgress: (done, total) => setExportProgress({ done, total }),
+      })
+      const { showToast } = useStore.getState()
+      if (result.exported === 0) showToast(t('batch.exportFailed'), 'error')
+      else if (result.failed > 0)
+        showToast(
+          t('batch.exportPartial', { count: result.exported, failed: result.failed }),
+          'info',
+        )
+      else showToast(t('batch.exportDone', { count: result.exported }), 'success')
+    } finally {
+      exporting.current = false
+      setExportProgress(null)
+    }
+  }
   const grouped = page.items.some((item) => item.progress || item.execution)
   const groups = grouped ? groupBatchItems(page.items) : []
   const retryMarked = new Set(page.batch.retryItemKeys ?? [])
@@ -725,7 +759,23 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{t('batch.scope', { count: page.batch.itemCount })}</span>
-        <span>{t('batch.version', { version: page.batch.version })}</span>
+        <span className="flex items-center gap-2">
+          {resultFiles.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-foreground"
+              disabled={exportProgress !== null}
+              onClick={() => void runExport()}
+            >
+              <Download aria-hidden className="h-3 w-3" />
+              {exportProgress
+                ? t('batch.exporting', { done: exportProgress.done, total: exportProgress.total })
+                : t('batch.exportResults', { count: resultFiles.length })}
+            </Button>
+          )}
+          <span>{t('batch.version', { version: page.batch.version })}</span>
+        </span>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
