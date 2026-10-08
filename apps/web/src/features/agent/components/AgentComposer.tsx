@@ -47,7 +47,12 @@ import {
 import { accountScope } from '../../../lib/authScope'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
-import { blobDataUrl, mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
+import {
+  blobDataUrl,
+  invalidateMediaPreview,
+  mediaIdentity,
+  resolveMediaSource,
+} from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
@@ -56,9 +61,11 @@ import {
   hasLocalAttachmentSources,
   localAttachmentFailure,
   localAttachmentIdentity,
+  readAttachmentUpload,
   readLocalAttachment,
 } from '../../../lib/localAttachmentSources'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -146,6 +153,7 @@ function ComposerAttachmentThumb({
   alt = '',
   uploading = false,
   failed = false,
+  retryPreview = false,
 }: {
   src: string
   className: string
@@ -153,18 +161,47 @@ function ComposerAttachmentThumb({
   alt?: string
   uploading?: boolean
   failed?: boolean
+  retryPreview?: boolean
 }) {
+  const { t } = useTranslation('agent')
+  const [revision, setRevision] = useState(0)
+  const [retrying, setRetrying] = useState(false)
+  const latestSource = useRef(src)
+  latestSource.current = src
   const deferred = Boolean(
     mediaIdentity(src) || localAttachmentIdentity(src) || localAttachmentFailure(src),
   )
   const [settled, setSettled] = useState<{ src: string; ok: boolean }>()
   const here = settled?.src === src ? settled : undefined
-  const pending = deferred && !failed && here === undefined
+  const pending = retrying || ((deferred || revision > 0) && !failed && here === undefined)
   const hide = uploading || pending || failed || here?.ok === false
+  const previewFailed = !retrying && !uploading && !failed && here?.ok === false
   const onResolveError = useCallback(() => setSettled({ src, ok: false }), [src])
+  const reloadPreview = async () => {
+    const accountCurrent = accountScope()
+    const backend = bffBaseUrl()
+    const current = () =>
+      accountCurrent() && backend === bffBaseUrl() && latestSource.current === src
+    setRetrying(true)
+    try {
+      const upload = localAttachmentIdentity(src) ? await readAttachmentUpload(src, backend) : null
+      if (!current()) return
+      await invalidateMediaPreview(
+        upload?.state === 'ready' ? `aip-media:${upload.result.id}` : src,
+      )
+      if (!current()) return
+      setSettled(undefined)
+      setRevision((one) => one + 1)
+    } catch {
+      // Keep the explicit failed preview and its retry action if cache invalidation failed.
+    } finally {
+      setRetrying(false)
+    }
+  }
   return (
     <span className={`relative inline-flex shrink-0 ${frameClassName}`}>
       <MediaImage
+        key={revision}
         src={src}
         alt={alt}
         draggable={false}
@@ -187,6 +224,30 @@ function ComposerAttachmentThumb({
           <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
         </span>
       )}
+      {previewFailed &&
+        (retryPreview ? (
+          <Button
+            type="button"
+            variant="ghost"
+            title={t('tool.previewUnavailable')}
+            aria-label={`${t('tool.previewUnavailable')}：${t('tool.retryPreview')} ${alt}`}
+            className="absolute inset-0 z-10 h-full w-full flex-col gap-1 rounded-md bg-background/90 p-1 text-destructive"
+            onClick={() => void reloadPreview()}
+          >
+            <CircleAlert className="h-4 w-4" />
+            <span className="text-[10px]">{t('tool.previewUnavailable')}</span>
+            <span className="text-[10px] underline">{t('tool.retryPreview')}</span>
+          </Button>
+        ) : (
+          <span
+            role="img"
+            aria-label={t('tool.previewUnavailable')}
+            title={t('tool.previewUnavailable')}
+            className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+          >
+            <CircleAlert className="h-4 w-4" />
+          </span>
+        ))}
     </span>
   )
 }
@@ -945,6 +1006,7 @@ export default function AgentComposer({
                       frameClassName="h-full w-full"
                       className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
                       alt={label}
+                      retryPreview
                     />
                     {masked && (
                       <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
@@ -980,7 +1042,7 @@ export default function AgentComposer({
                       variant="ghost"
                       size="icon"
                       aria-label={t('composer.removeReferenceAria', { label })}
-                      className="absolute right-0 top-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                       onClick={() => setDraft(removeReference(draft, index))}
                     >
                       <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
