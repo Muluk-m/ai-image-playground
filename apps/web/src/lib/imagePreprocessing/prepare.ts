@@ -86,9 +86,11 @@ export async function prepareImage(
   if (data.byteLength > IMAGE_PREPROCESSING.maxInputBytes)
     throw new Error('attachment_input_too_large')
   const header = inspectImage(data)
+  // JPEG exporters may append metadata after EOI. Decode and retain only the encoded image.
+  const encodedImage = new Uint8Array(data, 0, header.dataEnd)
   let decoded: Awaited<ReturnType<typeof decode>>
   try {
-    decoded = await decode(new Blob([data], { type: header.contentType }), signal)
+    decoded = await decode(new Blob([encodedImage], { type: header.contentType }), signal)
   } catch {
     signal?.throwIfAborted()
     throw new Error('media_invalid_image')
@@ -156,11 +158,11 @@ export async function prepareImage(
         if (
           width === originalWidth &&
           height === originalHeight &&
-          data.byteLength <= candidate.size &&
-          data.byteLength <= maxBytes
+          encodedImage.byteLength <= candidate.size &&
+          encodedImage.byteLength <= maxBytes
         )
           return {
-            data,
+            data: header.dataEnd === data.byteLength ? data : data.slice(0, header.dataEnd),
             contentType: header.contentType,
             width,
             height,
