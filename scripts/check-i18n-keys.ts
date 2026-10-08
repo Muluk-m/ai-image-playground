@@ -27,6 +27,9 @@ const DYNAMIC_PREFIXES = [
   'video:reject.',
   'video:tagline.',
   'video:derive.',
+  // features/video/components/VideoPresetRows.tsx：按 VIDEO_PRESET_VOICES 拼 `voice.${id}`。
+  'video:voice.',
+  'voice.',
   // features/canvas/components/InpaintPanel.tsx：分段控件按 'brush' | 'eraser' 拼 key。
   'canvas:inpaint.tool.',
   // features/canvas/components/CanvasRectEditLayer.tsx：八个手柄按方位名拼 key。

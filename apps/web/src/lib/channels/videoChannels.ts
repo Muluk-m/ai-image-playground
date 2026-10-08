@@ -1,4 +1,8 @@
-import { VIDEO_MODEL_SUPPORT, type VideoModelSupport } from '@image-playground/shared'
+import {
+  VIDEO_MODEL_SUPPORT,
+  type VideoModelSupport,
+  videoSupportForCapabilities,
+} from '@image-playground/shared'
 import { isClientCapabilityEnabled } from '../clientCapabilities'
 import { getStoredChannels } from './channelStore'
 
@@ -17,11 +21,8 @@ export function videoModelOptions(): VideoModelOption[] {
       if (model.media !== 'video') continue
       const matrix = VIDEO_MODEL_SUPPORT[model.id]
       if (!matrix) continue
-      // 参考图要等渠道声明：旧后端不认这个字段，会把参考图静默丢掉，照样扣费出一段文生视频。
-      const { referenceImages: _gated, ...base } = matrix
-      const support: VideoModelSupport = model.capabilities?.includes('reference_images')
-        ? matrix
-        : base
+      // 参考图、声音、关键帧要等渠道声明：旧后端不认这些字段，会静默丢掉，照样扣费。
+      const support: VideoModelSupport = videoSupportForCapabilities(matrix, model.capabilities)
       options.push({
         channelId: channel.id,
         modelId: model.id,

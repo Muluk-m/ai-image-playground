@@ -1,11 +1,21 @@
 import {
+  canonicalVideoVoice,
   VIDEO_ASPECT_RATIOS,
+  VIDEO_PRESET_VOICES,
   VIDEO_RESOLUTION_LABELS,
   type VideoModelSupport,
+  type VideoPresetVoice,
   videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { SettingsChoice } from '../../../components/composer/SettingsPanel'
+import { SettingsChoice, SettingsSection } from '../../../components/composer/SettingsPanel'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
 import { useVideoStore } from '../store'
 import type { VideoDraft } from '../types'
@@ -20,7 +30,7 @@ export default function VideoPresetRows({
   aspectFollowsFirstFrame,
 }: {
   support: VideoModelSupport
-  draft: Pick<VideoDraft, 'model' | 'duration' | 'aspectRatio' | 'resolution'>
+  draft: Pick<VideoDraft, 'model' | 'duration' | 'aspectRatio' | 'resolution' | 'voices'>
   /** 图生时画幅跟着首帧走，这一行只读。 */
   aspectFollowsFirstFrame: boolean
 }) {
@@ -59,6 +69,69 @@ export default function VideoPresetRows({
         }
         onChange={(resolution) => useVideoStore.getState().setResolution(resolution)}
       />
+      <VoiceChoices support={support} draft={draft} />
     </>
+  )
+}
+
+function voiceLabelKey(id: string): `voice.${VideoPresetVoice}` | null {
+  const voice = canonicalVideoVoice(id)
+  return voice ? `voice.${voice}` : null
+}
+
+function VoiceChoices({
+  support,
+  draft,
+}: {
+  support: VideoModelSupport
+  draft: Pick<VideoDraft, 'voices'>
+}) {
+  const voices = support.voices
+  const { t } = useTranslation('video')
+  if (!voices) return null
+  const selected = draft.voices ?? []
+  const remaining = VIDEO_PRESET_VOICES.filter((id) => !selected.includes(id))
+  const setVoices = (next: readonly string[]) => useVideoStore.getState().setVoices(next)
+  return (
+    <SettingsSection title={t('field.voices')}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {selected.map((id) => {
+          const key = voiceLabelKey(id)
+          const name = key ? t(key) : id
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-label={t('voice.remove', { name })}
+              onClick={() => setVoices(selected.filter((one) => one !== id))}
+              className="h-8 rounded-full bg-muted px-2.5 text-xs"
+            >
+              {name}
+            </button>
+          )
+        })}
+        {selected.length < voices.max && remaining.length > 0 && (
+          <Select
+            key={selected.join(',')}
+            value=""
+            onValueChange={(id) => setVoices([...selected, id])}
+          >
+            <SelectTrigger
+              aria-label={t('field.voices')}
+              className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
+            >
+              <SelectValue placeholder={t('voice.add')} />
+            </SelectTrigger>
+            <SelectContent>
+              {remaining.map((id) => (
+                <SelectItem key={id} value={id}>
+                  {t(`voice.${id}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+    </SettingsSection>
   )
 }
