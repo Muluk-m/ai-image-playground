@@ -108,7 +108,7 @@ function codec(
           [
             new Uint8Array(
               options.encode?.(type, this.width, quality) ??
-                (type === 'image/png' ? 800000 : 200000),
+                (type === 'image/png' ? 3000000 : 200000),
             ),
           ],
           { type },
@@ -136,19 +136,45 @@ it('preserves transparency and uses oriented dimensions', async () => {
   expect(output).toMatchObject({ width: 1843, height: 2048, contentType: 'image/webp' })
   expect(encoded.every((item) => item.type !== 'image/jpeg')).toBe(true)
 })
-it('tries quality steps before reducing dimensions when the output cannot fit', async () => {
+it('rejects rather than lowering quality or repeatedly reducing dimensions to fit', async () => {
   const { encoded } = codec({
     encode: (_type, width, quality) =>
-      width > 1600 ? 3000000 : quality === 0.9 ? 2500000 : 1000000,
+      width < 2048 || (quality !== undefined && quality < 0.9) ? 1000000 : 3000000,
   })
+  await expect(prepareImage(png(), limits)).rejects.toThrow('attachment_quality_limit')
+  expect(encoded.filter((item) => item.type === 'image/jpeg')).toEqual([
+    { type: 'image/jpeg', width: 2048, quality: 0.9 },
+  ])
+  expect(encoded.every((item) => item.width === 2048)).toBe(true)
+})
+it('retains high-resolution originals within the byte and backend pixel budgets without encoding', async () => {
+  const { close, encoded } = codec()
+  const input = png()
+  const output = await prepareImage(input, { ...limits, maxPixels: 64_000_000 })
+  expect(output).toMatchObject({ width: 3000, height: 2700, contentType: 'image/png' })
+  expect(output.data).toBe(input)
+  expect(encoded).toEqual([])
+  expect(close).toHaveBeenCalledOnce()
+})
+it('prefers fitting lossless PNG even when JPEG could save more bytes', async () => {
+  const { encoded } = codec({ encode: (type) => (type === 'image/png' ? 1500000 : 200000) })
   const output = await prepareImage(png(), limits)
-  expect(output.width).toBe(1536)
-  expect(output.data.byteLength).toBeLessThanOrEqual(limits.maxBytes)
-  expect(
-    encoded
-      .filter((item) => item.width === 2048 && item.type === 'image/jpeg')
-      .map((item) => item.quality),
-  ).toEqual([0.9, 0.82, 0.74])
+  expect(output.contentType).toBe('image/png')
+  expect(output.data.byteLength).toBe(1500000)
+  expect(encoded.map((item) => item.type)).toEqual(['image/png'])
+})
+it('also prefers fitting lossless PNG when preparing an oversized JPEG', async () => {
+  const { encoded } = codec({
+    width: 200,
+    height: 100,
+    encode: (type) => (type === 'image/png' ? 1500000 : 200000),
+  })
+  const input = new Uint8Array(2100000)
+  input.set([255, 216, 255, 192, 0, 8, 8, 0, 100, 0, 200, 1, 255, 218, 0, 2])
+  input.set([255, 217], input.length - 2)
+  const output = await prepareImage(input.buffer, limits)
+  expect(output.contentType).toBe('image/png')
+  expect(encoded.map((item) => item.type)).toEqual(['image/png'])
 })
 it('does not inflate a small validated original', async () => {
   codec({ width: 100, height: 80 })
@@ -169,7 +195,7 @@ it('removes JPEG exporter trailers even when the smaller original is retained', 
 })
 it('fails explicitly when no encoder can meet the budget; never returns the original', async () => {
   codec({ encode: () => 3000000 })
-  await expect(prepareImage(png(), limits)).rejects.toThrow('attachment_compression_failed')
+  await expect(prepareImage(png(), limits)).rejects.toThrow('attachment_quality_limit')
 })
 it('never hides decode errors behind an original-image fallback', async () => {
   vi.stubGlobal(

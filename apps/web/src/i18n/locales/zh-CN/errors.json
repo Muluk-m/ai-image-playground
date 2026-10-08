@@ -125,6 +125,7 @@
     "attachment_input_too_large": "图片超过本机处理上限 100 MiB，请缩小文件后重新选择。",
     "attachment_decode_limit": "图片超过本机安全处理范围（6400 万像素或单边 32768 像素），请缩小后重新选择。",
     "attachment_animated_image": "暂不支持动态图片，请导出静态 PNG、JPG 或 WebP 后重新选择。",
+    "attachment_quality_limit": "无法在保持 90% 编码质量时满足上传限制，请裁剪图片后重新选择。",
     "attachment_compression_failed": "图片预处理失败，请重新导出为 PNG、JPG 或 WebP 后选择。",
     "attachment_compression_timeout": "图片处理超时，请重新选择；仍失败请缩小图片后再试。"
   }
