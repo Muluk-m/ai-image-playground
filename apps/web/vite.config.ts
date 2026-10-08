@@ -8,6 +8,7 @@ import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
 import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
+import { optionalFontsPlugin } from './src/styles/fontPlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -76,6 +77,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [
+      optionalFontsPlugin(),
       startupGuardPlugin(),
       react(),
       themeBootPlugin(),
