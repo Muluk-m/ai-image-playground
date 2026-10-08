@@ -238,17 +238,21 @@ it('keeps the review page and failed selections across polling, then quotes the 
   try {
     vi.useFakeTimers()
     await act(async () => root.render(<AgentToolCard message={message} />))
-    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(20))
+    const failed = () => host.querySelector('[data-batch-status="failed"]')!
+    await vi.waitFor(() => expect(failed().querySelector('button')).not.toBeNull())
+    expect(failed().querySelector('details')).toBeNull()
+    act(() => failed().querySelector('button')!.click())
+    await vi.waitFor(() => expect(failed().querySelectorAll('details')).toHaveLength(20))
     await vi.waitFor(() => expect(check(1).disabled).toBe(false))
     act(() => {
-      host
+      failed()
         .querySelector('details summary')!
         .dispatchEvent(new MouseEvent('click', { bubbles: true }))
       check(1).click()
     })
     act(() => button('下一页')!.click())
     act(() => {
-      host
+      failed()
         .querySelector('details summary')!
         .dispatchEvent(new MouseEvent('click', { bubbles: true }))
       check(21).click()

@@ -4,7 +4,20 @@ import type {
   AgentBatchPage,
   AgentBatchUpdate,
 } from '@image-playground/shared'
-import { Layers, MessageSquare, PauseCircle, PlayCircle, RotateCcw, Scan } from 'lucide-react'
+import {
+  Ban,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Layers,
+  Loader2,
+  MessageSquare,
+  PauseCircle,
+  PlayCircle,
+  RotateCcw,
+  Scan,
+  TriangleAlert,
+} from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Checkbox } from '../../../components/Checkbox'
 import Credits from '../../../components/Credits'
@@ -25,12 +38,27 @@ import {
   updateBatchPlan,
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
+import {
+  BATCH_ITEM_PAGE_SIZE,
+  type BatchDisplayStatus,
+  batchGroupStartsOpen,
+  batchItemStatus,
+  groupBatchItems,
+} from '../lib/batchStatusGroups'
 import { useAgentStore } from '../store'
 import AgentBatchAnalysisSummary from './AgentBatchAnalysisSummary'
 import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
+
+function statusIcon(status: BatchDisplayStatus) {
+  if (status === 'in_flight' || status === 'in_progress') return Loader2
+  if (status === 'completed') return CheckCircle2
+  if (status === 'failed' || status === 'reconciling' || status === 'blocked') return TriangleAlert
+  if (status === 'cancelled') return Ban
+  return Clock3
+}
 
 function readReviewPage(key: string): number {
   try {
@@ -119,6 +147,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [dirty, setDirty] = useState(false)
   const [selectedRetries, setSelectedRetries] = useState<readonly string[]>([])
   const [reviewPage, setReviewPage] = useState<{ key: string; index: number }>()
+  const [groupOverride, setGroupOverride] = useState<Record<string, boolean>>({})
+  const [groupPage, setGroupPage] = useState<Record<string, number>>({})
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
@@ -415,6 +445,236 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       // Page position is optional; the in-memory view remains usable without storage.
     }
   }
+  const grouped = page.items.some((item) => item.progress || item.execution)
+  const groups = grouped ? groupBatchItems(page.items) : []
+  const retryMarked = new Set(page.batch.retryItemKeys ?? [])
+  const itemRow = (
+    item: AgentBatchPage['items'][number],
+    position: number,
+    showStatus: boolean,
+  ) => (
+    <details key={item.key} className="px-2 py-1 text-xs">
+      <summary className="cursor-pointer py-0.5 focus-visible:outline-ring">
+        <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
+          <span className="shrink-0 tabular-nums">{position}.</span>
+          {showStatus ? (
+            <AgentBatchItemStatus execution={item.execution} progress={item.progress} />
+          ) : (
+            <span className="sr-only">{t(`batch.itemStatus.${batchItemStatus(item)}`)}</span>
+          )}
+          {item.kind === 'analysis' && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
+              <Scan aria-hidden className="h-3 w-3" />
+              {t('batch.analysisKind')}
+            </span>
+          )}
+          {phaseConfirmation?.itemKeys.includes(item.key) && (
+            <span className="rounded-md border border-border bg-muted px-1.5 py-0.5">
+              {t('batch.confirmationItem')}
+            </span>
+          )}
+          {page.batch.retryItemKeys?.includes(item.key) && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
+              <RotateCcw aria-hidden className="h-3 w-3" />
+              {t('batch.retryItem')}
+            </span>
+          )}
+          {item.inputs.map((input, inputIndex) => {
+            const name = input.name ?? t('batch.inputImage', { index: inputIndex + 1 })
+            return (
+              <span
+                key={`${input.imageId}:${inputIndex}`}
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border bg-muted py-0.5 pl-0.5 pr-1.5"
+              >
+                <MediaImage
+                  src={`aip-media:${input.mediaId}`}
+                  alt={name}
+                  className="h-5 w-5 shrink-0 rounded object-cover"
+                  loading="lazy"
+                />
+                <span className="truncate">{name}</span>
+              </span>
+            )
+          })}
+        </span>
+      </summary>
+      <div className="grid gap-2 py-2">
+        {item.blockedBy?.length ? (
+          <div className="flex flex-wrap gap-1">
+            {item.blockedBy.map((key) => (
+              <span key={key} className="rounded-md border border-border bg-muted px-1.5 py-0.5">
+                {t('batch.dependencyItem', {
+                  index: page.items.findIndex((entry) => entry.key === key) + 1,
+                })}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {retryEligible(item) && (
+          <Checkbox
+            checked={selectedRetries.includes(item.key)}
+            disabled={busy || !restored || Boolean(pending)}
+            aria-label={t('batch.selectRetry', { index: position })}
+            label={t('batch.selectRetry', { index: position })}
+            onChange={(checked) =>
+              setSelectedRetries((selected) =>
+                checked ? [...selected, item.key] : selected.filter((key) => key !== item.key),
+              )
+            }
+          />
+        )}
+        {item.execution && (
+          <div className="grid gap-1">
+            <span>{t('batch.attempt', { number: item.execution.attempt })}</span>
+            <AgentBatchItemStatus execution={item.execution} />
+            <AgentBatchItemResult execution={item.execution} inputs={item.inputs} />
+          </div>
+        )}
+        {item.attempts?.some((attempt) => attempt.attempt !== item.execution?.attempt) ? (
+          <details className="rounded-md border border-border p-2">
+            <summary className="cursor-pointer">{t('batch.previousAttempts')}</summary>
+            <div className="grid gap-3 pt-2">
+              {item.attempts
+                .filter((attempt) => attempt.attempt !== item.execution?.attempt)
+                .map((attempt) => (
+                  <div key={attempt.attempt} className="grid gap-1">
+                    <span>{t('batch.attempt', { number: attempt.attempt })}</span>
+                    <AgentBatchItemStatus execution={attempt} />
+                    <AgentBatchItemResult execution={attempt} inputs={item.inputs} />
+                  </div>
+                ))}
+            </div>
+          </details>
+        ) : null}
+        <label className="grid gap-1">
+          {t('batch.prompt')}
+          <Textarea
+            className={`${CARD_TEXT} max-h-24`}
+            rows={3}
+            value={item.prompt}
+            disabled={!itemEditable(item)}
+            maxLength={4000}
+            onChange={(event) => {
+              setPage({
+                ...page,
+                items: page.items.map((entry) =>
+                  entry.key === item.key ? { ...entry, prompt: event.target.value } : entry,
+                ),
+              })
+              markDirty()
+            }}
+          />
+        </label>
+        {item.kind === 'generation' && item.sourceAnalysis?.length ? (
+          <div className="grid gap-2 rounded-md bg-muted p-2">
+            <span className="font-medium">{t('batch.generationSource')}</span>
+            {item.sourceAnalysis.map((source) => {
+              const findings =
+                page.sourceAnalysisSummary?.findings.filter(
+                  (finding) =>
+                    finding.itemKey === source.itemKey &&
+                    finding.taskId === source.taskId &&
+                    finding.attempt === source.attempt &&
+                    (finding.version ?? singleSourceVersion) ===
+                      (source.version ?? singleSourceVersion),
+                ) ?? []
+              return (
+                <div
+                  key={`${source.version ?? 'legacy'}:${source.taskId}:${source.attempt}`}
+                  className="grid gap-1"
+                >
+                  <span className="text-muted-foreground" title={source.taskId}>
+                    {(source.version ?? singleSourceVersion) !== undefined && (
+                      <>
+                        {t('batch.version', {
+                          version: source.version ?? singleSourceVersion,
+                        })}{' '}
+                        ·{' '}
+                      </>
+                    )}
+                    {t('batch.attempt', { number: source.attempt })}
+                  </span>
+                  {findings.length ? (
+                    findings.map((finding) => (
+                      <p key={finding.imageId} className="whitespace-pre-wrap break-words">
+                        {finding.text}
+                      </p>
+                    ))
+                  ) : (
+                    <span>{t('batch.sourceUnavailable')}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+        {item.kind === 'analysis' ? (
+          <div className="grid gap-2">
+            <dl className="flex justify-between">
+              <dt>{t('batch.model')}</dt>
+              <dd>{item.params.model}</dd>
+            </dl>
+            <AgentBatchAnalysisEvidence evidence={item.params.evidence} inputs={item.inputs} />
+          </div>
+        ) : (
+          <>
+            <OutputParameters params={item.params} />
+            <label className="grid gap-1">
+              {t('batch.size')}
+              <Input
+                className={`${CARD_CONTROL} w-full`}
+                aria-label={t('batch.size')}
+                value={
+                  item.params.provider === 'gemini'
+                    ? (item.params.gemini_image_size ?? '')
+                    : (item.params.size ?? '')
+                }
+                disabled={!itemEditable(item)}
+                maxLength={32}
+                onChange={(event) => {
+                  const params =
+                    item.params.provider === 'gemini'
+                      ? { ...item.params, gemini_image_size: event.target.value }
+                      : { ...item.params, size: event.target.value }
+                  setPage({
+                    ...page,
+                    items: page.items.map((entry) =>
+                      entry.key === item.key && entry.kind === 'generation'
+                        ? { ...entry, params }
+                        : entry,
+                    ),
+                  })
+                  markDirty()
+                }}
+              />
+            </label>
+          </>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="justify-self-start"
+          disabled={
+            !itemEditable(item) ||
+            page.items.length <= 1 ||
+            page.items.some((entry) => entry.dependencies.includes(item.key))
+          }
+          onClick={() => {
+            setPage({
+              ...page,
+              items: page.items
+                .filter((entry) => entry.key !== item.key)
+                .map((entry, ordinal) => ({ ...entry, ordinal })),
+            })
+            markDirty()
+          }}
+        >
+          {t('batch.remove')}
+        </Button>
+      </div>
+    </details>
+  )
+
   const displayError = restorationFailed ? 'storage_restore_failed' : error
   const TargetIcon = page.batch.experience === 'canvas' ? Layers : MessageSquare
   return (
@@ -511,235 +771,112 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           }}
         />
       </label>
-      <div className="max-h-64 overflow-y-auto divide-y divide-border rounded-lg border border-border bg-background">
-        {visibleItems.map((item, index) => (
-          <details key={item.key} className="px-2 py-1 text-xs">
-            <summary className="cursor-pointer py-0.5 focus-visible:outline-ring">
-              <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
-                <span className="shrink-0 tabular-nums">{firstItem + index + 1}.</span>
-                <AgentBatchItemStatus execution={item.execution} progress={item.progress} />
-                {item.kind === 'analysis' && (
-                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
-                    <Scan aria-hidden className="h-3 w-3" />
-                    {t('batch.analysisKind')}
+      {grouped ? (
+        <div className="grid gap-1" role="group" aria-label={t('batch.statusBoard')}>
+          {groups.map((group) => {
+            const containsRetry = group.items.some((item) => retryMarked.has(item.key))
+            const open =
+              groupOverride[group.status] ??
+              batchGroupStartsOpen(group.status, group.items.length, groups.length, containsRetry)
+            const groupPageCount = Math.max(1, Math.ceil(group.items.length / BATCH_ITEM_PAGE_SIZE))
+            const groupIndex = Math.min(groupPageCount - 1, groupPage[group.status] ?? 0)
+            const slice = group.items.slice(
+              groupIndex * BATCH_ITEM_PAGE_SIZE,
+              groupIndex * BATCH_ITEM_PAGE_SIZE + BATCH_ITEM_PAGE_SIZE,
+            )
+            const Icon = statusIcon(group.status)
+            const live = group.status === 'in_flight' || group.status === 'in_progress'
+            const urgent =
+              group.status === 'failed' ||
+              group.status === 'blocked' ||
+              group.status === 'reconciling'
+            return (
+              <section
+                key={group.status}
+                data-batch-status={group.status}
+                className="overflow-hidden rounded-lg border border-border bg-background"
+              >
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs text-foreground hover:bg-muted/60"
+                  aria-expanded={open}
+                  onClick={() =>
+                    setGroupOverride((current) => ({ ...current, [group.status]: !open }))
+                  }
+                >
+                  <ChevronRight
+                    aria-hidden
+                    className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+                  />
+                  <Icon
+                    aria-hidden
+                    className={`h-3 w-3 shrink-0 ${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
+                  />
+                  <span>{t(`batch.itemStatus.${group.status}`)}</span>
+                  <span className="ml-auto tabular-nums text-muted-foreground">
+                    {group.items.length}
                   </span>
+                </button>
+                {open && (
+                  <div className="max-h-64 divide-y divide-border overflow-y-auto border-t border-border">
+                    {slice.map((item) =>
+                      itemRow(
+                        item,
+                        page.items.findIndex((entry) => entry.key === item.key) + 1,
+                        false,
+                      ),
+                    )}
+                  </div>
                 )}
-                {phaseConfirmation?.itemKeys.includes(item.key) && (
-                  <span className="rounded-md border border-border bg-muted px-1.5 py-0.5">
-                    {t('batch.confirmationItem')}
-                  </span>
-                )}
-                {page.batch.retryItemKeys?.includes(item.key) && (
-                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
-                    <RotateCcw aria-hidden className="h-3 w-3" />
-                    {t('batch.retryItem')}
-                  </span>
-                )}
-                {item.inputs.map((input, inputIndex) => {
-                  const name = input.name ?? t('batch.inputImage', { index: inputIndex + 1 })
-                  return (
-                    <span
-                      key={`${input.imageId}:${inputIndex}`}
-                      className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border bg-muted py-0.5 pl-0.5 pr-1.5"
+                {open && groupPageCount > 1 && (
+                  <nav
+                    aria-label={t('batch.pagination')}
+                    className="flex items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs"
+                  >
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={groupIndex === 0}
+                      onClick={() =>
+                        setGroupPage((current) => ({
+                          ...current,
+                          [group.status]: groupIndex - 1,
+                        }))
+                      }
                     >
-                      <MediaImage
-                        src={`aip-media:${input.mediaId}`}
-                        alt={name}
-                        className="h-5 w-5 shrink-0 rounded object-cover"
-                        loading="lazy"
-                      />
-                      <span className="truncate">{name}</span>
-                    </span>
-                  )
-                })}
-              </span>
-            </summary>
-            <div className="grid gap-2 py-2">
-              {item.blockedBy?.length ? (
-                <div className="flex flex-wrap gap-1">
-                  {item.blockedBy.map((key) => (
-                    <span
-                      key={key}
-                      className="rounded-md border border-border bg-muted px-1.5 py-0.5"
-                    >
-                      {t('batch.dependencyItem', {
-                        index: page.items.findIndex((entry) => entry.key === key) + 1,
+                      {t('batch.previousPage')}
+                    </Button>
+                    <span className="tabular-nums">
+                      {t('batch.pagePosition', {
+                        current: groupIndex + 1,
+                        total: groupPageCount,
                       })}
                     </span>
-                  ))}
-                </div>
-              ) : null}
-              {retryEligible(item) && (
-                <Checkbox
-                  checked={selectedRetries.includes(item.key)}
-                  disabled={busy || !restored || Boolean(pending)}
-                  aria-label={t('batch.selectRetry', { index: firstItem + index + 1 })}
-                  label={t('batch.selectRetry', { index: firstItem + index + 1 })}
-                  onChange={(checked) =>
-                    setSelectedRetries((selected) =>
-                      checked
-                        ? [...selected, item.key]
-                        : selected.filter((key) => key !== item.key),
-                    )
-                  }
-                />
-              )}
-              {item.execution && (
-                <div className="grid gap-1">
-                  <span>{t('batch.attempt', { number: item.execution.attempt })}</span>
-                  <AgentBatchItemStatus execution={item.execution} />
-                  <AgentBatchItemResult execution={item.execution} inputs={item.inputs} />
-                </div>
-              )}
-              {item.attempts?.some((attempt) => attempt.attempt !== item.execution?.attempt) ? (
-                <details className="rounded-md border border-border p-2">
-                  <summary className="cursor-pointer">{t('batch.previousAttempts')}</summary>
-                  <div className="grid gap-3 pt-2">
-                    {item.attempts
-                      .filter((attempt) => attempt.attempt !== item.execution?.attempt)
-                      .map((attempt) => (
-                        <div key={attempt.attempt} className="grid gap-1">
-                          <span>{t('batch.attempt', { number: attempt.attempt })}</span>
-                          <AgentBatchItemStatus execution={attempt} />
-                          <AgentBatchItemResult execution={attempt} inputs={item.inputs} />
-                        </div>
-                      ))}
-                  </div>
-                </details>
-              ) : null}
-              <label className="grid gap-1">
-                {t('batch.prompt')}
-                <Textarea
-                  className={`${CARD_TEXT} max-h-24`}
-                  rows={3}
-                  value={item.prompt}
-                  disabled={!itemEditable(item)}
-                  maxLength={4000}
-                  onChange={(event) => {
-                    setPage({
-                      ...page,
-                      items: page.items.map((entry) =>
-                        entry.key === item.key ? { ...entry, prompt: event.target.value } : entry,
-                      ),
-                    })
-                    markDirty()
-                  }}
-                />
-              </label>
-              {item.kind === 'generation' && item.sourceAnalysis?.length ? (
-                <div className="grid gap-2 rounded-md bg-muted p-2">
-                  <span className="font-medium">{t('batch.generationSource')}</span>
-                  {item.sourceAnalysis.map((source) => {
-                    const findings =
-                      page.sourceAnalysisSummary?.findings.filter(
-                        (finding) =>
-                          finding.itemKey === source.itemKey &&
-                          finding.taskId === source.taskId &&
-                          finding.attempt === source.attempt &&
-                          (finding.version ?? singleSourceVersion) ===
-                            (source.version ?? singleSourceVersion),
-                      ) ?? []
-                    return (
-                      <div
-                        key={`${source.version ?? 'legacy'}:${source.taskId}:${source.attempt}`}
-                        className="grid gap-1"
-                      >
-                        <span className="text-muted-foreground" title={source.taskId}>
-                          {(source.version ?? singleSourceVersion) !== undefined && (
-                            <>
-                              {t('batch.version', {
-                                version: source.version ?? singleSourceVersion,
-                              })}{' '}
-                              ·{' '}
-                            </>
-                          )}
-                          {t('batch.attempt', { number: source.attempt })}
-                        </span>
-                        {findings.length ? (
-                          findings.map((finding) => (
-                            <p key={finding.imageId} className="whitespace-pre-wrap break-words">
-                              {finding.text}
-                            </p>
-                          ))
-                        ) : (
-                          <span>{t('batch.sourceUnavailable')}</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : null}
-              {item.kind === 'analysis' ? (
-                <div className="grid gap-2">
-                  <dl className="flex justify-between">
-                    <dt>{t('batch.model')}</dt>
-                    <dd>{item.params.model}</dd>
-                  </dl>
-                  <AgentBatchAnalysisEvidence
-                    evidence={item.params.evidence}
-                    inputs={item.inputs}
-                  />
-                </div>
-              ) : (
-                <>
-                  <OutputParameters params={item.params} />
-                  <label className="grid gap-1">
-                    {t('batch.size')}
-                    <Input
-                      className={`${CARD_CONTROL} w-full`}
-                      aria-label={t('batch.size')}
-                      value={
-                        item.params.provider === 'gemini'
-                          ? (item.params.gemini_image_size ?? '')
-                          : (item.params.size ?? '')
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={groupIndex + 1 === groupPageCount}
+                      onClick={() =>
+                        setGroupPage((current) => ({
+                          ...current,
+                          [group.status]: groupIndex + 1,
+                        }))
                       }
-                      disabled={!itemEditable(item)}
-                      maxLength={32}
-                      onChange={(event) => {
-                        const params =
-                          item.params.provider === 'gemini'
-                            ? { ...item.params, gemini_image_size: event.target.value }
-                            : { ...item.params, size: event.target.value }
-                        setPage({
-                          ...page,
-                          items: page.items.map((entry) =>
-                            entry.key === item.key && entry.kind === 'generation'
-                              ? { ...entry, params }
-                              : entry,
-                          ),
-                        })
-                        markDirty()
-                      }}
-                    />
-                  </label>
-                </>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="justify-self-start"
-                disabled={
-                  !itemEditable(item) ||
-                  page.items.length <= 1 ||
-                  page.items.some((entry) => entry.dependencies.includes(item.key))
-                }
-                onClick={() => {
-                  setPage({
-                    ...page,
-                    items: page.items
-                      .filter((entry) => entry.key !== item.key)
-                      .map((entry, ordinal) => ({ ...entry, ordinal })),
-                  })
-                  markDirty()
-                }}
-              >
-                {t('batch.remove')}
-              </Button>
-            </div>
-          </details>
-        ))}
-      </div>
-      {pageCount > 1 && (
+                    >
+                      {t('batch.nextPage')}
+                    </Button>
+                  </nav>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-background">
+          {visibleItems.map((item, index) => itemRow(item, firstItem + index + 1, true))}
+        </div>
+      )}
+      {!grouped && pageCount > 1 && (
         <nav
           aria-label={t('batch.pagination')}
           className="flex items-center justify-between gap-2 text-xs"

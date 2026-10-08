@@ -628,6 +628,7 @@
     "confirmationItem": "本次确认",
     "phaseKeepsPaused": "确认后批次仍暂停",
     "phaseConfirmedPaused": "已确认，批次已暂停",
+    "statusBoard": "任务状态",
     "pagination": "批次处理项分页",
     "previousPage": "上一页",
     "nextPage": "下一页",
