@@ -439,77 +439,70 @@ export function ServerLogsBlock({
             />
           </Button>
         </div>
-        {advancedOpen ? (
-          <form
-            id={advancedId}
-            className="mt-3 grid gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              const form = new FormData(event.currentTarget)
-              const located = Object.fromEntries(
-                [
-                  'requestId',
-                  'taskId',
-                  'userId',
-                  'mediaId',
-                  'instance',
-                  'version',
-                  'deployment',
-                ].map((key) => [
+        <form
+          id={advancedId}
+          hidden={!advancedOpen}
+          className={`${advancedOpen ? 'grid' : 'hidden'} mt-3 gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3}`}
+          onSubmit={(event) => {
+            event.preventDefault()
+            const form = new FormData(event.currentTarget)
+            const located = Object.fromEntries(
+              ['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version', 'deployment'].map(
+                (key) => [
                   key,
                   key === 'deployment' && form.get(key) === 'all'
                     ? undefined
                     : String(form.get(key) || '') || undefined,
-                ]),
-              )
-              change({ ...state, ...located })
-            }}
-          >
-            {(['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'] as const).map(
-              (key) => (
-                <Label key={key}>
-                  {
-                    {
-                      requestId: '请求 ID',
-                      taskId: '任务 ID',
-                      userId: '用户 ID',
-                      mediaId: '图片 ID',
-                      instance: '容器',
-                      version: '版本',
-                    }[key]
-                  }
-                  <Input
-                    name={key}
-                    defaultValue={filters[key]}
-                    key={filters[key] ?? ''}
-                    maxLength={400}
-                  />
-                </Label>
+                ],
               ),
-            )}
-            <Label>
-              部署
-              <Select
-                name="deployment"
-                key={filters.deployment ?? 'all'}
-                defaultValue={filters.deployment ?? 'all'}
-              >
-                <SelectTrigger aria-label="部署">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部部署</SelectItem>
-                  <SelectItem value="paid">付费</SelectItem>
-                  <SelectItem value="internal">内部</SelectItem>
-                  <SelectItem value="test">测试</SelectItem>
-                </SelectContent>
-              </Select>
-            </Label>
-            <Button className="self-end" size="sm" variant="outline" type="submit">
-              应用定位条件
-            </Button>
-          </form>
-        ) : null}
+            )
+            change({ ...state, ...located })
+          }}
+        >
+          {(['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'] as const).map(
+            (key) => (
+              <Label key={key}>
+                {
+                  {
+                    requestId: '请求 ID',
+                    taskId: '任务 ID',
+                    userId: '用户 ID',
+                    mediaId: '图片 ID',
+                    instance: '容器',
+                    version: '版本',
+                  }[key]
+                }
+                <Input
+                  name={key}
+                  defaultValue={filters[key]}
+                  key={filters[key] ?? ''}
+                  maxLength={400}
+                />
+              </Label>
+            ),
+          )}
+          <Label>
+            部署
+            <Select
+              name="deployment"
+              key={filters.deployment ?? 'all'}
+              defaultValue={filters.deployment ?? 'all'}
+            >
+              <SelectTrigger aria-label="部署">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部部署</SelectItem>
+                <SelectItem value="paid">付费</SelectItem>
+                <SelectItem value="internal">内部</SelectItem>
+                <SelectItem value="test">测试</SelectItem>
+              </SelectContent>
+            </Select>
+          </Label>
+          <Button className="self-end" size="sm" variant="outline" type="submit">
+            应用定位条件
+          </Button>
+        </form>
         {Object.values(filters).some(Boolean) ? (
           <div className="flex flex-wrap gap-2 text-xs">
             {Object.entries(filters)
