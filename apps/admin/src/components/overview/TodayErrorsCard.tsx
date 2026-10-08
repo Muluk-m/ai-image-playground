@@ -68,7 +68,7 @@ export function TodayErrorsCard() {
                               to="/logs"
                               search={{
                                 ...query.data!.window,
-                                group: entry.group ?? undefined,
+                                group: entry.request_id ? undefined : (entry.group ?? undefined),
                                 requestId: entry.request_id ?? undefined,
                               }}
                             >
