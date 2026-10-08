@@ -234,6 +234,22 @@ function block(name: string): HTMLElement {
 }
 
 describe('运维看板', () => {
+  it('does not claim success when failure counts have no grouped exception details', () => {
+    const base = snapshot()
+    if (!base.reliability.ok) throw Error('fixture')
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          reliability: { ok: true, data: { ...base.reliability.data, exceptions: [] } },
+        })}
+        range="7d"
+      />,
+    )
+    expect(within(block('SLA 与异常')).getByText('近 24 小时有失败，暂无异常明细。')).toBeTruthy()
+    expect(
+      within(block('SLA 与异常')).queryByText('已采集的接口、生成和 Agent 轮次没有失败。'),
+    ).toBeNull()
+  })
   it('没事的时候一眼看得出没事：没有任何一块在报警', () => {
     render(<OpsBoard snapshot={snapshot()} range="7d" />)
 

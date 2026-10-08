@@ -22,6 +22,33 @@ export function reliabilityProblems(data: OpsReliability): string[] {
   return problems
 }
 
+function EmptyExceptions({ data }: { data: OpsReliability }) {
+  const window = data.windows.find((window) => window.range === '24h')
+  const failed = window ? window.server_errors + window.generation_failed + window.agent_failed : 0
+  const samples = window
+    ? window.requests +
+      window.generation_completed +
+      window.generation_failed +
+      window.agent_completed +
+      window.agent_failed
+    : 0
+  return failed ? (
+    <p className="flex items-center gap-2 rounded-lg bg-danger/5 p-3 text-sm text-danger">
+      <AlertTriangle className="size-4 shrink-0" />近 24 小时有失败，暂无异常明细。
+    </p>
+  ) : samples ? (
+    <p className="flex items-center gap-2 rounded-lg bg-success/5 p-3 text-sm text-success">
+      <CircleCheck className="size-4 shrink-0" />
+      已采集的接口、生成和 Agent 轮次没有失败。
+    </p>
+  ) : (
+    <p className="flex items-center gap-2 rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
+      <CircleHelp className="size-4 shrink-0" />
+      暂无样本，暂不能判断接口和任务表现。
+    </p>
+  )
+}
+
 export function ReliabilityBlock({ block, now }: { block: OpsBlock<OpsReliability>; now: number }) {
   return (
     <OpsBlockCard
@@ -120,26 +147,7 @@ export function ReliabilityBlock({ block, now }: { block: OpsBlock<OpsReliabilit
           <div className="border-t pt-3">
             <p className="mb-2 text-sm font-medium">近 24 小时异常分布</p>
             {data.exceptions.length === 0 ? (
-              data.windows.some(
-                (window) =>
-                  window.range === '24h' &&
-                  window.requests +
-                    window.generation_completed +
-                    window.generation_failed +
-                    window.agent_completed +
-                    window.agent_failed >
-                    0,
-              ) ? (
-                <p className="flex items-center gap-2 rounded-lg bg-success/5 p-3 text-sm text-success">
-                  <CircleCheck className="size-4 shrink-0" />
-                  已采集的接口、生成和 Agent 轮次没有失败。
-                </p>
-              ) : (
-                <p className="flex items-center gap-2 rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
-                  <CircleHelp className="size-4 shrink-0" />
-                  暂无样本，暂不能判断接口和任务表现。
-                </p>
-              )
+              <EmptyExceptions data={data} />
             ) : (
               <ul className="divide-y text-sm">
                 {data.exceptions.map((group) => (
