@@ -18,7 +18,7 @@ import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
-import { useStore } from '../../../store'
+import { defaultSidebarExpanded, useStore } from '../../../store'
 import AgentArtifactPane from '../../agent/components/AgentArtifactPane'
 import AgentAssetDrawer from '../../agent/components/AgentAssetDrawer'
 import AgentCanvasHandoffDialog from '../../agent/components/AgentCanvasHandoffDialog'
@@ -157,7 +157,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const [projectView, setProjectView] = useState<'chat' | 'canvas'>(
     project ? projectExperience(project) : 'chat',
   )
-  const sidebarExpanded = useStore((state) => state.sidebarExpanded)
+  const sidebarPreference = useStore((state) => state.sidebarExpanded)
+  const appMode = useStore((state) => state.appMode)
+  const sidebarOpen =
+    sidebarPreference ??
+    defaultSidebarExpanded(appMode, project ? projectExperience(project) : null)
   const selectedResultOwner = useRef<string | null>(null)
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
   const [selectedExternalResult, setSelectedExternalResult] = useState<AgentToolMessage | null>(
@@ -420,7 +424,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <>
           {hasAgent && (
             <div
-              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${sidebarExpanded === true ? 'studio-project-viewbar--with-sidebar' : ''}`}
+              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${sidebarOpen ? 'studio-project-viewbar--with-sidebar' : ''}`}
             >
               <button
                 type="button"
@@ -431,7 +435,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               >
                 <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
               </button>
-              {!sidebarExpanded === true && (
+              {!sidebarOpen && (
                 <button
                   type="button"
                   onClick={() => useStore.getState().toggleSidebar()}
@@ -557,7 +561,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     >
                       <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                     </button>
-                    {!sidebarExpanded === true && (
+                    {!sidebarOpen && (
                       <button
                         type="button"
                         onClick={() => useStore.getState().toggleSidebar()}
