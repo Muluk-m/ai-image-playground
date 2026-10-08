@@ -374,9 +374,23 @@ describe('generation task drill-down', () => {
         expect(Number(params.get('to'))).toBe(start + 120_000)
         expect(params.get('status')).toBe('failed')
       })
+      clock.mockReturnValue(start + 240_000)
+      fireEvent.click(screen.getAllByRole('button', { name: '刷新' })[0]!)
+      await waitFor(() => {
+        const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
+        expect(Number(new URLSearchParams(url.split('?')[1]).get('to'))).toBe(start + 240_000)
+      })
     } finally {
       clock.mockRestore()
     }
+  })
+
+  it('shows invalid time windows without silently querying today and offers a valid reset', async () => {
+    renderAt('/tasks?from=invalid&to=1234')
+    expect(await screen.findByText(/任务筛选无效/)).toBeInTheDocument()
+    expect(requests.some((url) => url.startsWith('/api/tasks?'))).toBe(false)
+    fireEvent.click(screen.getByRole('link', { name: '查看今天全部任务' }))
+    expect(await screen.findByRole('button', { name: '商品主图' })).toBeInTheDocument()
   })
 
   it('keeps an explicitly selected historical window on refresh', async () => {

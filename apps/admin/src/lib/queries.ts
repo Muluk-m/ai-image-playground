@@ -24,6 +24,8 @@ import type {
   UserTasksResult,
 } from './types'
 
+export const ADMIN_REFRESH_EVENT = 'admin:refresh'
+
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
     queryKey: ['devices', { range, sort }],

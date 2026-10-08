@@ -18,6 +18,7 @@ import {
   parseOpsRange,
   parseRange,
   parseSort,
+  parseTimeWindow,
   RANGE_LABEL,
   RANGES,
   type Range,
@@ -207,5 +208,7 @@ export function clearInspirationItem<T extends { item?: string }>(
 
 export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {}
 export function parseGenerationTasksSearch(input: Record<string, unknown>): GenerationTasksSearch {
+  if ((input.from !== undefined || input.to !== undefined) && !parseTimeWindow(input))
+    throw new Error('任务时间范围无效：需要完整的起止时间，范围不超过 31 天，且不能在未来。')
   return { ...parseGenerationTaskFilters(input), ...parseTaskViewSearch(input) }
 }

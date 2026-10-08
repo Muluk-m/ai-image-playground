@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { RefreshCw } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LightboxDialog } from '@/components/LightboxDialog'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
@@ -17,13 +17,23 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { duration, shortId } from '@/lib/format'
-import { useGenerationTasks } from '@/lib/queries'
+import { ADMIN_REFRESH_EVENT, useGenerationTasks } from '@/lib/queries'
 import { clearTaskView, parseGenerationTasksSearch } from '@/lib/search-params'
 import { todayWindow } from '../../contracts'
 
 export const Route = createFileRoute('/_authed/tasks/')({
   validateSearch: parseGenerationTasksSearch,
   component: GenerationTasksPage,
+  errorComponent: ({ error }) => (
+    <Page crumbs={[{ label: '概览', to: '/overview' }, { label: '生成任务' }]}>
+      <ErrorState label="任务筛选无效" error={error} />
+      <Button variant="outline" asChild>
+        <Link to="/tasks" search={{}}>
+          查看今天全部任务
+        </Link>
+      </Button>
+    </Page>
+  ),
 })
 const FILTERS = [
   { value: 'all', label: '全部' },
@@ -41,6 +51,13 @@ function GenerationTasksPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const [defaultWindow, setDefaultWindow] = useState(todayWindow)
+  useEffect(() => {
+    const refresh = () => {
+      if (search.from === undefined && search.to === undefined) setDefaultWindow(todayWindow())
+    }
+    window.addEventListener(ADMIN_REFRESH_EVENT, refresh)
+    return () => window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
+  }, [search.from, search.to])
   const {
     task: _task,
     fullscreen: _fullscreen,
@@ -48,11 +65,11 @@ function GenerationTasksPage() {
     imgKind: _imgKind,
     ...filters
   } = search
-  const window =
+  const taskWindow =
     search.from !== undefined && search.to !== undefined
       ? { from: search.from, to: search.to }
       : defaultWindow
-  const query = useGenerationTasks({ ...filters, ...window })
+  const query = useGenerationTasks({ ...filters, ...taskWindow })
   const tasks = query.data?.pages.flatMap((page) => page.tasks) ?? []
   const owner = search.userId
     ? (tasks[0]?.username ?? search.userId)
@@ -68,7 +85,7 @@ function GenerationTasksPage() {
     <>
       <Page
         crumbs={[{ label: '概览', to: '/overview' }, { label: '生成任务' }]}
-        description={`${time(window.from)} — ${time(window.to)} · 北京时间${owner ? ` · ${owner}` : ''}`}
+        description={`${time(taskWindow.from)} — ${time(taskWindow.to)} · 北京时间${owner ? ` · ${owner}` : ''}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
