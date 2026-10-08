@@ -21,6 +21,18 @@ export function videoOptionRejection(
       params: { label: option.label },
       reason: `${option.label} 不支持参考图`,
     }
+  if (option && (video.voices?.length ?? 0) > 0 && !option.support.voices)
+    return {
+      code: 'voicesUnsupported',
+      params: { label: option.label },
+      reason: `${option.label} 不支持预设声音`,
+    }
+  if (option && (video.keyframes?.length ?? 0) > 0 && !option.support.keyframes)
+    return {
+      code: 'keyframesUnsupported',
+      params: { label: option.label },
+      reason: `${option.label} 不支持关键帧`,
+    }
   return videoRequestRejection(modelId, video, inputImageCount)
 }
 

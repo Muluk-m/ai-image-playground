@@ -344,15 +344,17 @@
     "open_other": "Make a video from {{count}} images",
     "title_one": "Make a video from {{count}} image",
     "title_other": "Make a video from {{count}} images",
-    "hint": "Drag to reorder. Mark each one as the first frame, the last frame or a reference.",
+    "hint": "Drag to reorder. Mark each one as the first frame, the last frame, a keyframe or a reference.",
     "listAria": "Input images",
     "roleAria": "How input {{no}} is used",
     "moveUp": "Move input {{no}} up",
     "role": {
       "reference": "Reference",
       "first": "First frame",
-      "last": "Last frame"
+      "last": "Last frame",
+      "keyframe": "Keyframe"
     },
+    "timestampAria": "Keyframe time for input {{no}}, in seconds",
     "placeholder": "e.g. the person in Image 1 swings the racket from Image 2 on the court in Image 3",
     "modelWithoutReferences": "{{label}} (no reference images)",
     "submit": "Generate video",

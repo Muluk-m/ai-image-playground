@@ -327,15 +327,17 @@
     "toolbarAria": "用选中的图生成视频",
     "open_other": "用 {{count}} 张图生成视频",
     "title_other": "用 {{count}} 张图生成视频",
-    "hint": "拖动可调整顺序，每张可设为首帧、尾帧或参考图。",
+    "hint": "拖动可调整顺序，每张可设为首帧、尾帧、关键帧或参考图。",
     "listAria": "输入图",
     "roleAria": "第 {{no}} 张的用法",
     "moveUp": "第 {{no}} 张前移",
     "role": {
       "reference": "参考图",
       "first": "首帧",
-      "last": "尾帧"
+      "last": "尾帧",
+      "keyframe": "关键帧"
     },
+    "timestampAria": "第 {{no}} 张的关键帧时间（秒）",
     "placeholder": "例如：图片1 里的人拿着图片2 的球拍，在图片3 的球场上挥拍",
     "modelWithoutReferences": "{{label}}（不支持参考图）",
     "submit": "生成视频",

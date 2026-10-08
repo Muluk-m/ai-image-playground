@@ -196,8 +196,22 @@ function videoReferences(request: HydratedSubmitRequest, video: HydratedVideoReq
     .filter((url): url is string => typeof url === 'string')
 }
 
-/** 有首帧或参考图时上游要求换到 1.5：文生的那个既不吃 image，也不吃 reference_images。 */
+/**
+ * 文生视频用渠道上的模型。首帧、尾帧、参考图、关键帧或预设声音都要 1.5：
+ * 旧模型不吃 image / reference_images，也会拒绝 last_frame 与 keyframes。
+ */
 const GROK_VIDEO_IMAGE_MODEL = 'grok-imagine-video-1.5'
+
+function grokKeyframes(
+  request: HydratedSubmitRequest,
+  video: HydratedVideoRequest,
+): { image: { url: string }; timestamp_s: number }[] {
+  return (video.keyframes ?? []).map((frame) => {
+    const url = videoFrame(request, frame.image_index)
+    if (!url) throw clientError('关键帧图片不存在')
+    return { image: { url }, timestamp_s: frame.timestamp_seconds }
+  })
+}
 
 function buildGrokVideoBody(
   model: string,
@@ -216,15 +230,24 @@ function buildGrokVideoBody(
     }
   }
   const firstFrame = videoFrame(request, video.first_frame_index)
+  const lastFrame = videoFrame(request, video.last_frame_index)
   const references = videoReferences(request, video)
+  const keyframes = grokKeyframes(request, video)
+  const voices = (video.voices ?? []).map((id) => id.trim().toLowerCase())
+  const needsImageModel = Boolean(
+    firstFrame || lastFrame || references.length || keyframes.length || voices.length,
+  )
   return {
-    model: firstFrame || references.length ? GROK_VIDEO_IMAGE_MODEL : model,
+    model: needsImageModel ? GROK_VIDEO_IMAGE_MODEL : model,
     prompt: request.prompt,
     duration: video.duration_seconds,
     aspect_ratio: video.aspect_ratio,
     resolution: video.resolution,
     ...(firstFrame ? { image: { url: firstFrame } } : {}),
+    ...(lastFrame ? { last_frame: { url: lastFrame } } : {}),
     ...(references.length ? { reference_images: references.map((url) => ({ url })) } : {}),
+    ...(keyframes.length ? { keyframes } : {}),
+    ...(voices.length ? { reference_audios: voices.map((voice_id) => ({ voice_id })) } : {}),
   }
 }
 

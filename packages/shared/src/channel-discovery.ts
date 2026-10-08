@@ -45,6 +45,16 @@ export const CHANNEL_CAPABILITIES = [
    * 后端上线在前、运营在 channels.json 加它在后，前端才出参考图入口——旧后端会把参考图静默丢掉。
    */
   'reference_images',
+  /**
+   * 该渠道的后端接得住预设声音。能力本身看视频矩阵；这个 token 只是开关，
+   * 旧后端会把声音静默丢掉。
+   */
+  'voices',
+  /**
+   * 该渠道的后端接得住片中关键帧。能力本身看视频矩阵；这个 token 只是开关，
+   * 旧后端会把关键帧静默丢掉。
+   */
+  'keyframes',
 ] as const
 export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 

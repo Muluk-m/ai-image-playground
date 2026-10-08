@@ -50,6 +50,42 @@ describe('视频生成记录', () => {
     ).toBe(false)
   })
 
+  it('keeps preset voices on a text record and keyframes on an image record', () => {
+    expect(isVideoGenerationRecord({ ...BASE, voices: ['Eve'] })).toBe(true)
+    expect(videoGenerationSource({ ...BASE, voices: ['eve'] } as never)).toBe('text')
+    const keyed = {
+      ...BASE,
+      keyframes: [{ imageId: 'el_mid', timestampSeconds: 2 }],
+      voices: ['eve', 'leo'],
+    }
+    expect(isVideoGenerationRecord(keyed)).toBe(true)
+    expect(videoGenerationSource(keyed as never)).toBe('image')
+  })
+
+  it('rejects a keyframe or voice that could not have been submitted', () => {
+    expect(
+      isVideoGenerationRecord({
+        ...BASE,
+        keyframes: [{ imageId: 'el_mid', timestampSeconds: 0 }],
+      }),
+    ).toBe(false)
+    expect(
+      isVideoGenerationRecord({
+        ...BASE,
+        keyframes: [{ imageId: 'el_mid', timestampSeconds: 1.2 }],
+      }),
+    ).toBe(false)
+    expect(
+      isVideoGenerationRecord({
+        ...BASE,
+        firstFrameId: 'el_a',
+        keyframes: [{ imageId: 'el_a', timestampSeconds: 2 }],
+      }),
+    ).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, voices: ['morgan'] })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, voices: ['eve', 'eve'] })).toBe(false)
+  })
+
   it('rejects records a newer or broken client could have written', () => {
     expect(isVideoGenerationRecord(null)).toBe(false)
     expect(isVideoGenerationRecord({ ...BASE, model: '' })).toBe(false)

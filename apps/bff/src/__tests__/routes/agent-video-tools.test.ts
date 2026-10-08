@@ -5,6 +5,7 @@ import {
   type AgentBackgroundJobsResponse,
   type AgentToolResultBlock,
   type AgentTurnEvent,
+  type ChannelCapability,
   DEVICE_ID_HEADER,
   projectArtifactId,
 } from '@image-playground/shared'
@@ -63,7 +64,10 @@ const VIDEO_RESULT_PAYLOAD = {
   data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
 }
 
-function videoChannel(modelId: string): InternalChannel {
+function videoChannel(
+  modelId: string,
+  capabilities: ChannelCapability[] = ['generate', 'reference_images'],
+): InternalChannel {
   return {
     id: 'video-gateway',
     kind: 'openai-queue',
@@ -76,7 +80,7 @@ function videoChannel(modelId: string): InternalChannel {
         id: modelId,
         label: modelId,
         media: 'video',
-        capabilities: ['generate', 'reference_images'],
+        capabilities,
       },
     ],
     defaults: { asyncTasks: true },
@@ -379,12 +383,89 @@ describe('智能体生视频工具', () => {
   })
 
   it('rejects unsupported last frames without creating a draft or charging', async () => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(VEO)])
     const calls: AgentCall[] = []
-    videoTurn(calls, { prompt: '海浪', lastFrameId: 'last' })
+    videoTurn(calls, { prompt: '海浪', model: VEO, lastFrameId: 'last' })
     const id = await startConversation()
     await runTurn(id, '到这张图结束', [{ imageId: 'last', dataUrl: PIXEL }])
     expect(modelReport(calls)).toContain('frameUnsupported')
     expect(await confirmDrafts(id)).toHaveLength(0)
+    expect(await videoTasks()).toHaveLength(0)
+  })
+
+  it('refuses voices and keyframes the channel has not declared', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪说话', voiceIds: ['eve'] })
+    const voiced = await startConversation()
+    await runTurn(voiced, '给海浪配上声音')
+    expect(modelReport(calls)).toContain('voicesUnsupported')
+    expect(await videoTasks()).toHaveLength(0)
+
+    videoTurn(calls, {
+      prompt: '海浪说到一半换画面',
+      keyframes: [{ imageId: 'mid', timestampSeconds: 2 }],
+    })
+    const keyed = await startConversation()
+    await runTurn(keyed, '中间换一张图', [{ imageId: 'mid', dataUrl: PIXEL }])
+    expect(modelReport(calls)).toContain('keyframesUnsupported')
+    expect(await videoTasks()).toHaveLength(0)
+  })
+
+  it('queues a last frame, voices and keyframes after the references', async () => {
+    _setChannelsForTesting([
+      TEST_IMAGE_CHANNEL,
+      videoChannel(GROK, ['generate', 'reference_images', 'voices', 'keyframes']),
+    ])
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '从白天到夜里，用活泼的声音',
+      imageId: 'first',
+      lastFrameId: 'last',
+      referenceImageIds: ['ref'],
+      voiceIds: ['Eve'],
+      keyframes: [{ imageId: 'mid', timestampSeconds: 2 }],
+    })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '首尾帧加关键帧',
+      [
+        { imageId: 'first', dataUrl: PIXEL },
+        { imageId: 'last', dataUrl: PIXEL },
+        { imageId: 'ref', dataUrl: PIXEL },
+        { imageId: 'mid', dataUrl: PIXEL },
+      ],
+      'image',
+    )
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'awaiting_confirmation',
+      video: {
+        model: GROK,
+        firstFrameId: 'first',
+        lastFrameId: 'last',
+        referenceIds: ['ref'],
+        voices: ['eve'],
+        keyframes: [{ imageId: 'mid', timestampSeconds: 2 }],
+      },
+    })
+    await confirmDrafts(id)
+    const task = await videoTask()
+    expect(task.request_payload.input_images).toHaveLength(4)
+    expect(task.request_payload.video).toMatchObject({
+      first_frame_index: 0,
+      last_frame_index: 1,
+      reference_image_indices: [2],
+      keyframes: [{ image_index: 3, timestamp_seconds: 2 }],
+      voices: ['eve'],
+    })
+  })
+
+  it('returns a normal result when one image is given two roles', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪', imageId: 'same', lastFrameId: 'same' })
+    const id = await startConversation()
+    await runTurn(id, '同一张图做首尾', [{ imageId: 'same', dataUrl: PIXEL }])
+    expect(modelReport(calls)).toContain('同一张图只能担任一种角色')
     expect(await videoTasks()).toHaveLength(0)
   })
 
