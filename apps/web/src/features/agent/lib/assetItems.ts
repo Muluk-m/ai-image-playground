@@ -63,12 +63,9 @@ export function loadAssetOriginal(
   }
   const reference = item.open.kind === 'source' ? item.open.reference : undefined
   if (reference && loadReference) {
-    return loadReference(
-      reference.conversationId,
-      reference.messageId,
-      reference.index,
-      'original',
-    ).catch(() => item.load())
+    return loadReference(reference.conversationId, reference.messageId, reference.index, 'original')
+      .then((source) => source ?? item.load())
+      .catch(() => item.load())
   }
   return item.load()
 }
