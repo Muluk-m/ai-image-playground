@@ -112,9 +112,18 @@ export async function prepareImage(
       Math.max(originalWidth, originalHeight) > IMAGE_PREPROCESSING.maxDecodeSide
     )
       throw new Error('attachment_decode_limit')
-    // EXIF orientation may swap the axes; derive the output from the actual oriented bitmap.
-    let { width, height } = preparedDimensions(originalWidth, originalHeight, limits)
     const maxBytes = Math.min(limits.maxBytes, IMAGE_PREPROCESSING.maxBytes)
+    // Already-admissible originals keep their pixels; byte savings alone do not justify loss.
+    if (encodedImage.byteLength <= maxBytes && originalWidth * originalHeight <= limits.maxPixels)
+      return {
+        data: header.dataEnd === data.byteLength ? data : data.slice(0, header.dataEnd),
+        contentType: header.contentType,
+        width: originalWidth,
+        height: originalHeight,
+        originalBytes: data.byteLength,
+      }
+    // EXIF orientation may swap the axes; derive the output from the actual oriented bitmap.
+    const { width, height } = preparedDimensions(originalWidth, originalHeight, limits)
     canvas = surface(width, height)
     const ctx = canvas.getContext('2d') as
       | CanvasRenderingContext2D
@@ -133,64 +142,30 @@ export async function prepareImage(
         }
       }
     }
-    for (;;) {
+    check()
+    let candidate: Blob | undefined
+    const png = await cancellable(encode(canvas, 'image/png'), signal)
+    if (png.size <= maxBytes) candidate = png
+    if (!candidate) {
       check()
-      let candidate: Blob | undefined
-      if (header.contentType !== 'image/jpeg') {
-        const png = await cancellable(encode(canvas, 'image/png'), signal)
-        if (png.size <= maxBytes) candidate = png
-      }
-      for (const quality of IMAGE_PREPROCESSING.qualitySteps) {
-        check()
-        const encoded = await cancellable(
-          encode(canvas, alpha ? 'image/webp' : 'image/jpeg', quality),
-          signal,
-        )
-        // Some browsers silently use PNG when a requested encoder is unavailable.
-        if (alpha && encoded.type !== 'image/webp') break
-        if (encoded.size <= maxBytes) {
-          if (!candidate || encoded.size < candidate.size) candidate = encoded
-          break
-        }
-      }
-      if (candidate) {
-        // A validated, already-small original is useful; re-encoding must never inflate it.
-        if (
-          width === originalWidth &&
-          height === originalHeight &&
-          encodedImage.byteLength <= candidate.size &&
-          encodedImage.byteLength <= maxBytes
-        )
-          return {
-            data: header.dataEnd === data.byteLength ? data : data.slice(0, header.dataEnd),
-            contentType: header.contentType,
-            width,
-            height,
-            originalBytes: data.byteLength,
-          }
-        return {
-          data: await candidate.arrayBuffer(),
-          contentType: candidate.type,
-          width,
-          height,
-          originalBytes: data.byteLength,
-        }
-      }
-      if (Math.max(width, height) <= IMAGE_PREPROCESSING.minEdge)
-        throw new Error('attachment_compression_failed')
-      const nextWidth = Math.max(1, Math.floor(width * 0.75))
-      const nextHeight = Math.max(1, Math.floor(height * 0.75))
-      const next = surface(nextWidth, nextHeight)
-      const nextCtx = next.getContext('2d') as
-        | CanvasRenderingContext2D
-        | OffscreenCanvasRenderingContext2D
-        | null
-      if (!nextCtx) throw new Error('attachment_compression_failed')
-      nextCtx.drawImage(canvas, 0, 0, nextWidth, nextHeight)
-      canvas.width = canvas.height = 0
-      canvas = next
-      width = nextWidth
-      height = nextHeight
+      const encoded = await cancellable(
+        encode(canvas, alpha ? 'image/webp' : 'image/jpeg', IMAGE_PREPROCESSING.quality),
+        signal,
+      )
+      // Some browsers silently use PNG when a requested encoder is unavailable.
+      if (
+        (!alpha || encoded.type === 'image/webp' || encoded.type === 'image/png') &&
+        encoded.size <= maxBytes
+      )
+        candidate = encoded
+    }
+    if (!candidate) throw new Error('attachment_quality_limit')
+    return {
+      data: await candidate.arrayBuffer(),
+      contentType: candidate.type,
+      width,
+      height,
+      originalBytes: data.byteLength,
     }
   } finally {
     release()
