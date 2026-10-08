@@ -55,7 +55,7 @@ export function ContainersBody({ containers, now }: { containers: OpsContainers;
                 {containerLabel(container)}
               </td>
               <td className="py-1.5 pr-3 text-right tabular-nums">{cores(container.cpu_cores)}</td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">
+              <td className="py-2.5 pr-3 text-right tabular-nums">
                 {bytes(container.mem_bytes)}
                 {container.mem_limit_bytes !== null ? (
                   <span className="text-muted-foreground">
@@ -63,6 +63,18 @@ export function ContainersBody({ containers, now }: { containers: OpsContainers;
                     / {bytes(container.mem_limit_bytes)}
                   </span>
                 ) : null}
+                <div
+                  className="mt-1.5 ml-auto h-1.5 w-28 overflow-hidden rounded-full bg-muted"
+                  role="img"
+                  aria-label={`${containerLabel(container)} 内存使用 ${container.mem_limit_bytes ? Math.round((container.mem_bytes / container.mem_limit_bytes) * 100) + '%' : '相对当前最大容器'}`}
+                >
+                  <div
+                    className="h-full bg-violet-500"
+                    style={{
+                      width: `${Math.min(100, (container.mem_bytes / (container.mem_limit_bytes || Math.max(1, ...containers.containers.map((one) => one.mem_bytes)))) * 100)}%`,
+                    }}
+                  />
+                </div>
               </td>
               <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">
                 {bytes(container.peak_mem_bytes)}

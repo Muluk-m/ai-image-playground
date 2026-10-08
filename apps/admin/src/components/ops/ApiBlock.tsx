@@ -37,20 +37,30 @@ export function ApiBody({ api }: { api: OpsApi }) {
         <Kpi
           variant="inline"
           label={`近 ${elapsed(api.window_ms)}请求`}
-          value={String(api.recent.requests)}
+          value={<span className="text-sky-600 dark:text-sky-400">{api.recent.requests}</span>}
           note={`4xx ${api.recent.client_errors}`}
         />
         <Kpi
           variant="inline"
           label="5xx"
           value={String(api.recent.server_errors)}
-          tone={api.recent.server_errors > 0 ? 'danger' : 'default'}
+          tone={
+            api.recent.server_errors > 0
+              ? 'danger'
+              : api.recent.requests > 0
+                ? 'success'
+                : 'default'
+          }
           note={ratio === null ? '没有请求' : `占 ${(ratio * 100).toFixed(1)}%`}
         />
         <Kpi
           variant="inline"
           label="P95 延迟"
-          value={api.recent.p95_ms === null ? '—' : `${api.recent.p95_ms} ms`}
+          value={
+            <span className="text-violet-600 dark:text-violet-400">
+              {api.recent.p95_ms === null ? '—' : `${api.recent.p95_ms} ms`}
+            </span>
+          }
           note="最慢那一分钟"
         />
       </div>
