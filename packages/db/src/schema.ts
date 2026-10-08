@@ -1491,6 +1491,7 @@ export const server_logs = pgTable(
   },
   (t) => [
     index('idx_server_logs_at').on(t.at.desc(), t.id.desc()),
+    index('idx_server_logs_instance_at').on(t.instance, t.at.desc(), t.id.desc()),
     index('idx_server_logs_service_level').on(t.service, t.level, t.at.desc()),
     index('idx_server_logs_request').on(t.request_id, t.at.desc()),
     index('idx_server_logs_task').on(t.task_id, t.at.desc()),

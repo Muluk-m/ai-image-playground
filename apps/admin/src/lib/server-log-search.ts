@@ -87,6 +87,19 @@ export function parseLogExpression(input: string): Partial<ServerLogFilters> {
       throw new Error('部署须为 paid、internal 或 test')
     Object.assign(filters, { [key]: value })
   }
-  filters.q = text.join(' ') || undefined
+  const q = text.join(' ')
+  if (q.length > 400) throw new Error('关键词不能超过 400 个字符')
+  filters.q = q || undefined
   return filters
+}
+
+export function logTrendSelection(
+  from: number,
+  to: number,
+  first: number,
+  last: number,
+  bucket: number,
+) {
+  const range = { from: Math.max(from, first), to: Math.min(to, last + bucket) }
+  return range.to > range.from ? range : null
 }
