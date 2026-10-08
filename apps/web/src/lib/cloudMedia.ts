@@ -21,6 +21,7 @@ interface Access {
 type Variant = 'original' | 'preview'
 const loaded = new Map<string, string>()
 const loading = new Map<string, Promise<string>>()
+const bypassDiskCache = new Set<string>()
 let cacheSize = 0
 const CACHE_BYTES = 32 * 1024 * 1024
 /**
@@ -115,7 +116,9 @@ export async function invalidateMediaPreview(source: string): Promise<void> {
     cacheSize -= previous.length
     loaded.delete(key)
   }
-  await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.delete(cacheId))
+  bypassDiskCache.add(key)
+  // Storage failure must still permit a network retry instead of trapping the failed preview.
+  await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.delete(cacheId)).catch(() => {})
 }
 
 /** 会话内的热表：落盘的是 Blob，这里存换算好的 data URL，省掉重复解码。 */
@@ -168,7 +171,9 @@ export async function resolveMediaSource(
   const pending = loading.get(key)
   if (pending) return pending
   const operation = (async () => {
-    const cached = await getCachedMedia(cacheId).catch(() => undefined)
+    const cached = bypassDiskCache.delete(key)
+      ? undefined
+      : await getCachedMedia(cacheId).catch(() => undefined)
     assertScope()
     if (cached) {
       const data = await blobDataUrl(new Blob([cached.data], { type: cached.contentType }))

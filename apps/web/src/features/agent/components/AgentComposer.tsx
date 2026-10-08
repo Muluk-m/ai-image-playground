@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { CircleAlert, FolderOpen, Images, LoaderCircle, Zap } from 'lucide-react'
+import { CircleAlert, FolderOpen, Images, LoaderCircle, RotateCw, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -226,18 +226,27 @@ function ComposerAttachmentThumb({
       )}
       {previewFailed &&
         (retryPreview ? (
-          <Button
-            type="button"
-            variant="ghost"
-            title={t('tool.previewUnavailable')}
-            aria-label={`${t('tool.previewUnavailable')}：${t('tool.retryPreview')} ${alt}`}
-            className="absolute inset-0 z-10 h-full w-full flex-col gap-1 rounded-md bg-background/90 p-1 text-destructive"
-            onClick={() => void reloadPreview()}
-          >
-            <CircleAlert className="h-4 w-4" />
-            <span className="text-[10px]">{t('tool.previewUnavailable')}</span>
-            <span className="text-[10px] underline">{t('tool.retryPreview')}</span>
-          </Button>
+          <>
+            <span
+              role="img"
+              aria-label={t('tool.previewUnavailable')}
+              className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-background/90 pb-8 text-destructive"
+            >
+              <CircleAlert className="h-4 w-4" />
+              <span className="text-[10px]">{t('tool.previewUnavailable')}</span>
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title={t('tool.retryPreview')}
+              aria-label={`${t('tool.previewUnavailable')}：${t('tool.retryPreview')} ${alt}`}
+              className="absolute bottom-0 right-0 z-10 h-11 w-11 text-destructive"
+              onClick={() => void reloadPreview()}
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+          </>
         ) : (
           <span
             role="img"
@@ -997,7 +1006,7 @@ export default function AgentComposer({
                 <div key={reference.id} className="group flex max-w-full items-start gap-2">
                   <div
                     title={label}
-                    className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border bg-muted/60 ${uploadState === 'failed' ? 'border-destructive' : 'border-border'}`}
+                    className={`relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border bg-muted/60 ${uploadState === 'failed' ? 'border-destructive' : 'border-border'}`}
                   >
                     <ComposerAttachmentThumb
                       src={reference.dataUrl}
