@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { FolderOpen, Images, LoaderCircle, Zap } from 'lucide-react'
+import { CircleAlert, FolderOpen, Images, LoaderCircle, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useEffect,
@@ -293,7 +293,17 @@ export default function AgentComposer({
           .then((references) => {
             setDraft((current) => attachReferences(current, references, transportRef.current))
           })
-          .catch(() => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error'))
+          .catch((error: unknown) =>
+            useStore
+              .getState()
+              .showToast(
+                attachmentUploadErrorMessage(
+                  error instanceof Error ? error.message : undefined,
+                  getAttachmentLimits(),
+                ),
+                'error',
+              ),
+          )
       }
     })
   }
@@ -865,22 +875,22 @@ export default function AgentComposer({
               const uploadError = attachmentUploadError(uploadReference(reference))
               const isUploading = ['queued', 'uploading', 'verifying'].includes(uploadState ?? '')
               return (
-                <div
-                  key={reference.id}
-                  className="group flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5"
-                >
-                  <div className="relative shrink-0">
+                <div key={reference.id} className="group flex max-w-full items-start gap-2">
+                  <div
+                    title={label}
+                    className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border bg-muted/60 ${uploadState === 'failed' ? 'border-destructive' : 'border-border'}`}
+                  >
                     <MediaImage
                       src={reference.dataUrl}
-                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''} ${isUploading ? 'opacity-0' : ''}`}
-                      alt=""
+                      className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''} ${isUploading ? 'opacity-0' : ''}`}
+                      alt={label}
                     />
                     {isUploading && (
                       <span
                         aria-hidden="true"
                         className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-foreground"
                       >
-                        <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                        <LoaderCircle className="h-5 w-5 animate-spin motion-reduce:animate-none" />
                       </span>
                     )}
                     {masked && (
@@ -888,19 +898,50 @@ export default function AgentComposer({
                         MASK
                       </span>
                     )}
+                    {uploadState === 'failed' && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                      >
+                        <CircleAlert className="h-6 w-6" />
+                      </span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={
+                        masked
+                          ? t('composer.editMaskAria', { label })
+                          : t('composer.drawMaskAria', { label })
+                      }
+                      className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-background/80 text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      onClick={() => editMask(reference)}
+                    >
+                      <MaskBrushIcon className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('composer.removeReferenceAria', { label })}
+                      className="absolute right-0 top-0 h-11 w-11 rounded-none bg-background/80 text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      onClick={() => setDraft(removeReference(draft, index))}
+                    >
+                      <CloseIcon className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
                     <span
                       role={uploadState === 'failed' ? 'alert' : 'status'}
                       className={
                         uploadState === 'failed'
-                          ? 'inline-flex items-center gap-1.5 text-xs text-destructive'
+                          ? 'max-w-56 self-center text-xs text-destructive'
                           : 'sr-only'
                       }
                     >
                       {uploadState === 'failed'
-                        ? attachmentUploadErrorMessage(uploadError, getAttachmentLimits())
+                        ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
                         : t(`composer.upload.${uploadState}`)}
                     </span>
                   )}
@@ -914,26 +955,6 @@ export default function AgentComposer({
                       {t('composer.retryUpload')}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    aria-label={
-                      masked
-                        ? t('composer.editMaskAria', { label })
-                        : t('composer.drawMaskAria', { label })
-                    }
-                    className={`shrink-0 ${ICON_BUTTON}`}
-                    onClick={() => editMask(reference)}
-                  >
-                    <MaskBrushIcon className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('composer.removeReferenceAria', { label })}
-                    className={`shrink-0 ${ICON_BUTTON}`}
-                    onClick={() => setDraft(removeReference(draft, index))}
-                  >
-                    <CloseIcon className="h-3 w-3" />
-                  </button>
                 </div>
               )
             })}

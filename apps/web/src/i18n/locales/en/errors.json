@@ -121,6 +121,11 @@
     "media_too_large": "This image file exceeds the {{maxSize}} limit. Compress it and upload it again.",
     "media_not_readable": "Image storage is temporarily unavailable. Please retry shortly.",
     "media_size_mismatch": "The uploaded image failed verification. Retry to upload it again.",
-    "media_image_processing_limit": "This image requires too much processing. Reduce its dimensions or export it again before uploading."
+    "media_image_processing_limit": "This image requires too much processing. Reduce its dimensions or export it again before uploading.",
+    "attachment_input_too_large": "This image exceeds the 100 MiB local processing limit. Reduce its size and select it again.",
+    "attachment_decode_limit": "This image exceeds the local processing limit (64 million pixels or 32768 px per side). Resize it and select it again.",
+    "attachment_animated_image": "Animated images are not supported. Export a still PNG, JPG, or WebP and select it again.",
+    "attachment_compression_failed": "Image preparation failed. Export the image as PNG, JPG, or WebP and select it again.",
+    "attachment_compression_timeout": "Image preparation timed out. Select the image again; if it still fails, resize it first."
   }
 }

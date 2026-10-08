@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 
+vi.mock('../../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import type { AgentTurnReference } from '@image-playground/shared'
 import { act } from 'react'
@@ -205,7 +210,7 @@ describe('智能体输入框', () => {
     const sources = await attached()
     expect(sources).toHaveLength(1)
     expect(sources[0]).toMatch(/^data:image\/png;base64,/)
-    expect(host.textContent).toContain('海报底图')
+    expect(host.querySelector('img[alt="海报底图"]')).not.toBeNull()
     expect(host.textContent).not.toContain('松开即作为参考图')
 
     type('把它放到浴缸旁边')
@@ -300,7 +305,7 @@ describe('智能体输入框', () => {
     pickFiles(folderInput, [folderFile('产品A/2.png'), folderFile('产品A/10.png')])
 
     expect(await attached()).toHaveLength(2)
-    expect(host.textContent).toContain('2')
+    expect(host.querySelector('img[alt="2"]')).not.toBeNull()
   })
 
   it('输入框卸载再挂载后保留文字、引用和遮罩', async () => {

@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+
+vi.mock('../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'

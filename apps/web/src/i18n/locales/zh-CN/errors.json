@@ -121,6 +121,11 @@
     "media_too_large": "图片文件过大：最多支持 {{maxSize}}。请压缩文件后重新上传。",
     "media_not_readable": "图片存储服务暂时不可用，请稍后点击重试。",
     "media_size_mismatch": "图片上传校验未通过，请点击重试重新上传。",
-    "media_image_processing_limit": "这张图片的处理开销过大，请缩小尺寸或重新导出后上传。"
+    "media_image_processing_limit": "这张图片的处理开销过大，请缩小尺寸或重新导出后上传。",
+    "attachment_input_too_large": "图片超过本机处理上限 100 MiB，请缩小文件后重新选择。",
+    "attachment_decode_limit": "图片超过本机安全处理范围（6400 万像素或单边 32768 像素），请缩小后重新选择。",
+    "attachment_animated_image": "暂不支持动态图片，请导出静态 PNG、JPG 或 WebP 后重新选择。",
+    "attachment_compression_failed": "图片预处理失败，请重新导出为 PNG、JPG 或 WebP 后选择。",
+    "attachment_compression_timeout": "图片处理超时，请重新选择；仍失败请缩小图片后再试。"
   }
 }
