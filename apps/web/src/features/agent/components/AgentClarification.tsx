@@ -38,12 +38,16 @@ function AnsweredClarification({
             options={[...new Set([...message.options, answer])].map((option) => ({
               id: option,
               label: option,
+              description:
+                option === answer
+                  ? message.options.includes(answer)
+                    ? t('clarification.selected')
+                    : `${t('clarification.otherAria')} · ${t('clarification.selected')}`
+                  : undefined,
             }))}
             choice={[answer]}
+            aria-label={message.question}
           />
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {message.options.filter((option) => option !== answer).join(' · ')}
-          </p>
         </div>
       )}
     </div>

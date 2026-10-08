@@ -285,6 +285,7 @@
     "stopping": "正在中止"
   },
   "clarification": {
+    "selected": "已选",
     "chosen": "已选：{{answer}}",
     "answered": "已回答",
     "other": "其他…",
