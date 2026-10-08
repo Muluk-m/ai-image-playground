@@ -1,4 +1,8 @@
-import { SERVER_LOG_LEVELS, type ServerLogFilters } from '@image-playground/shared'
+import {
+  SERVER_LOG_LEVELS,
+  SERVER_LOG_SERVICES,
+  type ServerLogFilters,
+} from '@image-playground/shared'
 
 export const LOG_RANGES = { '15m': 900_000, '1h': 3600_000, '24h': 86400_000, '7d': 604800_000 }
 export const LOG_FILTER_KEYS = [
@@ -22,7 +26,8 @@ export function parseServerLogSearch(input: Record<string, unknown>): ServerLogS
     Object.prototype.hasOwnProperty.call(LOG_RANGES, input.range)
   )
     out.range = input.range as keyof typeof LOG_RANGES
-  if (input.service === 'bff' || input.service === 'worker') out.service = input.service
+  if (SERVER_LOG_SERVICES.includes(input.service as never))
+    out.service = input.service as ServerLogFilters['service']
   if (SERVER_LOG_LEVELS.some((level) => level === input.level))
     out.level = input.level as ServerLogFilters['level']
   for (const key of LOG_FILTER_KEYS) {

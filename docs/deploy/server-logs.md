@@ -1,6 +1,6 @@
 # 服务端日志系统
 
-Admin 侧栏「运维 → 服务端日志」进入独立 `/logs` 页面，采集 BFF 和 worker 现有的 pino JSON 日志，以及用户 API 的请求结果。每条记录带服务、实例、构建版本、级别、事件、消息和结构化字段；请求上下文里的 `requestId` 自动关联，带 `taskId` 的业务事件可以定位到任务。
+Admin 侧栏「运维 → 服务端日志」进入独立 `/logs` 页面，内容是部署里每个容器的运行输出（stdout / stderr）：BFF、worker、Admin、发布路由、cloudflared、宿主机采集、备份与迁移，包括用户 API 的请求结果。每条记录带服务、实例、构建版本、级别、事件、消息和结构化字段；请求上下文里的 `requestId` 自动关联，带 `taskId` 的业务事件可以定位到任务。
 
 ## 使用
 
@@ -19,10 +19,16 @@ Admin 侧栏「运维 → 服务端日志」进入独立 `/logs` 页面，采集
 
 ## 采集和保留
 
-无需配置额外日志服务。迁移 `0060_server_logs` 新增表和索引；仅 BFF / worker 写入，Admin 使用现有只读数据库权限查询。日志界面和接口都要求 Admin 会话。
+采集不改应用代码，走 Docker 本身的日志转发（ADR 0021）：
 
-每个进程最多缓存 500 条，每 2 秒开始入库，单批最多 100 条，有积压时连续处理最多 20 批。写入失败时保留批次重试，相同日志 ID 避免重复；队列满后丢弃新来的数据库日志，容器 stdout 仍完整输出。采集积压、累计丢弃数、累计失败次数和最近写入时间放在服务心跳的 `detail.logs` 中。日志使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。优雅退出最多等 2 秒写出剩余批次，随后立即关闭日志连接；强制杀进程会丢失尚未落库的缓存。
+1. `deploy/compose.app.yaml` 的 `x-log-forward` 把每个容器的日志驱动设为 `fluentd`，非阻塞异步发往本部署的 `log-collector`；`scripts/rollout-runtime.sh` 用同样的参数创建 BFF、worker、发布路由和迁移容器。Docker 本地缓存轮转上限为 3 × 10 MB，`docker logs` 照常可用；驱动或磁盘失败仍可能丢失缓存。
+2. `log-collector`（Fluent Bit 5.1）在 `$XDG_CONFIG_HOME/ai-image-playground/log-forward/<部署>/forward.sock` 上收日志，每 2 秒把一批记录发到 BFF 的 `/internal/logs/ingest`（经发布路由，内部令牌鉴权）。BFF 写入失败时回 503，采集容器保留这批数据，按退避重试；未送达的数据存在 `log-buffer` 卷，上限 256 MB。
+3. BFF 以容器、驱动时间戳和原始输出的摘要去重重试批次，解析每一行：pino 的 JSON 行保留级别、事件、请求 ID、任务 ID 和结构化字段；其他程序的纯文本行按 `ERR` / `WARN` / `INFO` 一类词判断级别，判断不出时 stderr 记为警告、stdout 记为信息。服务名取自容器名，无法识别的记为 `other`。
+
+采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。只用 Compose、没有发布路由的部署，需要在 app.env 设 `LOG_INGEST_HOST=bff`。发布收尾重建 cloudflared，将其切换到日志转发。
+
+迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束；只有 BFF 写入，Admin 用现有只读数据库权限查询。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
 
 每分钟清理过期数据，保留近 7 天、约 20 万条。单次删除最多 5000 条，容量超限会逐步回落。数据库日志隐藏常见密钥字段、认证头、Cookie、原始请求体、响应预览和序列化 JSON 中的用户内容，消息里的 Bearer、常见 API key、URL 密钥参数与 URL 密码也会脱敏。消息最多 4000 字符，结构化字段超限会标记截断。应用日志仍应遵守不输出秘密和用户原文的约定。
 
-现有 `LOG_LEVEL` 控制采集级别，默认 info；debug / trace 需要相应配置。此功能从新版本启动后采集，不回填旧容器日志，不采集 Admin 的 console、PostgreSQL、nginx 或宿主机 journal。数据库不可用时界面报告读取失败，可以使用 `docker logs` 排障。
+`LOG_LEVEL` 控制 BFF 与 worker 的输出级别，默认 info。PostgreSQL 属于共享的基础设施栈，暂不转发，用 `docker logs` 查看。数据库不可用时界面报告读取失败，日志在采集容器里排队等待，现场排障仍可用 `docker logs`。

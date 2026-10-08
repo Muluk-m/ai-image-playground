@@ -275,8 +275,19 @@ describe('rollout-runtime.sh: finite drain', () => {
       'Previous executors: 2 drained cleanly, 0 stopped after the 300s drain deadline, 0 already down.',
     )
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin host-collector pg-backup$/),
+      expect.stringMatching(
+        /^compose .* up --detach --no-deps admin host-collector pg-backup cloudflared$/,
+      ),
     )
+    // The executors, the router and the migration print through the deployment's log collector.
+    const socket = `fluentd-address=unix://${xdg}/ai-image-playground/log-forward/fixture/forward.sock`
+    const launches = result.log.filter((line) => /^(create|run) /.test(line))
+    expect(launches.length).toBeGreaterThanOrEqual(3)
+    for (const line of launches) {
+      expect(line).toContain('--log-driver fluentd')
+      expect(line).toContain(socket)
+      expect(line).toContain('fluentd-async=true')
+    }
   })
 
   it('stops a busy previous generation at the drain deadline instead of retaining it', () => {
@@ -613,6 +624,9 @@ describe('app-compose.sh up', () => {
     expect(result.status).toBe(0)
     const log = logLines()
     expect(log.some((line) => line.startsWith('create '))).toBe(true)
+    const collector = indexOf(log, /^compose .* up --detach --no-deps log-collector$/)
+    expect(collector).toBeGreaterThan(-1)
+    expect(collector).toBeLessThan(indexOf(log, /^create /))
     expect(log.some((line) => /up --detach --wait .*dependency-check bff worker/.test(line))).toBe(
       false,
     )

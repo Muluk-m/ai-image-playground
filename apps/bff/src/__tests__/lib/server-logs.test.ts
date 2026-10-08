@@ -5,7 +5,10 @@ import { eq } from 'drizzle-orm'
 process.env.DATABASE_URL = await resetTestDatabase('bff_server_logs')
 process.env.APP_ROLE = 'worker'
 const { db, schema, close } = await import('../../db/client')
-const { log, serverLogBuffer } = await import('../../lib/logger')
+const { log } = await import('../../lib/logger')
+const { captureLogLines } = await import('../helpers/logCapture')
+const { parseContainerLog } = await import('../../lib/container-logs')
+const lines = captureLogLines(log)
 const { purgeServerLogs, closeServerLogDatabase, writeServerLogs } = await import(
   '../../lib/server-logs'
 )
@@ -17,7 +20,7 @@ afterAll(async () => {
 })
 
 describe('server log persistence', () => {
-  it('collects the existing logger and automatically correlates requests before writing JSON fields', async () => {
+  it('stores what the logger prints, correlated with its request, once the collector forwards it', async () => {
     const handler = withRequestContext(async () => {
       log.error(
         {
@@ -34,7 +37,16 @@ describe('server log persistence', () => {
       new Request('http://localhost/test', { headers: { 'x-request-id': 'correlated-request' } }),
     )
     expect(response.headers.get('x-request-id')).toBe('correlated-request')
-    await serverLogBuffer.drain()
+    const entries = lines.splice(0).map(
+      (line) =>
+        parseContainerLog({
+          date: Date.now() / 1000,
+          container_name: '/image-playground-paid-r20261007153518-2827408-worker',
+          source: 'stdout',
+          log: line,
+        })!,
+    )
+    await writeServerLogs(entries)
     const [row] = await db
       .select()
       .from(schema.server_logs)

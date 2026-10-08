@@ -4,7 +4,6 @@ import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../config'
 import { schema } from '../db/client'
-import { serverLogBuffer } from './logger'
 
 function createLogDatabase() {
   const client = new SQL(process.env.DATABASE_URL?.trim() || config.databaseUrl, {
@@ -49,9 +48,8 @@ export async function purgeServerLogs(now = Date.now()): Promise<void> {
   `)
 }
 
+/** Retention runs in every BFF and worker; the bounded deletes make overlapping runs harmless. */
 export function startServerLogs() {
-  const timer = setInterval(() => void serverLogBuffer.pump(), 2000)
-  timer.unref()
   let cleaning = false
   const cleanup = async () => {
     if (cleaning) return
@@ -68,10 +66,7 @@ export function startServerLogs() {
   const retention = setInterval(() => void cleanup(), 60_000)
   retention.unref()
   return async () => {
-    clearInterval(timer)
     clearInterval(retention)
-    serverLogBuffer.stop()
-    await serverLogBuffer.drain(2000)
     await closeServerLogDatabase()
   }
 }
