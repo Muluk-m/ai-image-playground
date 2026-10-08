@@ -41,6 +41,14 @@ vi.mock('../../../../features/agent/lib/canvasSink', () => ({
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: fixtures.fetch }))
 vi.mock('../../../../lib/downloadImages', () => ({ downloadBlob: fixtures.download }))
 vi.mock('../../../../lib/clientCapabilities', () => ({ isClientCapabilityEnabled: () => true }))
+const frames = vi.hoisted(() => ({
+  videoOutputFrame: vi.fn(
+    async (_output: { taskId: string; outputIndex: number }) => null as string | null,
+  ),
+}))
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  videoOutputFrame: frames.videoOutputFrame,
+}))
 
 const model = 'grok-imagine-video'
 const record = { model, duration: 8, resolution: '720p' as const, aspectRatio: '9:16' as const }
@@ -61,6 +69,8 @@ let root: Root
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 beforeEach(() => {
   vi.clearAllMocks()
+  frames.videoOutputFrame.mockReset()
+  frames.videoOutputFrame.mockResolvedValue(null)
   fixtures.canvasAvailable = false
   fixtures.state.messages = []
   fixtures.state.jobProgress = {
@@ -128,16 +138,52 @@ it('plays recovered video results inline without waiting for a canvas or a poste
     ],
   })
   const video = host.querySelector('video')!
+  const player = host.querySelector<HTMLElement>('[data-slot="video-player"]')!
   expect(video.getAttribute('src')).toContain('/video-task/output/0')
   expect(video.controls).toBe(true)
   expect(video.autoplay).toBe(false)
   expect(video.preload).toBe('none')
+  expect(video.getAttribute('poster')).toBeNull()
+  expect(player.style.aspectRatio).toBe('9 / 16')
+  // jsdom 会把 calc(65vh * 9 / 16) 折成 36.5625vh。两条都表示长边不超过 65vh。
+  expect(player.style.width).toMatch(/^min\(100%, (calc\(65vh \* 9 \/ 16\)|36\.5625vh)\)$/)
+  expect(player.style.maxHeight).toBe('65vh')
   expect(host.querySelector('[data-slot="video-generation"]')).toBeNull()
   await act(async () => video.dispatchEvent(new Event('error')))
   expect(host.textContent).toContain('视频暂时无法播放')
   await act(async () => button('重新加载').click())
   expect(host.querySelector('video')).not.toBe(video)
   expect(fixtures.state.retry).not.toHaveBeenCalled()
+})
+
+it('fills the frame-sized player with the captured first frame once it arrives', async () => {
+  let settle: (frame: string | null) => void = () => {}
+  frames.videoOutputFrame.mockReturnValue(
+    new Promise((resolve) => {
+      settle = resolve
+    }),
+  )
+  await render({
+    ...base,
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId: 'clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+        video: record,
+      },
+    ],
+  })
+  expect(host.querySelector('video')!.getAttribute('poster')).toBeNull()
+  expect(frames.videoOutputFrame).toHaveBeenCalledWith({ taskId: 'video-task', outputIndex: 0 })
+  await act(async () => {
+    settle('data:image/jpeg;base64,FRAME')
+  })
+  expect(host.querySelector('video')!.getAttribute('poster')).toBe('data:image/jpeg;base64,FRAME')
+  expect(host.querySelector('video')!.preload).toBe('none')
 })
 
 it('downloads authenticated video bytes instead of saving the poster as a PNG', async () => {

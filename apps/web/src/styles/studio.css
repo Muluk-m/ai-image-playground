@@ -118,6 +118,12 @@
 .studio-chat-empty p { color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.9; margin-top: 10px; }
 .studio-agent-composer { position: relative; }
 .studio-canvas { position: relative; flex: 1; min-width: 0; height: 100%; background: hsl(var(--background)); }
+/* 画布还没挂上时垫同一张点阵。挂上之后由画布自己画，不能两层叠着，平移时会错位。 */
+.studio-canvas-ground {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
 .studio-chat-column { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; min-width: 360px; margin: 10px 0 12px 12px; }
 .studio-chat-column > .studio-sidebar { margin: 0; flex: 1 1 auto; max-width: none; }
 .studio-canvas-topbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; }
@@ -166,15 +172,17 @@
 .studio-direct-card textarea:focus-visible { outline: none; }
 .studio-direct-card textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .studio-canvas-status { position: absolute; inset: 0; z-index: 420; display: grid; place-items: center; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; }
-/* 打开画布的等待：点阵底 + 呼吸的品牌标。整层延迟淡入，缓存命中时根本不出现。 */
+/* 读取真的久了才盖上的品牌标。点阵和画布同一套。短等待不挂这层，避免一闪。 */
 .studio-canvas-loading {
   position: absolute; inset: 0; z-index: 420; display: grid; place-items: center;
   background-color: hsl(var(--background));
-  background-image: radial-gradient(hsl(var(--foreground) / .12) 1px, transparent 1px);
-  background-size: 22px 22px;
-  animation: studio-loading-in .3s ease-out .2s both;
+  background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px);
+  background-size: 20px 20px;
 }
-.studio-canvas-loading-mark { position: relative; display: grid; place-items: center; width: 64px; height: 64px; }
+.studio-canvas-loading-mark {
+  position: relative; display: grid; place-items: center; width: 64px; height: 64px;
+  animation: studio-loading-in .2s ease-out both;
+}
 .studio-canvas-loading-mark::before {
   content: ""; position: absolute; inset: -48px; border-radius: 9999px;
   background: radial-gradient(circle, hsl(var(--primary) / .45), transparent 62%);
@@ -185,7 +193,9 @@
 @keyframes studio-loading-breathe { 0%, 100% { transform: scale(.94); opacity: .75; } 50% { transform: scale(1.04); opacity: 1; } }
 @keyframes studio-loading-glow { 0%, 100% { transform: scale(.8); opacity: .35; } 50% { transform: scale(1.15); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .studio-canvas-loading-mark::before, .studio-canvas-loading-mark img { animation: none; }
+  .studio-canvas-loading-mark,
+  .studio-canvas-loading-mark::before,
+  .studio-canvas-loading-mark img { animation: none; }
 }
 @media (max-width: 767px) {
   .studio-sidebar--page .studio-agent-result-card,
