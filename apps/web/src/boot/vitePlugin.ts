@@ -6,9 +6,10 @@ import {
   BUILD_META_NAME,
   DEVICE_ID_STORAGE_KEY,
   PRELOAD_RELOAD_STORAGE_KEY,
+  RELOAD_QUERY_PARAM,
 } from './constants'
 
-/** A second chunk failure inside this window means reloading did not help, so stop and ask. */
+/** A second required resource failure inside this window leaves recovery to the user. */
 const PRELOAD_RELOAD_WINDOW_MS = 60_000
 /** Only consulted while React has never rendered; afterwards the app owns every loading state. */
 const UNRENDERED_TIMEOUT_MS = 30_000
@@ -32,6 +33,7 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
   let fatal=false;
   let cause=null;
   let reported=false;
+  let reloading=false;
   // Kept small: the whole report must fit the server's context limit.
   const early=[];
   const clip=(value,max)=>typeof value==='string'?value.slice(0,max):undefined;
@@ -79,31 +81,50 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
     }
   };
   const fail=(reason,detail)=>{fatal=true;cause=cause||{reason,detail};show()};
+  const refresh=()=>{
+    const next=new URL(location.href);
+    next.searchParams.set(${JSON.stringify(RELOAD_QUERY_PARAM)},String(Date.now()));
+    try{sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()))}catch{}
+    reloading=true;
+    location.replace(next.href);
+  };
+  const retry=()=>{
+    if(reloading)return true;
+    if(navigator.onLine===false)return false;
+    try{
+      const last=Number(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)}))||0;
+      if(Date.now()-last<=${PRELOAD_RELOAD_WINDOW_MS})return false;
+      // Without persistent storage an automatic navigation could loop forever.
+      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()));
+    }catch{return false}
+    refresh();
+    return true;
+  };
   const onError=(event)=>{
     const target=event.target;
-    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet'))fail('resource',{tag:'stylesheet',src:clip(target.href,300)});
-    else if(target instanceof HTMLScriptElement&&target.type==='module')fail('resource',{tag:'script',src:clip(target.src,300)});
+    let detail;
+    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet')&&!target.hasAttribute('data-optional-style'))detail={tag:'stylesheet',src:clip(target.href,300)};
+    else if(target instanceof HTMLScriptElement&&target.type==='module')detail={tag:'script',src:clip(target.src,300)};
     else if(event instanceof ErrorEvent)note({type:'error',message:clip(event.message,300),stack:clip(event.error&&event.error.stack,1200),source:clip(event.filename,200)});
+    if(detail&&!retry())fail('resource',detail);
   };
   const onRejection=(event)=>{
     const reason=event.reason;
     note({type:'rejection',message:clip(reason&&reason.message,300)||clip(String(reason),300),stack:clip(reason&&reason.stack,1200)});
   };
   const onPreloadError=(event)=>{
-    let reload=false;
-    try{
-      const last=Number(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)}))||0;
-      if(Date.now()-last>${PRELOAD_RELOAD_WINDOW_MS}){
-        sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()));
-        reload=true;
-      }
-    }catch{}
-    if(!reload){fail('preload',{message:clip(event.payload&&event.payload.message,300)});return}
+    if(!retry()){fail('preload',{message:clip(event.payload&&event.payload.message,300)});return}
     event.preventDefault();
-    location.reload();
   };
   const onReady=()=>{
     rendered=true;
+    try{
+      const current=new URL(location.href);
+      if(current.searchParams.has(${JSON.stringify(RELOAD_QUERY_PARAM)})){
+        current.searchParams.delete(${JSON.stringify(RELOAD_QUERY_PARAM)});
+        history.replaceState(history.state,'',current.href);
+      }
+    }catch{}
     clearTimeout(timer);
     if(fatal)show();
     else boot()?.remove();
@@ -112,7 +133,7 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
   window.addEventListener('error',onError,true);
   window.addEventListener('unhandledrejection',onRejection);
   window.addEventListener('vite:preloadError',onPreloadError);
-  document.addEventListener('click',(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry'))location.reload()});
+  document.addEventListener('click',(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry'))refresh()});
   document.addEventListener('DOMContentLoaded',()=>{if(fatal)show()},{once:true});
   document.addEventListener(${JSON.stringify(BOOT_READY_EVENT)},onReady,{once:true});
 })()`

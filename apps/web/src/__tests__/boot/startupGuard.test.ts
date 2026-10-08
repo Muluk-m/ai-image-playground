@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { BOOT_READY_EVENT, PRELOAD_RELOAD_STORAGE_KEY } from '../../boot/constants'
+import {
+  BOOT_READY_EVENT,
+  PRELOAD_RELOAD_STORAGE_KEY,
+  RELOAD_QUERY_PARAM,
+} from '../../boot/constants'
 import { BOOT_REPORT_PATH, STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
 import { LOCALE_STORAGE_KEY } from '../../i18n/storageKey'
 
@@ -17,21 +21,31 @@ function readBlob(blob: Blob): Promise<string> {
   })
 }
 
+const sourceHtml = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
+const bodyHtml = sourceHtml.slice(sourceHtml.indexOf('<body'), sourceHtml.indexOf('</body>') + 7)
+
 const workerDescriptor = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker')
 const unregister = vi.fn().mockResolvedValue(true)
 const installed: Array<() => void> = []
-beforeEach(() => {
-  unregister.mockClear()
-  Object.defineProperty(navigator, 'serviceWorker', {
-    configurable: true,
-    value: {
-      getRegistrations: () => Promise.resolve([{ unregister }]),
-    },
-  })
-  vi.useFakeTimers()
-  localStorage.setItem(LOCALE_STORAGE_KEY, 'zh-CN')
-  const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
-  document.body.innerHTML = html.slice(html.indexOf('<body'), html.indexOf('</body>') + 7)
+const replace = vi.fn()
+const locationMock = {
+  get href() {
+    return location.href
+  },
+  get origin() {
+    return location.origin
+  },
+  get pathname() {
+    return location.pathname
+  },
+  get hash() {
+    return location.hash
+  },
+  replace,
+}
+function installGuard() {
+  for (const remove of installed.splice(0)) remove()
+
   // The guard listens for the page's lifetime; record its listeners so each test gets a fresh guard.
   const record = (target: Window | Document) => {
     const add = target.addEventListener.bind(target)
@@ -48,9 +62,25 @@ beforeEach(() => {
   const onDocumentAdd = record(document)
   const onWindow = vi.spyOn(window, 'addEventListener').mockImplementation(onWindowAdd)
   const onDocument = vi.spyOn(document, 'addEventListener').mockImplementation(onDocumentAdd)
-  window.eval(STARTUP_GUARD_SCRIPT)
+  window.Function('location', STARTUP_GUARD_SCRIPT)(locationMock)
   onWindow.mockRestore()
   onDocument.mockRestore()
+}
+beforeEach(() => {
+  unregister.mockClear()
+  replace.mockClear()
+  Object.defineProperty(navigator, 'serviceWorker', {
+    configurable: true,
+    value: {
+      getRegistrations: () => Promise.resolve([{ unregister }]),
+    },
+  })
+  vi.useFakeTimers()
+  localStorage.setItem(LOCALE_STORAGE_KEY, 'zh-CN')
+  document.body.innerHTML = bodyHtml
+  // Existing failure-panel cases exercise the page after its automatic retry.
+  sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now()))
+  installGuard()
 })
 afterEach(() => {
   document.dispatchEvent(new Event(BOOT_READY_EVENT))
@@ -58,6 +88,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   localStorage.removeItem(LOCALE_STORAGE_KEY)
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  history.replaceState(null, '', '/')
   for (const remove of installed.splice(0)) remove()
   if (workerDescriptor) Object.defineProperty(navigator, 'serviceWorker', workerDescriptor)
   else Reflect.deleteProperty(navigator, 'serviceWorker')
@@ -114,11 +145,14 @@ it('localizes the recovery panel from the stored app locale', () => {
 
 it('reloads once when stale HTML references a deleted chunk, then asks instead of looping', () => {
   ready()
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   const first = preloadError()
   expect(first.defaultPrevented).toBe(true)
   expect(Number(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY))).toBeGreaterThan(0)
   expect(document.getElementById('boot')).toBeNull()
 
+  document.body.innerHTML = bodyHtml
+  installGuard()
   const second = preloadError()
   expect(second.defaultPrevented).toBe(false)
   expect(errorPanelVisible()).toBe(true)
@@ -226,4 +260,98 @@ it('reports why the workspace could not open, with the exceptions seen before it
 })
 it('posts boot reports to the shared client error path', () => {
   expect(BOOT_REPORT_PATH).toBe(CLIENT_ERRORS_PATH)
+})
+
+it('refreshes failed required CSS once and preserves the project, query, and hash', () => {
+  history.replaceState(null, '', '/p/project?mode=canvas#selection')
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = '/assets/main-missing.css'
+  document.head.append(link)
+  try {
+    link.dispatchEvent(new Event('error'))
+    link.dispatchEvent(new Event('error'))
+    expect(replace).toHaveBeenCalledTimes(1)
+    const next = new URL(replace.mock.calls[0]![0])
+    expect(next.pathname).toBe('/p/project')
+    expect(next.searchParams.get('mode')).toBe('canvas')
+    expect(next.hash).toBe('#selection')
+    expect(next.searchParams.get(RELOAD_QUERY_PARAM)).toBe(String(Date.now()))
+    expect(errorPanelVisible()).toBe(false)
+    installGuard()
+    link.dispatchEvent(new Event('error'))
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(errorPanelVisible()).toBe(true)
+  } finally {
+    link.remove()
+  }
+})
+it('automatically refreshes a failed entry script too', () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const script = document.createElement('script')
+  script.type = 'module'
+  script.src = '/assets/main-missing.js'
+  document.body.append(script)
+  script.dispatchEvent(new Event('error'))
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(errorPanelVisible()).toBe(false)
+})
+it('uses a new HTML URL when the user clicks reload even inside the retry window', () => {
+  vi.advanceTimersByTime(30000)
+  document.getElementById('boot-retry')!.click()
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(new URL(replace.mock.calls[0]![0]).searchParams.has(RELOAD_QUERY_PARAM)).toBe(true)
+})
+it('removes the recovery parameter after first render while preserving the rest of the URL', () => {
+  history.replaceState(
+    { saved: true },
+    '',
+    `/p/project?mode=canvas&${RELOAD_QUERY_PARAM}=123#selection`,
+  )
+  ready()
+  expect(location.pathname + location.search + location.hash).toBe(
+    '/p/project?mode=canvas#selection',
+  )
+  expect(history.state).toEqual({ saved: true })
+})
+it('ignores optional font styles even after they switch to screen media', () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.media = 'all'
+  link.setAttribute('data-optional-style', '')
+  document.head.append(link)
+  try {
+    link.dispatchEvent(new Event('error'))
+    ready()
+    expect(replace).not.toHaveBeenCalled()
+    expect(document.getElementById('boot')).toBeNull()
+  } finally {
+    link.remove()
+  }
+})
+it('shows recovery without an automatic loop when session storage cannot be written', () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  try {
+    expect(preloadError().defaultPrevented).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
+    expect(errorPanelVisible()).toBe(true)
+  } finally {
+    setItem.mockRestore()
+  }
+})
+it('waits for manual recovery when the browser is offline', () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  try {
+    expect(preloadError().defaultPrevented).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
+    expect(errorPanelVisible()).toBe(true)
+  } finally {
+    online.mockRestore()
+  }
 })
