@@ -12,6 +12,11 @@ const MAX_WINDOW = 7 * 86400_000
 const PAGE_SIZE = 100
 const epoch = (value: unknown) =>
   value instanceof Date ? value.getTime() : Date.parse(String(value))
+// Legacy text stack frames were labeled ERROR independently of their header.
+export const effectiveLogLevel = sql`CASE WHEN level = 'error' AND event IS NULL
+  AND message ~ '^[[:space:]]*at[[:space:]]' AND strpos(message, chr(10)) = 0
+  THEN CASE WHEN fields->>'stream' = 'stderr' THEN 'warn' ELSE 'info' END ELSE level END`
+
 export class LogQueryError extends Error {}
 
 export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) {
@@ -101,13 +106,13 @@ export async function readServerLogs(
       sql`strpos(lower(concat_ws(' ', message, event, request_id, task_id, fields::text)), lower(${filters.q})) > 0`,
     )
   const facetWhere = sql.join(conditions, sql` AND `)
-  if (filters.level) conditions.push(sql`level = ${filters.level}`)
+  if (filters.level) conditions.push(sql`${effectiveLogLevel} = ${filters.level}`)
   const where = sql.join(conditions, sql` AND `)
   const page = cursor ? sql`${where} AND (at, id) < (${new Date(cursor.at)}, ${cursor.id})` : where
   const bucket_ms = Math.max(60_000, Math.ceil((filters.to - filters.from) / 60 / 60_000) * 60_000)
   async function readPage(): Promise<ServerLogPage> {
     const rows = await db.execute(
-      sql`SELECT * FROM server_logs WHERE ${page} ORDER BY at DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
+      sql`SELECT *, ${effectiveLogLevel} AS level FROM server_logs WHERE ${page} ORDER BY at DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
     )
     const entries = (rows as unknown as Array<Record<string, unknown>>)
       .slice(0, PAGE_SIZE)
@@ -127,14 +132,14 @@ export async function readServerLogs(
   const [records, totals, groups, points, collectors, coverage, levels] = await Promise.all([
     readPage(),
     db.execute(sql`SELECT count(*)::int AS total,
-      count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors,
-      count(*) FILTER (WHERE level = 'warn')::int AS warnings FROM server_logs WHERE ${where}`),
-    db.execute(sql`SELECT service, level, group_key AS key, count(*)::int AS count,
+      count(*) FILTER (WHERE ${effectiveLogLevel} IN ('error', 'fatal'))::int AS errors,
+      count(*) FILTER (WHERE ${effectiveLogLevel} = 'warn')::int AS warnings FROM server_logs WHERE ${where}`),
+    db.execute(sql`SELECT service, ${effectiveLogLevel} AS level, group_key AS key, count(*)::int AS count,
       min(at) AS first_at, max(at) AS last_at FROM server_logs WHERE ${where}
-      GROUP BY service, level, group_key ORDER BY count DESC, max(at) DESC, service, level, group_key LIMIT 30`),
+      GROUP BY service, ${effectiveLogLevel}, group_key ORDER BY count DESC, max(at) DESC, service, level, group_key LIMIT 30`),
     db.execute(sql`SELECT floor(extract(epoch FROM at) * 1000 / ${bucket_ms}) * ${bucket_ms} AS at,
-      count(*)::int AS count, count(*) FILTER (WHERE level IN ('error', 'fatal'))::int AS errors,
-      count(*) FILTER (WHERE level = 'warn')::int AS warnings
+      count(*)::int AS count, count(*) FILTER (WHERE ${effectiveLogLevel} IN ('error', 'fatal'))::int AS errors,
+      count(*) FILTER (WHERE ${effectiveLogLevel} = 'warn')::int AS warnings
       FROM server_logs WHERE ${where} GROUP BY 1 ORDER BY 1`),
     db.execute(sql`WITH beats AS (
       SELECT service, instance, last_seen_at, detail->'logs' AS logs,
@@ -147,7 +152,7 @@ export async function readServerLogs(
       (SELECT at FROM server_logs ORDER BY at ASC, id ASC LIMIT 1) AS first_at,
       (SELECT at FROM server_logs ORDER BY at DESC, id DESC LIMIT 1) AS last_at`),
     db.execute(
-      sql`SELECT level, count(*)::int AS count FROM server_logs WHERE ${facetWhere} GROUP BY level`,
+      sql`SELECT ${effectiveLogLevel} AS level, count(*)::int AS count FROM server_logs WHERE ${facetWhere} GROUP BY ${effectiveLogLevel}`,
     ),
   ])
   const pointMap = new Map(
@@ -207,12 +212,12 @@ export async function readLogContext(id: string): Promise<ServerLogEntry[]> {
   const [target] = await db.execute(sql`SELECT id, at, instance FROM server_logs WHERE id = ${id}`)
   if (!target) return []
   const rows = await db.execute(sql`
-    (SELECT * FROM server_logs WHERE instance = ${target.instance}
+    (SELECT *, ${effectiveLogLevel} AS level FROM server_logs WHERE instance = ${target.instance}
       AND (at, id) < (${target.at}, ${id}) ORDER BY at DESC, id DESC LIMIT 50)
     UNION ALL
-    (SELECT * FROM server_logs WHERE id = ${id})
+    (SELECT *, ${effectiveLogLevel} AS level FROM server_logs WHERE id = ${id})
     UNION ALL
-    (SELECT * FROM server_logs WHERE instance = ${target.instance}
+    (SELECT *, ${effectiveLogLevel} AS level FROM server_logs WHERE instance = ${target.instance}
       AND (at, id) > (${target.at}, ${id}) ORDER BY at ASC, id ASC LIMIT 50)
     ORDER BY at ASC, id ASC
   `)

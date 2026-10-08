@@ -29,28 +29,29 @@ export function TodayErrorsCard() {
               </p>
             ) : null}
             {query.data.entries.length ? (
-              <div>
+              <div
+                role="log"
+                aria-label="今日错误终端"
+                className="max-h-96 overflow-auto rounded-md bg-muted/30 p-3 font-mono text-xs"
+              >
                 {query.data.entries.map((entry) => (
-                  <details
-                    className="border-b py-3 last:border-b-0"
-                    key={`${entry.source}:${entry.id}`}
-                  >
-                    <summary className="cursor-pointer text-sm">
-                      <span className="mr-2 font-mono text-xs text-muted-foreground">
+                  <div className="mb-4 last:mb-0" key={`${entry.source}:${entry.id}`}>
+                    <div className="flex items-baseline gap-2 text-muted-foreground">
+                      <time dateTime={new Date(entry.at).toISOString()}>
                         {new Date(entry.at).toLocaleTimeString('zh-CN', {
                           timeZone: 'Asia/Shanghai',
                           hour12: false,
                         })}
-                      </span>
-                      <span className="text-xs text-danger">{entry.service}</span>
-                      <span className="mt-1 block break-words text-xs">{entry.message}</span>
-                    </summary>
-                    <div className="mt-3 space-y-2 rounded-md bg-muted/50 p-3 text-xs">
-                      {entry.stack ? (
-                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all">
-                          {entry.stack}
-                        </pre>
-                      ) : null}
+                      </time>
+                      <span className="text-danger">{entry.service}</span>
+                    </div>
+                    <pre className="whitespace-pre leading-5">
+                      {entry.message}
+                      {entry.stack && !entry.message.includes(entry.stack)
+                        ? `\n${entry.stack}`
+                        : ''}
+                    </pre>
+                    <div className="mt-1 text-xs">
                       <div className="flex flex-wrap gap-2">
                         {entry.task_id ? (
                           <Button size="sm" variant="outline" asChild>
@@ -67,8 +68,21 @@ export function TodayErrorsCard() {
                             <Link
                               to="/logs"
                               search={{
-                                ...query.data!.window,
-                                group: entry.request_id ? undefined : (entry.group ?? undefined),
+                                from:
+                                  entry.request_id || !entry.instance
+                                    ? query.data!.window.from
+                                    : Math.max(query.data!.window.from, entry.at - 60_000),
+                                to:
+                                  entry.request_id || !entry.instance
+                                    ? query.data!.window.to
+                                    : Math.min(query.data!.window.to, entry.at + 60_000),
+                                instance: entry.request_id
+                                  ? undefined
+                                  : (entry.instance ?? undefined),
+                                group:
+                                  entry.request_id || entry.instance
+                                    ? undefined
+                                    : (entry.group ?? undefined),
                                 requestId: entry.request_id ?? undefined,
                               }}
                             >
@@ -86,7 +100,7 @@ export function TodayErrorsCard() {
                         )}
                       </div>
                     </div>
-                  </details>
+                  </div>
                 ))}
               </div>
             ) : (

@@ -1,7 +1,7 @@
 import type { ServerLogsResult } from '@image-playground/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { defaultParseSearch } from '@tanstack/react-router'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ServerLogsBlock } from '../../components/ops/ServerLogsBlock'
 import { apiClient } from '../../lib/api-client'
@@ -76,6 +76,14 @@ function setup() {
 }
 
 describe('server log exploration', () => {
+  it('renders the message and stack together as unwrapped terminal text', async () => {
+    setup()
+    const button = await screen.findByRole('button', { name: 'ERROR worker upstream timeout' })
+    expect(button.querySelector('pre')?.textContent).toBe('upstream timeout\nat worker.ts:42')
+    expect(button.querySelector('pre')?.className).toContain('whitespace-pre')
+    expect(button.querySelector('pre')?.className).not.toContain('truncate')
+  })
+
   it('resumes a fresh relative window after leaving a shared fixed range and preserves manual pause', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     get.mockResolvedValue(result)
@@ -214,7 +222,7 @@ describe('server log exploration', () => {
   })
   it('opens structured detail, correlates a request, and pauses when loading older logs', async () => {
     setup()
-    await screen.findByText('upstream timeout', { selector: 'button span' })
+    await screen.findByRole('button', { name: 'ERROR worker upstream timeout' })
     fireEvent.click(await screen.findByText('事件聚合与留存范围'))
     fireEvent.click(await screen.findByRole('button', { name: /worker \/ error.*task.failed/ }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('group=task.failed'))
@@ -225,7 +233,9 @@ describe('server log exploration', () => {
     for (const key of ['service', 'level', 'q', 'group', 'taskId'])
       expect(params.has(key)).toBe(false)
     fireEvent.click(await screen.findByRole('button', { name: 'ERROR worker upstream timeout' }))
-    expect(await screen.findByText(/worker.ts:42/)).toBeInTheDocument()
+    expect(
+      within(await screen.findByRole('dialog', { name: '日志详情' })).getByText(/worker.ts:42/),
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     fireEvent.click(screen.getByRole('button', { name: '加载更早日志（暂停自动刷新）' }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('cursor=older-page'))

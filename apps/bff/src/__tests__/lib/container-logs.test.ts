@@ -60,7 +60,7 @@ describe('container log records', () => {
     expect(level('2026-10-08T03:01:40Z INF Registered tunnel connection', 'stderr')).toBe('info')
     expect(level('[ops] snapshot built in 41ms')).toBe('info')
     expect(level('something odd happened', 'stderr')).toBe('warn')
-    expect(level('    at callProvider (queue/run.ts:214)', 'stderr')).toBe('error')
+    expect(level('    at callProvider (queue/run.ts:214)', 'stderr')).toBe('warn')
   })
 
   it('timestamps text lines from the driver, groups them without numbers and redacts secrets', () => {
@@ -79,6 +79,54 @@ describe('container log records', () => {
     expect(parseContainerLog({ ...input, date: input.date + 0.001 })!.id).not.toBe(
       parseContainerLog(input)!.id,
     )
+  })
+
+  it('keeps a terminal stack as one record, uses its header level and groups by the header', () => {
+    const warning =
+      'warn: TypeCompiler is required\n      at handleUnion (schema.ts:102:13)\n      at handleError (request.ts:27:30)'
+    const entry = parseContainerLog(record(warning, '/image-playground-paid-bff-1', 'stderr'))!
+    expect(entry.level).toBe('warn')
+    expect(entry.message).toBe(warning)
+    expect(entry.group_key).toBe('warn: TypeCompiler is required')
+    const error = parseContainerLog(
+      record(
+        'TypeError: broken\n    at handle (app.ts:42)',
+        '/image-playground-paid-bff-1',
+        'stderr',
+      ),
+    )!
+    expect(error.level).toBe('error')
+    expect(error.message).toContain('\n    at handle')
+    expect(error.id).toBe(
+      parseContainerLog(
+        record(
+          'TypeError: broken\n    at handle (app.ts:42)',
+          '/image-playground-paid-bff-1',
+          'stderr',
+        ),
+      )!.id,
+    )
+  })
+
+  it('redacts a long stack without discarding the whole diagnostic', () => {
+    const stack =
+      'Error: broken\n' +
+      Array.from(
+        { length: 80 },
+        (_, i) => `    at handle${i} (/app/long-module-path/file.ts:1:2)`,
+      ).join('\n') +
+      '\nBearer secret-token-value'
+    const entry = parseContainerLog(record(stack))!
+    expect(entry.message.length).toBeGreaterThan(4000)
+    expect(entry.message).toContain('handle79')
+    expect(entry.message).toContain('Bearer [REDACTED]')
+    expect(entry.message).not.toContain('secret-token-value')
+  })
+
+  it('keeps multiline payload redaction closed across continuation lines', () => {
+    const entry = parseContainerLog(record('Error: body: first-secret\nsecond-secret'))!
+    expect(entry.message).not.toContain('first-secret')
+    expect(entry.message).not.toContain('second-secret')
   })
 
   it('drops records without a line or container', () => {

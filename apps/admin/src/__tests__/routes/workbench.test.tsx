@@ -10,6 +10,7 @@ const session = vi.hoisted(() => ({
   accountsSync: true,
   failToday: false,
   showError: false,
+  errorRequest: true,
   taskAt: undefined as number | undefined,
   completedAt: undefined as number | undefined,
 }))
@@ -84,9 +85,10 @@ vi.mock('../../lib/api-client', () => {
                 at: Date.now(),
                 service: 'worker',
                 message: '上游请求失败',
-                stack: null,
+                stack: '    at callProvider (worker.ts:42)\n    at run (queue.ts:12)',
+                instance: 'worker-1',
                 task_id: null,
-                request_id: 'request-1',
+                request_id: session.errorRequest ? 'request-1' : null,
                 group: 'generation.failed',
               },
             ]
@@ -211,6 +213,7 @@ beforeEach(() => {
   requests.length = 0
   session.failToday = false
   session.showError = false
+  session.errorRequest = true
   session.taskAt = undefined
   session.completedAt = undefined
   session.accountsLogin = true
@@ -345,6 +348,30 @@ describe('今日概览', () => {
     expect(screen.getByRole('region', { name: '服务健康' })).toBeInTheDocument()
   })
 
+  it('shows the full error and indented stack in a scrollable terminal without per-frame cards', async () => {
+    session.showError = true
+    renderAt('/overview')
+    const terminal = await screen.findByRole('log', { name: '今日错误终端' })
+    const output = terminal.querySelector('pre')!
+    expect(output.textContent).toBe(
+      '上游请求失败\n    at callProvider (worker.ts:42)\n    at run (queue.ts:12)',
+    )
+    expect(terminal.querySelector('details')).toBeNull()
+    expect(output.className).toContain('whitespace-pre')
+    expect(within(terminal).getByRole('link', { name: '相关日志 →' })).toBeInTheDocument()
+  })
+
+  it('opens plain terminal errors with same-container context instead of filtering out their stack', async () => {
+    session.showError = true
+    session.errorRequest = false
+    renderAt('/overview')
+    const link = await screen.findByRole('link', { name: '相关日志 →' })
+    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    expect(params.get('instance')).toBe('worker-1')
+    expect(params.has('group')).toBe(false)
+    expect(Number(params.get('to')) - Number(params.get('from'))).toBeLessThanOrEqual(120_000)
+  })
+
   it('keeps missing health data visibly unknown and shows the daily error list independently', async () => {
     renderAt('/overview')
     const health = within(await screen.findByRole('region', { name: '服务健康' }))
@@ -431,7 +458,7 @@ describe('generation task drill-down', () => {
   it('opens all events in the same request without retaining the error group filter', async () => {
     session.showError = true
     renderAt('/overview')
-    fireEvent.click(await screen.findByText('上游请求失败'))
+    await screen.findByRole('log', { name: '今日错误终端' })
     const link = screen.getByRole('link', { name: '相关日志 →' })
     const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
     expect(params.get('requestId')).toBe('request-1')

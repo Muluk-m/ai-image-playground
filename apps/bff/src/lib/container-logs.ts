@@ -36,8 +36,9 @@ export function containerService(name: string): ServerLogService {
 
 /** Text lines carry their level as a word (cloudflared `ERR`, postgres `ERROR:`, `[warn]`). */
 function textLevel(line: string, stream: string): ServerLogLevel {
+  if (/^(?:warn|warning)\b/i.test(line)) return 'warn'
   if (/\b(?:FATAL|PANIC|CRIT(?:ICAL)?)\b/i.test(line)) return 'fatal'
-  if (/\b(?:ERR|ERROR|EXCEPTION)\b|^\s*at\s|Error:/i.test(line)) return 'error'
+  if (/\b(?:ERR|ERROR|EXCEPTION)\b|Error:/i.test(line)) return 'error'
   if (/\b(?:WRN|WARN|WARNING)\b/i.test(line)) return 'warn'
   if (/\b(?:DBG|DEBUG)\b/i.test(line)) return 'debug'
   if (/\b(?:INF|INFO|LOG|NOTICE)\b/i.test(line)) return 'info'
@@ -75,16 +76,18 @@ export function parseContainerLog(record: unknown): ServerLogEntry | null {
     const entry = parseServerLog(line, { service, instance, version })
     if (entry) return { ...entry, id, at, fields: { ...entry.fields, stream } }
   }
-  const message = redactLogText(line)
+  // Classify the header, not words or `at` frames buried in its stack.
+  const header = line.split('\n', 1)[0]!
+  const message = redactLogText(line, 0, line.includes('\n') ? 16_000 : 4000)
   return {
     id,
     at,
     service,
     instance,
     version: '',
-    level: textLevel(line, stream),
+    level: textLevel(header, stream),
     event: null,
-    group_key: message
+    group_key: redactLogText(header)
       .replace(/^\S*\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s*/, '')
       .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '<id>')
       .replace(/\b[0-9a-f]{12,}\b/gi, '<hex>')

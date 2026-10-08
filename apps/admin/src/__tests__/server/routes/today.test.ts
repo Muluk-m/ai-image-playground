@@ -90,6 +90,20 @@ await writer.db.insert(writer.schema.server_logs).values([
   { ...log, id: 'error', level: 'error' },
   { ...log, id: 'fatal', level: 'fatal' },
   { ...log, id: 'warn', level: 'warn' },
+  {
+    ...log,
+    id: 'legacy-stack',
+    level: 'error',
+    event: null,
+    message: '    at getSchemaValidator (schema.ts:541:26)',
+  },
+  {
+    ...log,
+    id: 'full-terminal-error',
+    level: 'error',
+    event: null,
+    message: 'TypeError: broken\n    at call (app.ts:1:2)',
+  },
   { ...log, id: 'old-error', level: 'error', at: from - 1 },
 ])
 await writer.db.insert(writer.schema.client_errors).values({
@@ -180,13 +194,18 @@ describe('today generation overview', () => {
 
   it('lists error and fatal server logs alongside frontend errors, excluding warnings and yesterday', async () => {
     const data = await getTodayErrors(to)
-    expect(data.total).toBe(3)
+    expect(data.total).toBe(4)
     expect(data.entries[0]?.source).toBe('client')
     expect(data.entries.find((entry) => entry.id === 'error')).toMatchObject({
       task_id: 'today-failed',
       stack: 'redacted stack',
     })
     expect(data.entries.map((entry) => entry.id)).not.toContain('warn')
+    expect(data.entries.map((entry) => entry.id)).not.toContain('legacy-stack')
+    expect(data.entries.find((entry) => entry.id === 'full-terminal-error')).toMatchObject({
+      instance: 'instance',
+      message: 'TypeError: broken\n    at call (app.ts:1:2)',
+    })
   })
 
   it('requires authentication and rejects malformed time, identity, status and pagination filters', async () => {

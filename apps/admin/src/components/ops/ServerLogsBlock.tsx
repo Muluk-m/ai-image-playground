@@ -41,6 +41,14 @@ function levelStyle(level: string) {
   return 'text-muted-foreground'
 }
 
+function logStack(entry: ServerLogEntry): string | null {
+  if (typeof entry.fields.stack === 'string') return entry.fields.stack
+  const err = entry.fields.err
+  return err && typeof err === 'object' && 'stack' in err && typeof err.stack === 'string'
+    ? err.stack
+    : null
+}
+
 function LogDetailContent({
   entry,
   onFilter,
@@ -663,17 +671,11 @@ export function ServerLogsBlock({
             <div
               ref={list}
               aria-label="日志记录"
-              className="max-h-[65vh] overflow-auto rounded-md border"
+              className="max-h-[65vh] overflow-auto rounded-md border bg-muted/20 p-3"
               onScroll={(event) => {
                 if (live && event.currentTarget.scrollTop > 48) setLive(false)
               }}
             >
-              <div className="sticky top-0 z-10 grid min-w-[720px] grid-cols-[170px_70px_110px_1fr] gap-3 border-b bg-muted px-3 py-2 text-xs font-medium">
-                <span>时间</span>
-                <span>级别</span>
-                <span>服务</span>
-                <span>消息</span>
-              </div>
               {!entries.length ? (
                 <p className="px-3 py-8 text-sm text-muted-foreground">
                   此范围内没有匹配日志。可扩大时间范围或清空筛选。
@@ -684,7 +686,7 @@ export function ServerLogsBlock({
                     key={entry.id}
                     type="button"
                     aria-label={`${entry.level.toUpperCase()} ${entry.service} ${entry.message}`}
-                    className={`grid w-full min-w-[720px] grid-cols-[170px_70px_110px_1fr] items-baseline gap-3 border-b px-3 py-2 text-left font-mono text-xs hover:bg-muted/60 ${levelStyle(entry.level)}`}
+                    className={`block min-w-full py-1 text-left font-mono text-xs hover:bg-muted/60 ${levelStyle(entry.level)}`}
                     onClick={() => openLog(entry)}
                   >
                     <time
@@ -693,11 +695,14 @@ export function ServerLogsBlock({
                     >
                       {time(entry.at)}
                     </time>
-                    <span className="font-semibold">{entry.level.toUpperCase()}</span>
+                    <span className="mx-2 font-semibold">{entry.level.toUpperCase()}</span>
                     <span>{entry.service}</span>
-                    <span className="truncate text-foreground" title={entry.message}>
+                    <pre className="whitespace-pre leading-5 text-foreground">
                       {entry.message || entry.event || '日志'}
-                    </span>
+                      {logStack(entry) && !entry.message.includes(logStack(entry)!)
+                        ? `\n${logStack(entry)}`
+                        : ''}
+                    </pre>
                   </button>
                 ))
               )}
