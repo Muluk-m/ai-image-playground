@@ -3,8 +3,8 @@ import type { AgentBackgroundJobProgress } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { playerFrameStyle } from '../../../../components/assistant-ui/elements/video-player'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import { videoCardWidth } from '../../../../features/agent/components/AgentVideoToolCard'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
 
@@ -146,13 +146,10 @@ it('plays recovered video results inline without waiting for a canvas or a poste
   expect(video.preload).toBe('none')
   expect(video.getAttribute('poster')).toBeNull()
   expect(player.style.aspectRatio).toBe('9 / 16')
-  // 长边不超过 min(24rem, 46vh)。jsdom 算不出嵌套的 min()，宽度对纯函数，高度对写进 DOM 的声明。
-  expect(playerFrameStyle('9 / 16')).toEqual({
-    aspectRatio: '9 / 16',
-    width: 'min(100%, calc(min(24rem, 46vh) * 9 / 16))',
-    maxHeight: 'min(24rem, 46vh)',
-  })
-  expect(player.getAttribute('style')).toContain('max-height: min(24rem, 46vh)')
+  // 卡片和画面一样宽，播放器铺满卡片。jsdom 算不出嵌套的 min()，宽度对纯函数。
+  expect(player.style.width).toBe('')
+  expect(videoCardWidth('9:16')).toBe('min(100%, 28rem, calc(min(30rem, 56vh) * 9 / 16))')
+  expect(videoCardWidth('1:1')).toBe('min(100%, 22rem, calc(min(30rem, 56vh) * 1 / 1))')
   expect(host.querySelector('[data-slot="video-generation"]')).toBeNull()
   await act(async () => video.dispatchEvent(new Event('error')))
   expect(host.textContent).toContain('视频暂时无法播放')

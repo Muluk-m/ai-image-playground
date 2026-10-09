@@ -1,11 +1,8 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import { Download, VideoIcon } from 'lucide-react'
+import { Download, FileText, Images, Maximize2, VideoIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
-import {
-  PLAYER_MAX_HEIGHT,
-  VideoPlayer,
-} from '../../../components/assistant-ui/elements/video-player'
+import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -63,7 +60,13 @@ function VideoDownload({
     }
   }
   return (
-    <Button variant="secondary" size="sm" disabled={downloading} onClick={() => void download()}>
+    <Button
+      variant="ghost"
+      size="sm"
+      className="bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
+      disabled={downloading}
+      onClick={() => void download()}
+    >
       <Download className="mr-1.5 size-4" aria-hidden="true" />
       {downloading ? t('video.downloading') : t('tool.downloadResult')}
     </Button>
@@ -102,15 +105,21 @@ function VideoResult({
       errorLabel={t('video.playbackFailed')}
       retryLabel={t('video.reload')}
       aspectRatio={aspectRatio?.replace(':', ' / ')}
+      fill
     />
   )
 }
 
-/** 播放器的固有宽度：长边封顶后按比例算，不依赖父级百分比，卡片才能贴着画面收宽。 */
-function playerWidth(aspectRatio: string | undefined) {
+/**
+ * 卡片和画面一样宽：长边封顶后按比例算，竖屏约 270px，横屏不超过 28rem，方形不超过 22rem。
+ * 不在画面旁边摆信息，竖屏也就不会留出整块空白。
+ */
+export function videoCardWidth(aspectRatio: string | undefined) {
   const [width, height] = (aspectRatio ?? '16:9').split(':').map(Number)
-  if (!(width > 0 && height > 0)) return { css: `calc(${PLAYER_MAX_HEIGHT} * 16 / 9)`, tall: false }
-  return { css: `calc(${PLAYER_MAX_HEIGHT} * ${width} / ${height})`, tall: width < height }
+  const valid = width > 0 && height > 0
+  const ratio = valid ? `${width} / ${height}` : '16 / 9'
+  const cap = valid && width === height ? '22rem' : '28rem'
+  return `min(100%, ${cap}, calc(min(30rem, 56vh) * ${ratio}))`
 }
 
 export default function AgentVideoToolCard({
@@ -185,44 +194,53 @@ export default function AgentVideoToolCard({
       setRetrying(false)
     }
   }
-  const ratio = artifacts[0]?.video?.aspectRatio ?? video?.aspectRatio
-  const frame = playerWidth(ratio)
-  // 竖屏成片放在左侧，标题和操作排在右边；横屏和方形贴着画面收窄卡片，不在旁边留整块空白。
-  const media = !!artifacts.length && (
-    <div className="flex max-w-full shrink-0 flex-col gap-2" style={{ width: frame.css }}>
-      {artifacts.map((artifact) => (
-        <VideoResult
-          key={artifact.artifactId}
-          artifact={artifact}
-          title={message.title}
-          aspectRatio={artifact.video?.aspectRatio ?? video?.aspectRatio}
-        />
-      ))}
-    </div>
-  )
-  const side = !!media && frame.tall
+  const hasMedia = !!artifacts.length
+  const iconButton = 'size-8 text-muted-foreground hover:text-foreground'
   return (
     <section
       id={id}
       tabIndex={-1}
       data-slot="agent-video-card"
-      data-layout={side ? 'side' : undefined}
       className={cn(
-        'flex min-w-0 max-w-full gap-3 rounded-2xl border border-border bg-card p-3 sm:p-4',
-        side ? 'w-[36rem] flex-wrap items-start sm:gap-4' : 'flex-col',
+        'flex min-w-0 max-w-full flex-col rounded-2xl border border-border bg-card',
+        hasMedia ? 'overflow-hidden' : 'gap-3 p-3 sm:p-4',
       )}
-      style={media && !side ? { width: `calc(${frame.css} + 2rem + 2px)` } : undefined}
+      style={
+        hasMedia
+          ? { width: videoCardWidth(artifacts[0]?.video?.aspectRatio ?? video?.aspectRatio) }
+          : undefined
+      }
     >
-      {side && media}
-      <div
-        className={cn('flex min-w-0 flex-col gap-3', side && 'min-w-[12rem] flex-1 self-stretch')}
-      >
-        <div className="flex items-start gap-2 text-sm font-medium">
-          <VideoIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <p className="min-w-0 break-words">{message.title}</p>
+      {hasMedia && (
+        <div className="flex flex-col gap-px bg-border">
+          {artifacts.map((artifact) => (
+            <VideoResult
+              key={artifact.artifactId}
+              artifact={artifact}
+              title={message.title}
+              aspectRatio={artifact.video?.aspectRatio ?? video?.aspectRatio}
+            />
+          ))}
         </div>
+      )}
+      <div className={cn('flex min-w-0 flex-col', hasMedia ? 'gap-2 px-3 pb-2 pt-2.5' : 'gap-3')}>
+        {hasMedia ? (
+          <p
+            className="line-clamp-2 break-words text-[13px] font-semibold leading-normal"
+            title={message.title}
+          >
+            {message.title}
+          </p>
+        ) : (
+          <div className="flex items-start gap-2 text-sm font-medium">
+            <VideoIcon
+              className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <p className="min-w-0 break-words">{message.title}</p>
+          </div>
+        )}
         {video && <AgentVideoDetails video={video} />}
-        {!side && media}
         {progress && !artifacts.length && (
           <>
             <VideoGeneration aria-hidden="true" />
@@ -254,7 +272,7 @@ export default function AgentVideoToolCard({
           </p>
         )}
         {canRetry && video && <AgentVideoEstimate video={video} />}
-        <div className={cn('flex flex-wrap items-center gap-2', side && 'mt-auto')}>
+        <div className={cn('flex flex-wrap items-center gap-2', hasMedia && '-mx-1 gap-1')}>
           {artifacts.map((artifact) => (
             <VideoDownload
               key={artifact.artifactId}
@@ -262,20 +280,31 @@ export default function AgentVideoToolCard({
               onFailed={setDownloadFailed}
             />
           ))}
-          {!!artifacts.length && onPreviewResult && (
-            <Button variant="ghost" size="sm" onClick={() => onPreviewResult(message.id)}>
-              {t('tool.previewResult')}
+          {hasMedia && <span className="flex-1" />}
+          {hasMedia && onPreviewResult && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={iconButton}
+              title={t('tool.previewResult')}
+              aria-label={t('tool.previewResult')}
+              onClick={() => onPreviewResult(message.id)}
+            >
+              <Maximize2 className="size-4" aria-hidden="true" />
             </Button>
           )}
           {!!canvasIds.length && !onPreviewResult && (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
+              className={iconButton}
+              title={t('tool.openCanvas')}
+              aria-label={t('tool.openCanvas')}
               onClick={() =>
                 onViewCanvas ? onViewCanvas(canvasIds) : agentCanvasSink()?.focus(canvasIds)
               }
             >
-              {t('tool.openCanvas')}
+              <Images className="size-4" aria-hidden="true" />
             </Button>
           )}
           {offCanvas && (
@@ -323,11 +352,23 @@ export default function AgentVideoToolCard({
               {t('retry.viewOriginal')}
             </Button>
           )}
-          {message.prompt && (
-            <Button variant="ghost" size="sm" onClick={() => setPromptOpen(true)}>
-              {t('tool.viewPrompt')}
-            </Button>
-          )}
+          {message.prompt &&
+            (hasMedia ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={iconButton}
+                title={t('tool.viewPrompt')}
+                aria-label={t('tool.viewPrompt')}
+                onClick={() => setPromptOpen(true)}
+              >
+                <FileText className="size-4" aria-hidden="true" />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => setPromptOpen(true)}>
+                {t('tool.viewPrompt')}
+              </Button>
+            ))}
           <AgentJobCancel message={message} />
           {message.status === 'queued' && message.retryOf && (
             <Button
