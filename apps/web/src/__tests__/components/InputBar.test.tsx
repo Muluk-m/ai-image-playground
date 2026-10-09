@@ -304,10 +304,10 @@ describe('首屏「画布」档的参考图', () => {
     remount('canvas')
 
     type('@白')
-    const option = host.querySelector('[role="option"]')
+    const option = host.querySelector<HTMLElement>('[role="option"]')
     if (!option) throw new Error('`@` 菜单里没有素材可选')
     await act(async () => {
-      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      option.click()
     })
     await settleAttach()
 
