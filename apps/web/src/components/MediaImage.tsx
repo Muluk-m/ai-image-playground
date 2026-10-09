@@ -5,13 +5,14 @@ import { BASE_DB_NAME } from '../lib/db'
 import {
   localAttachmentFailure,
   localAttachmentIdentity,
+  localAttachmentPreview,
   onLocalAttachmentReleased,
   onLocalAttachmentUploadChanged,
   readAttachmentUpload,
 } from '../lib/localAttachmentSources'
 import { bffBaseUrl } from '../lib/runtimeConfig'
 
-/** Local attachment originals stay on disk; only their confirmed cloud preview is rendered. */
+/** Local attachment originals stay on disk; render a cached thumbnail or the cloud preview. */
 export default function MediaImage({
   src,
   onResolveError,
@@ -30,15 +31,29 @@ export default function MediaImage({
     let generation = 0
     const load = async () => {
       const requested = ++generation
+      let localPreview: Promise<string | undefined> | undefined
+      let localPreviewAvailable = false
+      let cloudPreviewAvailable = false
       try {
         if (!src) return
         let source = src
         if (localAttachmentIdentity(src)) {
+          localPreview = localAttachmentPreview(src)
+          void localPreview?.then((value) => {
+            if (
+              value &&
+              !cloudPreviewAvailable &&
+              current &&
+              requested === generation &&
+              scope === scopedStorageName(BASE_DB_NAME) &&
+              backend === bffBaseUrl()
+            ) {
+              localPreviewAvailable = true
+              setResolved({ source: src, value, scope, backend })
+            }
+          })
           const upload = await readAttachmentUpload(src, backend)
-          if (upload?.state !== 'ready') {
-            if (current && requested === generation) setResolved(undefined)
-            return
-          }
+          if (upload?.state !== 'ready' || localPreviewAvailable) return
           source = `aip-media:${upload.result.id}`
         }
         if (
@@ -49,22 +64,26 @@ export default function MediaImage({
           backend !== bffBaseUrl()
         )
           return
-        const value = await resolveMediaSource(source, 'preview')
+        const value = await resolveMediaSource(source, 'display')
         if (
           current &&
           requested === generation &&
           scope === scopedStorageName(BASE_DB_NAME) &&
           backend === bffBaseUrl()
-        )
+        ) {
+          cloudPreviewAvailable = true
           setResolved({ source: src, value, scope, backend })
+        }
       } catch {
+        const fallback = await localPreview?.catch(() => undefined)
         if (
           current &&
           requested === generation &&
           scope === scopedStorageName(BASE_DB_NAME) &&
           backend === bffBaseUrl()
-        )
-          onResolveError?.()
+        ) {
+          if (!fallback && !localPreviewAvailable) onResolveError?.()
+        }
       }
     }
     const unsubscribe = onLocalAttachmentUploadChanged((change) => {

@@ -29,6 +29,10 @@ export default function ImageContextMenu() {
       const target = e.target as HTMLElement
       if (target && target.tagName === 'IMG') {
         const imgTarget = target as HTMLImageElement
+        if (imgTarget.dataset.imagePreviewOnly) {
+          e.preventDefault()
+          return
+        }
         // 忽略没有 src 或空的 img
         if (!imgTarget.src) return
 

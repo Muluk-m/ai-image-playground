@@ -314,7 +314,7 @@ describe('项目输入框里的素材位', () => {
     )
     // 最后一组是素材库：`@` 素材会附上它的全部视角，正面那张已经在位里了。
     act(() => {
-      options[options.length - 1]!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      options[options.length - 1]!.click()
     })
     await until(() =>
       expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.references).toHaveLength(2),
@@ -464,7 +464,7 @@ describe('项目输入框里的素材位', () => {
     expect(options.map((one) => one.textContent)).not.toContain('画布图1')
     const option = options.find((one) => one.textContent === '@图1')!
     act(() => {
-      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      option.click()
     })
     await until(() => expect(editor().querySelectorAll('img')).toHaveLength(2))
 

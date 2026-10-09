@@ -185,11 +185,26 @@ export default function Lightbox() {
   )
 }
 
-/** A canvas original can be previewed without importing it into generation history. */
-export function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
+/** Preview canvas pixels without importing them into generation history. */
+export function ImagePreview({
+  src,
+  onClose,
+  originalPending = false,
+  originalFailed = false,
+  onRetryOriginal,
+}: {
+  src: string
+  onClose: () => void
+  originalPending?: boolean
+  originalFailed?: boolean
+  onRetryOriginal?: () => void
+}) {
   return (
     <LightboxInner
       src={src}
+      originalPending={originalPending}
+      originalFailed={originalFailed}
+      onRetryOriginal={onRetryOriginal}
       imageId=""
       onClose={onClose}
       showNav={false}
@@ -205,6 +220,8 @@ interface LightboxInnerProps {
   src: string
   /** 展示的还是缩略图，原图仍在读：下载得等真像素，界面也要说清楚。 */
   originalPending?: boolean
+  originalFailed?: boolean
+  onRetryOriginal?: () => void
   imageId: string
   maskPreviewSrc?: string
   onClose: () => void
@@ -219,6 +236,8 @@ interface LightboxInnerProps {
 function LightboxInner({
   src,
   originalPending = false,
+  originalFailed = false,
+  onRetryOriginal,
   imageId,
   maskPreviewSrc,
   onClose,
@@ -231,6 +250,7 @@ function LightboxInner({
   const { t } = useTranslation(['task', 'common', 'toolbox'])
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
+  const originalUnavailable = originalPending || originalFailed
   // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
   const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
@@ -424,8 +444,8 @@ function LightboxInner({
     async (e: React.MouseEvent) => {
       e.stopPropagation()
       // 还在读原图时存下去只会得到一张缩略图，宁可让用户再等一下。
-      if (originalPending) {
-        showToast(t('lightbox.loadingOriginal'))
+      if (originalUnavailable) {
+        showToast(t(originalFailed ? 'lightbox.originalFailed' : 'lightbox.loadingOriginal'))
         return
       }
       try {
@@ -443,7 +463,7 @@ function LightboxInner({
         showToast(t('lightbox.saveFailed'), 'error')
       }
     },
-    [originalPending, src, showToast, t],
+    [originalUnavailable, originalFailed, src, showToast, t],
   )
 
   // ====== 触控事件 ======
@@ -624,7 +644,8 @@ function LightboxInner({
             <img
               src={src}
               data-image-id={imageId}
-              className="saveable-image max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
+              data-image-preview-only={originalUnavailable || undefined}
+              className={`${originalUnavailable ? '' : 'saveable-image '}max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl`}
               onDragStart={(e) => e.preventDefault()}
               alt=""
             />
@@ -637,13 +658,24 @@ function LightboxInner({
             )}
           </div>
         </div>
-        {originalPending && (
+        {originalUnavailable && (
           <span
             className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur-sm"
             aria-live="polite"
           >
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            {t('lightbox.loadingOriginal')}
+            {originalPending && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+            {t(originalFailed ? 'lightbox.originalFailed' : 'lightbox.loadingOriginal')}
+            {originalFailed && onRetryOriginal && (
+              <Button
+                variant="secondary"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onRetryOriginal()
+                }}
+              >
+                {t('common:action.retry')}
+              </Button>
+            )}
           </span>
         )}
 
@@ -663,7 +695,7 @@ function LightboxInner({
           <Button
             data-save-image
             variant="secondary"
-            disabled={originalPending}
+            disabled={originalUnavailable}
             onClick={handleSave}
             className={actionBtnClass}
           >
@@ -671,7 +703,7 @@ function LightboxInner({
             {t('toolbox:export.downloadOriginal')}
           </Button>
           <Button
-            disabled={originalPending}
+            disabled={originalUnavailable}
             onClick={(event) => {
               event.stopPropagation()
               openImageExport([
