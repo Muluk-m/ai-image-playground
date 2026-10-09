@@ -262,9 +262,12 @@ async function busyConversation() {
 }
 
 describe('提交回执', () => {
-  it('取消先于入队时留下终态，迟到的同 id 提交不会开轮', async () => {
+  it.each([
+    'withdraw',
+    'reconcile',
+  ])('取消先于入队时留下终态，迟到的同 id 提交不会开轮（%s）', async (action) => {
     const conversationId = await startConversation()
-    const path = `/api/agent/conversations/${conversationId}/submissions/cancel-first/withdraw`
+    const path = `/api/agent/conversations/${conversationId}/submissions/cancel-first/${action}`
     const denied = await post(path, { deviceId: 'another-device' })
     expect(denied.status).toBe(404)
     const cancelled = await post(path, { deviceId: DEVICE })
@@ -317,6 +320,23 @@ describe('提交回执', () => {
 })
 
 describe('排队消息', () => {
+  it('原子确认返回已接收的 pending 回执，保持原队列而不撤回', async () => {
+    const { conversationId, turnId } = await busyConversation()
+    const original = await queued(await send(conversationId, '已接收的消息', 'late-pending'))
+    const confirmed = await post(
+      `/api/agent/conversations/${conversationId}/submissions/late-pending/reconcile`,
+      { deviceId: DEVICE },
+    )
+    expect(confirmed.status).toBe(200)
+    expect((await confirmed.json()).receipt).toMatchObject({
+      state: 'pending',
+      turnId,
+      queued: original.queued,
+    })
+    expect((await queueList(conversationId)).map((one) => one.id)).toContain(original.queued.id)
+    expect(calls).toHaveLength(1)
+  })
+
   it('会话忙时发送返回已排队，出现在排队列表、快照与会话事件里', async () => {
     const { conversationId, turnId } = await busyConversation()
 

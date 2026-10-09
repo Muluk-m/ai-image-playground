@@ -227,9 +227,10 @@ export async function fetchSubmissionReceipt(
   return body.receipt
 }
 
-export async function withdrawSubmission(
+async function mutateSubmission(
   conversationId: string,
   clientMessageId: string,
+  action: 'withdraw' | 'reconcile',
   cancellation?: AbortSignal,
 ): Promise<AgentMessageQueuedBody> {
   const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
@@ -238,7 +239,7 @@ export async function withdrawSubmission(
   const response = await withSignal(
     authenticatedBffFetch(
       url(
-        `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}/withdraw`,
+        `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}/${action}`,
       ),
       { ...jsonInit({ deviceId: getDeviceId() }), signal },
     ),
@@ -248,8 +249,20 @@ export async function withdrawSubmission(
   const body = (await withSignal(response.json(), signal)) as {
     receipt: AgentMessageQueuedBody | null
   }
-  if (!body.receipt) throw new Error('Missing Agent withdrawal receipt')
+  if (!body.receipt) throw new Error('Missing Agent submission receipt')
   return body.receipt
+}
+
+export function withdrawSubmission(conversationId: string, clientMessageId: string) {
+  return mutateSubmission(conversationId, clientMessageId, 'withdraw')
+}
+
+export function reconcileSubmission(
+  conversationId: string,
+  clientMessageId: string,
+  cancellation?: AbortSignal,
+) {
+  return mutateSubmission(conversationId, clientMessageId, 'reconcile', cancellation)
 }
 
 export async function fetchMessageReference(

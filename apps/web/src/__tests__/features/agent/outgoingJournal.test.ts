@@ -66,9 +66,10 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   const url = String(input)
   if (url.includes('/submissions/'))
     return Response.json({
-      receipt: url.endsWith('/withdraw')
-        ? { state: 'cancelled', queued: { id: 'not-accepted', text: '', createdAt: 1 } }
-        : null,
+      receipt:
+        url.endsWith('/withdraw') || url.endsWith('/reconcile')
+          ? { state: 'cancelled', queued: { id: 'not-accepted', text: '', createdAt: 1 } }
+          : null,
     })
   if (url.endsWith('/api/agent/conversations') && init?.method === 'POST')
     return Response.json({

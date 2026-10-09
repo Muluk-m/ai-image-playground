@@ -68,6 +68,7 @@ import {
   followTurn,
   interjectQueuedMessage,
   interjectTurn,
+  reconcileSubmission,
   removeConversation,
   retryToolCall,
   type StartTurnOutcome,
@@ -1239,7 +1240,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (++missing >= 3) {
             // 空回执不能证明原 POST 已结束。与入队共用锁确认终态：已接收则续接，
             // 尚未入队则留下取消记录，迟到的同 id POST 不能再开轮。
-            const confirmed = await withdrawSubmission(conversationId, clientMessageId, signal)
+            const confirmed = await reconcileSubmission(conversationId, clientMessageId, signal)
             return confirmed
           }
           // 另一执行器上的 POST 可能尚在入队前，空回执先有界复查。
@@ -1760,11 +1761,25 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (get().stopping && abortInFlight) await abortInFlight
       if (submissionAbortInFlight) await submissionAbortInFlight
       if (conversationId && get().returnedMessagesPending) {
-        const stops = abortRecoveries(conversationId)
-        if ((await stops.read()).some((stop) => stop.clientMessageId)) {
-          await recoverReturnedMessages(conversationId)
-          // 控制请求失败时保留草稿，不能把下一句话送进尚未停下的旧轮。
-          if (!stops.current() || (await stops.read()).some((stop) => stop.clientMessageId)) return
+        try {
+          const stops = abortRecoveries(conversationId)
+          if ((await stops.read()).some((stop) => stop.clientMessageId)) {
+            await recoverReturnedMessages(conversationId)
+            // 控制请求失败时保留草稿，不能把下一句话送进尚未停下的旧轮。
+            if (!stops.current() || (await stops.read()).some((stop) => stop.clientMessageId))
+              return
+          }
+        } catch (error) {
+          if (sameAccount() && get().conversationId === conversationId) {
+            const code = error instanceof ReturnedMessagesPersistenceError ? error.code : 'fallback'
+            set({
+              returnedMessagesPending: true,
+              returnedMessagesError: code,
+              error: returnedMessagesErrorText(code),
+              errorDiagnostic: requestDiagnostic(error, conversationId),
+            })
+          }
+          return
         }
       }
       if (changingProject || get().historyLoading || get().historyFailed) return
