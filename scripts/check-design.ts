@@ -5,6 +5,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import ts from 'typescript'
 
 export type DesignRule = {
   id: string
@@ -157,41 +158,69 @@ export const DESIGN_RULES: readonly DesignRule[] = [
 export type DesignCounts = Record<string, Record<string, number>>
 export type DesignHit = { rule: string; line: number }
 
-// 逐行标出注释行：// 或 {/* 开头，或落在行首块注释内部的行；CSS 的通配选择器 * 不算注释。
-function commentLines(lines: readonly string[]): boolean[] {
-  let inBlock = false
-  return lines.map((line) => {
-    if (inBlock) {
-      inBlock = !line.includes('*/')
-      return true
+// 用 TypeScript 语法树找注释（CSS 只有块注释），别自己猜 // 与 /* 是不是在字符串里。
+function commentRanges(path: string, source: string): Array<[number, number]> {
+  if (path.endsWith('.css')) {
+    return [...source.matchAll(/\/\*[\s\S]*?\*\//g)].map((m) => [m.index, m.index + m[0].length])
+  }
+  const file = ts.createSourceFile(
+    path,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const ranges = new Map<number, number>()
+  const visit = (node: ts.Node) => {
+    // JSX 文本里的 // 是页面上的字，不是注释。
+    if (node.kind === ts.SyntaxKind.JsxText) return
+    for (const range of [
+      ...(ts.getLeadingCommentRanges(source, node.pos) ?? []),
+      ...(ts.getTrailingCommentRanges(source, node.end) ?? []),
+    ]) {
+      ranges.set(range.pos, range.end)
     }
-    // 只认行首的 /*：行内的 accept="image/*" 这类字符串不是注释。
-    const opens = /^\s*\{?\/\*/.test(line)
-    inBlock = opens && !line.includes('*/')
-    return opens || /^\s*\/\//.test(line)
-  })
+    for (const child of node.getChildren(file)) visit(child)
+  }
+  visit(file)
+  return [...ranges]
 }
 
-// 扫一个文件；注释里写 design-allow <rule> 时豁免同一行，写在紧邻上方的注释行时豁免下一行。
+// 扫一个文件：注释先抹成空白（保留换行与偏移）再匹配规则。
+// 注释里写 design-allow <rule> 时豁免同一行；写在只有注释的上一行时豁免下一行。
 export function scanSource(path: string, source: string): DesignHit[] {
   const extension = path.slice(path.lastIndexOf('.') + 1)
   const rules = DESIGN_RULES.filter(
     (rule) =>
       (rule.extensions ?? ['ts', 'tsx']).includes(extension) && (rule.appliesTo?.(path) ?? true),
   )
-  const lines = source.split('\n')
-  const isComment = commentLines(lines)
+  const code = source.split('')
+  const lineStarts = [0, ...[...source.matchAll(/\n/g)].map((match) => match.index + 1)]
+  const lineOf = (offset: number) => {
+    let line = 0
+    while (lineStarts[line + 1] !== undefined && lineStarts[line + 1]! <= offset) line += 1
+    return line
+  }
+  const notes: string[] = []
+  for (const [start, end] of commentRanges(path, source)) {
+    const line = lineOf(end - 1)
+    notes[line] = `${notes[line] ?? ''} ${source.slice(start, end)}`
+    for (let index = start; index < end; index += 1) if (code[index] !== '\n') code[index] = ' '
+  }
+  const masked = code.join('')
+  const lines = masked.split('\n')
   const hits: DesignHit[] = []
   let lineStart = 0
   lines.forEach((line, index) => {
     const offset = lineStart
     lineStart += line.length + 1
-    if (isComment[index]) return
-    const allowance = isComment[index - 1] ? `${lines[index - 1]}\n${line}` : line
+    // 只有注释的上一行（含 JSX 的 {/* … */}）才豁免下一行。
+    const above = /^\s*(\{\s*\})?\s*$/.test(lines[index - 1] ?? 'x') ? (notes[index - 1] ?? '') : ''
+    const allowance = `${notes[index] ?? ''} ${above}`
     for (const rule of rules) {
-      if (new RegExp(`(//|/\\*).*design-allow ${rule.id}\\b`).test(allowance)) continue
+      if (new RegExp(`design-allow ${rule.id}\\b`).test(allowance)) continue
       for (const match of line.matchAll(rule.pattern)) {
-        if (rule.exempt?.(source, offset + match.index)) continue
+        if (rule.exempt?.(masked, offset + match.index)) continue
         hits.push({ rule: rule.id, line: index + 1 })
       }
     }
