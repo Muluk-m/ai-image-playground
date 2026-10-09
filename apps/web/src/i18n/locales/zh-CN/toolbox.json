@@ -148,7 +148,6 @@
     "videoHint": "视频以原文件导出一次，尺寸和格式设置仅作用于图片。",
     "undecodable": "无法解码此格式",
     "select": "选择",
-    "selectAll": "全选当前列表",
     "downloadOriginal": "下载原图",
     "export": "导出"
   }
