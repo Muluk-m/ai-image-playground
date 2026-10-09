@@ -339,6 +339,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   Button、Input、Textarea、Label、Checkbox、Select、Slider、Popover、Sheet。
 - **Button**：只用 `components/ui/button.tsx` 的 variant（default / outline / ghost /
   destructive）与 size；不要在业务里手写一套 `rounded-xl border px-3.5 py-2.5` 的按钮。
+  size 对照控件高度：`xs` 28（页签、小按钮）、`sm` 32、`default` 36、`lg` 40；纯图标按钮用
+  `icon-sm` 32（工具条、卡片操作）或 `icon-xs` 28，`icon` 36 只给表单行里与输入框并排的按钮。
 - **PageHeader**：所有浏览页共用一个组件，固定 56px，右侧按账号簇宽度让位。
 - **SectionHeader**：标题 title-sm + 右侧「查看全部」链接（body-sm、muted、lucide 箭头），
   链接文字与下方网格右边缘对齐。
