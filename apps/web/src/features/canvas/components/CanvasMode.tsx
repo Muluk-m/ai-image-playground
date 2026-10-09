@@ -783,7 +783,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {showRestoreMark && <CanvasLoading label={t('loading.restoring')} decorative />}
               {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
               <PlaceholderOverlay editor={editor} />
-              <CanvasVideoOverlay editor={editor} />
+              <CanvasVideoOverlay
+                editor={editor}
+                active={!loading && !loadFailed && (!hasAgent || projectView === 'canvas')}
+              />
               <CanvasVideoToolbar editor={editor} />
               <CanvasImageToolbar editor={editor} />
               <InpaintMaskLayer editor={editor} />
