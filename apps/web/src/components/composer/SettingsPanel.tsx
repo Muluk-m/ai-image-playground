@@ -4,6 +4,7 @@ import { useTranslation } from '../../i18n'
 import { parseRatio } from '../../lib/size'
 import { dismissAllTooltips } from '../../lib/tooltipDismiss'
 import { cn } from '../../lib/utils'
+import { field, paper } from '../assistant-ui/elements/surfaces'
 import { Switch } from '../Switch'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -50,6 +51,7 @@ export function composerIconButtonClass(size: ComposerControlSize = 'md') {
 export function SettingsPopover({
   summary,
   icon,
+  badge,
   title,
   dirty = false,
   size = 'md',
@@ -58,6 +60,8 @@ export function SettingsPopover({
 }: {
   summary: string
   icon?: ReactNode
+  /** 摘要后的状态标记。 */
+  badge?: ReactNode
   title: string
   /** 摘要里看不到的参数是否偏离默认值。 */
   dirty?: boolean
@@ -86,6 +90,7 @@ export function SettingsPopover({
         >
           {icon && <span className="flex shrink-0 text-muted-foreground">{icon}</span>}
           <span className="truncate tabular-nums">{summary}</span>
+          {badge && <span className="flex shrink-0">{badge}</span>}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -94,7 +99,10 @@ export function SettingsPopover({
         sideOffset={8}
         collisionPadding={12}
         aria-labelledby={titleId}
-        className="flex max-h-[min(36rem,calc(100dvh-6rem))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-2xl border-border p-0 shadow-popover"
+        className={cn(
+          paper,
+          'flex max-h-[min(36rem,calc(100dvh-6rem))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-[20px] p-0 shadow-popover',
+        )}
       >
         <div className="flex items-center justify-between px-4 pb-1 pt-3">
           <h2 id={titleId} className="text-title font-semibold text-foreground">
@@ -142,7 +150,7 @@ export function SettingsSection({
   return (
     <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-3 text-xs">
-        <h3 className="font-medium text-muted-foreground">{title}</h3>
+        <h3 className="text-muted-foreground">{title}</h3>
         {value != null && <span className="tabular-nums text-muted-foreground/80">{value}</span>}
       </div>
       {children}
@@ -157,9 +165,10 @@ interface SegmentOption<T extends string | number> {
   disabled?: boolean
 }
 
-const SEGMENT_TRACK = 'rounded-xl bg-muted p-1'
+const SEGMENT_TRACK = cn(field, 'rounded-full p-0.5')
+const GRID_TRACK = cn(field, 'rounded-2xl p-0.5')
 const SEGMENT_ITEM =
-  'rounded-lg text-body-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:font-medium aria-pressed:text-foreground aria-pressed:shadow-sm'
+  'rounded-full text-xs text-muted-foreground transition-[background-color,color] duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:font-medium aria-pressed:text-foreground/90 aria-pressed:shadow-sm'
 
 /** 分段选择：互斥的几档并排，选中项浮起来。 */
 export function SettingsSegmented<T extends string | number>({
@@ -184,7 +193,7 @@ export function SettingsSegmented<T extends string | number>({
           disabled={option.disabled}
           onClick={() => onChange(option.value)}
           className={cn(
-            'h-8 min-w-0 flex-1 truncate tabular-nums',
+            'h-7 min-w-0 flex-1 truncate tabular-nums',
             // 档位多（数量 1–10）时收窄内边距，两位数也放得下。
             options.length > 6 ? 'px-0.5' : 'px-2',
             SEGMENT_ITEM,
@@ -265,7 +274,7 @@ export function RatioGrid({
   onChange: (value: string) => void
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('grid grid-cols-5 gap-0.5', SEGMENT_TRACK)}>
+    <div role="group" aria-label={label} className={cn('grid grid-cols-5 gap-0.5', GRID_TRACK)}>
       {options.map((option) => (
         <button
           key={option.value}
@@ -273,7 +282,7 @@ export function RatioGrid({
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'flex h-14 min-w-0 flex-col items-center justify-center gap-1.5 !text-label-sm',
+            'flex h-14 min-w-0 flex-col items-center justify-center gap-1.5 !rounded-xl !text-label-sm',
             SEGMENT_ITEM,
           )}
         >

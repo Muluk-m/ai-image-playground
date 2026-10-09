@@ -26,7 +26,6 @@
     "collapseAria": "收起面板",
     "expand": "展开对话",
     "aria": "创作对话",
-    "newProjectAria": "新建项目",
     "logAria": "对话记录",
     "emptyTitle": "今天，想创作什么？",
     "emptyBody": "描述你的想法，或添加一张参考图。",
@@ -233,9 +232,6 @@
     "tooManyUploads_other": "上传的图、素材一轮最多带 {{count}} 张",
     "abortedToast": "已中止，草稿已放回输入框。",
     "queue": "加入排队",
-    "autoSubmitAria": "出图模式",
-    "autoSubmitOnTitle": "出图模式：助手拟好提示词直接开始生成并扣费，不再逐张等你确认",
-    "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）",
     "assetViewsUnavailable": "素材部分视角无法读取，请重试后再添加。",
     "attachmentReadFailed": "部分图片无法读取，本次未添加，请重新选择。",
     "retryUpload": "重试",
@@ -272,7 +268,9 @@
     "thinkingMedium": "中等",
     "thinkingDeep": "深度",
     "thinkingLegend": "思考深度",
-    "thinkingSummary": "思考：{{label}}"
+    "thinkingSummary": "思考：{{label}}",
+    "autoSubmitLabel": "直接出图",
+    "autoSubmitHint": "助手拟好提示词就直接生成并扣费，不再逐张等你确认。"
   },
   "mentions": {
     "headingResults": "会话图片",
@@ -398,18 +396,15 @@
     "switchAria": "切换项目，当前：{{name}}",
     "switchTitle": "切换项目",
     "search": "搜索项目",
-    "recent": "最近项目",
-    "results": "搜索结果",
-    "newHint": "开启新的创作项目",
     "expand": "再显示 {{remaining}} 个",
     "collapse": "收起",
     "chats": "对话",
     "canvases": "画布",
     "newChat": "新建对话",
     "newCanvas": "新建画布",
-    "newChatHint": "和 Agent 一起创作",
-    "newCanvasHint": "自由排版与编辑",
-    "all": "查看全部项目"
+    "all": "查看全部项目",
+    "renameAria": "项目名称",
+    "renameHint": "点击重命名"
   },
   "assets": {
     "title": "资产库",
