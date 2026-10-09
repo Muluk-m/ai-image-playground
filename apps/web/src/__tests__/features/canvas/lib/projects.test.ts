@@ -115,4 +115,10 @@ describe('项目入口名', () => {
     )
     expect(projectEntryName(named('**加粗是我故意的**', true))).toBe('**加粗是我故意的**')
   })
+
+  it('自动名只剩 Markdown 记号时退回未命名', () => {
+    expect(projectEntryName(named('***', false))).toBe(
+      projectEntryName(named(UNTITLED_PROJECT, false)),
+    )
+  })
 })

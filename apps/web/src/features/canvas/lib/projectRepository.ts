@@ -57,7 +57,8 @@ export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
  */
 export function projectEntryName(project: CanvasProject): string {
   if (project.name !== UNTITLED_PROJECT) {
-    return project.customName ? project.name : stripTitleMarkdown(project.name).trim()
+    const name = project.customName ? project.name : stripTitleMarkdown(project.name).trim()
+    if (name) return name
   }
   return i18next.t(
     projectExperience(project) === 'chat' ? 'project.untitledChat' : 'project.untitledCanvas',

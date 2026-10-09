@@ -1364,5 +1364,7 @@ export function stripTitleMarkdown(text: string): string {
 
 /** 首轮消息即标题；会话不支持改名，所以这是标题的唯一来源。 */
 export function agentConversationTitle(firstUserMessage: string): string {
-  return agentTitleLine(stripTitleMarkdown(firstUserMessage), AGENT_CONVERSATION_TITLE_MAX_CHARS)
+  // 整条消息只有 `---` 这类记号时，去掉就空了，宁可原样用。
+  const plain = stripTitleMarkdown(firstUserMessage).trim() || firstUserMessage
+  return agentTitleLine(plain, AGENT_CONVERSATION_TITLE_MAX_CHARS)
 }
