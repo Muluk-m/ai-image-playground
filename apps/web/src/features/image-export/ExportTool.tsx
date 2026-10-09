@@ -1,7 +1,8 @@
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import { Plus, Scaling, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button } from '../../components/ui/button'
 import { useTranslation } from '../../i18n'
+import ToolboxHeader from '../toolbox/components/ToolboxHeader'
 import { useToolboxIntake } from '../toolbox/components/useToolboxIntake'
 import { toolSource, useToolboxStore } from '../toolbox/store'
 import ExportForm from './ExportForm'
@@ -9,7 +10,6 @@ import ExportForm from './ExportForm'
 export default function ExportTool() {
   const { t } = useTranslation('toolbox')
   const items = useToolboxStore((state) => state.items)
-  const close = useToolboxStore((state) => state.closeTool)
   const remove = useToolboxStore((state) => state.remove)
   const [busy, setBusy] = useState(false)
   const intake = useToolboxIntake(busy)
@@ -36,16 +36,18 @@ export default function ExportTool() {
       className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px))] min-h-0 flex-col ${intake.dragging ? 'bg-primary/5' : ''}`}
     >
       {intake.inputs}
-      <header className="flex items-center gap-3 border-b border-border p-4">
-        <Button variant="ghost" size="icon" onClick={close} aria-label={t('page.back')}>
-          <ArrowLeft />
-        </Button>
-        <h1 className="font-medium">{t('tool.export.name')}</h1>
-        <Button disabled={busy} variant="outline" className="ml-auto" onClick={intake.openFiles}>
-          <Plus />
-          {t('intake.addImages')}
-        </Button>
-      </header>
+      <ToolboxHeader
+        title={
+          <>
+            <Scaling className="h-4 w-4 text-primary" aria-hidden="true" />
+            {t('tool.export.name')}
+          </>
+        }
+        back
+        busy={busy}
+        onAddImages={intake.openFiles}
+        onAddFolder={intake.openFolder}
+      />
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:overflow-hidden lg:grid-cols-[1fr_400px]">
         <div className="overflow-y-auto p-6">
           {items.length ? (
