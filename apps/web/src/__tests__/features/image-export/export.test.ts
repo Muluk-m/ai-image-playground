@@ -40,7 +40,14 @@ describe('export pipeline', () => {
     const decode = vi.fn(async () => bitmap)
     vi.stubGlobal('createImageBitmap', decode)
     const files = await prepareExports(
-      [{ id: 'one', name: 'photo.jpg', media: 'image', load: async () => new Blob(['original']) }],
+      [
+        {
+          id: 'one',
+          name: 'photo.final.jpg',
+          media: 'image',
+          load: async () => new Blob(['original']),
+        },
+      ],
       {
         mode: 'width',
         value: 720,
@@ -53,7 +60,7 @@ describe('export pipeline', () => {
       new AbortController().signal,
       vi.fn(),
     )
-    expect(files.map((file) => file.name)).toEqual(['photo.png', 'photo@2x.jpg'])
+    expect(files.map((file) => file.name)).toEqual(['photo.final.png', 'photo.final@2x.jpg'])
     expect(decode).toHaveBeenCalledTimes(1)
     expect(draw).toHaveBeenNthCalledWith(1, bitmap, 0, 0, 720, 540)
     expect(draw).toHaveBeenNthCalledWith(2, bitmap, 0, 0, 1440, 1080)

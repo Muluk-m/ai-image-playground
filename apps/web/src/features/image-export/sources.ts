@@ -24,6 +24,7 @@ export function taskExportSources(tasks: readonly TaskRecord[]): ExportSource[] 
       name: `image-${stamp(task.createdAt)}${task.outputImages.length > 1 ? `-${index + 1}` : ''}`,
       media: 'image' as const,
       load: async (signal?: AbortSignal) => {
+        signal?.throwIfAborted()
         const source = await loadImageOriginal(ref)
         if (!source) throw new Error('Original image unavailable')
         return originalBlob(source, signal)
