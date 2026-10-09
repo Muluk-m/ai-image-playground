@@ -16,9 +16,11 @@ import { openCanvas } from '../../helpers/activeProject'
 const state = () => useAgentStore.getState()
 let turnResponse: () => Promise<Response>
 let receiptResponse: () => Response
+let withdrawalResponse: () => Response
 const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   const url = String(input)
-  if (url.includes('/submissions/')) return receiptResponse()
+  if (url.includes('/submissions/'))
+    return url.endsWith('/withdraw') ? withdrawalResponse() : receiptResponse()
   if (url.endsWith('/abort')) return Response.json({ aborted: true })
   if (url.endsWith('/conversations') && init?.method === 'POST')
     return Response.json({
@@ -30,6 +32,10 @@ const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
 })
 beforeEach(async () => {
   receiptResponse = () => Response.json({ receipt: null })
+  withdrawalResponse = () =>
+    Response.json({
+      receipt: { state: 'cancelled', queued: { id: 'not-accepted', text: '', createdAt: 1 } },
+    })
   history.replaceState(null, '', '/')
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
@@ -73,6 +79,7 @@ it.each([false, true])('发送中点中止后切项目，重新订阅=%s 时仍�
         queued: { id: 'old-user', text: '旧项目生成', createdAt: 1 },
       },
     })
+  withdrawalResponse = receiptResponse
   await state().abort()
   await vi.waitFor(() => expect(state().returnedMessagesPending).toBe(false))
   expect(await state().createProject()).toBe(true)

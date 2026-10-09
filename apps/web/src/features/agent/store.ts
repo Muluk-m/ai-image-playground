@@ -981,6 +981,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   } | null = null
   /** 还没落定的那次中止。界面已经放行，新的一轮在起轮前静默等它，不把话挂到正在停的轮上。 */
   let abortInFlight: Promise<unknown> | null = null
+  let submissionAbortInFlight: Promise<void> | null = null
   /**
    * 服务端答应了停，轮的终帧还在流上飞：等它落地（有上限），紧接着发出的那一句才起成新的一轮，
    * 而不是被挂成正在停的这一轮的排队消息。等不到就按现状走，不把用户卡在这里。
@@ -1234,7 +1235,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             undefined,
             signal,
           )
-          if (receipt || ++missing >= 3) return receipt
+          if (receipt) return receipt
+          if (++missing >= 3) {
+            // 空回执不能证明原 POST 已结束。与入队共用锁确认终态：已接收则续接，
+            // 尚未入队则留下取消记录，迟到的同 id POST 不能再开轮。
+            const confirmed = await withdrawSubmission(conversationId, clientMessageId, signal)
+            return confirmed
+          }
           // 另一执行器上的 POST 可能尚在入队前，空回执先有界复查。
           await recoveryDelay(signal, 500)
           continue
@@ -1751,6 +1758,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
       // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
       if (get().stopping && abortInFlight) await abortInFlight
+      if (submissionAbortInFlight) await submissionAbortInFlight
+      if (conversationId && get().returnedMessagesPending) {
+        const stops = abortRecoveries(conversationId)
+        if ((await stops.read()).some((stop) => stop.clientMessageId)) {
+          await recoverReturnedMessages(conversationId)
+          // 控制请求失败时保留草稿，不能把下一句话送进尚未停下的旧轮。
+          if (!stops.current() || (await stops.read()).some((stop) => stop.clientMessageId)) return
+        }
+      }
       if (changingProject || get().historyLoading || get().historyFailed) return
       const trimmed = text.trim()
       if (!trimmed) return
@@ -2006,7 +2022,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               returnedMessagesPending: true,
               returnedMessagesError: 'fallback',
             })
-          void recoverReturnedMessages(target)
+          const recovery = recoverReturnedMessages(target)
+          submissionAbortInFlight = recovery
+          void recovery.finally(() => {
+            if (submissionAbortInFlight === recovery) submissionAbortInFlight = null
+          })
         }
         // 首包丢了也可能已开轮，先按原消息 id 核对回执再收场。
         let outcome: StartTurnOutcome
