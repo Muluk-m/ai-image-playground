@@ -444,12 +444,12 @@ export default function AgentVideoToolCard({
           )}
         </div>
         {downloadFailed && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-xs text-foreground">
             {t('video.downloadFailed')}
           </p>
         )}
         {retryFailed && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-xs text-foreground">
             {t('video.retryFailed')}
           </p>
         )}
