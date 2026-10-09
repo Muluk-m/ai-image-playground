@@ -17,6 +17,18 @@ describe('agentConversationTitle', () => {
     expect(agentConversationTitle('  把背景\n 换成浅木色  ')).toBe('把背景 换成浅木色')
   })
 
+  it('drops markdown markers from a pasted script', () => {
+    const script =
+      '**漫剧名称：《折扇惊梦》**\n**场景：** 烟雨江南\n---\n- **谢云生：** 锦衣公子\n## 镜头 1'
+    expect(agentConversationTitle(script)).toBe(
+      '漫剧名称：《折扇惊梦》 场景： 烟雨江南 谢云生： 锦衣公子 镜头 1',
+    )
+  })
+
+  it('keeps a message that is nothing but markdown markers', () => {
+    expect(agentConversationTitle('---')).toBe('---')
+  })
+
   it('truncates a long first message to the title budget', () => {
     const title = agentConversationTitle('好'.repeat(200))
     expect(title).toHaveLength(AGENT_CONVERSATION_TITLE_MAX_CHARS)
