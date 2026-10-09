@@ -241,6 +241,14 @@ it('does not download a login/error HTML document as a video', async () => {
   expect(host.textContent).toContain('视频下载失败')
 })
 
+it('keeps the task title and cancellation receipt when a video is cancelled', async () => {
+  await render({ ...base, status: 'failed', errorCode: 'cancelled' })
+  expect(host.textContent).toContain(base.title)
+  expect(host.querySelector('[data-slot="stopped-run"]')).not.toBeNull()
+  expect(host.querySelector('[data-slot="tool-error"]')).toBeNull()
+  expect(fixtures.state.retry).not.toHaveBeenCalled()
+})
+
 it('retries a failed video directly without a canvas placeholder and deduplicates clicks', async () => {
   await render({ ...base, status: 'failed', errorCode: 'upstream_error' })
   const retry = button('重试视频生成')
