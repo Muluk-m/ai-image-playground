@@ -373,7 +373,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 `pnpm lint` 会跑 `scripts/check-design.ts`，拦下业务代码里的原生控件、内联 `<svg>`、字符图标、
 任意字号 / 间距 / 圆角 / 颜色、Tailwind 调色板类、字阶外字号、超出三档的字重、`/70` 灰字、
-`focus:` 焦点环、Radix 直引，以及 CSS 里写死的颜色与字号。规则与修法见脚本里的 `DESIGN_RULES`。
+`focus:` 焦点环，以及 CSS 里写死的颜色与字号，规则与修法见脚本里的 `DESIGN_RULES`。
+`components/ui/` 之外 import `@radix-ui/*`、以及任何非 lucide 图标库，由 `biome.json` 的
+`noRestrictedImports` 拦截。
 
 - 存量违规按「文件 × 规则」计数记在 `scripts/design-baseline.json`，只许降不许升。修掉存量后
   跑 `pnpm design:baseline` 把计数收紧并一起提交。
