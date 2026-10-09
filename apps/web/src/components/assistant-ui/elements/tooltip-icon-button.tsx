@@ -17,7 +17,7 @@ export type TooltipIconButtonProps = ComponentPropsWithoutRef<typeof Button> & {
 /** 只有图标的按钮：悬停或聚焦显示提示，读屏读到同一段文字。 */
 export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButtonProps>(
   ({ children, tooltip, side = 'bottom', className, ...rest }, ref) => (
-    <TooltipProvider>
+    <TooltipProvider delayDuration={300} skipDelayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -35,7 +35,13 @@ export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButton
             {children}
           </Button>
         </TooltipTrigger>
-        <TooltipContent side={side}>{tooltip}</TooltipContent>
+        <TooltipContent
+          side={side}
+          sideOffset={6}
+          className="z-[1000] bg-foreground px-2.5 text-background motion-reduce:animate-none"
+        >
+          {tooltip}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   ),
