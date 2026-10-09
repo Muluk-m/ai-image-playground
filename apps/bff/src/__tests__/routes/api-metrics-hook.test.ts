@@ -98,7 +98,11 @@ describe('API statistics on the real request pipeline', () => {
       level: 'info',
       fields: { status: 200, route: 'GET /api/capabilities' },
     })
-    expect(rejected).toMatchObject({ level: 'warn', fields: { status: 404 } })
+    expect(rejected).toMatchObject({
+      level: 'warn',
+      fields: { status: 404, path: '/api/no-such-endpoint' },
+    })
+    expect(successful?.fields).not.toHaveProperty('path')
     expect(records.some((row) => row.request_id === 'excluded-health-request')).toBe(false)
   })
 
