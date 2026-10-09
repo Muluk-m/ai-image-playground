@@ -1,12 +1,7 @@
 import { i18next } from '../../../i18n'
 import { canvasToBlob } from '../../../lib/canvasImage'
 import { blobDataUrl } from '../../../lib/cloudMedia'
-import {
-  assertUsableMaskCoverage,
-  classifyMaskAlpha,
-  isUsableMaskLasso,
-  maskPaintOperation,
-} from '../../../lib/mask'
+import { assertUsableMaskCoverage, classifyMaskAlpha, maskPaintOperation } from '../../../lib/mask'
 import type { ImageEl } from './canvasDoc'
 
 export interface Point {
@@ -60,9 +55,8 @@ export function pageToMaskPixel(el: ImageEl, size: MaskSize, point: Point): Poin
 }
 
 /**
- * 把一笔烧进画布：先描线，再把闭合轮廓填满。
- * 填充那一步是产品意图——用户画一条线圈住一块，松手整块都算选中，
- * 而不是只有笔尖实际划过的那几个像素。
+ * 画笔与橡皮只涂抹笔尖经过的像素；即使轨迹围成圈，也不填充内部。
+ * 框选则填满矩形。预览与导出的遮罩共用这套语义。
  */
 export function paintMaskStroke(
   ctx: CanvasRenderingContext2D,
@@ -103,10 +97,6 @@ export function paintMaskStroke(
   // 单点轻触也要留下一个圆点：零长度路径 stroke 不出任何像素。
   if (points.length === 1) ctx.lineTo(first.x + 0.01, first.y)
   ctx.stroke()
-  if (isUsableMaskLasso(points)) {
-    ctx.closePath()
-    ctx.fill('evenodd')
-  }
   ctx.restore()
 }
 
