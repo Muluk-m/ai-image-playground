@@ -10,6 +10,13 @@ vi.mock('../../../i18n', () => {
   return { useTranslation: () => ({ t }) }
 })
 vi.mock('../../../features/toolbox/lib/deliver', () => ({ downloadImages: vi.fn() }))
+vi.mock('../../../features/image-export/export', async (importActual) => ({
+  ...(await importActual<typeof import('../../../features/image-export/export')>()),
+  prepareExports: vi.fn(async (inputs: readonly { load: () => Promise<Blob> }[]) => {
+    for (const input of inputs) await input.load()
+    return []
+  }),
+}))
 const sources = [
   { id: 'one', name: 'photo', media: 'image' as const, load: async () => new Blob(['image']) },
 ]
@@ -70,6 +77,12 @@ describe('image resize editing', () => {
     await fill(width, '240')
     expect(host.querySelector<HTMLInputElement>('#export-height')!.value).toBe('180')
     expect(exportButton().disabled).toBe(false)
+  })
+  it('reuses the original read for the size preview when exporting one image', async () => {
+    const load = vi.fn(async () => new Blob(['image']))
+    await act(async () => root.render(<ExportForm sources={[{ ...sources[0], load }]} />))
+    await act(async () => exportButton().click())
+    expect(load).toHaveBeenCalledTimes(1)
   })
   it('exposes only the replacement image resize tool', () => {
     expect(TOOLS.filter((tool) => tool.id === 'export')).toHaveLength(1)

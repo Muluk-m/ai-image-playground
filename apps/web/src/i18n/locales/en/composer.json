@@ -12,17 +12,12 @@
     "deleteMessage_one": "Delete {{count}} selected record?",
     "deleteMessage_other": "Delete {{count}} selected records?",
     "noImages": "The selected records have no images",
-    "downloadStarted_one": "Downloading {{count}} image...",
-    "downloadStarted_other": "Downloading {{count}} images...",
-    "downloadPartial": "Download finished: {{success}} succeeded, {{failed}} failed",
-    "downloadSucceeded_one": "Downloaded {{count}} image",
-    "downloadSucceeded_other": "Downloaded {{count}} images",
     "clearSelection": "Clear selection",
     "deselectAll": "Deselect all",
     "selectAllVisible": "Select all visible",
     "toggleFavorite": "Favorite / unfavorite",
-    "download": "Download selected",
-    "delete": "Delete selected"
+    "delete": "Delete selected",
+    "export": "Export selected"
   },
   "bar": {
     "expand": "Expand input",

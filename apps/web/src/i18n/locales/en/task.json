@@ -1,15 +1,8 @@
 {
   "download": {
-    "started_one": "Downloading {{count}} image...",
-    "started_other": "Downloading {{count}} images...",
-    "partial": "Download finished: {{success}} succeeded, {{failed}} failed",
-    "succeeded_one": "Downloaded {{count}} image",
-    "succeeded_other": "Downloaded {{count}} images",
     "start": "Download started",
     "failed": "Download failed",
-    "inProgress": "Downloading...",
-    "single": "Download image",
-    "multiple": "Download {{n}} images"
+    "export": "Export images"
   },
   "action": {
     "retryTask": "Retry task",
