@@ -119,6 +119,13 @@ it('uses a video waiting surface, server progress and an independent cancel acti
     '0:42',
   )
   expect(host.querySelector('video')).toBeNull()
+  const card = host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!
+  expect(card.style.width).toContain('30rem')
+  expect(host.querySelector<HTMLElement>('[data-slot="video-generation"]')!.style.aspectRatio).toBe(
+    '9 / 16',
+  )
+  for (const label of ['取消', '查看提示词'])
+    expect(button(label).className).toContain('h-8 rounded-md px-3 text-xs')
   await act(async () => button('取消').click())
   expect(fixtures.state.cancelJob).toHaveBeenCalledWith(base.id)
 })

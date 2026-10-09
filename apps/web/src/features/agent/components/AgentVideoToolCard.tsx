@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
 import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
-import { Button } from '../../../components/ui/button'
+import { Button, buttonVariants } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -196,6 +196,8 @@ export default function AgentVideoToolCard({
     }
   }
   const hasMedia = !!artifacts.length
+  const waiting = !hasMedia && !!progress
+  const aspectRatio = artifacts[0]?.video?.aspectRatio ?? video?.aspectRatio
   return (
     <section
       id={id}
@@ -205,11 +207,8 @@ export default function AgentVideoToolCard({
         'flex min-w-0 max-w-full flex-col rounded-2xl border border-border bg-card',
         hasMedia ? 'overflow-hidden' : 'gap-3 p-3 sm:p-4',
       )}
-      style={
-        hasMedia
-          ? { width: videoCardWidth(artifacts[0]?.video?.aspectRatio ?? video?.aspectRatio) }
-          : undefined
-      }
+      // 生成中的占位和成片共用同一宽度上限，否则占位会按整列宽度撑成一大块空白。
+      style={hasMedia || waiting ? { width: videoCardWidth(aspectRatio) } : undefined}
     >
       {hasMedia && (
         <div className="flex flex-col gap-px bg-border">
@@ -243,7 +242,10 @@ export default function AgentVideoToolCard({
         {video && <AgentVideoDetails video={video} />}
         {progress && !artifacts.length && (
           <>
-            <VideoGeneration aria-hidden="true" />
+            <VideoGeneration
+              aria-hidden="true"
+              style={aspectRatio ? { aspectRatio: aspectRatio.replace(':', ' / ') } : undefined}
+            />
             <AgentJobProgress progress={progress} />
           </>
         )}
@@ -354,7 +356,10 @@ export default function AgentVideoToolCard({
                 {t('tool.viewPrompt')}
               </Button>
             ))}
-          <AgentJobCancel message={message} />
+          <AgentJobCancel
+            message={message}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+          />
           {message.status === 'queued' && message.retryOf && (
             <Button
               variant="ghost"

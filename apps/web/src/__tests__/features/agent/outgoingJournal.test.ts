@@ -1169,7 +1169,7 @@ it('keeps every selected position when one original cannot be stored and restore
     await session.flush()
     const restored = new DraftSession(session.key)
     await restored.ready
-    expect(restored.getSnapshot().unsent?.references).toEqual(selected)
+    expect(restored.getSnapshot().draft.references).toEqual(selected)
     await act(async () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 stored-2"]')!.click()
       await vi.waitFor(() =>
@@ -1312,8 +1312,8 @@ it('stores mixed canvas library and mask inputs as local handles before drafts o
     await session.flush()
     const recovered = new DraftSession(session.key)
     await recovered.ready
-    expect(JSON.stringify(recovered.getSnapshot().unsent)).not.toContain('base64,')
-    expect(recovered.getSnapshot().unsent?.references.map((reference) => reference.id)).toEqual([
+    expect(JSON.stringify(recovered.getSnapshot().draft)).not.toContain('base64,')
+    expect(recovered.getSnapshot().draft.references.map((reference) => reference.id)).toEqual([
       'canvas-original',
       'library-original',
       'mask-target',
@@ -1512,9 +1512,9 @@ it('reserves a selected group before reads so an overlapping selection cannot ex
     await session.flush()
     const restored = new DraftSession(session.key)
     await restored.ready
-    expect(restored.getSnapshot().unsent?.references).toHaveLength(100)
+    expect(restored.getSnapshot().draft.references).toHaveLength(100)
     expect(
-      restored.getSnapshot().unsent?.references.some((reference) => reference.name === 'extra'),
+      restored.getSnapshot().draft.references.some((reference) => reference.name === 'extra'),
     ).toBe(false)
     expect(blocked).toHaveBeenCalledTimes(1)
     expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
@@ -1801,8 +1801,8 @@ it('keeps the journal when recovered draft cleanup cannot commit and preserves a
     await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
     const restored = new DraftSession(session.key)
     await restored.ready
-    expect(restored.getSnapshot().unsent?.prompt).toBe('用户后来输入的另一句')
-    expect(restored.getSnapshot().unsent?.submission).toBeUndefined()
+    expect(restored.getSnapshot().draft.prompt).toBe('用户后来输入的另一句')
+    expect(restored.getSnapshot().draft.submission).toBeUndefined()
     const turns = fetchMock.mock.calls.filter(([url]) => String(url).includes('/turns'))
     expect(turns).toHaveLength(1)
     expect(JSON.parse(String(turns[0]?.[1]?.body)).clientMessageId).toBe(submission.id)
@@ -1848,9 +1848,7 @@ it('does not offer a journal-owned draft for editing before conversation history
     })
     expect(useAgentStore.getState().historyLoading).toBe(false)
     expect(useAgentStore.getState().loaded).toBe(false)
-    const restore = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '恢复',
-    )
+    const restore = host.querySelector<HTMLButtonElement>('button[aria-label="恢复"]') ?? undefined
     act(() => restore?.click())
     expect(currentProjectDraft(CONVERSATION).getSnapshot().draft.prompt).toBe('')
     expect(restore === undefined || restore.disabled).toBe(true)
@@ -1902,7 +1900,7 @@ it('preserves the read draft and its original while journal recovery is unreadab
       await currentProjectDraft(CONVERSATION).ready
     })
     const session = currentProjectDraft(CONVERSATION)
-    expect(session.getSnapshot().unsent).toMatchObject(original)
+    expect(session.getSnapshot().draft).toMatchObject(original)
     expect(host.querySelector('[role="textbox"]')?.getAttribute('contenteditable')).toBe('false')
     expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
       true,
@@ -1912,22 +1910,17 @@ it('preserves the read draft and its original while journal recovery is unreadab
     await session.flush()
     const disk = new DraftSession(session.key)
     await disk.ready
-    expect(disk.getSnapshot().unsent).toMatchObject(original)
+    expect(disk.getSnapshot().draft).toMatchObject(original)
     expect(new Uint8Array((await readLocalAttachment(handle)).data)).toEqual(
       new Uint8Array([104, 105]),
     )
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
     failure.mockRestore()
-    const retry = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '重试恢复',
-    )
+    const retry =
+      host.querySelector<HTMLButtonElement>('button[aria-label="重试恢复"]') ?? undefined
     expect(retry).toBeDefined()
     await act(async () => retry!.click())
     await vi.waitFor(() => expect(session.getSnapshot().error).toBeNull())
-    const restore = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '恢复',
-    )
-    act(() => restore!.click())
     expect(session.getSnapshot().draft).toMatchObject(original)
     expect(host.querySelector('[role="textbox"]')?.getAttribute('contenteditable')).toBe('true')
   } finally {

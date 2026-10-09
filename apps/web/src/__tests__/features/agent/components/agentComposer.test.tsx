@@ -623,11 +623,24 @@ describe('智能体输入框', () => {
 })
 
 describe('未发送的草稿', () => {
-  /** 上次在这个会话里没发出去的一句话；回到它时输入框由一个新会话读回。 */
-  async function leftBehind(conversationId: string, prompt: string): Promise<void> {
+  /** 上次在这个会话里发送失败的一句话（`failed: false` 是只打了字没发）；回到它时由一个新会话读回。 */
+  async function leftBehind(conversationId: string, prompt: string, failed = true): Promise<void> {
     const previous = new DraftSession(scopedStorageName(`agent-draft:${conversationId}`))
     await previous.ready
-    previous.update({ prompt, references: [] })
+    previous.update({
+      prompt,
+      references: [],
+      ...(failed && {
+        submission: {
+          id: `failed-${conversationId}`,
+          text: prompt,
+          mode: 'image' as const,
+          references: [],
+          params: { model: 'gpt-image-2', size: '1536x1024' },
+          clarificationAnswer: false,
+        },
+      }),
+    })
     await previous.flush()
     useAgentStore.setState({ conversationId })
   }
@@ -637,7 +650,7 @@ describe('未发送的草稿', () => {
     await vi.waitFor(() => expect(editor().getAttribute('aria-busy')).toBe('false'))
   }
 
-  it('回到项目时提示有未发送的草稿，恢复后放回输入框并能发出', async () => {
+  it('回到项目时提示发送失败的那条，恢复后放回输入框并能发出', async () => {
     await leftBehind('draft-restore', '上次没发出去的那句')
     await renderLoaded()
     expect(host.textContent).toContain('你有一条未发送的草稿')
@@ -664,16 +677,19 @@ describe('未发送的草稿', () => {
     expect(again.getSnapshot().draft.prompt).toBe('')
   })
 
-  it('开始打新内容时提示让位，清空后又回来', async () => {
+  it('打新内容时失败的那条仍在提示里，不会被盖掉', async () => {
     await leftBehind('draft-typing', '旧的那句')
     await renderLoaded()
     type('新的')
-    expect(host.textContent).not.toContain('你有一条未发送的草稿')
-    editor().textContent = ''
-    act(() => {
-      editor().dispatchEvent(new Event('input', { bubbles: true }))
-    })
     expect(host.textContent).toContain('你有一条未发送的草稿')
+    expect(host.textContent).toContain('旧的那句')
+  })
+
+  it('只打了字没发出去的，回来直接在输入框里，不弹提示', async () => {
+    await leftBehind('draft-typed', '写到一半', false)
+    await renderLoaded()
+    expect(host.textContent).not.toContain('你有一条未发送的草稿')
+    expect(editor().textContent).toBe('写到一半')
   })
 })
 
