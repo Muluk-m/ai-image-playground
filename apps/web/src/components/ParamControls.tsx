@@ -65,10 +65,6 @@ export interface ExtraSettings {
   section: ReactNode
   dirty: boolean
   reset: () => void
-  /** 卡片最前面的一组（智能体把模型选择收进来）。 */
-  lead?: ReactNode
-  /** chip 上替代画幅形状的图标与摘要前缀（模型名）。 */
-  chip?: { icon: ReactNode; label: string }
   /** 摘要后的状态标记。 */
   badge?: ReactNode
   /** 卡片最后的说明。 */
@@ -152,11 +148,7 @@ export function ImageSettings({
     : selection.kind === 'custom'
       ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)]
       : [ratioLabel, selection.kind === 'preset' && capabilities.size ? selection.tier : undefined]
-  const summary = [
-    extra?.chip?.label,
-    ...sizeSummary,
-    countVisible ? t('settings.count', { count: params.n }) : '',
-  ]
+  const summary = [...sizeSummary, countVisible ? t('settings.count', { count: params.n }) : '']
     .filter(Boolean)
     .join(' · ')
   // 摘要里看不到、又偏离了默认值的参数。
@@ -235,8 +227,6 @@ export function ImageSettings({
 
     return (
       <>
-        {extra?.lead}
-        {extra?.section}
         <SettingsSection
           title={t('param.aspectRatio')}
           hint={customActive ? customHint : undefined}
@@ -321,6 +311,8 @@ export function ImageSettings({
                 />
               </SettingsSection>
             )}
+
+        {extra?.section}
 
         {countVisible && (
           <SettingsSection title={t('param.count')}>
@@ -428,12 +420,10 @@ export function ImageSettings({
       title={t('settings.title')}
       summary={summary}
       icon={
-        extra?.chip?.icon ?? (
-          <RatioShape
-            ratio={selection.kind === 'custom' ? selection.ratio : ratio}
-            className="h-3.5 w-3.5"
-          />
-        )
+        <RatioShape
+          ratio={selection.kind === 'custom' ? selection.ratio : ratio}
+          className="h-3.5 w-3.5"
+        />
       }
       badge={extra?.badge}
       dirty={dirty}

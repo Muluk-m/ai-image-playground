@@ -96,7 +96,7 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
-/** 模型列表：图标 + 名称 + 所属渠道，选中项右侧打勾。 */
+/** 紧凑模型列表：名称与渠道排在同一行，选中项右侧打勾。 */
 export function ModelList({
   options,
   value,
@@ -152,20 +152,23 @@ export function ModelList({
               aria-selected={selected}
               tabIndex={tabStop ? 0 : -1}
               title={option.title}
+              aria-label={`${option.label} · ${option.description}`}
               onClick={() => onPick(option.value)}
               className={cn(
-                'relative flex w-full items-start gap-2 rounded-lg py-2 pe-9 ps-3 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none',
+                'flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-body-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none',
                 selected && 'bg-accent',
               )}
             >
-              <span className="mt-0.5 flex shrink-0">
+              <span className="flex shrink-0">
                 <ModelLogo model={option.model} />
               </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate font-medium text-foreground">{option.label}</span>
-                <span className="truncate text-xs text-muted-foreground">{option.description}</span>
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                {option.label}
               </span>
-              {selected && <Check aria-hidden="true" className="absolute end-3 top-2.5 h-4 w-4" />}
+              <span className="max-w-20 truncate text-label-sm text-muted-foreground">
+                {option.description}
+              </span>
+              {selected && <Check aria-hidden="true" className="h-4 w-4 shrink-0" />}
             </button>
           )
         })}
@@ -180,12 +183,18 @@ export function ModelList({
 }
 
 /** 独立的模型选择 chip（首页、画布生成栏）。 */
-export function ModelSelector({ size = 'md' }: { size?: ComposerControlSize }) {
+export function ModelSelector({
+  size = 'md',
+  label,
+}: {
+  size?: ComposerControlSize
+  label?: string
+}) {
   const { t } = useTranslation('composer')
   const { options, currentValue, current, pick } = useModelChoices()
   const [open, setOpen] = useState(false)
-  if (options.length === 0) return null
-  const shown = current?.label ?? t('param.noModel')
+  if (options.length === 0 && !label) return null
+  const shown = label ?? current?.label ?? t('param.noModel')
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -194,7 +203,8 @@ export function ModelSelector({ size = 'md' }: { size?: ComposerControlSize }) {
           role="combobox"
           aria-expanded={open}
           aria-label={`${t('param.model')} ${shown}`}
-          title={current?.title ?? shown}
+          title={label ?? current?.title ?? shown}
+          disabled={options.length === 0}
           className={composerModelChipClass(size)}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -204,7 +214,7 @@ export function ModelSelector({ size = 'md' }: { size?: ComposerControlSize }) {
           }}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {current ? <ModelLogo model={current.model} /> : ChipIcons.model}
+            {!label && current ? <ModelLogo model={current.model} /> : ChipIcons.model}
           </span>
           <span className="min-w-0 truncate">{shown}</span>
           <ChevronDown
