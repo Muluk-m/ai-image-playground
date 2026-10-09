@@ -62,6 +62,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 it('fits square and landscape results to their actual ratios without fixed-ratio side bars', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
+  const onPreviewResult = vi.fn()
   setAgentCanvasSink({
     has: () => true,
     thumbnail: async () => 'data:image/png;base64,preview',
@@ -106,7 +107,7 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
               },
             ],
           }}
-          onPreviewResult={vi.fn()}
+          onPreviewResult={onPreviewResult}
         />,
       ),
     )
@@ -120,6 +121,12 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
     })
     act(() => image.dispatchEvent(new Event('load')))
     expect(Number(tiles[2]!.style.aspectRatio)).toBeCloseTo(2 / 3)
+    act(() => tiles[0]!.querySelector<HTMLButtonElement>('button')!.click())
+    expect(onPreviewResult).toHaveBeenCalledWith(
+      'ratios',
+      'square',
+      'data:image/png;base64,preview',
+    )
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)

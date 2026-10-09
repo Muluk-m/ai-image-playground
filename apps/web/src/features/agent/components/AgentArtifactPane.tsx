@@ -65,6 +65,7 @@ async function sourceOrCanvas(
 export default function AgentArtifactPane({
   message,
   selectedId,
+  initialPreview,
   onSelect,
   onClose,
   onViewCanvas,
@@ -73,6 +74,7 @@ export default function AgentArtifactPane({
   presentation?: 'panel' | 'overlay'
   message: AgentToolMessage
   selectedId?: string
+  initialPreview?: { readonly id: string; readonly source: string } | null
   onSelect: (id: string) => void
   onClose: () => void
   onViewCanvas?: (objectIds?: readonly string[]) => void
@@ -82,7 +84,9 @@ export default function AgentArtifactPane({
   const [loadedSource, setLoadedSource] = useState<{ id: string; value: string | null } | null>(
     null,
   )
-  const [preview, setPreview] = useState<{ id: string; source: string } | null>(null)
+  const [preview, setPreview] = useState<{ id: string; source: string } | null>(
+    initialPreview ?? null,
+  )
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
   const [retry, setRetry] = useState(0)
@@ -155,15 +159,17 @@ export default function AgentArtifactPane({
     let alive = true
     setLoading(true)
     setLoadedSource(null)
-    setPreview((previous) => (previous?.id === active?.id ? previous : null))
+    const visiblePreview = initialPreview?.id === active?.id ? initialPreview : null
+    setPreview((previous) => visiblePreview ?? (previous?.id === active?.id ? previous : null))
     if (!active) return
     // Show the same canvas preview as the result card while the original loads independently.
-    void active
-      .loadPreview()
-      .catch(() => null)
-      .then((next) => {
-        if (alive && next) setPreview({ id: active.id, source: next })
-      })
+    if (!visiblePreview)
+      void active
+        .loadPreview()
+        .catch(() => null)
+        .then((next) => {
+          if (alive && next) setPreview({ id: active.id, source: next })
+        })
     void active
       .load()
       .catch(() => null)
@@ -175,10 +181,13 @@ export default function AgentArtifactPane({
     return () => {
       alive = false
     }
-  }, [active?.id, message.delivery, retry])
+  }, [active?.id, message.delivery, retry, initialPreview])
 
   if (!active) return null
-  const displaySource = source ?? (preview?.id === active.id ? preview.source : null)
+  const displaySource =
+    source ??
+    (preview?.id === active.id ? preview.source : null) ??
+    (initialPreview?.id === active.id ? initialPreview.source : null)
   const download = () => {
     if (!source && !active.videoUrl) return
     const link = document.createElement('a')
