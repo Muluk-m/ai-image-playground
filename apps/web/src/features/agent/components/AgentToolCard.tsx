@@ -1,11 +1,12 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import { ArrowUpRight, Download, Ellipsis, Images, Maximize2 } from 'lucide-react'
+import { ArrowUpRight, Download, Ellipsis, FileText, Images, Maximize2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
@@ -529,15 +530,13 @@ function StandardAgentToolCard({
         }
       >
         {message.prompt && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
+          <TooltipIconButton
             className="self-start"
+            tooltip={t('tool.viewPrompt')}
             onClick={() => setPromptOpen(true)}
           >
-            {t('tool.viewPrompt')}
-          </Button>
+            <FileText aria-hidden="true" />
+          </TooltipIconButton>
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
@@ -584,14 +583,13 @@ function StandardAgentToolCard({
             </a>
           ))}
           {message.prompt && (
-            <Button
-              variant="ghost"
-              size="sm"
+            <TooltipIconButton
               className="self-start"
+              tooltip={t('tool.viewPrompt')}
               onClick={() => setPromptOpen(true)}
             >
-              {t('tool.viewPrompt')}
-            </Button>
+              <FileText aria-hidden="true" />
+            </TooltipIconButton>
           )}
           <AgentJobCancel message={message} />
           <WakeSkippedNote message={message} />
@@ -772,14 +770,13 @@ function StandardAgentToolCard({
             previews.some((preview) => preview.artifact.media === 'image') &&
             (message.toolName === 'generateImage' || message.toolName === 'editImage')
           ) && (
-            <Button
-              variant="ghost"
-              size="sm"
+            <TooltipIconButton
               className="self-start"
+              tooltip={t('tool.viewPrompt')}
               onClick={() => setPromptOpen(true)}
             >
-              {t('tool.viewPrompt')}
-            </Button>
+              <FileText aria-hidden="true" />
+            </TooltipIconButton>
           )}
         {previews.some((preview) => preview.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
@@ -802,15 +799,9 @@ function StandardAgentToolCard({
               {(message.prompt || onViewCanvas) && (
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                   <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon"
-                      className="size-8 rounded-xl"
-                      aria-label={t('tool.moreActions')}
-                    >
-                      <Ellipsis size={17} aria-hidden="true" />
-                    </Button>
+                    <TooltipIconButton tooltip={t('tool.moreActions')}>
+                      <Ellipsis aria-hidden="true" />
+                    </TooltipIconButton>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-48 rounded-xl p-1.5">
                     {message.prompt && (
@@ -961,15 +952,13 @@ function StandardAgentToolCard({
         <ToolStatus label={statusLabel} status={status} />
       </div>
       {message.prompt && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
+        <TooltipIconButton
           className="self-start"
+          tooltip={t('tool.viewPrompt')}
           onClick={() => setPromptOpen(true)}
         >
-          {t('tool.viewPrompt')}
-        </Button>
+          <FileText aria-hidden="true" />
+        </TooltipIconButton>
       )}
       {promptOpen && message.prompt && (
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />

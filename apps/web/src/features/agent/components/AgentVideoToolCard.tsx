@@ -1,6 +1,7 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { Download, FileText, Images, Maximize2, VideoIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
 import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
 import { Button } from '../../../components/ui/button'
@@ -195,7 +196,6 @@ export default function AgentVideoToolCard({
     }
   }
   const hasMedia = !!artifacts.length
-  const iconButton = 'size-8 text-muted-foreground hover:text-foreground'
   return (
     <section
       id={id}
@@ -282,30 +282,22 @@ export default function AgentVideoToolCard({
           ))}
           {hasMedia && <span className="flex-1" />}
           {hasMedia && onPreviewResult && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={iconButton}
-              title={t('tool.previewResult')}
-              aria-label={t('tool.previewResult')}
+            <TooltipIconButton
+              tooltip={t('tool.previewResult')}
               onClick={() => onPreviewResult(message.id)}
             >
-              <Maximize2 className="size-4" aria-hidden="true" />
-            </Button>
+              <Maximize2 aria-hidden="true" />
+            </TooltipIconButton>
           )}
           {!!canvasIds.length && !onPreviewResult && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={iconButton}
-              title={t('tool.openCanvas')}
-              aria-label={t('tool.openCanvas')}
+            <TooltipIconButton
+              tooltip={t('tool.openCanvas')}
               onClick={() =>
                 onViewCanvas ? onViewCanvas(canvasIds) : agentCanvasSink()?.focus(canvasIds)
               }
             >
-              <Images className="size-4" aria-hidden="true" />
-            </Button>
+              <Images aria-hidden="true" />
+            </TooltipIconButton>
           )}
           {offCanvas && (
             <Button
@@ -354,16 +346,9 @@ export default function AgentVideoToolCard({
           )}
           {message.prompt &&
             (hasMedia ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                className={iconButton}
-                title={t('tool.viewPrompt')}
-                aria-label={t('tool.viewPrompt')}
-                onClick={() => setPromptOpen(true)}
-              >
-                <FileText className="size-4" aria-hidden="true" />
-              </Button>
+              <TooltipIconButton tooltip={t('tool.viewPrompt')} onClick={() => setPromptOpen(true)}>
+                <FileText aria-hidden="true" />
+              </TooltipIconButton>
             ) : (
               <Button variant="ghost" size="sm" onClick={() => setPromptOpen(true)}>
                 {t('tool.viewPrompt')}

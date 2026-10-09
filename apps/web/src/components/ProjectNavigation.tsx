@@ -26,6 +26,7 @@ import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { formatDateMinute } from '../i18n/format'
 import { useStore } from '../store'
+import { TooltipIconButton } from './assistant-ui/elements/tooltip-icon-button'
 import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -301,17 +302,15 @@ export default function ProjectNavigation() {
             </div>
           </PopoverContent>
         </Popover>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground"
+        <TooltipIconButton
+          className="size-9"
           aria-label={t('panel.newProjectAria')}
-          title={t('navigation.newHint')}
+          tooltip={t('navigation.newHint')}
           disabled={busy}
           onClick={() => void enter(undefined, 'chat')}
         >
           {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <Plus />}
-        </Button>
+        </TooltipIconButton>
       </div>
     </div>
   )

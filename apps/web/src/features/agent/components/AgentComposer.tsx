@@ -19,6 +19,7 @@ import {
   ComposerSend,
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import LookChips from '../../../components/LookChips'
@@ -66,6 +67,7 @@ import {
 } from '../../../lib/localAttachmentSources'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { cn } from '../../../lib/utils'
 import { useStore } from '../../../store'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -1175,18 +1177,21 @@ export default function AgentComposer({
           <ComposerActions className="min-w-0">
             {/* 模式只是状态展示、点不动，挤在按钮排里反而像可点控件——交给参数 chip 说明。 */}
             {!productionMode && (
-              <Button
-                type="button"
-                size="icon"
+              <TooltipIconButton
                 variant={autoSubmit ? 'default' : 'secondary'}
                 aria-pressed={autoSubmit}
                 aria-label={t('composer.autoSubmitAria')}
-                title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
-                className="h-8 w-8 shrink-0 rounded-full"
+                tooltip={t(
+                  autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle',
+                )}
+                className={cn(
+                  'rounded-full',
+                  autoSubmit && 'text-primary-foreground hover:text-primary-foreground',
+                )}
                 onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
               >
                 <Zap aria-hidden="true" />
-              </Button>
+              </TooltipIconButton>
             )}
             <AgentParamsChip generationControls={!productionMode} />
             <ComposerSend

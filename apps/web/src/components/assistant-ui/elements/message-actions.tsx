@@ -6,8 +6,8 @@
 import { CheckIcon, CopyIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '../../../lib/utils'
-import { Button } from '../../ui/button'
-import { ghostButton, iconSwap, iconSwapIn, iconSwapOut } from './surfaces'
+import { iconSwap, iconSwapIn, iconSwapOut } from './surfaces'
+import { TooltipIconButton } from './tooltip-icon-button'
 
 export function MessageActions({
   copied,
@@ -32,21 +32,17 @@ export function MessageActions({
   regenerateLabel?: string
   children?: ReactNode
 }) {
-  const iconButton = cn(ghostButton, 'size-8 p-0')
   return (
     <div
       data-slot="message-actions"
-      className={cn('flex flex-wrap items-center gap-1.5', className)}
+      className={cn('flex flex-wrap items-center gap-1', className)}
       {...props}
     >
       {onCopy && (
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={copyLabel}
-          title={copyLabel}
+        <TooltipIconButton
+          tooltip={copyLabel ?? ''}
           onClick={onCopy}
-          className={cn(iconButton, 'grid place-items-center', copied && 'text-primary')}
+          className={cn('grid place-items-center', copied && 'text-primary hover:text-primary')}
         >
           <CopyIcon
             aria-hidden
@@ -61,20 +57,16 @@ export function MessageActions({
               {copyLabel}
             </span>
           )}
-        </Button>
+        </TooltipIconButton>
       )}
       {onEdit && (
-        <Button type="button" variant="secondary" size="sm" className="rounded-xl" onClick={onEdit}>
+        <TooltipIconButton tooltip={editLabel ?? ''} onClick={onEdit}>
           <PencilIcon aria-hidden />
-          {editLabel}
-        </Button>
+        </TooltipIconButton>
       )}
       {onRegenerate && (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="rounded-xl"
+        <TooltipIconButton
+          tooltip={regenerateLabel ?? ''}
           disabled={regenerating}
           onClick={onRegenerate}
         >
@@ -82,8 +74,7 @@ export function MessageActions({
             aria-hidden
             className={cn(regenerating && 'animate-spin motion-reduce:animate-none')}
           />
-          {regenerateLabel}
-        </Button>
+        </TooltipIconButton>
       )}
       {children}
     </div>
