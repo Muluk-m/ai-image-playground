@@ -1,7 +1,9 @@
 import { authenticatedBffFetch } from '../../lib/authClient'
 import { fetchImageDataUrl, queueOutputUrl } from '../../lib/channels/queueClient'
 import { resolveMediaSource } from '../../lib/cloudMedia'
+import { loadImageOriginal } from '../../lib/imageSource'
 import { bffBaseUrl } from '../../lib/runtimeConfig'
+import type { TaskRecord } from '../../types'
 import type { AssetItem, StoredReferenceLoader } from '../agent/lib/assetItems'
 import type { CanvasDoc } from '../canvas/lib/canvasDoc'
 import { exportableElements, safeFileName } from '../canvas/lib/exportImages'
@@ -14,6 +16,25 @@ export async function originalBlob(source: string, signal?: AbortSignal): Promis
   const response = await fetch(resolved, { signal })
   if (!response.ok) throw new Error('Original image unavailable')
   return response.blob()
+}
+export function taskExportSources(tasks: readonly TaskRecord[]): ExportSource[] {
+  return tasks.flatMap((task) =>
+    (task.outputImages ?? []).map((ref, index) => ({
+      id: `${task.id}:${ref}`,
+      name: `image-${stamp(task.createdAt)}${task.outputImages.length > 1 ? `-${index + 1}` : ''}`,
+      media: 'image' as const,
+      load: async (signal?: AbortSignal) => {
+        const source = await loadImageOriginal(ref)
+        if (!source) throw new Error('Original image unavailable')
+        return originalBlob(source, signal)
+      },
+    })),
+  )
+}
+function stamp(time: number) {
+  const date = new Date(time)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}${two(date.getMonth() + 1)}${two(date.getDate())}-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`
 }
 export function canvasExportSources(doc: CanvasDoc, ids?: Iterable<string>): ExportSource[] {
   return exportableElements(doc, ids).map((element) => ({

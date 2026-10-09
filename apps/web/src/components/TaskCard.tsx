@@ -1,8 +1,9 @@
 import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import { taskExportSources } from '../features/image-export/sources'
+import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
-import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -53,31 +54,10 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
-  const showToast = useStore((s) => s.showToast)
-  const [isDownloading, setIsDownloading] = useState(false)
-  const outputCount = task.outputImages?.length ?? 0
-  const downloadLabel = isDownloading
-    ? t('download.inProgress')
-    : outputCount > 1
-      ? t('download.multiple', { n: outputCount })
-      : t('download.single')
-
-  const handleDownload = async (e: React.MouseEvent) => {
+  const exportLabel = t('download.export')
+  const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const ids = task.outputImages ?? []
-    if (ids.length === 0 || isDownloading) return
-    setIsDownloading(true)
-    try {
-      if (ids.length > 1) showToast(t('download.started', { count: ids.length }), 'info')
-      const { success, failed } = await downloadImagesByIds(ids)
-      if (failed > 0) {
-        showToast(t('download.partial', { success, failed }), 'info')
-      } else if (ids.length > 1) {
-        showToast(t('download.succeeded', { count: success }), 'success')
-      }
-    } finally {
-      setIsDownloading(false)
-    }
+    if (task.outputImages?.length) openImageExport(taskExportSources([task]))
   }
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const swipeResetTimerRef = useRef<number | null>(null)
@@ -592,11 +572,11 @@ export default function TaskCard({
                   </svg>
                 </button>
                 <button
-                  onClick={handleDownload}
+                  onClick={handleExport}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label={downloadLabel}
-                  title={downloadLabel}
-                  disabled={!task.outputImages?.length || isDownloading}
+                  aria-label={exportLabel}
+                  title={exportLabel}
+                  disabled={!task.outputImages?.length}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path

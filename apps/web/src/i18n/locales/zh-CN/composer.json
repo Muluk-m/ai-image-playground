@@ -9,15 +9,12 @@
     "deleteTitle": "批量删除",
     "deleteMessage_other": "确定要删除选中的 {{count}} 条记录吗？",
     "noImages": "选中的记录没有图片",
-    "downloadStarted_other": "开始下载 {{count}} 张图片…",
-    "downloadPartial": "下载完成: 成功 {{success}}，失败 {{failed}}",
-    "downloadSucceeded_other": "成功下载 {{count}} 张图片",
     "clearSelection": "取消选择",
     "deselectAll": "取消全选",
     "selectAllVisible": "全选当前可见",
     "toggleFavorite": "收藏/取消收藏",
-    "download": "批量下载",
-    "delete": "删除选中"
+    "delete": "删除选中",
+    "export": "导出所选"
   },
   "bar": {
     "expand": "展开输入框",

@@ -5,9 +5,7 @@
     "succeeded_other": "成功下载 {{count}} 张图片",
     "start": "开始下载",
     "failed": "下载失败",
-    "inProgress": "正在下载...",
-    "single": "下载图片",
-    "multiple": "下载 {{n}} 张图片"
+    "export": "导出图片"
   },
   "action": {
     "retryTask": "重试任务",
