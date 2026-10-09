@@ -32,7 +32,10 @@ export function MessageActions({
   regenerateLabel?: string
   children?: ReactNode
 }) {
-  const iconButton = cn(ghostButton, 'size-8 p-0')
+  const iconButton = cn(
+    ghostButton,
+    'size-8 p-0 hover:bg-foreground/5 hover:text-foreground focus-visible:ring-foreground',
+  )
   return (
     <div
       data-slot="message-actions"
@@ -46,7 +49,7 @@ export function MessageActions({
           aria-label={copyLabel}
           title={copyLabel}
           onClick={onCopy}
-          className={cn(iconButton, 'grid place-items-center', copied && 'text-primary')}
+          className={cn(iconButton, 'grid place-items-center', copied && 'text-foreground')}
         >
           <CopyIcon
             aria-hidden
@@ -64,17 +67,27 @@ export function MessageActions({
         </Button>
       )}
       {onEdit && (
-        <Button type="button" variant="secondary" size="sm" className="rounded-xl" onClick={onEdit}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={iconButton}
+          aria-label={editLabel}
+          title={editLabel}
+          onClick={onEdit}
+        >
           <PencilIcon aria-hidden />
-          {editLabel}
+          <span className="sr-only">{editLabel}</span>
         </Button>
       )}
       {onRegenerate && (
         <Button
           type="button"
-          variant="secondary"
-          size="sm"
-          className="rounded-xl"
+          variant="ghost"
+          size="icon"
+          aria-label={regenerateLabel}
+          title={regenerateLabel}
+          className={iconButton}
           disabled={regenerating}
           onClick={onRegenerate}
         >
@@ -82,7 +95,7 @@ export function MessageActions({
             aria-hidden
             className={cn(regenerating && 'animate-spin motion-reduce:animate-none')}
           />
-          {regenerateLabel}
+          <span className="sr-only">{regenerateLabel}</span>
         </Button>
       )}
       {children}

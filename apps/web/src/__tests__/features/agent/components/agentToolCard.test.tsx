@@ -126,6 +126,54 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
   }
 })
 
+it('browses generated images and previews the selected artifact without opening the first one', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const preview = vi.fn()
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'group',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'generateImage',
+            title: '两张图片',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: ['first', 'second'].map((artifactId, outputIndex) => ({
+              artifactId,
+              outputIndex,
+              taskId: 'task',
+              media: 'image',
+              mime: 'image/png',
+              width: 1024,
+              height: 1024,
+            })),
+          }}
+          onPreviewResult={preview}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(preview).toHaveBeenCalledWith('group', 'second')
+    preview.mockClear()
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    expect(preview).toHaveBeenCalledWith('group', 'second')
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 it('says a submitted background job is still generating and will appear in the conversation', () => {
   const host = document.createElement('div')
   const root = createRoot(host)

@@ -1,5 +1,6 @@
 import { ChevronRight, ListChecks } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -40,8 +41,7 @@ function useOutcomeText(message: AgentToolMessage): string {
 }
 
 /**
- * 这批活儿走到哪儿了：已完成一段、没成的一段，余下留给还在跑的那几个，跑着就一直呼吸。
- * 两个裸计数说不清进度，一条走满的杠看得见。
+ * 连续进度统计已结束的任务（成功或失败）；各结果仍由列表分别说明。
  */
 function InboxProgress({
   completed,
@@ -53,19 +53,12 @@ function InboxProgress({
   running: number
 }) {
   const total = completed + failed + running
+  const { t } = useTranslation('agent')
   return (
-    <span
-      aria-hidden="true"
-      className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-border"
-    >
-      {completed > 0 && (
-        <span className="bg-primary" style={{ width: `${(completed / total) * 100}%` }} />
-      )}
-      {failed > 0 && (
-        <span className="bg-destructive" style={{ width: `${(failed / total) * 100}%` }} />
-      )}
-      {running > 0 && <span className="flex-1 animate-pulse bg-primary/40" />}
-    </span>
+    <JobProgress
+      progress={total ? ((completed + failed) / total) * 100 : 0}
+      label={t('job.inbox.count', { done: completed + failed, total })}
+    />
   )
 }
 
@@ -194,13 +187,13 @@ export default function AgentJobInbox() {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
         }}
-        className={`flex items-center gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-label-sm shadow-lg backdrop-blur transition-colors ${INK} hover:border-primary/40`}
+        className={`flex items-center gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-label-sm shadow-lg backdrop-blur transition-colors ${INK} hover:border-foreground/40`}
       >
         <ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span>{t('job.inbox.title')}</span>
         {inbox.running.length > 0 && (
           <span
-            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-foreground"
             aria-hidden="true"
           />
         )}

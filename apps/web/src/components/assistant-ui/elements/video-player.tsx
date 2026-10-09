@@ -30,6 +30,7 @@ export function VideoPlayer({
   retryLabel,
   aspectRatio = '16 / 9',
   fill = false,
+  maxHeight,
 }: {
   src: string
   poster?: string
@@ -39,6 +40,7 @@ export function VideoPlayer({
   aspectRatio?: string
   /** 由外层定宽（贴合卡片）时铺满宽度、不再自带圆角和高度上限。 */
   fill?: boolean
+  maxHeight?: string
 }) {
   const [failure, setFailure] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -50,7 +52,7 @@ export function VideoPlayer({
           ? 'relative w-full overflow-hidden bg-black'
           : 'relative max-w-full self-start overflow-hidden rounded-xl bg-black'
       }
-      style={fill ? { aspectRatio } : playerFrameStyle(aspectRatio)}
+      style={fill ? { aspectRatio, maxHeight } : playerFrameStyle(aspectRatio)}
     >
       <video
         key={`${src}:${attempt}`}
