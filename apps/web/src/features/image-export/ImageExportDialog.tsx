@@ -24,12 +24,12 @@ export default function ImageExportDialog() {
         data-shadcn-modal
         overlayClassName="z-[1299] bg-black/40 backdrop-blur-sm"
         closeLabel={t('common:action.close')}
-        className="z-[1300] flex w-full flex-col gap-0 p-0 sm:max-w-[440px]"
+        className="z-[1300] flex w-full flex-col gap-0 p-0 sm:max-w-[400px]"
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <SheetHeader className="border-b border-border px-6 py-5 text-left">
-          <SheetTitle>{t('export.title')}</SheetTitle>
-          <SheetDescription>{t('export.description')}</SheetDescription>
+        <SheetHeader className="border-b border-border px-5 py-4 text-left">
+          <SheetTitle className="text-base">{t('export.title')}</SheetTitle>
+          <SheetDescription className="sr-only">{t('export.description')}</SheetDescription>
         </SheetHeader>
         {request && (
           <ExportForm

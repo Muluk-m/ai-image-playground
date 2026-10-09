@@ -134,8 +134,12 @@ describe('plural handling', () => {
       await setLocale('en')
     })
 
-    expect(i18next.t('download.succeeded', { ns: 'task', count: 1 })).toBe('Downloaded 1 image')
-    expect(i18next.t('download.succeeded', { ns: 'task', count: 4 })).toBe('Downloaded 4 images')
+    expect(i18next.t('bulk.deleteMessage', { ns: 'composer', count: 1 })).toBe(
+      'Delete 1 selected record?',
+    )
+    expect(i18next.t('bulk.deleteMessage', { ns: 'composer', count: 4 })).toBe(
+      'Delete 4 selected records?',
+    )
   })
 
   it('uses the single Chinese form for any count', async () => {
@@ -143,7 +147,11 @@ describe('plural handling', () => {
       await setLocale('zh-CN')
     })
 
-    expect(i18next.t('download.succeeded', { ns: 'task', count: 1 })).toBe('成功下载 1 张图片')
-    expect(i18next.t('download.succeeded', { ns: 'task', count: 4 })).toBe('成功下载 4 张图片')
+    expect(i18next.t('bulk.deleteMessage', { ns: 'composer', count: 1 })).toBe(
+      '确定要删除选中的 1 条记录吗？',
+    )
+    expect(i18next.t('bulk.deleteMessage', { ns: 'composer', count: 4 })).toBe(
+      '确定要删除选中的 4 条记录吗？',
+    )
   })
 })

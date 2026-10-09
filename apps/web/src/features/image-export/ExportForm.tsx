@@ -1,8 +1,7 @@
-import { Download, Link2, LoaderCircle, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Download, Images, LoaderCircle, Minus, Plus, RotateCcw } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { Label } from '../../components/ui/label'
 import {
   Select,
   SelectContent,
@@ -12,6 +11,7 @@ import {
 } from '../../components/ui/select'
 import { Slider } from '../../components/ui/slider'
 import { useTranslation } from '../../i18n'
+import { cn } from '../../lib/utils'
 import { CanvasLimitError } from '../toolbox/lib/canvasLimits'
 import { downloadImages } from '../toolbox/lib/deliver'
 import { formatLabel } from '../toolbox/lib/encode'
@@ -24,6 +24,10 @@ import {
 } from './export'
 
 const formats = ['image/png', 'image/jpeg', 'image/webp', 'image/avif'] as const
+const FIELD = 'h-9 rounded-lg border-transparent bg-muted shadow-none'
+const ICON_BUTTON =
+  'size-9 shrink-0 rounded-lg bg-muted text-muted-foreground hover:text-foreground'
+
 export default function ExportForm({
   sources,
   name = 'images',
@@ -34,12 +38,13 @@ export default function ExportForm({
   onBusyChange?: (busy: boolean) => void
 }) {
   const { t } = useTranslation('toolbox')
-  const sizeLabels = {
-    original: t('export.original'),
-    width: t('export.width'),
-    height: t('export.height'),
-    percent: t('export.percent'),
+  const modeLabels = {
+    original: t('export.by.original'),
+    width: t('export.by.width'),
+    height: t('export.by.height'),
+    percent: t('export.by.percent'),
   }
+  const axisLabels = { width: t('export.width'), height: t('export.height') }
   const [settings, setSettings] = useState<ExportSettings>({
     mode: 'original',
     value: 100,
@@ -47,18 +52,24 @@ export default function ExportForm({
     rows: [{ id: crypto.randomUUID(), scale: 1, format: 'image/png' }],
   })
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [done, setDone] = useState(0)
   const [sizeDraft, setSizeDraft] = useState<{ field: SizeMode; text: string } | null>(null)
   const abort = useRef<AbortController | null>(null)
+  // 单张时读尺寸已经拿到原图，导出直接复用，不再下载第二遍。
+  const firstBlob = useRef<Blob | null>(null)
   const single = sources.length === 1 && sources[0]?.media === 'image'
   const first = sources[0]
   const [loading, setLoading] = useState(false)
   useEffect(() => {
     let alive = true
+    let url: string | null = null
     const controller = new AbortController()
+    firstBlob.current = null
     setDimensions(null)
+    setPreview(null)
     setError('')
     setDone(0)
     setSizeDraft(null)
@@ -67,9 +78,14 @@ export default function ExportForm({
     setLoading(true)
     void first
       .load(controller.signal)
-      .then(createImageBitmap)
-      .then((bitmap) => {
-        if (alive) setDimensions({ width: bitmap.width, height: bitmap.height })
+      .then(async (blob) => {
+        const bitmap = await createImageBitmap(blob)
+        if (alive) {
+          firstBlob.current = blob
+          setDimensions({ width: bitmap.width, height: bitmap.height })
+          url = URL.createObjectURL?.(blob) ?? null
+          setPreview(url)
+        }
         bitmap.close()
       })
       .catch(() => {
@@ -81,6 +97,7 @@ export default function ExportForm({
     return () => {
       alive = false
       controller.abort()
+      if (url) URL.revokeObjectURL(url)
     }
   }, [single, first, t])
   useEffect(() => () => abort.current?.abort(), [])
@@ -89,15 +106,18 @@ export default function ExportForm({
   }, [progress, onBusyChange])
   const images = sources.filter((one) => one.media === 'image').length
   const count = images * settings.rows.length + sources.length - images
-  const size = dimensions
-    ? exportSize(
-        dimensions.width,
-        dimensions.height,
-        settings.mode,
-        settings.value > 0 ? settings.value : 1,
-        1,
-      )
-    : null
+  const busy = progress !== null
+  const outputSize = (scale: number) =>
+    dimensions
+      ? exportSize(
+          dimensions.width,
+          dimensions.height,
+          settings.mode,
+          settings.value > 0 ? settings.value : 1,
+          scale,
+        )
+      : null
+  const size = outputSize(1)
   const changeMode = (mode: SizeMode) => {
     setSizeDraft(null)
     setSettings((prev) => ({
@@ -125,6 +145,11 @@ export default function ExportForm({
     !Number.isFinite(settings.value) ||
     settings.value <= 0 ||
     ((settings.mode === 'width' || settings.mode === 'height') && !Number.isInteger(settings.value))
+  const updateRow = (id: string, patch: Partial<ExportSettings['rows'][number]>) =>
+    setSettings((prev) => ({
+      ...prev,
+      rows: prev.rows.map((one) => (one.id === id ? { ...one, ...patch } : one)),
+    }))
   const run = async () => {
     const controller = new AbortController()
     abort.current = controller
@@ -132,7 +157,9 @@ export default function ExportForm({
     setDone(0)
     setProgress(0)
     try {
-      const files = await prepareExports(sources, settings, controller.signal, setProgress)
+      const cached = firstBlob.current
+      const inputs = single && cached && first ? [{ ...first, load: async () => cached }] : sources
+      const files = await prepareExports(inputs, settings, controller.signal, setProgress)
       controller.signal.throwIfAborted()
       await downloadImages(files, `${name}.zip`, controller.signal)
       if (!controller.signal.aborted) setDone(files.length)
@@ -149,113 +176,135 @@ export default function ExportForm({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-6 py-6">
-        <div className="rounded-xl border border-border bg-muted/30 p-4">
-          <p className="text-sm font-medium">
-            {single ? first?.name : t('export.selected', { count: sources.length })}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {loading
-              ? t('export.loading')
-              : dimensions
-                ? `${dimensions.width} × ${dimensions.height} px`
-                : t('export.batchHint')}
-          </p>
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <div className="flex items-center gap-3">
+          <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
+            {single && preview ? (
+              <img src={preview} alt="" className="size-full object-cover" />
+            ) : (
+              <Images className="size-5" aria-hidden="true" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">
+              {single ? first?.name : t('export.selected', { count: sources.length })}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+              {loading
+                ? t('export.loading')
+                : dimensions
+                  ? `${dimensions.width} × ${dimensions.height}`
+                  : !single && t('export.batchHint')}
+            </p>
+          </div>
         </div>
         {images > 0 && (
-          <fieldset disabled={progress !== null} className="space-y-6">
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">{t('export.size')}</h3>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Link2 className="h-3.5 w-3.5" />
-                  {t('export.locked')}
-                </span>
-              </div>
-              <Select
-                value={settings.mode}
-                onValueChange={(value) => changeMode(value as SizeMode)}
-                disabled={progress !== null}
-              >
-                <SelectTrigger aria-label={t('export.size')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent data-shadcn-modal className="z-[1400]">
-                  {(['original', 'width', 'height', 'percent'] as const).map((mode) => (
-                    <SelectItem key={mode} value={mode}>
-                      {sizeLabels[mode]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {single && size ? (
-                <div className="grid grid-cols-2 gap-3">
+          <fieldset disabled={busy} className="space-y-6">
+            <Section title={t('export.size')}>
+              {single ? (
+                <div className="flex gap-2">
                   {(['width', 'height'] as const).map((axis) => (
-                    <div key={axis} className="space-y-2">
-                      <Label htmlFor={`export-${axis}`}>{sizeLabels[axis]} · px</Label>
+                    <Affix key={axis} before={axis === 'width' ? 'W' : 'H'}>
                       <Input
                         id={`export-${axis}`}
                         type="number"
                         min={1}
                         step={1}
-                        value={sizeDraft?.field === axis ? sizeDraft.text : size[axis]}
+                        className={cn(FIELD, 'pl-8 tabular-nums')}
+                        aria-label={axisLabels[axis]}
+                        value={sizeDraft?.field === axis ? sizeDraft.text : (size?.[axis] ?? '')}
+                        disabled={!size}
                         onChange={(event) => changeSize(axis, event.target.value)}
                         aria-invalid={sizeDraft?.field === axis && invalid}
                       />
-                    </div>
+                    </Affix>
                   ))}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={ICON_BUTTON}
+                    aria-label={t('export.reset')}
+                    title={t('export.reset')}
+                    disabled={settings.mode === 'original' && !sizeDraft}
+                    onClick={() => changeMode('original')}
+                  >
+                    <RotateCcw />
+                  </Button>
                 </div>
               ) : (
-                settings.mode !== 'original' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="export-size-value">
-                      {sizeLabels[settings.mode]} {settings.mode === 'percent' ? '%' : '· px'}
-                    </Label>
-                    <Input
-                      id="export-size-value"
-                      type="number"
-                      min={1}
-                      value={sizeDraft?.field === settings.mode ? sizeDraft.text : settings.value}
-                      onChange={(event) => changeSize(settings.mode, event.target.value)}
-                      aria-invalid={invalid}
-                    />
-                  </div>
-                )
-              )}
-              {single && settings.mode === 'percent' && (
-                <div className="space-y-2">
-                  <Label htmlFor="export-percent">{t('export.percent')} · %</Label>
-                  <Input
-                    id="export-percent"
-                    type="number"
-                    min={1}
-                    value={sizeDraft?.field === 'percent' ? sizeDraft.text : settings.value}
-                    onChange={(event) => changeSize('percent', event.target.value)}
-                    aria-invalid={sizeDraft?.field === 'percent' && invalid}
-                  />
+                <div className="flex gap-2">
+                  <Select
+                    value={settings.mode}
+                    onValueChange={(value) => changeMode(value as SizeMode)}
+                    disabled={busy}
+                  >
+                    <SelectTrigger
+                      aria-label={t('export.size')}
+                      className={cn(FIELD, 'min-w-0 flex-1')}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent data-shadcn-modal className="z-[1400]">
+                      {(['original', 'width', 'height', 'percent'] as const).map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {modeLabels[mode]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {settings.mode !== 'original' && (
+                    <Affix after={settings.mode === 'percent' ? '%' : 'px'}>
+                      <Input
+                        id="export-size-value"
+                        type="number"
+                        min={1}
+                        className={cn(FIELD, 'pr-9 tabular-nums')}
+                        aria-label={modeLabels[settings.mode]}
+                        value={sizeDraft?.field === settings.mode ? sizeDraft.text : settings.value}
+                        onChange={(event) => changeSize(settings.mode, event.target.value)}
+                        aria-invalid={invalid}
+                      />
+                    </Affix>
+                  )}
                 </div>
               )}
-            </section>
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium">{t('export.outputs')}</h3>
-              {settings.rows.map((row, index) => (
-                <div key={row.id} className="rounded-xl border border-border p-3 space-y-2">
-                  <div className="flex gap-2">
+            </Section>
+            <Section
+              title={t('export.outputs')}
+              action={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-foreground"
+                  aria-label={t('export.addRow')}
+                  title={t('export.addRow')}
+                  disabled={settings.rows.length >= 8}
+                  onClick={() =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      rows: [
+                        ...prev.rows,
+                        { id: crypto.randomUUID(), scale: 2, format: 'image/png' },
+                      ],
+                    }))
+                  }
+                >
+                  <Plus />
+                </Button>
+              }
+            >
+              {settings.rows.map((row, index) => {
+                const output = outputSize(row.scale)
+                return (
+                  <div key={row.id} className="flex items-center gap-2">
                     <Select
                       value={String(row.scale)}
-                      onValueChange={(value) =>
-                        setSettings((prev) => ({
-                          ...prev,
-                          rows: prev.rows.map((one) =>
-                            one.id === row.id ? { ...one, scale: Number(value) } : one,
-                          ),
-                        }))
-                      }
-                      disabled={progress !== null}
+                      onValueChange={(value) => updateRow(row.id, { scale: Number(value) })}
+                      disabled={busy}
                     >
                       <SelectTrigger
                         aria-label={t('export.scaleRow', { index: index + 1 })}
-                        className="w-24"
+                        className={cn(FIELD, 'w-20 shrink-0')}
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -270,22 +319,20 @@ export default function ExportForm({
                     <Select
                       value={row.format}
                       onValueChange={(value) =>
-                        setSettings((prev) => ({
-                          ...prev,
-                          rows: prev.rows.map((one) =>
-                            one.id === row.id
-                              ? { ...one, format: value as typeof row.format }
-                              : one,
-                          ),
-                        }))
+                        updateRow(row.id, { format: value as typeof row.format })
                       }
-                      disabled={progress !== null}
+                      disabled={busy}
                     >
                       <SelectTrigger
                         aria-label={t('export.formatRow', { index: index + 1 })}
-                        className="flex-1"
+                        className={cn(FIELD, 'min-w-0 flex-1')}
                       >
                         <SelectValue />
+                        {output && (
+                          <small className="ml-auto mr-2 hidden min-w-0 truncate text-xs text-muted-foreground tabular-nums min-[400px]:inline">
+                            {output.width} × {output.height}
+                          </small>
+                        )}
                       </SelectTrigger>
                       <SelectContent data-shadcn-modal className="z-[1400]">
                         {formats.map((format) => (
@@ -298,7 +345,9 @@ export default function ExportForm({
                     <Button
                       variant="ghost"
                       size="icon"
+                      className={ICON_BUTTON}
                       aria-label={t('export.removeRow')}
+                      title={t('export.removeRow')}
                       disabled={settings.rows.length === 1}
                       onClick={() =>
                         setSettings((prev) => ({
@@ -307,69 +356,40 @@ export default function ExportForm({
                         }))
                       }
                     >
-                      <Trash2 />
+                      <Minus />
                     </Button>
                   </div>
-                  {dimensions && (
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      {(() => {
-                        const output = exportSize(
-                          dimensions.width,
-                          dimensions.height,
-                          settings.mode,
-                          settings.value > 0 ? settings.value : 1,
-                          row.scale,
-                        )
-                        return `${output.width} × ${output.height} px`
-                      })()}
-                    </p>
-                  )}
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-dashed"
-                disabled={settings.rows.length >= 8}
-                onClick={() =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    rows: [
-                      ...prev.rows,
-                      { id: crypto.randomUUID(), scale: 2, format: 'image/png' },
-                    ],
-                  }))
+                )
+              })}
+            </Section>
+            {settings.rows.some((row) => row.format !== 'image/png') && (
+              <Section
+                title={t('params.quality')}
+                action={
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {settings.quality}%
+                  </span>
                 }
               >
-                <Plus />
-                {t('export.addRow')}
-              </Button>
-            </section>
-            {settings.rows.some((row) => row.format !== 'image/png') && (
-              <section className="space-y-3">
-                <Label>
-                  {t('params.quality')}{' '}
-                  <span className="float-right tabular-nums">{settings.quality}%</span>
-                </Label>
                 <Slider
                   aria-label={t('params.quality')}
                   min={10}
                   max={100}
                   step={1}
                   value={[settings.quality]}
-                  disabled={progress !== null}
+                  disabled={busy}
                   onValueChange={([quality]) => setSettings((prev) => ({ ...prev, quality }))}
                 />
-              </section>
-            )}
-            {settings.rows.some((row) => row.format === 'image/jpeg') && (
-              <p className="text-xs text-muted-foreground">{t('export.jpegHint')}</p>
+              </Section>
             )}
           </fieldset>
         )}
-        {sources.some((source) => source.media === 'video') && (
-          <p className="text-xs text-muted-foreground">{t('export.videoHint')}</p>
-        )}
+        <div className="space-y-1.5 text-xs text-muted-foreground empty:hidden">
+          {images > 0 && settings.rows.some((row) => row.format === 'image/jpeg') && (
+            <p>{t('export.jpegHint')}</p>
+          )}
+          {sources.some((source) => source.media === 'video') && <p>{t('export.videoHint')}</p>}
+        </div>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -381,16 +401,13 @@ export default function ExportForm({
           </p>
         )}
       </div>
-      <footer className="space-y-2 border-t border-border px-6 py-4">
-        <p className="text-xs text-muted-foreground">
-          {t(count > 1 ? 'export.zipHint' : 'export.localHint')}
-        </p>
+      <footer className="space-y-2 border-t border-border px-5 py-4">
         <Button
-          className="w-full h-11 rounded-xl"
-          disabled={!sources.length || invalid || loading || progress !== null}
+          className="h-10 w-full rounded-lg"
+          disabled={!sources.length || invalid || loading || busy}
           onClick={() => void run()}
         >
-          {progress !== null ? (
+          {busy ? (
             <>
               <LoaderCircle className="animate-spin" />
               {t('export.progress', { done: progress, total: sources.length })}
@@ -402,7 +419,56 @@ export default function ExportForm({
             </>
           )}
         </Button>
+        {count > 1 && (
+          <p className="text-center text-xs text-muted-foreground">{t('export.zipHint')}</p>
+        )}
       </footer>
+    </div>
+  )
+}
+
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string
+  action?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="space-y-2.5">
+      <div className="flex h-7 items-center justify-between">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function Affix({
+  before,
+  after,
+  children,
+}: {
+  before?: string
+  after?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      {before && (
+        <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-xs text-muted-foreground">
+          {before}
+        </span>
+      )}
+      {children}
+      {after && (
+        <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-muted-foreground">
+          {after}
+        </span>
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { FolderOpen, Search, X } from 'lucide-react'
+import { FolderOpen, Play, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
@@ -29,6 +29,10 @@ import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
 const ASSET_PAGE_SIZE = 24
 const BATCH_REFRESH_MS = 4_000
+const CARD_CHECK =
+  'size-5 rounded-full border-[1.5px] border-white/90 bg-black/30 shadow-none backdrop-blur-sm data-[state=checked]:border-primary data-[state=checked]:bg-primary'
+const FOOT_CHECK =
+  'size-4 rounded-[5px] border-muted-foreground/60 bg-transparent shadow-none data-[state=checked]:border-primary data-[state=checked]:bg-primary'
 
 export default function AgentAssetDrawer({
   messages,
@@ -39,7 +43,7 @@ export default function AgentAssetDrawer({
   onClose: () => void
   onPreview: (message: AgentToolMessage, id: string) => void
 }) {
-  const { t } = useTranslation(['agent', 'toolbox'])
+  const { t } = useTranslation('agent')
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -251,6 +255,7 @@ export default function AgentAssetDrawer({
         .toLocaleLowerCase()
         .includes(search.trim().toLocaleLowerCase()),
   )
+  const selectedCount = items.filter((item) => selected.has(item.id)).length
   useEffect(() => {
     if (scope !== 'all' || !hasMore || loadingAll || loadFailed) return
     const end = endRef.current
@@ -346,8 +351,8 @@ export default function AgentAssetDrawer({
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={t(scope === 'all' ? 'assets.searchAll' : 'assets.search')}
-            aria-label={t(scope === 'all' ? 'assets.searchAll' : 'assets.search')}
+            placeholder={t('assets.search')}
+            aria-label={t('assets.search')}
           />
         </label>
         <div className="studio-assets-filters" role="group" aria-label={t('assets.media')}>
@@ -363,17 +368,22 @@ export default function AgentAssetDrawer({
             </Button>
           ))}
         </div>
-        <div className="studio-assets-grid" ref={gridRef}>
+        <div
+          className="studio-assets-grid"
+          ref={gridRef}
+          data-selecting={selectedCount > 0 || undefined}
+        >
           {shown.map((item) => (
             <div
               key={item.id}
-              className={`relative rounded-xl ${selected.has(item.id) ? 'ring-2 ring-primary' : ''}`}
+              className="studio-assets-card"
+              data-selected={selected.has(item.id) || undefined}
             >
               <Checkbox
-                className="absolute right-2 top-2 z-10 bg-background shadow"
+                className={`studio-assets-check ${CARD_CHECK}`}
                 checked={selected.has(item.id)}
                 onCheckedChange={() => toggle(item.id)}
-                aria-label={`${t('toolbox:export.select')} ${item.title || t('assets.untitled')}`}
+                aria-label={t('assets.select', { name: item.title || t('assets.untitled') })}
               />
               <AssetThumb
                 key={item.id}
@@ -440,29 +450,33 @@ export default function AgentAssetDrawer({
               </p>
             )}
         </div>
-        <footer className="flex shrink-0 items-center gap-3 border-t border-border p-4">
-          <Checkbox
-            aria-label={t('toolbox:export.selectAll')}
-            checked={shown.length > 0 && shown.every((item) => selected.has(item.id))}
-            onCheckedChange={(checked) =>
-              setSelected((prev) => {
-                const next = new Set(prev)
-                for (const item of shown) {
-                  if (checked) next.add(item.id)
-                  else next.delete(item.id)
-                }
-                return next
-              })
-            }
-          />
-          <span className="text-xs text-muted-foreground">
-            {t('toolbox:export.selected', {
-              count: items.filter((item) => selected.has(item.id)).length,
-            })}
-          </span>
+        <footer className="studio-assets-foot">
+          <label>
+            <Checkbox
+              className={FOOT_CHECK}
+              disabled={!shown.length}
+              checked={shown.length > 0 && shown.every((item) => selected.has(item.id))}
+              onCheckedChange={(checked) =>
+                setSelected((prev) => {
+                  const next = new Set(prev)
+                  for (const item of shown) {
+                    if (checked) next.add(item.id)
+                    else next.delete(item.id)
+                  }
+                  return next
+                })
+              }
+            />
+            {t('assets.selectAll')}
+          </label>
+          {selectedCount > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {t('assets.selected', { count: selectedCount })}
+            </span>
+          )}
           <Button
             className="ml-auto"
-            disabled={!items.some((item) => selected.has(item.id))}
+            disabled={!selectedCount}
             onClick={() =>
               openImageExport(
                 items
@@ -471,7 +485,7 @@ export default function AgentAssetDrawer({
               )
             }
           >
-            {t('toolbox:export.export')}
+            {selectedCount ? t('assets.exportCount', { count: selectedCount }) : t('assets.export')}
           </Button>
         </footer>
         {sourcePreview && <ImagePreview src={sourcePreview} onClose={closeSource} />}
@@ -529,13 +543,17 @@ function AssetThumb({
       variant="ghost"
       ref={ref}
       type="button"
-      className="studio-assets-item !block !w-full !h-auto !justify-start !whitespace-normal !p-0"
+      className="studio-assets-item !block !w-full !h-auto !justify-start !whitespace-normal !bg-transparent !p-0"
       title={label}
       onClick={onClick}
     >
       <span className="studio-assets-thumb">
         {source && <img src={source} alt="" loading="lazy" />}
-        {item.media === 'video' && <span className="studio-assets-video">▶</span>}
+        {item.media === 'video' && (
+          <span className="studio-assets-video" aria-hidden="true">
+            <Play size={11} fill="currentColor" />
+          </span>
+        )}
       </span>
       <span className="studio-assets-name">{label}</span>
     </Button>

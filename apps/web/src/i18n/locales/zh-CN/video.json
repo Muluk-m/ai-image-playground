@@ -52,7 +52,6 @@
     "edit": "改视频"
   },
   "download": {
-    "started": "开始下载",
     "fetchFailed": "视频拉取失败：{{status}}"
   },
   "store": {
