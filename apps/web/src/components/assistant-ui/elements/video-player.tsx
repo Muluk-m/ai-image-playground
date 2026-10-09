@@ -42,6 +42,9 @@ export function VideoPlayer({
   const frame = useRef<HTMLDivElement>(null)
   const media = useRef<HTMLVideoElement>(null)
   const [nearViewport, setNearViewport] = useState(false)
+  const [playingSource, setPlayingSource] = useState<string | null>(null)
+  const position = useRef({ src, time: 0 })
+  const loadMedia = nearViewport || playingSource === src
   const [failure, setFailure] = useState<string | null>(null)
   const [ready, setReady] = useState<string | null>(null)
   const [waiting, setWaiting] = useState(false)
@@ -55,10 +58,7 @@ export function VideoPlayer({
     }
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setNearViewport(true)
-          observer.disconnect()
-        }
+        setNearViewport(entry.isIntersecting)
       },
       { rootMargin: '160px' },
     )
@@ -68,9 +68,13 @@ export function VideoPlayer({
   useEffect(() => {
     const video = media.current
     // StrictMode 会重放 setup/cleanup；清理过的同一节点需要重新接上来源。
-    if (video && video.getAttribute('src') !== src) {
+    if (loadMedia && video && video.getAttribute('src') !== src) {
       video.src = src
       video.load()
+    }
+    if (!loadMedia) {
+      setReady(null)
+      setWaiting(false)
     }
     return () => {
       if (!video) return
@@ -78,7 +82,7 @@ export function VideoPlayer({
       video.removeAttribute('src')
       video.load()
     }
-  }, [src, attempt])
+  }, [src, attempt, loadMedia])
   return (
     <div
       ref={frame}
@@ -93,7 +97,7 @@ export function VideoPlayer({
       <video
         ref={media}
         key={`${src}:${attempt}`}
-        src={src}
+        src={loadMedia ? src : undefined}
         poster={poster}
         controls
         playsInline
@@ -108,12 +112,31 @@ export function VideoPlayer({
         onLoadedData={(event) => {
           setFailure(null)
           setReady(src)
-          onFrameReady?.(event.currentTarget)
+          if (event.currentTarget.currentTime === 0) onFrameReady?.(event.currentTarget)
         }}
         onWaiting={() => setWaiting(true)}
-        onPlaying={() => setWaiting(false)}
+        onPlay={() => setPlayingSource(src)}
+        onPlaying={() => {
+          setPlayingSource(src)
+          setWaiting(false)
+        }}
         onCanPlay={() => setWaiting(false)}
-        onPause={() => setWaiting(false)}
+        onPause={() => {
+          setPlayingSource(null)
+          setWaiting(false)
+        }}
+        onEnded={() => setPlayingSource(null)}
+        onTimeUpdate={(event) => {
+          if (event.currentTarget.getAttribute('src') === src && event.currentTarget.readyState > 0)
+            position.current = { src, time: event.currentTarget.currentTime }
+        }}
+        onLoadedMetadata={(event) => {
+          if (position.current.src === src && position.current.time > 0)
+            event.currentTarget.currentTime = Math.min(
+              position.current.time,
+              event.currentTarget.duration,
+            )
+        }}
       />
       {nearViewport && failure !== src && (ready !== src || waiting) && (
         <div
