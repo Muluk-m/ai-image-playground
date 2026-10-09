@@ -456,7 +456,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               className={`studio-project-viewbar studio-project-viewbar--${projectView}`}
               style={projectView === 'canvas' && !mobile ? { width: panelWidth + 12 } : undefined}
             >
-              {!sidebarOpen && sidebarToggle}
               <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
               {projectView === 'canvas' && project?.sourceProjectId && (
                 <button
