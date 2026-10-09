@@ -4,7 +4,6 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
-import { videoCardWidth } from '../../../../features/agent/components/AgentVideoToolCard'
 import { rememberVideoOutputFrame } from '../../../../features/agent/lib/artifactSource'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
@@ -136,12 +135,12 @@ it('uses a video waiting surface, server progress and an independent cancel acti
   )
   expect(host.querySelector('video')).toBeNull()
   const card = host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!
-  expect(card.style.width).toContain('30rem')
-  expect(host.querySelector<HTMLElement>('[data-slot="video-generation"]')!.style.aspectRatio).toBe(
-    '9 / 16',
+  expect(card.style.width).toBe('100%')
+  expect(host.querySelector<HTMLElement>('[data-slot="video-generation"]')!.className).toContain(
+    'aspect-video',
   )
-  for (const label of ['取消', '查看提示词'])
-    expect(button(label).className).toContain('h-8 rounded-md px-3 text-xs')
+  expect(host.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false)
+  for (const label of ['取消', '查看提示词']) expect(button(label).className).toContain('size-8')
   await act(async () => button('取消').click())
   expect(fixtures.state.cancelJob).toHaveBeenCalledWith(base.id)
 })
@@ -170,10 +169,10 @@ it('plays recovered video results inline without waiting for a canvas or a poste
   expect(video.crossOrigin).toBe('use-credentials')
   expect(video.getAttribute('poster')).toBeNull()
   expect(player.style.aspectRatio).toBe('9 / 16')
-  // 卡片和画面一样宽，播放器铺满卡片。jsdom 算不出嵌套的 min()，宽度对纯函数。
-  expect(player.style.width).toBe('')
-  expect(videoCardWidth('9:16')).toBe('min(100%, 28rem, calc(min(30rem, 56vh) * 9 / 16))')
-  expect(videoCardWidth('1:1')).toBe('min(100%, 22rem, calc(min(30rem, 56vh) * 1 / 1))')
+  expect(player.style.maxHeight).toBe('min(30rem, 56vh)')
+  expect(host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!.style.width).toBe(
+    '100%',
+  )
   expect(host.querySelector('[data-slot="video-generation"]')).toBeNull()
   await act(async () => video.dispatchEvent(new Event('error')))
   expect(host.textContent).toContain('视频暂时无法播放')
@@ -259,6 +258,14 @@ it('does not download a login/error HTML document as a video', async () => {
   await act(async () => button('下载').click())
   expect(fixtures.download).not.toHaveBeenCalled()
   expect(host.textContent).toContain('视频下载失败')
+})
+
+it('keeps the task title and cancellation receipt when a video is cancelled', async () => {
+  await render({ ...base, status: 'failed', errorCode: 'cancelled' })
+  expect(host.textContent).toContain(base.title)
+  expect(host.querySelector('[data-slot="stopped-run"]')).not.toBeNull()
+  expect(host.querySelector('[data-slot="tool-error"]')).toBeNull()
+  expect(fixtures.state.retry).not.toHaveBeenCalled()
 })
 
 it('retries a failed video directly without a canvas placeholder and deduplicates clicks', async () => {
@@ -484,7 +491,8 @@ it('shows video settings and download as labelled icons with meaningful values',
   expect(details.querySelector('[aria-label="1 张参考图"] svg')).not.toBeNull()
   expect(details.textContent).not.toContain('首帧')
   expect(button('下载').querySelector('svg')).not.toBeNull()
-  expect(button('下载').textContent).toBe('')
+  expect(button('下载').querySelector('.sr-only')?.textContent).toBe('下载')
+  expect(button('下载').getAttribute('aria-label')).toBe('下载')
 })
 
 it('preserves a playable source across StrictMode effect replay and releases it on removal', async () => {

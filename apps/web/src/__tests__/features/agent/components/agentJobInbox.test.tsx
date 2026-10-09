@@ -117,10 +117,10 @@ it('shows how far the batch got and groups the running jobs by what they are doi
   expect(host.querySelector('li')).toBeNull()
 
   openInbox()
-  const [done, failed] = [...host.querySelectorAll('span[style]')].map(
-    (one) => (one as HTMLElement).style.width,
-  )
-  expect([done, failed]).toEqual(['25%', '25%'])
+  const track = host.querySelector('[role="progressbar"]')!
+  expect(track.getAttribute('aria-valuenow')).toBe('50')
+  expect(track.querySelectorAll('span')).toHaveLength(1)
+  expect(track.querySelector('span')!.style.width).toBe('50%')
   expect(tabButton('进行中').textContent).toBe('进行中（2）')
   expect(tabButton('已完成').textContent).toBe('已完成（2）')
 

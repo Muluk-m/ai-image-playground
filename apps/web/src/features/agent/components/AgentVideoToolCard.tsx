@@ -1,10 +1,22 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import { Download, FileText, Images, LoaderCircle, Maximize2, VideoIcon } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Download,
+  FileText,
+  Images,
+  LogIn,
+  Maximize2,
+  RotateCw,
+  Square,
+  VideoIcon,
+  Wallet,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
+import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
 import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
-import { Button, buttonVariants } from '../../../components/ui/button'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -24,6 +36,7 @@ import {
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
+import AgentIconButton from './AgentIconButton'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
@@ -62,21 +75,13 @@ function VideoDownload({
     }
   }
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-8 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
-      aria-label={downloading ? t('video.downloading') : t('tool.downloadResult')}
-      title={downloading ? t('video.downloading') : t('tool.downloadResult')}
+    <AgentIconButton
+      icon={Download}
+      label={downloading ? t('video.downloading') : t('tool.downloadResult')}
+      busy={downloading}
       disabled={downloading}
       onClick={() => void download()}
-    >
-      {downloading ? (
-        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-      ) : (
-        <Download className="size-4" aria-hidden="true" />
-      )}
-    </Button>
+    />
   )
 }
 
@@ -119,20 +124,9 @@ function VideoResult({
       }}
       aspectRatio={aspectRatio?.replace(':', ' / ')}
       fill
+      maxHeight="min(30rem, 56vh)"
     />
   )
-}
-
-/**
- * 卡片和画面一样宽：长边封顶后按比例算，竖屏约 270px，横屏不超过 28rem，方形不超过 22rem。
- * 不在画面旁边摆信息，竖屏也就不会留出整块空白。
- */
-export function videoCardWidth(aspectRatio: string | undefined) {
-  const [width, height] = (aspectRatio ?? '16:9').split(':').map(Number)
-  const valid = width > 0 && height > 0
-  const ratio = valid ? `${width} / ${height}` : '16 / 9'
-  const cap = valid && width === height ? '22rem' : '28rem'
-  return `min(100%, ${cap}, calc(min(30rem, 56vh) * ${ratio}))`
 }
 
 export default function AgentVideoToolCard({
@@ -208,8 +202,6 @@ export default function AgentVideoToolCard({
     }
   }
   const hasMedia = !!artifacts.length
-  const waiting = !hasMedia && !!progress
-  const aspectRatio = artifacts[0]?.video?.aspectRatio ?? video?.aspectRatio
   const iconButton = 'size-8 text-muted-foreground hover:text-foreground'
   return (
     <section
@@ -220,8 +212,7 @@ export default function AgentVideoToolCard({
         'flex min-w-0 max-w-full flex-col rounded-2xl border border-border bg-card',
         hasMedia ? 'overflow-hidden' : 'gap-3 p-3 sm:p-4',
       )}
-      // 生成中的占位和成片共用同一宽度上限，否则占位会按整列宽度撑成一大块空白。
-      style={hasMedia || waiting ? { width: videoCardWidth(aspectRatio) } : undefined}
+      style={{ width: '100%' }}
     >
       {hasMedia && (
         <div className="flex flex-col gap-px bg-border">
@@ -243,7 +234,7 @@ export default function AgentVideoToolCard({
           >
             {message.title}
           </p>
-        ) : (
+        ) : message.status !== 'failed' || message.errorCode === 'cancelled' ? (
           <div className="flex items-start gap-2 text-sm font-medium">
             <VideoIcon
               className="mt-0.5 size-4 shrink-0 text-muted-foreground"
@@ -251,15 +242,12 @@ export default function AgentVideoToolCard({
             />
             <p className="min-w-0 break-words">{message.title}</p>
           </div>
-        )}
+        ) : null}
         {video && <AgentVideoDetails video={video} />}
         {progress && !artifacts.length && (
           <>
-            <VideoGeneration
-              aria-hidden="true"
-              style={aspectRatio ? { aspectRatio: aspectRatio.replace(':', ' / ') } : undefined}
-            />
             <AgentJobProgress progress={progress} />
+            <VideoGeneration aria-hidden="true" />
           </>
         )}
         {message.status === 'queued' && (
@@ -274,9 +262,7 @@ export default function AgentVideoToolCard({
           <StoppedRun reason={failureText} />
         )}
         {message.status === 'failed' && message.errorCode !== 'cancelled' && (
-          <p role="alert" className="text-sm text-destructive">
-            {failureText}
-          </p>
+          <ToolError name={message.title} message={failureText} />
         )}
         {canvasContext && !!artifacts.length && (delivering || deliveryFailed || offCanvas) && (
           <p role={deliveryFailed ? 'alert' : 'status'} className="text-xs text-muted-foreground">
@@ -327,8 +313,10 @@ export default function AgentVideoToolCard({
           )}
           {offCanvas && (
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon"
+              aria-label={t('tool.place')}
+              title={t('tool.place')}
               disabled={delivering}
               onClick={() => {
                 if (placementLock.current) return
@@ -352,13 +340,16 @@ export default function AgentVideoToolCard({
                   })
               }}
             >
-              {t('tool.place')}
+              <Images aria-hidden className="size-4" />
+              <span className="sr-only">{t('tool.place')}</span>
             </Button>
           )}
           {message.retryOf && (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
+              aria-label={t('retry.viewOriginal')}
+              title={t('retry.viewOriginal')}
               onClick={() => {
                 const original = document.getElementById(
                   `agent-tool-card-${message.retryOf!.messageId}`,
@@ -367,7 +358,8 @@ export default function AgentVideoToolCard({
                 original?.focus({ preventScroll: true })
               }}
             >
-              {t('retry.viewOriginal')}
+              <ArrowUpRight aria-hidden className="size-4" />
+              <span className="sr-only">{t('retry.viewOriginal')}</span>
             </Button>
           )}
           {message.prompt &&
@@ -383,18 +375,19 @@ export default function AgentVideoToolCard({
                 <FileText className="size-4" aria-hidden="true" />
               </Button>
             ) : (
-              <Button variant="ghost" size="sm" onClick={() => setPromptOpen(true)}>
-                {t('tool.viewPrompt')}
-              </Button>
+              <AgentIconButton
+                icon={FileText}
+                label={t('tool.viewPrompt')}
+                onClick={() => setPromptOpen(true)}
+              />
             ))}
-          <AgentJobCancel
-            message={message}
-            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
-          />
+          <AgentJobCancel message={message} />
           {message.status === 'queued' && message.retryOf && (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
+              aria-label={withdrawing ? t('retry.withdrawing') : t('retry.withdraw')}
+              title={t('retry.withdraw')}
               disabled={withdrawing}
               onClick={() => {
                 setWithdrawing(true)
@@ -406,22 +399,29 @@ export default function AgentVideoToolCard({
                   .finally(() => setWithdrawing(false))
               }}
             >
-              {withdrawing ? t('retry.withdrawing') : t('retry.withdraw')}
+              <Square aria-hidden className="size-4" />
+              <span className="sr-only">
+                {withdrawing ? t('retry.withdrawing') : t('retry.withdraw')}
+              </span>
             </Button>
           )}
           {canRetry && (
-            <Button variant="outline" size="sm" disabled={retrying} onClick={() => void retry()}>
-              {retrying ? t('video.retrying') : t('video.retry')}
-            </Button>
+            <AgentIconButton
+              icon={RotateCw}
+              label={retrying ? t('video.retrying') : t('video.retry')}
+              busy={retrying}
+              disabled={retrying}
+              onClick={() => void retry()}
+            />
           )}
           {message.status === 'failed' &&
             !canRetry &&
             !liveRetry &&
             action &&
             message.errorCode && (
-              <Button
-                variant="ghost"
-                size="sm"
+              <AgentIconButton
+                icon={action === 'login' ? LogIn : action === 'recharge' ? Wallet : RotateCw}
+                label={agentToolFailureActionLabel(action, message.errorCode)}
                 onClick={() =>
                   runAgentToolFailureAction(action, {
                     code: message.errorCode!,
@@ -430,9 +430,7 @@ export default function AgentVideoToolCard({
                     send: (text) => void useAgentStore.getState().send(text),
                   })
                 }
-              >
-                {agentToolFailureActionLabel(action, message.errorCode)}
-              </Button>
+              />
             )}
           {message.status === 'failed' && (
             <AgentCopyDiagnostic
@@ -448,12 +446,12 @@ export default function AgentVideoToolCard({
           )}
         </div>
         {downloadFailed && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-xs text-foreground">
             {t('video.downloadFailed')}
           </p>
         )}
         {retryFailed && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-xs text-foreground">
             {t('video.retryFailed')}
           </p>
         )}

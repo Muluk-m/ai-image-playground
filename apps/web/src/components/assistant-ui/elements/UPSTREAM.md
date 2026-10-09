@@ -26,3 +26,11 @@ No assistant-ui runtime migration: existing Agent store, transport, persistence 
 - ReasoningEffort maps to the existing fast/medium/deep values. Providers do not report a token budget, so no invented progress/budget meter is displayed.
 - StoppedRun shows existing cancellation receipts and only supported recovery actions. It does not pretend a cancelled paid generation can resume, or offer to discard persisted history.
 - OptionList retains persisted answer receipts and free-text answers. ThinkingIndicator remains the shared sending/thinking/stopping/job-status component.
+
+## Generation presentation (2026-10-09)
+
+`job-progress.tsx` and `image-gallery.tsx` adapt the official Elements registry fetched on 2026-10-09.
+
+- JobProgress uses a continuous monochrome track. Generation jobs expose phases and elapsed time only, so their track is indeterminate; batch inbox percentages count completed and failed items.
+- ImageGallery retains artifact ids while browsing one full-width image, with arrow buttons, keyboard navigation and thumbnails. Existing preview, download and canvas actions own media access.
+- Image/video waiting surfaces and recovery controls use neutral theme tokens and icon buttons with translated accessible labels. Portrait playback keeps a height cap within the full-width result card.

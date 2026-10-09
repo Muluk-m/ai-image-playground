@@ -13,6 +13,7 @@ import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 const store = vi.hoisted(() => ({
   send: vi.fn(),
   placeOnCanvas: vi.fn(),
+  messages: [] as AgentToolMessage[],
   cancelJob: vi.fn(async (_messageId: string) => {}),
   jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
   toolStartedAt: {} as Record<string, number>,
@@ -41,6 +42,13 @@ vi.mock('../../../../lib/clientCapabilities', () => ({
   isClientCapabilityEnabled: (key: string) => deployment.capabilities.has(key),
 }))
 
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  previewArtifactBitmap: async () => 'data:image/png;base64,preview',
+  videoOutputFrame: async () => null,
+  cachedVideoOutputFrame: () => undefined,
+  rememberVideoOutputFrame: vi.fn(),
+}))
+
 // 取回来的网图按媒体 id 回源；这里只关心「按什么 id 取、卡上长什么样」。
 vi.mock('../../../../lib/cloudMedia', () => ({
   mediaIdentity: (source: string) => source.match(/^aip-media:([0-9a-f-]{36})$/i)?.[1],
@@ -50,6 +58,8 @@ vi.mock('../../../../lib/cloudMedia', () => ({
 beforeEach(() => {
   send.mockClear()
   store.cancelJob.mockClear()
+  store.placeOnCanvas.mockReset()
+  store.messages = []
   store.jobProgress = {}
   store.toolStartedAt = {}
   deployment.overlay = true
@@ -127,6 +137,197 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
       'square',
       'data:image/png;base64,preview',
     )
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it('browses generated images and previews the selected artifact without opening the first one', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const preview = vi.fn()
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'group',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'generateImage',
+            title: '两张图片',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: ['first', 'second'].map((artifactId, outputIndex) => ({
+              artifactId,
+              outputIndex,
+              taskId: 'task',
+              media: 'image',
+              mime: 'image/png',
+              width: 1024,
+              height: 1024,
+            })),
+          }}
+          onPreviewResult={preview}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(preview).toHaveBeenCalledWith('group', 'second', 'data:image/png;base64,second')
+    preview.mockClear()
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    expect(preview).toHaveBeenCalledWith('group', 'second', 'data:image/png;base64,second')
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it('keeps the visible and editable artifact aligned after delivery temporarily unmounts the gallery', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const preview = vi.fn()
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'delivery-group',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '两张图片',
+    status: 'succeeded',
+    delivery: 'placed',
+    artifacts: ['first', 'second'].map((artifactId, outputIndex) => ({
+      artifactId,
+      outputIndex,
+      taskId: 'task',
+      media: 'image',
+      mime: 'image/png',
+      width: 1024,
+      height: 1024,
+    })),
+  }
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  const render = (delivery: AgentToolMessage['delivery']) =>
+    act(async () =>
+      root.render(<AgentToolCard message={{ ...message, delivery }} onPreviewResult={preview} />),
+    )
+  try {
+    await render('placed')
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    await render('pending')
+    expect(host.querySelector('[data-slot="image-gallery"]')).toBeNull()
+    await render('placed')
+    expect(host.querySelector('.studio-agent-inline-open')!.getAttribute('aria-label')).toBe(
+      '查看第 2 个产物',
+    )
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    expect(preview).toHaveBeenCalledWith('delivery-group', 'second', 'data:image/png;base64,second')
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it('uses the same gallery in the canvas conversation and locates the selected artifact', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const viewCanvas = vi.fn()
+  const thumbnail = vi.fn(async () => 'data:image/png;base64,preview')
+  setAgentCanvasSink({ has: () => true, thumbnail } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'canvas-group',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'generateImage',
+            title: '两张图片',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: ['first', 'second'].map((artifactId, outputIndex) => ({
+              artifactId,
+              outputIndex,
+              taskId: 'task',
+              media: 'image',
+              mime: 'image/png',
+              width: 1024,
+              height: 1024,
+            })),
+          }}
+          onViewCanvas={viewCanvas}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
+    expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(viewCanvas).toHaveBeenCalledWith(['second'])
+    viewCanvas.mockClear()
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    expect(viewCanvas).toHaveBeenCalledWith(['second'])
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it.each([
+  'failed',
+  'unavailable',
+  'placed',
+] as const)('navigates to the canvas only after confirmed placement (%s)', async (delivery) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const viewCanvas = vi.fn()
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'placement-group',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '图片',
+    status: 'succeeded',
+    delivery: 'unavailable',
+    artifacts: [
+      {
+        artifactId: 'off-canvas',
+        outputIndex: 0,
+        taskId: 'task',
+        media: 'image',
+        mime: 'image/png',
+      },
+    ],
+  }
+  setAgentCanvasSink({ has: () => false } as unknown as AgentCanvasSink)
+  store.messages = [message]
+  store.placeOnCanvas.mockImplementation(async () => {
+    store.messages = [{ ...message, delivery }]
+  })
+  try {
+    await act(async () =>
+      root.render(<AgentToolCard message={message} onViewCanvas={viewCanvas} />),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="放入画布"]')!.click(),
+    )
+    expect(store.placeOnCanvas).toHaveBeenCalledWith(message.id)
+    if (delivery === 'placed') expect(viewCanvas).toHaveBeenCalledTimes(1)
+    else expect(viewCanvas).not.toHaveBeenCalled()
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
