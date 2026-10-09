@@ -73,7 +73,7 @@ export async function prepareExports(
             const encoded = await encodeCanvas(canvas, row.format, settings.quality / 100)
             files.push({
               name: outputFileName(
-                `${source.name.replace(/\.[^./\\]+$/, '')}@${row.scale}x`,
+                `${source.name.replace(/\.[^./\\]+$/, '')}${row.scale === 1 ? '' : `@${row.scale}x`}`,
                 encoded.type,
               ),
               blob: encoded.blob,
