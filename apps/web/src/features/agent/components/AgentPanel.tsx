@@ -60,7 +60,7 @@ function renderMessage(
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
   onViewCanvas?: (objectIds?: readonly string[]) => void,
-  onPreviewResult?: (messageId: string, objectId?: string) => void,
+  onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void,
   onPreviewProduction?: (pane?: ProductionPane) => void,
 ) {
   if (message.kind === 'tool') {
@@ -151,7 +151,7 @@ export default function AgentPanel({
   editor: CanvasEditor
   mobile?: boolean
   onViewCanvas?: (objectIds?: readonly string[]) => void
-  onPreviewResult?: (messageId: string, objectId?: string) => void
+  onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
   presentation?: 'page' | 'side'
   searchOpen?: boolean
   onCloseSearch?: () => void

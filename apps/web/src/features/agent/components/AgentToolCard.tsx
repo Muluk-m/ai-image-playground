@@ -432,7 +432,7 @@ function StandardAgentToolCard({
 }: {
   message: AgentToolMessage
   onViewCanvas?: (objectIds?: readonly string[]) => void
-  onPreviewResult?: (messageId: string, objectId?: string) => void
+  onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
   compactFetched?: boolean
   onPreviewProduction?: (pane?: ProductionPane) => void
 }) {
@@ -465,6 +465,14 @@ function StandardAgentToolCard({
   }
   const previews = useArtifactPreviews(message, Boolean(onPreviewResult))
   const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
+  const openPreviewResult = (objectId?: string) => {
+    const selectedId = objectId ?? previews[0]?.artifact.artifactId ?? fetched[0]?.objectId
+    const source =
+      previews.find((preview) => preview.artifact.artifactId === selectedId)?.source ??
+      fetched.find((preview) => preview.objectId === selectedId)?.source
+    if (source) onPreviewResult?.(message.id, selectedId, source)
+    else onPreviewResult?.(message.id, objectId)
+  }
   // 取回来的网图取不到预览时不算「可以放入画布」：放进去的那一步同样取不到字节。
   const offCanvas =
     previews.some((preview) => !preview.onCanvas) ||
@@ -716,7 +724,7 @@ function StandardAgentToolCard({
           type="button"
           className="studio-agent-inline-open"
           aria-label={t('tool.openResultNumber', { number: index + 1 })}
-          onClick={() => onPreviewResult(message.id, tile.id)}
+          onClick={() => openPreviewResult(tile.id)}
         >
           {tile.source ? (
             <img
@@ -742,7 +750,7 @@ function StandardAgentToolCard({
             type="button"
             title={t('tool.previewResult')}
             aria-label={t('tool.openResultNumber', { number: index + 1 })}
-            onClick={() => onPreviewResult(message.id, tile.id)}
+            onClick={() => openPreviewResult(tile.id)}
           >
             <Maximize2 size={16} />
           </button>
@@ -832,8 +840,7 @@ function StandardAgentToolCard({
               editLabel={t('tool.editResult')}
               regenerateLabel={t('tool.regenerate')}
               onEdit={() =>
-                onPreviewResult(
-                  message.id,
+                openPreviewResult(
                   previews.find((preview) => preview.artifact.artifactId === selectedArtifactId)
                     ?.artifact.artifactId ?? previews[0].artifact.artifactId,
                 )
@@ -917,7 +924,7 @@ function StandardAgentToolCard({
                 type="button"
                 className={THUMBNAIL}
                 aria-label={t('tool.previewResult')}
-                onClick={() => onPreviewResult(message.id, preview.artifact.artifactId)}
+                onClick={() => openPreviewResult(preview.artifact.artifactId)}
               >
                 {preview.source && (
                   <img src={preview.source} alt="" className="h-full w-full object-cover" />
@@ -945,7 +952,7 @@ function StandardAgentToolCard({
           <WakeSkippedNote message={message} />
           <div className="studio-agent-result-actions">
             {onPreviewResult ? (
-              <button type="button" onClick={() => onPreviewResult(message.id)}>
+              <button type="button" onClick={() => openPreviewResult()}>
                 <Images className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('tool.previewResult')}
               </button>
@@ -1060,7 +1067,7 @@ function StandardAgentToolCard({
               key={preview.artifact.artifactId}
               preview={preview}
               onViewCanvas={onViewCanvas}
-              onPreview={onPreviewResult ? (id) => onPreviewResult(message.id, id) : undefined}
+              onPreview={onPreviewResult ? (id) => openPreviewResult(id) : undefined}
             />
           ))}
         </div>
@@ -1068,7 +1075,7 @@ function StandardAgentToolCard({
       <FetchedImages
         previews={fetched}
         onViewCanvas={onViewCanvas}
-        onPreview={onPreviewResult ? (id) => onPreviewResult(message.id, id) : undefined}
+        onPreview={onPreviewResult ? (id) => openPreviewResult(id) : undefined}
       />
       {offCanvas && !onPreviewResult && (
         <button
