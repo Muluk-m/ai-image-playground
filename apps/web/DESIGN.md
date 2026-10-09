@@ -259,18 +259,20 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 正文与界面用 HarmonyOS Sans SC（中文优先），英文展示字回落系统 Display 字体，数值与尺寸
 标签用 Maple Mono。字阶只有十档：
 
-| token | 字号 | 用途 |
-|---|---|---|
-| display | 38 | 首页 hero 标题 |
-| headline | 28 | 空画布、落地页的主标题 |
-| title-lg | 20 | 对话框标题 |
-| title-md | 16 | 面板标题、空态主句 |
-| title-sm | 15 | 页头标题、区块标题、卡片标题 |
-| body-md | 14 | 输入框、表单、正文 |
-| body-sm | 13 | 列表行、侧栏、页签、说明 |
-| label-md | 12 | 按钮、chip、元数据 |
-| label-sm | 11 | 计数、次要标注 |
-| mono-sm | 11 | 媒体角标上的比例与尺寸 |
+| token | 字号 | Tailwind 类 | 用途 |
+|---|---|---|---|
+| display | 38 | `text-display` | 首页 hero 标题 |
+| headline | 28 | `text-headline` | 空画布、落地页的主标题 |
+| title-lg | 20 | `text-xl` | 对话框标题 |
+| title-md | 16 | `text-base` | 面板标题、空态主句 |
+| title-sm | 15 | `text-title` | 页头标题、区块标题、卡片标题 |
+| body-md | 14 | `text-sm` | 输入框、表单、正文 |
+| body-sm | 13 | `text-body-sm` | 列表行、侧栏、页签、说明 |
+| label-md | 12 | `text-xs` | 按钮、chip、元数据 |
+| label-sm | 11 | `text-label-sm` | 计数、次要标注 |
+| mono-sm | 11 | `font-mono text-label-sm` | 媒体角标上的比例与尺寸 |
+
+`text-lg`、`text-2xl`、`text-3xl` 等不在字阶里，不要用。
 
 小于 11px 的字不出现。唯一例外是 56px 以内缩略图上的「MASK」、序号这类角标，允许 7–9px，
 且只能贴在缩略图上。字重只用 400 / 500 / 600 三档。
@@ -278,6 +280,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 ## Layout
 
 - 4px 基础网格，常用档位 4 / 8 / 12 / 16 / 24 / 32 / 48。
+- **布局层**（页面、区块、卡片之间与卡片内边距）只用上面的档位。**控件内部**（按钮、chip、
+  输入框、列表行的内边距与图文间距）允许 2px 步进（`px-2.5`、`gap-1.5`、`py-0.5`），这是
+  shadcn 组件本身的密度。任何地方都不写 `p-[6px]` 这类任意值。
 - **页头**：高 56px、底部 1px 分割线、左右内边距 24px；左侧标题（title-sm），其后是页签，
   右侧是搜索与主操作。页头高度固定，不随内容撑高。
 - **内容区**：页头以下整块滚动，内边距 24px；浏览类页面（探索、资产、工具箱）内容左对齐、
@@ -328,6 +333,10 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 ## Components
 
+- **基础组件只从 `components/ui/` 取**（shadcn new-york，Radix 原语只在这里封装一次）。
+  业务代码不写原生 `<button>`、`<input>`、`<select>`、`<textarea>`、`<dialog>`，也不直接 import
+  `@radix-ui/*`；缺什么组件就先按 shadcn 加进 `components/ui/`，再在业务里组合。现有清单：
+  Button、Input、Textarea、Label、Checkbox、Select、Slider、Popover、Sheet。
 - **Button**：只用 `components/ui/button.tsx` 的 variant（default / outline / ghost /
   destructive）与 size；不要在业务里手写一套 `rounded-xl border px-3.5 py-2.5` 的按钮。
 - **PageHeader**：所有浏览页共用一个组件，固定 56px，右侧按账号簇宽度让位。
@@ -344,7 +353,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `SettingsToggle`。图片（`ParamControls`）与视频（`CanvasVideoParams`）共用这一个外壳，
   不要再在输入框里平铺一排参数 chip。
 - **EmptyState**：一枚 24px 线性图标 + 一句 body-sm 说明 + 可选一个按钮，在内容区上部居中。
-- **图标**：一律 lucide 或 `icons.tsx` 的 svg；`+ − ＋ → ↗ ×` 这类文字字符不能当图标用。
+- **图标**：一律 lucide，自定义图标集中放在 `components/icons.tsx`（或 `*Icons.tsx` 图标模块；品牌 Logo 放 `logos.tsx`），
+  业务组件里不写内联 `<svg>`；`+ − ＋ → ↗ ×` 这类文字字符不能当图标用。
   图标尺寸跟控件走：28px 控件配 14px 图标，32–36px 配 16px。
 
 ## Do's and Don'ts
@@ -358,3 +368,16 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 - Don't：给只在触屏上成立的操作写 PC 文案（如「长按缩略图」），按指针类型分别给提示。
 - Don't：在界面上解释系统行为；空态最多一句话说明「这里放什么、怎么开始」。
 - `light-*` 色值是亮色主题的对照组，只经由 `:root:not(.dark)` 生效，不在组件里直接引用。
+
+## 门禁
+
+`pnpm lint` 会跑 `scripts/check-design.ts`，拦下业务代码里的原生控件、内联 `<svg>`、字符图标、
+任意字号 / 间距 / 圆角 / 颜色、Tailwind 调色板类、字阶外字号、超出三档的字重、`/70` 灰字、
+`focus:` 焦点环，以及 CSS 里写死的颜色与字号，规则与修法见脚本里的 `DESIGN_RULES`。
+`components/ui/` 之外 import `@radix-ui/*`、以及任何非 lucide 图标库，由 `biome.json` 的
+`noRestrictedImports` 拦截。
+
+- 存量违规按「文件 × 规则」计数记在 `scripts/design-baseline.json`，只许降不许升。修掉存量后
+  跑 `pnpm design:baseline` 把计数收紧并一起提交。
+- 确属例外（画布热区、第三方挂载点等）在该行行尾或紧邻上方的注释行写
+  `design-allow <rule>: 理由`；不要靠改 baseline 放行新代码。

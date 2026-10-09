@@ -47,5 +47,73 @@
         }
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["apps/web/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["private/**", "**/private/**"],
+                    "message": "Private-tree imports are only allowed at the three audited overlay seams."
+                  },
+                  {
+                    "group": [
+                      "react-icons",
+                      "react-icons/**",
+                      "@heroicons/**",
+                      "@phosphor-icons/**",
+                      "@tabler/icons*",
+                      "@radix-ui/react-icons"
+                    ],
+                    "message": "Icons come from lucide-react or apps/web/src/components/icons.tsx (see apps/web/DESIGN.md)."
+                  },
+                  {
+                    "group": ["@radix-ui/**"],
+                    "message": "Wrap Radix primitives once in apps/web/src/components/ui and import from there (see apps/web/DESIGN.md)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/web/src/components/ui/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["private/**", "**/private/**"],
+                    "message": "Private-tree imports are only allowed at the three audited overlay seams."
+                  },
+                  {
+                    "group": [
+                      "react-icons",
+                      "react-icons/**",
+                      "@heroicons/**",
+                      "@phosphor-icons/**",
+                      "@tabler/icons*",
+                      "@radix-ui/react-icons"
+                    ],
+                    "message": "Icons come from lucide-react or apps/web/src/components/icons.tsx (see apps/web/DESIGN.md)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
