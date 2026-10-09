@@ -8,7 +8,7 @@ vi.mock('../../../../lib/imagePreprocessing', async () => ({
 import 'fake-indexeddb/auto'
 import { describe, expect, it, vi } from 'vitest'
 import { agentDraft, DraftSession, removeProjectDraft } from '../../../../features/agent/lib/drafts'
-import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
+import { type AgentDraft, EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { createSelectionReferences } from '../../../../features/agent/lib/selectionReferences'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 
@@ -19,11 +19,22 @@ async function ready(session: DraftSession) {
 /** 让页面隐藏那一刻排下的写事务先进队；此刻 300ms 的 debounce 还没到，落盘只可能来自它。 */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+function submissionOf(draft: AgentDraft) {
+  return {
+    id: `failed-${crypto.randomUUID()}`,
+    text: draft.prompt,
+    mode: draft.mode ?? ('image' as const),
+    references: [],
+    params: { model: 'gpt-image-2', size: '1536x1024' },
+    clarificationAnswer: false,
+  }
+}
+
 function hidePage() {
   window.dispatchEvent(new Event('pagehide'))
 }
 
-/** 存储里那份草稿的文字：读回来的非空草稿先作为未发送草稿等用户决定。 */
+/** 存储里那份草稿的文字：发送失败的那份在待恢复区，其余直接在输入框。 */
 async function storedPrompt(key: string): Promise<string> {
   const restored = new DraftSession(key)
   await ready(restored)
@@ -32,7 +43,7 @@ async function storedPrompt(key: string): Promise<string> {
 }
 
 describe('草稿恢复', () => {
-  it('刷新后文字、图片和遮罩作为未发送草稿读回，恢复后进输入框，会话之间互不串用', async () => {
+  it('刷新后文字、图片和遮罩直接回到输入框，会话之间互不串用', async () => {
     const draft = {
       prompt: '改背景',
       references: [
@@ -50,14 +61,10 @@ describe('草稿恢复', () => {
     const restored = new DraftSession('conversation-one')
     const other = new DraftSession('conversation-two')
     await Promise.all([ready(restored), ready(other)])
-    expect(restored.getSnapshot().unsent).toEqual(draft)
-    expect(restored.getSnapshot().draft).toEqual(EMPTY_DRAFT)
-    expect(other.getSnapshot().unsent).toBeNull()
-    expect(other.getSnapshot().draft.prompt).toBe('')
-
-    restored.restoreUnsent()
     expect(restored.getSnapshot().draft).toEqual(draft)
     expect(restored.getSnapshot().unsent).toBeNull()
+    expect(other.getSnapshot().unsent).toBeNull()
+    expect(other.getSnapshot().draft.prompt).toBe('')
   })
   it('跟着选区自动带进来的参考图，读回来仍跟着选区走', async () => {
     const doc = new CanvasDoc()
@@ -175,10 +182,11 @@ describe('输入框不在场', () => {
 })
 
 describe('未发送的草稿', () => {
-  async function leftBehind(key: string, draft: Parameters<DraftSession['update']>[0]) {
+  /** 上次发送失败、带着命令身份留在存储里的那份；`failed: false` 是只打了字没发的。 */
+  async function leftBehind(key: string, draft: AgentDraft, failed = true) {
     const session = new DraftSession(key)
     await ready(session)
-    session.update(draft)
+    session.update(failed ? { ...draft, submission: submissionOf(draft) } : draft)
     await session.flush()
     const restored = new DraftSession(key)
     await ready(restored)
@@ -211,13 +219,19 @@ describe('未发送的草稿', () => {
 
     again.update((draft) => ({ ...draft, mode: 'video' }))
     again.restoreUnsent()
-    expect(again.getSnapshot().draft).toEqual({
+    expect(again.getSnapshot().draft).toMatchObject({
       prompt: '做个开箱短片',
       references: [],
       mode: 'video',
     })
     restored.restoreUnsent()
     expect(restored.getSnapshot().draft.mode).toBe('image')
+  })
+
+  it('只打了字没发出去的，刷新后直接回到输入框，不弹提示', async () => {
+    const restored = await leftBehind('typed-only', { prompt: '写到一半', references: [] }, false)
+    expect(restored.getSnapshot().unsent).toBeNull()
+    expect(restored.getSnapshot().draft.prompt).toBe('写到一半')
   })
 
   it('不理它、输入框空着时落盘也不会把它冲掉', async () => {
@@ -260,7 +274,7 @@ describe('未发送的草稿', () => {
         { id: 'canvas-1', dataUrl: 'data:image/png;base64,aGk=', origin: 'selection' as const },
       ],
     }
-    const restored = await leftBehind('unsent-selection-only', draft)
+    const restored = await leftBehind('unsent-selection-only', draft, false)
     expect(restored.getSnapshot().unsent).toBeNull()
     expect(restored.getSnapshot().draft).toEqual(draft)
   })
@@ -334,7 +348,7 @@ it('发送失败接回时不会覆盖等待期间的新选区', async () => {
   expect(session.getSnapshot().unsent?.prompt).toBe('失败消息')
 })
 
-it('空输入框接回失败消息时也保留尚未恢复的旧草稿', async () => {
+it('输入框里有旧草稿时接回失败消息，两份都保留', async () => {
   const key = `old-unsent-${crypto.randomUUID()}`
   const before = new DraftSession(key)
   await before.ready
@@ -345,8 +359,8 @@ it('空输入框接回失败消息时也保留尚未恢复的旧草稿', async (
   expect(await current.returnUnsent({ prompt: '本次失败', references: [] })).toBe(true)
   const restored = new DraftSession(key)
   await restored.ready
-  expect(restored.getSnapshot().draft.prompt).toBe('本次失败')
-  expect(restored.getSnapshot().unsent?.prompt).toBe('旧草稿')
+  expect(restored.getSnapshot().draft.prompt).toBe('旧草稿')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('本次失败')
   expect(restored.getSnapshot().recoverable).toBe(true)
 })
 
