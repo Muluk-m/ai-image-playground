@@ -466,6 +466,15 @@ function StandardAgentToolCard({
       setDownloading(new Set(downloadingRef.current))
     }
   }
+  const placeOnCanvas = () => {
+    void useAgentStore
+      .getState()
+      .placeOnCanvas(message.id)
+      .then(() => {
+        const delivered = useAgentStore.getState().messages.find((one) => one.id === message.id)
+        if (delivered?.kind === 'tool' && delivered.delivery === 'placed') onViewCanvas?.()
+      })
+  }
   const previews = useArtifactPreviews(message, Boolean(onPreviewResult) || generatedImage)
   const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
   const openPreviewResult = (objectId?: string) => {
@@ -880,16 +889,7 @@ function StandardAgentToolCard({
               }
             >
               {offCanvas && !onPreviewResult && (
-                <AgentIconButton
-                  icon={Images}
-                  label={t('tool.place')}
-                  onClick={() =>
-                    void useAgentStore
-                      .getState()
-                      .placeOnCanvas(message.id)
-                      .then(() => onViewCanvas?.())
-                  }
-                />
+                <AgentIconButton icon={Images} label={t('tool.place')} onClick={placeOnCanvas} />
               )}
               {(message.prompt || onViewCanvas) && (
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
@@ -1004,15 +1004,7 @@ function StandardAgentToolCard({
               </button>
             )}
             {offCanvas && !onPreviewResult && (
-              <button
-                type="button"
-                onClick={() =>
-                  void useAgentStore
-                    .getState()
-                    .placeOnCanvas(message.id)
-                    .then(() => onViewCanvas?.())
-                }
-              >
+              <button type="button" onClick={placeOnCanvas}>
                 {t('tool.place')}
               </button>
             )}
@@ -1113,16 +1105,7 @@ function StandardAgentToolCard({
         onPreview={onPreviewResult ? (id) => openPreviewResult(id) : undefined}
       />
       {offCanvas && !onPreviewResult && (
-        <button
-          type="button"
-          className={`self-start ${GHOST_LINK}`}
-          onClick={() =>
-            void useAgentStore
-              .getState()
-              .placeOnCanvas(message.id)
-              .then(() => onViewCanvas?.())
-          }
-        >
+        <button type="button" className={`self-start ${GHOST_LINK}`} onClick={placeOnCanvas}>
           {t('tool.place')}
         </button>
       )}
