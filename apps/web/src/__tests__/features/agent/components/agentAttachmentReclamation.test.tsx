@@ -84,7 +84,7 @@ it('rebuilds original ownership from durable draft and outgoing documents before
   try {
     const restored = new restartedDrafts.DraftSession(key)
     await restored.ready
-    expect(restored.getSnapshot().unsent?.references[0]?.dataUrl).toBe(draftSource)
+    expect(restored.getSnapshot().draft.references[0]?.dataUrl).toBe(draftSource)
     expect(
       new TextDecoder().decode((await restartedSources.readLocalAttachment(draftSource)).data),
     ).toBe('draft-original')

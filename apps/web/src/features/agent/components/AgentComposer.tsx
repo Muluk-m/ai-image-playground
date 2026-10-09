@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { CircleAlert, FolderOpen, Images, RotateCw, Zap } from 'lucide-react'
+import { CircleAlert, FolderOpen, Images, RotateCw, Undo2, X, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -78,7 +78,7 @@ import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import ProductionQuoteChip from '../../production/components/ProductionQuoteChip'
 import { useProductionSelection } from '../../production/lib/productionContext'
-import { CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
+import { GHOST_LINK, ICON_BUTTON, INK, INK_3 } from '../agentStyles'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
@@ -919,38 +919,60 @@ export default function AgentComposer({
         </div>
       )}
       {draftError && (
-        <p role="alert" className="text-xs text-warning">
-          {recoveryBlocked ? t('draft.recoveryBlocked') : draftError}
-        </p>
-      )}
-      {recoveryBlocked && (
-        <button
-          type="button"
-          className={GHOST_LINK}
-          disabled={readingDraft}
-          onClick={() => void session.retryRecovery()}
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-label-sm text-warning"
         >
-          {t('draft.retryRestore')}
-        </button>
+          <span className="min-w-0 flex-1">
+            {recoveryBlocked ? t('draft.recoveryBlocked') : draftError}
+          </span>
+          {recoveryBlocked && (
+            <button
+              type="button"
+              className={`${ICON_BUTTON} shrink-0`}
+              aria-label={t('draft.retryRestore')}
+              title={t('draft.retryRestore')}
+              disabled={readingDraft}
+              onClick={() => void session.retryRecovery()}
+            >
+              <RotateCw className="size-3.5" aria-hidden />
+            </button>
+          )}
+        </div>
       )}
       {unsent && (recoverable || !hasDraftContent(draft)) && (
-        <div role="status" className={`flex items-center gap-2 px-1 ${CARD_NOTE}`}>
-          <span className="min-w-0 flex-1">{t('draft.unsent')}</span>
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-xs"
+        >
+          <span className={`shrink-0 text-label-sm ${INK_3}`}>{t('draft.unsent')}</span>
+          <span className={`min-w-0 flex-1 truncate ${INK}`} title={unsent.prompt}>
+            {unsent.prompt}
+          </span>
+          {unsent.references.length > 0 && (
+            <span className={`shrink-0 text-label-sm ${INK_3}`}>
+              {t('queue.references', { count: unsent.references.length })}
+            </span>
+          )}
           <button
             type="button"
-            className={GHOST_LINK}
+            className={`${ICON_BUTTON} shrink-0`}
+            aria-label={t('draft.restore')}
+            title={t('draft.restore')}
             disabled={loading}
             onClick={session.restoreUnsent}
           >
-            {t('draft.restore')}
+            <Undo2 className="size-3.5" aria-hidden />
           </button>
           <button
             type="button"
-            className={`${CARD_NOTE} transition-colors hover:text-foreground`}
+            className={`${ICON_BUTTON} shrink-0`}
+            aria-label={t('draft.discard')}
+            title={t('draft.discard')}
             disabled={loading}
             onClick={session.discardUnsent}
           >
-            {t('draft.discard')}
+            <X className="size-3.5" aria-hidden />
           </button>
         </div>
       )}
