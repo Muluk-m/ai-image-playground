@@ -61,6 +61,24 @@ describe('export pipeline', () => {
     expect(releaseCanvas.width).toBe(0)
     vi.unstubAllGlobals()
   })
+  it('cancels an in-flight source request when the export is closed', async () => {
+    const controller = new AbortController()
+    const load = vi.fn(
+      (signal?: AbortSignal) =>
+        new Promise<Blob>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+        }),
+    )
+    const pending = prepareExports(
+      [{ id: 'video', name: 'video', media: 'video', load }],
+      { mode: 'original', value: 100, quality: 92, rows: [] },
+      controller.signal,
+      vi.fn(),
+    )
+    controller.abort()
+    await expect(pending).rejects.toThrow()
+    expect(load).toHaveBeenCalledWith(controller.signal)
+  })
   it('stops before loading if cancelled', async () => {
     const controller = new AbortController()
     controller.abort()

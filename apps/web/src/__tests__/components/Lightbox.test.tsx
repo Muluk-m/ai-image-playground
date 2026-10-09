@@ -195,15 +195,16 @@ describe('Lightbox 保存按钮', () => {
     return lightboxRoot().querySelector<HTMLButtonElement>('button[data-save-image]')
   }
 
-  it('只在粗指针设备上出现', async () => {
+  it('鼠标与触屏设备都能下载原图和导出', async () => {
     await renderLightbox()
-    expect(saveButton()).toBeNull()
+    expect(saveButton()?.textContent).toContain('下载原图')
+    expect(lightboxRoot().textContent).toContain('导出')
 
     act(() => root.unmount())
     stubPointer('coarse')
     root = createRoot(host)
     await renderLightbox()
-    expect(saveButton()?.textContent).toContain('保存图片')
+    expect(saveButton()?.textContent).toContain('下载原图')
   })
 
   it('点击后走下载路径', async () => {

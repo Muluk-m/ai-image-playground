@@ -679,7 +679,7 @@ function LightboxInner({
                   id: imageId || src,
                   name: 'image',
                   media: 'image',
-                  load: () => originalBlob(src),
+                  load: (signal) => originalBlob(src, signal),
                 },
               ])
             }}
