@@ -1003,7 +1003,12 @@ export default function AgentComposer({
               const isUploading = ['queued', 'uploading', 'verifying'].includes(uploadState ?? '')
               return (
                 <div key={reference.id} className="group flex max-w-full items-start gap-2">
-                  <AttachmentTile name={label} title={label} failed={uploadState === 'failed'}>
+                  <AttachmentTile
+                    name={label}
+                    title={label}
+                    failed={uploadState === 'failed'}
+                    className="size-24"
+                  >
                     <ComposerAttachmentThumb
                       src={reference.dataUrl}
                       uploading={isUploading}
