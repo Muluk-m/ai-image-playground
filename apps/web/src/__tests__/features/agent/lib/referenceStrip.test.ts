@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest'
-import { fitReferenceRow } from '../../../../features/agent/lib/referenceStrip'
+import {
+  fitReferenceRow,
+  referenceChipChrome,
+  referenceFoldChrome,
+} from '../../../../features/agent/lib/referenceStrip'
 
 const more = (hidden: number) => 40 + String(hidden).length * 8
 
@@ -19,4 +23,11 @@ it('collapses to the count alone when even one chip cannot share the row', () =>
 it('uses the fallback count before the panel width is known', () => {
   expect(fitReferenceRow(0, [80, 80, 80, 80, 80], more, 6, 2)).toBe(2)
   expect(fitReferenceRow(0, [80], more, 6, 8)).toBe(1)
+})
+
+it('scales the rem parts of chip and fold chrome with the root font size', () => {
+  expect(referenceChipChrome(16)).toBe(39)
+  expect(referenceFoldChrome(16)).toBe(36)
+  expect(referenceChipChrome(20)).toBe(45)
+  expect(referenceFoldChrome(20)).toBe(39.5)
 })

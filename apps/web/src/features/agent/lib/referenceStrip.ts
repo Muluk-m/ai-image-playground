@@ -2,16 +2,21 @@
 export const REFERENCE_ROW_FALLBACK = 8
 
 /**
- * 图片胶囊的固定占位：1px 边框 + 2px 左内边距 + 24px 缩略图 + 5px 间距 + 6px 右内边距 + 1px 边框。
+ * 图片胶囊的固定占位：1px 边框 + 2px 左内边距 + 1.5rem 缩略图 + 5px 间距 + 6px 右内边距 + 1px 边框。
  * 和 `.mention-tag.agent-image-mention` 对齐；名字另算，并且不超过 9rem。
+ * 缩略图按 rem 走，用户调大浏览器默认字号时跟着变宽，所以按根字号换算。
  */
-export const REFERENCE_CHIP_CHROME = 39
+export function referenceChipChrome(rootFontSize: number): number {
+  return 15 + rootFontSize * 1.5
+}
 
 /**
- * 「还有 N 张」的固定占位：边框、左右 8px 内边距、图标和间距。
+ * 「还有 N 张」的固定占位：边框、左右 8px 内边距、4px 间距和 0.875rem 图标。
  * 和 `.mention-tag.agent-reference-fold` 对齐。
  */
-export const REFERENCE_FOLD_CHROME = 36
+export function referenceFoldChrome(rootFontSize: number): number {
+  return 22 + rootFontSize * 0.875
+}
 
 /**
  * 一行里最多放下几张胶囊，还要给折叠按钮留位置。
