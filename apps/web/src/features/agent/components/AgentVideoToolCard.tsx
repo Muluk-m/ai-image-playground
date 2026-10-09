@@ -23,7 +23,8 @@ import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { cn } from '../../../lib/utils'
-import { videoOutputFrame } from '../lib/artifactSource'
+import { captureVideoFrame } from '../../video/lib/playback'
+import { cachedVideoOutputFrame, rememberVideoOutputFrame } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentRerunBlock, agentRetryAvailable } from '../lib/retry'
 import {
@@ -95,19 +96,17 @@ function VideoResult({
 }) {
   const { t } = useTranslation('agent')
   const [poster, setPoster] = useState<string>()
-  // 封面和画布用同一张首帧；抓取失败就保持可播放的空舞台，不拿纯色底冒充画面。
+  // 复用已有首帧；没有封面时由可见播放器解码，不另开隐藏播放器抢带宽。
   useEffect(() => {
     let alive = true
     setPoster(undefined)
-    void videoOutputFrame({ taskId: artifact.taskId, outputIndex: artifact.outputIndex }).then(
-      (frame) => {
-        if (alive && frame) setPoster(frame)
-      },
-    )
+    void cachedVideoOutputFrame(artifact)?.then((value) => {
+      if (alive && value) setPoster(value)
+    })
     return () => {
       alive = false
     }
-  }, [artifact.taskId, artifact.outputIndex])
+  }, [artifact.artifactId, artifact.taskId, artifact.outputIndex])
   return (
     <VideoPlayer
       src={queueOutputUrl(artifact.taskId, artifact.outputIndex)}
@@ -115,6 +114,14 @@ function VideoResult({
       label={title}
       errorLabel={t('video.playbackFailed')}
       retryLabel={t('video.reload')}
+      loadingLabel={t('video.loading')}
+      onFrameReady={(video) => {
+        const frame = captureVideoFrame(video)
+        if (frame) {
+          setPoster(frame)
+          rememberVideoOutputFrame(artifact, frame)
+        }
+      }}
       aspectRatio={aspectRatio?.replace(':', ' / ')}
       fill
       maxHeight="min(30rem, 56vh)"
