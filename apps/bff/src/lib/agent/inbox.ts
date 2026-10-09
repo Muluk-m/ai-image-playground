@@ -249,6 +249,20 @@ export async function agentInboxEntry(
   return row ? entryOf(row) : null
 }
 
+export async function agentSubmissionEntry(
+  conversationId: string,
+  clientMessageId: string,
+): Promise<InboxEntry | null> {
+  const [row] = await db
+    .select()
+    .from(inbox)
+    .where(
+      and(eq(inbox.conversation_id, conversationId), eq(inbox.client_message_id, clientMessageId)),
+    )
+    .limit(1)
+  return row ? entryOf(row) : null
+}
+
 /**
  * 轮到它时开不了轮：记下错误码，让它不再挡着后面的。只有仍待处理时才成立——同时被撤回的
  * 那一条就还是撤回。

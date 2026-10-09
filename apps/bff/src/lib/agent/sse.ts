@@ -7,7 +7,7 @@ import type { StoredAgentEvent } from './events'
 
 const SSE_HEADERS = {
   'content-type': 'text/event-stream; charset=utf-8',
-  'cache-control': 'no-store',
+  'cache-control': 'no-store, no-transform',
   // 反代默认按响应缓冲，逐字流会被攒成一坨。
   'x-accel-buffering': 'no',
 }
@@ -20,6 +20,9 @@ export function agentTurnStream(
   const encoder = new TextEncoder()
   let pending: Promise<IteratorResult<StoredAgentEvent>> | null = null
   const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(agentHeartbeatFrame()))
+    },
     async pull(controller) {
       pending ??= events.next()
       let timer: ReturnType<typeof setTimeout> | undefined
