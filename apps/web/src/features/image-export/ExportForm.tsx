@@ -1,5 +1,6 @@
 import { Download, Images, LoaderCircle, Minus, Plus, RotateCcw } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { TooltipIconButton } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import {
@@ -219,17 +220,14 @@ export default function ExportForm({
                       />
                     </Affix>
                   ))}
-                  <Button
-                    variant="ghost"
-                    size="icon"
+                  <TooltipIconButton
                     className={ICON_BUTTON}
-                    aria-label={t('export.reset')}
-                    title={t('export.reset')}
+                    tooltip={t('export.reset')}
                     disabled={settings.mode === 'original' && !sizeDraft}
                     onClick={() => changeMode('original')}
                   >
                     <RotateCcw />
-                  </Button>
+                  </TooltipIconButton>
                 </div>
               ) : (
                 <div className="flex gap-2">
@@ -272,12 +270,9 @@ export default function ExportForm({
             <Section
               title={t('export.outputs')}
               action={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground hover:text-foreground"
-                  aria-label={t('export.addRow')}
-                  title={t('export.addRow')}
+                <TooltipIconButton
+                  className="size-7"
+                  tooltip={t('export.addRow')}
                   disabled={settings.rows.length >= 8}
                   onClick={() =>
                     setSettings((prev) => ({
@@ -290,7 +285,7 @@ export default function ExportForm({
                   }
                 >
                   <Plus />
-                </Button>
+                </TooltipIconButton>
               }
             >
               {settings.rows.map((row, index) => {
@@ -342,12 +337,9 @@ export default function ExportForm({
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <TooltipIconButton
                       className={ICON_BUTTON}
-                      aria-label={t('export.removeRow')}
-                      title={t('export.removeRow')}
+                      tooltip={t('export.removeRow')}
                       disabled={settings.rows.length === 1}
                       onClick={() =>
                         setSettings((prev) => ({
@@ -357,7 +349,7 @@ export default function ExportForm({
                       }
                     >
                       <Minus />
-                    </Button>
+                    </TooltipIconButton>
                   </div>
                 )
               })}

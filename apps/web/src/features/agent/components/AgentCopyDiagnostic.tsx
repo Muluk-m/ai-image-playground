@@ -1,5 +1,6 @@
 import { Copy, FileText, X } from 'lucide-react'
 import { useState } from 'react'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { currentLocale, useTranslation } from '../../../i18n'
@@ -97,16 +98,12 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
       >
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="font-semibold">{t('diagnostic.title')}</h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={t('action.close', { ns: 'common' })}
+          <TooltipIconButton
+            tooltip={t('action.close', { ns: 'common' })}
             onClick={() => setOpen(false)}
           >
-            <X className="size-4" aria-hidden="true" />
-          </Button>
+            <X aria-hidden="true" />
+          </TooltipIconButton>
         </div>
         <p className="mb-3 leading-relaxed">{summary}</p>
         {!record.message && <p className="mb-3 text-muted-foreground">{t('diagnostic.unknown')}</p>}
