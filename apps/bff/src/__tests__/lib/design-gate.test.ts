@@ -28,18 +28,16 @@ describe('scanSource', () => {
   it('flags magic values and palette classes', () => {
     const source =
       '<div className="text-[13px] p-[6px] rounded-[10px] bg-[#fff] text-zinc-500 text-foreground/70 font-bold text-lg" />'
-    expect(rulesIn('apps/web/src/A.tsx', source).sort()).toEqual(
-      [
-        'arbitrary-color',
-        'arbitrary-font',
-        'arbitrary-radius',
-        'arbitrary-spacing',
-        'font-weight',
-        'offscale-font',
-        'opacity-text',
-        'palette-class',
-      ].sort(),
-    )
+    expect(rulesIn('apps/web/src/A.tsx', source).sort()).toEqual([
+      'arbitrary-color',
+      'arbitrary-font',
+      'arbitrary-radius',
+      'arbitrary-spacing',
+      'font-weight',
+      'offscale-font',
+      'opacity-text',
+      'palette-class',
+    ])
   })
 
   it('keeps design tokens and on-grid utilities clean', () => {
@@ -73,8 +71,9 @@ describe('scanSource', () => {
     expect(scanSource('apps/web/src/A.tsx', source)).toEqual([{ rule: 'native-control', line: 4 }])
   })
 
-  it('skips comment lines', () => {
+  it('skips comment lines, JSX comments included', () => {
     expect(rulesIn('apps/web/src/A.tsx', '// 以前用 <button> 和 text-[13px]')).toEqual([])
+    expect(rulesIn('apps/web/src/A.tsx', '  {/* 原来的 <button> */}')).toEqual([])
   })
 
   it('checks CSS colors and font sizes except in the token files', () => {

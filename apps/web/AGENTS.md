@@ -6,8 +6,7 @@
 
 **写或改界面前先读 [`DESIGN.md`](./DESIGN.md)**：颜色、字阶、间距、控件高度和组件清单都以它为准，
 找不到合适档位就先改它再写代码。交互控件从 `components/ui/`（shadcn）组合；缺的组件先按 shadcn
-加进 `components/ui/`，再在业务里用。`pnpm lint` 的设计门禁（`scripts/check-design.ts`）只许存量
-违规减少，确属例外时在该行注释 `design-allow <rule>: 理由`。
+加进 `components/ui/`，再在业务里用。`pnpm lint` 带设计门禁，报错时按 DESIGN.md「门禁」处理。
 
 ## 服务商架构
 

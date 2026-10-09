@@ -400,7 +400,7 @@
   },
   "apps/web/src/features/library/components/AssetCard.tsx": {
     "focus-not-visible": 1,
-    "native-control": 8
+    "native-control": 7
   },
   "apps/web/src/features/library/components/AssetDetail.tsx": {
     "native-control": 5
@@ -417,7 +417,7 @@
     "native-control": 1
   },
   "apps/web/src/features/library/components/LookCard.tsx": {
-    "native-control": 3
+    "native-control": 2
   },
   "apps/web/src/features/library/components/LookDetail.tsx": {
     "arbitrary-font": 1,
@@ -435,7 +435,7 @@
     "native-control": 1
   },
   "apps/web/src/features/library/components/TemplateCard.tsx": {
-    "native-control": 2
+    "native-control": 1
   },
   "apps/web/src/features/library/components/TemplateDetail.tsx": {
     "focus-not-visible": 1,
