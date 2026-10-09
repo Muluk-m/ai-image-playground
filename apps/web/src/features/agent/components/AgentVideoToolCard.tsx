@@ -1,6 +1,7 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { Download, FileText, Images, Maximize2, VideoIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
 import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
@@ -257,7 +258,10 @@ export default function AgentVideoToolCard({
         {message.status === 'succeeded' && !artifacts.length && (
           <p className="text-sm text-muted-foreground">{t('video.notSubmitted')}</p>
         )}
-        {message.status === 'failed' && (
+        {message.status === 'failed' && message.errorCode === 'cancelled' && (
+          <StoppedRun reason={failureText} />
+        )}
+        {message.status === 'failed' && message.errorCode !== 'cancelled' && (
           <p role="alert" className="text-sm text-destructive">
             {failureText}
           </p>

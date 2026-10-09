@@ -1,28 +1,35 @@
-// Adapted from assistant-ui Elements (MIT), retrieved 2026-09-24.
-// https://r.assistant-ui.com/elements-image-generation.json
-import { ImageIcon } from 'lucide-react'
+// Adapted from assistant-ui Elements (MIT): elements-image-generation.json.
 import type { ComponentProps } from 'react'
+import { cn } from '../../../lib/utils'
+
+const DOTS = Array.from({ length: 64 }, (_, i) => i)
 
 export function ImageGeneration({
   generating,
-  className = '',
+  className,
   ...props
-}: Omit<ComponentProps<'div'>, 'children'> & {
-  generating: boolean
-}) {
+}: Omit<ComponentProps<'div'>, 'children'> & { generating: boolean }) {
   return (
     <div
       data-slot="image-generation"
       data-generating={generating || undefined}
-      className={`studio-agent-generation-placeholder ${className}`}
+      className={cn(
+        'relative aspect-square w-full overflow-hidden rounded-xl bg-muted/30',
+        className,
+      )}
       {...props}
     >
-      <div className="studio-agent-generation-glow" />
-      <span className="studio-agent-generation-symbol">
-        <ImageIcon size={26} strokeWidth={1.25} />
-      </span>
-      <div className="studio-agent-generation-track">
-        <span />
+      <div aria-hidden className="absolute inset-0 grid grid-cols-8 place-items-center p-7">
+        {DOTS.map((dot) => (
+          <span
+            key={dot}
+            className={cn(
+              'size-1 rounded-full bg-primary/35',
+              generating && 'animate-pulse motion-reduce:animate-none',
+            )}
+            style={{ animationDelay: `${(Math.floor(dot / 8) + (dot % 8)) * 90}ms` }}
+          />
+        ))}
       </div>
     </div>
   )
