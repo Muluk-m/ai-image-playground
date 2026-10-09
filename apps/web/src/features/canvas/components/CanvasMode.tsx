@@ -445,7 +445,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <>
           {hasAgent && (
             <div
-              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${sidebarOpen ? 'studio-project-viewbar--with-sidebar' : ''}`}
+              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''}`}
             >
               {!sidebarOpen && sidebarToggle}
               <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
