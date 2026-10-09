@@ -46,7 +46,8 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [editing, setEditing] = useState(false)
+  // 改名绑定开始编辑时的项目：切换完成后旧输入框直接作废，不会把旧名字写进新项目。
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
   const [visibleCounts, setVisibleCounts] = useState(INITIAL_VISIBLE)
   // 切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，只置灰的话点下去像没反应。
   const [pending, setPending] = useState<string | 'new' | null>(null)
@@ -93,11 +94,12 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
       setPending(null)
     }
   }
+  const renaming = editing?.id === activeId ? editing : null
   const commitName = (value: string) => {
-    setEditing(false)
+    setEditing(null)
     const next = value.trim()
-    if (!activeId || !next || next === name) return
-    void renameProject(activeId, next).catch(() =>
+    if (!renaming || !next || next === renaming.name) return
+    void renameProject(renaming.id, next).catch(() =>
       useStore.getState().showToast(t('canvas:grid.renameFailed'), 'error'),
     )
   }
@@ -123,10 +125,10 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                 <span aria-hidden="true" className="studio-project-pill-divider" />
               </>
             )}
-            {editing ? (
+            {renaming ? (
               <input
                 autoFocus
-                defaultValue={name}
+                defaultValue={renaming.name}
                 aria-label={t('navigation.renameAria')}
                 maxLength={80}
                 className="studio-project-pill-name studio-project-pill-input"
@@ -136,7 +138,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                   if (event.nativeEvent.isComposing) return
                   if (event.key === 'Enter') event.currentTarget.blur()
                   if (event.key === 'Escape') {
-                    event.currentTarget.value = name
+                    event.currentTarget.value = renaming.name
                     event.currentTarget.blur()
                   }
                 }}
@@ -147,8 +149,8 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                 className="studio-project-pill-name"
                 title={t('navigation.renameHint')}
                 aria-label={t('navigation.renameAria')}
-                disabled={!activeId}
-                onClick={() => setEditing(true)}
+                disabled={!activeId || busy}
+                onClick={() => activeId && setEditing({ id: activeId, name })}
               >
                 <span className="truncate">{name}</span>
               </button>
