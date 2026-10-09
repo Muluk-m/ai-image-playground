@@ -247,8 +247,7 @@
     "native-control": 2
   },
   "apps/web/src/features/agent/components/AgentPanel.tsx": {
-    "inline-svg": 1,
-    "native-control": 7
+    "native-control": 6
   },
   "apps/web/src/features/agent/components/AgentPromptDialog.tsx": {
     "focus-not-visible": 3,
@@ -264,7 +263,7 @@
     "native-control": 1
   },
   "apps/web/src/features/agent/components/AgentToolCard.tsx": {
-    "native-control": 19
+    "native-control": 15
   },
   "apps/web/src/features/agent/components/AgentTurnCost.tsx": {
     "native-control": 2
