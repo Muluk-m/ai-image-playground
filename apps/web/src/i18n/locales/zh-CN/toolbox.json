@@ -44,10 +44,11 @@
     "addFolder": "文件夹",
     "hint": "拖入图片或文件夹，也可以直接粘贴",
     "chooseImages": "选择图片",
-    "chooseFolder": "选择文件夹"
+    "chooseFolder": "选择文件夹",
+    "clearAll": "清空全部"
   },
   "page": {
-    "back": "工具箱"
+    "returnToTools": "返回工具箱"
   },
   "params": {
     "format": "输出格式",

@@ -1,18 +1,11 @@
-import {
-  ArrowLeft,
-  ChevronRight,
-  Download,
-  FolderOpen,
-  ImagePlus,
-  SquareArrowOutUpRight,
-} from 'lucide-react'
+import { Download, SquareArrowOutUpRight } from 'lucide-react'
 import type { ReactNode } from 'react'
-import PageHeader from '../../../components/PageHeader'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { type DeliverableImage, downloadImages, sendImagesToComposer } from '../lib/deliver'
 import type { ToolDefinition } from '../lib/tool'
 import { useToolboxStore } from '../store'
+import ToolboxHeader from './ToolboxHeader'
 import { useToolboxIntake } from './useToolboxIntake'
 
 /**
@@ -34,8 +27,6 @@ export default function ToolShell({
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
-  const clear = useToolboxStore((state) => state.clear)
-  const closeTool = useToolboxStore((state) => state.closeTool)
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
   const Icon = tool.icon
   const name = t(`tool.${tool.id}.name`)
@@ -46,40 +37,17 @@ export default function ToolShell({
       className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col"
     >
       {inputs}
-      <PageHeader
-        className="gap-2 md:pl-3"
-        leading={
-          <>
-            <Button variant="ghost" size="sm" onClick={closeTool}>
-              <ArrowLeft />
-              {t('page.back')}
-            </Button>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          </>
-        }
+      <ToolboxHeader
+        back
+        onAddImages={openFiles}
+        onAddFolder={openFolder}
         title={
           <>
             <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
             {name}
           </>
         }
-      >
-        <span className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={openFiles}>
-            <ImagePlus />
-            {t('intake.addImages')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={openFolder}>
-            <FolderOpen />
-            {t('intake.addFolder')}
-          </Button>
-          {count > 0 && (
-            <Button variant="ghost" size="sm" onClick={clear}>
-              {t('intake.clear')}
-            </Button>
-          )}
-        </span>
-      </PageHeader>
+      />
       <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-6 py-3">
         {controls}
       </div>

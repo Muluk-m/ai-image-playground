@@ -45,10 +45,11 @@
     "addFolder": "Folder",
     "hint": "Drop images or a folder, or paste",
     "chooseImages": "Choose images",
-    "chooseFolder": "Choose folder"
+    "chooseFolder": "Choose folder",
+    "clearAll": "Clear all"
   },
   "page": {
-    "back": "Toolbox"
+    "returnToTools": "Back to toolbox"
   },
   "params": {
     "format": "Output format",

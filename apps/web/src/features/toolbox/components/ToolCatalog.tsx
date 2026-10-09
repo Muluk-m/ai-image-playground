@@ -1,11 +1,10 @@
-import { X } from 'lucide-react'
-import PageHeader from '../../../components/PageHeader'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { TOOL_GROUPS, TOOLS } from '../lib/registry'
 import type { ToolDefinition } from '../lib/tool'
 import { useToolboxStore } from '../store'
+import ToolboxHeader from './ToolboxHeader'
 import { useToolboxIntake } from './useToolboxIntake'
 
 function ToolCard({ tool }: { tool: ToolDefinition }) {
@@ -35,9 +34,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
 /** 工具目录：先选一件工具，进去只做这一件事。卡片只写名字与选项。 */
 export default function ToolCatalog() {
   const { t } = useTranslation('toolbox')
-  const count = useToolboxStore((state) => state.items.length)
-  const clear = useToolboxStore((state) => state.clear)
-  const { dragging, dropZoneProps, inputs } = useToolboxIntake()
+  const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
 
   return (
     <main
@@ -45,22 +42,11 @@ export default function ToolCatalog() {
       className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col ${dragging ? 'bg-primary/5' : ''}`}
     >
       {inputs}
-      <PageHeader title={APP_MODE_LABELS.tools}>
-        {count > 0 && (
-          <span className="ml-auto flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">
-            {t('intake.imported', { count })}
-            <Button
-              variant="ghost"
-              type="button"
-              onClick={clear}
-              aria-label={t('intake.clear')}
-              className="ml-1 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          </span>
-        )}
-      </PageHeader>
+      <ToolboxHeader
+        title={APP_MODE_LABELS.tools}
+        onAddImages={openFiles}
+        onAddFolder={openFolder}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="max-w-5xl space-y-8">
           {TOOL_GROUPS.map((group) => {
