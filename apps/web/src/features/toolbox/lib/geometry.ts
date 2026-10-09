@@ -41,28 +41,6 @@ export function centerCrop(width: number, height: number, ratio: number): CropRe
   return { x: 0, y: Math.round((height - h) / 2), width, height: h }
 }
 
-export type ResizeRule =
-  | { mode: 'longEdge'; value: number }
-  | { mode: 'width'; value: number }
-  | { mode: 'percent'; value: number }
-
-/**
- * 改尺寸后的宽高。长边只缩不放（「长边 1600」对一张 800 的图不该把它放大）；
- * 宽度与百分比照用户说的来，放大也算用户要的。
- */
-export function resizedSize(width: number, height: number, rule: ResizeRule) {
-  const scale =
-    rule.mode === 'longEdge'
-      ? Math.min(1, rule.value / Math.max(width, height))
-      : rule.mode === 'width'
-        ? rule.value / width
-        : rule.value / 100
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale)),
-  }
-}
-
 export function plan(
   sourceWidth: number,
   sourceHeight: number,

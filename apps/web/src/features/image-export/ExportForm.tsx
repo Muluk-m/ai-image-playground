@@ -50,6 +50,7 @@ export default function ExportForm({
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [done, setDone] = useState(0)
+  const [sizeDraft, setSizeDraft] = useState<{ field: SizeMode; text: string } | null>(null)
   const abort = useRef<AbortController | null>(null)
   const single = sources.length === 1 && sources[0]?.media === 'image'
   const first = sources[0]
@@ -96,13 +97,30 @@ export default function ExportForm({
         1,
       )
     : null
-  const changeMode = (mode: SizeMode) =>
+  const changeMode = (mode: SizeMode) => {
+    setSizeDraft(null)
     setSettings((prev) => ({
       ...prev,
       mode,
       value: mode === 'percent' || mode === 'original' ? 100 : (dimensions?.[mode] ?? 1440),
     }))
+  }
+  const validSize = (mode: SizeMode, text: string) => {
+    const value = Number(text)
+    return (
+      text.trim() !== '' &&
+      Number.isFinite(value) &&
+      value > 0 &&
+      (mode === 'percent' || Number.isInteger(value))
+    )
+  }
+  const changeSize = (field: SizeMode, text: string) => {
+    setSizeDraft({ field, text })
+    if (validSize(field, text))
+      setSettings((prev) => ({ ...prev, mode: field, value: Number(text) }))
+  }
   const invalid =
+    (sizeDraft !== null && !validSize(sizeDraft.field, sizeDraft.text)) ||
     !Number.isFinite(settings.value) ||
     settings.value <= 0 ||
     ((settings.mode === 'width' || settings.mode === 'height') && !Number.isInteger(settings.value))
@@ -179,14 +197,9 @@ export default function ExportForm({
                         type="number"
                         min={1}
                         step={1}
-                        value={size[axis]}
-                        onChange={(event) =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            mode: axis,
-                            value: Number(event.target.value),
-                          }))
-                        }
+                        value={sizeDraft?.field === axis ? sizeDraft.text : size[axis]}
+                        onChange={(event) => changeSize(axis, event.target.value)}
+                        aria-invalid={sizeDraft?.field === axis && invalid}
                       />
                     </div>
                   ))}
@@ -201,10 +214,9 @@ export default function ExportForm({
                       id="export-size-value"
                       type="number"
                       min={1}
-                      value={settings.value}
-                      onChange={(event) =>
-                        setSettings((prev) => ({ ...prev, value: Number(event.target.value) }))
-                      }
+                      value={sizeDraft?.field === settings.mode ? sizeDraft.text : settings.value}
+                      onChange={(event) => changeSize(settings.mode, event.target.value)}
+                      aria-invalid={invalid}
                     />
                   </div>
                 )
@@ -216,10 +228,9 @@ export default function ExportForm({
                     id="export-percent"
                     type="number"
                     min={1}
-                    value={settings.value}
-                    onChange={(event) =>
-                      setSettings((prev) => ({ ...prev, value: Number(event.target.value) }))
-                    }
+                    value={sizeDraft?.field === 'percent' ? sizeDraft.text : settings.value}
+                    onChange={(event) => changeSize('percent', event.target.value)}
+                    aria-invalid={sizeDraft?.field === 'percent' && invalid}
                   />
                 </div>
               )}
