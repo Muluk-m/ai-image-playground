@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
-import { dismissAllTooltips } from '../lib/tooltipDismiss'
+import { closeTooltips } from './assistant-ui/elements/tooltip-icon-button'
 
 /**
  * Overlay — 所有模态浮层的唯一外壳。拥有六条纪律：
@@ -64,7 +64,7 @@ export default function Overlay({
   const surfaceRef = useRef<HTMLDivElement>(null)
   useFocusTrap(surfaceRef)
   useEffect(() => {
-    dismissAllTooltips()
+    closeTooltips()
     openBoundaries.push(boundaryRef)
     return () => {
       openBoundaries.splice(openBoundaries.indexOf(boundaryRef), 1)

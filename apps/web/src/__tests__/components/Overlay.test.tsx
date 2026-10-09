@@ -2,8 +2,9 @@
 import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Hint } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import Overlay from '../../components/Overlay'
-import ViewportTooltip from '../../components/ViewportTooltip'
+import { stubPointerApis } from '../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -157,19 +158,21 @@ describe('Overlay', () => {
     expect(wheel(document.body)).toBe(true)
     expect(document.body.style.overflow).toBe('hidden')
   })
-  it('dismisses viewport tooltips when an overlay opens', () => {
+  it('closes open tooltips when an overlay opens', () => {
+    stubPointerApis()
     render(
-      <div>
-        <ViewportTooltip visible>layer tooltip</ViewportTooltip>
-      </div>,
+      <Hint tooltip="layer tooltip">
+        <button type="button">trigger</button>
+      </Hint>,
     )
+    act(() => document.body.querySelector('button')!.focus())
     expect(document.body.textContent).toContain('layer tooltip')
 
     render(
       <>
-        <div>
-          <ViewportTooltip visible>layer tooltip</ViewportTooltip>
-        </div>
+        <Hint tooltip="layer tooltip">
+          <button type="button">trigger</button>
+        </Hint>
         <Overlay onClose={() => {}}>
           <div>modal content</div>
         </Overlay>

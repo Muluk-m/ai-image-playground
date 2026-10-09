@@ -94,8 +94,8 @@ describe('画布工具条', () => {
 
     expect(toolbar().dataset.canvasToolbar).toBe('side')
     expect(toolbar().style.left).toBe('')
-    expect(toolbar().querySelector('button[title="选择（V）"]')).not.toBeNull()
-    expect(toolbar().querySelector('button[title="缩小"]')).not.toBeNull()
+    expect(toolbar().querySelector('button[aria-label="选择（V）"]')).not.toBeNull()
+    expect(toolbar().querySelector('button[aria-label="缩小"]')).not.toBeNull()
   })
 
   it('面板收起后仍位于画布侧边', async () => {
