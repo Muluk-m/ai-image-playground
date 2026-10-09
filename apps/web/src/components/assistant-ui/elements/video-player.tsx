@@ -1,4 +1,4 @@
-import { LoaderCircle, RotateCcw } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../ui/button'
 
@@ -26,9 +26,9 @@ export function VideoPlayer({
   retryLabel,
   loadingLabel,
   onFrameReady,
+  onAspectRatioChange,
   aspectRatio = '16 / 9',
   fill = false,
-  maxHeight,
 }: {
   src: string
   poster?: string
@@ -37,9 +37,9 @@ export function VideoPlayer({
   retryLabel: string
   loadingLabel: string
   onFrameReady?: (video: HTMLVideoElement) => void
+  onAspectRatioChange?: (aspectRatio: string) => void
   aspectRatio?: string
   fill?: boolean
-  maxHeight?: string
 }) {
   const frame = useRef<HTMLDivElement>(null)
   const media = useRef<HTMLVideoElement>(null)
@@ -51,6 +51,17 @@ export function VideoPlayer({
   const [ready, setReady] = useState<string | null>(null)
   const [waiting, setWaiting] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [dimensions, setDimensions] = useState<{ src: string; ratio: string }>()
+  const displayRatio = dimensions?.src === src ? dimensions.ratio : aspectRatio
+  const loading = loadMedia && failure !== src && (ready !== src || waiting)
+  useEffect(() => {
+    if (!loading) return
+    const timer = window.setTimeout(() => {
+      setFailure(src)
+      setWaiting(false)
+    }, 45_000)
+    return () => window.clearTimeout(timer)
+  }, [src, attempt, loading])
   useEffect(() => {
     const node = frame.current
     if (!node) return
@@ -62,7 +73,7 @@ export function VideoPlayer({
       ([entry]) => {
         setNearViewport(entry.isIntersecting)
       },
-      { rootMargin: '160px' },
+      { rootMargin: '0px' },
     )
     observer.observe(node)
     return () => observer.disconnect()
@@ -94,7 +105,7 @@ export function VideoPlayer({
           ? 'relative w-full overflow-hidden bg-black'
           : 'relative max-w-full self-start overflow-hidden rounded-xl bg-black'
       }
-      style={fill ? { aspectRatio, maxHeight } : playerFrameStyle(aspectRatio)}
+      style={playerFrameStyle(displayRatio)}
     >
       <video
         ref={media}
@@ -104,7 +115,7 @@ export function VideoPlayer({
         controls
         playsInline
         crossOrigin="use-credentials"
-        preload={nearViewport ? 'auto' : 'none'}
+        preload={playingSource === src ? 'auto' : nearViewport ? 'metadata' : 'none'}
         aria-label={label}
         className="absolute inset-0 h-full w-full bg-black object-contain"
         onError={() => {
@@ -114,25 +125,48 @@ export function VideoPlayer({
         onLoadedData={(event) => {
           setFailure(null)
           setReady(src)
+          setWaiting(false)
           if (event.currentTarget.currentTime === 0) onFrameReady?.(event.currentTarget)
         }}
-        onWaiting={() => setWaiting(true)}
-        onPlay={() => setPlayingSource(src)}
+        onWaiting={(event) => setWaiting(!event.currentTarget.paused)}
+        onPlay={(event) => {
+          setPlayingSource(src)
+          setWaiting(event.currentTarget.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
+        }}
         onPlaying={() => {
           setPlayingSource(src)
+          setReady(src)
+          setFailure(null)
           setWaiting(false)
         }}
-        onCanPlay={() => setWaiting(false)}
+        onCanPlay={() => {
+          setReady(src)
+          setFailure(null)
+          setWaiting(false)
+        }}
         onPause={() => {
           setPlayingSource(null)
           setWaiting(false)
         }}
-        onEnded={() => setPlayingSource(null)}
+        onEnded={() => {
+          setPlayingSource(null)
+          setWaiting(false)
+        }}
         onTimeUpdate={(event) => {
           if (event.currentTarget.getAttribute('src') === src && event.currentTarget.readyState > 0)
             position.current = { src, time: event.currentTarget.currentTime }
         }}
         onLoadedMetadata={(event) => {
+          const video = event.currentTarget
+          // metadata 预读允许停在 HAVE_METADATA；闲置时无需等到整段可播放。
+          setReady(src)
+          setFailure(null)
+          setWaiting(!video.paused && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            const ratio = `${video.videoWidth} / ${video.videoHeight}`
+            setDimensions({ src, ratio })
+            onAspectRatioChange?.(ratio)
+          }
           if (position.current.src === src && position.current.time > 0)
             event.currentTarget.currentTime = Math.min(
               position.current.time,
@@ -140,19 +174,10 @@ export function VideoPlayer({
             )
         }}
       />
-      {nearViewport && failure !== src && (ready !== src || waiting) && (
-        <div
-          role="status"
-          aria-label={loadingLabel}
-          className="pointer-events-none absolute inset-0 grid place-items-center"
-        >
-          <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
-            <LoaderCircle
-              className="size-5 animate-spin motion-reduce:animate-none"
-              aria-hidden="true"
-            />
-          </span>
-        </div>
+      {loading && (
+        <span role="status" aria-label={loadingLabel} className="sr-only">
+          {loadingLabel}
+        </span>
       )}
       {failure === src && (
         <div

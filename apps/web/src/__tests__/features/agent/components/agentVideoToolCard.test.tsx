@@ -165,13 +165,13 @@ it('plays recovered video results inline without waiting for a canvas or a poste
   expect(video.getAttribute('src')).toContain('/video-task/output/0')
   expect(video.controls).toBe(true)
   expect(video.autoplay).toBe(false)
-  expect(video.preload).toBe('auto')
+  expect(video.preload).toBe('metadata')
   expect(video.crossOrigin).toBe('use-credentials')
   expect(video.getAttribute('poster')).toBeNull()
   expect(player.style.aspectRatio).toBe('9 / 16')
-  expect(player.style.maxHeight).toBe('min(30rem, 56vh)')
-  expect(host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!.style.width).toBe(
-    '100%',
+  expect(player.style.maxHeight).toBe('min(24rem, 46vh)')
+  expect(host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!.style.width).toContain(
+    '24rem',
   )
   expect(host.querySelector('[data-slot="video-generation"]')).toBeNull()
   await act(async () => video.dispatchEvent(new Event('error')))
@@ -210,7 +210,7 @@ it('fills the frame-sized player with the captured first frame once it arrives',
     settle('data:image/jpeg;base64,FRAME')
   })
   expect(host.querySelector('video')!.getAttribute('poster')).toBe('data:image/jpeg;base64,FRAME')
-  expect(host.querySelector('video')!.preload).toBe('auto')
+  expect(host.querySelector('video')!.preload).toBe('metadata')
 })
 
 it('downloads authenticated video bytes instead of saving the poster as a PNG', async () => {
@@ -425,7 +425,7 @@ it('preloads only nearby video results, then shares the first decoded frame with
   await act(async () => intersect([{ isIntersecting: false }]))
   expect(video.preload).toBe('none')
   await act(async () => intersect([{ isIntersecting: true }]))
-  expect(video.preload).toBe('auto')
+  expect(video.preload).toBe('metadata')
   expect(video.autoplay).toBe(false)
   expect(host.querySelector('[role="status"]')?.getAttribute('aria-label')).toBe('加载视频')
   expect(disconnect).not.toHaveBeenCalled()
@@ -441,16 +441,22 @@ it('preloads only nearby video results, then shares the first decoded frame with
   )
   expect(video.poster).toBe('data:image/jpeg;base64,DECODED')
   await act(async () => video.dispatchEvent(new Event('waiting')))
-  expect(host.querySelector('[role="status"]')).not.toBeNull()
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  const paused = vi.spyOn(video, 'paused', 'get').mockReturnValue(false)
+  await act(async () => video.dispatchEvent(new Event('play')))
+  expect(video.preload).toBe('auto')
+  await act(async () => video.dispatchEvent(new Event('waiting')))
+  expect(host.querySelector('[role="status"]')?.className).toBe('sr-only')
   await act(async () => video.dispatchEvent(new Event('playing')))
   expect(host.querySelector('[role="status"]')).toBeNull()
   await act(async () => intersect([{ isIntersecting: false }]))
   expect(video.getAttribute('src')).toContain('/video-task/output/0')
-  expect(video.preload).toBe('none')
+  expect(video.preload).toBe('auto')
   Object.defineProperty(video, 'readyState', { configurable: true, value: 4 })
   Object.defineProperty(video, 'duration', { configurable: true, value: 8 })
   video.currentTime = 3
   await act(async () => video.dispatchEvent(new Event('timeupdate')))
+  paused.mockReturnValue(true)
   await act(async () => video.dispatchEvent(new Event('pause')))
   expect(video.getAttribute('src')).toBeNull()
   video.currentTime = 0
@@ -459,7 +465,7 @@ it('preloads only nearby video results, then shares the first decoded frame with
   expect(host.querySelector('[role="status"]')).toBeNull()
   await act(async () => intersect([{ isIntersecting: true }]))
   expect(video.getAttribute('src')).toContain('/video-task/output/0')
-  expect(video.preload).toBe('auto')
+  expect(video.preload).toBe('metadata')
   expect(video.poster).toBe('data:image/jpeg;base64,DECODED')
   await act(async () => video.dispatchEvent(new Event('loadedmetadata')))
   expect(video.currentTime).toBe(3)
@@ -522,4 +528,96 @@ it('preserves a playable source across StrictMode effect replay and releases it 
   await act(async () => root.render(null))
   expect(video.getAttribute('src')).toBeNull()
   expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled()
+})
+
+it('bounds recovered portrait results by their decoded dimensions without a second spinner', async () => {
+  await render({
+    ...base,
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId: 'actual-portrait',
+        media: 'video',
+        taskId: 'portrait-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+        video: { ...record, aspectRatio: '16:9' },
+      },
+    ],
+  })
+  const video = host.querySelector('video')!
+  const card = host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!
+  const player = host.querySelector<HTMLElement>('[data-slot="video-player"]')!
+  expect(card.style.width).not.toBe('100%')
+  expect(player.style.maxHeight).toBe('min(24rem, 46vh)')
+  expect(host.querySelector('[role="status"] svg')).toBeNull()
+  Object.defineProperty(video, 'videoWidth', { configurable: true, value: 768 })
+  Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1168 })
+  await act(async () => video.dispatchEvent(new Event('loadedmetadata')))
+  expect(player.style.aspectRatio).toBe('768 / 1168')
+  expect(card.style.width).toContain(String(768 / 1168))
+  await act(async () => video.dispatchEvent(new Event('loadeddata')))
+  await act(async () => video.dispatchEvent(new Event('waiting')))
+  expect(host.querySelector('[role="status"]')).toBeNull()
+})
+
+it('offers media reload after a bounded load timeout without repeating generation', async () => {
+  vi.useFakeTimers()
+  try {
+    await render({
+      ...base,
+      status: 'succeeded',
+      artifacts: [
+        {
+          artifactId: 'slow',
+          media: 'video',
+          taskId: 'slow-task',
+          outputIndex: 0,
+          mime: 'video/mp4',
+        },
+      ],
+    })
+    await act(async () => vi.advanceTimersByTime(45_000))
+    expect(host.textContent).toContain('视频暂时无法播放')
+    await act(async () => button('重新加载').click())
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+    expect(fixtures.state.retry).not.toHaveBeenCalled()
+    await act(async () => host.querySelector('video')!.dispatchEvent(new Event('loadeddata')))
+    await act(async () => vi.advanceTimersByTime(45_000))
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('keeps metadata-only previews playable while still timing out an actual playback stall', async () => {
+  vi.useFakeTimers()
+  try {
+    await render({
+      ...base,
+      status: 'succeeded',
+      artifacts: [
+        {
+          artifactId: 'metadata-only',
+          media: 'video',
+          taskId: 'metadata-task',
+          outputIndex: 0,
+          mime: 'video/mp4',
+        },
+      ],
+    })
+    const video = host.querySelector('video')!
+    Object.defineProperty(video, 'readyState', { configurable: true, value: 1 })
+    await act(async () => video.dispatchEvent(new Event('loadedmetadata')))
+    await act(async () => vi.advanceTimersByTime(45_000))
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+    expect(host.querySelector('[role="status"]')).toBeNull()
+    await act(async () => video.dispatchEvent(new Event('play')))
+    expect(video.preload).toBe('auto')
+    await act(async () => vi.advanceTimersByTime(45_000))
+    expect(host.textContent).toContain('视频暂时无法播放')
+    expect(fixtures.state.retry).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })
