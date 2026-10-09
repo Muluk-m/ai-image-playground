@@ -273,7 +273,7 @@ describe('`/` 技能候选', () => {
     expect(option!.querySelector('[data-skill-icon="clapperboard"]')).not.toBeNull()
 
     act(() => {
-      option!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      option!.click()
     })
 
     // 插进去的仍是标识：服务端只认它。
@@ -286,7 +286,7 @@ describe('`/` 技能候选', () => {
     await settle()
     type('/story')
     const option = host.querySelector<HTMLElement>('[role="option"]')!
-    act(() => option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))
+    act(() => option.click())
     type('参考 @')
     const session = agentDraft(null, PROJECT_ID)
     act(() => {

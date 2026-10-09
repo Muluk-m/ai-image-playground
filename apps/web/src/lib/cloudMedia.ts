@@ -117,11 +117,8 @@ export async function invalidateMediaPreview(source: string): Promise<void> {
     loaded.delete(key)
   }
   bypassDiskCache.add(key)
-  // Storage failure must still permit a network retry instead of trapping the failed preview.
-  await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.delete(cacheId)).then(
-    () => bypassDiskCache.delete(key),
-    () => {},
-  )
+  // Until a replacement arrives, retries bypass disk and any original used for display.
+  await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.delete(cacheId)).catch(() => {})
 }
 
 /** 会话内的热表：落盘的是 Blob，这里存换算好的 data URL，省掉重复解码。 */
@@ -155,21 +152,26 @@ async function persist(media: CachedMedia): Promise<boolean> {
  */
 export async function resolveMediaSource(
   source: string,
-  variant: Variant = 'original',
+  variant: Variant | 'display' = 'original',
   urgent = false,
 ): Promise<string> {
   const id = mediaIdentity(source)
   if (!id) return source
+  const reuseOriginal = variant === 'display'
+  if (variant === 'display') variant = 'preview'
   const scope = scopedStorageName('media')
   const assertScope = () => {
     if (scope !== scopedStorageName('media')) throw new Error('media_scope_changed')
   }
   const cacheId = `${id}:${variant}`
   const key = `${scope}:${cacheId}`
-  const hit = loaded.get(key)
+  // Display can reuse already downloaded pixels; it never fetches an original for a thumbnail.
+  const hitKey =
+    reuseOriginal && !loaded.has(key) && !bypassDiskCache.has(key) ? `${scope}:${id}:original` : key
+  const hit = loaded.get(hitKey)
   if (hit) {
-    loaded.delete(key)
-    loaded.set(key, hit)
+    loaded.delete(hitKey)
+    loaded.set(hitKey, hit)
     return hit
   }
   const pending = loading.get(key)

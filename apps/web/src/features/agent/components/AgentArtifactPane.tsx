@@ -22,6 +22,7 @@ import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useStore } from '../../../store'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
 import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
+import { INLINE_RESULT_THUMBNAIL_SCALE } from '../lib/artifactPreview'
 import { previewArtifactBitmap } from '../lib/artifactSource'
 import { attachFilesToComposer } from '../lib/attachments'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -33,6 +34,7 @@ interface PaneItem {
   readonly id: string
   readonly media: 'image' | 'video'
   readonly load: () => Promise<string | null>
+  readonly loadPreview: () => Promise<string | null>
   readonly loadThumbnail: () => Promise<string | null>
   readonly videoUrl?: string
 }
@@ -77,7 +79,10 @@ export default function AgentArtifactPane({
 }) {
   const { t } = useTranslation('agent')
   const { t: tv } = useTranslation('video')
-  const [source, setSource] = useState<string | null>(null)
+  const [loadedSource, setLoadedSource] = useState<{ id: string; value: string | null } | null>(
+    null,
+  )
+  const [preview, setPreview] = useState<{ id: string; source: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
   const [retry, setRetry] = useState(0)
@@ -88,6 +93,12 @@ export default function AgentArtifactPane({
       id: artifact.artifactId,
       media: artifact.media === 'video' ? ('video' as const) : ('image' as const),
       load: () => sourceOrCanvas(artifact.artifactId, () => previewArtifactBitmap(artifact)),
+      loadPreview: () =>
+        canvasOrSource(
+          artifact.artifactId,
+          () => previewArtifactBitmap(artifact),
+          INLINE_RESULT_THUMBNAIL_SCALE,
+        ),
       loadThumbnail: () =>
         canvasOrSource(artifact.artifactId, () => previewArtifactBitmap(artifact), 0.16),
       videoUrl:
@@ -102,6 +113,12 @@ export default function AgentArtifactPane({
         sourceOrCanvas(fetchedCanvasId(message.toolCallId, index), () =>
           resolveMediaSource(`aip-media:${image.imageId}`, 'original', true).catch(() => null),
         ),
+      loadPreview: () =>
+        canvasOrSource(
+          fetchedCanvasId(message.toolCallId, index),
+          () => resolveMediaSource(`aip-media:${image.imageId}`, 'preview', true).catch(() => null),
+          INLINE_RESULT_THUMBNAIL_SCALE,
+        ),
       loadThumbnail: () =>
         canvasOrSource(
           fetchedCanvasId(message.toolCallId, index),
@@ -111,6 +128,8 @@ export default function AgentArtifactPane({
     })),
   ]
   const active = items.find((item) => item.id === selectedId) ?? items[0]
+  const source = loadedSource?.id === active?.id ? (loadedSource?.value ?? null) : null
+  useEffect(() => setZoomed(false), [active?.id])
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
@@ -135,15 +154,22 @@ export default function AgentArtifactPane({
   useEffect(() => {
     let alive = true
     setLoading(true)
-    setSource(null)
-    setZoomed(false)
+    setLoadedSource(null)
+    setPreview((previous) => (previous?.id === active?.id ? previous : null))
     if (!active) return
+    // Show the same canvas preview as the result card while the original loads independently.
+    void active
+      .loadPreview()
+      .catch(() => null)
+      .then((next) => {
+        if (alive && next) setPreview({ id: active.id, source: next })
+      })
     void active
       .load()
       .catch(() => null)
       .then((next) => {
         if (!alive) return
-        setSource(next)
+        setLoadedSource({ id: active.id, value: next })
         setLoading(false)
       })
     return () => {
@@ -152,6 +178,7 @@ export default function AgentArtifactPane({
   }, [active?.id, message.delivery, retry])
 
   if (!active) return null
+  const displaySource = source ?? (preview?.id === active.id ? preview.source : null)
   const download = () => {
     if (!source && !active.videoUrl) return
     const link = document.createElement('a')
@@ -254,17 +281,17 @@ export default function AgentArtifactPane({
             key={active.id}
             controls
             playsInline
-            poster={source ?? undefined}
+            poster={displaySource ?? undefined}
             src={active.videoUrl}
           />
-        ) : source ? (
+        ) : displaySource ? (
           <button
             type="button"
             className="studio-artifact-pane-image"
             onClick={() => setZoomed(true)}
             aria-label={t('tool.zoomResult')}
           >
-            <img src={source} alt={message.title} />
+            <img src={displaySource} alt={message.title} />
           </button>
         ) : (
           <div className="studio-artifact-pane-loading" role="status">
@@ -315,6 +342,11 @@ export default function AgentArtifactPane({
             <Download size={18} aria-hidden="true" />
             {t('tool.downloadResult')}
           </button>
+          {!loading && !source && displaySource && (
+            <button type="button" onClick={() => setRetry((value) => value + 1)}>
+              {t('tool.retryPreview')}
+            </button>
+          )}
           {items.length > 1 && (
             <span>
               {items.findIndex((item) => item.id === active.id) + 1}/{items.length}
@@ -392,7 +424,15 @@ export default function AgentArtifactPane({
           )}
         </div>
       </div>
-      {zoomed && source && <ImagePreview src={source} onClose={() => setZoomed(false)} />}
+      {zoomed && displaySource && (
+        <ImagePreview
+          src={displaySource}
+          originalPending={!source && loading}
+          originalFailed={!source && !loading}
+          onRetryOriginal={() => setRetry((value) => value + 1)}
+          onClose={() => setZoomed(false)}
+        />
+      )}
       {editAction && source && (
         <AgentArtifactEditDialog
           key={`${active.id}:${editAction}`}
