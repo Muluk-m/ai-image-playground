@@ -25,6 +25,40 @@ describe('scanSource', () => {
     expect(scanSource('apps/web/src/A.tsx', source)).toEqual([{ rule: 'native-control', line: 3 }])
   })
 
+  it('reads the input type from a multi-line opening tag', () => {
+    const source = [
+      '<input',
+      '  ref={fileRef}',
+      '  onChange={(event) => event.target.files && pick(event.target.files)}',
+      '  type="file"',
+      '/>',
+      '<input',
+      '  onChange={(event) => set(event.target.value)}',
+      '/>',
+    ].join('\n')
+    expect(scanSource('apps/web/src/A.tsx', source)).toEqual([{ rule: 'native-control', line: 6 }])
+  })
+
+  it('allows focus: rings on text inputs only', () => {
+    const textInput = [
+      '<Input',
+      '  value={query}',
+      '  className={cn("h-9", "focus:ring-2")}',
+      '/>',
+      '<textarea className="focus:outline-none" />',
+    ].join('\n')
+    expect(rulesIn('apps/web/src/A.tsx', textInput)).toEqual(['native-control'])
+    const others = [
+      '<Button className="focus:ring-2" />',
+      '<input type="checkbox" className="focus:ring-2" />',
+    ].join('\n')
+    expect(rulesIn('apps/web/src/A.tsx', others)).toEqual([
+      'focus-not-visible',
+      'native-control',
+      'focus-not-visible',
+    ])
+  })
+
   it('flags magic values and palette classes', () => {
     const source =
       '<div className="text-[13px] p-[6px] rounded-[10px] bg-[#fff] text-zinc-500 text-foreground/70 font-bold text-lg" />'

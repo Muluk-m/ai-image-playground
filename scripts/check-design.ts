@@ -13,6 +13,8 @@ export type DesignRule = {
   /** 默认 ts / tsx */
   extensions?: readonly string[]
   appliesTo?: (path: string) => boolean
+  /** 按命中位置所在的 JSX 标签豁免个例（index 是命中在整个文件里的偏移） */
+  exempt?: (source: string, index: number) => boolean
 }
 
 const outsideUi = (path: string) => !path.includes('/components/ui/')
@@ -23,13 +25,53 @@ const colorUtilities =
   'text|bg|border|ring|fill|stroke|from|to|via|outline|divide|placeholder|shadow|decoration|accent|caret'
 const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|\{\/\*)/
 
+/** 从 `<` 开始的完整 JSX 开始标签（跳过 `{…}` 表达式里的 `>`），属性可以跨行。 */
+function openingTagAt(source: string, start: number): string {
+  let depth = 0
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '{') depth += 1
+    else if (char === '}') depth -= 1
+    else if (char === '>' && depth === 0) return source.slice(start, index + 1)
+  }
+  return source.slice(start)
+}
+
+/** 命中位置所在的 JSX 开始标签；不在任何开始标签里时返回 null。 */
+function enclosingTag(source: string, index: number): { name: string; text: string } | null {
+  for (let start = source.lastIndexOf('<', index); start >= 0; ) {
+    const name = /^<([A-Za-z][\w.]*)/.exec(source.slice(start, start + 64))?.[1]
+    if (name) {
+      const text = openingTagAt(source, start)
+      return start + text.length > index ? { name, text } : null
+    }
+    start = source.lastIndexOf('<', start - 1)
+  }
+  return null
+}
+
+const typeOf = (tag: string) => /\btype=["'](\w+)["']/.exec(tag)?.[1]
+const NON_TEXT_INPUT_TYPES = new Set([
+  'button',
+  'checkbox',
+  'color',
+  'file',
+  'radio',
+  'range',
+  'submit',
+])
+
 export const DESIGN_RULES: readonly DesignRule[] = [
   {
     id: 'native-control',
     fix: '用 components/ui 的 Button / Input / Textarea / Select 等组件，不写原生控件',
-    pattern: /<(button|select|textarea|dialog)\b|<input\b(?![^>]*\btype=["'](file|hidden)["'])/g,
+    pattern: /<(button|select|textarea|dialog|input)\b/g,
     extensions: ['tsx'],
     appliesTo: outsideUi,
+    exempt: (source, index) => {
+      const tag = openingTagAt(source, index)
+      return tag.startsWith('<input') && ['file', 'hidden'].includes(typeOf(tag) ?? '')
+    },
   },
   {
     id: 'inline-svg',
@@ -89,6 +131,14 @@ export const DESIGN_RULES: readonly DesignRule[] = [
     fix: '焦点环用 focus-visible:，只有文本输入框允许 focus:',
     pattern: /(?<![-\w])focus:(ring|outline)/g,
     appliesTo: outsideUi,
+    exempt: (source, index) => {
+      const tag = enclosingTag(source, index)
+      return (
+        !!tag &&
+        /^(input|textarea|Input|Textarea)$/.test(tag.name) &&
+        !NON_TEXT_INPUT_TYPES.has(typeOf(tag.text) ?? 'text')
+      )
+    },
   },
   {
     id: 'css-color',
@@ -117,13 +167,19 @@ export function scanSource(path: string, source: string): DesignHit[] {
   )
   const lines = source.split('\n')
   const hits: DesignHit[] = []
+  let lineStart = 0
   lines.forEach((line, index) => {
+    const offset = lineStart
+    lineStart += line.length + 1
     if (COMMENT_LINE.test(line)) return
     const previous = lines[index - 1] ?? ''
     const allowance = COMMENT_LINE.test(previous) ? `${previous}\n${line}` : line
     for (const rule of rules) {
       if (allowance.includes(`design-allow ${rule.id}`)) continue
-      for (const _ of line.matchAll(rule.pattern)) hits.push({ rule: rule.id, line: index + 1 })
+      for (const match of line.matchAll(rule.pattern)) {
+        if (rule.exempt?.(source, offset + match.index)) continue
+        hits.push({ rule: rule.id, line: index + 1 })
+      }
     }
   })
   return hits
@@ -184,12 +240,19 @@ if (import.meta.main) {
     if (hits.length > 0) hitsByFile[path] = hits
   }
   const current = countHits(hitsByFile)
+  const update = process.argv.includes('--update')
+  if (!existsSync(baselinePath) && !update) {
+    console.error(
+      '缺少 scripts/design-baseline.json；只有初始化时才运行 `pnpm design:baseline` 生成。',
+    )
+    process.exit(1)
+  }
   // 首次生成时以当前扫描为 baseline；之后只收紧。
   const baseline: DesignCounts = existsSync(baselinePath)
     ? JSON.parse(readFileSync(baselinePath, 'utf8'))
     : current
 
-  if (process.argv.includes('--update')) {
+  if (update) {
     const next = tightenBaseline(current, baseline)
     writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`)
     console.log(`design baseline written: ${Object.keys(next).length} files`)

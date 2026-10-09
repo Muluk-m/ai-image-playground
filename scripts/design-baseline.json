@@ -51,7 +51,7 @@
     "focus-not-visible": 1,
     "font-weight": 1,
     "inline-svg": 7,
-    "native-control": 18,
+    "native-control": 16,
     "offscale-font": 2
   },
   "apps/web/src/components/Lightbox.tsx": {
@@ -80,7 +80,7 @@
     "native-control": 10
   },
   "apps/web/src/components/SearchBar.tsx": {
-    "focus-not-visible": 6,
+    "focus-not-visible": 3,
     "inline-svg": 2,
     "native-control": 2
   },
@@ -186,9 +186,6 @@
     "inline-svg": 2,
     "native-control": 6
   },
-  "apps/web/src/components/settings/DataTab.tsx": {
-    "native-control": 1
-  },
   "apps/web/src/components/settings/ImportUrlDialog.tsx": {
     "arbitrary-font": 3,
     "font-weight": 2,
@@ -229,7 +226,7 @@
   "apps/web/src/features/agent/components/AgentComposer.tsx": {
     "arbitrary-font": 2,
     "font-weight": 1,
-    "native-control": 7
+    "native-control": 5
   },
   "apps/web/src/features/agent/components/AgentCreations.tsx": {
     "native-control": 3
@@ -250,7 +247,6 @@
     "native-control": 6
   },
   "apps/web/src/features/agent/components/AgentPromptDialog.tsx": {
-    "focus-not-visible": 3,
     "native-control": 5
   },
   "apps/web/src/features/agent/components/AgentPromptDraft.tsx": {
@@ -275,7 +271,7 @@
     "arbitrary-font": 1
   },
   "apps/web/src/features/agent/components/AssetSlotChip.tsx": {
-    "native-control": 2
+    "native-control": 1
   },
   "apps/web/src/features/agent/components/SkillStarterGuide.tsx": {
     "native-control": 3
@@ -290,7 +286,7 @@
     "native-control": 2
   },
   "apps/web/src/features/canvas/components/CanvasGenerateBar.tsx": {
-    "native-control": 4
+    "native-control": 3
   },
   "apps/web/src/features/canvas/components/CanvasImageMenu.tsx": {
     "native-control": 1
@@ -300,7 +296,7 @@
   },
   "apps/web/src/features/canvas/components/CanvasMode.tsx": {
     "inline-svg": 2,
-    "native-control": 19
+    "native-control": 17
   },
   "apps/web/src/features/canvas/components/CanvasShortcutsHint.tsx": {
     "arbitrary-spacing": 1,
@@ -326,7 +322,7 @@
   },
   "apps/web/src/features/canvas/components/InpaintPanel.tsx": {
     "arbitrary-color": 4,
-    "native-control": 8
+    "native-control": 7
   },
   "apps/web/src/features/canvas/components/KonvaCanvas.tsx": {
     "native-control": 1
@@ -398,33 +394,27 @@
     "native-control": 4
   },
   "apps/web/src/features/library/components/AssetCard.tsx": {
-    "focus-not-visible": 1,
     "native-control": 7
   },
   "apps/web/src/features/library/components/AssetDetail.tsx": {
-    "native-control": 5
+    "native-control": 4
   },
   "apps/web/src/features/library/components/AssetHint.tsx": {
     "native-control": 1
   },
   "apps/web/src/features/library/components/CreateRecordDialog.tsx": {
     "focus-not-visible": 6,
-    "native-control": 13,
+    "native-control": 11,
     "offscale-font": 1
-  },
-  "apps/web/src/features/library/components/LibraryPage.tsx": {
-    "native-control": 1
   },
   "apps/web/src/features/library/components/LookCard.tsx": {
     "native-control": 2
   },
   "apps/web/src/features/library/components/LookDetail.tsx": {
     "arbitrary-font": 1,
-    "focus-not-visible": 1,
     "native-control": 7
   },
   "apps/web/src/features/library/components/NamingDialog.tsx": {
-    "focus-not-visible": 3,
     "native-control": 3
   },
   "apps/web/src/features/library/components/NewAssetButton.tsx": {
@@ -437,7 +427,6 @@
     "native-control": 1
   },
   "apps/web/src/features/library/components/TemplateDetail.tsx": {
-    "focus-not-visible": 1,
     "font-weight": 2,
     "native-control": 5,
     "offscale-font": 2
@@ -479,7 +468,7 @@
     "native-control": 2
   },
   "apps/web/src/features/production/components/ProductionReferenceEditor.tsx": {
-    "native-control": 6
+    "native-control": 5
   },
   "apps/web/src/features/production/components/ProductionResultCard.tsx": {
     "native-control": 1
@@ -502,9 +491,6 @@
   },
   "apps/web/src/features/toolbox/components/fields.tsx": {
     "native-control": 1
-  },
-  "apps/web/src/features/toolbox/components/useToolboxIntake.tsx": {
-    "native-control": 2
   },
   "apps/web/src/features/toolbox/tools/slice.tsx": {
     "glyph-icon": 1
