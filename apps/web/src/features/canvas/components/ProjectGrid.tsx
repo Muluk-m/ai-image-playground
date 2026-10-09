@@ -1,5 +1,6 @@
 import { MessageCircle, MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { CanvasIcon, PlusIcon, TrashIcon, VideoIcon } from '../../../components/icons'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
@@ -256,14 +257,13 @@ export default function ProjectGrid({
                 onOpenChange={(open) => setMenuProjectId(open ? project.id : null)}
               >
                 <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-2 rounded-xl bg-background/90 text-foreground opacity-0 shadow-sm transition-opacity hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+                  <TooltipIconButton
+                    className="absolute right-2 top-2 size-9 rounded-xl bg-background/90 text-foreground opacity-0 shadow-sm transition-opacity hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
                     aria-label={t('grid.actionsAria', { name: projectEntryName(project) })}
+                    tooltip={t('grid.actions')}
                   >
                     <MoreHorizontal />
-                  </Button>
+                  </TooltipIconButton>
                 </PopoverTrigger>
                 <PopoverContent
                   align="end"
