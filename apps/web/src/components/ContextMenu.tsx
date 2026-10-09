@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
+import { Button } from './ui/button'
 
 interface ContextMenuProps {
   x: number
@@ -122,14 +123,15 @@ export function ContextMenuItem({
   onClick: (e: ReactMouseEvent) => void
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-muted focus-visible:bg-muted"
+      className="rounded-none justify-start flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-muted focus-visible:bg-muted"
     >
       {icon}
       {label}
-    </button>
+    </Button>
   )
 }

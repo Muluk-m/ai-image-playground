@@ -9,14 +9,18 @@ import { useToolboxStore } from '../store'
  * 收图：拖入、粘贴、选文件、选文件夹四条路进同一个 `add`。
  * 粘贴按入口分域（`usePasteImageFiles('tools')`），别的页面正在接粘贴时这里不抢。
  */
-export function useToolboxIntake() {
+export function useToolboxIntake(disabled = false) {
+  const disabledRef = useRef(disabled)
+  disabledRef.current = disabled
   const add = useToolboxStore((state) => state.add)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   /** 四条路都汇到这里：非图片已经筛掉，剩下的一次进太多就先问一声，确认了才解码入列。 */
   const intake = (images: File[]) => {
-    if (images.length === 0) return
-    confirmImageBatch(images.length, () => void add(images))
+    if (disabledRef.current || images.length === 0) return
+    confirmImageBatch(images.length, () => {
+      if (!disabledRef.current) void add(images)
+    })
   }
   const { dragging, dropZoneProps } = useImageDropZone(intake)
   usePasteImageFiles('tools', intake)

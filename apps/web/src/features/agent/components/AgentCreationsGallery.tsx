@@ -1,15 +1,17 @@
 import { Check, Download, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Checkbox } from '../../../components/Checkbox'
 import { VideoIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Checkbox } from '../../../components/ui/checkbox'
 import { useTranslation } from '../../../i18n'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
-import { exportCanvasSelection } from '../../canvas/lib/exportImages'
 import { canvasImageName } from '../../canvas/lib/imageInfo'
 import { projectDisplayName } from '../../canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
+import { canvasExportSources } from '../../image-export/sources'
+import { openImageExport } from '../../image-export/store'
 
 /**
  * 弹窗里的图按原生比例铺到三四百像素宽，而侧栏那份缩略图是 0.25 倍栅格化的，放这么大就是一团糊。
@@ -73,7 +75,6 @@ export default function AgentCreationsGallery({
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(works.map((work) => work.id)),
   )
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const previews = useWorkPreviews(doc, works)
 
   const live = works.filter((work) => selected.has(work.id))
@@ -88,21 +89,14 @@ export default function AgentCreationsGallery({
     })
   }
 
-  const runExport = async () => {
-    if (progress || live.length === 0) return
-    setProgress({ done: 0, total: live.length })
-    try {
-      await exportCanvasSelection(
+  const runExport = () => {
+    openImageExport(
+      canvasExportSources(
         doc,
         live.map((work) => work.id),
-        {
-          onProgress: (done, total) => setProgress({ done, total }),
-          baseName: project ? projectDisplayName(project.name) : undefined,
-        },
-      )
-    } finally {
-      setProgress(null)
-    }
+      ),
+      project ? projectDisplayName(project.name) : undefined,
+    )
   }
 
   return (
@@ -119,14 +113,15 @@ export default function AgentCreationsGallery({
             {t('creations.itemCount', { count: works.length })}
           </span>
           <div className="flex-1" />
-          <button
+          <Button
+            variant="ghost"
             type="button"
             onClick={onClose}
             aria-label={t('common:action.close')}
             className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
         </header>
 
         {works.length === 0 ? (
@@ -142,13 +137,14 @@ export default function AgentCreationsGallery({
               const name = canvasImageName(work)
               const isSelected = selected.has(work.id)
               return (
-                <button
+                <Button
+                  variant="ghost"
                   key={work.id}
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => toggle(work.id)}
                   title={name}
-                  className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-background`}
+                  className={`!h-auto !whitespace-normal !p-0 group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-background`}
                 >
                   {src ? (
                     <img src={src} alt="" loading="lazy" className="block h-auto w-full" />
@@ -176,7 +172,7 @@ export default function AgentCreationsGallery({
                   <span className="block truncate px-2 py-1.5 text-label-sm text-foreground">
                     {name}
                   </span>
-                </button>
+                </Button>
               )
             })}
           </div>
@@ -185,26 +181,25 @@ export default function AgentCreationsGallery({
         <footer className="flex items-center gap-3 border-t border-border px-4 py-3">
           <Checkbox
             checked={allSelected}
-            onChange={(checked) =>
+            onCheckedChange={(checked) =>
               setSelected(checked ? new Set(works.map((work) => work.id)) : new Set())
             }
-            label={t('creations.selectAll')}
+            aria-label={t('creations.selectAll')}
           />
           <span className="text-label-sm text-muted-foreground tabular-nums">
             {t('creations.selectedCount', { count: live.length })}
           </span>
           <div className="flex-1" />
-          <button
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => void runExport()}
-            disabled={live.length === 0 || progress !== null}
+            disabled={live.length === 0}
             className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
-            {progress
-              ? t('creations.exporting', { done: progress.done, total: progress.total })
-              : t('creations.exportSelected', { count: live.length })}
-          </button>
+            {t('creations.exportSelected', { count: live.length })}
+          </Button>
         </footer>
       </div>
     </Overlay>

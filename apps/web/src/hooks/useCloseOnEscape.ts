@@ -8,7 +8,7 @@ const escStack: Array<{ id: number; handler: () => void }> = []
 let nextId = 0
 
 function globalKeyDown(e: KeyboardEvent) {
-  if (e.key !== 'Escape') return
+  if (e.key !== 'Escape' || e.defaultPrevented) return
   if (escStack.length === 0) return
   e.preventDefault()
   // 调用栈顶（最后注册的）handler

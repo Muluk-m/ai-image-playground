@@ -2,8 +2,13 @@ import { FolderOpen, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
+import { Button } from '../../../components/ui/button'
+import { Checkbox } from '../../../components/ui/checkbox'
+import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { blobDataUrl } from '../../../lib/cloudMedia'
+import { assetExportSource } from '../../image-export/sources'
+import { openImageExport, useImageExportStore } from '../../image-export/store'
 import {
   fetchBatchPlan,
   fetchConversations,
@@ -34,7 +39,15 @@ export default function AgentAssetDrawer({
   onClose: () => void
   onPreview: (message: AgentToolMessage, id: string) => void
 }) {
-  const { t } = useTranslation('agent')
+  const { t } = useTranslation(['agent', 'toolbox'])
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   const [search, setSearch] = useState('')
   const [media, setMedia] = useState<'all' | 'image' | 'video'>('all')
   const [scope, setScope] = useState<'session' | 'all'>('session')
@@ -277,7 +290,13 @@ export default function AgentAssetDrawer({
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       // 原图预览自己吃掉这一下；这里再关，会连抽屉一起收掉。
-      if (event.key !== 'Escape' || sourcePreviewRef.current) return
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        sourcePreviewRef.current ||
+        useImageExportStore.getState().request
+      )
+        return
       onClose()
     }
     window.addEventListener('keydown', escape)
@@ -300,25 +319,31 @@ export default function AgentAssetDrawer({
         <header className="studio-assets-head">
           <FolderOpen size={18} aria-hidden="true" />
           <h2>{t('assets.title')}</h2>
-          <button type="button" onClick={onClose} aria-label={t('assets.close')}>
+          <Button variant="ghost" type="button" onClick={onClose} aria-label={t('assets.close')}>
             <X size={18} />
-          </button>
+          </Button>
         </header>
         <div className="studio-assets-tabs" role="group" aria-label={t('assets.scope')}>
-          <button
+          <Button
+            variant="ghost"
             type="button"
             aria-pressed={scope === 'session'}
             onClick={() => setScope('session')}
           >
             {t('assets.session')}
-          </button>
-          <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
+          </Button>
+          <Button
+            variant="ghost"
+            type="button"
+            aria-pressed={scope === 'all'}
+            onClick={() => setScope('all')}
+          >
             {t('assets.all')}
-          </button>
+          </Button>
         </div>
         <label className="studio-assets-search">
           <Search size={17} aria-hidden="true" />
-          <input
+          <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t(scope === 'all' ? 'assets.searchAll' : 'assets.search')}
@@ -327,31 +352,43 @@ export default function AgentAssetDrawer({
         </label>
         <div className="studio-assets-filters" role="group" aria-label={t('assets.media')}>
           {(['all', 'image', 'video'] as const).map((one) => (
-            <button
+            <Button
+              variant="ghost"
               key={one}
               type="button"
               aria-pressed={media === one}
               onClick={() => setMedia(one)}
             >
               {t(one === 'all' ? 'assets.allMedia' : `assets.${one}`)}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="studio-assets-grid" ref={gridRef}>
           {shown.map((item) => (
-            <AssetThumb
+            <div
               key={item.id}
-              item={item}
-              label={item.title || t('assets.untitled')}
-              onClick={() => {
-                if (item.open.kind === 'source') {
-                  openSource(item)
-                  return
-                }
-                onClose()
-                onPreview(item.open.message, item.id)
-              }}
-            />
+              className={`relative rounded-xl ${selected.has(item.id) ? 'ring-2 ring-primary' : ''}`}
+            >
+              <Checkbox
+                className="absolute right-2 top-2 z-10 bg-background shadow"
+                checked={selected.has(item.id)}
+                onCheckedChange={() => toggle(item.id)}
+                aria-label={`${t('toolbox:export.select')} ${item.title || t('assets.untitled')}`}
+              />
+              <AssetThumb
+                key={item.id}
+                item={item}
+                label={item.title || t('assets.untitled')}
+                onClick={() => {
+                  if (item.open.kind === 'source') {
+                    openSource(item)
+                    return
+                  }
+                  onClose()
+                  onPreview(item.open.message, item.id)
+                }}
+              />
+            </div>
           ))}
           {scope === 'all' && loadingAll && (
             <div className="studio-assets-status" role="status">
@@ -366,9 +403,9 @@ export default function AgentAssetDrawer({
           {scope === 'all' && loadFailed && (
             <p className="studio-assets-status" role="alert">
               {t('assets.loadFailed')}{' '}
-              <button type="button" onClick={() => loadNextRef.current()}>
+              <Button variant="ghost" type="button" onClick={() => loadNextRef.current()}>
                 {t('assets.retry')}
-              </button>
+              </Button>
             </p>
           )}
           {scope === 'all' && hasMore && !loadFailed && (
@@ -387,9 +424,9 @@ export default function AgentAssetDrawer({
           {scope === 'session' && batchFailed && (
             <p className="studio-assets-status" role="alert">
               {t('assets.batchFailed')}{' '}
-              <button type="button" onClick={() => reloadBatchRef.current()}>
+              <Button variant="ghost" type="button" onClick={() => reloadBatchRef.current()}>
                 {t('assets.retry')}
-              </button>
+              </Button>
             </p>
           )}
           {!shown.length &&
@@ -403,6 +440,40 @@ export default function AgentAssetDrawer({
               </p>
             )}
         </div>
+        <footer className="flex shrink-0 items-center gap-3 border-t border-border p-4">
+          <Checkbox
+            aria-label={t('toolbox:export.selectAll')}
+            checked={shown.length > 0 && shown.every((item) => selected.has(item.id))}
+            onCheckedChange={(checked) =>
+              setSelected((prev) => {
+                const next = new Set(prev)
+                for (const item of shown) {
+                  if (checked) next.add(item.id)
+                  else next.delete(item.id)
+                }
+                return next
+              })
+            }
+          />
+          <span className="text-xs text-muted-foreground">
+            {t('toolbox:export.selected', {
+              count: items.filter((item) => selected.has(item.id)).length,
+            })}
+          </span>
+          <Button
+            className="ml-auto"
+            disabled={!items.some((item) => selected.has(item.id))}
+            onClick={() =>
+              openImageExport(
+                items
+                  .filter((item) => selected.has(item.id))
+                  .map((item) => assetExportSource(item, loadReferenceRef.current)),
+              )
+            }
+          >
+            {t('toolbox:export.export')}
+          </Button>
+        </footer>
         {sourcePreview && <ImagePreview src={sourcePreview} onClose={closeSource} />}
       </aside>
     </div>,
@@ -454,12 +525,19 @@ function AssetThumb({
     }
   }, [item.id, visible])
   return (
-    <button ref={ref} type="button" className="studio-assets-item" title={label} onClick={onClick}>
+    <Button
+      variant="ghost"
+      ref={ref}
+      type="button"
+      className="studio-assets-item !block !w-full !h-auto !justify-start !whitespace-normal !p-0"
+      title={label}
+      onClick={onClick}
+    >
       <span className="studio-assets-thumb">
         {source && <img src={source} alt="" loading="lazy" />}
         {item.media === 'video' && <span className="studio-assets-video">▶</span>}
       </span>
       <span className="studio-assets-name">{label}</span>
-    </button>
+    </Button>
   )
 }

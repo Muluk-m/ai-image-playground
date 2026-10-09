@@ -19,6 +19,7 @@ import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
+import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
@@ -176,6 +177,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       </div>
       <DetailModal />
       <Lightbox />
+      <ImageExportDialog />
       <SettingsModal />
 
       <SaveAssetDialog />

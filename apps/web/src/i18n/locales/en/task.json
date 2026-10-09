@@ -93,7 +93,6 @@
     "makeVideoFailed": "Could not create the video: {{reason}}"
   },
   "lightbox": {
-    "saveImage": "Save image",
     "saveFailed": "Save failed",
     "loadingOriginal": "Loading full image",
     "dialog": "Image preview"
