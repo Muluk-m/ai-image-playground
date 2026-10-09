@@ -9,9 +9,16 @@ import { type CanvasVideo, canvasVideos } from '../lib/videoElements'
  * 视频对象的播放浮层：封面由画布本体画（image 元素），播放器走 DOM 浮层。
  * 只有播放键与播放器本身收指针，其余穿透——整块收指针会让画布上的视频选不中、拖不动。
  */
-export default function CanvasVideoOverlay({ editor }: { editor: CanvasEditor }) {
+export default function CanvasVideoOverlay({
+  editor,
+  active = true,
+}: {
+  editor: CanvasEditor
+  active?: boolean
+}) {
   const { t } = useTranslation('canvas')
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
+  const overlays = useRef<HTMLDivElement>(null)
   const [playingId, setPlayingId] = useState<string | null>(null)
   const { camera } = editor.doc
   const videos = canvasVideos(editor)
@@ -23,17 +30,43 @@ export default function CanvasVideoOverlay({ editor }: { editor: CanvasEditor })
     })
     .join('|')
   useEffect(() => {
-    for (const id of videoIds.split('|').filter(Boolean))
-      void recoverVideoPoster(editor, id.split(':')[0])
-  }, [editor, videoIds])
+    if (!active || !overlays.current) return
+    const nodes = overlays.current.querySelectorAll<HTMLElement>('[data-video-object]')
+    const recover = (node: HTMLElement) => {
+      const id = node.dataset.videoObject
+      if (id) void recoverVideoPoster(editor, id)
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      for (const node of nodes) if (node.getClientRects().length) recover(node)
+      return
+    }
+    let current = true
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!current) return
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          recover(entry.target as HTMLElement)
+          observer.unobserve(entry.target)
+        }
+      },
+      { root: overlays.current },
+    )
+    for (const node of nodes) observer.observe(node)
+    return () => {
+      current = false
+      observer.disconnect()
+    }
+  }, [editor, videoIds, active])
 
   if (videos.length === 0) return null
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+    <div ref={overlays} className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
       {videos.map((video) => (
         <div
           key={video.id}
+          data-video-object={video.id}
           className="absolute grid place-items-center"
           style={{
             left: (video.x - camera.x) * camera.zoom,

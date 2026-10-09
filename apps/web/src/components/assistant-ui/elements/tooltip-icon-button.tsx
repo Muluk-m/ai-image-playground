@@ -33,6 +33,7 @@ export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButton
             ref={ref}
           >
             {children}
+            <span className="sr-only">{tooltip}</span>
           </Button>
         </TooltipTrigger>
         <TooltipContent

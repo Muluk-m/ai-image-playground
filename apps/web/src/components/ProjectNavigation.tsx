@@ -6,10 +6,10 @@ import {
   LoaderCircle,
   MessageCircle,
   Plus,
-  Search,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
+import { renameProject } from '../features/canvas/lib/activeProject'
 import {
   projectCatalog,
   projectsByExperience,
@@ -24,17 +24,20 @@ import {
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
-import { formatDateMinute } from '../i18n/format'
 import { useStore } from '../store'
-import { TooltipIconButton } from './assistant-ui/elements/tooltip-icon-button'
 import MediaImage from './MediaImage'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import SearchField from './SearchField'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from './ui/popover'
 
 const INITIAL_VISIBLE = { chat: RECENT_PROJECT_COUNT, canvas: RECENT_PROJECT_COUNT }
 
-export default function ProjectNavigation() {
+const rowClass =
+  'flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-60'
+
+const footerIcon = 'grid h-8 w-10 shrink-0 place-items-center text-muted-foreground'
+
+/** 项目胶囊：`leading`（品牌 logo）| 项目名（点击改名）| 展开按钮。 */
+export default function ProjectNavigation({ leading }: { leading?: ReactNode }) {
   const { t } = useTranslation(['agent', 'canvas'])
   const projects = useCanvasProjectStore((state) => state.projects)
   const activeId = useCanvasProjectStore((state) => state.activeId)
@@ -43,9 +46,10 @@ export default function ProjectNavigation() {
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  // 改名绑定开始编辑时的项目：切换完成后旧输入框直接作废，不会把旧名字写进新项目。
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
   const [visibleCounts, setVisibleCounts] = useState(INITIAL_VISIBLE)
-  // 哪一项正在打开。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
-  // 只把按钮置灰的话点下去像没反应。`'new'` 是「新建」那一项。
+  // 切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，只置灰的话点下去像没反应。
   const [pending, setPending] = useState<string | 'new' | null>(null)
   const busy = pending !== null
   const catalog = useMemo(() => projectCatalog(projects, cloudCatalog), [projects, cloudCatalog])
@@ -90,87 +94,132 @@ export default function ProjectNavigation() {
       setPending(null)
     }
   }
+  const renaming = editing?.id === activeId ? editing : null
+  const commitName = (value: string) => {
+    setEditing(null)
+    const next = value.trim()
+    if (!renaming || !next || next === renaming.name) return
+    void renameProject(renaming.id, next).catch(() =>
+      useStore.getState().showToast(t('canvas:grid.renameFailed'), 'error'),
+    )
+  }
 
   return (
-    <div className="studio-agent-project shrink-0 border-b border-border px-3 py-3">
-      <div className="flex min-w-0 items-center gap-1">
-        <Popover
-          open={open}
-          onOpenChange={(value) => {
-            setOpen(value)
-            if (value) {
-              setSearch('')
-              setVisibleCounts(INITIAL_VISIBLE)
-              void useCanvasProjectStore.getState().refreshCloud()
-            }
-          }}
-        >
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              className="min-w-0 max-w-[15rem] flex-1 justify-between gap-2 px-2 text-left"
-              title={name}
-              aria-label={t('navigation.switchAria', { name })}
-              disabled={busy}
-            >
-              <span className="truncate" title={name}>
-                {name}
-              </span>
-              <ChevronDown className="text-muted-foreground" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            collisionPadding={12}
-            aria-label={t('navigation.switchTitle')}
-            className="z-[600] flex max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl p-2"
-          >
-            <div className="relative m-1">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value)
-                  setVisibleCounts(INITIAL_VISIBLE)
+    <div className="studio-agent-project shrink-0">
+      <Popover
+        open={open}
+        onOpenChange={(value) => {
+          setOpen(value)
+          if (value) {
+            setSearch('')
+            setVisibleCounts(INITIAL_VISIBLE)
+            void useCanvasProjectStore.getState().refreshCloud()
+          }
+        }}
+      >
+        <PopoverAnchor asChild>
+          <div className="studio-project-pill">
+            {leading && (
+              <>
+                {leading}
+                <span aria-hidden="true" className="studio-project-pill-divider" />
+              </>
+            )}
+            {renaming ? (
+              <input
+                autoFocus
+                defaultValue={renaming.name}
+                aria-label={t('navigation.renameAria')}
+                maxLength={80}
+                className="studio-project-pill-name studio-project-pill-input"
+                onFocus={(event) => event.currentTarget.select()}
+                onBlur={(event) => commitName(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                  if (event.key === 'Escape') {
+                    event.currentTarget.value = renaming.name
+                    event.currentTarget.blur()
+                  }
                 }}
-                placeholder={t('navigation.search')}
-                aria-label={t('navigation.search')}
-                className="pl-9 text-xs"
               />
-            </div>
-            <p className="px-3 pb-1 pt-3 text-label-sm text-muted-foreground">
-              {query ? t('navigation.results') : t('navigation.recent')}
-            </p>
-            <div className="min-h-0 overflow-y-auto" aria-busy={busy}>
-              {groups
-                .filter((group) => group.items.length > 0)
-                .map((group) => (
-                  <section
-                    key={group.experience}
-                    aria-label={t(
-                      group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases',
-                    )}
-                  >
-                    <p className="px-3 pb-1 pt-3 text-label-sm text-muted-foreground">
-                      {t(group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases')}
-                    </p>
-                    {group.visible.map((project) => (
-                      <Button
+            ) : (
+              <button
+                type="button"
+                className="studio-project-pill-name"
+                title={t('navigation.renameHint')}
+                aria-label={t('navigation.renameAria')}
+                disabled={!activeId || busy}
+                onClick={() => activeId && setEditing({ id: activeId, name })}
+              >
+                <span className="truncate">{name}</span>
+              </button>
+            )}
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="studio-project-pill-toggle"
+                aria-label={t('navigation.switchAria', { name })}
+                title={t('navigation.switchTitle')}
+                disabled={busy}
+              >
+                {busy ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                )}
+              </button>
+            </PopoverTrigger>
+          </div>
+        </PopoverAnchor>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+          aria-label={t('navigation.switchTitle')}
+          className="z-[600] flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl p-2 shadow-popover"
+        >
+          <SearchField
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setVisibleCounts(INITIAL_VISIBLE)
+            }}
+            placeholder={t('navigation.search')}
+            aria-label={t('navigation.search')}
+            className="h-10 max-w-none shrink-0 rounded-xl border-transparent bg-muted focus-within:border-foreground/15 focus-within:ring-0"
+          />
+          <div className="mt-1 min-h-0 overflow-y-auto" aria-busy={busy}>
+            {groups
+              .filter((group) => group.items.length > 0)
+              .map((group) => (
+                <section
+                  key={group.experience}
+                  aria-label={t(
+                    group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases',
+                  )}
+                >
+                  <p className="px-2 pb-1 pt-2 text-label-sm text-muted-foreground">
+                    {t(group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases')}
+                  </p>
+                  {group.visible.map((project) => {
+                    const active = project.id === activeId
+                    return (
+                      <button
                         key={project.id}
-                        variant="ghost"
+                        type="button"
+                        data-project-row=""
                         disabled={busy}
                         onClick={() => void enter(project.id)}
-                        aria-current={project.id === activeId ? 'true' : undefined}
-                        className={`h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left ${project.id === activeId ? 'bg-accent' : ''}`}
+                        aria-current={active ? 'true' : undefined}
+                        className={`${rowClass} ${active ? 'bg-accent' : ''}`}
                       >
-                        {/* 云端项目的封面是 `aip-media:` 这种要换签名 URL 的引用，交给 MediaImage；
-                      本机项目的封面是 data URL，同一条路直出。取不到封面就露出底下的文件夹图标，
-                      不把认不出的地址塞进 <img>——那只会得到一个碎图。 */}
-                        <span className="relative flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                        {/* 云端封面是要换签名 URL 的 `aip-media:` 引用，交给 MediaImage；取不到就露出底下的图标。 */}
+                        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
                           {projectExperience(project) === 'chat' ? (
-                            <MessageCircle aria-hidden="true" />
+                            <MessageCircle className="h-4 w-4" aria-hidden="true" />
                           ) : (
-                            <LayoutDashboard aria-hidden="true" />
+                            <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
                           )}
                           {project.cover && (
                             <MediaImage
@@ -181,137 +230,117 @@ export default function ProjectNavigation() {
                             />
                           )}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs">
-                            {projectEntryName(project)}
-                          </span>
-                          <time
-                            dateTime={new Date(project.updatedAt).toISOString()}
-                            className="mt-0.5 block text-label-sm font-normal text-muted-foreground"
-                          >
-                            {formatDateMinute(project.updatedAt)}
-                          </time>
-                        </span>
+                        <span className="min-w-0 flex-1 truncate">{projectEntryName(project)}</span>
                         {project.id === pending ? (
-                          <LoaderCircle className="animate-spin text-primary" aria-hidden="true" />
+                          <LoaderCircle
+                            className="h-4 w-4 shrink-0 animate-spin text-muted-foreground"
+                            aria-hidden="true"
+                          />
                         ) : (
-                          project.id === activeId && <Check className="text-primary" />
+                          active && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />
                         )}
-                      </Button>
-                    ))}
-                    {group.items.length > RECENT_PROJECT_COUNT && (
-                      <div className="flex items-center">
-                        {group.visible.length < group.items.length && (
-                          <Button
-                            variant="ghost"
-                            className="justify-start px-3 text-xs text-muted-foreground"
-                            onClick={() =>
-                              setVisibleCounts((value) => ({
-                                ...value,
-                                [group.experience]: value[group.experience] + RECENT_PROJECT_COUNT,
-                              }))
-                            }
-                          >
-                            {t('navigation.expand', {
-                              remaining: Math.min(
-                                RECENT_PROJECT_COUNT,
-                                group.items.length - group.visible.length,
-                              ),
-                            })}
-                          </Button>
-                        )}
-                        {visibleCounts[group.experience] > RECENT_PROJECT_COUNT && (
-                          <Button
-                            variant="ghost"
-                            className="justify-start px-3 text-xs text-muted-foreground"
-                            onClick={() =>
-                              setVisibleCounts((value) => ({
-                                ...value,
-                                [group.experience]: RECENT_PROJECT_COUNT,
-                              }))
-                            }
-                          >
-                            {t('navigation.collapse')}
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </section>
-                ))}
-              {!matches.length && (
-                <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  {t('canvas:grid.noMatch')}
-                </p>
-              )}
-              {cloudLoading && (
-                <p role="status" className="px-3 py-2 text-xs text-muted-foreground">
-                  {t('canvas:grid.loadingCloud')}
-                </p>
-              )}
-              {cloudError && (
-                <div role="alert" className="px-3 py-2 text-xs text-muted-foreground">
-                  {cloudError}{' '}
-                  <Button
-                    variant="link"
-                    size="sm"
-                    disabled={cloudLoading}
-                    onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
-                  >
-                    {t('canvas:grid.retryCloud')}
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="mt-2 shrink-0 border-t border-border pt-2">
-              <Button
-                variant="ghost"
-                className="h-auto w-full justify-start px-3 py-2 text-primary"
-                disabled={busy}
-                onClick={() => void enter(undefined, 'chat')}
-              >
-                {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <MessageCircle />}
-                <span className="text-left text-xs">
-                  {t('navigation.newChat')}
-                  <span className="mt-0.5 block text-label-sm font-normal text-muted-foreground">
-                    {t('navigation.newChatHint')}
-                  </span>
-                </span>
-              </Button>
-              <Button
-                variant="ghost"
-                className="h-auto w-full justify-start px-3 py-2"
-                disabled={busy}
-                onClick={() => void enter(undefined, 'canvas')}
-              >
-                <LayoutDashboard />
-                <span className="text-left text-xs">
-                  {t('navigation.newCanvas')}
-                  <span className="mt-0.5 block text-label-sm font-normal text-muted-foreground">
-                    {t('navigation.newCanvasHint')}
-                  </span>
-                </span>
-              </Button>
-              <Button
-                variant="ghost"
-                className="w-full justify-start px-3 text-xs"
-                disabled={busy}
-                onClick={allProjects}
-              >
-                <FolderOpen /> {t('navigation.all')}
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
-        <TooltipIconButton
-          className="size-9"
-          aria-label={t('panel.newProjectAria')}
-          tooltip={t('navigation.newHint')}
-          disabled={busy}
-          onClick={() => void enter(undefined, 'chat')}
-        >
-          {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <Plus />}
-        </TooltipIconButton>
-      </div>
+                      </button>
+                    )
+                  })}
+                  {group.items.length > RECENT_PROJECT_COUNT && (
+                    <div className="flex items-center gap-1 px-1">
+                      {group.visible.length < group.items.length && (
+                        <button
+                          type="button"
+                          className="rounded-lg px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            setVisibleCounts((value) => ({
+                              ...value,
+                              [group.experience]: value[group.experience] + RECENT_PROJECT_COUNT,
+                            }))
+                          }
+                        >
+                          {t('navigation.expand', {
+                            remaining: Math.min(
+                              RECENT_PROJECT_COUNT,
+                              group.items.length - group.visible.length,
+                            ),
+                          })}
+                        </button>
+                      )}
+                      {visibleCounts[group.experience] > RECENT_PROJECT_COUNT && (
+                        <button
+                          type="button"
+                          className="rounded-lg px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            setVisibleCounts((value) => ({
+                              ...value,
+                              [group.experience]: RECENT_PROJECT_COUNT,
+                            }))
+                          }
+                        >
+                          {t('navigation.collapse')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </section>
+              ))}
+            {!matches.length && (
+              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                {t('canvas:grid.noMatch')}
+              </p>
+            )}
+            {cloudLoading && (
+              <p role="status" className="px-3 py-2 text-xs text-muted-foreground">
+                {t('canvas:grid.loadingCloud')}
+              </p>
+            )}
+            {cloudError && (
+              <div role="alert" className="px-3 py-2 text-xs text-muted-foreground">
+                {cloudError}{' '}
+                <button
+                  type="button"
+                  className="text-foreground underline-offset-2 hover:underline"
+                  disabled={cloudLoading}
+                  onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
+                >
+                  {t('canvas:grid.retryCloud')}
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="mt-1 shrink-0 border-t border-border pt-1">
+            <button
+              type="button"
+              className={rowClass}
+              disabled={busy}
+              onClick={() => void enter(undefined, 'chat')}
+            >
+              <span className={footerIcon}>
+                {pending === 'new' ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                )}
+              </span>
+              {t('navigation.newChat')}
+            </button>
+            <button
+              type="button"
+              className={rowClass}
+              disabled={busy}
+              onClick={() => void enter(undefined, 'canvas')}
+            >
+              <span className={footerIcon}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </span>
+              {t('navigation.newCanvas')}
+            </button>
+            <button type="button" className={rowClass} disabled={busy} onClick={allProjects}>
+              <span className={footerIcon}>
+                <FolderOpen className="h-4 w-4" aria-hidden="true" />
+              </span>
+              {t('navigation.all')}
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

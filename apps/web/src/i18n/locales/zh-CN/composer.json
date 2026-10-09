@@ -91,7 +91,9 @@
     "moderation": "审核",
     "count": "数量",
     "noModel": "未选择",
-    "model": "模型"
+    "model": "模型",
+    "searchModel": "搜索模型",
+    "noModelMatch": "没有匹配的模型"
   },
   "size": {
     "customRatioLabel": "输入自定义比例",

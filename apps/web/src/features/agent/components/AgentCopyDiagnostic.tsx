@@ -80,9 +80,16 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
       }}
     >
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto gap-1 px-2 py-1 text-xs">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 hover:bg-foreground/5 focus-visible:ring-foreground"
+          aria-label={t('diagnostic.title')}
+          title={t('diagnostic.title')}
+        >
           <FileText className="h-3 w-3" aria-hidden="true" />
-          {t('diagnostic.title')}
+          <span className="sr-only">{t('diagnostic.title')}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -119,7 +126,7 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
           </pre>
         </details>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" onClick={() => void copy(readable)}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void copy(readable)}>
             <Copy aria-hidden="true" />
             {t('diagnostic.copyDetails')}
           </Button>

@@ -42,7 +42,7 @@ export function MessageActions({
         <TooltipIconButton
           tooltip={copyLabel ?? ''}
           onClick={onCopy}
-          className={cn('grid place-items-center', copied && 'text-primary hover:text-primary')}
+          className={cn('grid place-items-center', copied && 'text-foreground')}
         >
           <CopyIcon
             aria-hidden

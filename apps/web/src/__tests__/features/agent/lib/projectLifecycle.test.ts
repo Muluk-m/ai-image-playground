@@ -10,6 +10,7 @@ import {
 } from '../../../../features/agent/lib/projectLifecycle'
 import {
   currentCanvasWorkspace,
+  peekCanvasWorkspace,
   selectCanvasWorkspace,
 } from '../../../../features/canvas/lib/activeProject'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
@@ -20,6 +21,7 @@ import {
   useCanvasProjectStore,
 } from '../../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../../lib/authScope'
+import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 import { openCanvas } from '../../../helpers/activeProject'
 
@@ -69,6 +71,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await currentCanvasWorkspace().flush()
+  await bootstrapClientCapabilities(false, '')
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   fetchMock.mockClear()
@@ -86,6 +89,34 @@ it('草稿与画布都有未保存改动时，保存后两者都已落盘', asyn
 
   expect(await storedPrompt(projectDraftKey(project.id))).toBe('产品海报草稿')
   expect(await persistedCamera(project.sceneKey)).toBe(42)
+})
+
+it('从首页切换项目时只保存草稿，不为保存恢复未打开的画布', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const stalledFetch = vi.fn(async (input: unknown) => {
+    if (String(input).endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    return new Promise<Response>(() => {})
+  })
+  vi.stubGlobal('fetch', stalledFetch)
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const remembered = await projectRepository.create('上次打开的云端画布', undefined, true)
+  const project = await projectRepository.update(remembered.id, { cloud: { revision: 1 } })
+  useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
+  expect(peekCanvasWorkspace()).toBeUndefined()
+  const draft = currentProjectDraft(null)
+  await draft.ready
+  draft.update({ prompt: '首页未发送的草稿', references: [] })
+
+  let saved: Awaited<ReturnType<typeof saveCurrentProject>> | undefined
+  void saveCurrentProject(null).then((result) => {
+    saved = result
+  })
+  await vi.waitFor(() => expect(saved).toEqual({ ok: true }), { timeout: 1000 })
+  expect(peekCanvasWorkspace()).toBeUndefined()
+  expect(await storedPrompt(projectDraftKey(currentCanvasProject()!.id))).toBe('首页未发送的草稿')
+  expect(stalledFetch.mock.calls.some(([input]) => String(input).includes('/api/projects/'))).toBe(
+    false,
+  )
 })
 
 it('草稿落盘失败时保存失败，画布不会被写入', async () => {

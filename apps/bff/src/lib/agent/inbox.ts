@@ -249,6 +249,60 @@ export async function agentInboxEntry(
   return row ? entryOf(row) : null
 }
 
+export async function agentSubmissionEntry(
+  conversationId: string,
+  clientMessageId: string,
+): Promise<InboxEntry | null> {
+  const [row] = await db
+    .select()
+    .from(inbox)
+    .where(
+      and(eq(inbox.conversation_id, conversationId), eq(inbox.client_message_id, clientMessageId)),
+    )
+    .limit(1)
+  return row ? entryOf(row) : null
+}
+
+/** 与入队共用会话行锁：先到的取消会留下终态，迟到的同 id 提交只能读到 cancelled。 */
+export async function reserveAgentSubmissionCancellation(
+  conversationId: string,
+  clientMessageId: string,
+  deviceId: string,
+): Promise<InboxEntry | null> {
+  return db.transaction(async (tx) => {
+    const [conversation] = await tx
+      .select({ deletedAt: schema.agent_conversations.deleted_at })
+      .from(schema.agent_conversations)
+      .where(eq(schema.agent_conversations.id, conversationId))
+      .for('update')
+    if (!conversation || conversation.deletedAt) return null
+    const [existing] = await tx
+      .select()
+      .from(inbox)
+      .where(
+        and(
+          eq(inbox.conversation_id, conversationId),
+          eq(inbox.client_message_id, clientMessageId),
+        ),
+      )
+    if (existing) return entryOf(existing)
+    const [row] = await tx
+      .insert(inbox)
+      .values({
+        conversation_id: conversationId,
+        id: crypto.randomUUID(),
+        seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
+        kind: 'user_message',
+        status: 'cancelled',
+        client_message_id: clientMessageId,
+        payload: { text: '', deviceId, referenceCount: 0 },
+        created_at: Date.now(),
+      })
+      .returning()
+    return entryOf(row!)
+  })
+}
+
 /**
  * 轮到它时开不了轮：记下错误码，让它不再挡着后面的。只有仍待处理时才成立——同时被撤回的
  * 那一条就还是撤回。

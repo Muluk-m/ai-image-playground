@@ -6,10 +6,9 @@ export function VideoGeneration({ className = '', ...props }: ComponentProps<'di
   return (
     <div
       data-slot="video-generation"
-      className={`relative grid aspect-video min-h-36 place-items-center overflow-hidden rounded-xl bg-muted ${className}`}
+      className={`agent-media-generation relative grid aspect-video w-full place-items-center overflow-hidden rounded-xl bg-foreground/[0.035] ${className}`}
       {...props}
     >
-      <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-primary/10 via-transparent to-primary/5 motion-reduce:animate-none" />
       <VideoIcon
         className="size-10 text-muted-foreground/60"
         strokeWidth={1.25}
