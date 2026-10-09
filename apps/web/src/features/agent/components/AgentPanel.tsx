@@ -1,5 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ArrowDown, ChevronLeft, Search, X } from 'lucide-react'
+import { ArrowDown, PanelLeftClose, Search, X } from 'lucide-react'
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -336,7 +336,7 @@ export default function AgentPanel({
             className="hidden h-7 w-7 shrink-0 rounded-lg text-muted-foreground md:inline-flex"
             onClick={() => setOpen(false)}
           >
-            <ChevronLeft aria-hidden="true" />
+            <PanelLeftClose aria-hidden="true" />
           </Button>
         </div>
       )}

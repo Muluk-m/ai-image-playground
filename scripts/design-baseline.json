@@ -295,7 +295,6 @@
     "native-control": 5
   },
   "apps/web/src/features/canvas/components/CanvasMode.tsx": {
-    "inline-svg": 2,
     "native-control": 17
   },
   "apps/web/src/features/canvas/components/CanvasShortcutsHint.tsx": {

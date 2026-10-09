@@ -4,12 +4,14 @@ import {
   Clapperboard,
   FolderOpen,
   ImagePlus,
+  PanelLeftClose,
   PanelLeftOpen,
   Search,
 } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
+import { Button } from '../../../components/ui/button'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
@@ -457,6 +459,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               style={projectView === 'canvas' && !mobile ? { width: panelWidth + 12 } : undefined}
             >
               <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
+              {projectView === 'canvas' && !open && !mobile && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => setOpen(true)}
+                >
+                  <PanelLeftOpen aria-hidden="true" />
+                  {t('sidebar.openChat')}
+                </Button>
+              )}
               {projectView === 'canvas' && project?.sourceProjectId && (
                 <button
                   type="button"
@@ -681,20 +694,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         aria-label={t('sidebar.collapseAria')}
                         className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
-                        <svg
-                          viewBox="0 0 16 16"
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d="M10 3.5 5.5 8l4.5 4.5"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                        <PanelLeftClose size={16} aria-hidden="true" />
                       </button>
                     </div>
                     <div className="studio-chat-empty px-4">
@@ -708,30 +708,20 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 )}
               </div>
             ) : (
-              /* 收起后只留一颗胶囊：窄栏会压住左侧画布工具条，也没给用户任何信息。 */
-              <button
-                type="button"
-                className="studio-open-chat"
-                onClick={() => setOpen(true)}
-                title={t('sidebar.openChat')}
-              >
-                <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-                {t('sidebar.openChat')}
-                <svg
-                  viewBox="0 0 16 16"
-                  className="h-3.5 w-3.5 opacity-70"
-                  fill="none"
-                  aria-hidden="true"
+              /* 收起后只留一颗胶囊：窄栏会压住左侧画布工具条，也没给用户任何信息。
+                 Agent 项目的展开按钮在上方项目栏里，这里只给没有项目栏的直接画布。 */
+              !hasAgent && (
+                <button
+                  type="button"
+                  className="studio-open-chat"
+                  onClick={() => setOpen(true)}
+                  title={t('sidebar.openChat')}
                 >
-                  <path
-                    d="M4 10l4-4 4 4"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
+                  <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
+                  {t('sidebar.openChat')}
+                  <PanelLeftOpen size={16} aria-hidden="true" className="text-muted-foreground" />
+                </button>
+              )
             )}
             {mobileChatSheet && !mobileChatOpen && (
               <button
