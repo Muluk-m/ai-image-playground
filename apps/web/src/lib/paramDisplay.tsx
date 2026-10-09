@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import ViewportTooltip from '../components/ViewportTooltip'
+import { useState } from 'react'
+import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
 import { useTranslation } from '../i18n'
 import type { TaskParams, TaskRecord } from '../types'
 import { sameAspectRatio } from './size'
@@ -25,52 +25,24 @@ export function ActualValueBadge({
   variant = 'highlight',
 }: ActualValueBadgeProps) {
   const { t } = useTranslation('lib')
-  const [tooltipVisible, setTooltipVisible] = useState(false)
-  const touchTimerRef = useRef<number | null>(null)
+  // 触屏没有悬停，点一下也要能看到说明，所以由这里控制显隐。
+  const [open, setOpen] = useState(false)
   const colorClass =
     variant === 'normal'
       ? 'bg-muted text-muted-foreground'
       : 'bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning'
 
-  useEffect(
-    () => () => {
-      if (touchTimerRef.current != null) window.clearTimeout(touchTimerRef.current)
-    },
-    [],
-  )
-
-  const clearTouchTimer = () => {
-    if (touchTimerRef.current != null) {
-      window.clearTimeout(touchTimerRef.current)
-      touchTimerRef.current = null
-    }
-  }
-
   return (
-    <span
-      className={`relative inline-flex cursor-help ${colorClass} ${className}`}
-      role="button"
-      tabIndex={0}
-      onMouseEnter={() => setTooltipVisible(true)}
-      onMouseLeave={() => setTooltipVisible(false)}
-      onFocus={() => setTooltipVisible(true)}
-      onBlur={() => setTooltipVisible(false)}
-      onClick={() => setTooltipVisible(true)}
-      onTouchStart={() => {
-        clearTouchTimer()
-        touchTimerRef.current = window.setTimeout(() => {
-          setTooltipVisible(true)
-          touchTimerRef.current = null
-        }, 450)
-      }}
-      onTouchEnd={clearTouchTimer}
-      onTouchCancel={clearTouchTimer}
-    >
-      {value}
-      <ViewportTooltip visible={tooltipVisible} className="whitespace-nowrap">
-        {t('param.actualResponseValue')}
-      </ViewportTooltip>
-    </span>
+    <Hint tooltip={t('param.actualResponseValue')} open={open} onOpenChange={setOpen}>
+      <span
+        className={`inline-flex cursor-help ${colorClass} ${className}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen(true)}
+      >
+        {value}
+      </span>
+    </Hint>
   )
 }
 

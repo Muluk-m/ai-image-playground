@@ -2,7 +2,6 @@ import { X } from 'lucide-react'
 import { type InputHTMLAttributes, type ReactNode, useId, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { parseRatio } from '../../lib/size'
-import { dismissAllTooltips } from '../../lib/tooltipDismiss'
 import { cn } from '../../lib/utils'
 import { field, paper } from '../assistant-ui/elements/surfaces'
 import { Switch } from '../Switch'
@@ -76,7 +75,6 @@ export function SettingsPopover({
     <Popover
       open={open}
       onOpenChange={(next) => {
-        if (next) dismissAllTooltips()
         setOpen(next)
       }}
     >

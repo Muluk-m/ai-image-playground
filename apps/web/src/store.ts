@@ -113,7 +113,6 @@ import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloud
 import { watchSubmissionContext } from './lib/submissionContext'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
 import { taskErrorTypeOf } from './lib/taskError'
-import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
   createTransparentOutputMeta,
   getTransparentRequestParams,
@@ -829,7 +828,6 @@ export const useStore = create<AppState>()(
       },
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
-        if (maskEditorImageId) dismissAllTooltips()
         // 这是 composer 的入口：会话一律换成 composer 自己那份，否则保存会写到别人那里去。
         set({
           maskEditorImageId,
@@ -838,7 +836,6 @@ export const useStore = create<AppState>()(
       },
       maskEditorSession: null,
       openMaskEditorSession: (imageId, maskEditorSession) => {
-        dismissAllTooltips()
         set({ maskEditorImageId: imageId, maskEditorSession })
       },
 
@@ -883,7 +880,6 @@ export const useStore = create<AppState>()(
       // UI
       detailTaskId: null,
       setDetailTaskId: (detailTaskId) => {
-        if (detailTaskId) dismissAllTooltips()
         set({ detailTaskId })
         if (detailTaskId) {
           const local = get().tasks.find((task) => task.id === detailTaskId)
@@ -893,7 +889,6 @@ export const useStore = create<AppState>()(
       lightboxImageId: null,
       lightboxImageList: [],
       setLightboxImageId: (lightboxImageId, list) => {
-        if (lightboxImageId) dismissAllTooltips()
         set({
           lightboxImageId,
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
@@ -923,7 +918,6 @@ export const useStore = create<AppState>()(
       },
       showSettings: false,
       setShowSettings: (showSettings) => {
-        if (showSettings) dismissAllTooltips()
         set({ showSettings })
       },
       profileModelCache: {},
@@ -962,7 +956,6 @@ export const useStore = create<AppState>()(
       // Confirm
       confirmDialog: null,
       setConfirmDialog: (confirmDialog) => {
-        if (confirmDialog) dismissAllTooltips()
         set({ confirmDialog })
       },
     }),

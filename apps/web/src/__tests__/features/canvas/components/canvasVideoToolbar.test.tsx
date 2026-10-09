@@ -126,7 +126,7 @@ describe('视频节点工具条', () => {
     // 不可用的按钮仍可聚焦，原因挂在按钮自己身上，键盘和读屏都拿得到。
     expect(button('续写')?.disabled).toBe(false)
     expect(button('续写')?.getAttribute('aria-disabled')).toBe('true')
-    expect(button('续写')?.getAttribute('title')).toContain('时长')
+    expect(button('续写')?.getAttribute('aria-description')).toContain('时长')
   })
 
   it('offers adding several selected clips to a timeline', () => {
@@ -186,7 +186,7 @@ describe('视频节点工具条', () => {
     await act(async () => {})
     const exportButton = button('导出成片')!
     expect(exportButton.getAttribute('aria-disabled')).toBe('true')
-    expect(exportButton.title).toContain('第 2 段')
+    expect(exportButton.getAttribute('aria-description')).toContain('第 2 段')
 
     doc.updateElements([{ id: 'tl', patch: { clips: [{ elementId: 'a', in: 0, out: 6 }] } }])
     render()
