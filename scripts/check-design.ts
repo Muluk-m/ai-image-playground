@@ -18,7 +18,7 @@ export type DesignRule = {
 }
 
 const outsideUi = (path: string) => !path.includes('/components/ui/')
-const isIconModule = (path: string) => /\/(icons|\w+Icons)\.tsx$/.test(path)
+const isIconModule = (path: string) => /\/(icons|logos|\w+Icons)\.tsx$/.test(path)
 const palette =
   'zinc|gray|slate|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
 const colorUtilities =
