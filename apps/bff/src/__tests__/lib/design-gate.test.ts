@@ -106,6 +106,29 @@ describe('scanSource', () => {
     expect(scanSource('apps/web/src/A.tsx', source)).toEqual([{ rule: 'native-control', line: 4 }])
   })
 
+  it('only honours design-allow inside a comment', () => {
+    const source = '<button title="design-allow native-control">保存</button>'
+    expect(rulesIn('apps/web/src/A.tsx', source)).toEqual(['native-control'])
+  })
+
+  it('ignores data-type when reading an input type', () => {
+    expect(rulesIn('apps/web/src/A.tsx', '<input data-type="hidden" />')).toEqual([
+      'native-control',
+    ])
+  })
+
+  it('does not mistake a glob inside a string for a block comment', () => {
+    const source = ['<input type="file" accept="image/*" />', '<button />'].join('\n')
+    expect(scanSource('apps/web/src/A.tsx', source)).toEqual([{ rule: 'native-control', line: 2 }])
+  })
+
+  it('scans CSS universal selectors but skips block comments', () => {
+    const css = ['/*', ' * color: #fff;', ' */', '* { font-size: 13px; }'].join('\n')
+    expect(scanSource('apps/web/src/styles/studio.css', css)).toEqual([
+      { rule: 'css-font-size', line: 4 },
+    ])
+  })
+
   it('skips comment lines, JSX comments included', () => {
     expect(rulesIn('apps/web/src/A.tsx', '// 以前用 <button> 和 text-[13px]')).toEqual([])
     expect(rulesIn('apps/web/src/A.tsx', '  {/* 原来的 <button> */}')).toEqual([])

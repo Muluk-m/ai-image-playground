@@ -23,7 +23,6 @@ const palette =
   'zinc|gray|slate|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
 const colorUtilities =
   'text|bg|border|ring|fill|stroke|from|to|via|outline|divide|placeholder|shadow|decoration|accent|caret'
-const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|\{\/\*)/
 
 /** 从 `<` 开始的完整 JSX 开始标签（跳过 `{…}` 表达式里的 `>`），属性可以跨行。 */
 function openingTagAt(source: string, start: number): string {
@@ -50,7 +49,7 @@ function enclosingTag(source: string, index: number): { name: string; text: stri
   return null
 }
 
-const typeOf = (tag: string) => /\btype=["'](\w+)["']/.exec(tag)?.[1]
+const typeOf = (tag: string) => /(?<![\w-])type=["'](\w+)["']/.exec(tag)?.[1]
 const NON_TEXT_INPUT_TYPES = new Set([
   'button',
   'checkbox',
@@ -158,7 +157,22 @@ export const DESIGN_RULES: readonly DesignRule[] = [
 export type DesignCounts = Record<string, Record<string, number>>
 export type DesignHit = { rule: string; line: number }
 
-/** 扫一个文件；`design-allow <rule>` 写在同一行，或写在紧邻上方的纯注释行时豁免该行。 */
+// 逐行标出注释行：// 或 {/* 开头，或落在行首块注释内部的行；CSS 的通配选择器 * 不算注释。
+function commentLines(lines: readonly string[]): boolean[] {
+  let inBlock = false
+  return lines.map((line) => {
+    if (inBlock) {
+      inBlock = !line.includes('*/')
+      return true
+    }
+    // 只认行首的 /*：行内的 accept="image/*" 这类字符串不是注释。
+    const opens = /^\s*\{?\/\*/.test(line)
+    inBlock = opens && !line.includes('*/')
+    return opens || /^\s*\/\//.test(line)
+  })
+}
+
+// 扫一个文件；注释里写 design-allow <rule> 时豁免同一行，写在紧邻上方的注释行时豁免下一行。
 export function scanSource(path: string, source: string): DesignHit[] {
   const extension = path.slice(path.lastIndexOf('.') + 1)
   const rules = DESIGN_RULES.filter(
@@ -166,16 +180,16 @@ export function scanSource(path: string, source: string): DesignHit[] {
       (rule.extensions ?? ['ts', 'tsx']).includes(extension) && (rule.appliesTo?.(path) ?? true),
   )
   const lines = source.split('\n')
+  const isComment = commentLines(lines)
   const hits: DesignHit[] = []
   let lineStart = 0
   lines.forEach((line, index) => {
     const offset = lineStart
     lineStart += line.length + 1
-    if (COMMENT_LINE.test(line)) return
-    const previous = lines[index - 1] ?? ''
-    const allowance = COMMENT_LINE.test(previous) ? `${previous}\n${line}` : line
+    if (isComment[index]) return
+    const allowance = isComment[index - 1] ? `${lines[index - 1]}\n${line}` : line
     for (const rule of rules) {
-      if (allowance.includes(`design-allow ${rule.id}`)) continue
+      if (new RegExp(`(//|/\\*).*design-allow ${rule.id}\\b`).test(allowance)) continue
       for (const match of line.matchAll(rule.pattern)) {
         if (rule.exempt?.(source, offset + match.index)) continue
         hits.push({ rule: rule.id, line: index + 1 })
