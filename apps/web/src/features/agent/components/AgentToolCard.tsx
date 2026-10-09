@@ -1,6 +1,16 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import { ArrowUpRight, Download, Ellipsis, Images, Maximize2 } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Download,
+  Ellipsis,
+  FileText,
+  Images,
+  Maximize2,
+  RotateCw,
+  Square,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
@@ -43,6 +53,7 @@ import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
+import AgentIconButton from './AgentIconButton'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
@@ -289,9 +300,9 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
   const action = agentToolFailureAction(code, block)
   if (!code || !action) return null
   return (
-    <button
-      type="button"
-      className={`self-start ${GHOST_LINK}`}
+    <AgentIconButton
+      icon={RotateCw}
+      label={agentToolFailureActionLabel(action, code)}
       onClick={() =>
         runAgentToolFailureAction(action, {
           code,
@@ -300,9 +311,7 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
           send: (text) => void useAgentStore.getState().send(text),
         })
       }
-    >
-      {agentToolFailureActionLabel(action, code)}
-    </button>
+    />
   )
 }
 
@@ -327,7 +336,7 @@ export function agentToolCardDomId(messageId: string): string {
 /** 排着的重试就地撤回：失败占位保持原来那次失败。撤回失败就在原处说一声，卡保持原样。 */
 export function AgentRetryWithdraw({
   message,
-  className = GHOST_LINK,
+  className,
 }: {
   message: AgentToolMessage
   className?: string
@@ -337,10 +346,11 @@ export function AgentRetryWithdraw({
   if (message.status !== 'queued' || !message.retryOf) return null
   return (
     <span className="inline-flex items-center gap-2">
-      <button
-        type="button"
+      <AgentIconButton
+        icon={Square}
+        label={state === 'withdrawing' ? t('retry.withdrawing') : t('retry.withdraw')}
         disabled={state === 'withdrawing'}
-        className={`${className} disabled:opacity-50`}
+        className={className}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={() => {
           setState('withdrawing')
@@ -352,9 +362,7 @@ export function AgentRetryWithdraw({
               () => setState('failed'),
             )
         }}
-      >
-        {state === 'withdrawing' ? t('retry.withdrawing') : t('retry.withdraw')}
-      </button>
+      />
       {state === 'failed' && <span className={CARD_NOTE}>{t('retry.withdrawFailed')}</span>}
     </span>
   )
@@ -378,10 +386,11 @@ function RetryRemaining({ message }: { message: AgentToolMessage }) {
   const remaining = agentRetryRemaining(messages, message, placeholders, refusals)
   if (remaining.length === 0) return null
   return (
-    <button
-      type="button"
+    <AgentIconButton
+      icon={RotateCw}
+      busy={pending}
       disabled={pending}
-      className={`self-start ${GHOST_LINK} disabled:opacity-50`}
+      label={t('retry.retryRemaining', { count: remaining.length })}
       onClick={() => {
         setPending(true)
         void useAgentStore
@@ -389,9 +398,7 @@ function RetryRemaining({ message }: { message: AgentToolMessage }) {
           .retryRemaining(message.id)
           .finally(() => setPending(false))
       }}
-    >
-      {t('retry.retryRemaining', { count: remaining.length })}
-    </button>
+    />
   )
 }
 
@@ -403,17 +410,15 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <AgentRetryWithdraw message={message} />
-      <button
-        type="button"
-        className={GHOST_LINK}
+      <AgentIconButton
+        icon={ArrowUpRight}
+        label={t('retry.viewOriginal')}
         onClick={() => {
           const card = document.getElementById(agentToolCardDomId(origin.messageId))
           card?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
           card?.focus({ preventScroll: true })
         }}
-      >
-        {t('retry.viewOriginal')}
-      </button>
+      />
     </div>
   )
 }
@@ -437,6 +442,7 @@ function StandardAgentToolCard({
   const downloadingRef = useRef(new Set<string>())
   const [downloading, setDownloading] = useState<ReadonlySet<string>>(new Set())
   const [downloadFailed, setDownloadFailed] = useState(false)
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const downloadTile = async (tile: { id: string; original: () => Promise<string | null> }) => {
     if (downloadingRef.current.has(tile.id)) return
@@ -561,15 +567,11 @@ function StandardAgentToolCard({
         }
       >
         {message.prompt && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="self-start"
+          <AgentIconButton
+            label={t('tool.viewPrompt')}
+            icon={FileText}
             onClick={() => setPromptOpen(true)}
-          >
-            {t('tool.viewPrompt')}
-          </Button>
+          />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
@@ -642,26 +644,22 @@ function StandardAgentToolCard({
         tabIndex={-1}
         className="studio-agent-generation-card"
       >
-        <ImageGeneration generating={progress.phase !== 'delivering'} aria-hidden="true" />
         <div className="studio-agent-generation-body">
-          <p className="studio-agent-generation-title" title={message.title}>
-            {message.title}
-          </p>
-          <AgentJobProgress progress={progress} />
-          <div className="studio-agent-generation-actions">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="studio-agent-generation-title flex-1" title={message.title}>
+              {message.title}
+            </p>
             {message.prompt && (
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                className="studio-agent-generation-action"
+              <AgentIconButton
+                label={t('tool.viewPrompt')}
+                icon={FileText}
                 onClick={() => setPromptOpen(true)}
-              >
-                {t('tool.viewPrompt')}
-              </Button>
+              />
             )}
-            <AgentJobCancel message={message} className="studio-agent-generation-action" />
+            <AgentJobCancel message={message} />
           </div>
+          <AgentJobProgress progress={progress} />
+          <ImageGeneration generating={progress.phase !== 'delivering'} aria-hidden="true" />
           <RetryRecord message={message} />
         </div>
         {promptOpen && message.prompt && (
@@ -706,84 +704,96 @@ function StandardAgentToolCard({
       })),
       ...fetchedTiles,
     ]
+    const renderTile = (tile: (typeof tiles)[number], index: number) => (
+      <div
+        className="studio-agent-inline-tile"
+        key={tile.id}
+        style={{
+          aspectRatio: imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined),
+        }}
+      >
+        <button
+          type="button"
+          className="studio-agent-inline-open"
+          aria-label={t('tool.openResultNumber', { number: index + 1 })}
+          onClick={() => onPreviewResult(message.id, tile.id)}
+        >
+          {tile.source ? (
+            <img
+              src={tile.source}
+              alt={t('tool.resultNumber', { number: index + 1 })}
+              loading="lazy"
+              onLoad={(event) => {
+                const { naturalWidth, naturalHeight } = event.currentTarget
+                if (naturalWidth && naturalHeight)
+                  setImageRatios((ratios) => ({
+                    ...ratios,
+                    [tile.id]: naturalWidth / naturalHeight,
+                  }))
+              }}
+            />
+          ) : (
+            <span>{t('tool.previewUnavailable')}</span>
+          )}
+          {tile.media === 'video' && <PlayBadge />}
+        </button>
+        <div className="studio-agent-inline-actions">
+          <button
+            type="button"
+            title={t('tool.previewResult')}
+            aria-label={t('tool.openResultNumber', { number: index + 1 })}
+            onClick={() => onPreviewResult(message.id, tile.id)}
+          >
+            <Maximize2 size={16} />
+          </button>
+          {tile.media !== 'video' && (
+            <button
+              type="button"
+              title={t('tool.downloadResult')}
+              aria-label={t('tool.downloadResult')}
+              disabled={downloading.has(tile.id)}
+              onClick={() => void downloadTile(tile)}
+            >
+              <Download size={16} />
+            </button>
+          )}
+          {tile.media !== 'video' && onViewCanvas && (
+            <button
+              type="button"
+              title={t('tool.editOnCanvas')}
+              aria-label={t('tool.editOnCanvas')}
+              onClick={() => onViewCanvas([tile.id])}
+            >
+              <Images size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+    )
     return (
       <div
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
-        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}`}
+        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}${message.toolName === 'generateImage' || message.toolName === 'editImage' ? ' studio-agent-inline-result--generated' : ''}`}
       >
         <div className="studio-agent-inline-meta">
           <ToolStatus label={statusLabel} status={status} />
           <span title={message.title}>{message.title}</span>
         </div>
-        <div className="studio-agent-inline-gallery" data-count={tiles.length}>
-          {tiles.map((tile, index) => (
-            <div
-              className="studio-agent-inline-tile"
-              key={tile.id}
-              style={{
-                aspectRatio: imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined),
-              }}
-            >
-              <button
-                type="button"
-                className="studio-agent-inline-open"
-                aria-label={t('tool.openResultNumber', { number: index + 1 })}
-                onClick={() => onPreviewResult(message.id, tile.id)}
-              >
-                {tile.source ? (
-                  <img
-                    src={tile.source}
-                    alt={t('tool.resultNumber', { number: index + 1 })}
-                    loading="lazy"
-                    onLoad={(event) => {
-                      const { naturalWidth, naturalHeight } = event.currentTarget
-                      if (naturalWidth && naturalHeight)
-                        setImageRatios((ratios) => ({
-                          ...ratios,
-                          [tile.id]: naturalWidth / naturalHeight,
-                        }))
-                    }}
-                  />
-                ) : (
-                  <span>{t('tool.previewUnavailable')}</span>
-                )}
-                {tile.media === 'video' && <PlayBadge />}
-              </button>
-              <div className="studio-agent-inline-actions">
-                <button
-                  type="button"
-                  title={t('tool.previewResult')}
-                  aria-label={t('tool.openResultNumber', { number: index + 1 })}
-                  onClick={() => onPreviewResult(message.id, tile.id)}
-                >
-                  <Maximize2 size={16} />
-                </button>
-                {tile.media !== 'video' && (
-                  <button
-                    type="button"
-                    title={t('tool.downloadResult')}
-                    aria-label={t('tool.downloadResult')}
-                    disabled={downloading.has(tile.id)}
-                    onClick={() => void downloadTile(tile)}
-                  >
-                    <Download size={16} />
-                  </button>
-                )}
-                {tile.media !== 'video' && onViewCanvas && (
-                  <button
-                    type="button"
-                    title={t('tool.editOnCanvas')}
-                    aria-label={t('tool.editOnCanvas')}
-                    onClick={() => onViewCanvas([tile.id])}
-                  >
-                    <Images size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        {message.toolName === 'generateImage' || message.toolName === 'editImage' ? (
+          <ImageGallery
+            items={tiles}
+            previousLabel={t('tool.previousResult')}
+            nextLabel={t('tool.nextResult')}
+            itemLabel={(index) => t('tool.resultNumber', { number: index + 1 })}
+            renderItem={renderTile}
+            onSelect={(tile) => setSelectedArtifactId(tile.id)}
+          />
+        ) : (
+          <div className="studio-agent-inline-gallery" data-count={tiles.length}>
+            {tiles.map(renderTile)}
+          </div>
+        )}
         {message.fetchedImages?.map((image) => (
           <a
             key={image.imageId}
@@ -821,7 +831,13 @@ function StandardAgentToolCard({
               className="mt-3"
               editLabel={t('tool.editResult')}
               regenerateLabel={t('tool.regenerate')}
-              onEdit={() => onPreviewResult(message.id, previews[0].artifact.artifactId)}
+              onEdit={() =>
+                onPreviewResult(
+                  message.id,
+                  previews.find((preview) => preview.artifact.artifactId === selectedArtifactId)
+                    ?.artifact.artifactId ?? previews[0].artifact.artifactId,
+                )
+              }
               onRegenerate={() =>
                 void useAgentStore
                   .getState()

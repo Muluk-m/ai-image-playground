@@ -4,7 +4,6 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
-import { videoCardWidth } from '../../../../features/agent/components/AgentVideoToolCard'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
 
@@ -120,12 +119,12 @@ it('uses a video waiting surface, server progress and an independent cancel acti
   )
   expect(host.querySelector('video')).toBeNull()
   const card = host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!
-  expect(card.style.width).toContain('30rem')
-  expect(host.querySelector<HTMLElement>('[data-slot="video-generation"]')!.style.aspectRatio).toBe(
-    '9 / 16',
+  expect(card.style.width).toBe('100%')
+  expect(host.querySelector<HTMLElement>('[data-slot="video-generation"]')!.className).toContain(
+    'aspect-video',
   )
-  for (const label of ['取消', '查看提示词'])
-    expect(button(label).className).toContain('h-8 rounded-md px-3 text-xs')
+  expect(host.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false)
+  for (const label of ['取消', '查看提示词']) expect(button(label).className).toContain('size-8')
   await act(async () => button('取消').click())
   expect(fixtures.state.cancelJob).toHaveBeenCalledWith(base.id)
 })
@@ -153,10 +152,10 @@ it('plays recovered video results inline without waiting for a canvas or a poste
   expect(video.preload).toBe('none')
   expect(video.getAttribute('poster')).toBeNull()
   expect(player.style.aspectRatio).toBe('9 / 16')
-  // 卡片和画面一样宽，播放器铺满卡片。jsdom 算不出嵌套的 min()，宽度对纯函数。
-  expect(player.style.width).toBe('')
-  expect(videoCardWidth('9:16')).toBe('min(100%, 28rem, calc(min(30rem, 56vh) * 9 / 16))')
-  expect(videoCardWidth('1:1')).toBe('min(100%, 22rem, calc(min(30rem, 56vh) * 1 / 1))')
+  expect(player.style.maxHeight).toBe('min(30rem, 56vh)')
+  expect(host.querySelector<HTMLElement>('[data-slot="agent-video-card"]')!.style.width).toBe(
+    '100%',
+  )
   expect(host.querySelector('[data-slot="video-generation"]')).toBeNull()
   await act(async () => video.dispatchEvent(new Event('error')))
   expect(host.textContent).toContain('视频暂时无法播放')
