@@ -12,6 +12,9 @@ import { batchItemStatus } from './batchStatusGroups'
 /** 输入名里原有的媒体扩展名。落盘扩展名按真实字节另给，不去掉会变成 `图.png.png`。 */
 const MEDIA_EXTENSION = /\.(png|jpe?g|webp|gif|avif|bmp|mp4|webm|mov)$/i
 
+/** 单件取回的上限。一件挂住时计入失败、接着取下一件，不让整个导出按钮一直转。 */
+const FETCH_TIMEOUT_MS = 120_000
+
 export interface BatchResultSource {
   readonly progress?: string
   readonly execution?: {
@@ -75,8 +78,8 @@ export async function exportBatchResults(
       failed += 1
       continue
     }
-    const ext =
-      file.artifact.media === 'video' ? 'mp4' : extensionFor(blob.type || file.artifact.mime)
+    const type = blob.type || file.artifact.mime
+    const ext = file.artifact.media === 'video' ? videoExtension(type) : extensionFor(type)
     ready.push({ name: `${file.stem}.${ext}`, blob })
   }
   if (ready.length === 0) return { exported: 0, failed }
@@ -96,11 +99,21 @@ export async function exportBatchResults(
   return { exported: ready.length, failed }
 }
 
+/** 视频原样落盘，不转码；扩展名跟着真实格式走，和单个视频卡片的下载一致。 */
+function videoExtension(type: string): string {
+  if (type === 'video/webm') return 'webm'
+  if (type === 'video/quicktime') return 'mov'
+  return 'mp4'
+}
+
 async function fetchBatchArtifact(artifact: AgentToolArtifact): Promise<Blob | null> {
+  // 超时覆盖到响应体读完：fetch 的 signal 同样会中断 body 读取。
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
   try {
     if (artifact.media === 'video') {
       const response = await authenticatedBffFetch(
         queueOutputUrl(artifact.taskId, artifact.outputIndex),
+        { signal },
       )
       if (!response.ok) return null
       return await response.blob()
@@ -110,6 +123,7 @@ async function fetchBatchArtifact(artifact: AgentToolArtifact): Promise<Blob | n
       artifact.taskId,
       artifact.outputIndex,
       artifact.mime,
+      signal,
     )
     return await dataUrlToBlob(dataUrl, artifact.mime)
   } catch (error) {

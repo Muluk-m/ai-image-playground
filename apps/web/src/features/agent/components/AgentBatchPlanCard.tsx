@@ -501,6 +501,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           'info',
         )
       else showToast(t('batch.exportDone', { count: result.exported }), 'success')
+    } catch (cause) {
+      // 取件失败已在 helper 里计数；走到这里的是打包或落盘本身出错。
+      console.warn('[agent] batch result export failed', cause)
+      useStore.getState().showToast(t('batch.exportFailed'), 'error')
     } finally {
       exporting.current = false
       setExportProgress(null)
