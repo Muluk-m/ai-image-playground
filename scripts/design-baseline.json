@@ -1,0 +1,527 @@
+{
+  "apps/web/src/App.tsx": {
+    "arbitrary-font": 1
+  },
+  "apps/web/src/auth/AuthGate.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/auth/LoginDialog.tsx": {
+    "inline-svg": 5,
+    "native-control": 8
+  },
+  "apps/web/src/auth/LoginMethodsPanel.tsx": {
+    "arbitrary-font": 2,
+    "native-control": 7
+  },
+  "apps/web/src/auth/RegistrationPanel.tsx": {
+    "glyph-icon": 1,
+    "inline-svg": 1,
+    "native-control": 10
+  },
+  "apps/web/src/auth/SessionExpiredCard.tsx": {
+    "inline-svg": 1,
+    "native-control": 2
+  },
+  "apps/web/src/components/ConfirmDialog.tsx": {
+    "arbitrary-font": 1,
+    "font-weight": 1,
+    "inline-svg": 1,
+    "native-control": 2
+  },
+  "apps/web/src/components/CreateTargetSwitch.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/Credits.tsx": {
+    "inline-svg": 1
+  },
+  "apps/web/src/components/DetailModal.tsx": {
+    "arbitrary-font": 1,
+    "font-weight": 1,
+    "inline-svg": 10,
+    "native-control": 22
+  },
+  "apps/web/src/components/Header.tsx": {
+    "native-control": 5
+  },
+  "apps/web/src/components/HeaderMembershipChip.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/components/InputBar.tsx": {
+    "arbitrary-font": 3,
+    "focus-not-visible": 1,
+    "font-weight": 1,
+    "inline-svg": 7,
+    "native-control": 18,
+    "offscale-font": 2
+  },
+  "apps/web/src/components/Lightbox.tsx": {
+    "inline-svg": 2,
+    "native-control": 3
+  },
+  "apps/web/src/components/LogoutDialog.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/components/LookChips.tsx": {
+    "native-control": 4
+  },
+  "apps/web/src/components/MaskEditorModal.tsx": {
+    "arbitrary-font": 1,
+    "arbitrary-spacing": 2,
+    "inline-svg": 8,
+    "native-control": 10
+  },
+  "apps/web/src/components/ModelCombobox.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/components/ParamControls.tsx": {
+    "glyph-icon": 1
+  },
+  "apps/web/src/components/ProjectNavigation.tsx": {
+    "native-control": 10
+  },
+  "apps/web/src/components/SearchBar.tsx": {
+    "focus-not-visible": 6,
+    "inline-svg": 2,
+    "native-control": 2
+  },
+  "apps/web/src/components/SearchField.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/SectionHeader.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/SegmentedTabs.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/Select.tsx": {
+    "arbitrary-radius": 1,
+    "native-control": 1
+  },
+  "apps/web/src/components/SetHistoryCard.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/Sidebar.tsx": {
+    "arbitrary-font": 2,
+    "native-control": 10,
+    "opacity-text": 1
+  },
+  "apps/web/src/components/SlotValuePopover.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/SubmissionBillingAction.tsx": {
+    "native-control": 1,
+    "palette-class": 2
+  },
+  "apps/web/src/components/Switch.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/SyncStatusPanel.tsx": {
+    "font-weight": 1,
+    "native-control": 1
+  },
+  "apps/web/src/components/TaskBulkActions.tsx": {
+    "inline-svg": 5,
+    "native-control": 5
+  },
+  "apps/web/src/components/TaskCard.tsx": {
+    "inline-svg": 14,
+    "native-control": 7
+  },
+  "apps/web/src/components/Toast.tsx": {
+    "inline-svg": 3
+  },
+  "apps/web/src/components/UpdateBanner.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/components/assistant-ui/elements/approval-card.tsx": {
+    "arbitrary-font": 1,
+    "opacity-text": 8
+  },
+  "apps/web/src/components/assistant-ui/elements/attachment.tsx": {
+    "arbitrary-font": 1,
+    "arbitrary-radius": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/composer.tsx": {
+    "inline-svg": 1,
+    "native-control": 2,
+    "opacity-text": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/option-list.tsx": {
+    "arbitrary-font": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/surfaces.tsx": {
+    "arbitrary-font": 1,
+    "inline-svg": 1,
+    "opacity-text": 2
+  },
+  "apps/web/src/components/assistant-ui/elements/thinking-indicator.tsx": {
+    "arbitrary-font": 1,
+    "opacity-text": 2
+  },
+  "apps/web/src/components/assistant-ui/elements/tool-call.tsx": {
+    "arbitrary-spacing": 2,
+    "native-control": 1,
+    "opacity-text": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/video-generation.tsx": {
+    "opacity-text": 1
+  },
+  "apps/web/src/components/composer/ModelSelector.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/components/composer/SettingsPanel.tsx": {
+    "arbitrary-radius": 2,
+    "native-control": 4,
+    "opacity-text": 2
+  },
+  "apps/web/src/components/panelStyles.ts": {
+    "focus-not-visible": 4
+  },
+  "apps/web/src/components/settings/ApiTab.tsx": {
+    "inline-svg": 2,
+    "native-control": 12
+  },
+  "apps/web/src/components/settings/CustomProviderDialog.tsx": {
+    "font-weight": 1,
+    "inline-svg": 2,
+    "native-control": 6
+  },
+  "apps/web/src/components/settings/DataTab.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/settings/ImportUrlDialog.tsx": {
+    "arbitrary-font": 3,
+    "font-weight": 2,
+    "native-control": 3,
+    "palette-class": 1
+  },
+  "apps/web/src/components/settings/SettingsModal.tsx": {
+    "font-weight": 1,
+    "native-control": 2,
+    "offscale-font": 1
+  },
+  "apps/web/src/components/ui/sheet.tsx": {
+    "offscale-font": 1
+  },
+  "apps/web/src/features/agent/agentStyles.ts": {
+    "focus-not-visible": 3
+  },
+  "apps/web/src/features/agent/components/AgentActivityTrail.tsx": {
+    "arbitrary-spacing": 2,
+    "native-control": 1,
+    "opacity-text": 1
+  },
+  "apps/web/src/features/agent/components/AgentArtifactEditDialog.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/agent/components/AgentArtifactPane.tsx": {
+    "native-control": 16
+  },
+  "apps/web/src/features/agent/components/AgentAssetDrawer.tsx": {
+    "arbitrary-radius": 1
+  },
+  "apps/web/src/features/agent/components/AgentBatchPlanCard.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/agent/components/AgentCanvasHandoffDialog.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/agent/components/AgentComposer.tsx": {
+    "arbitrary-font": 2,
+    "font-weight": 1,
+    "native-control": 7
+  },
+  "apps/web/src/features/agent/components/AgentCreations.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/agent/components/AgentHistoryStatus.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/agent/components/AgentJobInbox.tsx": {
+    "native-control": 4
+  },
+  "apps/web/src/features/agent/components/AgentMarkdown.tsx": {
+    "palette-class": 1
+  },
+  "apps/web/src/features/agent/components/AgentMessageQueue.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/agent/components/AgentPanel.tsx": {
+    "inline-svg": 1,
+    "native-control": 7
+  },
+  "apps/web/src/features/agent/components/AgentPromptDialog.tsx": {
+    "focus-not-visible": 3,
+    "native-control": 5
+  },
+  "apps/web/src/features/agent/components/AgentPromptDraft.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/agent/components/AgentResultShelf.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/agent/components/AgentSaveCard.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/agent/components/AgentToolCard.tsx": {
+    "native-control": 19
+  },
+  "apps/web/src/features/agent/components/AgentTurnCost.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/agent/components/AgentUserMessage.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/agent/components/AgentVideoToolCard.tsx": {
+    "arbitrary-font": 1
+  },
+  "apps/web/src/features/agent/components/AssetSlotChip.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/agent/components/SkillStarterGuide.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/canvas/components/CanvasBatchConfirmDialog.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/canvas/components/CanvasBatchEditDialog.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/canvas/components/CanvasEditPromptDialog.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/canvas/components/CanvasGenerateBar.tsx": {
+    "native-control": 4
+  },
+  "apps/web/src/features/canvas/components/CanvasImageMenu.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/CanvasImageToolbar.tsx": {
+    "native-control": 5
+  },
+  "apps/web/src/features/canvas/components/CanvasMode.tsx": {
+    "inline-svg": 2,
+    "native-control": 19
+  },
+  "apps/web/src/features/canvas/components/CanvasShortcutsHint.tsx": {
+    "arbitrary-spacing": 1,
+    "inline-svg": 1,
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/CanvasToolbar.tsx": {
+    "inline-svg": 10,
+    "native-control": 2
+  },
+  "apps/web/src/features/canvas/components/CanvasVideoOverlay.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/CreationInspiration.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/HeroCanvasProjects.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/InpaintMaskLayer.tsx": {
+    "arbitrary-color": 2,
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/InpaintPanel.tsx": {
+    "arbitrary-color": 4,
+    "native-control": 8
+  },
+  "apps/web/src/features/canvas/components/KonvaCanvas.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/PlaceholderOverlay.tsx": {
+    "arbitrary-font": 1,
+    "native-control": 4
+  },
+  "apps/web/src/features/canvas/components/ProjectCover.tsx": {
+    "opacity-text": 1
+  },
+  "apps/web/src/features/canvas/components/ProjectGrid.tsx": {
+    "arbitrary-spacing": 1,
+    "native-control": 5,
+    "palette-class": 6
+  },
+  "apps/web/src/features/canvas/components/ProjectWelcome.tsx": {
+    "arbitrary-radius": 2,
+    "arbitrary-spacing": 1,
+    "native-control": 2,
+    "offscale-font": 2
+  },
+  "apps/web/src/features/canvas/components/ProjectsTab.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/ReferenceVideoPopover.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/canvas/components/RegenerateVideoPopover.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/canvas/components/SelectionInfo.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/StylePanel.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/canvas/components/TimelineEditor.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/canvas/components/canvasPanelStyles.ts": {
+    "focus-not-visible": 1
+  },
+  "apps/web/src/features/guide/client.ts": {
+    "arbitrary-font": 3
+  },
+  "apps/web/src/features/guide/render.ts": {
+    "arbitrary-font": 39,
+    "arbitrary-radius": 2,
+    "arbitrary-spacing": 3,
+    "font-weight": 2,
+    "opacity-text": 7
+  },
+  "apps/web/src/features/inspiration/components/ExplorePage.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/inspiration/components/InspirationCard.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/inspiration/components/InspirationCategoryFilter.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/inspiration/components/InspirationChips.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/inspiration/components/InspirationDetail.tsx": {
+    "font-weight": 1,
+    "inline-svg": 1,
+    "native-control": 4
+  },
+  "apps/web/src/features/library/components/AssetCard.tsx": {
+    "focus-not-visible": 1,
+    "native-control": 8
+  },
+  "apps/web/src/features/library/components/AssetDetail.tsx": {
+    "native-control": 5
+  },
+  "apps/web/src/features/library/components/AssetHint.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/library/components/CreateRecordDialog.tsx": {
+    "focus-not-visible": 6,
+    "native-control": 13,
+    "offscale-font": 1
+  },
+  "apps/web/src/features/library/components/LibraryPage.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/library/components/LookCard.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/library/components/LookDetail.tsx": {
+    "arbitrary-font": 1,
+    "focus-not-visible": 1,
+    "native-control": 7
+  },
+  "apps/web/src/features/library/components/NamingDialog.tsx": {
+    "focus-not-visible": 3,
+    "native-control": 3
+  },
+  "apps/web/src/features/library/components/NewAssetButton.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/library/components/NewTile.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/library/components/TemplateCard.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/library/components/TemplateDetail.tsx": {
+    "focus-not-visible": 1,
+    "font-weight": 2,
+    "native-control": 5,
+    "offscale-font": 2
+  },
+  "apps/web/src/features/production/components/ProductionAssetGenerations.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/production/components/ProductionAssetPane.tsx": {
+    "native-control": 10
+  },
+  "apps/web/src/features/production/components/ProductionAssetProposalPane.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/production/components/ProductionAssets.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/production/components/ProductionClipPane.tsx": {
+    "native-control": 12
+  },
+  "apps/web/src/features/production/components/ProductionDependencyNotice.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/production/components/ProductionDocumentPane.tsx": {
+    "native-control": 13
+  },
+  "apps/web/src/features/production/components/ProductionExportPane.tsx": {
+    "native-control": 8
+  },
+  "apps/web/src/features/production/components/ProductionGenerationPane.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/production/components/ProductionProposals.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/production/components/ProductionQuotableText.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/production/components/ProductionQuoteChip.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/production/components/ProductionReferenceEditor.tsx": {
+    "native-control": 6
+  },
+  "apps/web/src/features/production/components/ProductionResultCard.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/production/components/ProductionShotPane.tsx": {
+    "native-control": 18
+  },
+  "apps/web/src/features/production/components/ProductionWorkspace.tsx": {
+    "native-control": 10
+  },
+  "apps/web/src/features/production/production.css": {
+    "css-color": 4,
+    "css-font-size": 53
+  },
+  "apps/web/src/features/toolbox/components/CombineView.tsx": {
+    "native-control": 3
+  },
+  "apps/web/src/features/toolbox/components/ToolResultCard.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/toolbox/components/fields.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/features/toolbox/components/useToolboxIntake.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/toolbox/tools/slice.tsx": {
+    "glyph-icon": 1
+  },
+  "apps/web/src/features/video/components/DeriveVideoPopover.tsx": {
+    "native-control": 2
+  },
+  "apps/web/src/features/video/components/VideoPresetRows.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/index.css": {
+    "css-color": 10,
+    "css-font-size": 30
+  },
+  "apps/web/src/styles/studio.css": {
+    "css-color": 46,
+    "css-font-size": 83
+  }
+}

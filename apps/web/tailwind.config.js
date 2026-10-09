@@ -75,6 +75,7 @@ export default {
         'label-sm': '11px',
         'body-sm': '13px',
         title: '15px',
+        headline: '28px',
         display: '38px',
       },
       boxShadow: { popover: 'var(--shadow-popover)', dialog: 'var(--shadow-dialog)' },
