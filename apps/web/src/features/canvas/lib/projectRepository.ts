@@ -2,6 +2,7 @@ import {
   type CloudProjectSummary,
   PROJECT_NAME_MAX_LENGTH,
   type ProjectKind,
+  stripTitleMarkdown,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { accountScope, getRecoveryBackend, scopedStorageName } from '../../../lib/authScope'
@@ -50,9 +51,14 @@ export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
   )
 }
 
-/** 默认名只在界面区分入口；存储和同步仍使用统一的未命名项目标识。 */
+/**
+ * 默认名只在界面区分入口；存储和同步仍使用统一的未命名项目标识。
+ * 早先的自动名直接截了首条消息，带着 `**` 这类 Markdown 记号，显示时去掉；用户起的名字原样出。
+ */
 export function projectEntryName(project: CanvasProject): string {
-  if (project.name !== UNTITLED_PROJECT) return project.name
+  if (project.name !== UNTITLED_PROJECT) {
+    return project.customName ? project.name : stripTitleMarkdown(project.name).trim()
+  }
   return i18next.t(
     projectExperience(project) === 'chat' ? 'project.untitledChat' : 'project.untitledCanvas',
     { ns: 'canvas' },
