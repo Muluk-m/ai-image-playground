@@ -133,6 +133,7 @@
     "keyframes_other": "{{count}} 个关键帧",
     "voices_other": "{{count}} 个声音",
     "estimatedCost": "预估消耗",
+    "loading": "加载视频",
     "playbackFailed": "视频暂时无法播放，请重新加载。",
     "reload": "重新加载",
     "downloading": "下载中…",

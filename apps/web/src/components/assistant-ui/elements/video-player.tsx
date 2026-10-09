@@ -1,11 +1,7 @@
-import { useState } from 'react'
+import { LoaderCircle, RotateCcw } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../ui/button'
 
-/**
- * 长边停在 24rem，矮窗口再收到 46vh。65vh 的竖屏会占满整栏。
- * 播放器在纵向 flex 里会被撑满栏宽，只写 aspect-ratio 和 max-height 时高度被截断、
- * 宽度不收回，9:16 就变成一块横着的空舞台。这里改限制宽度，高度由比例自己算。
- */
 const PLAYER_MAX_HEIGHT = 'min(24rem, 46vh)'
 
 export function playerFrameStyle(aspectRatio: string): {
@@ -21,13 +17,15 @@ export function playerFrameStyle(aspectRatio: string): {
   return { aspectRatio, width: capped, maxHeight: PLAYER_MAX_HEIGHT }
 }
 
-/** Native media controls keep playback keyboard accessible and avoid automatic playback. */
+/** Load visible results before the first click; keep offscreen history from competing for bandwidth. */
 export function VideoPlayer({
   src,
   poster,
   label,
   errorLabel,
   retryLabel,
+  loadingLabel,
+  onFrameReady,
   aspectRatio = '16 / 9',
   fill = false,
 }: {
@@ -36,14 +34,54 @@ export function VideoPlayer({
   label: string
   errorLabel: string
   retryLabel: string
+  loadingLabel: string
+  onFrameReady?: (video: HTMLVideoElement) => void
   aspectRatio?: string
-  /** 由外层定宽（贴合卡片）时铺满宽度、不再自带圆角和高度上限。 */
   fill?: boolean
 }) {
+  const frame = useRef<HTMLDivElement>(null)
+  const media = useRef<HTMLVideoElement>(null)
+  const [nearViewport, setNearViewport] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  const [ready, setReady] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    const node = frame.current
+    if (!node) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setNearViewport(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setNearViewport(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '160px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    const video = media.current
+    // StrictMode 会重放 setup/cleanup；清理过的同一节点需要重新接上来源。
+    if (video && video.getAttribute('src') !== src) {
+      video.src = src
+      video.load()
+    }
+    return () => {
+      if (!video) return
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+    }
+  }, [src, attempt])
   return (
     <div
+      ref={frame}
       data-slot="video-player"
       className={
         fill
@@ -53,17 +91,44 @@ export function VideoPlayer({
       style={fill ? { aspectRatio } : playerFrameStyle(aspectRatio)}
     >
       <video
+        ref={media}
         key={`${src}:${attempt}`}
         src={src}
         poster={poster}
         controls
         playsInline
-        preload="none"
+        crossOrigin="use-credentials"
+        preload={nearViewport ? 'auto' : 'none'}
         aria-label={label}
         className="absolute inset-0 h-full w-full bg-black object-contain"
-        onError={() => setFailure(src)}
-        onLoadedData={() => setFailure(null)}
+        onError={() => {
+          setFailure(src)
+          setWaiting(false)
+        }}
+        onLoadedData={(event) => {
+          setFailure(null)
+          setReady(src)
+          onFrameReady?.(event.currentTarget)
+        }}
+        onWaiting={() => setWaiting(true)}
+        onPlaying={() => setWaiting(false)}
+        onCanPlay={() => setWaiting(false)}
+        onPause={() => setWaiting(false)}
       />
+      {nearViewport && failure !== src && (ready !== src || waiting) && (
+        <div
+          role="status"
+          aria-label={loadingLabel}
+          className="pointer-events-none absolute inset-0 grid place-items-center"
+        >
+          <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
+            <LoaderCircle
+              className="size-5 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+          </span>
+        </div>
+      )}
       {failure === src && (
         <div
           role="alert"
@@ -75,9 +140,12 @@ export function VideoPlayer({
             size="sm"
             onClick={() => {
               setFailure(null)
+              setReady(null)
+              setWaiting(false)
               setAttempt((value) => value + 1)
             }}
           >
+            <RotateCcw className="mr-1.5 size-4" aria-hidden="true" />
             {retryLabel}
           </Button>
         </div>

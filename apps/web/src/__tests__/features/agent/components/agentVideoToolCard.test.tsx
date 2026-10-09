@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import type { AgentBackgroundJobProgress } from '@image-playground/shared'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { videoCardWidth } from '../../../../features/agent/components/AgentVideoToolCard'
+import { rememberVideoOutputFrame } from '../../../../features/agent/lib/artifactSource'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
 
@@ -23,6 +24,7 @@ const fixtures = vi.hoisted(() => ({
   },
   canvasAvailable: false,
   has: vi.fn(() => false),
+  thumbnail: vi.fn(async () => null),
   fetch: vi.fn(),
   download: vi.fn(),
 }))
@@ -37,18 +39,25 @@ vi.mock('../../../../lib/privateOverlay', () => ({
   notifyPrivateSubmissionError: vi.fn(),
 }))
 vi.mock('../../../../features/agent/lib/canvasSink', () => ({
-  agentCanvasSink: () => (fixtures.canvasAvailable ? { has: fixtures.has } : null),
+  agentCanvasSink: () =>
+    fixtures.canvasAvailable ? { has: fixtures.has, thumbnail: fixtures.thumbnail } : null,
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: fixtures.fetch }))
 vi.mock('../../../../lib/downloadImages', () => ({ downloadBlob: fixtures.download }))
 vi.mock('../../../../lib/clientCapabilities', () => ({ isClientCapabilityEnabled: () => true }))
 const frames = vi.hoisted(() => ({
-  videoOutputFrame: vi.fn(
-    async (_output: { taskId: string; outputIndex: number }) => null as string | null,
+  cachedVideoOutputFrame: vi.fn(
+    (_output: { taskId: string; outputIndex: number }): Promise<string | null> | undefined =>
+      Promise.resolve(null),
   ),
 }))
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
-  videoOutputFrame: frames.videoOutputFrame,
+  cachedVideoOutputFrame: frames.cachedVideoOutputFrame,
+  rememberVideoOutputFrame: vi.fn(),
+}))
+
+vi.mock('../../../../features/video/lib/playback', () => ({
+  captureVideoFrame: () => 'data:image/jpeg;base64,DECODED',
 }))
 
 const model = 'grok-imagine-video'
@@ -70,9 +79,12 @@ let root: Root
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 beforeEach(() => {
   vi.clearAllMocks()
-  frames.videoOutputFrame.mockReset()
-  frames.videoOutputFrame.mockResolvedValue(null)
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+  frames.cachedVideoOutputFrame.mockReset()
+  frames.cachedVideoOutputFrame.mockResolvedValue(null)
   fixtures.canvasAvailable = false
+  fixtures.has.mockReturnValue(false)
   fixtures.state.messages = []
   fixtures.state.jobProgress = {
     [base.id]: { stage: 'running', phase: 'generating', submittedAt: Date.now() - 42_000 },
@@ -94,12 +106,16 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   setChannels([])
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 async function render(message: AgentToolMessage) {
   await act(async () => root.render(<AgentToolCard message={message} onPreviewResult={vi.fn()} />))
 }
 function button(text: string) {
-  return [...host.querySelectorAll('button')].find((node) => node.textContent?.includes(text))!
+  return [...host.querySelectorAll('button')].find((node) =>
+    (node.getAttribute('aria-label') ?? node.textContent)?.includes(text),
+  )!
 }
 
 it('shows video parameters and estimated cost before confirmation', async () => {
@@ -150,7 +166,8 @@ it('plays recovered video results inline without waiting for a canvas or a poste
   expect(video.getAttribute('src')).toContain('/video-task/output/0')
   expect(video.controls).toBe(true)
   expect(video.autoplay).toBe(false)
-  expect(video.preload).toBe('none')
+  expect(video.preload).toBe('auto')
+  expect(video.crossOrigin).toBe('use-credentials')
   expect(video.getAttribute('poster')).toBeNull()
   expect(player.style.aspectRatio).toBe('9 / 16')
   // 卡片和画面一样宽，播放器铺满卡片。jsdom 算不出嵌套的 min()，宽度对纯函数。
@@ -167,7 +184,7 @@ it('plays recovered video results inline without waiting for a canvas or a poste
 
 it('fills the frame-sized player with the captured first frame once it arrives', async () => {
   let settle: (frame: string | null) => void = () => {}
-  frames.videoOutputFrame.mockReturnValue(
+  frames.cachedVideoOutputFrame.mockReturnValue(
     new Promise((resolve) => {
       settle = resolve
     }),
@@ -187,12 +204,14 @@ it('fills the frame-sized player with the captured first frame once it arrives',
     ],
   })
   expect(host.querySelector('video')!.getAttribute('poster')).toBeNull()
-  expect(frames.videoOutputFrame).toHaveBeenCalledWith({ taskId: 'video-task', outputIndex: 0 })
+  expect(frames.cachedVideoOutputFrame).toHaveBeenCalledWith(
+    expect.objectContaining({ taskId: 'video-task', outputIndex: 0 }),
+  )
   await act(async () => {
     settle('data:image/jpeg;base64,FRAME')
   })
   expect(host.querySelector('video')!.getAttribute('poster')).toBe('data:image/jpeg;base64,FRAME')
-  expect(host.querySelector('video')!.preload).toBe('none')
+  expect(host.querySelector('video')!.preload).toBe('auto')
 })
 
 it('downloads authenticated video bytes instead of saving the poster as a PNG', async () => {
@@ -360,4 +379,115 @@ it.each([
   await act(async () => button('放入画布').click())
   expect(view).toHaveBeenCalledTimes(delivery === 'placed' ? 1 : 0)
   expect(fixtures.state.retry).not.toHaveBeenCalled()
+})
+
+it('preloads only nearby video results, then shares the first decoded frame without another stream', async () => {
+  let intersect: (entries: { isIntersecting: boolean }[]) => void = () => {}
+  const disconnect = vi.fn()
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(callback: typeof intersect) {
+        intersect = callback
+      }
+      observe = vi.fn()
+      disconnect = disconnect
+    },
+  )
+  frames.cachedVideoOutputFrame.mockReturnValue(undefined)
+  fixtures.canvasAvailable = true
+  fixtures.has.mockReturnValue(true)
+  await render({
+    ...base,
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId: 'visible-clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+        video: record,
+      },
+    ],
+  })
+  const video = host.querySelector('video')!
+  expect(video.preload).toBe('none')
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  await act(async () => intersect([{ isIntersecting: false }]))
+  expect(video.preload).toBe('none')
+  await act(async () => intersect([{ isIntersecting: true }]))
+  expect(video.preload).toBe('auto')
+  expect(video.autoplay).toBe(false)
+  expect(host.querySelector('[role="status"]')?.getAttribute('aria-label')).toBe('加载视频')
+  expect(disconnect).toHaveBeenCalled()
+  await act(async () => video.dispatchEvent(new Event('loadeddata')))
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  expect(rememberVideoOutputFrame).toHaveBeenCalledWith(
+    expect.objectContaining({ taskId: 'video-task', outputIndex: 0 }),
+    'data:image/jpeg;base64,DECODED',
+  )
+  expect(video.poster).toBe('data:image/jpeg;base64,DECODED')
+  await act(async () => video.dispatchEvent(new Event('waiting')))
+  expect(host.querySelector('[role="status"]')).not.toBeNull()
+  await act(async () => video.dispatchEvent(new Event('playing')))
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  expect(fixtures.fetch).not.toHaveBeenCalled()
+  expect(fixtures.thumbnail).not.toHaveBeenCalled()
+})
+
+it('shows video settings and download as labelled icons with meaningful values', async () => {
+  await render({
+    ...base,
+    status: 'succeeded',
+    video: { ...record, firstFrameId: 'first', lastFrameId: 'last', referenceIds: ['ref'] },
+    artifacts: [
+      {
+        artifactId: 'clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+      },
+    ],
+  })
+  const details = host.querySelector('[aria-label="视频参数"]')!
+  expect(details.querySelector('[aria-label="8 秒"] svg')).not.toBeNull()
+  expect(details.querySelector('[aria-label="清晰度 720p"] svg')).not.toBeNull()
+  expect(details.querySelector('[aria-label="比例 9:16"] svg')).not.toBeNull()
+  expect(details.querySelector('[aria-label="首帧"] svg')).not.toBeNull()
+  expect(details.querySelector('[aria-label="尾帧"] svg')).not.toBeNull()
+  expect(details.querySelector('[aria-label="1 张参考图"] svg')).not.toBeNull()
+  expect(details.textContent).not.toContain('首帧')
+  expect(button('下载').querySelector('svg')).not.toBeNull()
+  expect(button('下载').textContent).toBe('')
+})
+
+it('preserves a playable source across StrictMode effect replay and releases it on removal', async () => {
+  const message: AgentToolMessage = {
+    ...base,
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId: 'strict-clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+        video: record,
+      },
+    ],
+  }
+  await act(async () =>
+    root.render(
+      <StrictMode>
+        <AgentToolCard message={message} onPreviewResult={vi.fn()} />
+      </StrictMode>,
+    ),
+  )
+  const video = host.querySelector('video')!
+  expect(video.getAttribute('src')).toContain('/video-task/output/0')
+  await act(async () => root.render(null))
+  expect(video.getAttribute('src')).toBeNull()
+  expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled()
 })
