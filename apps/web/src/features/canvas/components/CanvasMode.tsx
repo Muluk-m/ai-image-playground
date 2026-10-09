@@ -168,6 +168,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     null,
   )
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>()
+  const [selectedPreview, setSelectedPreview] = useState<{ id: string; source: string } | null>(
+    null,
+  )
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
   const productionViewKey = scopedStorageName(`production-view:${workspace.id}`)
   const [productionOpen, setProductionOpen] = useState(
@@ -232,11 +235,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const activeResult = hasSelectedResult
     ? (selectedExternalResult ?? selectedResult ?? latestResult)
     : undefined
-  const previewResult = (messageId: string, artifactId?: string) => {
+  const previewResult = (messageId: string, artifactId?: string, previewSource?: string) => {
     selectedResultOwner.current = conversationId
     setSelectedExternalResult(null)
     setSelectedResultId(messageId)
     setSelectedArtifactId(artifactId)
+    setSelectedPreview(
+      artifactId && previewSource ? { id: artifactId, source: previewSource } : null,
+    )
     setAssetDrawerOpen(false)
   }
   const previewAsset = (message: AgentToolMessage, artifactId: string) => {
@@ -244,6 +250,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     setSelectedExternalResult(message)
     setSelectedResultId(message.id)
     setSelectedArtifactId(artifactId)
+    setSelectedPreview(null)
     setAssetDrawerOpen(false)
   }
   const completeHandoff = async (targetId?: string): Promise<boolean> => {
@@ -620,6 +627,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                             presentation="panel"
                             message={activeResult}
                             selectedId={selectedArtifactId}
+                            initialPreview={selectedPreview}
                             onSelect={setSelectedArtifactId}
                             onClose={() => {
                               setSelectedResultId(null)
@@ -753,6 +761,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <AgentArtifactPane
                 message={activeResult}
                 selectedId={selectedArtifactId}
+                initialPreview={selectedPreview}
                 onSelect={setSelectedArtifactId}
                 onClose={() => {
                   setSelectedResultId(null)
