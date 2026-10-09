@@ -88,6 +88,7 @@
   "lightbox": {
     "saveFailed": "保存失败",
     "loadingOriginal": "原图加载中",
+    "originalFailed": "原图加载失败",
     "dialog": "图片预览"
   },
   "grid": {

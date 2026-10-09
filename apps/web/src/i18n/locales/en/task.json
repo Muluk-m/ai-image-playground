@@ -88,6 +88,7 @@
   "lightbox": {
     "saveFailed": "Save failed",
     "loadingOriginal": "Loading full image",
+    "originalFailed": "Full image could not load",
     "dialog": "Image preview"
   },
   "grid": {

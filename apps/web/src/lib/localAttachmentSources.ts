@@ -1,6 +1,7 @@
 import { accountScope, scopedStorageName } from './authScope'
 import {
   BASE_DB_NAME,
+  createImageThumbnail,
   openNamedDb,
   STORE_ATTACHMENT_METADATA,
   STORE_ATTACHMENT_OWNERS,
@@ -29,6 +30,35 @@ interface PendingSource {
   settled: Promise<void>
   controller: AbortController
 }
+// Existing generated pixels get a small display copy; originals still stay in IndexedDB.
+const previews = new Map<string, Promise<string | undefined>>()
+let previewScope = ''
+let previewWriter = Promise.resolve()
+
+export function localAttachmentPreview(source: string): Promise<string | undefined> | undefined {
+  const current = scopedStorageName(BASE_DB_NAME)
+  if (previewScope !== current) {
+    previews.clear()
+    previewScope = current
+  }
+  return previews.get(source)
+}
+
+function queueAttachmentPreview(source: string, load: () => Promise<string | undefined>): void {
+  localAttachmentPreview(source)
+  const owner = previewScope
+  const pending: Promise<string | undefined> = previewWriter
+    .then(async () => {
+      if (owner !== scopedStorageName(BASE_DB_NAME) || previews.get(source) !== pending)
+        return undefined
+      return load()
+    })
+    .catch(() => undefined)
+  previews.set(source, pending)
+  while (previews.size > 12) previews.delete(previews.keys().next().value!)
+  previewWriter = pending.then(() => {})
+}
+
 const pendingSources = new Map<string, PendingSource>()
 const writerId = crypto.randomUUID()
 const writerLeases = new Map<string, Promise<void>>()
@@ -77,6 +107,24 @@ export function registerLocalAttachmentSource(
   const current = accountScope()
   const controller = new AbortController()
   const dbName = scopedStorageName(BASE_DB_NAME)
+  let resolvePreviewInput!: (value: { data: ArrayBuffer; contentType: string } | undefined) => void
+  const preparedPreview = new Promise<{ data: ArrayBuffer; contentType: string } | undefined>(
+    (resolve) => {
+      resolvePreviewInput = resolve
+    },
+  )
+  queueAttachmentPreview(handle, async () => {
+    const prepared = await preparedPreview
+    if (!prepared || !current() || !previews.has(handle)) return undefined
+    if (typeof source === 'string') return (await createImageThumbnail(source)).thumbnailDataUrl
+    if (typeof URL.createObjectURL !== 'function') return undefined
+    const url = URL.createObjectURL(new Blob([prepared.data], { type: prepared.contentType }))
+    try {
+      return (await createImageThumbnail(url)).thumbnailDataUrl
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  })
   const reserved = (async () => {
     await writerLease(dbName)
     const db = await openNamedDb(dbName)
@@ -101,7 +149,10 @@ export function registerLocalAttachmentSource(
   const settled = sourceWriter
     .then(async () => {
       await reserved
-      if (!current()) return
+      if (!current()) {
+        resolvePreviewInput(undefined)
+        return
+      }
       let data: ArrayBuffer | undefined
       let errorCode: string | undefined
       let contentType =
@@ -142,6 +193,7 @@ export function registerLocalAttachmentSource(
           errorCode = error instanceof Error ? error.message : 'attachment_read_failed'
         }
       }
+      resolvePreviewInput(data && current() ? { data, contentType } : undefined)
       if (!current()) return
       const db = await openNamedDb(dbName)
       try {
@@ -182,6 +234,7 @@ export function registerLocalAttachmentSource(
       }
     })
     .catch(async () => {
+      resolvePreviewInput(undefined)
       // Metadata may still fit when writing the original failed; otherwise a missing source is failed.
       const db = await openNamedDb(dbName).catch(() => undefined)
       if (!db) return
@@ -416,7 +469,10 @@ function receiveAttachmentChange(change: AttachmentChange) {
   if (change.kind === 'upload') {
     for (const listener of uploadListeners) listener(change)
   } else {
-    for (const source of change.sources) pendingSources.get(source)?.controller.abort()
+    for (const source of change.sources) {
+      pendingSources.get(source)?.controller.abort()
+      previews.delete(source)
+    }
     for (const listener of releaseListeners) listener(change)
   }
 }
