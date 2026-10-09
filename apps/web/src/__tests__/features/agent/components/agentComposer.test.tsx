@@ -78,7 +78,7 @@ function options(): HTMLElement[] {
 function pick(label: string): void {
   const option = options().find((one) => one.textContent?.includes(label))!
   act(() => {
-    option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    option.click()
   })
 }
 

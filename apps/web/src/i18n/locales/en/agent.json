@@ -214,7 +214,9 @@
     "interrupted": "Interrupted, resumed automatically",
     "contextOverflow": "This turn was too long to send",
     "requestBudgetExceeded": "Request not sent; this model call incurred no charge",
-    "stopped": "Stopped"
+    "stopped": "Stopped",
+    "continue": "Continue conversation",
+    "continuePrompt": "Continue"
   },
   "composer": {
     "uploadsPending": "Reference images are still uploading; you can send once they finish",
