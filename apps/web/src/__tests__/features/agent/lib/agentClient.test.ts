@@ -25,6 +25,7 @@ vi.mock('../../../../lib/cloudMedia', () => ({
 import {
   AgentRequestError,
   type AgentTurnStream,
+  fetchAgentSkills,
   fetchConversations,
   fetchMessages,
   followTurn,
@@ -53,6 +54,14 @@ function headerOf(init: RequestInit | undefined, name: string): string | null {
 }
 
 describe('agentClient 的设备标识传输位置', () => {
+  it('技能目录只依赖登录 cookie，不携带触发跨域预检的设备头', async () => {
+    const { calls, fetcher } = recordingFetcher({ skills: [] })
+    await expect(fetchAgentSkills('image', fetcher)).resolves.toEqual([])
+    expect(calls[0]!.url).toBe('https://bff.test/api/agent/skills?mode=image')
+    expect(Array.from(new Headers(calls[0]!.init?.headers))).toEqual([])
+    expect(calls[0]!.init?.signal).toBeInstanceOf(AbortSignal)
+  })
+
   it('列会话把设备标识放请求头，不放 query string', async () => {
     const { calls, fetcher } = recordingFetcher({ conversations: [] })
 
