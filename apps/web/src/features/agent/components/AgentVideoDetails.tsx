@@ -4,6 +4,7 @@ import {
   videoRateMultiplier,
 } from '@image-playground/shared'
 import Credits from '../../../components/Credits'
+import { ModelLogo } from '../../../components/ModelIdentity'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 
@@ -14,7 +15,12 @@ export function AgentVideoDetails({ video }: { video: VideoGenerationRecord }) {
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
       aria-label={t('video.parameters')}
     >
-      <span>{VIDEO_MODEL_SUPPORT[video.model]?.label ?? video.model}</span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="[&>*]:size-3.5" aria-hidden="true">
+          <ModelLogo model={video.model} />
+        </span>
+        {VIDEO_MODEL_SUPPORT[video.model]?.label ?? video.model}
+      </span>
       <span>{t('video.seconds', { count: video.duration })}</span>
       <span>{video.resolution}</span>
       <span>{video.aspectRatio}</span>

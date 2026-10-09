@@ -14,4 +14,8 @@ Local adaptations:
 - MessageActions renders only supported actions. More uses the existing Radix Popover at the caller; all labels come from i18n.
 - Suggestions retain fill-and-focus behavior without submitting. Existing image-generation intentionally retains our compact gradient placeholder instead of upstream dots/blur.
 
+`tooltip-icon-button.tsx` and `logos.tsx` come from a later upstream commit, `3ad209c9b1692dcaa3fcfb4d12130b318ca566eb` (`tooltip-icon-button.radix.tsx`, `logos.tsx`):
+- TooltipIconButton uses our shadcn Button and a local Radix Tooltip (`components/ui/tooltip.tsx`) with a short open delay; the tooltip text is also the button's accessible name unless `aria-label` is given. Prefer it over text buttons or bare `title` attributes for single actions.
+- Logos are unchanged; `ModelLogo` uses them for OpenAI and Gemini models.
+
 No assistant-ui runtime migration: existing Agent store, transport, persistence and billing remain authoritative.
