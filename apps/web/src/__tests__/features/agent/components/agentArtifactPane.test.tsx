@@ -75,6 +75,50 @@ vi.mock('../../../../components/Lightbox', () => ({
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+it.each([
+  true,
+  false,
+])('uses only a matching card preview before either loader settles: %s', async (matches) => {
+  canvas.has.mockReturnValue(true)
+  canvas.thumbnail.mockImplementation(() => new Promise<string>(() => {}))
+  previewArtifactBitmap.mockImplementation(() => new Promise<string | null>(() => {}))
+  const root = createRoot(document.createElement('div'))
+  const selected = message.artifacts![0]!
+  try {
+    act(() =>
+      root.render(
+        <AgentArtifactPane
+          message={{ ...message, artifacts: [selected] }}
+          initialPreview={{
+            id: matches ? selected.artifactId : 'another-result',
+            source: 'data:image/png;base64,visible-card',
+          }}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      ),
+    )
+    const image = document.querySelector('.studio-artifact-pane-image img')
+    if (matches) {
+      expect(image?.getAttribute('src')).toContain('visible-card')
+      expect(canvas.thumbnail).not.toHaveBeenCalled()
+      const download = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === '下载',
+      )!
+      expect(download.disabled).toBe(true)
+    } else {
+      expect(image).toBeNull()
+      expect(canvas.thumbnail).toHaveBeenCalled()
+    }
+  } finally {
+    act(() => root.unmount())
+    canvas.thumbnail.mockResolvedValue('data:image/png;base64,canvas')
+    previewArtifactBitmap.mockImplementation(
+      async (artifact) => `data:image/png;base64,${artifact.artifactId}`,
+    )
+  }
+})
+
 const message: AgentToolMessage = {
   kind: 'tool',
   id: 'result',
