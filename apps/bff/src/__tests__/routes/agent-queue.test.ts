@@ -262,6 +262,24 @@ async function busyConversation() {
 }
 
 describe('提交回执', () => {
+  it('取消先于入队时留下终态，迟到的同 id 提交不会开轮', async () => {
+    const conversationId = await startConversation()
+    const path = `/api/agent/conversations/${conversationId}/submissions/cancel-first/withdraw`
+    const denied = await post(path, { deviceId: 'another-device' })
+    expect(denied.status).toBe(404)
+    const cancelled = await post(path, { deviceId: DEVICE })
+    expect(cancelled.status).toBe(200)
+    const first = await cancelled.json()
+    expect(first.receipt.state).toBe('cancelled')
+    const repeated = await post(path, { deviceId: DEVICE })
+    expect((await repeated.json()).receipt.queued.id).toBe(first.receipt.queued.id)
+    const late = await send(conversationId, '迟到的请求', 'cancel-first')
+    expect(late.status).toBe(202)
+    expect((await late.json()).state).toBe('cancelled')
+    expect(calls).toHaveLength(0)
+    expect((await snapshot(conversationId)).activeTurn).toBeNull()
+  })
+
   it('按客户端消息 id 查询已开轮的回执，且不重复调用模型', async () => {
     const conversationId = await startConversation()
     const response = await send(conversationId, '你好', 'receipt-client')
@@ -275,6 +293,14 @@ describe('提交回执', () => {
     expect(receipt.state).toBe('consumed')
     expect(receipt.turnId).toBeTruthy()
     expect(receipt.queued.clientMessageId).toBe('receipt-client')
+    const stopped = await post(
+      `/api/agent/conversations/${conversationId}/submissions/receipt-client/withdraw`,
+      { deviceId: DEVICE },
+    )
+    expect((await stopped.json()).receipt).toMatchObject({
+      state: 'consumed',
+      turnId: receipt.turnId,
+    })
     const missing = await get(`/api/agent/conversations/${conversationId}/submissions/missing`)
     expect(missing.status).toBe(200)
     expect(await missing.json()).toEqual({ receipt: null })

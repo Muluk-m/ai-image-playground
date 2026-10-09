@@ -65,6 +65,7 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
         turns: [],
         activeTurn: null,
       })
+    if (url.includes('/submissions/')) return Response.json({ receipt: null })
     if (url.endsWith('/turns')) return Response.json({ error: 'test_unavailable' }, { status: 503 })
     if (url.endsWith('/conversations') && method === 'POST')
       return Response.json({

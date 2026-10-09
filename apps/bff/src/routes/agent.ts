@@ -72,7 +72,12 @@ import {
   removeAgentConversationReferences,
   validateConversationMediaSelections,
 } from '../lib/agent/images'
-import { agentSubmissionEntry, type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
+import {
+  agentSubmissionEntry,
+  type InboxEntry,
+  queuedAgentMessages,
+  reserveAgentSubmissionCancellation,
+} from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import {
   advanceAgentRetryQueueSafely,
@@ -789,6 +794,31 @@ export const agentRoutes = new Elysia()
         clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
       }),
       headers: deviceIdHeaderSchema(),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/submissions/:clientMessageId/withdraw',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const entry = await reserveAgentSubmissionCancellation(
+        conversation.id,
+        params.clientMessageId,
+        body.deviceId,
+      )
+      if (!entry) return status(404, NOT_FOUND)
+      await withdrawFromConversationInbox(conversation.id, entry.view.id)
+      const receipt = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+      return { receipt: receipt ? queuedBody(receipt, runningTurn(conversation.id)?.turnId) : null }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
     },
   )
   .get(

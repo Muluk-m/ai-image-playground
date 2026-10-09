@@ -64,6 +64,7 @@ let messagesResponse: () => Response
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
+  if (url.includes('/submissions/')) return Response.json({ receipt: null })
   if (url.endsWith('/api/agent/conversations') && init?.method === 'POST')
     return Response.json({
       conversation: { id: CONVERSATION, title: '', createdAt: 1, updatedAt: 1 },
@@ -575,7 +576,10 @@ it.each([
     turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
     await clickSend()
     await act(async () => {
-      await vi.waitFor(() => expect(session.getSnapshot().draft.submission).toBeDefined())
+      // 空回执需要有界复查后才确认未接收并归还草稿。
+      await vi.waitFor(() => expect(session.getSnapshot().draft.submission).toBeDefined(), {
+        timeout: 3000,
+      })
     })
     const first = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
     const initial = JSON.parse(String(first?.[1]?.body))

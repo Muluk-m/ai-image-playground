@@ -15,8 +15,10 @@ import { openCanvas } from '../../helpers/activeProject'
 
 const state = () => useAgentStore.getState()
 let turnResponse: () => Promise<Response>
+let receiptResponse: () => Response
 const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   const url = String(input)
+  if (url.includes('/submissions/')) return receiptResponse()
   if (url.endsWith('/abort')) return Response.json({ aborted: true })
   if (url.endsWith('/conversations') && init?.method === 'POST')
     return Response.json({
@@ -27,6 +29,7 @@ const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   return Response.json({ messages: [], turns: [], activeTurn: null })
 })
 beforeEach(async () => {
+  receiptResponse = () => Response.json({ receipt: null })
   history.replaceState(null, '', '/')
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
@@ -62,7 +65,16 @@ it.each([false, true])('发送中点中止后切项目，重新订阅=%s 时仍�
   const sending = state().send('旧项目生成')
   await vi.waitFor(() => expect(release).toBeTypeOf('function'))
   const oldConversation = state().conversationId
+  receiptResponse = () =>
+    Response.json({
+      receipt: {
+        state: 'consumed',
+        turnId: 'old-turn',
+        queued: { id: 'old-user', text: '旧项目生成', createdAt: 1 },
+      },
+    })
   await state().abort()
+  await vi.waitFor(() => expect(state().returnedMessagesPending).toBe(false))
   expect(await state().createProject()).toBe(true)
   let resumed: ReadableStreamDefaultController<Uint8Array> | undefined
   if (reopen) {

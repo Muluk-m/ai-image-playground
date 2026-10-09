@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { abortRecoveries } from '../../../features/agent/lib/abortRecovery'
 import { useAgentStore } from '../../../features/agent/store'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -46,6 +47,7 @@ let resumeRequests: { lastEventId: string | null; url: string }[]
 let messagesResponse: () => Response
 let posted: { url: string; body: unknown }[]
 let receiptResponse: () => Response | Promise<Response>
+let withdrawSubmissionResponse: () => Response
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -58,6 +60,8 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   if (method === 'POST') {
     posted.push({ url, body: JSON.parse(String(init?.body)) })
     if (url.endsWith('/turns')) return turnResponses.shift()!()
+    if (url.includes('/submissions/') && url.endsWith('/withdraw'))
+      return withdrawSubmissionResponse()
     if (url.endsWith('/withdraw')) return Response.json({ result: 'already_consumed' })
     if (url.endsWith('/abort')) return Response.json({ aborted: true, returned: [] })
     return Response.json({ ok: true })
@@ -83,6 +87,14 @@ beforeEach(() => {
   resumeRequests = []
   posted = []
   receiptResponse = () => Response.json({ receipt: null })
+  withdrawSubmissionResponse = () =>
+    Response.json({
+      receipt: {
+        state: 'consumed',
+        turnId: TURN,
+        queued: { id: 'user-1', text: '你好', createdAt: 1 },
+      },
+    })
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   useAgentStore.setState({
     conversationId: null,
@@ -165,6 +177,65 @@ describe('断线重连', () => {
     ).toBe(true)
   })
 
+  it('仅收到心跳后断流，仍按消息回执恢复已受理的轮', async () => {
+    turnResponses = [
+      () => sse([], true),
+      () =>
+        sse([
+          { id: 1, event: TURN_START },
+          { id: 2, event: TURN_END },
+        ]),
+    ]
+    receiptResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: TURN,
+          queued: { id: 'user-1', text: '你好', createdAt: 1 },
+        },
+      })
+    await state().send('你好')
+    expect(state().turn).toBe('idle')
+    expect(state().error).toBeNull()
+    expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(1)
+  })
+
+  it('回执暂时为空时先复查，收到已受理回执后恢复原轮', async () => {
+    vi.useFakeTimers()
+    turnResponses = [
+      () => {
+        throw new TypeError('response lost')
+      },
+      () => {
+        throw new TypeError('response lost')
+      },
+      () =>
+        sse([
+          { id: 1, event: TURN_START },
+          { id: 2, event: TURN_END },
+        ]),
+    ]
+    let lookups = 0
+    receiptResponse = () =>
+      Response.json({
+        receipt:
+          ++lookups === 1
+            ? null
+            : {
+                state: 'consumed',
+                turnId: TURN,
+                queued: { id: 'user-1', text: '你好', createdAt: 1 },
+              },
+      })
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    const sending = state().send('你好')
+    await vi.advanceTimersByTimeAsync(501)
+    await vi.runAllTimersAsync()
+    await sending
+    expect(state().turn).toBe('idle')
+    expect(lookups).toBe(2)
+  })
+
   it('回执查询暂时离线时保持恢复状态，只查询而不重新提交', async () => {
     vi.useFakeTimers()
     turnResponses = [
@@ -242,6 +313,54 @@ describe('断线重连', () => {
     })
     expect(resumeRequests[resumeRequests.length - 1]?.lastEventId).toBe('3')
     expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(1)
+  })
+
+  it('断流且快照离线时保留下一轮标记，恢复后继续跟随已消费的排队消息', async () => {
+    vi.useFakeTimers()
+    let opening!: ReadableStreamDefaultController<Uint8Array>
+    turnResponses = [
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              opening = controller
+              controller.enqueue(new TextEncoder().encode(encodeAgentFrame(1, TURN_START)))
+            },
+          }),
+        ),
+      () =>
+        Response.json(
+          {
+            state: 'consumed',
+            turnId: 'turn-2',
+            queued: { id: 'user-2', text: '第二句', createdAt: 2 },
+          },
+          { status: 202 },
+        ),
+      () => new Response('{}', { status: 404 }),
+      () => sse([{ id: 2, event: TURN_END }]),
+      () =>
+        sse([
+          { id: 3, event: { ...TURN_START, turnId: 'turn-2', userMessageId: 'user-2' } },
+          { id: 4, event: { ...TURN_END, turnId: 'turn-2' } },
+        ]),
+    ]
+    let snapshots = 0
+    messagesResponse = () => {
+      if (++snapshots === 1) throw new TypeError('snapshot offline')
+      return Response.json({ messages: [], activeTurn: { turnId: 'turn-2' }, turns: [], queue: [] })
+    }
+    const sending = state().send('第一句')
+    await vi.advanceTimersByTimeAsync(1)
+    const queued = state().send('第二句')
+    await vi.runAllTimersAsync()
+    await queued
+    opening.error(new TypeError('stream offline'))
+    await vi.advanceTimersByTimeAsync(5_001)
+    await sending
+    await vi.runAllTimersAsync()
+    expect(state().turns['turn-2']).toMatchObject({ stopReason: 'completed' })
+    expect(state().turn).toBe('idle')
   })
 
   it('轮已经不在了就不再重连，直接判失败', async () => {
@@ -626,12 +745,109 @@ describe('中止', () => {
       }),
     )
     await sending
+    await vi.waitFor(async () => expect(await abortRecoveries(CONVERSATION).read()).toEqual([]))
     expect(posted.filter((one) => one.url.endsWith('/abort')).map((one) => one.url)).toEqual([
       'http://bff.test/api/agent/conversations/conversation-1/turns/turn-1/abort',
     ])
-    expect(lookups).toBe(2)
+    expect(lookups).toBe(1)
     expect(state().turn).toBe('idle')
     expect(state().stopping).toBe(false)
+  })
+
+  it('持续离线时停止立即退出等待，重连后按持久消息记录确认中止', async () => {
+    turnResponses = [
+      () => {
+        throw new TypeError('response lost')
+      },
+      () => {
+        throw new TypeError('response lost')
+      },
+    ]
+    let lookups = 0
+    receiptResponse = () => {
+      lookups += 1
+      throw new TypeError('offline')
+    }
+    withdrawSubmissionResponse = () => {
+      throw new TypeError('offline')
+    }
+    const sending = state().send('你好')
+    await vi.waitFor(() => expect(lookups).toBe(1))
+    await state().abort()
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(await sending).toBe('cancelled')
+    await vi.waitFor(() => expect(state().returnedMessagesError).toBe('fallback'))
+    const saved = await abortRecoveries(CONVERSATION).read()
+    expect(saved).toHaveLength(1)
+    expect(saved[0].clientMessageId).toBe(
+      (posted[0].body as { clientMessageId: string }).clientMessageId,
+    )
+    receiptResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: TURN,
+          queued: { id: 'user-1', text: '你好', createdAt: 1 },
+        },
+      })
+    withdrawSubmissionResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: TURN,
+          queued: { id: 'user-1', text: '你好', createdAt: 1 },
+        },
+      })
+    await state().retryReturnedMessages()
+    expect(await abortRecoveries(CONVERSATION).read()).toEqual([])
+    expect(posted.filter((one) => one.url.endsWith('/abort'))).toHaveLength(1)
+    expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(2)
+  })
+
+  it('停止的撤回请求再次断网时保留恢复记录，重试成功才清除', async () => {
+    let release!: (response: Response) => void
+    const initial = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    let lookups = 0
+    receiptResponse = () =>
+      ++lookups === 1
+        ? initial
+        : Response.json({
+            receipt: {
+              state: 'pending',
+              turnId: 'previous-turn',
+              queued: { id: 'user-1', text: '你好', createdAt: 1 },
+            },
+          })
+    withdrawSubmissionResponse = () => {
+      throw new TypeError('offline again')
+    }
+    turnResponses = [
+      () => {
+        throw new TypeError('response lost')
+      },
+      () => {
+        throw new TypeError('response lost')
+      },
+    ]
+    const sending = state().send('你好')
+    await vi.waitFor(() => expect(lookups).toBe(1))
+    await state().abort()
+    release(Response.json({ receipt: null }))
+    await sending
+    await vi.waitFor(() => expect(posted.some((one) => one.url.endsWith('/withdraw'))).toBe(true))
+    expect(state().turn).toBe('idle')
+    expect(state().returnedMessagesPending).toBe(true)
+    expect(await abortRecoveries(CONVERSATION).read()).toHaveLength(1)
+    withdrawSubmissionResponse = () =>
+      Response.json({
+        receipt: { state: 'cancelled', queued: { id: 'user-1', text: '你好', createdAt: 1 } },
+      })
+    await state().retryReturnedMessages()
+    expect(await abortRecoveries(CONVERSATION).read()).toEqual([])
+    expect(posted.filter((one) => one.url.endsWith('/abort'))).toHaveLength(0)
   })
 
   it('中止进行中的轮，已经流出来的文字留在面板上', async () => {

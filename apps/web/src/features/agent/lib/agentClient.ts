@@ -45,6 +45,18 @@ const STREAM_IDLE_TIMEOUT_MS = AGENT_SSE_HEARTBEAT_MS * 3
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
+function withSignal<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener('abort', abort)
+      reject(signal.reason)
+    }
+    if (signal.aborted) abort()
+    else signal.addEventListener('abort', abort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
+}
+
 /** Keep the deadline through JSON/error bodies; callers release it when SSE takes over. */
 async function fetchStreamResponse(
   fetcher: Fetcher,
@@ -58,7 +70,10 @@ async function fetchStreamResponse(
   )
   const releaseDeadline = () => clearTimeout(timer)
   try {
-    const response = await fetcher(path, { ...init, signal: controller.signal })
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, controller.signal])
+      : controller.signal
+    const response = await withSignal(fetcher(path, { ...init, signal }), signal)
     return { response, releaseDeadline }
   } catch (error) {
     releaseDeadline()
@@ -187,19 +202,50 @@ export async function fetchSubmissionReceipt(
   conversationId: string,
   clientMessageId: string,
   fetcher: Fetcher = authenticatedBffFetch,
+  cancellation?: AbortSignal,
 ): Promise<AgentMessageQueuedBody | null> {
-  const response = await fetcher(
-    url(
-      `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}`,
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
+  signal.throwIfAborted()
+  const response = await withSignal(
+    fetcher(
+      url(
+        `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}`,
+      ),
+      {
+        headers: deviceHeaders(),
+        signal,
+      },
     ),
-    {
-      headers: deviceHeaders(),
-      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
-    },
+    signal,
   )
   if (!response.ok) throw await requestError(response)
-  const body = (await response.json()) as { receipt: AgentMessageQueuedBody | null }
+  const body = (await withSignal(response.json(), signal)) as {
+    receipt: AgentMessageQueuedBody | null
+  }
   if (!('receipt' in body)) throw new Error('Missing Agent submission receipt')
+  return body.receipt
+}
+
+export async function withdrawSubmission(
+  conversationId: string,
+  clientMessageId: string,
+): Promise<AgentMessageQueuedBody> {
+  const signal = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const response = await withSignal(
+    authenticatedBffFetch(
+      url(
+        `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}/withdraw`,
+      ),
+      { ...jsonInit({ deviceId: getDeviceId() }), signal },
+    ),
+    signal,
+  )
+  if (!response.ok) throw await requestError(response)
+  const body = (await withSignal(response.json(), signal)) as {
+    receipt: AgentMessageQueuedBody | null
+  }
+  if (!body.receipt) throw new Error('Missing Agent withdrawal receipt')
   return body.receipt
 }
 
@@ -338,6 +384,7 @@ export async function startTurn(
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
   /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
   experience?: 'chat' | 'canvas',
+  signal?: AbortSignal,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
   const init = jsonInit({
@@ -352,11 +399,14 @@ export async function startTurn(
     ...(canvas ? { canvas } : {}),
     ...(experience ? { experience } : {}),
   })
+  init.signal = signal
+  signal?.throwIfAborted()
   const path = url(`/conversations/${conversationId}/turns`)
   let opened: Awaited<ReturnType<typeof fetchStreamResponse>>
   try {
     opened = await fetchStreamResponse(fetcher, path, init)
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error
     // 请求可能已经到了服务端、只是回程断了：同一个 id 再发一次，服务端按它去重。
     opened = await fetchStreamResponse(fetcher, path, init)
   }

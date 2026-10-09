@@ -3,6 +3,8 @@ import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 export interface PendingAbortRecovery {
   readonly turnId: string
+  /** 尚未取得轮标识时，以原消息 id 恢复撤回或中止；turnId 为本地记录键。 */
+  readonly clientMessageId?: string
   readonly draftKey: string
   readonly projectId?: string
 }
@@ -35,6 +37,7 @@ function storedStops(value: unknown): PendingAbortRecovery[] {
         typeof one !== 'object' ||
         typeof one.turnId !== 'string' ||
         typeof one.draftKey !== 'string' ||
+        (one.clientMessageId !== undefined && typeof one.clientMessageId !== 'string') ||
         (one.projectId !== undefined && typeof one.projectId !== 'string'),
     )
   )
