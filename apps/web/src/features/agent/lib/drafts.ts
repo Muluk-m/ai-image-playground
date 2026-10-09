@@ -175,7 +175,7 @@ export interface DraftSnapshot {
   readonly submitting: boolean
   readonly error: string | null
   /**
-   * 上次没发出去、这次读回来的那份草稿。它先不进输入框，由用户选恢复还是丢弃；
+   * 发送失败接回来的那份消息。它不进输入框，由用户选恢复还是丢弃；
    * 决定之前照旧留在存储里，不会因为这次没理它就丢了。
    */
   readonly unsent: AgentDraft | null
@@ -232,13 +232,12 @@ export class DraftSession {
   private restoreContents(stored: StoredDraft) {
     const { unsent, remainingUnsent = [], returnedQueueIds: _receipts, ...draft } = stored
     this.remainingUnsent = remainingUnsent
-    // Unsent content remains separate until the user explicitly restores it.
-    if (unsent || hasDraftContent(draft))
+    // 只有发送失败接回来的消息才等用户决定；没发过的输入照常回到输入框。
+    if (unsent || draft.submission)
       this.publish({
-        draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
+        draft: unsent ? draft : { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
         unsent: unsent ?? draft,
-        recoverable: Boolean(unsent || draft.submission),
-        ...(unsent ? { draft } : {}),
+        recoverable: true,
       })
     else this.publish({ draft, unsent: null, recoverable: false })
   }
