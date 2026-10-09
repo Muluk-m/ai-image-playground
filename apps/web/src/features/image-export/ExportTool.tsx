@@ -1,5 +1,6 @@
 import { Plus, Scaling, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { TooltipIconButton } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../components/ui/button'
 import { useTranslation } from '../../i18n'
 import ToolboxHeader from '../toolbox/components/ToolboxHeader'
@@ -71,15 +72,13 @@ export default function ExportTool() {
                           : t('export.undecodable')}
                       </p>
                     </div>
-                    <Button
+                    <TooltipIconButton
                       disabled={busy}
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t('intake.clear')}
+                      tooltip={t('intake.clear')}
                       onClick={() => remove(item.id)}
                     >
                       <Trash2 />
-                    </Button>
+                    </TooltipIconButton>
                   </div>
                 </div>
               ))}

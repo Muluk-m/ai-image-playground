@@ -217,6 +217,7 @@
     "openAria": "打开项目 {{name}}",
     "current": "当前项目",
     "updatedAt": "{{date}} 更新",
+    "actions": "更多操作",
     "actionsAria": "项目 {{name}} 的更多操作",
     "rename": "重命名",
     "deleteTitle": "删除项目",

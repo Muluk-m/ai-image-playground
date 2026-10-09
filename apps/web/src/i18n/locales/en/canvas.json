@@ -228,6 +228,7 @@
     "openAria": "Open project {{name}}",
     "current": "Current project",
     "updatedAt": "Updated {{date}}",
+    "actions": "More actions",
     "actionsAria": "More actions for {{name}}",
     "rename": "Rename",
     "deleteTitle": "Delete project",
