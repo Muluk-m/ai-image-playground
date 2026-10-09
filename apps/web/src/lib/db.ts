@@ -581,7 +581,9 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   })
 }
 
-async function createImageThumbnail(dataUrl: string): Promise<Omit<StoredImageThumbnail, 'id'>> {
+export async function createImageThumbnail(
+  dataUrl: string,
+): Promise<Omit<StoredImageThumbnail, 'id'>> {
   const image = await loadImage(dataUrl)
   const width = image.naturalWidth
   const height = image.naturalHeight
