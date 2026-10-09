@@ -100,7 +100,9 @@
     "moderation": "Moderation",
     "count": "Count",
     "noModel": "Not selected",
-    "model": "Model"
+    "model": "Model",
+    "searchModel": "Search models",
+    "noModelMatch": "No matching models"
   },
   "size": {
     "customRatioLabel": "Enter a custom ratio",
