@@ -3,7 +3,6 @@ import { collageTool } from '../tools/collage'
 import { compressTool } from '../tools/compress'
 import { convertTool } from '../tools/convert'
 import { cropTool } from '../tools/crop'
-import { resizeTool } from '../tools/resize'
 import { rotateTool } from '../tools/rotate'
 import { sliceTool } from '../tools/slice'
 import { stitchTool } from '../tools/stitch'
@@ -17,7 +16,6 @@ export const TOOLS: readonly ToolDefinition[] = [
   { id: 'export', group: 'process', icon: Scaling, kind: 'custom' },
   compressTool,
   convertTool,
-  resizeTool,
   cropTool,
   rotateTool,
   collageTool,
