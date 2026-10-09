@@ -45,6 +45,8 @@ vi.mock('../../../../lib/clientCapabilities', () => ({
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   previewArtifactBitmap: async () => 'data:image/png;base64,preview',
   videoOutputFrame: async () => null,
+  cachedVideoOutputFrame: () => undefined,
+  rememberVideoOutputFrame: vi.fn(),
 }))
 
 // 取回来的网图按媒体 id 回源；这里只关心「按什么 id 取、卡上长什么样」。
