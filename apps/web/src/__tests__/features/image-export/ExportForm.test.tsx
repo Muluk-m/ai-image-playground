@@ -75,4 +75,14 @@ describe('image resize editing', () => {
     expect(TOOLS.filter((tool) => tool.id === 'export')).toHaveLength(1)
     expect(TOOLS.some((tool) => String(tool.id) === 'resize')).toBe(false)
   })
+  it('clears an invisible empty draft when switching from one image to a batch', async () => {
+    await act(async () => root.render(<ExportForm sources={sources} />))
+    await fill(host.querySelector<HTMLInputElement>('#export-width')!, '')
+    expect(exportButton().disabled).toBe(true)
+    await act(async () =>
+      root.render(<ExportForm sources={[...sources, { ...sources[0], id: 'two' }]} />),
+    )
+    expect(host.querySelector('#export-width')).toBeNull()
+    expect(exportButton().disabled).toBe(false)
+  })
 })

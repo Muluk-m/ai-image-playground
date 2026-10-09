@@ -61,6 +61,7 @@ export default function ExportForm({
     setDimensions(null)
     setError('')
     setDone(0)
+    setSizeDraft(null)
     setLoading(false)
     if (!single || !first) return
     setLoading(true)
