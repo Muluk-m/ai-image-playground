@@ -111,6 +111,25 @@ describe('scanSource', () => {
     expect(rulesIn('apps/web/src/A.tsx', source)).toEqual(['native-control'])
   })
 
+  it('handles block comments wherever they open or close', () => {
+    const allowedByBlock = [
+      '/* 例外说明',
+      ' * design-allow arbitrary-font */',
+      '<div className="text-[13px]" />',
+    ]
+    expect(rulesIn('apps/web/src/A.tsx', allowedByBlock.join('\n'))).toEqual([])
+    const codeAfterClose = ['/* 说明', '结束 */ const element = <button />']
+    expect(rulesIn('apps/web/src/A.tsx', codeAfterClose.join('\n'))).toEqual(['native-control'])
+    const openedInline = ['const size = 1 /* 说明', ' * text-[13px]', ' */']
+    expect(rulesIn('apps/web/src/A.ts', openedInline.join('\n'))).toEqual([])
+  })
+
+  it('treats // inside JSX text as page content', () => {
+    expect(rulesIn('apps/web/src/A.tsx', '<p>https://x.y <button /></p>')).toEqual([
+      'native-control',
+    ])
+  })
+
   it('ignores data-type when reading an input type', () => {
     expect(rulesIn('apps/web/src/A.tsx', '<input data-type="hidden" />')).toEqual([
       'native-control',
