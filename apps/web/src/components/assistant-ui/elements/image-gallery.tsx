@@ -1,6 +1,6 @@
 // Presentation adapted from assistant-ui Elements image-gallery (MIT), 2026-10-09.
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Button } from '../../ui/button'
 
 interface GalleryItem {
@@ -15,15 +15,16 @@ export function ImageGallery<T extends GalleryItem>({
   itemLabel,
   renderItem,
   onSelect,
+  selectedId,
 }: {
   items: readonly T[]
   previousLabel: string
   nextLabel: string
   itemLabel: (index: number) => string
   renderItem: (item: T, index: number) => ReactNode
-  onSelect?: (item: T) => void
+  onSelect: (item: T) => void
+  selectedId?: string
 }) {
-  const [selectedId, setSelectedId] = useState<string>()
   if (!items.length) return null
   const index = Math.max(
     0,
@@ -31,8 +32,7 @@ export function ImageGallery<T extends GalleryItem>({
   )
   const select = (next: number) => {
     const item = items[Math.max(0, Math.min(items.length - 1, next))]
-    setSelectedId(item.id)
-    onSelect?.(item)
+    onSelect(item)
   }
   return (
     <div

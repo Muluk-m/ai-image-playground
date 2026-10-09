@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ImageGallery } from '../../../../components/assistant-ui/elements/image-gallery'
@@ -19,22 +19,26 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
 })
-function render(current = items) {
-  act(() =>
-    root.render(
-      <ImageGallery
-        items={current}
-        previousLabel="Previous"
-        nextLabel="Next"
-        itemLabel={(index) => `Image ${index + 1}`}
-        renderItem={(item) => (
-          <button type="button" data-current={item.id} onClick={() => open(item.id)}>
-            Open {item.id}
-          </button>
-        )}
-      />,
-    ),
-  )
+function GalleryHarness({ current, visible }: { current: typeof items; visible: boolean }) {
+  const [selectedId, setSelectedId] = useState<string>()
+  return visible ? (
+    <ImageGallery
+      items={current}
+      selectedId={selectedId}
+      onSelect={(item) => setSelectedId(item.id)}
+      previousLabel="Previous"
+      nextLabel="Next"
+      itemLabel={(index) => `Image ${index + 1}`}
+      renderItem={(item) => (
+        <button type="button" data-current={item.id} onClick={() => open(item.id)}>
+          Open {item.id}
+        </button>
+      )}
+    />
+  ) : null
+}
+function render(current = items, visible = true) {
+  act(() => root.render(<GalleryHarness current={current} visible={visible} />))
 }
 function button(label: string) {
   return host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
@@ -74,4 +78,13 @@ it('hides navigation for one item and handles an empty group', () => {
   expect(host.querySelectorAll('button')).toHaveLength(1)
   render([])
   expect(host.childElementCount).toBe(0)
+})
+
+it('keeps the controlled selection when the gallery unmounts temporarily', () => {
+  render()
+  act(() => button('Image 2').click())
+  render(items, false)
+  expect(host.childElementCount).toBe(0)
+  render(items, true)
+  expect(current().dataset.current).toBe('two')
 })

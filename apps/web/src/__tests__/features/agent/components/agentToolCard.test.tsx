@@ -181,6 +181,54 @@ it('browses generated images and previews the selected artifact without opening 
   }
 })
 
+it('keeps the visible and editable artifact aligned after delivery temporarily unmounts the gallery', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const preview = vi.fn()
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'delivery-group',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '两张图片',
+    status: 'succeeded',
+    delivery: 'placed',
+    artifacts: ['first', 'second'].map((artifactId, outputIndex) => ({
+      artifactId,
+      outputIndex,
+      taskId: 'task',
+      media: 'image',
+      mime: 'image/png',
+      width: 1024,
+      height: 1024,
+    })),
+  }
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  const render = (delivery: AgentToolMessage['delivery']) =>
+    act(async () =>
+      root.render(<AgentToolCard message={{ ...message, delivery }} onPreviewResult={preview} />),
+    )
+  try {
+    await render('placed')
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    await render('pending')
+    expect(host.querySelector('[data-slot="image-gallery"]')).toBeNull()
+    await render('placed')
+    expect(host.querySelector('.studio-agent-inline-open')!.getAttribute('aria-label')).toBe(
+      '查看第 2 个产物',
+    )
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    expect(preview).toHaveBeenCalledWith('delivery-group', 'second', 'data:image/png;base64,second')
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 it('uses the same gallery in the canvas conversation and locates the selected artifact', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)

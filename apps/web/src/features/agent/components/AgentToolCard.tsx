@@ -693,6 +693,8 @@ function StandardAgentToolCard({
       (compactFetched && message.fetchedImages?.length)) &&
     (onPreviewResult || generatedImage)
   ) {
+    const selectedPreview =
+      previews.find((preview) => preview.artifact.artifactId === selectedArtifactId) ?? previews[0]
     const fetchedTiles = fetched.length
       ? fetched.map((preview) => ({
           id: preview.objectId,
@@ -811,6 +813,7 @@ function StandardAgentToolCard({
         {generatedImage ? (
           <ImageGallery
             items={tiles}
+            selectedId={selectedArtifactId}
             previousLabel={t('tool.previousResult')}
             nextLabel={t('tool.nextResult')}
             itemLabel={(index) => t('tool.resultNumber', { number: index + 1 })}
@@ -861,17 +864,8 @@ function StandardAgentToolCard({
               editLabel={t('tool.editResult')}
               regenerateLabel={t('tool.regenerate')}
               onEdit={
-                onPreviewResult ||
-                (
-                  previews.find((preview) => preview.artifact.artifactId === selectedArtifactId) ??
-                  previews[0]
-                )?.onCanvas
-                  ? () =>
-                      openPreviewResult(
-                        previews.find(
-                          (preview) => preview.artifact.artifactId === selectedArtifactId,
-                        )?.artifact.artifactId ?? previews[0].artifact.artifactId,
-                      )
+                onPreviewResult || selectedPreview?.onCanvas
+                  ? () => openPreviewResult(selectedPreview?.artifact.artifactId)
                   : undefined
               }
               onRegenerate={() =>
