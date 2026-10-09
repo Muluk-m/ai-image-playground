@@ -99,7 +99,7 @@ describe('client capability bootstrap', () => {
         vi.fn(() => new Promise(() => {})),
       )
       const boot = bootstrapClientCapabilities(true, '')
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(10_000)
       await boot
       expect(isClientCapabilityEnabled('accounts:login')).toBe(false)
     } finally {
@@ -116,8 +116,26 @@ describe('client capability bootstrap', () => {
       )
       const boot = bootstrapClientCapabilities(true, '', true)
       const outcome = expect(boot).rejects.toThrow('capability_request_timeout')
-      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(10_000)
       await outcome
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries once when the first request times out before failing startup', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockReturnValueOnce(new Promise(() => {}))
+        .mockResolvedValueOnce(Response.json({ 'accounts:login': true }))
+      vi.stubGlobal('fetch', fetchMock)
+      const boot = bootstrapClientCapabilities(true, '', true)
+      await vi.advanceTimersByTimeAsync(5000)
+      await boot
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(isClientCapabilityEnabled('accounts:login')).toBe(true)
     } finally {
       vi.useRealTimers()
     }
