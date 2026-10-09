@@ -262,6 +262,7 @@ describe('后台任务的进度与取消', () => {
         ),
       )
       expect(host.textContent).toContain('已取消，积分已退回')
+      expect(host.querySelector('[data-slot="stopped-run"]')).not.toBeNull()
       expect(host.querySelector('[role="progressbar"]')).toBeNull()
       expect(host.textContent).not.toContain('取消任务')
 
@@ -461,7 +462,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed(code))
     try {
       expect(host.textContent).toContain(text)
-      expect(buttons(host)).toEqual(['错误详情'])
+      expect(buttons(host)).toEqual(code === 'cancelled' ? [] : ['错误详情'])
     } finally {
       unmount()
     }

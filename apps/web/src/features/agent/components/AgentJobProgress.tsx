@@ -1,5 +1,7 @@
+import { SquareIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ThinkingIndicator } from '../../../components/assistant-ui/elements/thinking-indicator'
+import { Button } from '../../../components/ui/button'
 import { i18next, useTranslation } from '../../../i18n'
 import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
 import {
@@ -74,7 +76,9 @@ export function AgentJobCancel({
   if (message.status !== 'submitted' || !message.job) return null
   return (
     <span className="inline-flex items-center gap-2 self-start">
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         disabled={state === 'cancelling'}
         className={`${className} disabled:opacity-50`}
@@ -89,8 +93,9 @@ export function AgentJobCancel({
             )
         }}
       >
+        <SquareIcon aria-hidden className="size-3 fill-current" />
         {state === 'cancelling' ? t('job.cancelling') : t('job.cancel')}
-      </button>
+      </Button>
       {state === 'failed' && <span className={CARD_NOTE}>{t('job.cancelFailed')}</span>}
     </span>
   )

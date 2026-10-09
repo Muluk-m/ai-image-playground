@@ -200,7 +200,9 @@
     "interrupted": "已中断，已自动续上",
     "contextOverflow": "这一轮的内容太长，没有发出去",
     "requestBudgetExceeded": "请求未发送，未产生本次模型调用费用",
-    "stopped": "已停止"
+    "stopped": "已停止",
+    "continue": "继续对话",
+    "continuePrompt": "继续"
   },
   "composer": {
     "uploadsPending": "参考图还在上传，传完就能发送",

@@ -825,40 +825,12 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 
 /* Pending images share the compact footprint of conversation result previews. */
 .studio-agent-generation-card {
-  width: min(320px, 100%);
+  width: min(240px, 100%);
   overflow: hidden;
   border: 1px solid hsl(var(--border) / .65);
   border-radius: 16px;
   background: hsl(var(--card) / .45);
 }
-.studio-agent-generation-placeholder {
-  position: relative;
-  display: grid;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  place-items: center;
-  background: hsl(var(--muted) / .3);
-}
-.studio-agent-generation-glow {
-  position: absolute;
-  inset: -40%;
-  background: radial-gradient(ellipse at 35% 45%, hsl(var(--primary) / .13), transparent 50%), radial-gradient(ellipse at 70% 70%, hsl(var(--primary) / .06), transparent 45%);
-  animation: studio-generation-drift 6s ease-in-out infinite alternate;
-}
-.studio-agent-generation-symbol {
-  z-index: 1;
-  display: grid;
-  width: 52px;
-  height: 52px;
-  place-items: center;
-  border: 1px solid hsl(var(--foreground) / .08);
-  border-radius: 16px;
-  background: hsl(var(--background) / .35);
-  color: hsl(var(--foreground) / .4);
-}
-.studio-agent-generation-track { position: absolute; inset: auto 0 0; height: 2px; overflow: hidden; background: hsl(var(--primary) / .06); }
-.studio-agent-generation-track > span { display: block; width: 40%; height: 100%; background: linear-gradient(90deg, transparent, hsl(var(--primary) / .65), transparent); animation: studio-generation-sweep 2.6s ease-in-out infinite; }
-.studio-canvas-generating { position: absolute; inset: 0; overflow: hidden; border-radius: 12px; pointer-events: none; }
 .studio-agent-generation-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px; }
 .studio-agent-generation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; line-height: 1.5; color: hsl(var(--foreground) / .85); }
 .studio-agent-generation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -866,13 +838,6 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-agent-generation-action { min-height: 30px; padding: 4px 8px; margin-left: -8px; border-radius: 6px; font-size: 12px; font-weight: 400; color: hsl(var(--muted-foreground)); transition: background .15s, color .15s; }
 .studio-agent-generation-action:hover { background: hsl(var(--foreground) / .06); color: hsl(var(--foreground)); }
 .studio-agent-generation-actions > span { margin-left: auto; }
-@keyframes studio-generation-sweep { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
-@keyframes studio-generation-drift { from { transform: translate(-4%, -3%); } to { transform: translate(5%, 4%); } }
-@media (prefers-reduced-motion: reduce) {
-  .studio-agent-generation-glow, .studio-agent-generation-track > span { animation: none; }
-  .studio-agent-generation-track > span { width: 100%; opacity: .4; }
-}
-
 .studio-artifact-edit-cursor { position: absolute; z-index: 5; border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
 .studio-artifact-edit-hit[data-tool="pan"] { cursor: grab; }
 .studio-artifact-edit-hit[data-tool="brush"], .studio-artifact-edit-hit[data-tool="eraser"] { cursor: none; }
