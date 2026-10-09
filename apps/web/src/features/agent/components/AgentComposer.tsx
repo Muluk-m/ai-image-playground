@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { CircleAlert, FolderOpen, Images, LoaderCircle, RotateCw, Zap } from 'lucide-react'
+import { CircleAlert, FolderOpen, Images, RotateCw, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -10,6 +10,10 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import {
+  AttachmentLoading,
+  AttachmentTile,
+} from '../../../components/assistant-ui/elements/attachment'
 import {
   Composer,
   ComposerActions,
@@ -144,7 +148,7 @@ const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 
 /**
  * 本地附件只渲染确认后的云端预览。上传刚就绪时字节还没换上，空 src 会被画成裂图，
- * 所以转圈一直盖到 onLoad。
+ * 所以加载占位一直盖到 onLoad。
  */
 function ComposerAttachmentThumb({
   src,
@@ -217,12 +221,7 @@ function ComposerAttachmentThumb({
         className={[className, hide ? 'opacity-0' : ''].filter(Boolean).join(' ')}
       />
       {(uploading || pending) && (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-foreground"
-        >
-          <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-        </span>
+        <AttachmentLoading label={uploading ? t('composer.upload.uploading') : undefined} />
       )}
       {previewFailed &&
         (retryPreview ? (
@@ -1004,10 +1003,7 @@ export default function AgentComposer({
               const isUploading = ['queued', 'uploading', 'verifying'].includes(uploadState ?? '')
               return (
                 <div key={reference.id} className="group flex max-w-full items-start gap-2">
-                  <div
-                    title={label}
-                    className={`relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border bg-muted/60 ${uploadState === 'failed' ? 'border-destructive' : 'border-border'}`}
-                  >
+                  <AttachmentTile name={label} title={label} failed={uploadState === 'failed'}>
                     <ComposerAttachmentThumb
                       src={reference.dataUrl}
                       uploading={isUploading}
@@ -1058,7 +1054,7 @@ export default function AgentComposer({
                         <CloseIcon className="h-3.5 w-3.5" />
                       </span>
                     </Button>
-                  </div>
+                  </AttachmentTile>
                   {uploadState && (
                     <span
                       role={uploadState === 'failed' ? 'alert' : 'status'}
