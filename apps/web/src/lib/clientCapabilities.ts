@@ -44,25 +44,14 @@ export async function bootstrapClientCapabilities(
   attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
 
-  const controller = new AbortController()
-  let timeout: ReturnType<typeof setTimeout> | undefined
+  let result: { body: unknown; parsed: ClientCapabilityManifest | null } | null
   try {
-    const result = await Promise.race([
-      fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
-        cache: 'no-store',
-        signal: controller.signal,
-      }).then(async (response) => {
-        if (!response.ok) return null
-        const body: unknown = await response.json()
-        return { body, parsed: parseManifest(body) }
-      }),
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort()
-          reject(new Error('capability_request_timeout'))
-        }, CAPABILITY_TIMEOUT_MS)
-      }),
-    ])
+    try {
+      result = await requestManifest(bffBaseUrl)
+    } catch {
+      // 首个请求还要建连，慢网络上会单独超时；复用已建好的连接再试一次，用户才不会落到「暂不可用」。
+      result = await requestManifest(bffBaseUrl)
+    }
     if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
     if (result?.parsed) currentManifest = result.parsed
     const body = result?.body
@@ -96,10 +85,35 @@ export async function bootstrapClientCapabilities(
   } catch (error) {
     // A missing capability response must never enable a feature.
     if (required) throw error
+  }
+  return currentManifest
+}
+
+async function requestManifest(
+  bffBaseUrl: string,
+): Promise<{ body: unknown; parsed: ClientCapabilityManifest | null } | null> {
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      }).then(async (response) => {
+        if (!response.ok) return null
+        const body: unknown = await response.json()
+        return { body, parsed: parseManifest(body) }
+      }),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort()
+          reject(new Error('capability_request_timeout'))
+        }, CAPABILITY_TIMEOUT_MS)
+      }),
+    ])
   } finally {
     if (timeout) clearTimeout(timeout)
   }
-  return currentManifest
 }
 
 /** Older APIs reject the new document fields; send them only after the server advertises support. */
