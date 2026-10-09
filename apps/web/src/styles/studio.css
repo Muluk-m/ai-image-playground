@@ -7,6 +7,12 @@
   background: hsl(var(--background));
 }
 .studio-project-viewbar > .studio-agent-project { flex: 0 1 auto; min-width: 0; }
+@media (min-width: 768px) {
+  .studio-project-viewbar--canvas { padding: 0 0 0 12px; }
+  .studio-project-viewbar--canvas > .studio-agent-project { flex: 1 1 0; }
+  .studio-project-viewbar--canvas .studio-project-pill { width: 100%; min-width: 0; }
+  .studio-project-viewbar--canvas > .studio-source-chat-link { position: absolute; left: 100%; margin-left: 8px; white-space: nowrap; }
+}
 .studio-project-switch {
   display: flex; flex: 0 0 auto; gap: 3px; margin-left: clamp(12px, 2vw, 24px); padding: 3px;
   border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--muted));

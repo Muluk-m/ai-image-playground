@@ -151,6 +151,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t: tShell } = useTranslation('shell')
   const { t: tProduction } = useTranslation('production')
   const mobile = useMobileWorkspace()
+  const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
@@ -452,7 +453,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <>
           {hasAgent && (
             <div
-              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''}`}
+              className={`studio-project-viewbar studio-project-viewbar--${projectView}`}
+              style={projectView === 'canvas' && !mobile ? { width: panelWidth + 12 } : undefined}
             >
               {!sidebarOpen && sidebarToggle}
               <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
