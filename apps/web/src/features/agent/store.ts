@@ -2,6 +2,7 @@ import type {
   AgentActiveTurnView,
   AgentBackgroundJobProgress,
   AgentConversationView,
+  AgentMessageQueuedBody,
   AgentMessageView,
   AgentMode,
   AgentQueuedMessageView,
@@ -72,6 +73,7 @@ import {
   type StartTurnOutcome,
   startTurn,
   withdrawQueuedMessage,
+  withdrawSubmission,
 } from './lib/agentClient'
 import {
   createArtifactDelivery,
@@ -607,6 +609,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     pendingUserText: string | null,
     turnDelivery: TurnArtifactDelivery,
     onStarted?: (turnId: string) => Promise<void>,
+    submission?: { clientMessageId: string; signal: AbortSignal },
   ) => {
     const previous = followers.get(conversationId)
     // 迟到的起轮响应不能抢走切回项目后建立的新订阅。
@@ -617,11 +620,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     let startedCallback = onStarted
     // 即使切项目后已有新订阅，旧提交仍须读到轮标识并兑现它自己的中止请求。
     const canContinue = () =>
-      Boolean(startedCallback) ||
-      (followers.get(conversationId) === turnDelivery && turnDelivery.canContinue())
+      !submission?.signal.aborted &&
+      (Boolean(startedCallback) ||
+        (followers.get(conversationId) === turnDelivery && turnDelivery.canContinue()))
     let turnId = 'turnId' in source ? source.turnId : ''
     let nextSource = source
     let pickUp = false
+    let recoveredQueue: AgentMessageQueuedBody | null = null
     try {
       while (canContinue()) {
         const stream = followTurn(conversationId, nextSource, {
@@ -638,7 +643,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             startedCallback = undefined
           }
         }
-        const expected = successorExpected.delete(conversationId)
+        const expected = stream.outcome === 'ended' && successorExpected.delete(conversationId)
         pickUp =
           stream.outcome === 'ended' &&
           turnDelivery.isCurrent() &&
@@ -653,6 +658,24 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           get().turn === 'running' &&
           (!turnId || get().activeTurn?.turnId === turnId)
         if (!stillOurs()) break
+        if (!turnId && submission) {
+          const receipt = await recoverSubmissionReceipt(
+            conversationId,
+            submission.clientMessageId,
+            stillOurs,
+            submission.signal,
+          )
+          if (!stillOurs() || submission.signal.aborted) break
+          if (receipt?.state === 'consumed' && receipt.turnId) {
+            turnId = receipt.turnId
+            set({ activeTurn: { turnId } })
+            nextSource = { turnId }
+            continue
+          }
+          if (receipt && receipt.state !== 'cancelled') recoveredQueue = receipt
+          else fail(undefined, stream.lastError)
+          break
+        }
         const settled = await settleFromSnapshot(conversationId, turnId)
         if (!stillOurs() || settled === 'settled') break
         if (settled === 'failed' || !turnId) {
@@ -672,7 +695,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       await turnDelivery.settled()
       if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
     }
-    if (pickUp) void followQueuedTurn(conversationId, turnId)
+    if (recoveredQueue && turnDelivery.isCurrent())
+      await openConversation(conversationId, recoveredQueue.turnId)
+    else if (pickUp) void followQueuedTurn(conversationId, turnId)
   }
 
   /** 忙时发出的消息刚好赶上上一轮收尾、当场开了轮：那一轮收尾后要去挂下一轮。 */
@@ -952,6 +977,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     cancelled: boolean
     delivery: TurnArtifactDelivery
     settled: Promise<void>
+    stop?: () => Promise<void>
   } | null = null
   /** 还没落定的那次中止。界面已经放行，新的一轮在起轮前静默等它，不把话挂到正在停的轮上。 */
   let abortInFlight: Promise<unknown> | null = null
@@ -985,7 +1011,34 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   ) => {
     // An account/backend switch must never replay an old receipt against the new identity.
     if (!receipts.current()) return false
-    const returned = await abortWithRetry(conversationId, pointer.turnId, receipts.current)
+    let turnId = pointer.turnId
+    if (pointer.clientMessageId) {
+      const receipt = await withdrawSubmission(conversationId, pointer.clientMessageId)
+      if (!receipts.current()) return false
+      if (receipt.state === 'cancelled') {
+        await receipts.forget(pointer.turnId)
+        return true
+      }
+      if (receipt.state !== 'consumed' || !receipt.turnId)
+        throw new Error('submission_stop_unconfirmed')
+      turnId = receipt.turnId
+    }
+    let returned: Awaited<ReturnType<typeof abortWithRetry>>
+    try {
+      returned = await abortWithRetry(conversationId, turnId, receipts.current)
+    } catch (error) {
+      if (!pointer.clientMessageId || !(error instanceof AgentRequestError) || error.status !== 404)
+        throw error
+      const history = await fetchMessages(conversationId)
+      if (!receipts.current()) return false
+      if (
+        history.activeTurn?.turnId === turnId ||
+        !history.turns.some((turn) => turn.turnId === turnId)
+      )
+        throw error
+      await receipts.forget(pointer.turnId)
+      return true
+    }
     if (!receipts.current()) return false
     try {
       if (returned.length && !(await draft.returnQueued(returned)))
@@ -1028,7 +1081,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         } catch (error) {
           // A stopped turn with no returned messages has no receipt. Verify history before
           // retiring its pointer, then continue with later receipts instead of blocking them.
-          if (error instanceof AgentRequestError && error.status === 404) {
+          if (
+            !pointer.clientMessageId &&
+            error instanceof AgentRequestError &&
+            error.status === 404
+          ) {
             const history = await fetchMessages(conversationId)
             if (!receipts.current()) return
             if (history.activeTurn?.turnId !== pointer.turnId) {
@@ -1148,22 +1205,44 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
   }
 
-  const recoveryDelay = () => new Promise<void>((resolve) => setTimeout(resolve, 5_000))
+  const recoveryDelay = (signal?: AbortSignal, ms = 5_000) =>
+    new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', finish)
+        resolve()
+      }
+      const timer = setTimeout(finish, ms)
+      if (signal?.aborted) finish()
+      else signal?.addEventListener('abort', finish, { once: true })
+    })
 
   const recoverSubmissionReceipt = async (
     conversationId: string,
     clientMessageId: string,
     current: () => boolean,
+    signal?: AbortSignal,
   ) => {
     if (current()) set({ reconnecting: true })
+    let missing = 0
     try {
-      while (current()) {
+      while (current() && !signal?.aborted) {
         try {
-          return await fetchSubmissionReceipt(conversationId, clientMessageId)
+          const receipt = await fetchSubmissionReceipt(
+            conversationId,
+            clientMessageId,
+            undefined,
+            signal,
+          )
+          if (receipt || ++missing >= 3) return receipt
+          // 另一执行器上的 POST 可能尚在入队前，空回执先有界复查。
+          await recoveryDelay(signal, 500)
+          continue
         } catch (error) {
+          if (signal?.aborted) return null
           if (error instanceof AgentRequestError && error.status < 500) throw error
         }
-        await recoveryDelay()
+        await recoveryDelay(signal)
       }
       return null
     } finally {
@@ -1176,17 +1255,23 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     clientMessageId: string,
     submit: () => Promise<StartTurnOutcome>,
     current: () => boolean,
+    signal?: AbortSignal,
   ): Promise<StartTurnOutcome> => {
     try {
       return await submit()
     } catch (error) {
-      if (error instanceof AgentRequestError && error.status < 500) throw error
+      if (signal?.aborted || (error instanceof AgentRequestError && error.status < 500)) throw error
       reportClientError('error', error, {
         flow: 'agent_submission',
         clientMessageId,
         ...requestDiagnostic(error, conversationId),
       })
-      const receipt = await recoverSubmissionReceipt(conversationId, clientMessageId, current)
+      const receipt = await recoverSubmissionReceipt(
+        conversationId,
+        clientMessageId,
+        current,
+        signal,
+      )
       if (!receipt) throw error
       return { kind: 'queued', body: receipt }
     }
@@ -1811,7 +1896,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const submitted = new Promise<void>((resolve) => {
         settleSubmission = resolve
       })
-      const submission = { cancelled: false, delivery: turnDelivery, settled: submitted }
+      const cancellation = new AbortController()
+      const submission: NonNullable<typeof pendingStart> = {
+        cancelled: false,
+        delivery: turnDelivery,
+        settled: submitted,
+      }
       pendingStart = submission
       let accepted = false
       let withdrawn = false
@@ -1896,6 +1986,28 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
         if (submission.cancelled) return await cancelUnsent()
         if (!turnDelivery.isCurrent()) return
+        submission.stop = async () => {
+          const receipts = abortRecoveries(target)
+          const draft = currentProjectDraft(target)
+          await receipts.remember({
+            turnId: `submission:${messageId}`,
+            clientMessageId: messageId,
+            draftKey: draft.key,
+            projectId: sourceProject?.id,
+          })
+          submission.cancelled = true
+          cancellation.abort(new DOMException('Agent submission stopped', 'AbortError'))
+          if (turnDelivery.isCurrent())
+            set({
+              turn: 'idle',
+              stopping: false,
+              reconnecting: false,
+              activeTurn: null,
+              returnedMessagesPending: true,
+              returnedMessagesError: 'fallback',
+            })
+          void recoverReturnedMessages(target)
+        }
         // 首包丢了也可能已开轮，先按原消息 id 核对回执再收场。
         let outcome: StartTurnOutcome
         try {
@@ -1914,8 +2026,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
                 clarificationAnswer,
                 prepared.canvas,
                 prepared.experience,
+                cancellation.signal,
               ),
             () => turnDelivery.isCurrent(),
+            cancellation.signal,
           )
         } catch (thrown) {
           if (submission.cancelled && !(thrown instanceof AgentRequestError))
@@ -1964,27 +2078,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           await turnDelivery.settled()
           return 'cancelled'
         }
-        if (outcome.kind === 'queued' && submission.cancelled && !refused) {
-          let receipt = outcome.body
-          if (receipt.state === 'pending') {
-            const result = await withdrawQueuedMessage(target, receipt.queued.id)
-            if (result === 'cancelled' || result === 'not_found') {
-              withdrawn = true
-              accepted = false
-              return await cancelUnsent()
-            }
-            // 撤回输给了开轮：旧 pending 回执里的 turnId 属于上一轮，重新确认本条消息的轮。
-            const consumed = await recoverSubmissionReceipt(target, messageId, () =>
-              turnDelivery.isCurrent(),
-            )
-            if (!turnDelivery.isCurrent()) return
-            if (consumed) receipt = consumed
-            else return await cancelUnsent()
-          }
-          outcome = { kind: 'queued', body: receipt }
-          if (receipt.state === 'consumed' && receipt.turnId)
-            await requestAbort(target, receipt.turnId)
-        }
+        if (submission.cancelled) return await cancelUnsent()
         if (outcome.kind === 'queued') {
           // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。
           onAccepted?.()
@@ -2015,9 +2109,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           ),
         }))
         onAccepted?.()
-        await follow(target, { frames: outcome.frames }, trimmed, turnDelivery, async (turnId) => {
-          if (submission.cancelled) await requestAbort(target, turnId)
-        })
+        await follow(
+          target,
+          { frames: outcome.frames },
+          trimmed,
+          turnDelivery,
+          async (turnId) => {
+            if (submission.cancelled) await requestAbort(target, turnId)
+          },
+          { clientMessageId: messageId, signal: cancellation.signal },
+        )
         if (firstTurn) {
           await get().refreshConversations()
           setTimeout(() => void get().refreshConversations(), titleRewriteMs)
@@ -2036,6 +2137,21 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const conversationId = get().conversationId
       if (!active || !conversationId) {
         if (pendingStart?.delivery.isCurrent()) {
+          if (pendingStart.stop) {
+            const submission = pendingStart
+            set({ stopping: true, error: null, errorDiagnostic: null })
+            try {
+              await submission.stop?.()
+            } catch (error) {
+              if (submission.delivery.isCurrent())
+                set({
+                  stopping: false,
+                  error: i18next.t('error.stopFailed', { ns: 'agent' }),
+                  errorDiagnostic: requestDiagnostic(error, conversationId),
+                })
+            }
+            return
+          }
           pendingStart.cancelled = true
           abortInFlight = pendingStart.settled
           set({ stopping: true, error: null, errorDiagnostic: null })
