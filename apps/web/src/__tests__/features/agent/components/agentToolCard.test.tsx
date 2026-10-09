@@ -13,6 +13,7 @@ import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 const store = vi.hoisted(() => ({
   send: vi.fn(),
   placeOnCanvas: vi.fn(),
+  messages: [] as AgentToolMessage[],
   cancelJob: vi.fn(async (_messageId: string) => {}),
   jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
   toolStartedAt: {} as Record<string, number>,
@@ -41,6 +42,11 @@ vi.mock('../../../../lib/clientCapabilities', () => ({
   isClientCapabilityEnabled: (key: string) => deployment.capabilities.has(key),
 }))
 
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  previewArtifactBitmap: async () => 'data:image/png;base64,preview',
+  videoOutputFrame: async () => null,
+}))
+
 // 取回来的网图按媒体 id 回源；这里只关心「按什么 id 取、卡上长什么样」。
 vi.mock('../../../../lib/cloudMedia', () => ({
   mediaIdentity: (source: string) => source.match(/^aip-media:([0-9a-f-]{36})$/i)?.[1],
@@ -50,6 +56,8 @@ vi.mock('../../../../lib/cloudMedia', () => ({
 beforeEach(() => {
   send.mockClear()
   store.cancelJob.mockClear()
+  store.placeOnCanvas.mockReset()
+  store.messages = []
   store.jobProgress = {}
   store.toolStartedAt = {}
   deployment.overlay = true
@@ -270,6 +278,54 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
     viewCanvas.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it.each([
+  'failed',
+  'unavailable',
+  'placed',
+] as const)('navigates to the canvas only after confirmed placement (%s)', async (delivery) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const viewCanvas = vi.fn()
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'placement-group',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '图片',
+    status: 'succeeded',
+    delivery: 'unavailable',
+    artifacts: [
+      {
+        artifactId: 'off-canvas',
+        outputIndex: 0,
+        taskId: 'task',
+        media: 'image',
+        mime: 'image/png',
+      },
+    ],
+  }
+  setAgentCanvasSink({ has: () => false } as unknown as AgentCanvasSink)
+  store.messages = [message]
+  store.placeOnCanvas.mockImplementation(async () => {
+    store.messages = [{ ...message, delivery }]
+  })
+  try {
+    await act(async () =>
+      root.render(<AgentToolCard message={message} onViewCanvas={viewCanvas} />),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="放入画布"]')!.click(),
+    )
+    expect(store.placeOnCanvas).toHaveBeenCalledWith(message.id)
+    if (delivery === 'placed') expect(viewCanvas).toHaveBeenCalledTimes(1)
+    else expect(viewCanvas).not.toHaveBeenCalled()
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
