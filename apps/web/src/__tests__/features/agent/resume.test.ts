@@ -48,6 +48,7 @@ let messagesResponse: () => Response
 let posted: { url: string; body: unknown }[]
 let receiptResponse: () => Response | Promise<Response>
 let withdrawSubmissionResponse: () => Response | Promise<Response>
+let reconcileSubmissionResponse: () => Response | Promise<Response>
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -62,6 +63,8 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
     if (url.endsWith('/turns')) return turnResponses.shift()!()
     if (url.includes('/submissions/') && url.endsWith('/withdraw'))
       return withdrawSubmissionResponse()
+    if (url.includes('/submissions/') && url.endsWith('/reconcile'))
+      return reconcileSubmissionResponse()
     if (url.endsWith('/withdraw')) return Response.json({ result: 'already_consumed' })
     if (url.endsWith('/abort')) return Response.json({ aborted: true, returned: [] })
     return Response.json({ ok: true })
@@ -94,6 +97,7 @@ beforeEach(() => {
         queued: { id: 'user-1', text: '你好', createdAt: 1 },
       },
     })
+  reconcileSubmissionResponse = withdrawSubmissionResponse
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   useAgentStore.setState({
     conversationId: null,
@@ -130,7 +134,7 @@ describe('断线重连', () => {
 
     expect(state().turn).toBe('failed')
     expect(state().error).toBe('消息未能加入排队，草稿已保留，请重试。')
-    expect(posted.filter((one) => one.url.endsWith('/withdraw'))).toHaveLength(1)
+    expect(posted.filter((one) => one.url.endsWith('/reconcile'))).toHaveLength(1)
   })
 
   it('起轮响应丢失后按原消息回执接回已完成的轮', async () => {
@@ -251,7 +255,7 @@ describe('断线重连', () => {
           { id: 2, event: TURN_END },
         ]),
     ]
-    withdrawSubmissionResponse = () =>
+    reconcileSubmissionResponse = () =>
       Response.json({
         receipt: {
           state: 'consumed',
@@ -265,7 +269,7 @@ describe('断线重连', () => {
     await sending
     expect(state().turn).toBe('idle')
     expect(state().error).toBeNull()
-    expect(posted.filter((one) => one.url.endsWith('/withdraw'))).toHaveLength(1)
+    expect(posted.filter((one) => one.url.endsWith('/reconcile'))).toHaveLength(1)
     expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(2)
   })
 
@@ -729,6 +733,35 @@ describe('另一个标签页占着这个会话', () => {
 })
 
 describe('中止', () => {
+  it.each([
+    1, 5,
+  ])('停止屏障读取记录失败时不抛出未处理异常，不提交下一句（读取 %s）', async (failedRead) => {
+    useAgentStore.setState({ conversationId: CONVERSATION, returnedMessagesPending: true })
+    await abortRecoveries(CONVERSATION).remember({
+      turnId: 'submission:client-1',
+      clientMessageId: 'client-1',
+      draftKey: 'draft-1',
+    })
+    const get = IDBObjectStore.prototype.get
+    let reads = 0
+    const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+      this: IDBObjectStore,
+      key,
+    ) {
+      if (this.name === 'stops' && ++reads === failedRead) throw new Error('stop_read_failed')
+      return get.call(this, key)
+    })
+    try {
+      await expect(state().send('下一句话')).resolves.toBeUndefined()
+      expect(state().returnedMessagesPending).toBe(true)
+      expect(state().returnedMessagesError).toBe('fallback')
+      expect(state().errorDiagnostic?.message).toBe('stop_read_failed')
+      expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(0)
+    } finally {
+      failure.mockRestore()
+    }
+  })
+
   it('停止尚未确认时下一句话等待屏障，确认后才提交', async () => {
     let lookups = 0
     receiptResponse = () => {

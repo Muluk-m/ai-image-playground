@@ -20,7 +20,9 @@ let withdrawalResponse: () => Response
 const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   const url = String(input)
   if (url.includes('/submissions/'))
-    return url.endsWith('/withdraw') ? withdrawalResponse() : receiptResponse()
+    return url.endsWith('/withdraw') || url.endsWith('/reconcile')
+      ? withdrawalResponse()
+      : receiptResponse()
   if (url.endsWith('/abort')) return Response.json({ aborted: true })
   if (url.endsWith('/conversations') && init?.method === 'POST')
     return Response.json({
