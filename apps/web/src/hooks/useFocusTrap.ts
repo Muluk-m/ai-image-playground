@@ -56,6 +56,12 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, enable
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab' || event.defaultPrevented) return
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[data-shadcn-modal]') &&
+        !container.contains(event.target)
+      )
+        return
       if (trapStack[trapStack.length - 1] !== containerRef) return
       const items = tabbables(container)
       if (items.length === 0) {

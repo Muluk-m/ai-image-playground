@@ -25,7 +25,9 @@ export interface DeliverableImage {
 export async function downloadImages(
   images: readonly DeliverableImage[],
   zipName: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted()
   if (images.length === 0) return
   if (images.length === 1) {
     downloadBlob(images[0].blob, images[0].name)
@@ -33,8 +35,11 @@ export async function downloadImages(
   }
   const names = uniqueFileNames(images.map((image) => image.name))
   const files: Record<string, Uint8Array> = {}
-  for (const [index, image] of images.entries())
+  for (const [index, image] of images.entries()) {
+    signal?.throwIfAborted()
     files[names[index]] = new Uint8Array(await image.blob.arrayBuffer())
+  }
+  signal?.throwIfAborted()
   downloadBlob(
     new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' }),
     zipName,

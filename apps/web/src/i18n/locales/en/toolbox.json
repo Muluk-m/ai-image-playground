@@ -35,6 +35,10 @@
     "slice": {
       "name": "Grid split",
       "options": "3×3 · 2×2 · 1×3"
+    },
+    "export": {
+      "name": "Image export",
+      "options": "Dimensions · Scales · Formats"
     }
   },
   "intake": {
@@ -129,5 +133,38 @@
     "slices_other": "{{count}} tiles",
     "up": "Move up",
     "down": "Move down"
+  },
+  "export": {
+    "title": "Export",
+    "description": "Choose image dimensions, formats and export scales.",
+    "size": "Dimensions",
+    "locked": "Keep aspect ratio",
+    "original": "Original dimensions",
+    "width": "Width",
+    "height": "Height",
+    "percent": "Percentage",
+    "outputs": "Export settings",
+    "addRow": "Add export setting",
+    "removeRow": "Remove export setting",
+    "scaleRow": "Scale for export {{index}}",
+    "formatRow": "Format for export {{index}}",
+    "selected": "{{count}} items selected",
+    "batchHint": "Each image retains its own aspect ratio.",
+    "loading": "Reading original dimensions…",
+    "originalFailed": "Original image could not be loaded. Please retry.",
+    "limit": "{{width}} × {{height}} exceeds this browser’s canvas limits. Reduce the dimensions or scale.",
+    "failed": "Export failed. Check the original image or reduce the output dimensions and retry.",
+    "done": "Exported {{count}} files",
+    "progress": "Exporting {{done}} / {{total}}",
+    "action": "Export {{count}} files",
+    "zipHint": "Multiple files download together as a ZIP archive.",
+    "localHint": "Processed locally. Original images stay unchanged.",
+    "jpegHint": "Transparent areas become white when exported as JPG.",
+    "videoHint": "Videos export once in their original format. Image settings do not affect videos.",
+    "undecodable": "Unsupported image format",
+    "select": "Select",
+    "selectAll": "Select all in current list",
+    "downloadOriginal": "Download original",
+    "export": "Export"
   }
 }

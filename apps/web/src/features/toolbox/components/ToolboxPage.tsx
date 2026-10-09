@@ -1,3 +1,4 @@
+import ExportTool from '../../image-export/ExportTool'
 import { TOOLS } from '../lib/registry'
 import { useToolboxStore } from '../store'
 import CombineView from './CombineView'
@@ -9,6 +10,7 @@ export default function ToolboxPage() {
   const activeTool = useToolboxStore((state) => state.activeTool)
   const tool = TOOLS.find((one) => one.id === activeTool)
   if (!tool) return <ToolCatalog />
+  if (tool.kind === 'custom') return <ExportTool />
   return tool.kind === 'each' ? (
     <ToolView key={tool.id} tool={tool} />
   ) : (

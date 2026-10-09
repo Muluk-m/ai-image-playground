@@ -401,7 +401,6 @@
     "selectedCount_other": "{{count}} selected",
     "exportSelected_one": "Export {{count}}",
     "exportSelected_other": "Export {{count}}",
-    "exporting": "Exporting {{done}}/{{total}}",
     "marks": "Canvas markup",
     "markText": "Text",
     "markArrow": "Arrow",
