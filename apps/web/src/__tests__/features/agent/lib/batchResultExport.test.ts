@@ -92,6 +92,24 @@ describe('exportBatchResults', () => {
     expect(downloaded.map((file) => file.filename)).toEqual(['01-主图.jpg'])
   })
 
+  it('names videos after their real container', async () => {
+    await exportBatchResults(
+      [
+        { artifact: artifact('webm', 'video'), stem: '01-webm' },
+        { artifact: artifact('mov', 'video'), stem: '02-mov' },
+      ],
+      {
+        baseName: '计划',
+        fetchArtifact: async (one) =>
+          new Blob(['video'], {
+            type: one.artifactId === 'webm' ? 'video/webm' : 'video/quicktime',
+          }),
+      },
+    )
+    const entries = unzipSync(new Uint8Array(await downloaded[0]!.blob.arrayBuffer()))
+    expect(Object.keys(entries).sort()).toEqual(['01-webm.webm', '02-mov.mov'])
+  })
+
   it('does not download when every result is missing', async () => {
     const result = await exportBatchResults([files[2]!], {
       baseName: '计划',
