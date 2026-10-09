@@ -47,6 +47,9 @@ export function VideoPlayer({
   const [playingSource, setPlayingSource] = useState<string | null>(null)
   const position = useRef({ src, time: 0 })
   const loadMedia = nearViewport || playingSource === src
+  let preload: 'none' | 'metadata' | 'auto' = 'none'
+  if (playingSource === src) preload = 'auto'
+  else if (nearViewport) preload = 'metadata'
   const [failure, setFailure] = useState<string | null>(null)
   const [ready, setReady] = useState<string | null>(null)
   const [waiting, setWaiting] = useState(false)
@@ -115,7 +118,7 @@ export function VideoPlayer({
         controls
         playsInline
         crossOrigin="use-credentials"
-        preload={playingSource === src ? 'auto' : nearViewport ? 'metadata' : 'none'}
+        preload={preload}
         aria-label={label}
         className="absolute inset-0 h-full w-full bg-black object-contain"
         onError={() => {
@@ -125,7 +128,10 @@ export function VideoPlayer({
         onLoadedData={(event) => {
           setFailure(null)
           setReady(src)
-          setWaiting(false)
+          setWaiting(
+            !event.currentTarget.paused &&
+              event.currentTarget.readyState < HTMLMediaElement.HAVE_FUTURE_DATA,
+          )
           if (event.currentTarget.currentTime === 0) onFrameReady?.(event.currentTarget)
         }}
         onWaiting={(event) => setWaiting(!event.currentTarget.paused)}
