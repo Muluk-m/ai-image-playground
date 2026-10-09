@@ -15,7 +15,10 @@ import { useEffect, useRef, useState } from 'react'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { VideoGeneration } from '../../../components/assistant-ui/elements/video-generation'
-import { VideoPlayer } from '../../../components/assistant-ui/elements/video-player'
+import {
+  playerFrameStyle,
+  VideoPlayer,
+} from '../../../components/assistant-ui/elements/video-player'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -89,10 +92,12 @@ function VideoResult({
   artifact,
   title,
   aspectRatio,
+  onAspectRatioChange,
 }: {
   artifact: AgentToolArtifact
   title: string
   aspectRatio?: string
+  onAspectRatioChange?: (aspectRatio: string) => void
 }) {
   const { t } = useTranslation('agent')
   const [poster, setPoster] = useState<string>()
@@ -124,7 +129,7 @@ function VideoResult({
       }}
       aspectRatio={aspectRatio?.replace(':', ' / ')}
       fill
-      maxHeight="min(30rem, 56vh)"
+      onAspectRatioChange={onAspectRatioChange}
     />
   )
 }
@@ -149,6 +154,7 @@ export default function AgentVideoToolCard({
   const placementLock = useRef(false)
   const [placementFailed, setPlacementFailed] = useState(false)
   const [downloadFailed, setDownloadFailed] = useState(false)
+  const [decodedRatio, setDecodedRatio] = useState<{ source: string; ratio: string }>()
   const messages = useAgentStore((state) => state.messages)
   const artifacts = message.artifacts?.filter((one) => one.media === 'video') ?? []
   const canvas = agentCanvasSink()
@@ -160,6 +166,12 @@ export default function AgentVideoToolCard({
   const delivering = placing || message.delivery === 'pending'
   const deliveryFailed = placementFailed || message.delivery === 'failed'
   const video = message.video ?? message.job?.video ?? artifacts[0]?.video
+  const firstArtifact = artifacts[0]
+  const firstSource = firstArtifact ? `${firstArtifact.taskId}:${firstArtifact.outputIndex}` : ''
+  const cardRatio =
+    decodedRatio?.source === firstSource
+      ? decodedRatio.ratio
+      : (firstArtifact?.video?.aspectRatio ?? video?.aspectRatio ?? '16:9').replace(':', ' / ')
   const liveRetry = messages?.some(
     (one) =>
       one.kind === 'tool' &&
@@ -210,18 +222,23 @@ export default function AgentVideoToolCard({
       data-slot="agent-video-card"
       className={cn(
         'flex min-w-0 max-w-full flex-col rounded-2xl border border-border bg-card',
-        hasMedia ? 'overflow-hidden' : 'gap-3 p-3 sm:p-4',
+        hasMedia ? 'self-start overflow-hidden' : 'gap-3 p-3 sm:p-4',
       )}
-      style={{ width: '100%' }}
+      style={{ width: hasMedia ? `min(28rem, ${playerFrameStyle(cardRatio).width})` : '100%' }}
     >
       {hasMedia && (
-        <div className="flex flex-col gap-px bg-border">
+        <div className="flex flex-col items-start gap-px bg-border">
           {artifacts.map((artifact) => (
             <VideoResult
               key={artifact.artifactId}
               artifact={artifact}
               title={message.title}
               aspectRatio={artifact.video?.aspectRatio ?? video?.aspectRatio}
+              onAspectRatioChange={
+                artifact === firstArtifact
+                  ? (ratio) => setDecodedRatio({ source: firstSource, ratio })
+                  : undefined
+              }
             />
           ))}
         </div>
