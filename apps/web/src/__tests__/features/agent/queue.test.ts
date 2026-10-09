@@ -481,7 +481,7 @@ describe('停止时退回', () => {
       failure.mockRestore()
     }
   })
-  it('刷新后未恢复的旧草稿与停止退回消息都能在再次刷新后恢复', async () => {
+  it('刷新后读回的旧草稿与停止退回消息都能在再次刷新后恢复', async () => {
     const key = scopedStorageName(`agent-draft:${CONVERSATION}`)
     const seed = new DraftSession(key)
     await seed.ready
@@ -491,8 +491,8 @@ describe('停止时退回', () => {
     useAgentStore.setState({ queue: [QUEUED] })
     const draft = currentProjectDraft(CONVERSATION)
     await draft.ready
-    expect(draft.getSnapshot().unsent?.prompt).toBe('磁盘旧草稿不能被退回消息覆盖')
-    expect(draft.getSnapshot().recoverable).toBe(false)
+    expect(draft.getSnapshot().draft.prompt).toBe('磁盘旧草稿不能被退回消息覆盖')
+    expect(draft.getSnapshot().unsent).toBeNull()
     abortResponse = () =>
       Response.json({
         aborted: true,
