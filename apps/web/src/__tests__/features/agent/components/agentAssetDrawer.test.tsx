@@ -215,7 +215,7 @@ it('retries the same older conversation when its history fails to load', async (
   const all = [...document.querySelectorAll<HTMLButtonElement>('.studio-assets-tabs button')][1]!
   await act(async () => all.click())
   await scrollToEnd()
-  expect(document.body.textContent).toContain('部分对话暂时无法加载')
+  expect(document.body.textContent).toContain('部分对话加载失败')
   expect(fixture.fetchMessages).toHaveBeenCalledTimes(1)
   expect(fixture.fetchMessages).toHaveBeenLastCalledWith('other-1')
   const retry = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -262,7 +262,7 @@ it('lists the source images of a batch plan when the chat itself has no generate
   })
   await vi.waitFor(() => expect(document.body.textContent).toContain('01-主图场景'))
   expect(document.body.textContent).toContain('02-场景二-烛光深色墙')
-  expect(document.body.textContent).not.toContain('这段对话还没有产物')
+  expect(document.body.textContent).not.toContain('当前对话还没有生成内容')
   expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('batch-1')
   expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(2)
 })
@@ -307,7 +307,7 @@ it('lists each shared input once and keeps images from the batches that did load
   })
   await vi.waitFor(() => expect(document.body.textContent).toContain('batch-1-原图'))
   expect(document.body.textContent).not.toContain('batch-2-原图')
-  expect(document.body.textContent).toContain('这批图片暂时没能载入')
+  expect(document.body.textContent).toContain('批量生成结果加载失败')
   expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(1)
 })
 
@@ -403,7 +403,7 @@ it('exports only checked assets and preserves the drawer when export handles Esc
   )!
   act(() => check.click())
   const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-    (one) => one.textContent === '导出',
+    (one) => one.textContent === '导出 1 项',
   )!
   act(() => button.click())
   expect(useImageExportStore.getState().request?.sources.map((source) => source.id)).toEqual(['a'])
