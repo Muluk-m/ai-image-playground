@@ -31,13 +31,15 @@ export default function MediaImage({
     let generation = 0
     const load = async () => {
       const requested = ++generation
+      let localPreview: Promise<string | undefined> | undefined
       let localPreviewAvailable = false
       let cloudPreviewAvailable = false
       try {
         if (!src) return
         let source = src
         if (localAttachmentIdentity(src)) {
-          void localAttachmentPreview(src)?.then((value) => {
+          localPreview = localAttachmentPreview(src)
+          void localPreview?.then((value) => {
             if (
               value &&
               !cloudPreviewAvailable &&
@@ -62,7 +64,7 @@ export default function MediaImage({
           backend !== bffBaseUrl()
         )
           return
-        const value = await resolveMediaSource(source, 'preview')
+        const value = await resolveMediaSource(source, 'display')
         if (
           current &&
           requested === generation &&
@@ -73,13 +75,14 @@ export default function MediaImage({
           setResolved({ source: src, value, scope, backend })
         }
       } catch {
+        const fallback = await localPreview?.catch(() => undefined)
         if (
           current &&
           requested === generation &&
           scope === scopedStorageName(BASE_DB_NAME) &&
           backend === bffBaseUrl()
         ) {
-          if (!localPreviewAvailable) onResolveError?.()
+          if (!fallback && !localPreviewAvailable) onResolveError?.()
         }
       }
     }

@@ -185,11 +185,20 @@ export default function Lightbox() {
   )
 }
 
-/** A canvas original can be previewed without importing it into generation history. */
-export function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
+/** Preview canvas pixels without importing them into generation history. */
+export function ImagePreview({
+  src,
+  onClose,
+  originalPending = false,
+}: {
+  src: string
+  onClose: () => void
+  originalPending?: boolean
+}) {
   return (
     <LightboxInner
       src={src}
+      originalPending={originalPending}
       imageId=""
       onClose={onClose}
       showNav={false}

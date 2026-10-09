@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import Lightbox from '../../components/Lightbox'
+import Lightbox, { ImagePreview } from '../../components/Lightbox'
 import { useStore } from '../../store'
 
 declare global {
@@ -266,4 +266,22 @@ describe('Lightbox 原图加载', () => {
 
     expect(downloadBlob).not.toHaveBeenCalled()
   })
+})
+
+it('waits for original pixels before allowing download or export from ImagePreview', async () => {
+  await act(async () =>
+    root.render(<ImagePreview src={THUMBNAIL_SRC} originalPending onClose={vi.fn()} />),
+  )
+  const download = () => document.querySelector<HTMLButtonElement>('[data-save-image]')!
+  const exportButton = () =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (one) => one.textContent === '导出',
+    )!
+  expect(download().disabled).toBe(true)
+  expect(exportButton().disabled).toBe(true)
+  expect(lightboxImage().src).toBe(THUMBNAIL_SRC)
+  await act(async () => root.render(<ImagePreview src={IMAGE_SRC} onClose={vi.fn()} />))
+  expect(download().disabled).toBe(false)
+  expect(exportButton().disabled).toBe(false)
+  expect(lightboxImage().src).toBe(IMAGE_SRC)
 })
