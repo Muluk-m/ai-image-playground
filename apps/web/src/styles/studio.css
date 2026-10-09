@@ -182,7 +182,9 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-empty button { pointer-events: auto; }
 .studio-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: var(--radius); padding: 10px 16px; font-size: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); transition: background .15s; }
 .studio-secondary:hover { background: hsl(var(--muted)); }
-.studio-shell button:focus-visible, .studio-shell textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.studio-shell button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+/* 输入框自带边框，再套一圈外扩描边就成了两道绿框；只把自身边框描亮。 */
+.studio-shell textarea:focus-visible { outline: 1px solid hsl(var(--ring) / .5); outline-offset: -1px; }
 .studio-toolbar { position: absolute; top: 104px; bottom: 16px; left: 16px; z-index: 400; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 .studio-tools { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; box-shadow: var(--studio-shadow); border-radius: var(--studio-radius); }
 .studio-tools::-webkit-scrollbar { display: none; }
