@@ -94,6 +94,8 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
       setPending(null)
     }
   }
+  // 项目一换，这次编辑就作废；切回来也不会带着旧名字重新进入编辑。
+  if (editing && editing.id !== activeId) setEditing(null)
   const renaming = editing?.id === activeId ? editing : null
   const commitName = (value: string) => {
     setEditing(null)
