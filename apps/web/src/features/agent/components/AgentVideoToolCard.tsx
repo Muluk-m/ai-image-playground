@@ -4,10 +4,12 @@ import {
   Download,
   FileText,
   Images,
+  LogIn,
   Maximize2,
   RotateCw,
   Square,
   VideoIcon,
+  Wallet,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
@@ -225,7 +227,7 @@ export default function AgentVideoToolCard({
           >
             {message.title}
           </p>
-        ) : message.status !== 'failed' ? (
+        ) : message.status !== 'failed' || message.errorCode === 'cancelled' ? (
           <div className="flex items-start gap-2 text-sm font-medium">
             <VideoIcon
               className="mt-0.5 size-4 shrink-0 text-muted-foreground"
@@ -410,11 +412,9 @@ export default function AgentVideoToolCard({
             !liveRetry &&
             action &&
             message.errorCode && (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={agentToolFailureActionLabel(action, message.errorCode)}
-                title={agentToolFailureActionLabel(action, message.errorCode)}
+              <AgentIconButton
+                icon={action === 'login' ? LogIn : action === 'recharge' ? Wallet : RotateCw}
+                label={agentToolFailureActionLabel(action, message.errorCode)}
                 onClick={() =>
                   runAgentToolFailureAction(action, {
                     code: message.errorCode!,
@@ -423,12 +423,7 @@ export default function AgentVideoToolCard({
                     send: (text) => void useAgentStore.getState().send(text),
                   })
                 }
-              >
-                <RotateCw aria-hidden className="size-4" />
-                <span className="sr-only">
-                  {agentToolFailureActionLabel(action, message.errorCode)}
-                </span>
-              </Button>
+              />
             )}
           {message.status === 'failed' && (
             <AgentCopyDiagnostic

@@ -5,9 +5,11 @@ import {
   Ellipsis,
   FileText,
   Images,
+  LogIn,
   Maximize2,
   RotateCw,
   Square,
+  Wallet,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
@@ -301,7 +303,7 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
   if (!code || !action) return null
   return (
     <AgentIconButton
-      icon={RotateCw}
+      icon={action === 'login' ? LogIn : action === 'recharge' ? Wallet : RotateCw}
       label={agentToolFailureActionLabel(action, code)}
       onClick={() =>
         runAgentToolFailureAction(action, {
@@ -437,6 +439,7 @@ function StandardAgentToolCard({
   onPreviewProduction?: (pane?: ProductionPane) => void
 }) {
   const { t } = useTranslation(['agent', 'common'])
+  const generatedImage = message.toolName === 'generateImage' || message.toolName === 'editImage'
   const [promptOpen, setPromptOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const downloadingRef = useRef(new Set<string>())
@@ -463,10 +466,17 @@ function StandardAgentToolCard({
       setDownloading(new Set(downloadingRef.current))
     }
   }
-  const previews = useArtifactPreviews(message, Boolean(onPreviewResult))
+  const previews = useArtifactPreviews(message, Boolean(onPreviewResult) || generatedImage)
   const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
   const openPreviewResult = (objectId?: string) => {
     const selectedId = objectId ?? previews[0]?.artifact.artifactId ?? fetched[0]?.objectId
+    if (!onPreviewResult) {
+      if (selectedId) {
+        if (onViewCanvas) onViewCanvas([selectedId])
+        else agentCanvasSink()?.focus([selectedId])
+      }
+      return
+    }
     const source =
       previews.find((preview) => preview.artifact.artifactId === selectedId)?.source ??
       fetched.find((preview) => preview.objectId === selectedId)?.source
@@ -681,7 +691,7 @@ function StandardAgentToolCard({
     (previews.length > 0 ||
       fetched.length > 0 ||
       (compactFetched && message.fetchedImages?.length)) &&
-    onPreviewResult
+    (onPreviewResult || generatedImage)
   ) {
     const fetchedTiles = fetched.length
       ? fetched.map((preview) => ({
@@ -723,7 +733,12 @@ function StandardAgentToolCard({
         <button
           type="button"
           className="studio-agent-inline-open"
-          aria-label={t('tool.openResultNumber', { number: index + 1 })}
+          aria-label={
+            onPreviewResult
+              ? t('tool.openResultNumber', { number: index + 1 })
+              : t('tool.openCanvas')
+          }
+          disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
           onClick={() => openPreviewResult(tile.id)}
         >
           {tile.source ? (
@@ -748,8 +763,13 @@ function StandardAgentToolCard({
         <div className="studio-agent-inline-actions">
           <button
             type="button"
-            title={t('tool.previewResult')}
-            aria-label={t('tool.openResultNumber', { number: index + 1 })}
+            title={onPreviewResult ? t('tool.previewResult') : t('tool.openCanvas')}
+            aria-label={
+              onPreviewResult
+                ? t('tool.openResultNumber', { number: index + 1 })
+                : t('tool.openCanvas')
+            }
+            disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
             onClick={() => openPreviewResult(tile.id)}
           >
             <Maximize2 size={16} />
@@ -782,13 +802,13 @@ function StandardAgentToolCard({
       <div
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
-        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}${message.toolName === 'generateImage' || message.toolName === 'editImage' ? ' studio-agent-inline-result--generated' : ''}`}
+        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}${generatedImage ? ' studio-agent-inline-result--generated' : ''}`}
       >
         <div className="studio-agent-inline-meta">
           <ToolStatus label={statusLabel} status={status} />
           <span title={message.title}>{message.title}</span>
         </div>
-        {message.toolName === 'generateImage' || message.toolName === 'editImage' ? (
+        {generatedImage ? (
           <ImageGallery
             items={tiles}
             previousLabel={t('tool.previousResult')}
@@ -814,6 +834,7 @@ function StandardAgentToolCard({
             {sourceHost(image.sourceUrl)}
           </a>
         ))}
+        {note && !onPreviewResult && <p className={CARD_NOTE}>{note}</p>}
         {downloadFailed && (
           <p role="alert" className={CARD_NOTE}>
             {t('tool.downloadFailed')}
@@ -839,11 +860,19 @@ function StandardAgentToolCard({
               className="mt-3"
               editLabel={t('tool.editResult')}
               regenerateLabel={t('tool.regenerate')}
-              onEdit={() =>
-                openPreviewResult(
-                  previews.find((preview) => preview.artifact.artifactId === selectedArtifactId)
-                    ?.artifact.artifactId ?? previews[0].artifact.artifactId,
-                )
+              onEdit={
+                onPreviewResult ||
+                (
+                  previews.find((preview) => preview.artifact.artifactId === selectedArtifactId) ??
+                  previews[0]
+                )?.onCanvas
+                  ? () =>
+                      openPreviewResult(
+                        previews.find(
+                          (preview) => preview.artifact.artifactId === selectedArtifactId,
+                        )?.artifact.artifactId ?? previews[0].artifact.artifactId,
+                      )
+                  : undefined
               }
               onRegenerate={() =>
                 void useAgentStore
@@ -856,6 +885,18 @@ function StandardAgentToolCard({
                   )
               }
             >
+              {offCanvas && !onPreviewResult && (
+                <AgentIconButton
+                  icon={Images}
+                  label={t('tool.place')}
+                  onClick={() =>
+                    void useAgentStore
+                      .getState()
+                      .placeOnCanvas(message.id)
+                      .then(() => onViewCanvas?.())
+                  }
+                />
+              )}
               {(message.prompt || onViewCanvas) && (
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                   <PopoverTrigger asChild>

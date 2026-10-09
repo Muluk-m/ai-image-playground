@@ -181,6 +181,53 @@ it('browses generated images and previews the selected artifact without opening 
   }
 })
 
+it('uses the same gallery in the canvas conversation and locates the selected artifact', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const viewCanvas = vi.fn()
+  const thumbnail = vi.fn(async () => 'data:image/png;base64,preview')
+  setAgentCanvasSink({ has: () => true, thumbnail } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'canvas-group',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'generateImage',
+            title: '两张图片',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: ['first', 'second'].map((artifactId, outputIndex) => ({
+              artifactId,
+              outputIndex,
+              taskId: 'task',
+              media: 'image',
+              mime: 'image/png',
+              width: 1024,
+              height: 1024,
+            })),
+          }}
+          onViewCanvas={viewCanvas}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
+    expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(viewCanvas).toHaveBeenCalledWith(['second'])
+    viewCanvas.mockClear()
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    expect(viewCanvas).toHaveBeenCalledWith(['second'])
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 it('says a submitted background job is still generating and will appear in the conversation', () => {
   const host = document.createElement('div')
   const root = createRoot(host)
