@@ -28,6 +28,7 @@ export function VideoPlayer({
   onFrameReady,
   aspectRatio = '16 / 9',
   fill = false,
+  maxHeight,
 }: {
   src: string
   poster?: string
@@ -38,6 +39,7 @@ export function VideoPlayer({
   onFrameReady?: (video: HTMLVideoElement) => void
   aspectRatio?: string
   fill?: boolean
+  maxHeight?: string
 }) {
   const frame = useRef<HTMLDivElement>(null)
   const media = useRef<HTMLVideoElement>(null)
@@ -92,7 +94,7 @@ export function VideoPlayer({
           ? 'relative w-full overflow-hidden bg-black'
           : 'relative max-w-full self-start overflow-hidden rounded-xl bg-black'
       }
-      style={fill ? { aspectRatio } : playerFrameStyle(aspectRatio)}
+      style={fill ? { aspectRatio, maxHeight } : playerFrameStyle(aspectRatio)}
     >
       <video
         ref={media}

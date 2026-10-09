@@ -1,9 +1,8 @@
-import { SquareIcon } from 'lucide-react'
+import { LoaderCircle, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { ThinkingIndicator } from '../../../components/assistant-ui/elements/thinking-indicator'
-import { Button } from '../../../components/ui/button'
+import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { i18next, useTranslation } from '../../../i18n'
-import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
+import { CARD_NOTE } from '../agentStyles'
 import {
   type AgentJobPhase,
   type AgentToolProgress,
@@ -12,6 +11,7 @@ import {
 } from '../lib/jobProgress'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentIconButton from './AgentIconButton'
 
 /** 这张卡此刻的进度，取自面板 store：结果卡与画布占位都走这一个入口。 */
 export function useAgentToolProgress(message: AgentToolMessage | null): AgentToolProgress | null {
@@ -53,8 +53,7 @@ export default function AgentJobProgress({ progress }: { progress: AgentToolProg
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
   return (
-    <ThinkingIndicator
-      role="progressbar"
+    <JobProgress
       aria-label={t('job.progressAria')}
       aria-valuetext={text ?? undefined}
       label={text ?? ''}
@@ -66,7 +65,7 @@ export default function AgentJobProgress({ progress }: { progress: AgentToolProg
 /** 后台任务还在跑时单独取消它；取消失败就在原处说一声，卡保持原样。 */
 export function AgentJobCancel({
   message,
-  className = GHOST_LINK,
+  className,
 }: {
   message: AgentToolMessage
   className?: string
@@ -76,12 +75,12 @@ export function AgentJobCancel({
   if (message.status !== 'submitted' || !message.job) return null
   return (
     <span className="inline-flex items-center gap-2 self-start">
-      <Button
-        variant="ghost"
-        size="sm"
-        type="button"
+      <AgentIconButton
+        label={state === 'cancelling' ? t('job.cancelling') : t('job.cancel')}
+        icon={state === 'cancelling' ? LoaderCircle : Square}
+        busy={state === 'cancelling'}
         disabled={state === 'cancelling'}
-        className={`${className} disabled:opacity-50`}
+        className={className}
         onClick={() => {
           setState('cancelling')
           useAgentStore
@@ -92,10 +91,7 @@ export function AgentJobCancel({
               () => setState('failed'),
             )
         }}
-      >
-        <SquareIcon aria-hidden className="size-3 fill-current" />
-        {state === 'cancelling' ? t('job.cancelling') : t('job.cancel')}
-      </Button>
+      />
       {state === 'failed' && <span className={CARD_NOTE}>{t('job.cancelFailed')}</span>}
     </span>
   )

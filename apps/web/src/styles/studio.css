@@ -841,9 +841,9 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 }
 
 
-/* Pending images share the compact footprint of conversation result previews. */
+/* Pending media fills the conversation column. */
 .studio-agent-generation-card {
-  width: min(240px, 100%);
+  width: 100%;
   overflow: hidden;
   border: 1px solid hsl(var(--border) / .65);
   border-radius: 16px;
@@ -856,6 +856,13 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-agent-generation-action { min-height: 30px; padding: 4px 8px; margin-left: -8px; border-radius: 6px; font-size: 12px; font-weight: 400; color: hsl(var(--muted-foreground)); transition: background .15s, color .15s; }
 .studio-agent-generation-action:hover { background: hsl(var(--foreground) / .06); color: hsl(var(--foreground)); }
 .studio-agent-generation-actions > span { margin-left: auto; }
+.studio-shell :is(.studio-agent-generation-card, [data-slot="image-gallery"], [data-slot="agent-video-card"], [data-slot="tool-error"], [data-slot="message-actions"]) button:focus-visible { outline-color: hsl(var(--foreground)); }
+.agent-media-generation::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(hsl(var(--foreground) / .12) .75px, transparent .75px); background-size: 18px 18px; }
+.agent-job-progress-sweep { animation: agent-job-progress-sweep 2.4s ease-in-out infinite; }
+@keyframes agent-job-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+@media (prefers-reduced-motion: reduce) { .agent-job-progress-sweep { animation: none; transform: translateX(100%); opacity: .6; } }
+.studio-agent-inline-result--generated { width: 100%; }
+.studio-agent-inline-result [data-slot="image-gallery"] .studio-agent-inline-tile { width: 100%; max-width: none; }
 .studio-artifact-edit-cursor { position: absolute; z-index: 5; border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
 .studio-artifact-edit-hit[data-tool="pan"] { cursor: grab; }
 .studio-artifact-edit-hit[data-tool="brush"], .studio-artifact-edit-hit[data-tool="eraser"] { cursor: none; }
