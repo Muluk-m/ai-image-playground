@@ -163,7 +163,7 @@ it('展示项目：绑了会话就读回那个会话，没绑就不读', async (
   expect(seen.some((one) => one.startsWith('open:'))).toBe(false)
 })
 
-it('首次发送前的新项目把未绑定会话留下的草稿作为未发送草稿提供', async () => {
+it('首次发送前的新项目把未绑定会话留下的草稿放回输入框', async () => {
   const project = currentCanvasProject()!
   expect(project.sceneKey).toBe(canvasSceneKey(null))
   const legacy = new DraftSession(legacyDraftKey(null))
@@ -174,10 +174,10 @@ it('首次发送前的新项目把未绑定会话留下的草稿作为未发送�
   const draft = currentProjectDraft(null)
   await vi.waitFor(() => expect(draft.getSnapshot().loading).toBe(false))
   expect(draft.key).toBe(projectDraftKey(project.id))
-  expect(draft.getSnapshot().unsent?.prompt).toBe('项目化之前写的')
+  expect(draft.getSnapshot().draft.prompt).toBe('项目化之前写的')
 })
 
-it('已有会话的项目把那个会话留下的草稿作为未发送草稿提供', async () => {
+it('已有会话的项目把那个会话留下的草稿放回输入框', async () => {
   const created = await useCanvasProjectStore.getState().create()
   await useCanvasProjectStore.getState().update(created.id, { conversationId: 'conversation-7' })
   const legacy = new DraftSession(legacyDraftKey('conversation-7'))
@@ -188,7 +188,7 @@ it('已有会话的项目把那个会话留下的草稿作为未发送草稿提�
   const draft = currentProjectDraft('conversation-7')
   await vi.waitFor(() => expect(draft.getSnapshot().loading).toBe(false))
   expect(draft.key).toBe(projectDraftKey(created.id))
-  expect(draft.getSnapshot().unsent?.prompt).toBe('项目化之前的会话草稿')
+  expect(draft.getSnapshot().draft.prompt).toBe('项目化之前的会话草稿')
 })
 
 /**
