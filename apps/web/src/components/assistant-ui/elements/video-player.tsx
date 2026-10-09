@@ -6,7 +6,7 @@ import { Button } from '../../ui/button'
  * 播放器在纵向 flex 里会被撑满栏宽，只写 aspect-ratio 和 max-height 时高度被截断、
  * 宽度不收回，9:16 就变成一块横着的空舞台。这里改限制宽度，高度由比例自己算。
  */
-export const PLAYER_MAX_HEIGHT = 'min(24rem, 46vh)'
+const PLAYER_MAX_HEIGHT = 'min(24rem, 46vh)'
 
 export function playerFrameStyle(aspectRatio: string): {
   aspectRatio: string
@@ -29,6 +29,7 @@ export function VideoPlayer({
   errorLabel,
   retryLabel,
   aspectRatio = '16 / 9',
+  fill = false,
 }: {
   src: string
   poster?: string
@@ -36,14 +37,20 @@ export function VideoPlayer({
   errorLabel: string
   retryLabel: string
   aspectRatio?: string
+  /** 由外层定宽（贴合卡片）时铺满宽度、不再自带圆角和高度上限。 */
+  fill?: boolean
 }) {
   const [failure, setFailure] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   return (
     <div
       data-slot="video-player"
-      className="relative max-w-full self-start overflow-hidden rounded-xl bg-black"
-      style={playerFrameStyle(aspectRatio)}
+      className={
+        fill
+          ? 'relative w-full overflow-hidden bg-black'
+          : 'relative max-w-full self-start overflow-hidden rounded-xl bg-black'
+      }
+      style={fill ? { aspectRatio } : playerFrameStyle(aspectRatio)}
     >
       <video
         key={`${src}:${attempt}`}
