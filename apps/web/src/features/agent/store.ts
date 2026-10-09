@@ -16,6 +16,7 @@ import {
   AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
   PROJECT_NAME_MAX_LENGTH,
+  stripTitleMarkdown,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { requireAccount } from '../../auth/loginPrompt'
@@ -401,7 +402,7 @@ const PANEL_WIDTH_KEY = 'image-playground.agent_panel_width'
  * 英文句子里它本来就被空格夹着，删掉多出来的那个由后面的合并收掉。
  */
 function firstMessageTitle(text: string): string {
-  return text
+  return stripTitleMarkdown(text)
     .replace(/\[image\s+\d+\]/gi, '')
     .replace(/\s+/g, ' ')
     .trim()

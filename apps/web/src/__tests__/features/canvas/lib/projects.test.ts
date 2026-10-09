@@ -3,6 +3,8 @@ import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
 import {
+  type CanvasProject,
+  projectEntryName,
   projectRepository,
   UNTITLED_PROJECT,
 } from '../../../../features/canvas/lib/projectRepository'
@@ -101,4 +103,16 @@ it('云端那份还叫未命名时不算用户起的名字，会话标题还能�
   expect((await projectRepository.importCloud(summary)).customName).toBe(false)
   const named = { ...summary, id: crypto.randomUUID(), name: '浴缸多视角' }
   expect((await projectRepository.importCloud(named)).customName).toBe(true)
+})
+
+describe('项目入口名', () => {
+  const named = (name: string, customName: boolean) =>
+    ({ name, customName, conversationId: 'c', hasContent: true }) as CanvasProject
+
+  it('自动名去掉早先截进来的 Markdown 记号，用户起的名字原样显示', () => {
+    expect(projectEntryName(named('**漫剧名称：《折扇惊梦》** **场景：** 烟…', false))).toBe(
+      '漫剧名称：《折扇惊梦》 场景： 烟…',
+    )
+    expect(projectEntryName(named('**加粗是我故意的**', true))).toBe('**加粗是我故意的**')
+  })
 })

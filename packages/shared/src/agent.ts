@@ -1345,7 +1345,24 @@ export function agentTitleLine(text: string, maxChars: number): string {
   return `${trimmed.slice(0, maxChars - 1)}…`
 }
 
+/**
+ * 去掉标题里的 Markdown 记号：首条消息常是整段剧本，`**场景：**`、`- ` 列表头、`---`
+ * 分隔线原样进标题很难看。只做标题用的粗处理，不解析成 AST。
+ */
+export function stripTitleMarkdown(text: string): string {
+  return text
+    .split('\n')
+    .map((line) =>
+      /^\s*([-*_])(\s*\1){2,}\s*$/.test(line)
+        ? ''
+        : line.replace(/^\s*(#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/, ''),
+    )
+    .join('\n')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*|__|~~|`/g, '')
+}
+
 /** 首轮消息即标题；会话不支持改名，所以这是标题的唯一来源。 */
 export function agentConversationTitle(firstUserMessage: string): string {
-  return agentTitleLine(firstUserMessage, AGENT_CONVERSATION_TITLE_MAX_CHARS)
+  return agentTitleLine(stripTitleMarkdown(firstUserMessage), AGENT_CONVERSATION_TITLE_MAX_CHARS)
 }
