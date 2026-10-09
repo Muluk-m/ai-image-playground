@@ -4,6 +4,7 @@ import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useTranslation } from '../i18n'
 import { removeMultipleTasks, setTaskFavorite, useStore } from '../store'
+import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 
 /**
  * 选中任务后的批量操作条。生成记录能在生图与作品两个入口里框选，所以它不能挂在输入框上，
@@ -85,102 +86,111 @@ export default function TaskBulkActions() {
       style={{ paddingLeft: 'var(--app-sidebar-width)' }}
     >
       <div className="pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-popover backdrop-blur">
-        <button
-          type="button"
-          onClick={clearSelection}
-          className="p-2 text-muted-foreground transition-colors hover:text-foreground"
-          title={t('bulk.clearSelection')}
-        >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
-        <div className="mx-1 h-5 w-px bg-muted" />
-        <button
-          type="button"
-          onClick={handleSelectAllToggle}
-          className="p-2 text-primary transition-colors hover:text-primary"
-          title={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}
-        >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            viewBox="0 0 24 24"
+        <Hint tooltip={t('bulk.clearSelection')}>
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="p-2 text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={t('bulk.clearSelection')}
           >
-            {allSelected ? (
-              <>
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <path d="M9 12l2 2 4-4" />
-              </>
-            ) : (
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
-                strokeDasharray="4 4"
-                d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
               />
-            )}
-          </svg>
-        </button>
+            </svg>
+          </button>
+        </Hint>
         <div className="mx-1 h-5 w-px bg-muted" />
-        <button
-          type="button"
-          onClick={handleToggleFavorite}
-          className="p-2 text-warning transition-colors"
-          title={t('bulk.toggleFavorite')}
-        >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            viewBox="0 0 24 24"
+        <Hint tooltip={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}>
+          <button
+            type="button"
+            onClick={handleSelectAllToggle}
+            className="p-2 text-primary transition-colors hover:text-primary"
+            aria-label={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}
           >
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-        </button>
-        <div className="mx-1 h-5 w-px bg-muted" />
-        <button
-          type="button"
-          onClick={handleExportSelected}
-          className="p-2 text-success transition-colors"
-          title={t('bulk.export')}
-          aria-label={t('bulk.export')}
-        >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-            />
-          </svg>
-        </button>
+              viewBox="0 0 24 24"
+            >
+              {allSelected ? (
+                <>
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <path d="M9 12l2 2 4-4" />
+                </>
+              ) : (
+                <path
+                  strokeDasharray="4 4"
+                  d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"
+                />
+              )}
+            </svg>
+          </button>
+        </Hint>
         <div className="mx-1 h-5 w-px bg-muted" />
-        <button
-          type="button"
-          onClick={handleDeleteSelected}
-          className="p-2 text-destructive transition-colors"
-          title={t('bulk.delete')}
-        >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
+        <Hint tooltip={t('bulk.toggleFavorite')}>
+          <button
+            type="button"
+            onClick={handleToggleFavorite}
+            className="p-2 text-warning transition-colors"
+            aria-label={t('bulk.toggleFavorite')}
+          >
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-        </button>
+              viewBox="0 0 24 24"
+            >
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+          </button>
+        </Hint>
+        <div className="mx-1 h-5 w-px bg-muted" />
+        <Hint tooltip={t('bulk.export')}>
+          <button
+            type="button"
+            onClick={handleExportSelected}
+            className="p-2 text-success transition-colors"
+            aria-label={t('bulk.export')}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
+            </svg>
+          </button>
+        </Hint>
+        <div className="mx-1 h-5 w-px bg-muted" />
+        <Hint tooltip={t('bulk.delete')}>
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            className="p-2 text-destructive transition-colors"
+            aria-label={t('bulk.delete')}
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+        </Hint>
       </div>
     </div>
   )
