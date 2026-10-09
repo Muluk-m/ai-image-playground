@@ -12,6 +12,9 @@ import { bffBaseUrl } from '../../lib/runtimeConfig'
 type Change = { source: string; storageScope: string; backend: string }
 const fixture = vi.hoisted(() => ({
   resolve: vi.fn<(source: string) => Promise<string>>(),
+  localPreview: vi.fn<() => Promise<string | undefined> | undefined>(),
+  upload: vi.fn(),
+  releases: new Set<(change: { sources: string[]; storageScope: string }) => void>(),
   listeners: new Set<(change: Change) => void>(),
 }))
 vi.mock('../../lib/cloudMedia', () => ({
@@ -20,10 +23,17 @@ vi.mock('../../lib/cloudMedia', () => ({
   resolveMediaSource: fixture.resolve,
 }))
 vi.mock('../../lib/localAttachmentSources', () => ({
-  localAttachmentIdentity: () => undefined,
+  localAttachmentIdentity: (source: string) =>
+    source.startsWith('aip-local:') ? source.slice(10) : undefined,
+  localAttachmentPreview: fixture.localPreview,
   localAttachmentFailure: () => undefined,
-  readAttachmentUpload: vi.fn(),
-  onLocalAttachmentReleased: () => () => {},
+  readAttachmentUpload: fixture.upload,
+  onLocalAttachmentReleased: (
+    listener: (change: { sources: string[]; storageScope: string }) => void,
+  ) => {
+    fixture.releases.add(listener)
+    return () => fixture.releases.delete(listener)
+  },
   onLocalAttachmentUploadChanged: (listener: (change: Change) => void) => {
     fixture.listeners.add(listener)
     return () => fixture.listeners.delete(listener)
@@ -34,7 +44,11 @@ function changed() {
   for (const listener of fixture.listeners)
     listener({ source, storageScope: scopedStorageName(BASE_DB_NAME), backend: bffBaseUrl() })
 }
-afterEach(() => fixture.resolve.mockReset())
+afterEach(() => {
+  fixture.resolve.mockReset()
+  fixture.localPreview.mockReset()
+  fixture.upload.mockReset()
+})
 
 it('ignores an older failed resolution after the newer preview succeeded', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -76,6 +90,75 @@ it('keeps cover subscriptions alive so a successful attachment retry restores th
     await act(async () => host.querySelectorAll('img')[1]!.dispatchEvent(new Event('load')))
     expect(host.querySelectorAll('img')[1]!.className).not.toContain('opacity-0')
     expect(host.querySelector('[role=status]')).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+it('does not restore a released attachment when its local thumbnail arrives late', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  let resolvePreview!: (value: string) => void
+  fixture.localPreview.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePreview = resolve
+      }),
+  )
+  const local = 'aip-local:11000000-0000-4000-8000-000000000002'
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<MediaImage src={local} />))
+    await act(async () => {
+      for (const listener of fixture.releases)
+        listener({ sources: [local], storageScope: scopedStorageName(BASE_DB_NAME) })
+      resolvePreview('data:image/webp;base64,late')
+    })
+    expect(host.querySelector('img')?.getAttribute('src')).toBeNull()
+    expect(fixture.resolve).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+it.each([
+  true,
+  false,
+])('waits for a pending local thumbnail before reporting cloud failure: %s', async (localSucceeds) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  let resolvePreview!: (value: string | undefined) => void
+  fixture.localPreview.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePreview = resolve
+      }),
+  )
+  fixture.upload.mockResolvedValue({
+    state: 'ready',
+    result: { id: '11000000-0000-4000-8000-000000000002' },
+  })
+  fixture.resolve.mockRejectedValue(new Error('cloud unavailable'))
+  const failure = vi.fn()
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <MediaImage
+          src="aip-local:11000000-0000-4000-8000-000000000002"
+          onResolveError={failure}
+        />,
+      ),
+    )
+    expect(fixture.resolve).toHaveBeenCalledOnce()
+    expect(failure).not.toHaveBeenCalled()
+    await act(async () =>
+      resolvePreview(localSucceeds ? 'data:image/webp;base64,local' : undefined),
+    )
+    if (localSucceeds) {
+      expect(failure).not.toHaveBeenCalled()
+      expect(host.querySelector('img')?.getAttribute('src')).toContain('local')
+    } else expect(failure).toHaveBeenCalledOnce()
   } finally {
     await act(async () => root.unmount())
   }

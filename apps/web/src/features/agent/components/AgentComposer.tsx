@@ -143,8 +143,7 @@ const EDITOR_CLASS =
 const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 
 /**
- * 本地附件只渲染确认后的云端预览。上传刚就绪时字节还没换上，空 src 会被画成裂图，
- * 所以转圈一直盖到 onLoad。
+ * 缩略图显示与上传分开：已有位图一加载就显示，发送仍等上传确认。
  */
 function ComposerAttachmentThumb({
   src,
@@ -174,7 +173,7 @@ function ComposerAttachmentThumb({
   const [settled, setSettled] = useState<{ src: string; ok: boolean }>()
   const here = settled?.src === src ? settled : undefined
   const pending = retrying || ((deferred || revision > 0) && !failed && here === undefined)
-  const hide = uploading || pending || failed || here?.ok === false
+  const hide = pending || failed || here?.ok === false
   const previewFailed = !retrying && !uploading && !failed && here?.ok === false
   const onResolveError = useCallback(() => setSettled({ src, ok: false }), [src])
   const reloadPreview = async () => {
@@ -216,7 +215,7 @@ function ComposerAttachmentThumb({
         onResolveError={onResolveError}
         className={[className, hide ? 'opacity-0' : ''].filter(Boolean).join(' ')}
       />
-      {(uploading || pending) && (
+      {(pending || (uploading && here?.ok !== true)) && (
         <span
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-foreground"
