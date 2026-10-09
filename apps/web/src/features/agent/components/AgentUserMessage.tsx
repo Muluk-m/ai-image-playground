@@ -18,9 +18,9 @@ import { fetchMessageReference } from '../lib/agentClient'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
 import {
   fitReferenceRow,
-  REFERENCE_CHIP_CHROME,
-  REFERENCE_FOLD_CHROME,
   REFERENCE_ROW_FALLBACK,
+  referenceChipChrome,
+  referenceFoldChrome,
 } from '../lib/referenceStrip'
 import { referenceDisplayNames } from '../lib/references'
 import { useAgentStore } from '../store'
@@ -264,7 +264,24 @@ function ReferenceStrip({
   const { t } = useTranslation('agent')
   const stripRef = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState(false)
-  const [box, setBox] = useState({ available: 0, font: '', gap: 6, labelMax: 144 })
+  const [box, setBox] = useState({ available: 0, font: '', gap: 6, root: 16 })
+  // 网络字体晚到时栏宽不变，但同一段文字变宽或变窄；换完字体要重新量一次。
+  const [fontsLoaded, setFontsLoaded] = useState(0)
+
+  useEffect(() => {
+    const fonts = typeof document === 'undefined' ? undefined : document.fonts
+    if (!fonts) return
+    let active = true
+    const remeasure = () => {
+      if (active) setFontsLoaded((count) => count + 1)
+    }
+    void fonts.ready.then(remeasure)
+    fonts.addEventListener('loadingdone', remeasure)
+    return () => {
+      active = false
+      fonts.removeEventListener('loadingdone', remeasure)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     const node = stripRef.current
@@ -276,19 +293,18 @@ function ReferenceStrip({
       const sample = node.querySelector<HTMLElement>('.mention-tag')
       const font = sample ? getComputedStyle(sample).font : ''
       const gap = Number.parseFloat(getComputedStyle(node).columnGap)
-      const root = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
-      const labelMax = Number.isFinite(root) && root > 0 ? root * 9 : 144
+      const rootSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
       const next = {
         available,
         font,
         gap: Number.isFinite(gap) ? gap : 6,
-        labelMax,
+        root: Number.isFinite(rootSize) && rootSize > 0 ? rootSize : 16,
       }
       setBox((prev) =>
         prev.available === next.available &&
         prev.font === next.font &&
         prev.gap === next.gap &&
-        prev.labelMax === next.labelMax
+        prev.root === next.root
           ? prev
           : next,
       )
@@ -305,17 +321,19 @@ function ReferenceStrip({
     const font = box.font || '500 13px sans-serif'
     const chipWidths = attached.map(({ index }) => {
       const label = names[index] ? `@${names[index]}` : getImageMentionLabel(index)
-      return Math.min(box.labelMax, referenceTextWidth(label, font)) + REFERENCE_CHIP_CHROME
+      return Math.min(box.root * 9, referenceTextWidth(label, font)) + referenceChipChrome(box.root)
     })
     return fitReferenceRow(
       box.available,
       chipWidths,
       (hidden) =>
-        referenceTextWidth(t('reference.more', { count: hidden }), font) + REFERENCE_FOLD_CHROME,
+        referenceTextWidth(t('reference.more', { count: hidden }), font) +
+        referenceFoldChrome(box.root),
       box.gap,
       REFERENCE_ROW_FALLBACK,
     )
-  }, [attached, box, names, t])
+    // fontsLoaded 只用来在字体就绪后让这里重算。
+  }, [attached, box, names, t, fontsLoaded])
 
   const folded = fitted < attached.length
   const shown = expanded ? attached : attached.slice(0, fitted)
