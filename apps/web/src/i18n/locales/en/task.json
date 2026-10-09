@@ -7,9 +7,7 @@
     "succeeded_other": "Downloaded {{count}} images",
     "start": "Download started",
     "failed": "Download failed",
-    "inProgress": "Downloading...",
-    "single": "Download image",
-    "multiple": "Download {{n}} images"
+    "export": "Export images"
   },
   "action": {
     "retryTask": "Retry task",
