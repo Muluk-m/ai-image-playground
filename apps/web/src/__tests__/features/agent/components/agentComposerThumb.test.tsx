@@ -19,6 +19,7 @@ import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 it.each([
   'success',
+  'cached preview',
   'resolve failure',
   'decode failure',
   'cache deletion failure',
@@ -33,6 +34,20 @@ it.each([
   })
   const previewBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII='
+  let releaseUpload!: () => void
+  const uploadGate = new Promise<void>((resolve) => {
+    releaseUpload = resolve
+  })
+  const thumbnail = vi
+    .spyOn(mediaDb, 'createImageThumbnail')
+    .mockRejectedValue(new Error('no local preview'))
+  if (scenario === 'cached preview')
+    thumbnail.mockResolvedValue({
+      thumbnailDataUrl: `data:image/webp;base64,${previewBase64}`,
+      width: 1,
+      height: 1,
+      thumbnailVersion: 1,
+    })
   let uploads = 0
   let previews = 0
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
@@ -52,6 +67,7 @@ it.each([
       return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
     if (url.endsWith('/uploads')) {
       uploads++
+      if (scenario === 'cached preview') await uploadGate
       const { sha256 } = JSON.parse(String(init?.body))
       return Response.json({
         id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
@@ -101,6 +117,22 @@ it.each([
   const root = createRoot(host)
   try {
     await act(async () => root.render(<AgentComposer doc={new CanvasDoc()} />))
+    if (scenario === 'cached preview') {
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(host.querySelector('img')?.getAttribute('src')).toBe(
+            `data:image/webp;base64,${previewBase64}`,
+          ),
+        )
+        host.querySelector('img')!.dispatchEvent(new Event('load'))
+      })
+      expect(host.querySelector('img')?.className).not.toContain('opacity-0')
+      expect(host.querySelector('.animate-spin')).toBeNull()
+      expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+        true,
+      )
+      releaseUpload()
+    }
     const send = () => host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
     await act(async () => {
       await vi.waitFor(() => {
@@ -110,10 +142,19 @@ it.each([
     })
     const thumb = () => host.querySelector('img')!
     // Upload is ready, but the preview bytes are still withheld. An empty src paints the broken icon.
-    expect(thumb().getAttribute('src')).toBeNull()
-    expect(thumb().className).toContain('opacity-0')
-    expect(host.querySelector('.animate-spin')).not.toBeNull()
+    if (scenario !== 'cached preview') {
+      expect(thumb().getAttribute('src')).toBeNull()
+      expect(thumb().className).toContain('opacity-0')
+      expect(host.querySelector('.animate-spin')).not.toBeNull()
+    }
 
+    if (scenario === 'cached preview') {
+      expect(thumb().getAttribute('src')).toBe(`data:image/webp;base64,${previewBase64}`)
+      expect(thumb().className).not.toContain('opacity-0')
+      expect(previews).toBe(0)
+      expect(uploads).toBe(1)
+      return
+    }
     releasePreview()
     const retry = () => host.querySelector<HTMLButtonElement>('button[aria-label*="重试载入"]')!
     if (scenario === 'resolve failure') {
@@ -128,7 +169,7 @@ it.each([
       await act(async () => {})
       expect(thumb().getAttribute('src')).toMatch(/^data:image\/png;base64,/)
     })
-    expect(thumb().className).toContain('opacity-0')
+    if (scenario !== 'cached preview') expect(thumb().className).toContain('opacity-0')
     if (scenario === 'decode failure' || scenario === 'cache deletion failure') {
       expect(thumb().getAttribute('src')).toBe('data:image/png;base64,AQID')
       const upload = await readAttachmentUpload(
@@ -165,9 +206,10 @@ it.each([
     expect(host.querySelector('.animate-spin')).toBeNull()
     expect(retry()).toBeNull()
     expect(uploads).toBe(1)
-    expect(previews).toBe(scenario === 'success' ? 1 : 2)
+    expect(previews).toBe(['success', 'cached preview'].includes(scenario) ? 1 : 2)
   } finally {
     releasePreview()
+    releaseUpload()
     session.update({ prompt: '', references: [] })
     await session.flush()
     act(() => root.unmount())
