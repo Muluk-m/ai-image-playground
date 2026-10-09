@@ -53,7 +53,7 @@ describe('export pipeline', () => {
       new AbortController().signal,
       vi.fn(),
     )
-    expect(files.map((file) => file.name)).toEqual(['photo@1x.png', 'photo@2x.jpg'])
+    expect(files.map((file) => file.name)).toEqual(['photo.png', 'photo@2x.jpg'])
     expect(decode).toHaveBeenCalledTimes(1)
     expect(draw).toHaveBeenNthCalledWith(1, bitmap, 0, 0, 720, 540)
     expect(draw).toHaveBeenNthCalledWith(2, bitmap, 0, 0, 1440, 1080)
