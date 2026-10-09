@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { CircleAlert, FolderOpen, Images, RotateCw, Undo2, X, Zap } from 'lucide-react'
+import { CircleAlert, FolderOpen, Images, RotateCw, Undo2, X } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -294,7 +294,6 @@ export default function AgentComposer({
   const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
-  const autoSubmit = useAgentStore((state) => state.autoSubmit)
   const messages = useAgentStore(
     useShallow((state) =>
       state.messages.filter(
@@ -1196,21 +1195,6 @@ export default function AgentComposer({
             )}
           </div>
           <ComposerActions className="min-w-0">
-            {/* 模式只是状态展示、点不动，挤在按钮排里反而像可点控件——交给参数 chip 说明。 */}
-            {!productionMode && (
-              <Button
-                type="button"
-                size="icon"
-                variant={autoSubmit ? 'default' : 'secondary'}
-                aria-pressed={autoSubmit}
-                aria-label={t('composer.autoSubmitAria')}
-                title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
-                className="h-8 w-8 shrink-0 rounded-full"
-                onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
-              >
-                <Zap aria-hidden="true" />
-              </Button>
-            )}
             <AgentParamsChip generationControls={!productionMode} />
             <ComposerSend
               streaming={stopMode}
