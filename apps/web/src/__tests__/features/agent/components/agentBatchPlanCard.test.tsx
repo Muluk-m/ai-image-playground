@@ -1,12 +1,27 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import type { AgentBatchPage, AgentBatchUpdate } from '@image-playground/shared'
+import type { AgentBatchPage, AgentBatchUpdate, AgentToolArtifact } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+
+const exportedIds = vi.hoisted(() => [] as string[][])
+
+vi.mock('../../../../features/agent/lib/batchResultExport', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../../features/agent/lib/batchResultExport')
+  >('../../../../features/agent/lib/batchResultExport')
+  return {
+    ...actual,
+    exportBatchResults: vi.fn(async (files: Array<{ artifact: { artifactId: string } }>) => {
+      exportedIds.push(files.map((file) => file.artifact.artifactId))
+      return { exported: files.length, failed: 0 }
+    }),
+  }
+})
 
 let host: HTMLDivElement
 let root: Root
@@ -19,6 +34,7 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   writes.length = 0
   cancellations.length = 0
+  exportedIds.length = 0
   saved = {
     batch: {
       id: 'batch-1',
@@ -103,6 +119,262 @@ afterEach(() => {
   host.remove()
   vi.unstubAllGlobals()
 })
+
+it('groups a running batch by status and leaves the waiting pile collapsed', async () => {
+  saved = {
+    ...saved,
+    batch: { ...saved.batch, status: 'running', submittedCount: 1, executionEnabled: true },
+    items: saved.items.map((item, index) =>
+      index === 0
+        ? {
+            ...item,
+            progress: 'in_flight',
+            execution: {
+              taskId: 'task-0',
+              status: 'in_progress',
+              attempt: 1,
+              actualCredits: null,
+            },
+          }
+        : { ...item, progress: 'ready' },
+    ),
+  }
+  await render()
+  const group = (status: string) => host.querySelector(`[data-batch-group="${status}"]`)
+  const rows = (status: string) => host.querySelectorAll(`details[data-batch-status="${status}"]`)
+  expect(group('in_flight')?.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+  expect(rows('in_flight')).toHaveLength(1)
+  expect(group('in_flight')?.textContent).toContain('执行中')
+  expect(group('ready')?.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
+  expect(group('ready')?.textContent).toContain('待派发')
+  expect(group('ready')?.textContent).toContain('99')
+  expect(rows('ready')).toHaveLength(0)
+  expect(host.querySelector('[aria-label="任务状态"]')?.className).toBe('max-h-64 overflow-y-auto')
+  expect(host.querySelectorAll('summary img')).toHaveLength(1)
+  expect(host.querySelector('nav')).toBeNull()
+  act(() => group('ready')?.querySelector<HTMLButtonElement>('button')?.click())
+  expect(rows('ready')).toHaveLength(20)
+  expect(host.textContent).toContain('1 / 5')
+  expect(host.querySelectorAll('summary img')).toHaveLength(21)
+})
+
+it('keeps an expanded execution row mounted when that item finishes', async () => {
+  vi.useFakeTimers()
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      itemCount: 2,
+      status: 'running',
+      submittedCount: 2,
+      executionEnabled: true,
+    },
+    items: saved.items.slice(0, 2).map((item, index) => ({
+      ...item,
+      progress: index === 0 ? ('in_flight' as const) : ('ready' as const),
+      execution:
+        index === 0
+          ? { taskId: 'task-0', status: 'in_progress' as const, attempt: 1, actualCredits: null }
+          : undefined,
+    })),
+  }
+  try {
+    const message = panelMessage('message-1', 'turn-1', 'assistant', [
+      {
+        type: 'toolResult',
+        toolName: 'planImageBatch',
+        toolCallId: 'call-1',
+        title: '商品白底图',
+        status: 'succeeded',
+        batchId: 'batch-1',
+      },
+    ])
+    if (message.kind !== 'tool') throw new Error('expected tool message')
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() =>
+      expect(host.querySelector('details[data-item-key="item-0"]')).not.toBeNull(),
+    )
+    const row = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')!
+    act(() => {
+      row.open = true
+      row.dispatchEvent(new Event('toggle', { bubbles: false }))
+    })
+    expect(row.open).toBe(true)
+    saved = {
+      ...saved,
+      items: saved.items.map((item) =>
+        item.key === 'item-0'
+          ? {
+              ...item,
+              progress: 'completed',
+              execution: {
+                taskId: 'task-0',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 1,
+              },
+            }
+          : item,
+      ),
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100)
+    })
+    const moved = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')
+    expect(moved).toBe(row)
+    expect(moved?.open).toBe(true)
+    expect(moved?.getAttribute('data-batch-status')).toBe('completed')
+    expect(
+      host.querySelector('[data-batch-group="completed"] button')?.getAttribute('aria-expanded'),
+    ).toBe('true')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('leaves focus where the user moved it when an open row finishes', async () => {
+  vi.useFakeTimers()
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      itemCount: 2,
+      status: 'running',
+      submittedCount: 2,
+      executionEnabled: true,
+    },
+    items: saved.items.slice(0, 2).map((item, index) => ({
+      ...item,
+      progress: index === 0 ? ('in_flight' as const) : ('ready' as const),
+      execution:
+        index === 0
+          ? { taskId: 'task-0', status: 'in_progress' as const, attempt: 1, actualCredits: null }
+          : undefined,
+    })),
+  }
+  try {
+    await render()
+    const row = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')!
+    const summary = row.querySelector<HTMLElement>('summary')!
+    act(() => {
+      row.open = true
+      row.dispatchEvent(new Event('toggle', { bubbles: false }))
+      summary.focus()
+      summary.blur()
+    })
+    expect(row.contains(document.activeElement)).toBe(false)
+    saved = {
+      ...saved,
+      items: saved.items.map((item) =>
+        item.key === 'item-0'
+          ? {
+              ...item,
+              progress: 'completed',
+              execution: {
+                taskId: 'task-0',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 1,
+              },
+            }
+          : item,
+      ),
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100)
+    })
+    const moved = host.querySelector<HTMLDetailsElement>('details[data-item-key="item-0"]')
+    expect(moved?.contains(document.activeElement)).toBe(false)
+    expect(moved?.open).toBe(true)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('keeps plan fields to the card scale so a long rule stays in its box', async () => {
+  await render()
+  const rule = [...host.querySelectorAll('label')].find((label) =>
+    label.textContent?.includes('统一规则'),
+  )
+  const field = rule?.querySelector('textarea')
+  expect(field?.rows).toBe(3)
+  expect(field?.className).toContain('max-h-24')
+  expect(field?.className).toContain('text-xs')
+  const title = [...host.querySelectorAll('label')].find((label) =>
+    label.textContent?.includes('计划名称'),
+  )
+  expect(title?.querySelector('input')?.className).toContain('h-8')
+  const thumb = host.querySelector('summary img')
+  expect(thumb?.className).toContain('h-5')
+  expect(thumb?.className).toContain('w-5')
+  expect(
+    [...host.querySelectorAll('button')].some((button) => button.textContent?.includes('导出')),
+  ).toBe(false)
+})
+
+it('exports every completed result without opening the finished rows', async () => {
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      itemCount: 4,
+      status: 'running',
+      submittedCount: 3,
+      executionEnabled: true,
+      title: '48张图片背景优化计划',
+    },
+    items: saved.items.slice(0, 4).map((item, index) => {
+      const progress =
+        index === 1
+          ? ('ready' as const)
+          : index === 3
+            ? ('failed' as const)
+            : ('completed' as const)
+      const artifacts: AgentToolArtifact[] =
+        index === 0
+          ? [batchArtifact('done-a'), batchArtifact('done-b')]
+          : index === 2
+            ? [batchArtifact('done-c')]
+            : [batchArtifact(index === 1 ? 'ready' : 'failed')]
+      return {
+        ...item,
+        progress,
+        execution: {
+          taskId: `task-${index}`,
+          status: progress === 'ready' ? ('queued' as const) : progress,
+          attempt: 1,
+          actualCredits: 1,
+          artifacts,
+        },
+      }
+    }),
+  }
+  const message = panelMessage('message-1', 'turn-1', 'assistant', [
+    {
+      type: 'toolResult',
+      toolName: 'planImageBatch',
+      toolCallId: 'call-1',
+      title: '48张图片背景优化计划',
+      status: 'succeeded',
+      batchId: 'batch-1',
+    },
+  ])
+  if (message.kind !== 'tool') throw new Error('expected tool message')
+  await act(async () => root.render(<AgentToolCard message={message} />))
+  await vi.waitFor(() => expect(host.textContent).toContain('导出 3 项'))
+  expect(host.querySelector('details[data-batch-status="completed"]')).toBeNull()
+  const button = [...host.querySelectorAll('button')].find((one) =>
+    one.textContent?.includes('导出 3 项'),
+  )
+  await act(async () => {
+    button?.click()
+  })
+  expect(exportedIds).toEqual([['done-a', 'done-b', 'done-c']])
+})
+
+function batchArtifact(id: string): AgentToolArtifact {
+  return { artifactId: id, media: 'image', taskId: `task-${id}`, outputIndex: 0, mime: 'image/png' }
+}
 
 async function render() {
   const message = panelMessage('message-1', 'turn-1', 'assistant', [

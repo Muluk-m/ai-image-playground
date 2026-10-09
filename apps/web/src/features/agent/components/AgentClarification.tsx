@@ -4,6 +4,7 @@ import { OptionList } from '../../../components/assistant-ui/elements/option-lis
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
+import { CARD_CONTROL } from '../agentStyles'
 import { clarificationAnswer } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
@@ -109,6 +110,7 @@ export default function AgentClarification({
           <form className="studio-clarification-other-form" onSubmit={submitOther}>
             <Input
               autoFocus
+              className={CARD_CONTROL}
               aria-label={t('clarification.otherAria')}
               value={other}
               disabled={running}
