@@ -425,7 +425,11 @@ export default function AgentArtifactPane({
         </div>
       </div>
       {zoomed && displaySource && (
-        <ImagePreview src={displaySource} onClose={() => setZoomed(false)} />
+        <ImagePreview
+          src={displaySource}
+          originalPending={!source}
+          onClose={() => setZoomed(false)}
+        />
       )}
       {editAction && source && (
         <AgentArtifactEditDialog

@@ -245,8 +245,10 @@ describe('智能体输入框', () => {
     const dialog = useStore.getState().confirmDialog
     if (!dialog) throw new Error('missing confirm dialog')
 
-    act(() => dialog.action())
-    expect(await attached()).toHaveLength(4)
+    await act(async () => {
+      dialog.action()
+      await vi.waitFor(() => expect(host.querySelectorAll('img')).toHaveLength(4))
+    })
   })
 
   it('确认框没点确认，草稿一张参考图都不多', async () => {

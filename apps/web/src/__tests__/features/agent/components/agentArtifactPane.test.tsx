@@ -54,7 +54,9 @@ vi.mock('../../../../features/agent/components/AgentArtifactEditDialog', () => (
   ),
 }))
 vi.mock('../../../../components/Lightbox', () => ({
-  ImagePreview: () => <div data-testid="zoomed" />,
+  ImagePreview: ({ originalPending }: { originalPending?: boolean }) => (
+    <div data-testid="zoomed" data-original-pending={originalPending} />
+  ),
 }))
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -303,7 +305,16 @@ it('shows the existing result while the original is delayed and upgrades when it
       (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
         .disabled,
     ).toBe(true)
+    act(() =>
+      (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
+    )
+    expect(
+      document.body.querySelector('[data-testid=zoomed]')?.getAttribute('data-original-pending'),
+    ).toBe('true')
     await act(async () => resolveOriginal('data:image/png;base64,original'))
+    expect(
+      document.body.querySelector('[data-testid=zoomed]')?.getAttribute('data-original-pending'),
+    ).toBe('false')
     expect(
       document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
     ).toContain('original')
