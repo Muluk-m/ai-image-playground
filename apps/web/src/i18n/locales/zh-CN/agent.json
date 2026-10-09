@@ -232,9 +232,6 @@
     "tooManyUploads_other": "上传的图、素材一轮最多带 {{count}} 张",
     "abortedToast": "已中止，草稿已放回输入框。",
     "queue": "加入排队",
-    "autoSubmitAria": "出图模式",
-    "autoSubmitOnTitle": "出图模式：助手拟好提示词直接开始生成并扣费，不再逐张等你确认",
-    "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）",
     "assetViewsUnavailable": "素材部分视角无法读取，请重试后再添加。",
     "attachmentReadFailed": "部分图片无法读取，本次未添加，请重新选择。",
     "retryUpload": "重试",
@@ -271,7 +268,9 @@
     "thinkingMedium": "中等",
     "thinkingDeep": "深度",
     "thinkingLegend": "思考深度",
-    "thinkingSummary": "思考：{{label}}"
+    "thinkingSummary": "思考：{{label}}",
+    "autoSubmitLabel": "直接出图",
+    "autoSubmitHint": "助手拟好提示词就直接生成并扣费，不再逐张等你确认。"
   },
   "mentions": {
     "headingResults": "会话图片",

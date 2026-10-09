@@ -249,9 +249,6 @@
     "tooManyUploads_other": "At most {{count}} uploaded or library images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",
     "queue": "Queue",
-    "autoSubmitAria": "Direct generation mode",
-    "autoSubmitOnTitle": "Direct generation: the assistant starts generating — and charging — as soon as it drafts a prompt, with no per-draft confirmation",
-    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)",
     "assetViewsUnavailable": "Some asset views could not be read. Retry before attaching the asset.",
     "attachmentReadFailed": "Some images could not be read. No files were attached; please select them again.",
     "retryUpload": "Retry",
@@ -290,7 +287,9 @@
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
     "thinkingLegend": "Thinking depth",
-    "thinkingSummary": "Thinking: {{label}}"
+    "thinkingSummary": "Thinking: {{label}}",
+    "autoSubmitLabel": "Generate directly",
+    "autoSubmitHint": "The assistant starts generating (and charging) as soon as it drafts a prompt, without waiting for your confirmation."
   },
   "mentions": {
     "headingResults": "Conversation images",
