@@ -379,7 +379,10 @@ export async function fetchAgentSkills(
   mode: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentSkillSummary[]> {
-  const response = await fetcher(url(`/skills?mode=${mode}`), { headers: deviceHeaders() })
+  // 目录按登录 cookie 区分自建模板，不使用设备 ID；多余的设备头会触发跨域预检。
+  const response = await fetcher(url(`/skills?mode=${mode}`), {
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   const body = (await response.json()) as { skills?: AgentSkillSummary[] }
   return body.skills ?? []
