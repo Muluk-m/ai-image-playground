@@ -64,7 +64,12 @@ let messagesResponse: () => Response
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
-  if (url.includes('/submissions/')) return Response.json({ receipt: null })
+  if (url.includes('/submissions/'))
+    return Response.json({
+      receipt: url.endsWith('/withdraw')
+        ? { state: 'cancelled', queued: { id: 'not-accepted', text: '', createdAt: 1 } }
+        : null,
+    })
   if (url.endsWith('/api/agent/conversations') && init?.method === 'POST')
     return Response.json({
       conversation: { id: CONVERSATION, title: '', createdAt: 1, updatedAt: 1 },
@@ -226,7 +231,8 @@ it('发送失败后换了设置，刷新重发仍沿用原轮的完整参数', a
   const original = useStore.getState().params
   useStore.setState({ params: { ...original, size: '1536x1024', quality: 'high' } })
   useAgentStore.setState({ thinkingDepth: 'deep', autoSubmit: true })
-  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  // 已明确拒绝的提交可保留消息 id；未决 5xx 会先做服务端终态确认。
+  turnResponse = () => Response.json({ error: 'invalid_selection' }, { status: 400 })
   await useAgentStore
     .getState()
     .send('保留这次设置', [], undefined, 'image', undefined, undefined, 'gpt-image-2')
@@ -359,7 +365,7 @@ it.each([
 
 it('排队发送失败后仍保留原输入，刷新后用同一消息身份重发', async () => {
   useAgentStore.setState({ turn: 'running' })
-  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  turnResponse = () => Response.json({ error: 'queue_full', limit: 10 }, { status: 409 })
   await useAgentStore.getState().send('接着处理下一张')
   const [saved] = await outgoingMessages(PROJECT)
   expect(saved).toMatchObject({ text: '接着处理下一张', conversationId: CONVERSATION })
@@ -411,7 +417,7 @@ it('uploads a complete immutable edit snapshot and restores the same mask, actio
     return fetchMock(input, init)
   })
   await bootstrapClientCapabilities(true, 'http://bff.test')
-  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  turnResponse = () => Response.json({ error: 'invalid_reference' }, { status: 400 })
   try {
     const sending = useAgentStore
       .getState()
@@ -502,7 +508,7 @@ it('reuploads expired unaccepted originals and masks after refresh with the same
     return fetchMock(input, init)
   })
   await bootstrapClientCapabilities(true, 'http://bff.test')
-  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  turnResponse = () => Response.json({ error: 'invalid_reference' }, { status: 400 })
   try {
     await useAgentStore.getState().send('擦除选区内容', references)
     const initial = JSON.parse(
@@ -576,7 +582,7 @@ it.each([
     turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
     await clickSend()
     await act(async () => {
-      // 空回执需要有界复查后才确认未接收并归还草稿。
+      // 空回执需要复查并由服务端确认终态后才归还草稿。
       await vi.waitFor(() => expect(session.getSnapshot().draft.submission).toBeDefined(), {
         timeout: 3000,
       })
@@ -598,7 +604,8 @@ it.each([
       expect(resent.clientMessageId).not.toBe(initial.clientMessageId)
       expect(resent.params).toMatchObject({ size: '1024x1536', quality: 'low' })
     } else {
-      expect(resent.clientMessageId).toBe(initial.clientMessageId)
+      // 原 id 已被服务端确认取消；保留参数快照，但手动重发必须换 id。
+      expect(resent.clientMessageId).not.toBe(initial.clientMessageId)
       expect(resent.params).toEqual(initial.params)
     }
     await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))

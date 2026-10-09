@@ -230,8 +230,11 @@ export async function fetchSubmissionReceipt(
 export async function withdrawSubmission(
   conversationId: string,
   clientMessageId: string,
+  cancellation?: AbortSignal,
 ): Promise<AgentMessageQueuedBody> {
-  const signal = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
+  signal.throwIfAborted()
   const response = await withSignal(
     authenticatedBffFetch(
       url(

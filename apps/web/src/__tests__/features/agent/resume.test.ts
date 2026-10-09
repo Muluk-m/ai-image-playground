@@ -47,7 +47,7 @@ let resumeRequests: { lastEventId: string | null; url: string }[]
 let messagesResponse: () => Response
 let posted: { url: string; body: unknown }[]
 let receiptResponse: () => Response | Promise<Response>
-let withdrawSubmissionResponse: () => Response
+let withdrawSubmissionResponse: () => Response | Promise<Response>
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -90,8 +90,7 @@ beforeEach(() => {
   withdrawSubmissionResponse = () =>
     Response.json({
       receipt: {
-        state: 'consumed',
-        turnId: TURN,
+        state: 'cancelled',
         queued: { id: 'user-1', text: '你好', createdAt: 1 },
       },
     })
@@ -120,7 +119,7 @@ afterEach(() => {
 // 去重、断点续播与退避本身归 agentClient 管，测在 lib/agentClient.test.ts；
 // 这里只钉住面板对各种终局的反应。
 describe('断线重连', () => {
-  it('起轮的请求压根没发出去时直接判失败，不停在进行中', async () => {
+  it('空回执由服务端确认取消后退出进行中，保留草稿供用户重试', async () => {
     turnResponses = [
       () => {
         throw new TypeError('offline')
@@ -130,7 +129,8 @@ describe('断线重连', () => {
     await state().send('你好')
 
     expect(state().turn).toBe('failed')
-    expect(state().error).toBe('这一轮没有跑完')
+    expect(state().error).toBe('消息未能加入排队，草稿已保留，请重试。')
+    expect(posted.filter((one) => one.url.endsWith('/withdraw'))).toHaveLength(1)
   })
 
   it('起轮响应丢失后按原消息回执接回已完成的轮', async () => {
@@ -234,6 +234,39 @@ describe('断线重连', () => {
     await sending
     expect(state().turn).toBe('idle')
     expect(lookups).toBe(2)
+  })
+
+  it('多次空回执后通过原子确认发现迟到的已接收提交，仍恢复原轮', async () => {
+    vi.useFakeTimers()
+    turnResponses = [
+      () => {
+        throw new TypeError('response lost')
+      },
+      () => {
+        throw new TypeError('response lost')
+      },
+      () =>
+        sse([
+          { id: 1, event: TURN_START },
+          { id: 2, event: TURN_END },
+        ]),
+    ]
+    withdrawSubmissionResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: TURN,
+          queued: { id: 'user-1', text: '你好', createdAt: 1 },
+        },
+      })
+    const sending = state().send('你好')
+    await vi.advanceTimersByTimeAsync(1001)
+    await vi.runAllTimersAsync()
+    await sending
+    expect(state().turn).toBe('idle')
+    expect(state().error).toBeNull()
+    expect(posted.filter((one) => one.url.endsWith('/withdraw'))).toHaveLength(1)
+    expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(2)
   })
 
   it('回执查询暂时离线时保持恢复状态，只查询而不重新提交', async () => {
@@ -696,7 +729,64 @@ describe('另一个标签页占着这个会话', () => {
 })
 
 describe('中止', () => {
+  it('停止尚未确认时下一句话等待屏障，确认后才提交', async () => {
+    let lookups = 0
+    receiptResponse = () => {
+      lookups += 1
+      throw new TypeError('offline')
+    }
+    let release!: (response: Response) => void
+    withdrawSubmissionResponse = () =>
+      new Promise((resolve) => {
+        release = resolve
+      })
+    turnResponses = [
+      () => {
+        throw new TypeError('response lost')
+      },
+      () => {
+        throw new TypeError('response lost')
+      },
+      () =>
+        sse([
+          { id: 1, event: { ...TURN_START, turnId: 'next-turn' } },
+          { id: 2, event: { ...TURN_END, turnId: 'next-turn' } },
+        ]),
+    ]
+    const first = state().send('你好')
+    await vi.waitFor(() => expect(lookups).toBe(1))
+    await state().abort()
+    await first
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    const next = state().send('下一句话')
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(2)
+    release(
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: TURN,
+          queued: { id: 'user-1', text: '你好', createdAt: 1 },
+        },
+      }),
+    )
+    await next
+    expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(3)
+    expect(posted.findIndex((one) => one.url.endsWith('/abort'))).toBeLessThan(
+      posted.findIndex((one) => (one.body as { text?: string }).text === '下一句话'),
+    )
+    expect(state().turn).toBe('idle')
+  })
+
   it('恢复期间停止：排队撤回输给开轮时只停本条消息对应的新轮', async () => {
+    withdrawSubmissionResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: TURN,
+          queued: { id: 'user-1', text: '你好', createdAt: 1 },
+        },
+      })
     let releaseReceipt!: (response: Response) => void
     const receiptReady = new Promise<Response>((resolve) => {
       releaseReceipt = resolve
@@ -783,6 +873,9 @@ describe('中止', () => {
     expect(saved[0].clientMessageId).toBe(
       (posted[0].body as { clientMessageId: string }).clientMessageId,
     )
+    await state().send('下一句话')
+    expect(posted.filter((one) => one.url.endsWith('/turns'))).toHaveLength(2)
+    expect(await abortRecoveries(CONVERSATION).read()).toHaveLength(1)
     receiptResponse = () =>
       Response.json({
         receipt: {
