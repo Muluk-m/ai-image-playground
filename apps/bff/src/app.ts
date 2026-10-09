@@ -166,6 +166,8 @@ export const app = new Elysia()
     const fields = {
       event: 'http.request',
       route: `${request.method} ${route || '（未匹配的路径）'}`,
+      // 只在未匹配时记原始路径：已匹配的用模板，避免把 ID 写进每条访问日志。
+      ...(route ? {} : { path: pathname.slice(0, 200) }),
       status,
       durationMs: Math.round(durationMs),
     }
