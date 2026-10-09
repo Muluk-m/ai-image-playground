@@ -1,6 +1,8 @@
 import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
+import { originalBlob } from '../features/image-export/sources'
+import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
@@ -11,6 +13,7 @@ import { loadImageOriginal } from '../lib/imageSource'
 import { useStore } from '../store'
 import { DownloadIcon, VideoIcon } from './icons'
 import Overlay from './Overlay'
+import { Button } from './ui/button'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 10
@@ -225,10 +228,9 @@ function LightboxInner({
   onPrev,
   onNext,
 }: LightboxInnerProps) {
-  const { t } = useTranslation(['task', 'common'])
+  const { t } = useTranslation(['task', 'common', 'toolbox'])
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
-  const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
   // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
   const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
@@ -645,28 +647,47 @@ function LightboxInner({
           </span>
         )}
 
-        {(videoAvailable || coarsePointer) && (
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-            {videoAvailable && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void startVideoFromImage(imageId)
-                }}
-                className={actionBtnClass}
-              >
-                <VideoIcon className="w-4 h-4" />
-                {t('menu.makeVideo')}
-              </button>
-            )}
-            {coarsePointer && (
-              <button data-save-image onClick={handleSave} className={actionBtnClass}>
-                <DownloadIcon className="w-4 h-4" />
-                {t('lightbox.saveImage')}
-              </button>
-            )}
-          </div>
-        )}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+          {videoAvailable && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                void startVideoFromImage(imageId)
+              }}
+              className={actionBtnClass}
+            >
+              <VideoIcon className="w-4 h-4" />
+              {t('menu.makeVideo')}
+            </button>
+          )}
+          <Button
+            data-save-image
+            variant="secondary"
+            disabled={originalPending}
+            onClick={handleSave}
+            className={actionBtnClass}
+          >
+            <DownloadIcon className="w-4 h-4" />
+            {t('toolbox:export.downloadOriginal')}
+          </Button>
+          <Button
+            disabled={originalPending}
+            onClick={(event) => {
+              event.stopPropagation()
+              openImageExport([
+                {
+                  id: imageId || src,
+                  name: 'image',
+                  media: 'image',
+                  load: () => originalBlob(src),
+                },
+              ])
+            }}
+          >
+            <DownloadIcon className="w-4 h-4" />
+            {t('toolbox:export.export')}
+          </Button>
+        </div>
 
         {/* 左右切换按钮 */}
         {showNav && !isZoomed && (

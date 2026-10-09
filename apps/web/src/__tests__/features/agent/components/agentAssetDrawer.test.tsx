@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentAssetDrawer from '../../../../features/agent/components/AgentAssetDrawer'
 import type { AgentToolMessage } from '../../../../features/agent/types'
+import { useImageExportStore } from '../../../../features/image-export/store'
 
 const fixture = vi.hoisted(() => ({
   fetchConversations: vi.fn(async () => [{ id: 'other-1' }, { id: 'other-2' }]),
@@ -388,4 +389,25 @@ it('shows the newest source preview and does not reopen it after it is closed', 
     finishSlow('data:image/png;base64,slow')
   })
   expect(document.querySelector('[data-testid="source-preview"]')).toBeNull()
+})
+
+it('exports only checked assets and preserves the drawer when export handles Escape', async () => {
+  const onClose = vi.fn()
+  await act(async () =>
+    root.render(
+      <AgentAssetDrawer messages={[item('a'), item('b')]} onClose={onClose} onPreview={() => {}} />,
+    ),
+  )
+  const check = document.querySelector<HTMLButtonElement>(
+    '[role="checkbox"][aria-label="选择 Result a"]',
+  )!
+  act(() => check.click())
+  const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (one) => one.textContent === '导出',
+  )!
+  act(() => button.click())
+  expect(useImageExportStore.getState().request?.sources.map((source) => source.id)).toEqual(['a'])
+  act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+  expect(onClose).not.toHaveBeenCalled()
+  useImageExportStore.getState().close()
 })

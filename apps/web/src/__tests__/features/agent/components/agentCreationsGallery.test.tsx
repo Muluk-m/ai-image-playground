@@ -13,13 +13,13 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const { exportCanvasSelection } = vi.hoisted(() => ({
-  exportCanvasSelection: vi.fn(async () => ({ exported: 1, failed: 0 })),
+const { openImageExport } = vi.hoisted(() => ({
+  openImageExport: vi.fn(async () => ({ exported: 1, failed: 0 })),
 }))
 
-vi.mock('../../../../features/canvas/lib/exportImages', () => ({
-  exportCanvasSelection,
-  exportableElements: () => [],
+vi.mock('../../../../features/image-export/store', () => ({ openImageExport }))
+vi.mock('../../../../features/image-export/sources', () => ({
+  canvasExportSources: (_doc: unknown, ids: string[]) => ids.map((id) => ({ id })),
 }))
 
 const PIXEL = 'data:image/png;base64,aGk='
@@ -72,15 +72,15 @@ function card(name: string): HTMLButtonElement {
 
 /** 这次导出实际拿到的产物 id（顺序由导出自己按画布顺序定，断言只看集合）。 */
 function exportedIds(): string[] {
-  const calls = exportCanvasSelection.mock.calls as unknown as Array<[unknown, string[]]>
+  const calls = openImageExport.mock.calls as unknown as Array<[Array<{ id: string }>]>
   const last = calls[calls.length - 1]
-  return [...(last?.[1] ?? [])].sort()
+  return (last?.[0] ?? []).map((one) => one.id).sort()
 }
 
 beforeEach(() => {
   doc = new CanvasDoc()
   setAgentCanvasSink(null)
-  exportCanvasSelection.mockClear()
+  openImageExport.mockClear()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)

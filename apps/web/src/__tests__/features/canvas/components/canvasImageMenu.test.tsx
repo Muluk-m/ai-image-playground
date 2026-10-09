@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CanvasImageMenu from '../../../../features/canvas/components/CanvasImageMenu'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import { useImageExportStore } from '../../../../features/image-export/store'
 import { useStore } from '../../../../store'
 
 const copyBlobToClipboard = vi.fn(async (_blob: Blob) => {})
@@ -48,6 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  useImageExportStore.getState().close()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
@@ -68,14 +70,16 @@ describe('画布图片右键菜单', () => {
     expect(useStore.getState().toast?.message).toBe('图片已复制')
   })
 
-  it('下载用原始位图并按格式起扩展名', async () => {
+  it('导出打开尺寸设置并读取原始位图', async () => {
     render({ id: 'img-1', x: 10, y: 10 })
     await act(async () => {
-      item('下载图片').click()
+      item('导出').click()
       await Promise.resolve()
     })
-    await vi.waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1))
-    expect(downloadBlob.mock.calls[0]![1]).toBe('canvas-img-1.png')
+    const request = useImageExportStore.getState().request
+    expect(request?.sources.map((one) => one.id)).toEqual(['img-1'])
+    expect((await request!.sources[0]!.load()).type).toBe('image/png')
+    expect(downloadBlob).not.toHaveBeenCalled()
   })
 
   it('opens the original image in a touch-saveable preview without importing it', async () => {

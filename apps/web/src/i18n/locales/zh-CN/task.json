@@ -91,7 +91,6 @@
     "makeVideoFailed": "做成视频失败：{{reason}}"
   },
   "lightbox": {
-    "saveImage": "保存图片",
     "saveFailed": "保存失败",
     "loadingOriginal": "原图加载中",
     "dialog": "图片预览"
