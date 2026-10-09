@@ -112,7 +112,7 @@ it.each([
     // Upload is ready, but the preview bytes are still withheld. An empty src paints the broken icon.
     expect(thumb().getAttribute('src')).toBeNull()
     expect(thumb().className).toContain('opacity-0')
-    expect(host.querySelector('.animate-spin')).not.toBeNull()
+    expect(host.querySelector('[data-slot="attachment-loading"]')).not.toBeNull()
 
     releasePreview()
     const retry = () => host.querySelector<HTMLButtonElement>('button[aria-label*="重试载入"]')!
@@ -120,7 +120,7 @@ it.each([
       await act(async () => {
         await vi.waitFor(() => expect(retry()).not.toBeNull())
       })
-      expect(host.querySelector('.animate-spin')).toBeNull()
+      expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
       expect(thumb().getAttribute('src')).toBeNull()
       await act(async () => retry().click())
     }
@@ -147,7 +147,7 @@ it.each([
       })
       await act(async () => thumb().dispatchEvent(new Event('error')))
       expect(retry()).not.toBeNull()
-      expect(host.querySelector('.animate-spin')).toBeNull()
+      expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
       if (scenario === 'cache deletion failure')
         vi.spyOn(mediaDb, 'dbTransaction').mockRejectedValueOnce(new Error('storage unavailable'))
       await act(async () => retry().click())
@@ -162,7 +162,7 @@ it.each([
       thumb().dispatchEvent(new Event('load'))
     })
     expect(thumb().className).not.toContain('opacity-0')
-    expect(host.querySelector('.animate-spin')).toBeNull()
+    expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
     expect(retry()).toBeNull()
     expect(uploads).toBe(1)
     expect(previews).toBe(scenario === 'success' ? 1 : 2)

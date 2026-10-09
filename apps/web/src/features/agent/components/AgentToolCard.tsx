@@ -3,6 +3,7 @@ import { ArrowUpRight, Download, Ellipsis, Images, Maximize2 } from 'lucide-reac
 import { useEffect, useRef, useState } from 'react'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
+import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
@@ -504,6 +505,37 @@ function StandardAgentToolCard({
       </div>
     )
   }
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    !message.artifacts?.length &&
+    !message.fetchedImages?.length
+  ) {
+    return (
+      <StoppedRun
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        reason={note ?? t('job.cancelled')}
+        actions={
+          <>
+            {message.prompt && (
+              <Button variant="ghost" size="sm" onClick={() => setPromptOpen(true)}>
+                {t('tool.viewPrompt')}
+              </Button>
+            )}
+            <FailureAction message={message} />
+          </>
+        }
+      >
+        <p className="text-sm font-medium leading-relaxed">{message.title}</p>
+        <WakeSkippedNote message={message} />
+        <RetryRecord message={message} />
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </StoppedRun>
+    )
+  }
   if (message.status === 'failed' && !message.artifacts?.length && !message.fetchedImages?.length) {
     return (
       <ToolError
@@ -618,13 +650,15 @@ function StandardAgentToolCard({
           <AgentJobProgress progress={progress} />
           <div className="studio-agent-generation-actions">
             {message.prompt && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 className="studio-agent-generation-action"
                 onClick={() => setPromptOpen(true)}
               >
                 {t('tool.viewPrompt')}
-              </button>
+              </Button>
             )}
             <AgentJobCancel message={message} className="studio-agent-generation-action" />
           </div>

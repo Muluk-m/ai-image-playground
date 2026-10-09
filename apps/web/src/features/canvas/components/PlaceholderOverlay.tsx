@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useState, useSyncExternalStore } from 'react'
+import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { ShimmerLabel } from '../../../components/assistant-ui/elements/surfaces'
 import Credits from '../../../components/Credits'
 import { i18next, useTranslation } from '../../../i18n'
@@ -262,13 +263,11 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
             >
               {isLoading ? (
                 <>
-                  {/* 与对话里的生图卡同一套生成态：缓慢漂移的主题色光晕 + 底边一道扫光。 */}
-                  <div aria-hidden className="studio-canvas-generating">
-                    <div className="studio-agent-generation-glow" />
-                    <div className="studio-agent-generation-track">
-                      <span />
-                    </div>
-                  </div>
+                  <ImageGeneration
+                    generating
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 h-full aspect-auto rounded-none bg-transparent opacity-40"
+                  />
                   {p.meta.agent ? (
                     <AgentPlaceholderLabel placeholder={p} />
                   ) : (

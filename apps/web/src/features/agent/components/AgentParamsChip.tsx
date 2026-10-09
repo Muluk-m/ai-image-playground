@@ -1,9 +1,6 @@
 import { useMemo } from 'react'
-import {
-  SettingsPopover,
-  SettingsSection,
-  SettingsSegmented,
-} from '../../../components/composer/SettingsPanel'
+import { ReasoningEffort } from '../../../components/assistant-ui/elements/reasoning-effort'
+import { SettingsPopover, SettingsSection } from '../../../components/composer/SettingsPanel'
 import { ImageSettings, ModelChip, type UnsupportedParam } from '../../../components/ParamControls'
 import { useTranslation } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -45,11 +42,13 @@ export default function AgentParamsChip({
 
   const thinking = (
     <SettingsSection title={t('params.thinkingLegend')}>
-      <SettingsSegmented
+      <ReasoningEffort
         label={t('params.thinkingLegend')}
-        options={DEPTHS.map((value) => ({ value, label: labels[value] }))}
-        value={depth}
-        onChange={setDepth}
+        levels={DEPTHS.map((key) => ({ key, label: labels[key] }))}
+        selectedKey={depth}
+        onSelect={(key) => {
+          if (key === 'fast' || key === 'medium' || key === 'deep') setDepth(key)
+        }}
       />
     </SettingsSection>
   )

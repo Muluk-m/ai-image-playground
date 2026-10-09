@@ -156,7 +156,7 @@ describe('SuggestionMenu', () => {
     act(() => root.render(<Harness onSelect={onSelect} />))
 
     act(() => {
-      optionButtons()[2].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      optionButtons()[2].click()
     })
 
     expect(onSelect).toHaveBeenCalledWith(2)
