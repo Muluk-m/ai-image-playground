@@ -58,6 +58,16 @@ export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
 export const CARD_NOTE = `text-label-sm ${INK_3}`
 
 /**
+ * 对话卡片里的控件。字号跟卡片正文一样，不再套表单默认的 36px 输入框和 80px 文本域。
+ * 多行内容默认三行，更长的在框里滚，不把整张卡撑满对话。
+ */
+export const CARD_CONTROL =
+  'h-8 rounded-lg border border-border bg-background px-2 text-xs shadow-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+
+export const CARD_TEXT =
+  'min-h-[4.5rem] w-full resize-y overflow-y-auto rounded-lg border border-border bg-background px-2 py-1.5 text-xs leading-relaxed shadow-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+
+/**
  * 草稿卡里那块提示词：卡本身是 `bg-muted`，输入框用底色分出来，一眼看得出这段字可以改。
  * 高度由内容给，长到放不下再滚动。
  */

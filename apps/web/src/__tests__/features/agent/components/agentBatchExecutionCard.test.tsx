@@ -551,8 +551,11 @@ it('polls one active batch at a time, exposes each outcome, and stops after its 
     await act(async () => {
       release()
     })
-    expect(host.querySelectorAll('details')[0]?.textContent).toContain('已完成')
-    expect(host.querySelectorAll('details')[1]?.textContent).toContain('待核查')
+    expect(host.textContent).toContain('已完成')
+    expect(host.querySelector('details[data-batch-status="completed"]')).toBeNull()
+    expect(host.querySelector('details[data-batch-status="reconciling"]')?.textContent).toContain(
+      '待核查',
+    )
     expect(imageReads).toBe(0)
     saved = {
       ...saved,
@@ -577,14 +580,23 @@ it('polls one active batch at a time, exposes each outcome, and stops after its 
       await vi.advanceTimersByTimeAsync(10_000)
     })
     expect(reads).toBe(3)
-    expect(host.querySelectorAll('details')[1]?.textContent).toContain('生成失败')
+    expect(host.querySelector('details[data-batch-status="failed"]')?.textContent).toContain(
+      '生成失败',
+    )
     expect(host.textContent).not.toContain('raw upstream text')
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000)
     })
     expect(reads).toBe(3)
     vi.useRealTimers()
-    act(() => host.querySelector('summary')!.click())
+    act(() =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent?.includes('已完成'))!
+        .click(),
+    )
+    act(() =>
+      host.querySelector<HTMLElement>('details[data-batch-status="completed"] summary')!.click(),
+    )
     const preview = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (one) => one.textContent === '查看结果 1',
     )
@@ -803,10 +815,13 @@ it('quotes only selected definite failures and preserves pause plus every earlie
     [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === label)
   try {
     await act(async () => root.render(<AgentToolCard message={message} />))
-    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(4))
-    expect(host.querySelectorAll('details')[3]?.textContent).toContain('依赖受阻')
-    expect(host.querySelectorAll('details')[3]?.textContent).toContain('第 2 项')
-    act(() => host.querySelectorAll('details')[1]!.querySelector('summary')!.click())
+    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(3))
+    const blocked = host.querySelector('details[data-batch-status="blocked"]')
+    expect(blocked?.textContent).toContain('依赖受阻')
+    expect(blocked?.textContent).toContain('第 2 项')
+    act(() =>
+      host.querySelector<HTMLElement>('details[data-batch-status="failed"] summary')!.click(),
+    )
     const selection = host.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')
     expect(selection).toHaveLength(1)
     expect(selection[0]?.getAttribute('aria-label')).toBe('选择重试第 2 项')
@@ -1095,7 +1110,10 @@ it('keeps polling a paused batch while item progress is reconciling despite a le
     await act(async () =>
       root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="paused-unknown" />),
     )
-    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(2))
+    await vi.waitFor(() =>
+      expect(host.querySelector('details[data-batch-status="reconciling"]')).not.toBeNull(),
+    )
+    expect(host.querySelector('details[data-batch-status="pending"]')).toBeNull()
     saved = {
       ...saved,
       items: saved.items.map((item, index) =>
