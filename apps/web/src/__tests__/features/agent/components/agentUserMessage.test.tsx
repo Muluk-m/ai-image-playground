@@ -109,3 +109,81 @@ it('shows user intent and a named reference while hiding legacy edit scaffolding
     act(() => root.unmount())
   }
 })
+
+it('folds reference chips past the first row and expands them on request', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user',
+    turnId: 'turn',
+    role: 'user',
+    streaming: false,
+    text: '优化一下背景',
+    references: Array.from({ length: 12 }, (_, index) => ({
+      imageId: `img-${index}`,
+      name: `图${index + 1}`,
+      image: { object: `image-${index}`, mime: 'image/png' },
+    })),
+  }
+  try {
+    act(() => root.render(<AgentUserMessage message={message} skills={[]} />))
+    expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(8)
+    expect(host.textContent).toContain('@图8')
+    expect(host.textContent).not.toContain('@图9')
+    const fold = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('还有 4 张'),
+    )
+    expect(fold?.getAttribute('aria-expanded')).toBe('false')
+    act(() => fold?.click())
+    expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(12)
+    expect(host.textContent).toContain('@图12')
+    const collapse = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('收起'),
+    )
+    expect(collapse?.getAttribute('aria-expanded')).toBe('true')
+    act(() => collapse?.click())
+    expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(8)
+    expect(host.textContent).not.toContain('@图9')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('keeps a narrow panel on one row when reference names are long', () => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get: () => 340,
+  })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user',
+    turnId: 'turn',
+    role: 'user',
+    streaming: false,
+    text: '优化一下背景',
+    references: Array.from({ length: 12 }, (_, index) => ({
+      imageId: `img-${index}`,
+      name: `微信图片_20261008_${index + 1}`,
+      image: { object: `image-${index}`, mime: 'image/png' },
+    })),
+  }
+  try {
+    act(() => root.render(<AgentUserMessage message={message} skills={[]} />))
+    expect(host.querySelectorAll('.agent-image-mention').length).toBeLessThan(8)
+    const fold = host.querySelector<HTMLButtonElement>('.agent-reference-fold')
+    expect(fold?.getAttribute('aria-expanded')).toBe('false')
+    expect(fold?.textContent ?? '').toMatch(/还有 \d+ 张|12 张参考图/)
+    act(() => fold?.click())
+    expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(12)
+    expect(host.textContent).toContain('收起')
+  } finally {
+    act(() => root.unmount())
+    if (original) Object.defineProperty(HTMLElement.prototype, 'clientWidth', original)
+    else Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
+  }
+})

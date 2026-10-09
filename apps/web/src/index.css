@@ -1327,6 +1327,37 @@ input[type="number"] {
   padding-right: 6px;
 }
 
+/* 折叠计数跟图片胶囊同一行高，颜色压暗，避免变成另一颗主色胶囊。 */
+.agent-reference-strip > .mention-tag {
+  margin: 0;
+}
+
+.mention-tag.agent-reference-fold {
+  gap: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  line-height: 24px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.45);
+  border-style: dashed;
+  border-color: hsl(var(--border) / 0.9);
+}
+
+.mention-tag.agent-reference-fold:hover,
+.dark .mention-tag.agent-reference-fold:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted) / 0.8);
+  border-color: hsl(var(--primary) / 0.45);
+}
+
+.dark .mention-tag.agent-reference-fold {
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.35);
+  border-color: hsl(var(--border) / 0.8);
+}
+
 .mention-tag[data-prompt-command] {
   padding: 0;
   border: 0;
