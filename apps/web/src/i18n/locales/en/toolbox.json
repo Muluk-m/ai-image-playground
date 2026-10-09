@@ -12,10 +12,6 @@
       "name": "Convert",
       "options": "JPG · PNG · WebP · AVIF"
     },
-    "resize": {
-      "name": "Resize",
-      "options": "Long edge · Width · Percent"
-    },
     "crop": {
       "name": "Crop",
       "options": "Ratio · Store & social sizes"
@@ -37,7 +33,7 @@
       "options": "3×3 · 2×2 · 1×3"
     },
     "export": {
-      "name": "Image export",
+      "name": "Image resize",
       "options": "Dimensions · Scales · Formats"
     }
   },
@@ -58,12 +54,6 @@
     "format": "Output format",
     "quality": "Quality",
     "convertTo": "Convert to",
-    "resizeBy": "By",
-    "resize": {
-      "longEdge": "Long edge",
-      "width": "Width",
-      "percent": "Percent"
-    },
     "rotate": "Rotate",
     "flip": "Flip",
     "flipH": "Horizontal",

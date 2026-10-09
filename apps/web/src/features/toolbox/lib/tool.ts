@@ -5,7 +5,6 @@ export type ToolId =
   | 'export'
   | 'compress'
   | 'convert'
-  | 'resize'
   | 'crop'
   | 'rotate'
   | 'collage'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { centerCrop, plan, resizedSize } from '../../../../features/toolbox/lib/geometry'
+import { centerCrop, plan } from '../../../../features/toolbox/lib/geometry'
 import { collageLayout, sliceLayout, stitchLayout } from '../../../../features/toolbox/lib/layout'
 import { searchQualityForSize } from '../../../../features/toolbox/lib/targetSize'
 
@@ -16,19 +16,6 @@ describe('plan', () => {
     })
     expect(result.crop.height).toBe(1125)
     expect(result.upscaled).toBe(true)
-  })
-})
-
-describe('resizedSize', () => {
-  it('never enlarges by long edge, but honours an explicit width', () => {
-    expect(resizedSize(800, 600, { mode: 'longEdge', value: 1600 })).toEqual({
-      width: 800,
-      height: 600,
-    })
-    expect(resizedSize(800, 600, { mode: 'width', value: 1600 })).toEqual({
-      width: 1600,
-      height: 1200,
-    })
   })
 })
 

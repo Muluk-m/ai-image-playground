@@ -12,10 +12,6 @@
       "name": "转格式",
       "options": "JPG · PNG · WebP · AVIF"
     },
-    "resize": {
-      "name": "改尺寸",
-      "options": "长边 · 宽度 · 百分比"
-    },
     "crop": {
       "name": "裁剪",
       "options": "比例 · 电商 / 社媒尺寸"
@@ -37,7 +33,7 @@
       "options": "3×3 · 2×2 · 1×3"
     },
     "export": {
-      "name": "图片尺寸与导出",
+      "name": "图片尺寸调整",
       "options": "等比尺寸 · 倍图 · 格式"
     }
   },
@@ -57,12 +53,6 @@
     "format": "输出格式",
     "quality": "质量",
     "convertTo": "转成",
-    "resizeBy": "按",
-    "resize": {
-      "longEdge": "长边",
-      "width": "宽度",
-      "percent": "百分比"
-    },
     "rotate": "旋转",
     "flip": "翻转",
     "flipH": "水平",
