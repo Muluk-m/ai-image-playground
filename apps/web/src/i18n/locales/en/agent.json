@@ -141,6 +141,7 @@
     "voices_one": "{{count}} voice",
     "voices_other": "{{count}} voices",
     "estimatedCost": "Estimated cost",
+    "loading": "Loading video",
     "playbackFailed": "This video could not be played. Try reloading it.",
     "reload": "Reload video",
     "downloading": "Downloading…",
