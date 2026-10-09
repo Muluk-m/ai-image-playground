@@ -72,7 +72,12 @@ import {
   removeAgentConversationReferences,
   validateConversationMediaSelections,
 } from '../lib/agent/images'
-import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
+import {
+  agentSubmissionEntry,
+  type InboxEntry,
+  queuedAgentMessages,
+  reserveAgentSubmissionCancellation,
+} from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import {
   advanceAgentRetryQueueSafely,
@@ -768,6 +773,77 @@ export const agentRoutes = new Elysia()
         /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
         experience: t.Optional(t.Any()),
       }),
+    },
+  )
+  .get(
+    '/api/agent/conversations/:id/submissions/:clientMessageId',
+    async ({ params, headers, authUser, status, request }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      return withAgentLifecycle(owner, async () => {
+        const entry = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+        return { receipt: entry ? queuedBody(entry, runningTurn(conversation.id)?.turnId) : null }
+      })
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      headers: deviceIdHeaderSchema(),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/submissions/:clientMessageId/reconcile',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      // 原子确认只为不存在的记录预留取消终态，已排队的消息保持原状。
+      const entry = await reserveAgentSubmissionCancellation(
+        conversation.id,
+        params.clientMessageId,
+        body.deviceId,
+      )
+      if (!entry) return status(404, NOT_FOUND)
+      const receipt = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+      return { receipt: receipt ? queuedBody(receipt, runningTurn(conversation.id)?.turnId) : null }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/submissions/:clientMessageId/withdraw',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const entry = await reserveAgentSubmissionCancellation(
+        conversation.id,
+        params.clientMessageId,
+        body.deviceId,
+      )
+      if (!entry) return status(404, NOT_FOUND)
+      await withdrawFromConversationInbox(conversation.id, entry.view.id)
+      const receipt = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+      return { receipt: receipt ? queuedBody(receipt, runningTurn(conversation.id)?.turnId) : null }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
     },
   )
   .get(

@@ -20,6 +20,23 @@ async function* silentThenEnd(silentMs: number): AsyncGenerator<StoredAgentEvent
 }
 
 describe('agentTurnStream', () => {
+  it('静默续播立即给首包，不等第一个心跳', async () => {
+    let finish!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    async function* silent(): AsyncGenerator<StoredAgentEvent> {
+      await gate
+      yield { seq: 1, event: TURN_END }
+    }
+    const reader = agentTurnStream(silent()).body!.getReader()
+    const first = await Promise.race([reader.read(), Bun.sleep(100).then(() => null)])
+    finish()
+    expect(first).not.toBeNull()
+    expect(new TextDecoder().decode(first!.value)).toBe(': ping\n\n')
+    await reader.cancel()
+  })
+
   it('沉默期补心跳，轮照常收尾', async () => {
     const response = agentTurnStream(silentThenEnd(60), 10)
 

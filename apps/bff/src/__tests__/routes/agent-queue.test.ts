@@ -261,7 +261,82 @@ async function busyConversation() {
   return { conversationId, turnId, first }
 }
 
+describe('提交回执', () => {
+  it.each([
+    'withdraw',
+    'reconcile',
+  ])('取消先于入队时留下终态，迟到的同 id 提交不会开轮（%s）', async (action) => {
+    const conversationId = await startConversation()
+    const path = `/api/agent/conversations/${conversationId}/submissions/cancel-first/${action}`
+    const denied = await post(path, { deviceId: 'another-device' })
+    expect(denied.status).toBe(404)
+    const cancelled = await post(path, { deviceId: DEVICE })
+    expect(cancelled.status).toBe(200)
+    const first = await cancelled.json()
+    expect(first.receipt.state).toBe('cancelled')
+    const repeated = await post(path, { deviceId: DEVICE })
+    expect((await repeated.json()).receipt.queued.id).toBe(first.receipt.queued.id)
+    const late = await send(conversationId, '迟到的请求', 'cancel-first')
+    expect(late.status).toBe(202)
+    expect((await late.json()).state).toBe('cancelled')
+    expect(calls).toHaveLength(0)
+    expect((await snapshot(conversationId)).activeTurn).toBeNull()
+  })
+
+  it('按客户端消息 id 查询已开轮的回执，且不重复调用模型', async () => {
+    const conversationId = await startConversation()
+    const response = await send(conversationId, '你好', 'receipt-client')
+    expect(response.status).toBe(200)
+    await upstreamCall(0)
+    const receiptResponse = await get(
+      `/api/agent/conversations/${conversationId}/submissions/receipt-client`,
+    )
+    expect(receiptResponse.status).toBe(200)
+    const { receipt } = await receiptResponse.json()
+    expect(receipt.state).toBe('consumed')
+    expect(receipt.turnId).toBeTruthy()
+    expect(receipt.queued.clientMessageId).toBe('receipt-client')
+    const stopped = await post(
+      `/api/agent/conversations/${conversationId}/submissions/receipt-client/withdraw`,
+      { deviceId: DEVICE },
+    )
+    expect((await stopped.json()).receipt).toMatchObject({
+      state: 'consumed',
+      turnId: receipt.turnId,
+    })
+    const missing = await get(`/api/agent/conversations/${conversationId}/submissions/missing`)
+    expect(missing.status).toBe(200)
+    expect(await missing.json()).toEqual({ receipt: null })
+    const denied = await app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${conversationId}/submissions/receipt-client`,
+        { headers: { [DEVICE_ID_HEADER]: 'another-device' } },
+      ),
+    )
+    expect(denied.status).toBe(404)
+    expect(calls).toHaveLength(1)
+    void response.body!.cancel()
+  })
+})
+
 describe('排队消息', () => {
+  it('原子确认返回已接收的 pending 回执，保持原队列而不撤回', async () => {
+    const { conversationId, turnId } = await busyConversation()
+    const original = await queued(await send(conversationId, '已接收的消息', 'late-pending'))
+    const confirmed = await post(
+      `/api/agent/conversations/${conversationId}/submissions/late-pending/reconcile`,
+      { deviceId: DEVICE },
+    )
+    expect(confirmed.status).toBe(200)
+    expect((await confirmed.json()).receipt).toMatchObject({
+      state: 'pending',
+      turnId,
+      queued: original.queued,
+    })
+    expect((await queueList(conversationId)).map((one) => one.id)).toContain(original.queued.id)
+    expect(calls).toHaveLength(1)
+  })
+
   it('会话忙时发送返回已排队，出现在排队列表、快照与会话事件里', async () => {
     const { conversationId, turnId } = await busyConversation()
 
