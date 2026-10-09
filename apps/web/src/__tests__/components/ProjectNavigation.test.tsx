@@ -147,6 +147,8 @@ it('drops an in-progress rename when the active project changes', async () => {
     expect(host.querySelector('input[aria-label="项目名称"]')).toBeNull()
     expect(host.textContent).toContain('Beta')
     expect(renameProject).not.toHaveBeenCalled()
+    await act(async () => useCanvasProjectStore.setState({ activeId: 'a' }))
+    expect(host.querySelector('input[aria-label="项目名称"]')).toBeNull()
   } finally {
     await act(async () => root.unmount())
     host.remove()
