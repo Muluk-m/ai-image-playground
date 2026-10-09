@@ -1,5 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ArrowDown, Search, X } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Search, X } from 'lucide-react'
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -16,7 +16,7 @@ import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import { ACTIVE_TAB, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -327,22 +327,17 @@ export default function AgentPanel({
               </button>
             ))}
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             aria-label={t('panel.collapseAria')}
-            className={`${ICON_BUTTON} hidden md:inline-flex`}
+            title={t('panel.collapseAria')}
+            className="hidden h-7 w-7 shrink-0 rounded-lg text-muted-foreground md:inline-flex"
             onClick={() => setOpen(false)}
           >
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
-              <path
-                d="M10 3.5 5.5 8l4.5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
+            <ChevronLeft aria-hidden="true" />
+          </Button>
         </div>
       )}
 
