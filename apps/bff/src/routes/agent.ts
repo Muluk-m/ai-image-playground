@@ -72,7 +72,7 @@ import {
   removeAgentConversationReferences,
   validateConversationMediaSelections,
 } from '../lib/agent/images'
-import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
+import { agentSubmissionEntry, type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import {
   advanceAgentRetryQueueSafely,
@@ -768,6 +768,27 @@ export const agentRoutes = new Elysia()
         /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
         experience: t.Optional(t.Any()),
       }),
+    },
+  )
+  .get(
+    '/api/agent/conversations/:id/submissions/:clientMessageId',
+    async ({ params, headers, authUser, status, request }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      return withAgentLifecycle(owner, async () => {
+        const entry = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+        return { receipt: entry ? queuedBody(entry, runningTurn(conversation.id)?.turnId) : null }
+      })
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      headers: deviceIdHeaderSchema(),
     },
   )
   .get(

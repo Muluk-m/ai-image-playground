@@ -261,6 +261,35 @@ async function busyConversation() {
   return { conversationId, turnId, first }
 }
 
+describe('提交回执', () => {
+  it('按客户端消息 id 查询已开轮的回执，且不重复调用模型', async () => {
+    const conversationId = await startConversation()
+    const response = await send(conversationId, '你好', 'receipt-client')
+    expect(response.status).toBe(200)
+    await upstreamCall(0)
+    const receiptResponse = await get(
+      `/api/agent/conversations/${conversationId}/submissions/receipt-client`,
+    )
+    expect(receiptResponse.status).toBe(200)
+    const { receipt } = await receiptResponse.json()
+    expect(receipt.state).toBe('consumed')
+    expect(receipt.turnId).toBeTruthy()
+    expect(receipt.queued.clientMessageId).toBe('receipt-client')
+    const missing = await get(`/api/agent/conversations/${conversationId}/submissions/missing`)
+    expect(missing.status).toBe(200)
+    expect(await missing.json()).toEqual({ receipt: null })
+    const denied = await app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${conversationId}/submissions/receipt-client`,
+        { headers: { [DEVICE_ID_HEADER]: 'another-device' } },
+      ),
+    )
+    expect(denied.status).toBe(404)
+    expect(calls).toHaveLength(1)
+    void response.body!.cancel()
+  })
+})
+
 describe('排队消息', () => {
   it('会话忙时发送返回已排队，出现在排队列表、快照与会话事件里', async () => {
     const { conversationId, turnId } = await busyConversation()

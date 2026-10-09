@@ -218,7 +218,7 @@ describe('发送与续播的等待期限', () => {
       )
       const sending = startTurn(CONVERSATION, '改面料', [], undefined, undefined, fetcher)
       const rejected = expect(sending).rejects.toMatchObject(
-        status === 202 ? { name: 'TimeoutError' } : { status },
+        status === 202 ? { name: 'TimeoutError', phase: 'response_body' } : { status },
       )
 
       await vi.advanceTimersByTimeAsync(15_000)
@@ -250,7 +250,10 @@ describe('发送与续播的等待期限', () => {
         fetcher,
         'client-1',
       )
-      const rejected = expect(sending).rejects.toMatchObject({ name: 'TimeoutError' })
+      const rejected = expect(sending).rejects.toMatchObject({
+        name: 'TimeoutError',
+        phase: 'response_headers',
+      })
       await vi.advanceTimersByTimeAsync(30_000)
       await rejected
       expect(fetcher).toHaveBeenCalledTimes(2)

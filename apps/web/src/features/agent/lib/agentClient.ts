@@ -62,7 +62,21 @@ async function fetchStreamResponse(
     return { response, releaseDeadline }
   } catch (error) {
     releaseDeadline()
-    throw error
+    throw new AgentTransportError('response_headers', error)
+  }
+}
+
+export class AgentTransportError extends Error {
+  constructor(
+    readonly phase: 'response_headers' | 'response_body',
+    readonly cause: unknown,
+    readonly requestId?: string,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name =
+      cause && typeof cause === 'object' && 'name' in cause
+        ? String(cause.name)
+        : 'AgentTransportError'
   }
 }
 
@@ -169,6 +183,26 @@ export async function fetchMessages(
   if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentConversationState
 }
+export async function fetchSubmissionReceipt(
+  conversationId: string,
+  clientMessageId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentMessageQueuedBody | null> {
+  const response = await fetcher(
+    url(
+      `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}`,
+    ),
+    {
+      headers: deviceHeaders(),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  const body = (await response.json()) as { receipt: AgentMessageQueuedBody | null }
+  if (!('receipt' in body)) throw new Error('Missing Agent submission receipt')
+  return body.receipt
+}
+
 export async function fetchMessageReference(
   conversationId: string,
   messageId: string,
@@ -338,6 +372,13 @@ export async function startTurn(
     }
     if (!response.ok || !response.body) throw await requestError(response)
     return { kind: 'frames', frames: readFrames(response) }
+  } catch (error) {
+    if (error instanceof AgentRequestError) throw error
+    throw new AgentTransportError(
+      'response_body',
+      error,
+      response.headers.get('x-request-id') ?? undefined,
+    )
   } finally {
     opened.releaseDeadline()
   }
@@ -432,6 +473,8 @@ export interface AgentTurnStream {
   /** 流走完之后的终局；走完之前是 `null`。 */
   readonly outcome: AgentTurnOutcome | null
   readonly lastError: unknown
+  /** 已归约的会话游标，长时间断线后继续沿用去重断点。 */
+  readonly cursor: number
 }
 
 /**
@@ -448,6 +491,7 @@ export function followTurn(
     onReconnectingChange,
   }: FollowTurnOptions = {},
 ): AgentTurnStream {
+  let seen = 'turnId' in source ? (source.cursor ?? 0) : 0
   let lastError: unknown
   let outcome: AgentTurnOutcome | null = null
   let reconnecting = false
@@ -467,7 +511,6 @@ export function followTurn(
         ? resumeTurn(conversationId, turnId, after, fetcher, connected)
         : resumeConversation(conversationId, after, fetcher, connected)
     // 见过的最大帧标识，就是续播的断点；快照已经覆盖到游标为止。
-    let seen = cursor ?? 0
     let frames = 'frames' in source ? source.frames : resume(seen)
     // 流里最近一个 `turnStart` 属于哪一轮；它之后、下一个 `turnStart` 之前的事件都归它。
     // 续播从一轮中间接上时还没见过 `turnStart`，那段就是这一轮自己的。
@@ -532,6 +575,9 @@ export function followTurn(
     events: follow(),
     get lastError() {
       return lastError
+    },
+    get cursor() {
+      return seen
     },
     get outcome() {
       return outcome

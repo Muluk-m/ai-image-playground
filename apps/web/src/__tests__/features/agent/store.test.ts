@@ -69,6 +69,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   }
   if (init?.method === 'DELETE') return deleteResponse()
   if (url.endsWith('/api/agent/conversations')) return conversationsResponse()
+  if (url.includes('/submissions/')) return Response.json({ receipt: null })
   if (url.includes('/turns')) return turnResponse()
   return messagesResponse()
 })
