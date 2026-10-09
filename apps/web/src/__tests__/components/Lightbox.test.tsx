@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import ImageContextMenu from '../../components/ImageContextMenu'
 import Lightbox, { ImagePreview } from '../../components/Lightbox'
 import { useStore } from '../../store'
 
@@ -284,4 +285,53 @@ it('waits for original pixels before allowing download or export from ImagePrevi
   expect(download().disabled).toBe(false)
   expect(exportButton().disabled).toBe(false)
   expect(lightboxImage().src).toBe(IMAGE_SRC)
+})
+
+it('shows original failure with a retry instead of a permanent loading indicator', async () => {
+  const retry = vi.fn()
+  await act(async () =>
+    root.render(
+      <ImagePreview src={THUMBNAIL_SRC} originalFailed onRetryOriginal={retry} onClose={vi.fn()} />,
+    ),
+  )
+  expect(lightboxRoot().textContent).toContain('原图加载失败')
+  expect(lightboxRoot().textContent).not.toContain('原图加载中')
+  expect(lightboxRoot().querySelector('.animate-spin')).toBeNull()
+  expect(document.querySelector<HTMLButtonElement>('[data-save-image]')?.disabled).toBe(true)
+  const button = [...lightboxRoot().querySelectorAll('button')].find(
+    (one) => one.textContent === '重试',
+  )!
+  act(() => button.click())
+  expect(retry).toHaveBeenCalledTimes(1)
+})
+
+it.each([
+  'pending',
+  'failed',
+] as const)('blocks preview-only context-menu actions: %s', async (state) => {
+  const render = (ready: boolean) =>
+    root.render(
+      <>
+        <ImageContextMenu />
+        <ImagePreview
+          src={ready ? IMAGE_SRC : THUMBNAIL_SRC}
+          originalPending={!ready && state === 'pending'}
+          originalFailed={!ready && state === 'failed'}
+          onClose={vi.fn()}
+        />
+      </>,
+    )
+  await act(async () => render(false))
+  const blocked = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+  act(() => lightboxImage().dispatchEvent(blocked))
+  expect(blocked.defaultPrevented).toBe(true)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(lightboxImage().className).not.toContain('saveable-image')
+  await act(async () => render(true))
+  act(() =>
+    lightboxImage().dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+    ),
+  )
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
 })
