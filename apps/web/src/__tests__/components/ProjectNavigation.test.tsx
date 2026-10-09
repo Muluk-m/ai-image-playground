@@ -8,6 +8,9 @@ import type { CanvasProject } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { stubPointerApis } from '../helpers/radix'
 
+const renameProject = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('../../features/canvas/lib/activeProject', () => ({ renameProject }))
+
 it.each([
   'chat',
   'canvas',
@@ -45,7 +48,7 @@ it.each([
     const trigger = host.querySelector<HTMLButtonElement>('[aria-label^="切换项目"]')!
     await act(async () => trigger.click())
     const sections = () => [...document.querySelectorAll('section')]
-    const rows = (section: Element) => section.querySelectorAll('button:has(time)')
+    const rows = (section: Element) => section.querySelectorAll('button[data-project-row]')
     expect(sections().map((section) => section.getAttribute('aria-label'))).toEqual(
       experience === 'chat' ? ['对话', '画布'] : ['画布', '对话'],
     )
@@ -67,5 +70,46 @@ it.each([
     await act(async () => root.unmount())
     host.remove()
     refresh.mockRestore()
+  }
+})
+
+it('renames the active project from the title', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  stubPointerApis()
+  useCanvasProjectStore.setState({
+    projects: [
+      {
+        id: 'p1',
+        name: 'Old name',
+        experience: 'chat',
+        createdAt: 1,
+        updatedAt: 1,
+        kind: 'image',
+        customName: true,
+        conversationId: null,
+        sceneKey: 'scene-p1',
+        hasContent: true,
+      },
+    ],
+    activeId: 'p1',
+    cloudCatalog: {},
+    cloudLoading: false,
+    cloudError: null,
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectNavigation />))
+    await act(async () => host.querySelector<HTMLButtonElement>('[title="点击重命名"]')!.click())
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="项目名称"]')!
+    expect(input.value).toBe('Old name')
+    input.value = '  New name  '
+    await act(async () => input.blur())
+    expect(renameProject).toHaveBeenCalledWith('p1', 'New name')
+    expect(host.querySelector('input[aria-label="项目名称"]')).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
   }
 })
