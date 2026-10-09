@@ -1,14 +1,12 @@
 import { Zap } from 'lucide-react'
 import { useMemo } from 'react'
 import { ReasoningEffort } from '../../../components/assistant-ui/elements/reasoning-effort'
-import { ChipIcons } from '../../../components/chipIcons'
-import { ModelList, useModelChoices } from '../../../components/composer/ModelSelector'
+import { ModelSelector } from '../../../components/composer/ModelSelector'
 import {
   SettingsPopover,
   SettingsSection,
   SettingsToggle,
 } from '../../../components/composer/SettingsPanel'
-import { ModelLogo } from '../../../components/ModelIdentity'
 import { ImageSettings, type UnsupportedParam } from '../../../components/ParamControls'
 import { useTranslation } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -24,7 +22,7 @@ const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRe
 const DEPTHS = ['fast', 'medium', 'deep'] as const
 
 /**
- * 对话面板的生成设置：模型、画幅、思考深度与出图模式收进同一张卡片，chip 摘要写模型与画幅。
+ * 模型独立快选；画幅、思考深度与出图模式收进参数卡片，摘要只写画幅。
  * 张数由智能体按需求决定，所以没有数量。
  *
  * 自带 Key 的配置在智能体这条路上不生效——服务端没有 BYOK 分支，模型一律从内置渠道里挑。
@@ -38,7 +36,6 @@ export default function AgentParamsChip({
   generationControls?: boolean
 }) {
   const { t } = useTranslation(['agent', 'composer'])
-  const { options, currentValue, current, pick } = useModelChoices()
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
   const depth = useAgentStore((state) => state.thinkingDepth)
   const setDepth = useAgentStore((state) => state.setThinkingDepth)
@@ -77,51 +74,37 @@ export default function AgentParamsChip({
     )
   }
 
-  const modelLabel = byok
-    ? t('params.builtinModel')
-    : (current?.label ?? t('composer:param.noModel'))
   return (
-    <ImageSettings
-      size="sm"
-      unsupported={UNSUPPORTED}
-      extra={{
-        dirty: depth !== 'medium',
-        reset: () => setDepth('medium'),
-        chip: {
-          icon: !byok && current ? <ModelLogo model={current.model} /> : ChipIcons.model,
-          label: modelLabel,
-        },
-        badge: autoSubmit ? (
-          <Zap aria-label={t('params.autoSubmitLabel')} className="h-3.5 w-3.5 text-primary" />
-        ) : undefined,
-        lead: options.length > 0 && (
-          <SettingsSection title={t('composer:param.model')}>
-            <ModelList
-              options={options}
-              value={currentValue}
-              onPick={pick}
-              className="-mx-1 max-h-56"
-            />
-          </SettingsSection>
-        ),
-        section: (
-          <>
-            {thinking}
-            <SettingsToggle
-              label={t('params.autoSubmitLabel')}
-              description={t('params.autoSubmitHint')}
-              checked={autoSubmit}
-              onChange={(value) => useAgentStore.getState().setAutoSubmit(value)}
-            />
-          </>
-        ),
-        footnote: (
-          <div className="space-y-1.5 text-label-sm leading-relaxed text-muted-foreground">
-            <p>{t('params.note')}</p>
-            {byok && <p>{t('params.byokNote')}</p>}
-          </div>
-        ),
-      }}
-    />
+    <>
+      <ModelSelector size="sm" label={byok ? t('params.builtinModel') : undefined} />
+      <ImageSettings
+        size="sm"
+        unsupported={UNSUPPORTED}
+        extra={{
+          dirty: depth !== 'medium',
+          reset: () => setDepth('medium'),
+          badge: autoSubmit ? (
+            <Zap aria-label={t('params.autoSubmitLabel')} className="h-3.5 w-3.5 text-primary" />
+          ) : undefined,
+          section: (
+            <>
+              {thinking}
+              <SettingsToggle
+                label={t('params.autoSubmitLabel')}
+                description={t('params.autoSubmitHint')}
+                checked={autoSubmit}
+                onChange={(value) => useAgentStore.getState().setAutoSubmit(value)}
+              />
+            </>
+          ),
+          footnote: (
+            <div className="space-y-1.5 text-label-sm leading-relaxed text-muted-foreground">
+              <p>{t('params.note')}</p>
+              {byok && <p>{t('params.byokNote')}</p>}
+            </div>
+          ),
+        }}
+      />
+    </>
   )
 }
