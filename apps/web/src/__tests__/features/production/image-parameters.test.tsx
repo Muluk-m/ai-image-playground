@@ -21,6 +21,22 @@ afterEach(() => {
   setChannels([])
   request.mockReset()
 })
+
+/** 打开「生成设置」卡片并选一档质量；卡片挂在 body 上，按分组名找按钮。 */
+async function pickQuality(host: HTMLElement, label: string): Promise<void> {
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')
+  expect(trigger).not.toBeNull()
+  // 前一个下拉框刚关上，让它的收尾先跑完，否则新卡片一开就被当成外部点击收起。
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+  await act(async () => trigger!.click())
+  const option = [
+    ...document.body.querySelectorAll<HTMLButtonElement>(
+      '[role="group"][aria-label="质量"] button',
+    ),
+  ].find((node) => node.textContent === label)
+  expect(option).toBeDefined()
+  await act(async () => option!.click())
+}
 it('edits image model and final quality locally and submits the exact reviewed parameters over HTTP', async () => {
   stubPointerApis()
   setChannels([
@@ -60,14 +76,7 @@ it('edits image model and final quality locally and submits the exact reviewed p
       ),
     )
     chooseOption('模型', 'image-b')
-    const quality = host.querySelector<HTMLElement>('[title="质量: auto"]')
-    expect(quality).not.toBeNull()
-    await act(async () => quality!.querySelector<HTMLElement>('.absolute > div')!.click())
-    const high = Array.from(document.querySelectorAll('div')).find(
-      (node) => node.textContent === 'high' && node.onclick,
-    )
-    expect(high).toBeDefined()
-    await act(async () => high!.click())
+    await pickQuality(host, '高')
     await act(async () =>
       Array.from(host.querySelectorAll('button'))
         .find((node) => node.textContent === '保存')!
@@ -162,12 +171,7 @@ it('keeps the ordinary image controls writing their global parameters', async ()
   const root = createRoot(host)
   try {
     await act(async () => root.render(<ParamControls />))
-    const quality = host.querySelector<HTMLElement>('[title="质量: auto"]')!
-    await act(async () => quality.querySelector<HTMLElement>('.absolute > div')!.click())
-    const high = Array.from(document.querySelectorAll('div')).find(
-      (node) => node.textContent === 'high' && node.onclick,
-    )!
-    await act(async () => high.click())
+    await pickQuality(host, '高')
     expect(useStore.getState().params.quality).toBe('high')
   } finally {
     await act(async () => root.unmount())

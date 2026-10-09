@@ -1,4 +1,4 @@
-import { videoRateMultiplier } from '@image-playground/shared'
+import { snapVideoKeyframeTimestamp, videoRateMultiplier } from '@image-playground/shared'
 import { ArrowUp, GripVertical } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
@@ -11,6 +11,7 @@ import {
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Input } from '../../../components/ui/input'
 import {
   Select,
   SelectContent,
@@ -32,6 +33,7 @@ import {
   defaultInputItems,
   moveInputItem,
   setInputRole,
+  setKeyframeTimestamp,
   type VideoInputItem,
   type VideoInputRole,
 } from '../lib/videoInputs'
@@ -102,13 +104,15 @@ export default function ReferenceVideoPopover({
     const no = list.slice(0, index + 1).filter((one) => one.role === 'reference').length
     return t('referenceVideo.referenceLabel', { no })
   }
-  const hasFrames = items.some((item) => item.role !== 'reference')
+  const hasFrames = items.some((item) => item.role === 'first' || item.role === 'last')
   // 参考图不能与首尾帧同用的模型（如 Seedance）在这个面板里只给参考图。
   const framesAllowed = option?.support.referenceImages?.withFrames !== false
+  const keyframeMax = option?.support.keyframes?.max
+  const keyframeCount = items.filter((item) => item.role === 'keyframe').length
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
         <h3 className={`${PANEL_TITLE} mb-1`}>
           {t('referenceVideo.title', { count: items.length })}
         </h3>
@@ -147,14 +151,16 @@ export default function ReferenceVideoPopover({
                 aria-label={t('referenceVideo.moveUp', { no: index + 1 })}
                 disabled={index === 0}
                 onClick={() => setItems((current) => moveInputItem(current, index, index - 1))}
-                className="ml-auto grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"
+                className="ml-auto grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
                 <ArrowUp className="h-3.5 w-3.5" />
               </button>
               <Select
                 value={item.role}
                 onValueChange={(role) =>
-                  setItems((current) => setInputRole(current, index, role as VideoInputRole))
+                  setItems((current) =>
+                    setInputRole(current, index, role as VideoInputRole, draft.duration),
+                  )
                 }
               >
                 <SelectTrigger
@@ -172,8 +178,36 @@ export default function ReferenceVideoPopover({
                   {framesAllowed && option?.support.lastFrame !== false && (
                     <SelectItem value="last">{roleLabel('last')}</SelectItem>
                   )}
+                  {keyframeMax !== undefined && (
+                    <SelectItem
+                      value="keyframe"
+                      disabled={item.role !== 'keyframe' && keyframeCount >= keyframeMax}
+                    >
+                      {roleLabel('keyframe')}
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              {item.role === 'keyframe' && (
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={draft.duration}
+                  step={1 / 3}
+                  aria-label={t('referenceVideo.timestampAria', { no: index + 1 })}
+                  value={timestampFieldValue(item.timestampSeconds)}
+                  onChange={(event) => {
+                    const snapped = snapVideoKeyframeTimestamp(
+                      event.target.valueAsNumber,
+                      draft.duration,
+                    )
+                    if (snapped === null) return
+                    setItems((current) => setKeyframeTimestamp(current, index, snapped))
+                  }}
+                  className="h-8 w-16 rounded-full border-0 bg-muted px-2 text-xs shadow-none"
+                />
+              )}
             </li>
           ))}
         </ol>
@@ -222,16 +256,16 @@ export default function ReferenceVideoPopover({
 
         <div className={`${PANEL_SECTION} mt-4`}>
           {refusal && (
-            <p role="alert" className="mb-1.5 text-[11px] text-destructive">
+            <p role="alert" className="mb-1.5 text-label-sm text-destructive">
               {refusal}
             </p>
           )}
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
+            <p className="mb-1.5 text-label-sm text-destructive">{guard.disabledReason}</p>
           )}
           <SubmissionBillingAction
             blockedAction={guard.blockedAction}
-            className="mb-1.5 text-[11px]"
+            className="mb-1.5 text-label-sm"
           />
           <button
             type="button"
@@ -252,6 +286,12 @@ export default function ReferenceVideoPopover({
       </div>
     </Overlay>
   )
+}
+
+/** 输入框最多三位小数。状态里仍是精确的 1/3 秒网格，不能把显示值写回去。 */
+function timestampFieldValue(seconds: number | undefined): string {
+  if (seconds === undefined) return ''
+  return String(Number(seconds.toFixed(3)))
 }
 
 /** 面板里的缩略图。云端项目的图存的是媒体标识，要先换成可读地址。 */

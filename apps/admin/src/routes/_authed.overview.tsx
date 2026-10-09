@@ -1,9 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
-
-import { Kpi } from '@/components/Kpi'
-import { LazyTaskVolumeChart } from '@/components/LazyTaskVolumeChart'
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { RefreshCw } from 'lucide-react'
+import { OpsHealthCard } from '@/components/overview/OpsHealthCard'
+import { TodayErrorsCard } from '@/components/overview/TodayErrorsCard'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
-import { RangeToggle } from '@/components/RangeToggle'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -13,256 +13,194 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
-import { useOverview } from '@/lib/queries'
-import { parseOverviewSearch, RANGE_LABEL, type Range } from '@/lib/search-params'
-import type { OverviewResult } from '@/lib/types'
-import { useRangeSearch } from '@/lib/useRangeSearch'
+import { shortId } from '@/lib/format'
+import { useTodayOverview } from '@/lib/queries'
+import { cn } from '@/lib/utils'
+import type { GenerationActor, TimeWindow, TodayOverviewResult } from '../../contracts'
 
-export const Route = createFileRoute('/_authed/overview')({
-  validateSearch: parseOverviewSearch,
-  component: OverviewPage,
-})
+export const Route = createFileRoute('/_authed/overview')({ component: OverviewPage })
 
-function formatDuration(value: number | null): string {
-  if (value === null) return '—'
-  return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(1)} s`
+export function beijingTime(at: number): string {
+  return new Date(at).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
 }
 
-function cacheRate(readTokens: number, inputTokens: number): string {
-  return inputTokens > 0 ? `${((readTokens / inputTokens) * 100).toFixed(1)}%` : '—'
+function actorSearch(actor: GenerationActor, window: TimeWindow) {
+  return {
+    ...window,
+    ...(actor.kind === 'user'
+      ? { userId: actor.id! }
+      : actor.kind === 'device'
+        ? { deviceId: actor.id! }
+        : { unassigned: '1' as const }),
+  }
 }
 
 function OverviewPage() {
-  const [range, setRange] = useRangeSearch()
-  const query = useOverview(range)
-
+  const query = useTodayOverview()
   return (
-    <Page crumbs={[{ label: '概览' }]} description="运行状态与任务趋势">
-      {query.isPending ? (
-        <PendingState label="正在汇总任务数据" />
+    <Page
+      crumbs={[{ label: '概览' }]}
+      title="今天"
+      description="北京时间 00:00 至现在 · 每 30 秒刷新"
+      actions={
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
+          刷新今日任务
+        </Button>
+      }
+    >
+      {query.data ? (
+        <>
+          {query.isError ? (
+            <p role="status" className="text-sm text-danger">
+              今日任务刷新失败，下面是之前的记录。
+            </p>
+          ) : null}
+          <TodayUsers overview={query.data} />
+        </>
       ) : query.isError ? (
-        <ErrorState label="概览加载失败" error={query.error} />
+        <ErrorState label="今日任务加载失败" error={query.error} />
       ) : (
-        <OverviewContent data={query.data} range={range} onRangeChange={setRange} />
+        <PendingState label="正在读取今天的生成用户" />
       )}
+      <section className="grid items-start gap-4 xl:grid-cols-2">
+        <OpsHealthCard />
+        <TodayErrorsCard />
+      </section>
     </Page>
   )
 }
 
-function OverviewContent({
-  data,
-  range,
-  onRangeChange,
-}: {
-  data: OverviewResult
-  range: Range
-  onRangeChange: (next: Range) => void
-}) {
-  const { summary, volume, volume_bucket, failures, models, agent_cache } = data
-  const successPercent = Math.round(summary.success_rate * 1000) / 10
-  const multiplier = summary.total === 0 ? null : summary.upstream_invocations / summary.total
-
+function TodayUsers({ overview }: { overview: TodayOverviewResult }) {
+  const { summary, window } = overview
   return (
     <>
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-label="关键指标">
-        <Kpi label={`任务总量 · ${RANGE_LABEL[range]}`} value={String(summary.total)} />
-        <Kpi
-          label="上游调用"
-          value={String(summary.upstream_invocations)}
-          note={multiplier === null ? '暂无任务' : `平均 ${multiplier.toFixed(2)} 次 / 任务`}
-        />
-        <Kpi
-          label="成功率"
-          value={`${successPercent}%`}
-          note={`${summary.completed} 成功 · ${summary.failed} 失败`}
-        />
-        <Kpi
-          label="中位耗时 P50"
-          value={formatDuration(summary.p50_duration_ms)}
-          note="上游处理耗时中位数"
-        />
-        <Kpi
-          label="慢请求 P95"
-          value={formatDuration(summary.p95_duration_ms)}
-          note="上游处理耗时 95 分位"
-        />
+      <section aria-label="今日生成" className="flex flex-wrap items-baseline gap-x-8 gap-y-3 px-1">
+        <span>
+          <strong className="mr-2 font-mono text-2xl tabular-nums">{summary.users}</strong>
+          <span className="text-sm text-muted-foreground">位生成用户</span>
+        </span>
+        {summary.devices ? (
+          <span>
+            <strong className="mr-2 font-mono text-2xl tabular-nums">{summary.devices}</strong>
+            <span className="text-sm text-muted-foreground">台匿名设备</span>
+          </span>
+        ) : null}
+        <Link to="/tasks" search={window} className="text-sm hover:underline">
+          <strong className="mr-2 font-mono text-2xl tabular-nums">{summary.tasks}</strong>个任务
+        </Link>
+        <Link
+          to="/tasks"
+          search={{ ...window, status: 'failed' }}
+          className={cn('text-sm hover:underline', summary.failed > 0 && 'text-danger')}
+        >
+          <strong className="mr-2 font-mono text-2xl tabular-nums">{summary.failed}</strong>失败
+        </Link>
+        <span className="ml-auto text-xs text-muted-foreground">截至 {beijingTime(window.to)}</span>
       </section>
-
-      <PrivateAdminOverviewPanel />
-
-      <Card>
-        <CardHeader className="p-4">
-          <CardTitle className="text-sm">Agent 输入缓存 · {RANGE_LABEL[range]}</CardTitle>
+      <Card className="min-w-0">
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
+          <CardTitle className="text-sm">今天谁在生成</CardTitle>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/tasks" search={window}>
+              全部任务 →
+            </Link>
+          </Button>
         </CardHeader>
-        <CardContent className="space-y-4 p-4 pt-0">
-          <div>
-            <p className="font-mono text-2xl font-semibold tabular-nums">
-              {cacheRate(agent_cache.cache_read_tokens, agent_cache.input_tokens)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              缓存命中率 = 缓存读取 token / 输入 token · {agent_cache.calls.toLocaleString('zh-CN')}{' '}
-              次已上报用量的对话调用
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-md border p-3">
-              <p className="text-xs text-muted-foreground">每轮首调</p>
-              <p className="font-mono text-lg font-semibold tabular-nums">
-                {cacheRate(
-                  agent_cache.first_call.cache_read_tokens,
-                  agent_cache.first_call.input_tokens,
-                )}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {agent_cache.first_call.calls.toLocaleString('zh-CN')} 次，含新对话及后续轮首次调用
-              </p>
-            </div>
-            <div className="rounded-md border p-3">
-              <p className="text-xs text-muted-foreground">轮内续调</p>
-              <p className="font-mono text-lg font-semibold tabular-nums">
-                {cacheRate(
-                  agent_cache.continuation.cache_read_tokens,
-                  agent_cache.continuation.input_tokens,
-                )}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {agent_cache.continuation.calls.toLocaleString('zh-CN')} 次，同一轮工具调用后继续
-              </p>
-            </div>
-          </div>
-          {agent_cache.models.length > 0 ? (
-            <Table>
+        <CardContent className="overflow-x-auto p-0">
+          {overview.actors.length ? (
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>模型</TableHead>
-                  <TableHead className="text-right">调用</TableHead>
-                  <TableHead className="text-right">缓存读取</TableHead>
-                  <TableHead className="text-right">输入 token</TableHead>
-                  <TableHead className="text-right">命中率</TableHead>
+                  <TableHead className="pl-4">用户</TableHead>
+                  <TableHead className="text-right">任务</TableHead>
+                  <TableHead className="text-right">成功</TableHead>
+                  <TableHead className="text-right">失败</TableHead>
+                  <TableHead>执行 / 排队</TableHead>
+                  <TableHead>最近提交</TableHead>
+                  <TableHead className="pr-4 text-right">明细</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {agent_cache.models.map((model) => (
-                  <TableRow key={model.model}>
-                    <TableCell className="max-w-[240px] truncate font-mono text-xs">
-                      {model.model}
+                {overview.actors.map((actor) => (
+                  <TableRow key={`${actor.kind}:${actor.id ?? ''}`}>
+                    <TableCell className="max-w-64 pl-4">
+                      <Link
+                        className="block truncate font-medium hover:underline"
+                        to="/tasks"
+                        search={actorSearch(actor, window)}
+                      >
+                        {actor.note ||
+                          actor.username ||
+                          (actor.kind === 'device'
+                            ? `匿名设备 ${shortId(actor.id!)}`
+                            : actor.kind === 'user'
+                              ? `用户 ${shortId(actor.id!)}`
+                              : '未关联用户或设备')}
+                      </Link>
+                      {actor.note && actor.username ? (
+                        <p className="truncate text-xs text-muted-foreground">{actor.username}</p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {model.calls.toLocaleString('zh-CN')}
+                      {actor.tasks}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {model.cache_read_tokens.toLocaleString('zh-CN')}
+                      {actor.completed}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {model.input_tokens.toLocaleString('zh-CN')}
+                      {actor.failed ? (
+                        <Link
+                          to="/tasks"
+                          search={{ ...actorSearch(actor, window), status: 'failed' }}
+                          className="text-danger hover:underline"
+                          aria-label={`${actor.note || actor.username || actor.id || '未关联用户'}的失败任务`}
+                        >
+                          {actor.failed}
+                        </Link>
+                      ) : (
+                        '0'
+                      )}
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {cacheRate(model.cache_read_tokens, model.input_tokens)}
+                    <TableCell className="text-xs">
+                      {actor.in_progress} / {actor.queued}
+                      {actor.reconciling ? (
+                        <span className="ml-2 text-warning">{actor.reconciling} 待核查</span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {beijingTime(actor.last_submitted_at)}
+                    </TableCell>
+                    <TableCell className="pr-4 text-right">
+                      <Link
+                        to="/tasks"
+                        search={actorSearch(actor, window)}
+                        className="whitespace-nowrap text-sm text-success hover:underline"
+                      >
+                        看任务 →
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           ) : (
-            <p className="text-sm text-muted-foreground">当前范围内暂无可统计的 Agent 用量</p>
+            <div className="p-6">
+              <EmptyState label="今天还没有生成任务" />
+            </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            网关未上报缓存明细时可能显示 0%，请结合上游用量数据判断。
-          </p>
+          {overview.truncated ? (
+            <p className="px-4 pb-4 text-xs text-warning">
+              显示最近提交的 500 位用户与设备；上方总数包含全部任务。
+            </p>
+          ) : null}
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
-          <CardTitle className="text-sm">任务脉冲</CardTitle>
-          <RangeToggle value={range} onChange={onRangeChange} />
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          <LazyTaskVolumeChart buckets={volume} bucketUnit={volume_bucket} label="系统任务量" />
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader className="p-4">
-            <CardTitle className="text-sm">模型用量</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {models.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-4">模型</TableHead>
-                    <TableHead className="text-right">任务</TableHead>
-                    <TableHead className="text-right">上游调用</TableHead>
-                    <TableHead className="pr-4 text-right">倍率</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {models.map((model) => (
-                    <TableRow key={model.model}>
-                      <TableCell className="max-w-[220px] truncate pl-4 font-mono text-xs">
-                        {model.model}
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        {model.count}
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        {model.upstream_invocations}
-                      </TableCell>
-                      <TableCell className="pr-4 text-right font-mono tabular-nums">
-                        {model.average_multiplier === null
-                          ? '—'
-                          : model.average_multiplier.toFixed(2)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <div className="p-4">
-                <EmptyState label="当前范围内无任务" />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
-            <CardTitle className="text-sm">失败分布</CardTitle>
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
-              {summary.failed}
-            </span>
-          </CardHeader>
-          <CardContent className="p-0">
-            {failures.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-4">错误类型</TableHead>
-                    <TableHead className="pr-4 text-right">次数</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {failures.map((failure) => (
-                    <TableRow key={failure.error_type}>
-                      <TableCell className="pl-4 font-mono text-xs">{failure.error_type}</TableCell>
-                      <TableCell className="pr-4 text-right font-mono tabular-nums">
-                        {failure.count}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="p-10 text-center text-sm text-muted-foreground">
-                当前范围内没有失败任务
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </section>
     </>
   )
 }

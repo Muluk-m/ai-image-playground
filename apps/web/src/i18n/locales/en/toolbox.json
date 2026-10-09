@@ -12,10 +12,6 @@
       "name": "Convert",
       "options": "JPG · PNG · WebP · AVIF"
     },
-    "resize": {
-      "name": "Resize",
-      "options": "Long edge · Width · Percent"
-    },
     "crop": {
       "name": "Crop",
       "options": "Ratio · Store & social sizes"
@@ -35,6 +31,10 @@
     "slice": {
       "name": "Grid split",
       "options": "3×3 · 2×2 · 1×3"
+    },
+    "export": {
+      "name": "Resize & export",
+      "options": "Proportional size · Scale · Format"
     }
   },
   "intake": {
@@ -45,21 +45,16 @@
     "addFolder": "Folder",
     "hint": "Drop images or a folder, or paste",
     "chooseImages": "Choose images",
-    "chooseFolder": "Choose folder"
+    "chooseFolder": "Choose folder",
+    "clearAll": "Clear all"
   },
   "page": {
-    "back": "Toolbox"
+    "returnToTools": "Back to toolbox"
   },
   "params": {
     "format": "Output format",
     "quality": "Quality",
     "convertTo": "Convert to",
-    "resizeBy": "By",
-    "resize": {
-      "longEdge": "Long edge",
-      "width": "Width",
-      "percent": "Percent"
-    },
     "rotate": "Rotate",
     "flip": "Flip",
     "flipH": "Horizontal",
@@ -129,5 +124,43 @@
     "slices_other": "{{count}} tiles",
     "up": "Move up",
     "down": "Move down"
+  },
+  "export": {
+    "title": "Export",
+    "description": "Set size, scale and format, then export",
+    "size": "Size",
+    "width": "Width",
+    "height": "Height",
+    "reset": "Reset to original size",
+    "by": {
+      "original": "Original size",
+      "width": "By width",
+      "height": "By height",
+      "percent": "By percentage"
+    },
+    "outputs": "Export specs",
+    "addRow": "Add spec",
+    "removeRow": "Remove spec",
+    "scaleRow": "Spec {{index}} scale",
+    "formatRow": "Spec {{index}} format",
+    "selected_one": "{{count}} file",
+    "selected_other": "{{count}} files",
+    "batchHint": "Each image keeps its own aspect ratio",
+    "loading": "Reading size…",
+    "originalFailed": "Could not read the original. Try again later.",
+    "limit": "Output {{width}} × {{height}} exceeds the browser limit. Reduce the size or scale.",
+    "failed": "Export failed. Try again, or reduce the size or scale for large images.",
+    "done_one": "Exported {{count}} file",
+    "done_other": "Exported {{count}} files",
+    "progress": "Exporting {{done}} / {{total}}",
+    "action_one": "Export {{count}} file",
+    "action_other": "Export {{count}} files",
+    "zipHint": "Multiple files download as one ZIP",
+    "jpegHint": "JPG has no transparency; transparent areas become white",
+    "videoHint": "Videos export as the original file; size and format apply to images only",
+    "undecodable": "Unsupported image format",
+    "select": "Select",
+    "downloadOriginal": "Download original",
+    "export": "Export"
   }
 }

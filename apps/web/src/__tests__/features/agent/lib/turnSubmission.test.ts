@@ -56,3 +56,34 @@ it('continues attaching the live canvas for canvas projects', () => {
   })
   expect(captured.snapshot.canvas).toEqual({ elements: [] })
 })
+
+it('records the experience the message was sent from, even while the canvas is loading', async () => {
+  const legacy = { ...project, conversationId: null, experience: undefined }
+  const loading = vi.spyOn(workspace.record, 'getSnapshot')
+  loading.mockReturnValue({ loading: true, loadFailed: false })
+  try {
+    const captured = captureTurnSubmission({
+      project: legacy,
+      conversationId: null,
+      references: [],
+      params: {},
+    })
+    // 画布没读完带不了快照，但入口照样说清楚。
+    expect(captured.snapshot.canvas).toBeUndefined()
+    expect(captured.snapshot.experience).toBe('canvas')
+    expect((await captured.prepare())?.experience).toBe('canvas')
+  } finally {
+    loading.mockRestore()
+  }
+})
+
+it('keeps the experience a replayed message was originally sent from', () => {
+  const captured = captureTurnSubmission({
+    project,
+    conversationId: 'conversation',
+    references: [],
+    params: {},
+    replay: { experience: 'canvas' },
+  })
+  expect(captured.snapshot.experience).toBe('canvas')
+})

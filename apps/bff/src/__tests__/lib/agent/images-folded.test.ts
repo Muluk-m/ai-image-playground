@@ -3,6 +3,7 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import { projectArtifactId } from '@image-playground/shared'
 import sharp from 'sharp'
 import { TEST_RESULT_PAYLOAD } from '../../helpers/agentStubs'
+import { TEST_IMAGE } from '../../helpers/imageFixtures'
 
 /**
  * 折进摘要的那段历史不再读回来（#708），可摘要的「产物」一节仍然点着那些图的 id，模型照样
@@ -89,7 +90,7 @@ it('resolves an artifact whose result card was folded out of the window', async 
 
   const resolved = await sourceFor(conversationId).resolve(projectArtifactId('task-folded', 0))
 
-  expect(resolved?.dataUrl).toBe('data:image/png;base64,aGk=')
+  expect(resolved?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
 })
 
 // 产物 id 来自模型输出，而模型输出受用户文本影响：能解析不等于能拿。

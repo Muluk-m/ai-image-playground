@@ -11,7 +11,6 @@
     "en": "English"
   },
   "action": {
-    "confirm": "确定",
     "cancel": "取消",
     "close": "关闭",
     "delete": "删除",
@@ -22,12 +21,16 @@
     "save": "保存",
     "download": "下载",
     "collapse": "收起",
-    "generate": "生成"
+    "generate": "生成",
+    "show": "显示",
+    "hide": "隐藏",
+    "remove": "移除",
+    "previousImage": "上一张",
+    "nextImage": "下一张"
   },
   "state": {
     "generating": "生成中",
-    "failed": "失败",
-    "unknown": "未知"
+    "failed": "失败"
   },
   "toast": {
     "copySucceeded": "复制成功",

@@ -6,8 +6,10 @@ import { ImagePreview } from '../../../components/Lightbox'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { canvasExportSources } from '../../image-export/sources'
+import { openImageExport } from '../../image-export/store'
 import type { CanvasDoc } from '../lib/canvasDoc'
-import { copyCanvasImage, downloadCanvasImage } from '../lib/canvasImageActions'
+import { copyCanvasImage } from '../lib/canvasImageActions'
 
 export interface CanvasImageMenuState {
   readonly id: string
@@ -64,7 +66,7 @@ export default function CanvasImageMenu({
   }
   const download = () => {
     onClose()
-    void downloadCanvasImage(dataUrl, menu.id)
+    openImageExport(canvasExportSources(doc, [menu.id]))
   }
 
   if (preview)

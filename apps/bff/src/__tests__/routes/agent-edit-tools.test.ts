@@ -26,6 +26,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { OTHER_IMAGE, TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -252,11 +253,11 @@ async function giveAsset(userId: string, name: string, imageId: string): Promise
   await db.insert(schema.user_asset_objects).values({
     user_id: userId,
     image_id: imageId,
-    bytes: 2,
+    bytes: TEST_IMAGE.png.byteLength,
     content_type: 'image/png',
     created_at: now,
   })
-  await storage.write(`users/${userId}/assets/${imageId}`, new Uint8Array([104, 105]), 'image/png')
+  await storage.write(`users/${userId}/assets/${imageId}`, TEST_IMAGE.png, 'image/png')
 }
 
 beforeEach(async () => {
@@ -661,7 +662,7 @@ describe('智能体改图工具', () => {
 
   it('rebinds image numbers to new attachments without losing old ids or leaking across conversations', async () => {
     const conversationId = await startConversation()
-    const otherPixel = 'data:image/png;base64,Ynk='
+    const otherPixel = OTHER_IMAGE.pngDataUrl
     setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已看到参考图')]))
     await runTurn(conversationId, '[image 1] 原图', {
       references: [{ imageId: 'original-a', dataUrl: PIXEL, maskDataUrl: MASK }],
@@ -1501,7 +1502,7 @@ it('does not unlock paid generation when an interjection replaces the active ref
     {
       deviceId: DEVICE,
       text: '参考的是这张，好了吗？',
-      references: [{ imageId: 'b', dataUrl: 'data:image/png;base64,Ynk=' }],
+      references: [{ imageId: 'b', dataUrl: OTHER_IMAGE.pngDataUrl }],
     },
   )
   expect(interjected.status).toBe(200)

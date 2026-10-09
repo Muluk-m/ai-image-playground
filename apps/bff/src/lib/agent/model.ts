@@ -1,10 +1,17 @@
 import type { StreamFn } from '@earendil-works/pi-agent-core'
-import { createModels, createProvider, type Model } from '@earendil-works/pi-ai'
+import {
+  type AssistantMessage,
+  createModels,
+  createProvider,
+  type Model,
+} from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
 import { resolveChatApiKey } from '../resolveApiKey'
+import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
+import { retryOverloadedStream } from './stream-retry'
 import { agentThinking } from './thinking'
 
 const PROVIDER_ID = 'upstream-gateway'
@@ -14,6 +21,11 @@ export type AgentFetch = (input: RequestInfo | URL, init?: RequestInit) => Promi
 
 let fetchImpl: AgentFetch | undefined
 let idleMs = AGENT_STREAM_IDLE_TIMEOUT_MS
+let retryBackoffMs = 1000
+
+export function setAgentRetryBackoffForTesting(ms?: number): void {
+  retryBackoffMs = ms ?? 1000
+}
 
 /** 测试注入点；undefined 恢复真实 transport。 */
 export function setAgentFetchForTesting(impl?: AgentFetch): void {
@@ -56,7 +68,10 @@ function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
   }
 }
 
-const runtimes = new Map<string, { model: Model<'openai-completions'>; streamFn: StreamFn }>()
+const runtimes = new Map<
+  string,
+  { model: Model<'openai-completions'>; models: ReturnType<typeof createModels> }
+>()
 
 /**
  * 不给 pi 装 telemetry exporter。它的 telemetry 是零依赖契约包，默认 no-op；
@@ -83,12 +98,7 @@ function runtime(depth?: AgentThinkingDepth) {
       api: openAICompletionsApi(),
     }),
   )
-  const streamFn: StreamFn = (streamModel, context, options) =>
-    models.streamSimple(streamModel, context, {
-      ...options,
-      fetch: withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs) as typeof globalThis.fetch,
-    })
-  const result = { model, streamFn }
+  const result = { model, models }
   runtimes.set(key, result)
   return result
 }
@@ -97,6 +107,33 @@ export function agentModel(depth?: AgentThinkingDepth): Model<'openai-completion
   return runtime(depth).model
 }
 
-export function agentStreamFn(depth?: AgentThinkingDepth): StreamFn {
-  return runtime(depth).streamFn
+export function agentStreamFn(
+  depth?: AgentThinkingDepth,
+  observer: AgentDispatchObserver & { onRetry?: (message: AssistantMessage) => Promise<void> } = {},
+): StreamFn {
+  const { models } = runtime(depth)
+  return (model, context, options) => {
+    // 证据属于这一份请求、这一轮尝试；网络异常的文本不能替代上游拒绝响应。
+    let overloadRejected = false
+    return retryOverloadedStream(
+      (streamModel, context, options) => {
+        overloadRejected = false
+        return models.streamSimple(streamModel, context, {
+          ...options,
+          maxRetries: 0,
+          fetch: guardedAgentFetch(
+            withIdleTimeout(async (input, init) => {
+              const response = await (fetchImpl ?? globalThis.fetch)(input, init)
+              overloadRejected = response.status === 429 || response.status === 503
+              return response
+            }, idleMs),
+            observer,
+          ) as typeof globalThis.fetch,
+        })
+      },
+      () => overloadRejected,
+      observer.onRetry,
+      retryBackoffMs,
+    )(model, context, options)
+  }
 }

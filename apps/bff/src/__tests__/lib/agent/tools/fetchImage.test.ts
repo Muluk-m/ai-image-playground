@@ -21,6 +21,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 )
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
+const { config } = await import('../../../../config')
 const { fetchImage } = await import('../../../../lib/agent/tools/fetchImage')
 const { agentToolDeclarations } = await import('../../../../lib/agent/tools')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
@@ -200,4 +201,31 @@ it('stays out of the tool list for a turn with no user', () => {
   expect(agentToolDeclarations('image', { userId: USER }).map((one) => one.name)).toContain(
     'fetchImage',
   )
+})
+
+it('keeps fetched media governed by its visual and storage budgets when attachment limits are smaller', async () => {
+  const operator = config.operator
+  config.operator = {
+    ...operator,
+    capabilities: {
+      ...operator.capabilities,
+      'agent:attachments': true,
+      'agent:bulk-attachments': true,
+    },
+    quotas: { ...operator.quotas, 'agent:attachment-image-pixels': 1 },
+  }
+  try {
+    serve(PNG, 'image/png')
+    const { details, context: ctx } = await run('https://example.com/within-tool-budget.png')
+    const fetched = details.fetchedImages?.[0]
+    expect(fetched).toMatchObject({ width: 8, height: 6 })
+    expect((await ctx.images.resolve(fetched!.imageId))?.dataUrl).toBe(
+      `data:image/png;base64,${PNG.toString('base64')}`,
+    )
+    expect(
+      await db.select({ id: schema.media_references.media_id }).from(schema.media_references),
+    ).toEqual([{ id: fetched!.imageId }])
+  } finally {
+    config.operator = operator
+  }
 })

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type {
   AgentConversationView,
   AgentTurnEvent,
@@ -12,7 +13,9 @@ import {
   answerableClarificationId,
   conversationStarted,
 } from '../../../features/agent/lib/panelMessages'
+import * as turnSubmission from '../../../features/agent/lib/turnSubmission'
 import { useAgentStore } from '../../../features/agent/store'
+import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -56,6 +59,7 @@ let turnResponse: () => Response | Promise<Response>
 let messagesResponse: () => Response
 let conversationsResponse: () => Response
 let deleteResponse: () => Response
+let withdrawalResponse: () => Response
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -66,6 +70,9 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   }
   if (init?.method === 'DELETE') return deleteResponse()
   if (url.endsWith('/api/agent/conversations')) return conversationsResponse()
+  if (url.includes('/submissions/') && (url.endsWith('/withdraw') || url.endsWith('/reconcile')))
+    return withdrawalResponse()
+  if (url.includes('/submissions/')) return Response.json({ receipt: null })
   if (url.includes('/turns')) return turnResponse()
   return messagesResponse()
 })
@@ -80,8 +87,13 @@ function state() {
 
 beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  withdrawalResponse = () =>
+    Response.json({
+      receipt: { state: 'cancelled', queued: { id: 'user-1', text: '', createdAt: 1 } },
+    })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
+  setClientStorageScope(crypto.randomUUID())
   turnResponse = () => turnStream(TURN_START)
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   conversationsResponse = () => Response.json({ conversations: [] })
@@ -98,14 +110,18 @@ beforeEach(() => {
     queue: [],
     error: null,
     loaded: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
     historyLoading: false,
     historyFailed: false,
   })
 })
 
 afterEach(() => {
+  setClientStorageScope(null)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
+  vi.restoreAllMocks()
 })
 
 describe('一轮对话', () => {
@@ -150,7 +166,9 @@ describe('一轮对话', () => {
     await state().send('第一句')
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
+    expect(localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id'))).toBe(
+      CONVERSATION,
+    )
     expect(fetchMock.mock.calls[0]![0]).toBe('http://bff.test/api/agent/conversations')
   })
 
@@ -283,6 +301,87 @@ describe('一轮对话', () => {
     expect(state().turn).toBe('idle')
   })
 
+  it('受理后的消息保留已确认媒体身份，不再依赖会被清理的本机附件', async () => {
+    const references: AgentTurnReference[] = [
+      { imageId: 'photo', dataUrl: `aip-local:${crypto.randomUUID()}`, name: '产品图' },
+    ]
+    const prepared: AgentTurnReference[] = [
+      { imageId: 'photo', mediaId: crypto.randomUUID(), name: '产品图' },
+    ]
+    const capture = turnSubmission.captureTurnSubmission
+    vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => {
+      const captured = capture(input)
+      return { ...captured, prepare: async () => ({ ...captured.snapshot, references: prepared }) }
+    })
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+
+    await state().send('加背景', references)
+
+    expect(state().messages.find((message) => message.id === 'user-1')).toMatchObject({
+      references: prepared,
+    })
+  })
+
+  it('参考图准备失败时退出发送中，保留原消息和参考图供重试', async () => {
+    const capture = turnSubmission.captureTurnSubmission
+    vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => ({
+      ...capture(input),
+      prepare: async () => {
+        throw new Error('media_upload_failed')
+      },
+    }))
+    const references = [{ imageId: 'fabric', dataUrl: 'data:image/png;base64,aGk=' }]
+    const accepted = vi.fn()
+    const unsent = vi.fn(async () => true)
+
+    await state().send(
+      '改这块面料',
+      references,
+      accepted,
+      'image',
+      'client-1',
+      undefined,
+      undefined,
+      unsent,
+    )
+
+    expect(state().turn).toBe('failed')
+    expect(agentActivityPhase(state())).toBeNull()
+    expect(state().messages).toEqual([])
+    expect(state().error).toBe('有几张图还没能上传到云端，这一轮没有发出。请重试，草稿已保留。')
+    expect(state().errorDiagnostic).toMatchObject({ message: 'media_upload_failed' })
+    expect(accepted).not.toHaveBeenCalled()
+    expect(unsent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'client-1', text: '改这块面料', references }),
+    )
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(false)
+
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('改这块面料', references)
+    expect(state().turn).toBe('idle')
+  })
+
+  it('等待参考图时中止，随后上传失败也按已中止收尾', async () => {
+    const capture = turnSubmission.captureTurnSubmission
+    let rejectUpload!: (error: Error) => void
+    vi.spyOn(turnSubmission, 'captureTurnSubmission').mockImplementationOnce((input) => ({
+      ...capture(input),
+      prepare: () =>
+        new Promise((_, reject) => {
+          rejectUpload = reject
+        }),
+    }))
+    const sending = state().send('修改面料')
+    await vi.waitFor(() => expect(rejectUpload).toBeDefined())
+    await state().abort()
+    rejectUpload(new Error('media_upload_failed'))
+
+    expect(await sending).toBe('cancelled')
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(state().error).toBeNull()
+  })
+
   it('云端媒体换不上、只能内联的张数超过上限时当场打回，不发注定被拒的请求', async () => {
     // 画布上圈了几十张，发送前媒体上传没成（422、离线……）：它们只能内联，服务端只收
     // AGENT_TURN_MAX_INLINE_REFERENCES 张。照发就是几十 MB 传几分钟再被 4xx 打回。
@@ -307,7 +406,7 @@ describe('一轮对话', () => {
 
 describe('读回历史', () => {
   it('刷新后读回上次会话的全部消息', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
@@ -354,38 +453,44 @@ describe('读回历史', () => {
   })
 
   it('会话已经不在时忘掉它', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 404 })
 
     await state().load()
 
     expect(state().conversationId).toBeNull()
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+    expect(
+      localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id')),
+    ).toBeNull()
   })
 
   it('身份对不上时也忘掉它', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 403 })
 
     await state().load()
 
     expect(state().conversationId).toBeNull()
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+    expect(
+      localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id')),
+    ).toBeNull()
   })
 
   it('读不回来但会话还在时留着它并报错', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 400 })
 
     await state().load()
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
+    expect(localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id'))).toBe(
+      CONVERSATION,
+    )
     expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 
   it('网络断了同样留着会话', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => {
       throw new TypeError('Failed to fetch')
     }
@@ -431,7 +536,8 @@ describe('发送反馈', () => {
       })
     const stopping = state().abort()
     await state().abort()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // The durable stop identity commits before the HTTP request is allowed to leave.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     // 没拿到响应的停止会重发同一个请求；一直断网，重发也失败，才报停止失败。
     turnResponse = () => Promise.reject(new TypeError('offline'))
     reject(new TypeError('offline'))
@@ -462,7 +568,7 @@ describe('发送反馈', () => {
     const stopping = state().abort()
     const sending = state().send('那换成夜景')
     // 中止还没回来：这一句不报错、也不抢跑。
-    expect(turnCalls).toBe(1)
+    await vi.waitFor(() => expect(turnCalls).toBe(1))
     settleAbort(Response.json({ aborted: true, returned: [] }))
     await stopping
     // 终帧由流带来；这里直接摆出它落地后的状态。
@@ -506,13 +612,23 @@ describe('发送反馈', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(false)
   })
 
-  it('发送响应尚未到达时记住中止，收到轮标识后立即中止该轮', async () => {
+  it('发送响应尚未到达时保存中止身份，不阻塞退出并取消回执对应的轮', async () => {
     useAgentStore.setState({ conversationId: CONVERSATION })
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
+    withdrawalResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: 'turn-1',
+          queued: { id: 'user-1', text: '', createdAt: 1 },
+        },
+      })
+    let calls = 0
     turnResponse = async () => {
+      if (++calls > 1) return Response.json({ aborted: true, returned: [] })
       await gate
       return turnStream(TURN_START, TURN_END)
     }
@@ -524,7 +640,9 @@ describe('发送反馈', () => {
     const phaseAfterClick = agentActivityPhase(state())
     release()
     await sending
-    expect(phaseAfterClick).toBe('stopping')
+    expect(phaseAfterClick).toBeNull()
+    expect(state().turn).toBe('idle')
+    await vi.waitFor(() => expect(state().returnedMessagesPending).toBe(false))
     expect(
       fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/turn-1/abort')),
     ).toHaveLength(1)
@@ -540,6 +658,7 @@ describe('发送反馈', () => {
     await state().abort()
     expect(state().turn).toBe('running')
     expect(state().error).toContain('中止未成功')
+    expect(state().returnedMessagesError).toBe('stop_failed')
   })
 
   it('先上屏的那条就算会话开始了；起轮失败时撤掉它，欢迎页回来', async () => {
@@ -642,7 +761,9 @@ describe('会话列表', () => {
     expect(state().messages.map((message) => message.kind === 'text' && message.text)).toEqual([
       '上周那套图',
     ])
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe('c-2')
+    expect(localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id'))).toBe(
+      'c-2',
+    )
   })
 
   it('删掉当前会话后回到空白的新会话', async () => {
@@ -660,14 +781,16 @@ describe('会话列表', () => {
         },
       ],
     })
-    localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), 'c-1')
 
     await state().deleteConversation('c-1')
 
     expect(state().conversations.map((one) => one.id)).toEqual(['c-2'])
     expect(state().conversationId).toBeNull()
     expect(state().messages).toEqual([])
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+    expect(
+      localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id')),
+    ).toBeNull()
   })
 
   it('删掉别的会话不动当前这个', async () => {
@@ -720,7 +843,7 @@ describe('会话列表', () => {
         },
       ],
     })
-    localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), 'c-1')
 
     state().startNewConversation()
 
@@ -865,7 +988,7 @@ describe('发送确认', () => {
 
 describe('历史读取重试', () => {
   it('失败后仅重读当前会话，期间禁止发送，不新建会话或发起轮', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 503 })
     await state().load()
     expect(state().historyFailed).toBe(true)

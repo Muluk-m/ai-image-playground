@@ -32,7 +32,8 @@ export const MAX_ATTEMPTS = 3
  */
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
-  if ((err as { retryable?: unknown }).retryable === true) return true
+  const retryable = (err as { retryable?: unknown }).retryable
+  if (typeof retryable === 'boolean') return retryable
   const status = (err as { upstreamStatus?: unknown }).upstreamStatus
   if (typeof status === 'number') return RETRYABLE_HTTP_STATUSES.has(status)
   return false

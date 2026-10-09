@@ -15,7 +15,9 @@ vi.mock('../../../../features/agent/lib/videoPoster', () => ({
 
 import {
   artifactBitmap,
+  cachedVideoOutputFrame,
   previewArtifactBitmap,
+  rememberVideoOutputFrame,
   videoOutputFrame,
 } from '../../../../features/agent/lib/artifactSource'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
@@ -133,4 +135,30 @@ describe('缓存', () => {
     await previewArtifactBitmap(first)
     expect(imageUrls()).toHaveLength(1)
   })
+})
+
+it('reads cached frames without starting a video request and reuses the player frame', async () => {
+  const artifact = video()
+  expect(cachedVideoOutputFrame(artifact)).toBeUndefined()
+  expect(capture).not.toHaveBeenCalled()
+  rememberVideoOutputFrame(artifact, FRAME)
+  await expect(cachedVideoOutputFrame(artifact)).resolves.toBe(FRAME)
+  await expect(videoOutputFrame(artifact)).resolves.toBe(FRAME)
+  expect(capture).not.toHaveBeenCalled()
+})
+
+it('keeps the decoded frame if an older background capture later fails', async () => {
+  const artifact = video()
+  let finish: (value: string | null) => void = () => {}
+  capture.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve
+    }),
+  )
+  const pending = videoOutputFrame(artifact)
+  rememberVideoOutputFrame(artifact, FRAME)
+  finish(null)
+  await expect(pending).resolves.toBeNull()
+  await expect(videoOutputFrame(artifact)).resolves.toBe(FRAME)
+  expect(capture).toHaveBeenCalledTimes(1)
 })

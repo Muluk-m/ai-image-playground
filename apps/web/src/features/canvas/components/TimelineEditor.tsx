@@ -252,7 +252,7 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
   const missingNow = clips.length > 0 && !urlOf(clips, playIndex)
 
   return (
-    <Overlay onClose={close} tier="raised" layout="fill" backdrop="none">
+    <Overlay onClose={close} tier="raised" layout="fill" backdrop="none" role="none">
       <div
         ref={root}
         className="flex h-full w-full flex-col bg-background text-foreground outline-none"
@@ -591,7 +591,7 @@ function ClipCard({
           </span>
         )}
       </button>
-      <div className="flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] tabular-nums">
+      <div className="flex items-center justify-between gap-1 px-1 py-0.5 text-label-sm tabular-nums">
         <span>{clock(duration)}</span>
         <Button
           type="button"

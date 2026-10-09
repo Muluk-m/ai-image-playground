@@ -21,7 +21,8 @@ export const db: DbHandle['db'] = new Proxy({} as DbHandle['db'], {
   get(_target, property) {
     const target = handle().db as unknown as Record<PropertyKey, unknown>
     const value = target[property]
-    return typeof value === 'function' ? value.bind(target) : value
+    // Bun SQL is callable but also owns reserve/begin; binding it discards those methods.
+    return property !== '$client' && typeof value === 'function' ? value.bind(target) : value
   },
 })
 

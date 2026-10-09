@@ -60,7 +60,7 @@ it('hands the model the bytes of the images it asked to see', async () => {
   expect(images).toHaveLength(1)
   expect(result.content[0]).toMatchObject({ type: 'text' })
   // 清单与参考图那一套同源：模型据它知道第几块是哪张图。
-  expect(result.content[0]).toMatchObject({ text: expect.stringContaining('图片 canvas-1 原图') })
+  expect(result.content[0]).toMatchObject({ text: expect.stringContaining('图片 canvas-1 缩略图') })
 })
 
 /** 模型报的 id 可能是它自己编的：这时要给它一条改口的路，而不是把整轮停下。 */

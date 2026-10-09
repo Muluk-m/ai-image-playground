@@ -1,4 +1,5 @@
 import { config } from '../config'
+import { readCapped, SafeFetchError } from './safeFetch'
 
 /**
  * 一个已定位、但尚未取字节的对象。`size` 来自元信息请求，用来判定 Range 是否可满足；
@@ -28,6 +29,20 @@ export interface ObjectStore {
   deletePrefix(prefix: string): Promise<void>
 }
 
+/** Metadata rejects oversized objects before any body is requested; the stream remains capped too. */
+export async function readObjectWithinLimit(
+  store: ObjectStore,
+  key: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const object = await store.open(key, signal)
+  if (!Number.isSafeInteger(object.size) || object.size < 0 || object.size > maxBytes)
+    throw new SafeFetchError('too_large', `内容超过 ${maxBytes} 字节上限`)
+  if (object.size === 0) return new Uint8Array(0)
+  return readCapped(new Response(object.stream(0, object.size - 1)), maxBytes)
+}
+
 export type S3ClientLike = Pick<Bun.S3Client, 'write' | 'file' | 'list' | 'delete'>
 
 /** Keys stored in the database carry no prefix; it is added and stripped only here. */
@@ -54,7 +69,11 @@ export class S3ObjectStore implements ObjectStore {
       const response = await fetch(url, {
         method: 'PUT',
         headers: { 'content-type': contentType },
-        body: new Blob([Uint8Array.from(bytes)]),
+        // 普通 ArrayBuffer 上的视图直接发，不再整份复制；只有共享内存才需要拷出来。
+        body:
+          bytes.buffer instanceof ArrayBuffer
+            ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+            : Uint8Array.from(bytes),
         signal,
       })
       await response.body?.cancel()
@@ -70,23 +89,24 @@ export class S3ObjectStore implements ObjectStore {
 
   async open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
     const file = this.client.file(this.keyPrefix + key)
-    let size: number
-    if (signal) {
-      signal.throwIfAborted()
-      const response = await fetch(file.presign({ method: 'HEAD', expiresIn: 60 }), {
-        method: 'HEAD',
-        signal,
-      })
-      await response.body?.cancel()
-      if (!response.ok) throw new Error(`Object metadata failed (${response.status})`)
-      const length = response.headers.get('content-length')
-      size = length === null ? Number.NaN : Number(length)
-      if (!Number.isSafeInteger(size) || size < 0) throw new Error('Invalid object size')
-    } else {
-      size = (await file.stat()).size
+    if (!signal) {
+      const { size } = await file.stat()
+      // S3File.slice 的 end 是开区间，且 .stream() 会把它翻译成上游的 Range 请求。
+      return { size, stream: (start, end) => file.slice(start, end + 1).stream() }
     }
-    // S3File.slice 的 end 是开区间，且 .stream() 会把它翻译成上游的 Range 请求。
-    return { size, stream: (start, end) => file.slice(start, end + 1).stream() }
+    // Bun 的 stat 与 slice().stream() 都不收取消信号；有期限的读取改走同一客户端签名的请求。
+    signal.throwIfAborted()
+    const response = await fetch(file.presign({ method: 'HEAD', expiresIn: 60 }), {
+      method: 'HEAD',
+      signal,
+    })
+    await response.body?.cancel()
+    if (!response.ok) throw new Error(`Object metadata failed (${response.status})`)
+    const length = response.headers.get('content-length')
+    const size = length === null ? Number.NaN : Number(length)
+    if (!Number.isSafeInteger(size) || size < 0) throw new Error('Invalid object size')
+    const url = file.presign({ method: 'GET', expiresIn: 60 })
+    return { size, stream: (start, end) => signedRange(url, start, end, signal) }
   }
 
   async listPrefix(prefix: string): Promise<string[]> {
@@ -125,6 +145,31 @@ export class S3ObjectStore implements ObjectStore {
     } while (continuationToken)
     return entries
   }
+}
+
+function signedRange(
+  url: string,
+  start: number,
+  end: number,
+  signal: AbortSignal,
+): ReadableStream<Uint8Array> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  return new ReadableStream({
+    async pull(controller) {
+      if (!reader) {
+        const response = await fetch(url, { headers: { range: `bytes=${start}-${end}` }, signal })
+        if (!response.ok || !response.body) {
+          await response.body?.cancel()
+          throw new Error(`Object read failed (${response.status})`)
+        }
+        reader = response.body.getReader()
+      }
+      const next = await reader.read()
+      if (next.done) controller.close()
+      else controller.enqueue(next.value)
+    },
+    cancel: (reason) => reader?.cancel(reason),
+  })
 }
 
 let productionStore: ObjectStore | undefined

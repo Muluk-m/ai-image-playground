@@ -51,7 +51,10 @@ const mockBff = Bun.serve({
 process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBff.port}`
 
 const writer = createDb(databaseUrl)
-const now = Date.now()
+// Queue ages are calculated by PostgreSQL, which may not share the test host's clock.
+const [clock] =
+  await writer.client`SELECT floor(extract(epoch FROM clock_timestamp()) * 1000) AS now_ms`
+const now = Number(clock.now_ms)
 const minute = 60_000
 const base = {
   provider: 'openai-compat',

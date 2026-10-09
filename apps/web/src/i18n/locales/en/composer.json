@@ -12,17 +12,12 @@
     "deleteMessage_one": "Delete {{count}} selected record?",
     "deleteMessage_other": "Delete {{count}} selected records?",
     "noImages": "The selected records have no images",
-    "downloadStarted_one": "Downloading {{count}} image...",
-    "downloadStarted_other": "Downloading {{count}} images...",
-    "downloadPartial": "Download finished: {{success}} succeeded, {{failed}} failed",
-    "downloadSucceeded_one": "Downloaded {{count}} image",
-    "downloadSucceeded_other": "Downloaded {{count}} images",
     "clearSelection": "Clear selection",
     "deselectAll": "Deselect all",
     "selectAllVisible": "Select all visible",
     "toggleFavorite": "Favorite / unfavorite",
-    "download": "Download selected",
-    "delete": "Delete selected"
+    "delete": "Delete selected",
+    "export": "Export selected"
   },
   "bar": {
     "expand": "Expand input",
@@ -89,7 +84,8 @@
     "favoriteOnlyOff": "Show all",
     "statusAll": "All statuses",
     "statusDone": "Completed",
-    "placeholder": "Search prompts and parameters..."
+    "placeholder": "Search prompts and parameters...",
+    "status": "Status"
   },
   "param": {
     "aspectRatio": "Ratio",
@@ -104,33 +100,16 @@
     "moderation": "Moderation",
     "count": "Count",
     "noModel": "Not selected",
-    "more": "More"
+    "model": "Model",
+    "searchModel": "Search models",
+    "noModelMatch": "No matching models"
   },
   "size": {
-    "titleRatio": "Set aspect ratio",
-    "titleSize": "Set image size",
-    "current": "Current: {{value}}",
-    "modeAuto": "Auto",
-    "modeAutoRatio": "Smart ratio (Auto)",
-    "modeRatio": "By ratio",
-    "modeResolution": "Custom size",
-    "autoTitle": "Auto size",
-    "autoTitleRatio": "Smart ratio",
-    "autoLine1": "The model decides the size",
-    "baseResolution": "Base resolution",
-    "imageRatio": "Aspect ratio",
-    "customRatio": "Custom ratio",
     "customRatioLabel": "Enter a custom ratio",
     "customRatioPlaceholder": "e.g. 5:4 / 2.39:1",
     "ratioOnlyNote": "The model decides the final pixel count; only the chosen aspect ratio is guaranteed.",
-    "pixelSection": "Enter exact pixels",
     "width": "Width",
     "height": "Height",
-    "pixelPlaceholder": "e.g. 1024",
-    "willUse": "Will use",
-    "invalid": "Invalid size",
-    "limitText": "Model limits normalize any resolution that does not fit:\nboth sides a multiple of 16, longest side up to 3840px, aspect ratio within 3:1, total pixels between 655360 and 8294400.",
-    "limitedLimitText": "Model limits normalize any resolution that does not fit:\nboth sides a multiple of 16, aspect ratio within 3:1, resolution up to 1K.",
     "limitedTierHint": "This model does not support resolutions above 1K",
     "clampedHint": "Model limits normalized the original resolution"
   },
@@ -174,5 +153,26 @@
   },
   "model": {
     "expandOptions": "Expand model options"
+  },
+  "settings": {
+    "title": "Generation settings",
+    "close": "Close generation settings",
+    "reset": "Reset",
+    "done": "Done",
+    "auto": "Auto",
+    "autoOption": "Auto",
+    "custom": "Custom",
+    "count_one": "{{count}} image",
+    "count_other": "{{count}} images",
+    "autoSizeHint": "With auto ratio, the model picks the size.",
+    "compressionHint": "Leave empty to use the service default.",
+    "transparentHint": "Background is removed locally after generation. PNG only.",
+    "noRewriteHint": "Send the prompt as written; gateways won't rewrite it.",
+    "quality": {
+      "auto": "Auto",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    }
   }
 }

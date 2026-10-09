@@ -50,7 +50,9 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     turnId,
     toolCallId: block.toolCallId,
     toolName: block.toolName,
+    ...(block.batchId ? { batchId: block.batchId } : {}),
     title: block.title,
+    ...(block.video ? { video: block.video } : {}),
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
     ...(block.productionDraftRevision !== undefined
@@ -417,15 +419,28 @@ export interface AgentActivityView {
 }
 
 /**
- * 进行中这一轮此刻在干什么，给对话末尾的状态行用。文字一旦在流就返回 null：
- * 正文自己就是最好的进度。
+ * 进行中这一轮此刻在干什么，给对话末尾的状态行用。文字正在流就返回 null：正文自己就是最好的进度。
+ *
+ * 协议没有「这段文字说完了」的事件，文字块要等下一块开始或整轮结束才定稿；模型说完一段、
+ * 在准备下一次工具调用时，最后一条仍是流式文字。调用方据此传 `textIdle`（文字已有一会儿没动），
+ * 这时照常亮「思考中」，免得一轮还在跑、面板却看着像结束了。
  */
-export function agentActivityPhase(state: AgentActivityView): AgentActivityPhase | null {
+export function agentActivityPhase(
+  state: AgentActivityView,
+  options: { readonly textIdle?: boolean } = {},
+): AgentActivityPhase | null {
   if (state.turn !== 'running') return null
   if (state.stopping) return 'stopping'
   if (!state.activeTurn) return 'sending'
   const last = state.messages[state.messages.length - 1]
   if (last?.kind === 'tool' && last.status === 'running') return 'executing'
-  if (last?.kind === 'text' && last.role === 'assistant' && last.streaming && last.text) return null
+  if (
+    last?.kind === 'text' &&
+    last.role === 'assistant' &&
+    last.streaming &&
+    last.text &&
+    !options.textIdle
+  )
+    return null
   return 'thinking'
 }

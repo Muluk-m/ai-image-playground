@@ -1,5 +1,6 @@
 import { OPS_THRESHOLDS } from '@image-playground/shared'
 import { Link } from '@tanstack/react-router'
+import { Activity, CircleAlert, CircleCheck, CircleHelp, Layers3 } from 'lucide-react'
 import { Kpi } from '@/components/Kpi'
 import { ApiBody, apiProblems } from '@/components/ops/ApiBlock'
 import { ContainersBody, containersProblems } from '@/components/ops/ContainersBlock'
@@ -12,8 +13,9 @@ import {
 } from '@/components/ops/DeploymentsBlock'
 import { LazyHostTrendChart } from '@/components/ops/LazyHostTrendChart'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
+import { ResourceGauge } from '@/components/ops/OpsVisuals'
 import { ReliabilityBlock, reliabilityProblems } from '@/components/ops/ReliabilityBlock'
-import { bytes, elapsed, fuzzyTime, isoTime, shortId } from '@/lib/format'
+import { bytes, elapsed, fuzzyTime, shortId } from '@/lib/format'
 import type {
   OpsBackups,
   OpsDatabase,
@@ -82,28 +84,40 @@ function HostBody({ host, now, range }: { host: OpsHost; now: number; range: Ops
   }
   return (
     <>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <Kpi
-          variant="inline"
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ResourceGauge
           label="磁盘已用"
-          value={percent(diskUsedRatio(latest))}
+          ratio={diskUsedRatio(latest)}
+          value={bytes(latest.disk_total_bytes - latest.disk_available_bytes)}
           note={`剩 ${bytes(latest.disk_available_bytes)} / 共 ${bytes(latest.disk_total_bytes)}`}
+          alert={diskUsedRatio(latest) >= OPS_THRESHOLDS.DISK_USED_RATIO}
         />
-        <Kpi
-          variant="inline"
-          label="可用内存"
-          value={bytes(latest.mem_available_bytes)}
-          note={`共 ${bytes(latest.mem_total_bytes)}`}
+        <ResourceGauge
+          label="内存已用"
+          ratio={1 - latest.mem_available_bytes / latest.mem_total_bytes}
+          value={bytes(latest.mem_total_bytes - latest.mem_available_bytes)}
+          note={`可用 ${bytes(latest.mem_available_bytes)} / 共 ${bytes(latest.mem_total_bytes)}`}
+          tone="violet"
+          alert={
+            latest.mem_available_bytes / latest.mem_total_bytes <
+            OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO
+          }
         />
-        <Kpi
-          variant="inline"
+        <ResourceGauge
           label="CPU"
-          value={latest.cpu_busy_ratio == null ? '—' : percent(latest.cpu_busy_ratio)}
+          ratio={latest.cpu_busy_ratio ?? null}
+          value={latest.cpu_count ? `${latest.cpu_count} 核` : '使用率'}
           note={loadNote(latest)}
+          tone="cyan"
+          alert={(latest.cpu_busy_ratio ?? 0) >= OPS_THRESHOLDS.CPU_BUSY_RATIO}
         />
-        <Kpi
-          variant="inline"
+        <ResourceGauge
           label="Swap 已用"
+          ratio={
+            latest.swap_total_bytes && latest.swap_free_bytes != null
+              ? (latest.swap_total_bytes - latest.swap_free_bytes) / latest.swap_total_bytes
+              : null
+          }
           value={
             latest.swap_total_bytes == null || latest.swap_free_bytes == null
               ? '—'
@@ -112,14 +126,15 @@ function HostBody({ host, now, range }: { host: OpsHost; now: number; range: Ops
                 : bytes(latest.swap_total_bytes - latest.swap_free_bytes)
           }
           note={latest.swap_total_bytes ? `共 ${bytes(latest.swap_total_bytes)}` : undefined}
+          tone="amber"
         />
-        <Kpi
-          variant="inline"
-          label="开机于"
-          value={latest.booted_at == null ? '—' : fuzzyTime(latest.booted_at, now)}
-          note={latest.booted_at == null ? undefined : `${isoTime(latest.booted_at)} UTC`}
-        />
-        <Kpi variant="inline" label="最近采样" value={fuzzyTime(latest.sampled_at, now)} />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <p>资源使用趋势 · 近 {OPS_RANGE_LABEL[range]}</p>
+        <p>
+          最近采样 {fuzzyTime(latest.sampled_at, now)} · 开机于{' '}
+          <span>{latest.booted_at == null ? '—' : fuzzyTime(latest.booted_at, now)}</span>
+        </p>
       </div>
       {series.length > 1 ? (
         <LazyHostTrendChart
@@ -204,9 +219,15 @@ function ServicesBody({
         return (
           <li
             key={`${service.service}-${service.instance}`}
-            className="flex flex-wrap items-baseline justify-between gap-x-4"
+            className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-lg border bg-muted/20 p-3"
           >
-            <span className="font-medium">{SERVICE_LABEL[service.service]}</span>
+            <span className="flex items-center gap-2 font-medium">
+              <span className={`size-2 rounded-full ${alive ? 'bg-success' : 'bg-danger'}`} />
+              {SERVICE_LABEL[service.service]}
+              <span className={`text-xs ${alive ? 'text-success' : 'text-danger'}`}>
+                {alive ? '在线' : '离线'}
+              </span>
+            </span>
             <span
               className="font-mono text-xs text-muted-foreground"
               title={`${service.version}（实例 ${service.instance}）`}
@@ -256,8 +277,23 @@ function QueueBody({ queue, now }: { queue: OpsQueue; now: number }) {
   return (
     <>
       <div className="grid grid-cols-3 gap-4">
-        <Kpi variant="inline" label="排队" value={String(queue.queued)} />
-        <Kpi variant="inline" label="运行中" value={String(queue.in_progress)} />
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+          <Kpi
+            variant="inline"
+            label="排队"
+            value={<span className="text-amber-500">{queue.queued}</span>}
+          />
+        </div>
+        <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+          <Kpi
+            variant="inline"
+            label="运行中"
+            value={<span className="text-sky-500">{queue.in_progress}</span>}
+          />
+        </div>
+        {queue.reconciling ? (
+          <Kpi variant="inline" label="待核查" value={String(queue.reconciling)} />
+        ) : null}
         <Kpi
           variant="inline"
           label="最老的等了"
@@ -350,34 +386,108 @@ function BackupBody({ backup, now }: { backup: OpsBackups; now: number }) {
   )
 }
 
+/** 看板上每一栏的名字；概览页的健康灯与「需要处理」按它归类。 */
+export type OpsSource =
+  | 'host'
+  | 'containers'
+  | 'services'
+  | 'api'
+  | 'reliability'
+  | 'queue'
+  | 'backup'
+  | 'deployments'
+
+export interface OpsProblem {
+  source: OpsSource
+  text: string
+}
+
 /**
- * 全后台顶部那条窄横幅用：把看板每一栏的问题汇总成一串。顺序跟看板里的栏一致，
- * 所以横幅上那句话就是运营者滚到看板顶上会看到的第一句。
- * 取不到的栏不算出事——看板里也是这么处理的（只有那一栏说取不到）。
+ * 把看板每一栏的问题汇总成一串，顺序跟看板里的栏一致。取不到的栏不算出事——看板里也是这么处理的
+ * （只有那一栏说取不到）。
  */
-export function opsAlerts(snapshot: OpsSnapshot): string[] {
+export function opsProblems(snapshot: OpsSnapshot): OpsProblem[] {
   const now = snapshot.generated_at
   const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
+  const tag = (source: OpsSource, texts: string[]) => texts.map((text) => ({ source, text }))
   return [
-    ...(snapshot.host.ok ? hostProblems(snapshot.host.data, now) : []),
-    ...(snapshot.containers.ok ? containersProblems(snapshot.containers.data) : []),
-    ...(snapshot.services.ok ? servicesProblems(snapshot.services.data, now, deployments) : []),
-    ...(snapshot.api.ok ? apiProblems(snapshot.api.data) : []),
-    ...(snapshot.reliability.ok ? reliabilityProblems(snapshot.reliability.data) : []),
-    ...(snapshot.queue.ok ? queueProblems(snapshot.queue.data) : []),
-    ...(snapshot.backup.ok ? backupProblems(snapshot.backup.data, now) : []),
-    ...(snapshot.deployments.ok ? deploymentsProblems(snapshot.deployments.data) : []),
+    ...(snapshot.host.ok ? tag('host', hostProblems(snapshot.host.data, now)) : []),
+    ...(snapshot.containers.ok
+      ? tag('containers', containersProblems(snapshot.containers.data))
+      : []),
+    ...(snapshot.services.ok
+      ? tag('services', servicesProblems(snapshot.services.data, now, deployments))
+      : []),
+    ...(snapshot.api.ok ? tag('api', apiProblems(snapshot.api.data)) : []),
+    ...(snapshot.reliability.ok
+      ? tag('reliability', reliabilityProblems(snapshot.reliability.data))
+      : []),
+    ...(snapshot.queue.ok ? tag('queue', queueProblems(snapshot.queue.data)) : []),
+    ...(snapshot.backup.ok ? tag('backup', backupProblems(snapshot.backup.data, now)) : []),
+    ...(snapshot.deployments.ok
+      ? tag('deployments', deploymentsProblems(snapshot.deployments.data))
+      : []),
   ]
+}
+
+/** 全后台顶部那条窄横幅用：横幅上那句话就是运营者滚到看板顶上会看到的第一句。 */
+export function opsAlerts(snapshot: OpsSnapshot): string[] {
+  return opsProblems(snapshot).map((problem) => problem.text)
 }
 
 /** 回答「这套部署现在有没有出事」。业务跑得怎么样是概览页的事，这里不重复。 */
 export function OpsBoard({ snapshot, range }: { snapshot: OpsSnapshot; range: OpsRange }) {
   const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
+  const problems = opsProblems(snapshot)
+  const unavailable = Object.values(snapshot).filter(
+    (block) => typeof block === 'object' && block !== null && 'ok' in block && !block.ok,
+  ).length
   return (
     <section className="grid gap-4 xl:grid-cols-2">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border p-5 xl:col-span-2 ${problems.length ? 'border-danger/30 bg-danger/5' : unavailable ? 'border-amber-500/30 bg-amber-500/5' : 'border-success/25 bg-success/5'}`}
+      >
+        <div className="flex items-center gap-4">
+          <div
+            className={`rounded-xl p-3 ${problems.length ? 'bg-danger/10 text-danger' : unavailable ? 'bg-amber-500/10 text-amber-500' : 'bg-success/10 text-success'}`}
+          >
+            {problems.length ? (
+              <CircleAlert className="size-6" />
+            ) : unavailable ? (
+              <CircleHelp className="size-6" />
+            ) : (
+              <CircleCheck className="size-6" />
+            )}
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">
+              {problems.length
+                ? `${problems.length} 项需要关注`
+                : unavailable
+                  ? '部分监控数据不可用'
+                  : '未发现告警'}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {unavailable ? `${unavailable} 项读取失败 · ` : ''}按已采集的数据判断 · 快照每 30
+              秒更新
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-5 text-sm">
+          <span className="flex items-center gap-2">
+            <Activity className="size-4 text-success" />
+            服务心跳与异常
+          </span>
+          <span className="flex items-center gap-2">
+            <Layers3 className="size-4 text-sky-500" />
+            资源与任务队列
+          </span>
+        </div>
+      </div>
       <ReliabilityBlock block={snapshot.reliability} now={snapshot.generated_at} />
       <OpsBlockCard
         title="宿主机"
+        className="xl:col-span-2"
         block={snapshot.host}
         problems={(host) => hostProblems(host, snapshot.generated_at)}
       >

@@ -3,6 +3,9 @@ import { getStroke } from 'perfect-freehand'
 import type { ArrowEl, FreedrawEl, ImageEl, PlaceholderEl, TextEl } from './canvasDoc'
 import { STATUS_ACCENT } from './editor'
 
+/** 生成中占位的边框：主题绿的低透明度，深浅两套背景上都只是一道轮廓。 */
+const GENERATING_STROKE = 'rgba(143, 191, 90, 0.35)'
+
 /**
  * 元素 → Konva 节点属性的单源映射：
  * 实时渲染（react-konva JSX）与离屏导出（imperative Konva 节点）共用，
@@ -98,9 +101,10 @@ export function placeholderProps(el: PlaceholderEl): Konva.RectConfig {
     y: el.y,
     width: el.width,
     height: el.height,
-    stroke: STATUS_ACCENT[el.status],
-    strokeWidth: 2,
-    dash: [8, 6],
+    // 生成中只留一道很淡的实线框，动效交给 DOM 浮层；失败 / 过期才用醒目的虚线色框。
+    ...(el.status === 'loading'
+      ? { stroke: GENERATING_STROKE, strokeWidth: 1 }
+      : { stroke: STATUS_ACCENT[el.status], strokeWidth: 2, dash: [8, 6] }),
     cornerRadius: 12,
   }
 }

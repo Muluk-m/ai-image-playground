@@ -17,6 +17,7 @@ import {
   recordingAgentFetch,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { OTHER_IMAGE, TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -47,7 +48,7 @@ await silenceChatUpstream()
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-reference-user'
-const PIXEL = 'data:image/png;base64,aGk='
+const PIXEL = TEST_IMAGE.pngDataUrl
 
 class DurableFixture extends InMemoryObjectStore {
   sign(key: string) {
@@ -127,13 +128,14 @@ function sentBlocks(call: AgentCall): { readonly images: string[]; readonly text
 async function media(at: number): Promise<AgentTurnReference> {
   const id = `11111111-2222-4333-8444-${String(at).padStart(12, '0')}`
   const now = Date.now()
-  await durable.write(`media/${id}`, new TextEncoder().encode(`orig-${at}`), 'image/png')
-  await durable.write(`preview/${id}`, new TextEncoder().encode(`prev-${at}`), 'image/webp')
+  const fixture = at % 2 ? OTHER_IMAGE : TEST_IMAGE
+  await durable.write(`media/${id}`, fixture.png, 'image/png')
+  await durable.write(`preview/${id}`, fixture.webp, 'image/webp')
   await db.insert(schema.media_objects).values({
     id,
     user_id: USER_ID,
     sha256: `sha-${id}`,
-    bytes: 7,
+    bytes: fixture.png.byteLength,
     content_type: 'image/png',
     status: 'ready',
     reserved_bytes: 0,
@@ -150,8 +152,6 @@ async function media(at: number): Promise<AgentTurnReference> {
 function mediaBatch(count: number): Promise<AgentTurnReference[]> {
   return Promise.all(Array.from({ length: count }, (_, at) => media(at)))
 }
-
-const base64 = (value: string) => Buffer.from(value).toString('base64')
 
 beforeEach(async () => {
   durable = new DurableFixture()
@@ -215,10 +215,10 @@ it('shows a small canvas selection as preview images', async () => {
   const sent = sentBlocks(calls[0]!)
   expect(sent.images).toHaveLength(2)
   // 看一眼判断「是不是那张图」用预留的预览就够，原件一次几 MB。
-  expect(sent.images[0]).toBe(`data:image/webp;base64,${base64('prev-0')}`)
-  expect(sent.images[1]).toBe(`data:image/webp;base64,${base64('prev-1')}`)
+  expect(sent.images[0]).toBe(TEST_IMAGE.webpDataUrl)
+  expect(sent.images[1]).toBe(OTHER_IMAGE.webpDataUrl)
   expect(sent.text).toContain('已附在本轮输入里')
-  expect(sent.text).toContain(`视觉输入 1：图片 ${references[0]!.imageId} 原图`)
+  expect(sent.text).toContain(`视觉输入 1：图片 ${references[0]!.imageId} 缩略图`)
 })
 
 it('sends the inline reference of a mixed turn and only lists the canvas ones', async () => {

@@ -11,6 +11,7 @@ import {
   videoPresetConflicts,
   videoRateMultiplier,
   videoRequestRejection,
+  videoSupportForCapabilities,
 } from '../video-presets'
 
 const GROK = 'grok-imagine-video'
@@ -108,18 +109,129 @@ describe('validateVideoRequest', () => {
     expect(validateVideoRequest(AGNES, request({ aspect_ratio: '9:16' }), 0)).toEqual({ ok: true })
   })
 
-  it('accepts a first frame on Grok and both keyframes on Agnes', () => {
+  it('accepts a first frame on Grok and both endpoint frames on Agnes', () => {
     expect(validateVideoRequest(GROK, request({ first_frame_index: 0 }), 1)).toEqual({ ok: true })
     expect(
       validateVideoRequest(AGNES, request({ first_frame_index: 0, last_frame_index: 1 }), 2),
     ).toEqual({ ok: true })
   })
 
-  it('rejects a last frame on Grok', () => {
-    expect(validateVideoRequest(GROK, request({ last_frame_index: 0 }), 1)).toEqual({
+  it('accepts a 720p Grok last frame and rejects 1080p once the request is reference-to-video', () => {
+    expect(validateVideoRequest(GROK, request({ last_frame_index: 0 }), 1)).toEqual({ ok: true })
+    expect(
+      validateVideoRequest(GROK, request({ resolution: '1080p', first_frame_index: 0 }), 1),
+    ).toEqual({ ok: true })
+    const capped = {
       ok: false,
-      reason: 'Grok 不支持尾帧',
+      reason: 'Grok 带尾帧、关键帧或声音时清晰度最高 720p',
+    }
+    expect(
+      validateVideoRequest(GROK, request({ resolution: '1080p', last_frame_index: 0 }), 1),
+    ).toEqual(capped)
+    expect(
+      validateVideoRequest(GROK, request({ resolution: '1080p', voices: ['eve'] }), 0),
+    ).toEqual(capped)
+  })
+
+  it('accepts Grok voices and in-clip keyframes, and treats empty lists as absent', () => {
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          voices: ['Eve', 'leo'],
+          keyframes: [{ image_index: 0, timestamp_seconds: 2 }],
+        }),
+        1,
+      ),
+    ).toEqual({ ok: true })
+    expect(validateVideoRequest(AGNES, request({ voices: [], keyframes: [] }), 0)).toEqual({
+      ok: true,
     })
+  })
+
+  it('rejects unknown, duplicate and too many voices', () => {
+    expect(validateVideoRequest(GROK, request({ voices: ['morgan'] }), 0)).toEqual({
+      ok: false,
+      reason: '不认识的声音',
+    })
+    expect(validateVideoRequest(GROK, request({ voices: ['Eve', 'eve'] }), 0)).toEqual({
+      ok: false,
+      reason: '同一个声音只能选一次',
+    })
+    expect(
+      validateVideoRequest(GROK, request({ voices: ['ara', 'eve', 'leo', 'rex'] }), 0),
+    ).toEqual({ ok: false, reason: 'Grok 最多 3 个预设声音' })
+    expect(validateVideoRequest(AGNES, request({ voices: ['eve'] }), 0)).toEqual({
+      ok: false,
+      reason: 'Agnes 2.5 Flash 不支持预设声音',
+    })
+  })
+
+  it('rejects keyframes off the grid, at an endpoint, or on a missing image', () => {
+    const reason = '关键帧时间必须落在成片内部，并且彼此至少隔 1/3 秒'
+    const frame = (timestamp: number, index = 0) =>
+      request({ keyframes: [{ image_index: index, timestamp_seconds: timestamp }] })
+    expect(validateVideoRequest(GROK, frame(0), 1)).toEqual({ ok: false, reason })
+    expect(validateVideoRequest(GROK, frame(5), 1)).toEqual({ ok: false, reason })
+    expect(validateVideoRequest(GROK, frame(1.2), 1)).toEqual({ ok: false, reason })
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          keyframes: [
+            { image_index: 0, timestamp_seconds: 1 },
+            { image_index: 1, timestamp_seconds: 1 },
+          ],
+        }),
+        2,
+      ),
+    ).toEqual({ ok: false, reason })
+    expect(validateVideoRequest(GROK, frame(2, 3), 1)).toEqual({
+      ok: false,
+      reason: '关键帧图片不存在',
+    })
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          first_frame_index: 0,
+          keyframes: [{ image_index: 0, timestamp_seconds: 2 }],
+        }),
+        1,
+      ),
+    ).toEqual({ ok: false, reason: '关键帧图片不存在' })
+    expect(validateVideoRequest(AGNES, frame(2), 1)).toEqual({
+      ok: false,
+      reason: 'Agnes 2.5 Flash 不支持关键帧',
+    })
+  })
+
+  it('rejects voices and keyframes when deriving a clip', () => {
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          mode: 'extend',
+          source_task_id: 'src',
+          source_output_index: 0,
+          voices: ['eve'],
+        }),
+        0,
+      ),
+    ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧、参考图、关键帧或声音' })
+  })
+
+  it('keeps last frames when a channel has not declared the newer tokens', () => {
+    const support = VIDEO_MODEL_SUPPORT[GROK]!
+    const gated = videoSupportForCapabilities(support, ['generate', 'reference_images'])
+    expect(gated.lastFrame).toBe(true)
+    expect(gated.referenceImages).toEqual(support.referenceImages)
+    expect(gated.voices).toBeUndefined()
+    expect(gated.keyframes).toBeUndefined()
+    const declared = videoSupportForCapabilities(support, ['voices', 'keyframes'])
+    expect(declared.voices).toEqual({ max: 3 })
+    expect(declared.keyframes).toEqual({ max: 4 })
+    expect(declared.referenceImages).toBeUndefined()
   })
 
   it('rejects 2k on both models', () => {
@@ -292,7 +404,7 @@ describe('validateVideoRequest', () => {
         }),
         1,
       ),
-    ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧或参考图' })
+    ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧、参考图、关键帧或声音' })
   })
 
   it('rejects a mode outside the vocabulary', () => {
@@ -585,5 +697,15 @@ describe('reference images', () => {
         1,
       )?.code,
     ).toBe('deriveFramesRejected')
+  })
+})
+
+describe('model ids that name Object.prototype members', () => {
+  it('treats them as unsupported instead of reading the prototype', () => {
+    for (const id of ['constructor', '__proto__', 'toString']) {
+      expect(videoRequestRejection(id, request(), 0)?.code).toBe('modelUnsupported')
+      expect(validateVideoPrompt(id, '光')).toEqual({ ok: true })
+      expect(videoRateMultiplier(id, '1080p')).toBe(1)
+    }
   })
 })

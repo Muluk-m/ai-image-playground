@@ -6,6 +6,7 @@ import { config } from './config'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
+import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
@@ -14,10 +15,13 @@ import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalDrainRoutes } from './routes/internal-drain'
+import { internalLogRoutes } from './routes/internal-logs'
 import { internalOpsRoutes } from './routes/internal-ops'
+import { internalTaskReconciliationRoutes } from './routes/internal-task-reconciliation'
 import { internalUserRoutes } from './routes/internal-users'
 import { lookRoutes } from './routes/looks'
 import { mediaRoutes } from './routes/media'
@@ -157,6 +161,19 @@ export const app = new Elysia()
     if (startedAt === undefined) return
     const { pathname } = new URL(request.url)
     if (!isApiPath(pathname) || !isCountedPath(pathname)) return
+    const status = responseStatus(responseValue, set.status)
+    const durationMs = performance.now() - startedAt
+    const fields = {
+      event: 'http.request',
+      route: `${request.method} ${route || '（未匹配的路径）'}`,
+      // 只在未匹配时记原始路径：已匹配的用模板，避免把 ID 写进每条访问日志。
+      ...(route ? {} : { path: pathname.slice(0, 200) }),
+      status,
+      durationMs: Math.round(durationMs),
+    }
+    if (status >= 500) log.error(fields, 'API request failed')
+    else if (status >= 400) log.warn(fields, 'API request rejected')
+    else log.info(fields, 'API request completed')
     apiMetrics.record({
       at: Date.now(),
       route: `${request.method} ${route || '（未匹配的路径）'}`,
@@ -184,9 +201,12 @@ export const app = new Elysia()
   .use(lookRoutes)
   .use(mediaRoutes)
   .use(publicInspirationRoutes)
+  .use(clientErrorRoutes)
   .use(generationRoutes)
   .use(internalUserRoutes)
+  .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
+  .use(internalLogRoutes)
   .use(internalInspirationRoutes)
   .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)

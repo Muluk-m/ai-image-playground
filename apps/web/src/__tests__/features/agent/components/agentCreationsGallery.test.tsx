@@ -13,13 +13,13 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const { exportCanvasSelection } = vi.hoisted(() => ({
-  exportCanvasSelection: vi.fn(async () => ({ exported: 1, failed: 0 })),
+const { openImageExport } = vi.hoisted(() => ({
+  openImageExport: vi.fn(async () => ({ exported: 1, failed: 0 })),
 }))
 
-vi.mock('../../../../features/canvas/lib/exportImages', () => ({
-  exportCanvasSelection,
-  exportableElements: () => [],
+vi.mock('../../../../features/image-export/store', () => ({ openImageExport }))
+vi.mock('../../../../features/image-export/sources', () => ({
+  canvasExportSources: (_doc: unknown, ids: string[]) => ids.map((id) => ({ id })),
 }))
 
 const PIXEL = 'data:image/png;base64,aGk='
@@ -72,15 +72,15 @@ function card(name: string): HTMLButtonElement {
 
 /** 这次导出实际拿到的产物 id（顺序由导出自己按画布顺序定，断言只看集合）。 */
 function exportedIds(): string[] {
-  const calls = exportCanvasSelection.mock.calls as unknown as Array<[unknown, string[]]>
+  const calls = openImageExport.mock.calls as unknown as Array<[Array<{ id: string }>]>
   const last = calls[calls.length - 1]
-  return [...(last?.[1] ?? [])].sort()
+  return (last?.[0] ?? []).map((one) => one.id).sort()
 }
 
 beforeEach(() => {
   doc = new CanvasDoc()
   setAgentCanvasSink(null)
-  exportCanvasSelection.mockClear()
+  openImageExport.mockClear()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -96,7 +96,7 @@ describe('全部产物弹窗', () => {
     put([image('a', { name: '猫' }), image('b', { name: '狗' })])
     render()
 
-    act(() => button(/查看全部产物/).click())
+    act(() => button(/^查看全部$/).click())
     expect(cards()).toHaveLength(2)
     expect(button(/导出 2 项/)).toBeTruthy()
 
@@ -108,7 +108,7 @@ describe('全部产物弹窗', () => {
   it('取消勾选的那件不进这次导出', async () => {
     put([image('a', { name: '猫' }), image('b', { name: '狗' })])
     render()
-    act(() => button(/查看全部产物/).click())
+    act(() => button(/^查看全部$/).click())
 
     act(() => card('猫').click())
     expect(card('猫').getAttribute('aria-pressed')).toBe('false')
@@ -120,7 +120,7 @@ describe('全部产物弹窗', () => {
   it('一件都没勾时导不出去，按钮自己禁着', () => {
     put([image('a', { name: '猫' })])
     render()
-    act(() => button(/查看全部产物/).click())
+    act(() => button(/^查看全部$/).click())
 
     act(() => cards()[0]!.click())
 

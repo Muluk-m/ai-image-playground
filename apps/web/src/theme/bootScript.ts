@@ -11,8 +11,8 @@
  */
 export const THEME_STORAGE_KEY = 'aip.theme'
 
-/** 浏览器地址栏与系统状态栏的颜色，对应两套主题的 `--background` 与既有的暗色值。 */
-export const THEME_COLORS = { light: '#f8f8f7', dark: '#23282b' } as const
+/** 浏览器地址栏与系统状态栏的颜色，与两套主题的 `--background` 一致。 */
+export const THEME_COLORS = { light: '#f8f8f7', dark: '#111311' } as const
 
 export const THEME_BOOT_SCRIPT = `(function(){try{var s=null;try{s=localStorage.getItem(${JSON.stringify(
   THEME_STORAGE_KEY,

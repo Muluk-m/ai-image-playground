@@ -199,6 +199,43 @@ await writer.db.insert(writer.schema.agent_model_calls).values([
     cache_read_tokens: 100,
     started_at: now,
   },
+  // 首调先被本地拒绝、再派发失败没报用量，重试那一次仍是这一轮的首调。
+  {
+    id: 'cache-retry-rejected',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-retry-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-retry',
+    status: 'failed',
+    http_dispatch_count: 0,
+    local_rejection: 'request_too_large',
+    started_at: now - 3_000,
+  },
+  {
+    id: 'cache-retry-failed',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-retry-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-retry',
+    status: 'failed',
+    http_dispatch_count: 1,
+    started_at: now - 2_000,
+  },
+  {
+    id: 'cache-retry-ok',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-retry-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-retry',
+    status: 'completed',
+    http_dispatch_count: 1,
+    usage: { inputTokens: 300, outputTokens: 10, cachedInputTokens: 0 },
+    cache_read_tokens: 0,
+    started_at: now - 1_000,
+  },
   {
     id: 'cache-no-usage',
     conversation_id: 'cache-stat-conversation',
@@ -246,23 +283,24 @@ describe('getOverview', () => {
   it('weights cache hit rate by input tokens and filters by range and reported usage', async () => {
     const today = (await getOverview('1d')).agent_cache
     expect(today).toEqual({
-      calls: 2,
-      input_tokens: 1000,
+      calls: 3,
+      input_tokens: 1300,
       cache_read_tokens: 640,
-      first_call: { calls: 1, input_tokens: 900, cache_read_tokens: 600 },
+      first_call: { calls: 2, input_tokens: 1200, cache_read_tokens: 600 },
       continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
       models: [
         { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
+        { model: 'model-retry', calls: 1, input_tokens: 300, cache_read_tokens: 0 },
         { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
       ],
     })
 
     const week = (await getOverview('7d')).agent_cache
     expect(week).toMatchObject({
-      calls: 3,
-      input_tokens: 1100,
+      calls: 4,
+      input_tokens: 1400,
       cache_read_tokens: 640,
-      first_call: { calls: 2, input_tokens: 1000, cache_read_tokens: 600 },
+      first_call: { calls: 3, input_tokens: 1300, cache_read_tokens: 600 },
       continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
     })
     expect(week.models.find((model) => model.model === 'model-a')).toEqual({

@@ -1,7 +1,11 @@
 {
+  "agentQueue": {
+    "stop_failed": "Could not confirm the stop. Please retry.",
+    "fallback": "Message recovery failed. Please try again.",
+    "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
+  },
   "customProvider": {
-    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again",
-    "fallback": "The custom provider request failed. Check its settings and try again"
+    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again"
   },
   "login": {
     "invalid_credentials": "That email address or password is not correct",
@@ -64,11 +68,6 @@
     "recovery_changed": "New changes were made while saving the copy. They remain on this canvas. Choose a recovery action again.",
     "project_deleted": "This project was deleted. Your current edits are preserved and can be saved as a new project."
   },
-  "cloudPlacement": {
-    "place_failed": "Could not add to the current project. Please retry.",
-    "project_not_ready": "The project is still saving or has a conflict. Finish saving or resolve the conflict first.",
-    "fallback": "Could not add to the current project. Please retry."
-  },
   "projectRecycle": {
     "fallback": "The recycle bin operation failed. Please retry."
   },
@@ -86,5 +85,48 @@
     "model_unavailable": "The model it needed isn't available right now",
     "cancelled": "Stopped",
     "fallback": "Didn't finish"
+  },
+  "agentBatch": {
+    "storage_restore_failed": "Local operation history could not be restored. Results are read-only. Try restoring again.",
+    "output_unavailable": "The result could not be loaded. Please try again.",
+    "batch_price_changed": "Prices changed. Review the latest estimate.",
+    "fallback": "Could not update the plan. Your changes are preserved. Try again.",
+    "batch_version_conflict": "This plan has a newer version. Refresh before editing.",
+    "insufficient_credits": "Insufficient credits. The batch is paused.",
+    "input_limit": "Inputs exceed the current limit. The batch is paused.",
+    "upstream_auth": "Generation service authentication failed. The batch is paused.",
+    "model_unavailable": "The selected model or channel is unavailable. The batch is paused."
+  },
+  "attachment": {
+    "attachment_capability_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",
+    "media_unsupported_image": "Convert this image to PNG, JPEG or WebP first.",
+    "media_image_too_large": "This image file exceeds the {{maxSize}} limit. Compress it and upload it again.",
+    "attachment_storage_failed": "This image could not be saved on this device. Free some space, remove it and select it again.",
+    "attachment_read_failed": "This image could not be read. Remove it and select it again.",
+    "fallback": "The image upload failed. Retry or remove it and select it again.",
+    "media_image_pixels_exceeded": "This image exceeds the {{maxPixels}} pixel limit. Reduce its dimensions and upload it again.",
+    "media_quota_exceeded": "Your cloud storage is full. Remove unneeded assets and retry.",
+    "media_invalid_image": "This image cannot be decoded. It may be damaged or use an unsupported encoding. Export it as PNG, JPEG or WebP and upload it again.",
+    "media_processing_busy": "Image processing is busy. Please retry shortly.",
+    "media_storage_unavailable": "Image storage is temporarily unavailable. Please retry shortly.",
+    "media_upload_expired": "This upload has expired. Retry to upload the image again.",
+    "media_hash_mismatch": "The uploaded image failed verification. Retry to upload it again.",
+    "media_descriptor_mismatch": "This image has inconsistent file information. Remove it and select it again.",
+    "media_upload_failed": "The image transfer failed. Check your connection and retry.",
+    "media_network_error": "The network connection failed. Check your connection and retry.",
+    "media_timeout": "The image upload timed out. Check your connection and retry.",
+    "unauthorized": "Your session has expired. Sign in again and retry the upload.",
+    "image_limit_unknown": "This image exceeds the current upload limit. Compress it or reduce its dimensions and upload it again.",
+    "attachment_uploads_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",
+    "media_too_large": "This image file exceeds the {{maxSize}} limit. Compress it and upload it again.",
+    "media_not_readable": "Image storage is temporarily unavailable. Please retry shortly.",
+    "media_size_mismatch": "The uploaded image failed verification. Retry to upload it again.",
+    "media_image_processing_limit": "This image requires too much processing. Reduce its dimensions or export it again before uploading.",
+    "attachment_input_too_large": "This image exceeds the 100 MiB local processing limit. Reduce its size and select it again.",
+    "attachment_decode_limit": "This image exceeds the local processing limit (64 million pixels or 32768 px per side). Resize it and select it again.",
+    "attachment_animated_image": "Animated images are not supported. Export a still PNG, JPG, or WebP and select it again.",
+    "attachment_quality_limit": "The image cannot meet the upload limit at 90% encoding quality. Crop it and select it again.",
+    "attachment_compression_failed": "Image preparation failed. Export the image as PNG, JPG, or WebP and select it again.",
+    "attachment_compression_timeout": "Image preparation timed out. Select the image again; if it still fails, resize it first."
   }
 }

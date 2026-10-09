@@ -2,7 +2,7 @@ import type { SyncAssetQuotaError, SyncAssetUploadResult } from '@image-playgrou
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { objectStore } from './objectStore'
+import { objectStore, readObjectWithinLimit } from './objectStore'
 import type { BffTransaction } from './private-overlay'
 import { lockMediaOwner, mediaUsage } from './projectMedia'
 
@@ -111,6 +111,7 @@ export async function storeAssetImage(
 export async function readAssetImage(
   userId: string,
   imageId: string,
+  maxBytes?: number,
 ): Promise<StoredAssetImage | null> {
   const [row] = await db
     .select({ content_type: schema.user_asset_objects.content_type })
@@ -123,7 +124,10 @@ export async function readAssetImage(
     )
   if (!row) return null
   return {
-    bytes: await objectStore().read(assetObjectKey(userId, imageId)),
+    bytes:
+      maxBytes === undefined
+        ? await objectStore().read(assetObjectKey(userId, imageId))
+        : await readObjectWithinLimit(objectStore(), assetObjectKey(userId, imageId), maxBytes),
     contentType: row.content_type,
   }
 }

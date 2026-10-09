@@ -4,17 +4,22 @@ import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import { canvasExportSources } from '../../image-export/sources'
+import { openImageExport } from '../../image-export/store'
 import type { ImageEl } from '../lib/canvasDoc'
 import {
   cutoutRefusal,
   imageEditRefusal,
+  type ResizeRatio,
   resizeRefusal,
   submitCanvasCutout,
+  submitCanvasResize,
 } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
-import { exportableElements, exportCanvasSelection } from '../lib/exportImages'
+import { exportableElements } from '../lib/exportImages'
 import { projectDisplayName } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
+import CanvasBatchConfirmDialog from './CanvasBatchConfirmDialog'
 import CanvasBatchEditDialog from './CanvasBatchEditDialog'
 import CanvasBatchResizeMenu from './CanvasBatchResizeMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
@@ -32,9 +37,12 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [editing, setEditing] = useState(false)
   const [resizeAt, setResizeAt] = useState<{ x: number; y: number } | null>(null)
+  /** 等用户确认的批量 AI 动作；确认前不发任何任务。 */
+  const [pending, setPending] = useState<
+    { kind: 'cutout' } | { kind: 'resize'; ratio: ResizeRatio } | null
+  >(null)
 
   const selection = [...doc.selection]
   const images = selection
@@ -55,23 +63,18 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
     return modelReason ?? images.map(check).find((reason) => reason !== null) ?? undefined
   }
 
-  const runExport = async () => {
-    if (progress || exportable.length === 0) return
-    setProgress({ done: 0, total: exportable.length })
-    try {
-      await exportCanvasSelection(doc, selection, {
-        onProgress: (done, total) => setProgress({ done, total }),
-        baseName: project ? projectDisplayName(project.name) : undefined,
-      })
-    } finally {
-      setProgress(null)
-    }
+  const runExport = () => {
+    openImageExport(
+      canvasExportSources(doc, selection),
+      project ? projectDisplayName(project.name) : undefined,
+    )
   }
-  const runCutout = async () => {
+  /** 逐张提交；某张发不出去（门禁、额度）就停，不把剩下的继续往外扔。 */
+  const runEach = async (submit: (image: ImageEl) => Promise<boolean>) => {
     for (const image of images) {
       const current = editor.getElement(image.id)
       if (current?.type !== 'image' || current.video) continue
-      if (!(await submitCanvasCutout(editor, current))) break
+      if (!(await submit(current))) break
     }
   }
 
@@ -92,7 +95,7 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
           icon={<Scissors />}
           label={t('cutout.action')}
           reason={batchRefusal((image) => cutoutRefusal(image, settings))}
-          onClick={() => void runCutout()}
+          onClick={() => setPending({ kind: 'cutout' })}
         />
         <CanvasToolbarButton
           compact
@@ -116,14 +119,11 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
           compact
           icon={<Download />}
           label={
-            progress
-              ? t('batch.exporting', progress)
-              : exportable.length > 0
-                ? t('batch.export', { count: exportable.length })
-                : t('batch.nothingToExport')
+            exportable.length > 0
+              ? t('batch.export', { count: exportable.length })
+              : t('batch.nothingToExport')
           }
           reason={exportable.length === 0 ? t('batch.nothingToExport') : undefined}
-          disabled={progress !== null}
           onClick={() => void runExport()}
         />
         <CanvasToolbarButton
@@ -145,10 +145,26 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
       )}
       {resizeAt && (
         <CanvasBatchResizeMenu
-          editor={editor}
-          images={images}
           {...resizeAt}
+          onPick={(ratio) => setPending({ kind: 'resize', ratio })}
           onClose={() => setResizeAt(null)}
+        />
+      )}
+      {pending && (
+        <CanvasBatchConfirmDialog
+          title={
+            pending.kind === 'cutout'
+              ? t('batch.cutoutTitle', { count: images.length })
+              : t('batch.resizeTitle', { count: images.length, ratio: pending.ratio })
+          }
+          note={t(pending.kind === 'cutout' ? 'batch.cutoutPlacement' : 'batch.resizePlacement')}
+          count={images.length}
+          onConfirm={() =>
+            pending.kind === 'cutout'
+              ? runEach((image) => submitCanvasCutout(editor, image))
+              : runEach((image) => submitCanvasResize(editor, image, pending.ratio))
+          }
+          onClose={() => setPending(null)}
         />
       )}
     </>

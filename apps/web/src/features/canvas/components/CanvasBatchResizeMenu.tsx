@@ -1,21 +1,17 @@
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
-import type { ImageEl } from '../lib/canvasDoc'
-import { RESIZE_RATIOS, submitCanvasResize } from '../lib/canvasImageEdits'
-import type { CanvasEditor } from '../lib/editor'
+import { RESIZE_RATIOS, type ResizeRatio } from '../lib/canvasImageEdits'
 
-/** 与单图同一组比例；每张各出一版，原图保留。 */
+/** 与单图同一组比例；选中比例只交给调用方去确认，不在这里直接提交。 */
 export default function CanvasBatchResizeMenu({
-  editor,
-  images,
   x,
   y,
+  onPick,
   onClose,
 }: {
-  editor: CanvasEditor
-  images: readonly ImageEl[]
   x: number
   y: number
+  onPick: (ratio: ResizeRatio) => void
   onClose: () => void
 }) {
   const { t } = useTranslation('canvas')
@@ -28,13 +24,7 @@ export default function CanvasBatchResizeMenu({
           label={t(`resize.ratio.${key}`)}
           onClick={() => {
             onClose()
-            void (async () => {
-              for (const image of images) {
-                const current = editor.getElement(image.id)
-                if (current?.type !== 'image' || current.video) continue
-                if (!(await submitCanvasResize(editor, current, ratio))) break
-              }
-            })()
+            onPick(ratio)
           }}
         />
       ))}

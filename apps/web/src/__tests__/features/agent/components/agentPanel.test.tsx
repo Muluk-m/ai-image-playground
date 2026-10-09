@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+
+vi.mock('../../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -11,6 +17,7 @@ import {
   reduceAgentPanelEvent,
 } from '../../../../features/agent/lib/panelMessages'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
+import { resetAgentSkillsCache } from '../../../../features/agent/lib/useAgentSkills'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -102,6 +109,7 @@ function toolMessage(
 }
 
 beforeEach(async () => {
+  resetAgentSkillsCache()
   const session = agentDraft(null)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
   session.update(EMPTY_DRAFT)
@@ -436,6 +444,11 @@ describe('AgentPanel', () => {
         ],
       }),
     )
+    const folded = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '已完成',
+    )
+    expect(folded).toBeDefined()
+    act(() => folded!.click())
     const line = host.querySelector<HTMLElement>(
       '#agent-tool-card-tool-skill button[aria-expanded]',
     )
@@ -465,6 +478,11 @@ describe('AgentPanel', () => {
         ],
       }),
     )
+    const folded = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '已完成',
+    )
+    expect(folded).toBeDefined()
+    act(() => folded!.click())
     expect(
       host.querySelector('#agent-tool-card-tool-skill button[aria-expanded]')?.textContent,
     ).toBe('没找到技能：nope')
@@ -753,7 +771,7 @@ describe('AgentPanel', () => {
     })
 
     expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
-    expect(host.textContent).toContain('ref')
+    expect(host.querySelector('img')?.getAttribute('alt')).toContain('ref')
   })
 
   it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {
@@ -1016,11 +1034,42 @@ describe('AgentPanel', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(host.textContent).toContain('要哪种风格？')
-    expect(host.querySelector('.studio-clarification-answered-detail')?.textContent).toContain(
+    const options = host.querySelector('[data-slot="option-list"][data-state="receipt"]')!
+    expect([...options.children].map((option) => option.textContent)).toEqual([
+      '写实照片已选',
       '扁平插画',
-    )
+    ])
+    expect(options.querySelectorAll('[data-selected]')).toHaveLength(1)
+    expect(options.querySelector('[data-selected]')?.textContent).toBe('写实照片已选')
     expect(host.querySelector('.studio-clarification-answered-detail button')).toBeNull()
     expect(texts('button')).not.toContain('其他…')
+  })
+
+  it('展开自写回答保留全部原选项，并单独标明最终回答', () => {
+    const send = vi.fn(async () => {})
+    useAgentStore.setState({ send })
+    answeredClarification('水墨国风')
+    render()
+
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('已选：水墨国风'),
+    ) as HTMLButtonElement
+    act(() => toggle.click())
+
+    const options = host.querySelector('[data-slot="option-list"][data-state="receipt"]')!
+    expect([...options.children].map((option) => option.textContent)).toEqual([
+      '写实照片',
+      '扁平插画',
+      '水墨国风其他回答 · 已选',
+    ])
+    expect(options.querySelectorAll('[data-selected]')).toHaveLength(1)
+    expect(options.querySelector('[data-selected]')?.textContent).toBe('水墨国风其他回答 · 已选')
+    expect(options.querySelector('button')).toBeNull()
+    act(() => (options.firstElementChild as HTMLElement).click())
+    expect(send).not.toHaveBeenCalled()
+    act(() => toggle.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(host.querySelector('.studio-clarification-answered-detail')).toBeNull()
   })
 
   it('被后一张澄清顶掉、却没有回答可折叠的澄清，仍标「已回答」并锁住选项', () => {

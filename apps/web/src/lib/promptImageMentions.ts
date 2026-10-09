@@ -4,6 +4,16 @@ import type { InputImage } from '../types'
 const MENTION_START = '\u2063'
 const MENTION_END = '\u2064'
 const SELECTED_IMAGE_MENTION_RE = /\u2063@图(\d+)\u2064/g
+/**
+ * 素材位（CONTEXT「素材位」）的存储形态：U+2066 key [+] U+2067 位名 U+2067 [引用哨兵…] U+2069。填好的位里装的就是普通引用哨兵，
+ * 重排、去重、降级都走引用那一套；空位里什么都没装，发送时以位名作普通文字发出。`+` 表示能放多图。
+ * 位名是初值文案：按填入那一刻的界面语言写，之后不再翻译。
+ */
+const ASSET_SLOT_SOURCE =
+  '\u2066([A-Za-z0-9_-]+)(\\+?)\u2067([^\u2063-\u2069]*)\u2067((?:\u2063@图\\d+\u2064)*)\u2069'
+const ASSET_SLOT_RE = new RegExp(ASSET_SLOT_SOURCE, 'g')
+/** 位与位外的引用一起扫：位里的引用归位管，不再单独成一个胶囊。 */
+const PROMPT_TOKEN_RE = new RegExp(`${ASSET_SLOT_SOURCE}|${SELECTED_IMAGE_MENTION_RE.source}`, 'g')
 
 export interface AtImageQuery {
   start: number
@@ -40,10 +50,68 @@ function stripImageMentionMarkers(prompt: string): string {
   return prompt.replace(/[\u2063\u2064]/g, '')
 }
 
+/** 提示词里的一个素材位。`imageIndexes` 为空即空位。 */
+export interface PromptAssetSlot {
+  readonly key: string
+  /** 位名：空位与已填位的胶囊都按它的长度计光标。 */
+  readonly label: string
+  readonly multiple: boolean
+  readonly imageIndexes: readonly number[]
+}
+
+export interface PromptAssetSlotDeclaration {
+  readonly key: string
+  readonly label: string
+  readonly multiple: boolean
+}
+
+/** 位名里不许出现任何哨兵字符，否则存储形态就拆不回来。 */
+function slotLabelText(label: string): string {
+  return label.replace(/[\u2063-\u2069]/g, '')
+}
+
+/** 一个素材位的存储形态；`imageIndexes` 是填进去的参考图序号，空数组即空位。 */
+export function assetSlotToken(
+  slot: PromptAssetSlotDeclaration,
+  imageIndexes: readonly number[] = [],
+): string {
+  const mentions = imageIndexes.map(getSelectedImageMentionLabel).join('')
+  return `\u2066${slot.key}${slot.multiple ? '+' : ''}\u2067${slotLabelText(slot.label)}\u2067${mentions}\u2069`
+}
+
+function slotFromMatch(match: RegExpMatchArray): PromptAssetSlot {
+  return {
+    key: match[1]!,
+    multiple: match[2] === '+',
+    label: match[3]!,
+    imageIndexes: getMentionedImageIndexes(match[4] ?? ''),
+  }
+}
+
+/** 提示词里的素材位，按出现顺序；同一个位在提示词里的身份就是它在这份清单里的下标。 */
+export function getPromptAssetSlots(prompt: string): PromptAssetSlot[] {
+  return [...prompt.matchAll(ASSET_SLOT_RE)].map(slotFromMatch)
+}
+
+/** 换掉第 `occurrence` 个素材位里装的图；空数组即把它变回空位。 */
+export function setPromptAssetSlotImages(
+  prompt: string,
+  occurrence: number,
+  imageIndexes: readonly number[],
+): string {
+  let at = 0
+  return prompt.replace(ASSET_SLOT_RE, (...match: string[]) => {
+    if (at++ !== occurrence) return match[0]!
+    return assetSlotToken(slotFromMatch(match as unknown as RegExpMatchArray), imageIndexes)
+  })
+}
+
 interface MentionSpan {
   visibleStart: number
   visibleEnd: number
+  /** 素材位是 -1：它不指向某一张图。 */
   imageIndex: number
+  slot?: PromptAssetSlot & { readonly token: string; readonly occurrence: number }
 }
 
 interface PromptScan {
@@ -55,27 +123,29 @@ interface PromptScan {
 
 /**
  * 可见文本是渲染出来的那一串，胶囊按 `labelFor` 的显示标签计长——contentEditable 的光标
- * 偏移就是在这个坐标系里数的，两边不一致光标会整体错位。
+ * 偏移就是在这个坐标系里数的，两边不一致光标会整体错位。素材位不论空着还是填好都按位名计长。
  */
 function scanPrompt(prompt: string, labelFor: MentionLabelResolver): PromptScan {
   const spans: MentionSpan[] = []
   const promptIndexAt: number[] = []
   const visible: string[] = []
   let plainFrom = 0
+  let slots = 0
 
   const pushPlain = (to: number) => {
     for (let i = plainFrom; i < to; i++) {
-      const char = prompt[i]
+      const char = prompt[i]!
       if (char === MENTION_START || char === MENTION_END) continue
       promptIndexAt.push(i)
       visible.push(char)
     }
   }
 
-  for (const match of prompt.matchAll(SELECTED_IMAGE_MENTION_RE)) {
+  for (const match of prompt.matchAll(PROMPT_TOKEN_RE)) {
     if (match.index == null) continue
-    const imageIndex = Number(match[1]) - 1
-    const label = labelFor(imageIndex)
+    const slot = match[1] ? slotFromMatch(match) : undefined
+    const imageIndex = slot ? -1 : Number(match[5]) - 1
+    const label = slot ? slot.label || slot.key : labelFor(imageIndex)
     if (label == null) continue
 
     pushPlain(match.index)
@@ -83,10 +153,11 @@ function scanPrompt(prompt: string, labelFor: MentionLabelResolver): PromptScan 
       visibleStart: visible.length,
       visibleEnd: visible.length + label.length,
       imageIndex,
+      ...(slot ? { slot: { ...slot, token: match[0], occurrence: slots++ } } : {}),
     })
     for (let i = 0; i < label.length; i++) {
       promptIndexAt.push(match.index)
-      visible.push(label[i])
+      visible.push(label[i]!)
     }
     plainFrom = match.index + match[0].length
   }
@@ -172,14 +243,26 @@ export function insertImageMentionAtVisibleRange(
   }
 }
 
-/** `nextIndexOf` 给出新序号，负数表示图已不在条里，null 表示这条引用不归本次重排管。 */
+/**
+ * `nextIndexOf` 给出新序号，负数表示图已不在条里，null 表示这条引用不归本次重排管。
+ * 素材位里的引用不降级成文字：图不在了，位就少装一张，装空了就回到空位。
+ */
 export function remapImageMentions(
   prompt: string,
   nextIndexOf: (imageIndex: number) => number | null,
 ): string {
-  return prompt.replace(SELECTED_IMAGE_MENTION_RE, (text, n) => {
+  return prompt.replace(PROMPT_TOKEN_RE, (...match: string[]) => {
+    const [text, key, , , , n] = match
+    if (key) {
+      const slot = slotFromMatch(match as unknown as RegExpMatchArray)
+      const kept = slot.imageIndexes.flatMap((index) => {
+        const next = nextIndexOf(index)
+        return next == null ? [index] : next >= 0 ? [next] : []
+      })
+      return assetSlotToken(slot, kept)
+    }
     const nextIndex = nextIndexOf(Number(n) - 1)
-    if (nextIndex == null) return text
+    if (nextIndex == null) return text!
     // 初值文案：按写入这一刻的界面语言写，写完就是用户提示词里的普通文字。
     return nextIndex >= 0
       ? getSelectedImageMentionLabel(nextIndex)
@@ -205,6 +288,15 @@ export function remapImageMentionsForOrder(
 export type PromptMentionPart =
   | { type: 'text'; text: string }
   | { type: 'mention'; text: string; imageIndex: number }
+  | {
+      type: 'slot'
+      text: string
+      /** 这一位在提示词里的存储形态，胶囊的 `data-mention-text` 就是它。 */
+      token: string
+      /** 第几个素材位，按出现顺序。 */
+      occurrence: number
+      slot: PromptAssetSlot
+    }
 
 export function getPromptMentionParts(
   prompt: string,
@@ -218,11 +310,13 @@ export function getPromptMentionParts(
     if (span.visibleStart > cursor) {
       parts.push({ type: 'text', text: visible.slice(cursor, span.visibleStart) })
     }
-    parts.push({
-      type: 'mention',
-      text: visible.slice(span.visibleStart, span.visibleEnd),
-      imageIndex: span.imageIndex,
-    })
+    const text = visible.slice(span.visibleStart, span.visibleEnd)
+    if (span.slot) {
+      const { token, occurrence, ...slot } = span.slot
+      parts.push({ type: 'slot', text, token, occurrence, slot })
+    } else {
+      parts.push({ type: 'mention', text, imageIndex: span.imageIndex })
+    }
     cursor = span.visibleEnd
   }
   if (cursor < visible.length) parts.push({ type: 'text', text: visible.slice(cursor) })
@@ -230,11 +324,23 @@ export function getPromptMentionParts(
   return parts.length > 0 ? parts : [{ type: 'text', text: visible }]
 }
 
+/**
+ * 发送形状：引用换成 `[image N]`。填好的素材位就是它装的那几条引用；空位以位名作普通文字发出，
+ * 缺的图由智能体追问。
+ */
 export function replaceImageMentionsForApi(prompt: string, imageCount?: number): string {
-  return prompt.replace(SELECTED_IMAGE_MENTION_RE, (text, n) => {
+  const mention = (text: string, n: string) => {
     const index = Number(n) - 1
     if (imageCount != null && (index < 0 || index >= imageCount))
       return stripImageMentionMarkers(text)
     return `[image ${n}]`
+  }
+  return prompt.replace(PROMPT_TOKEN_RE, (...match: string[]) => {
+    const [text, key, , label, mentions, n] = match
+    if (!key) return mention(text!, n!)
+    const sent = [...(mentions ?? '').matchAll(SELECTED_IMAGE_MENTION_RE)].map((one) =>
+      mention(one[0], one[1]!),
+    )
+    return sent.length > 0 ? sent.join(' ') : label || key
   })
 }

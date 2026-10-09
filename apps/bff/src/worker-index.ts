@@ -2,17 +2,21 @@ import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
+import { recoverAnalysisTasks } from './lib/analysis-tasks'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
+import { startServerLogs } from './lib/server-logs'
 import { createAlertSender } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
+import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
 import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
 import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
 
+const stopServerLogs = startServerLogs()
 config.assertValid()
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -24,7 +28,10 @@ if (isCapabilityEnabled('billing:credits')) {
 }
 
 // 启动扫一次只覆盖「重启之后」那一瞬间，SIGKILL 随时可能再留下无主行，所以要持续扫。
-if (!config.worker.startPaused) await recoverAbandonedTasks()
+if (!config.worker.startPaused) {
+  await recoverAbandonedTasks()
+  await recoverAnalysisTasks()
+}
 
 const scheduler = new TaskScheduler()
 if (config.worker.startPaused) scheduler.drain()
@@ -74,7 +81,7 @@ const staleScanTimer = setInterval(() => {
     )
   })
   if (!scheduler.drainStatus().draining)
-    recoverAbandonedTasks(runningTaskIds()).catch((err) => {
+    Promise.all([recoverAbandonedTasks(runningTaskIds()), recoverAnalysisTasks()]).catch((err) => {
       log.error(
         {
           event: 'worker.stale_scan_failed',
@@ -107,6 +114,7 @@ log.info(
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
+  await stopServerLogs()
   await closeDb()
   log.flush()
   process.exit(exitCode)
@@ -139,13 +147,16 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (!idle) {
     // id 必须在 abort 之前取：runner settle 之后会把自己从 runningTasks 摘掉。
     const aborted = runningTaskIds()
+    const abortedAnalysis = runningAnalysisTaskIds()
     abortAllRunningTasks()
+    abortAllRunningAnalysisTasks()
     log.warn(
       { event: 'worker.shutdown_drain_timeout', drainTimeoutMs, aborted: aborted.length },
       'drain window expired, aborting inflight tasks for requeue',
     )
     await scheduler.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS)
     await recoverTasksByIds(aborted)
+    await recoverAnalysisTasks(Date.now(), abortedAnalysis)
   }
 
   log.info({ event: 'worker.shutdown_done' }, 'task worker stopped')

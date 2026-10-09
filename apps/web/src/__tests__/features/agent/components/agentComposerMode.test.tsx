@@ -50,6 +50,7 @@ vi.mock('../../../../features/agent/lib/agentClient', async () => {
 })
 
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
+import { fillAgentComposer } from '../../../../features/agent/lib/composerFill'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
@@ -225,6 +226,33 @@ describe('部署做不了视频时', () => {
   })
 })
 
+describe('起手句填进项目输入框', () => {
+  it('技能变成胶囊，示例词被选中；用户自己的草稿不被覆盖', async () => {
+    openProject('video')
+    render()
+    await settle()
+
+    act(() => {
+      fillAgentComposer({
+        skill: 'storyboard-short',
+        text: '做一条 15 秒的开箱短片',
+        highlight: { start: 4, end: 8 },
+      })
+    })
+    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toBe(
+      '/storyboard-short 做一条 15 秒的开箱短片',
+    )
+    expect(editor().querySelector('[data-skill-name="storyboard-short"]')).not.toBeNull()
+    expect(window.getSelection()?.toString()).toBe('15 秒')
+
+    type('，要横屏')
+    act(() => {
+      fillAgentComposer({ skill: 'storyboard-short', text: '另一句' })
+    })
+    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toContain('要横屏')
+  })
+})
+
 describe('`/` 技能候选', () => {
   it('视频轮打 `/` 弹出图标、中文标题与用户向简介，选中后补成 `/name`', async () => {
     openProject('video')
@@ -245,7 +273,7 @@ describe('`/` 技能候选', () => {
     expect(option!.querySelector('[data-skill-icon="clapperboard"]')).not.toBeNull()
 
     act(() => {
-      option!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      option!.click()
     })
 
     // 插进去的仍是标识：服务端只认它。
@@ -258,7 +286,7 @@ describe('`/` 技能候选', () => {
     await settle()
     type('/story')
     const option = host.querySelector<HTMLElement>('[role="option"]')!
-    act(() => option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))
+    act(() => option.click())
     type('参考 @')
     const session = agentDraft(null, PROJECT_ID)
     act(() => {

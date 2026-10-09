@@ -3,6 +3,7 @@ import {
   currentCanvasWorkspace,
   forgetCanvasWorkspace,
   openProject,
+  peekCanvasWorkspace,
   prepareCanvasRemoval,
 } from '../../canvas/lib/activeProject'
 import {
@@ -47,7 +48,9 @@ export async function saveCurrentProject(
   // 草稿的 flush 不返回成败，写失败记在 snapshot 上。
   await draft.flush()
   if (draft.getSnapshot().error) return { ok: false, reason: 'draft_save_failed' }
-  const workspace = currentCanvasWorkspace()
+  // 首页没有打开画布时，它的存档已在盘上；不要为保存去恢复上次的云端画布。
+  const workspace = peekCanvasWorkspace()
+  if (!workspace) return { ok: true }
   // 读失败的画布 flush() 一定是 false，等 ready 只是为了不抢在首次读取前写。
   await workspace.ready.catch(() => {})
   // 画布的 flush 反过来：不抛，直接返回成败。

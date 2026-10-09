@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { type AgentMode, DEFAULT_AGENT_SKILL_ICON, LOOK_PURPOSES } from '@image-playground/shared'
+import {
+  AGENT_SKILL_INPUT_REF_RE,
+  AGENT_SKILL_SCENES,
+  type AgentMode,
+  DEFAULT_AGENT_SKILL_ICON,
+} from '@image-playground/shared'
 
 // 只读磁盘上随仓库发的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/shipped-agent-skills'
@@ -15,7 +20,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../agent-video-operator-config.json',
 )
 
-const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills, findAgentSkill } = await import(
+const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } = await import(
   '../../../lib/agent/skills'
 )
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
@@ -52,12 +57,16 @@ const MODES: AgentMode[] = ['image', 'video']
 
 _setChannelsForTesting([VIDEO_CHANNEL])
 const diagnostics: string[] = []
+/** meta.json 里被回退、被丢掉的字段与起手句：加载照常，体检要把它们拦在 CI。 */
+const metaWarnings: string[] = []
 const { log } = await import('../../../lib/logger')
 const warn = log.warn.bind(log)
 // 加载器把 frontmatter 不合规、读不出来这些事都记成 warn，不抛；体检要的正是它们。
 log.warn = ((first: unknown, ...rest: unknown[]) => {
   const event = (first as { event?: string } | undefined)?.event
   if (event === 'agent.skill_diagnostic') diagnostics.push(JSON.stringify(first))
+  if (event?.startsWith('agent.skill_meta_') || event === 'agent.skill_starter_dropped')
+    metaWarnings.push(JSON.stringify(first))
   return warn(first as never, ...(rest as never[]))
 }) as typeof log.warn
 await ensureAgentSkills()
@@ -177,55 +186,117 @@ describe('随仓库发的技能', () => {
   })
 })
 
-/** 模板正文的固定分节，顺序也是固定的（见 CONTEXT.md「模板」）。 */
-const LOOK_SECTIONS = [
-  '## 1. 一句话目标',
-  '## 2. 适用场景',
-  '## 3. 需要用户提供的输入',
-  '## 4. 工作流程',
-  '## 5. 输出要求',
-  '## 6. 约束与禁忌',
-  '## 7. 示例',
-]
+describe('随仓库发的技能的素材位与起手句', () => {
+  it('meta.json 里没有被回退或丢掉的字段与起手句', () => {
+    expect(metaWarnings).toEqual([])
+  })
 
-/** 磁盘上自称模板的那些目录。写坏的标记会被加载器丢掉，所以判据取磁盘，不取加载结果。 */
-const TEMPLATE_DIRS = readdirSync(join(defaultAgentSkillsRoot(), 'image')).filter((name) => {
-  const meta: unknown = JSON.parse(
-    readFileSync(join(defaultAgentSkillsRoot(), 'image', name, 'meta.json'), 'utf8'),
-  )
-  return typeof meta === 'object' && meta !== null && 'template' in meta
+  it.each(MODES)('%s 轮的起手句只引用声明过的素材位，文案与场景都合法', (mode) => {
+    for (const skill of agentSkills(mode)) {
+      const keys = new Set(skill.inputs.map((input) => input.key))
+      for (const input of skill.inputs) expect(input.label['zh-CN'].trim()).not.toBe('')
+      if (skill.scene) expect(AGENT_SKILL_SCENES).toContain(skill.scene)
+      for (const starter of skill.starters) {
+        for (const text of [starter.text['zh-CN'], starter.text.en ?? '']) {
+          const refs = [...text.matchAll(AGENT_SKILL_INPUT_REF_RE)].map(([, key]) => key)
+          expect([skill.name, refs.filter((key) => !keys.has(key ?? ''))]).toEqual([skill.name, []])
+        }
+        expect(starter.text['zh-CN'].trim()).not.toBe('')
+        if (starter.highlight) expect(starter.text['zh-CN']).toContain(starter.highlight['zh-CN'])
+      }
+    }
+  })
+
+  it.each(MODES)('%s 轮的系统提示词里没有素材位与起手句的文案', (mode) => {
+    const { systemPrompt } = turnInitialState([], mode)
+    for (const skill of agentSkills(mode)) {
+      for (const starter of skill.starters)
+        expect(systemPrompt).not.toContain(starter.text['zh-CN'])
+      for (const input of skill.inputs) {
+        // 「素材」这类两个字的位名太短，会撞上正文里的普通用词；只查足够长、像文案的那些。
+        if ([...input.label['zh-CN']].length >= 4)
+          expect(systemPrompt).not.toContain(input.label['zh-CN'])
+      }
+    }
+  })
 })
 
 describe('随仓库发的预置模板', () => {
-  it('首批预置模板都在', () => {
-    expect(TEMPLATE_DIRS.length).toBeGreaterThanOrEqual(4)
+  it('暂停发布预置模板，保留其他技能', () => {
+    for (const mode of MODES) {
+      expect(agentSkills(mode).filter((skill) => skill.template)).toEqual([])
+    }
+  })
+})
+
+// 技能效果验证（#1000）。导入放在这里而不是文件头，与其他体检互不打扰。
+const { verifiedMismatches } = await import('../../../lib/skill-verification/backfill')
+const {
+  declaredInputs,
+  imageSkillsWithVerificationFile,
+  parseVerificationCases,
+  resolveFixture,
+  VERIFICATION_CASES_FILE,
+  VERIFICATION_DIR,
+  VERIFICATION_RECORD_FILE,
+} = await import('../../../lib/skill-verification/cases')
+
+/** 磁盘上的全部图片技能目录（见 `apps/bff/skill-verification/README.md`）。 */
+const IMAGE_SKILL_NAMES = readdirSync(join(defaultAgentSkillsRoot(), 'image'))
+
+function readJson(path: string): unknown {
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+describe('随仓库发的技能效果验证', () => {
+  const withCases = imageSkillsWithVerificationFile(
+    defaultAgentSkillsRoot(),
+    VERIFICATION_CASES_FILE,
+  )
+
+  it('至少有一条技能写了测试输入', () => {
+    expect(withCases.length).toBeGreaterThan(0)
   })
 
-  it.each(TEMPLATE_DIRS)('%s 的模板标记过了校验', (name) => {
-    // 标记写坏时加载器只丢标记、留技能：那样这条模板会从模板页上静默消失，只有这里拦得住。
-    const template = findAgentSkill('image', name)?.template
-    expect(template).toBeDefined()
-    expect(LOOK_PURPOSES).toContain(template!.purpose)
-    expect(template!.model).not.toBe('')
-    expect(template!.size).not.toBe('')
-    expect(template!.slotCount).toBeGreaterThanOrEqual(1)
-  })
-
-  it.each(TEMPLATE_DIRS)('%s 的封面与参考图在目录里', (name) => {
-    const template = findAgentSkill('image', name)!.template!
+  it.each(withCases)('%s 的测试输入格式合规、图片都在', (name) => {
     const directory = join(defaultAgentSkillsRoot(), 'image', name)
-    for (const file of [template.cover, ...template.references]) {
-      expect(existsSync(join(directory, file))).toBe(true)
-    }
+    const parsed = parseVerificationCases(
+      readJson(join(directory, VERIFICATION_DIR, VERIFICATION_CASES_FILE)),
+      declaredInputs(readJson(join(directory, 'meta.json')), name),
+      (ref) => resolveFixture(defaultAgentSkillsRoot(), directory, ref),
+      existsSync,
+    )
+    expect(parsed.ok ? [] : parsed.errors).toEqual([])
   })
 
-  it.each(TEMPLATE_DIRS)('%s 的正文按固定七节依次写全', (name) => {
-    const { content } = findAgentSkill('image', name)!
-    let previous = -1
-    for (const heading of LOOK_SECTIONS) {
-      const at = content.indexOf(`\n${heading}\n`)
-      expect([name, heading, at > previous]).toEqual([name, heading, true])
-      previous = at
+  it.each(IMAGE_SKILL_NAMES)('%s 的 verified 与一份过线的验证记录逐项一致', (name) => {
+    // 没写 verified 的技能天然一致；写了就必须由过线记录回填、模型相同。
+    const directory = join(defaultAgentSkillsRoot(), 'image', name)
+    const recordPath = join(directory, VERIFICATION_DIR, VERIFICATION_RECORD_FILE)
+    const meta = readJson(join(directory, 'meta.json')) as Record<string, unknown>
+    const record = existsSync(recordPath) ? readJson(recordPath) : undefined
+    expect(verifiedMismatches(meta, record)).toEqual([])
+  })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 的验证记录用的是当前这 3 组测试输入', (name) => {
+    const directory = join(defaultAgentSkillsRoot(), 'image', name, VERIFICATION_DIR)
+    if (!existsSync(join(directory, VERIFICATION_RECORD_FILE))) return
+    // 测试输入换过而记录没重跑，记录就证明不了现在这套输入。
+    const record = readJson(join(directory, VERIFICATION_RECORD_FILE)) as {
+      runs: { case: string }[]
     }
+    const cases = readJson(join(directory, VERIFICATION_CASES_FILE)) as { cases: { id: string }[] }
+    expect([...new Set(record.runs.map((run) => run.case))].sort()).toEqual(
+      cases.cases.map((one) => one.id).sort(),
+    )
+  })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 若是预置模板，verified 记的是钉死的模型', (name) => {
+    // 钉死模型一改，旧的 verified 就不再成立：要么重跑验证，要么回填工具把它删掉。
+    const meta = readJson(join(defaultAgentSkillsRoot(), 'image', name, 'meta.json')) as {
+      verified?: { model?: unknown }
+      template?: { model?: unknown }
+    }
+    if (meta.verified && meta.template) expect(meta.verified.model).toBe(meta.template.model)
   })
 })

@@ -1,10 +1,11 @@
-import { ArrowLeft, Download, FolderOpen, ImagePlus, SquareArrowOutUpRight } from 'lucide-react'
+import { Download, SquareArrowOutUpRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { type DeliverableImage, downloadImages, sendImagesToComposer } from '../lib/deliver'
 import type { ToolDefinition } from '../lib/tool'
 import { useToolboxStore } from '../store'
+import ToolboxHeader from './ToolboxHeader'
 import { useToolboxIntake } from './useToolboxIntake'
 
 /**
@@ -26,42 +27,28 @@ export default function ToolShell({
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
-  const clear = useToolboxStore((state) => state.clear)
-  const closeTool = useToolboxStore((state) => state.closeTool)
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
   const Icon = tool.icon
   const name = t(`tool.${tool.id}.name`)
 
   return (
-    <main {...dropZoneProps} className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <main
+      {...dropZoneProps}
+      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col"
+    >
       {inputs}
-      <div className="studio-page-head flex shrink-0 flex-wrap items-center gap-2 border-b border-border py-2.5 pl-3 pr-16 md:pr-60">
-        <Button variant="ghost" size="sm" onClick={closeTool}>
-          <ArrowLeft />
-          {t('page.back')}
-        </Button>
-        <span className="text-muted-foreground">/</span>
-        <span className="flex items-center gap-2 text-[15px] font-medium">
-          <Icon className="h-4 w-4 text-primary" />
-          {name}
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={openFiles}>
-            <ImagePlus />
-            {t('intake.addImages')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={openFolder}>
-            <FolderOpen />
-            {t('intake.addFolder')}
-          </Button>
-          {count > 0 && (
-            <Button variant="ghost" size="sm" onClick={clear}>
-              {t('intake.clear')}
-            </Button>
-          )}
-        </span>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-5 py-3">
+      <ToolboxHeader
+        back
+        onAddImages={openFiles}
+        onAddFolder={openFolder}
+        title={
+          <>
+            <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+            {name}
+          </>
+        }
+      />
+      <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-6 py-3">
         {controls}
       </div>
       {count === 0 ? (
@@ -89,6 +76,7 @@ export default function ToolShell({
         <span className="ml-auto flex gap-2">
           <Button
             variant="outline"
+            className="gap-1.5 px-2 sm:gap-2 sm:px-4"
             disabled={deliverables.length === 0}
             onClick={() => void sendImagesToComposer(deliverables)}
           >
@@ -96,6 +84,7 @@ export default function ToolShell({
             {t('footer.sendToComposer')}
           </Button>
           <Button
+            className="gap-1.5 px-2 sm:gap-2 sm:px-4"
             disabled={deliverables.length === 0}
             onClick={() => void downloadImages(deliverables, `${name}.zip`)}
           >

@@ -224,7 +224,7 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
               }
             >
               {source && <img src={source} alt="" className="h-full w-full object-cover" />}
-              <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-[10px] text-white">
+              <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-label-sm text-white">
                 {badge}
               </span>
               {out && (
@@ -323,7 +323,7 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
             className="h-20 w-16 shrink-0 rounded-lg border border-border object-cover"
           />
         )}
-        <p className="line-clamp-4 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="line-clamp-4 text-label-sm leading-relaxed text-muted-foreground">
           {card.description || card.body}
         </p>
       </div>

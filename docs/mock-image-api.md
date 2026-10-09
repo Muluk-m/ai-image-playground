@@ -4,16 +4,16 @@
 
 ## 启动
 
-```powershell
-npm run mock:api
+```sh
+pnpm --dir apps/web mock:api
 ```
 
 默认监听：`http://127.0.0.1:8787`。
 
 如需修改端口：
 
-```powershell
-$env:MOCK_IMAGE_API_PORT="8788"; npm run mock:api
+```sh
+MOCK_IMAGE_API_PORT=8788 pnpm --dir apps/web mock:api
 ```
 
 ## OpenAI 兼容配置

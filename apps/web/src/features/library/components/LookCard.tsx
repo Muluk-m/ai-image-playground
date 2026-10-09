@@ -37,7 +37,7 @@ export default function LookCard({
         onClick={() => onOpen(look)}
         onKeyDown={handleKeyDown}
         title={t('look.viewDetail')}
-        className="relative aspect-[4/5] cursor-pointer overflow-hidden bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
+        className="relative aspect-[4/5] cursor-pointer overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <LookImage source={look.cover} alt={look.name} />
         <div className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">
@@ -54,17 +54,17 @@ export default function LookCard({
       <div className="flex flex-col gap-1.5 px-2.5 py-2">
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-xs font-medium text-foreground">{look.name}</span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">
+          <span className="shrink-0 text-label-sm text-muted-foreground">
             {t('look.slots', { count: look.slotCount })}
           </span>
         </div>
-        <span className="truncate text-[11px] text-muted-foreground">{look.size}</span>
+        <span className="truncate text-label-sm text-muted-foreground">{look.size}</span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             disabled={needsRetune || !canGenerate}
             onClick={() => onGenerate(look)}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t('look.generate')}
           </button>
@@ -72,7 +72,7 @@ export default function LookCard({
             type="button"
             disabled={!canGenerate}
             onClick={() => onTune(look)}
-            className="rounded-lg border border-border px-2.5 py-1 text-[11px] text-foreground transition hover:bg-muted"
+            className="rounded-lg border border-border px-2.5 py-1 text-label-sm text-foreground transition hover:bg-muted"
           >
             {look.origin === 'user' ? t('look.tune') : t('look.fork')}
           </button>

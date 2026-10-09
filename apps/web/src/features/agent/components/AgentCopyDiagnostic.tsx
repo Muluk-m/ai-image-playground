@@ -1,5 +1,6 @@
 import { Copy, FileText, X } from 'lucide-react'
 import { useState } from 'react'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { currentLocale, useTranslation } from '../../../i18n'
@@ -45,11 +46,13 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
   const summary =
     record.code === 'agent_upstream_error'
       ? t('error.upstream')
-      : record.code === 'agent_context_overflow'
-        ? t('error.contextOverflow')
-        : record.code === 'agent_tool_failed'
-          ? t('error.toolFailed')
-          : t('error.turnFailed')
+      : record.code === 'agent_request_budget_exceeded'
+        ? t('error.requestBudgetExceeded')
+        : record.code === 'agent_context_overflow'
+          ? t('error.contextOverflow')
+          : record.code === 'agent_tool_failed'
+            ? t('error.toolFailed')
+            : t('error.turnFailed')
   const raw = JSON.stringify(diagnostic, null, 2)
   const readable = [
     t('diagnostic.title'),
@@ -77,9 +80,16 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
       }}
     >
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto gap-1 px-2 py-1 text-xs">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 hover:bg-foreground/5 focus-visible:ring-foreground"
+          aria-label={t('diagnostic.title')}
+          title={t('diagnostic.title')}
+        >
           <FileText className="h-3 w-3" aria-hidden="true" />
-          {t('diagnostic.title')}
+          <span className="sr-only">{t('diagnostic.title')}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -88,16 +98,12 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
       >
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="font-semibold">{t('diagnostic.title')}</h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={t('action.close', { ns: 'common' })}
+          <TooltipIconButton
+            tooltip={t('action.close', { ns: 'common' })}
             onClick={() => setOpen(false)}
           >
-            <X className="size-4" aria-hidden="true" />
-          </Button>
+            <X aria-hidden="true" />
+          </TooltipIconButton>
         </div>
         <p className="mb-3 leading-relaxed">{summary}</p>
         {!record.message && <p className="mb-3 text-muted-foreground">{t('diagnostic.unknown')}</p>}
@@ -120,7 +126,7 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
           </pre>
         </details>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" onClick={() => void copy(readable)}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void copy(readable)}>
             <Copy aria-hidden="true" />
             {t('diagnostic.copyDetails')}
           </Button>

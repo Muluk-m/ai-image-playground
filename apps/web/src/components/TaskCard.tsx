@@ -1,8 +1,9 @@
 import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import { taskExportSources } from '../features/image-export/sources'
+import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
-import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -53,25 +54,10 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
-  const showToast = useStore((s) => s.showToast)
-  const [isDownloading, setIsDownloading] = useState(false)
-
-  const handleDownload = async (e: React.MouseEvent) => {
+  const exportLabel = t('download.export')
+  const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const ids = task.outputImages ?? []
-    if (ids.length === 0 || isDownloading) return
-    setIsDownloading(true)
-    try {
-      if (ids.length > 1) showToast(t('download.started', { count: ids.length }), 'info')
-      const { success, failed } = await downloadImagesByIds(ids)
-      if (failed > 0) {
-        showToast(t('download.partial', { success, failed }), 'info')
-      } else if (ids.length > 1) {
-        showToast(t('download.succeeded', { count: success }), 'success')
-      }
-    } finally {
-      setIsDownloading(false)
-    }
+    if (task.outputImages?.length) openImageExport(taskExportSources([task]))
   }
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const swipeResetTimerRef = useRef<number | null>(null)
@@ -370,16 +356,16 @@ export default function TaskCard({
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
               {!showRunningTimer && task.status === 'done' && coverBadges ? (
                 <>
-                  <span className="bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                  <span className="bg-black/50 text-white text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
                     {coverBadges.ratio}
                   </span>
-                  <span className="bg-black/50 text-white/90 text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-medium">
+                  <span className="bg-black/50 text-white/90 text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-medium">
                     {coverBadges.size}
                   </span>
                 </>
               ) : (
                 duration && (
-                  <span className="flex items-center gap-1 bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                  <span className="flex items-center gap-1 bg-black/50 text-white text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -501,6 +487,7 @@ export default function TaskCard({
                   <button
                     onClick={() => retryTask(task)}
                     className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
+                    aria-label={t('action.retryTask')}
                     title={t('action.retryTask')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -520,6 +507,7 @@ export default function TaskCard({
                       ? 'text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                       : 'text-muted-foreground hover:text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                   }`}
+                  aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                   title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 >
                   <svg
@@ -539,6 +527,7 @@ export default function TaskCard({
                 <button
                   onClick={onReuse}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
+                  aria-label={t('action.reuse')}
                   title={t('action.reuse')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -552,7 +541,8 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onEditOutputs}
-                  className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-30"
+                  className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-50"
+                  aria-label={t('action.editOutput')}
                   title={t('action.editOutput')}
                   disabled={!task.outputImages?.length}
                 >
@@ -567,7 +557,8 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onSendToCanvas}
-                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30"
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-50"
+                  aria-label={t('action.sendToCanvasTitle')}
                   title={t('action.sendToCanvasTitle')}
                   disabled={!task.outputImages?.length}
                 >
@@ -581,16 +572,11 @@ export default function TaskCard({
                   </svg>
                 </button>
                 <button
-                  onClick={handleDownload}
-                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed"
-                  title={
-                    isDownloading
-                      ? t('download.inProgress')
-                      : (task.outputImages?.length ?? 0) > 1
-                        ? t('download.multiple', { n: task.outputImages?.length })
-                        : t('download.single')
-                  }
-                  disabled={!task.outputImages?.length || isDownloading}
+                  onClick={handleExport}
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label={exportLabel}
+                  title={exportLabel}
+                  disabled={!task.outputImages?.length}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -604,6 +590,7 @@ export default function TaskCard({
                 <button
                   onClick={onDelete}
                   className="p-1.5 rounded-md hover:bg-destructive/10 dark:hover:bg-destructive/30 text-muted-foreground hover:text-destructive transition"
+                  aria-label={t('action.deleteRecord')}
                   title={t('action.deleteRecord')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -3,10 +3,13 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import AgentCopyDiagnostic from '../../../../features/agent/components/AgentCopyDiagnostic'
+import { stubPointerApis } from '../../../helpers/radix'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 it('shows readable error fields and copies either details or the unchanged original JSON', async () => {
+  // 关闭按钮带提示，弹窗打开时聚焦它会展开 Radix Tooltip，要用到 ResizeObserver。
+  stubPointerApis()
   const writeText = vi.fn().mockResolvedValue(undefined)
   vi.stubGlobal('navigator', { clipboard: { writeText } })
   const host = document.createElement('div')

@@ -260,6 +260,7 @@ export async function draftQueueTask(
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,
       ...(bound ? { productionDraftRevision: 1 } : {}),
+      ...(input.videoRecord ? { video: input.videoRecord } : {}),
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     },
   }

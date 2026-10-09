@@ -66,7 +66,7 @@ it('对话与画布用两个标签切换，查看全部打开项目列表', () =
   expect(entry('新建画布')).toBeDefined()
   expect(useStore.getState().appMode).toBe('image')
 
-  act(() => entry('查看全部 →').click())
+  act(() => entry('查看全部').click())
   expect(useStore.getState().appMode).toBe('library')
   expect(useLibraryStore.getState().tab).toBe('projects')
   expect(entry('资产').getAttribute('aria-pressed')).toBe('true')
@@ -157,4 +157,26 @@ it('当前项目恢复或切换后，标签跟到它那一类', () => {
   expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
   act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
   expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+})
+
+it('进入对话默认摊开宽栏，进入画布才收起', () => {
+  act(() =>
+    useCanvasProjectStore.setState({
+      projects: [...seed('chat', 1), ...seed('canvas', 1)],
+      cloudCatalog: {},
+      activeId: 'chat-0',
+      loaded: true,
+    }),
+  )
+  // 首页发出一条对话：切进工作台，侧栏保持摊开。
+  act(() => useStore.getState().setAppMode('canvas'))
+  expect(host.querySelectorAll('nav')).toHaveLength(2)
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
+
+  act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
+  expect(host.querySelectorAll('nav')).toHaveLength(1)
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
+
+  act(() => useStore.setState({ sidebarExpanded: true }))
+  expect(host.querySelectorAll('nav')).toHaveLength(2)
 })

@@ -1,4 +1,4 @@
-OpenAI, Gemini, and Grok icons: https://github.com/lobehub/lobe-icons
+Grok icon: https://github.com/lobehub/lobe-icons
 
 MIT License
 

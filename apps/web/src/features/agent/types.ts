@@ -48,12 +48,14 @@ export interface AgentTextMessage {
 /** 一次工具调用在对话流里的那张结果卡。 */
 export interface AgentToolMessage {
   readonly productionDraftRevision?: number
+  readonly video?: import('@image-playground/shared').VideoGenerationRecord
   readonly kind: 'tool'
   readonly id: string
   readonly turnId: string
   readonly toolCallId: string
   /** 哪个工具。历史里可能有这个前端还不认识的工具名，所以它不参与任何穷尽判断。 */
   readonly toolName?: AgentToolName
+  readonly batchId?: string
   readonly title: string
   readonly prompt?: string
   readonly status: AgentToolStatus | 'running'

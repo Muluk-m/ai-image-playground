@@ -1,4 +1,5 @@
 import {
+  type AttachmentLimits,
   CAPABILITIES,
   type CapabilityKey,
   type ClientCapabilityKey,
@@ -29,6 +30,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 let currentManifest = disabledManifest()
 let currentBffEnabled = false
 let projectDocumentIdentity = false
+let attachmentLimits: AttachmentLimits | undefined
 const CAPABILITY_TIMEOUT_MS = 5000
 
 export async function bootstrapClientCapabilities(
@@ -39,12 +41,61 @@ export async function bootstrapClientCapabilities(
   currentManifest = disabledManifest()
   currentBffEnabled = bffEnabled
   projectDocumentIdentity = false
+  attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
 
+  let result: { body: unknown; parsed: ClientCapabilityManifest | null } | null
+  try {
+    try {
+      result = await requestManifest(bffBaseUrl)
+    } catch {
+      // 首个请求还要建连，慢网络上会单独超时；复用已建好的连接再试一次，用户才不会落到「暂不可用」。
+      result = await requestManifest(bffBaseUrl)
+    }
+    if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
+    if (result?.parsed) currentManifest = result.parsed
+    const body = result?.body
+    if (
+      result?.parsed?.['agent:attachments'] &&
+      result.parsed['agent:bulk-attachments'] === true &&
+      typeof body === 'object' &&
+      body !== null &&
+      'attachmentLimits' in body
+    ) {
+      const limits = body.attachmentLimits as AttachmentLimits | null
+      if (
+        limits &&
+        [
+          limits.logicalReferences,
+          limits.imageBytes,
+          limits.imagePixels,
+          limits.uploadConcurrency,
+        ].every((value) => Number.isSafeInteger(value) && value > 0) &&
+        limits.logicalReferences <= 100 &&
+        limits.uploadConcurrency <= 4
+      )
+        attachmentLimits = limits
+    }
+    projectDocumentIdentity =
+      result?.parsed !== null &&
+      typeof body === 'object' &&
+      body !== null &&
+      'projectDocumentIdentity' in body &&
+      body.projectDocumentIdentity === true
+  } catch (error) {
+    // A missing capability response must never enable a feature.
+    if (required) throw error
+  }
+  return currentManifest
+}
+
+async function requestManifest(
+  bffBaseUrl: string,
+): Promise<{ body: unknown; parsed: ClientCapabilityManifest | null } | null> {
   const controller = new AbortController()
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    const result = await Promise.race([
+    return await Promise.race([
       fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
         cache: 'no-store',
         signal: controller.signal,
@@ -60,22 +111,9 @@ export async function bootstrapClientCapabilities(
         }, CAPABILITY_TIMEOUT_MS)
       }),
     ])
-    if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
-    if (result?.parsed) currentManifest = result.parsed
-    const body = result?.body
-    projectDocumentIdentity =
-      result?.parsed !== null &&
-      typeof body === 'object' &&
-      body !== null &&
-      'projectDocumentIdentity' in body &&
-      body.projectDocumentIdentity === true
-  } catch (error) {
-    // A missing capability response must never enable a feature.
-    if (required) throw error
   } finally {
     if (timeout) clearTimeout(timeout)
   }
-  return currentManifest
 }
 
 /** Older APIs reject the new document fields; send them only after the server advertises support. */
@@ -99,4 +137,8 @@ export function isClientCapabilityEnabled(key: CapabilityKey): boolean {
  */
 export function isByokGenerationEnabled(): boolean {
   return !currentBffEnabled || isClientCapabilityEnabled('generation:byok')
+}
+
+export function getAttachmentLimits(): Readonly<AttachmentLimits> | undefined {
+  return attachmentLimits
 }

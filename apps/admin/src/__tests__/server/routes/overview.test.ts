@@ -45,6 +45,58 @@ await writer.db.insert(writer.schema.tasks).values([
     started_at: now - 2 * 24 * 3600_000 + 100,
     completed_at: now - 2 * 24 * 3600_000 + 2100,
   },
+  {
+    // 上一个 1 天窗口里的一单：只该出现在环比的 previous 里。
+    id: 'overview-previous-day',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'failed',
+    request_payload: { prompt: 'previous', device_id: 'previous-device', n: 4 },
+    error_type: 'upstream_error',
+    submitted_at: now - 30 * 3600_000,
+  },
+  {
+    // 视频任务也走这个队列，但不算出图张数。
+    id: 'overview-video',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    // 只看有没有 video 键，内容不重要。
+    request_payload: { prompt: 'video', device_id: 'overview-device', video: {} } as never,
+    submitted_at: now - 26 * 3600_000,
+    started_at: now - 26 * 3600_000 + 100,
+    completed_at: now - 26 * 3600_000 + 1100,
+  },
+])
+await writer.db.insert(writer.schema.users).values({
+  id: 'overview-user',
+  username: 'overview-user',
+  password_hash: 'x',
+  created_at: now - 3600_000,
+  updated_at: now - 3600_000,
+})
+await writer.db.insert(writer.schema.agent_conversations).values({
+  id: 'overview-conversation',
+  user_id: 'overview-user',
+  title: 'agent',
+  created_at: now - 3600_000,
+  updated_at: now - 3600_000,
+})
+await writer.db.insert(writer.schema.agent_turns).values([
+  {
+    conversation_id: 'overview-conversation',
+    turn_id: 'turn-ok',
+    duration_ms: 1000,
+    stop_reason: 'completed',
+    created_at: now - 3600_000,
+  },
+  {
+    conversation_id: 'overview-conversation',
+    turn_id: 'turn-failed',
+    duration_ms: 1000,
+    stop_reason: 'failed',
+    created_at: now - 3500_000,
+  },
 ])
 
 const { app } = await import('../../../../server/app')
@@ -79,13 +131,8 @@ describe('GET /api/overview', () => {
     const body = (await response.json()) as {
       summary: Record<string, number>
       volume: Array<{ total: number }>
-      failures: Array<{ error_type: string; count: number }>
-      models: Array<{
-        model: string
-        count: number
-        upstream_invocations: number
-        average_multiplier: number | null
-      }>
+      failures: Array<Record<string, unknown>>
+      models: Array<Record<string, unknown>>
     }
 
     expect(body.summary).toMatchObject({
@@ -96,14 +143,75 @@ describe('GET /api/overview', () => {
       p50_duration_ms: 1000,
       p95_duration_ms: 5000,
       upstream_invocations: 5,
+      queue_p50_ms: 100,
     })
     expect(body.volume).toHaveLength(24)
     expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
-    expect(body.failures).toEqual([{ error_type: 'upstream_error', count: 1 }])
+    expect(body.failures).toEqual([{ error_type: 'upstream_error', count: 1, previous_count: 1 }])
     expect(body.models).toEqual([
-      { model: 'gemini-3-pro', count: 1, upstream_invocations: 3, average_multiplier: 3 },
-      { model: 'gpt-image-2', count: 1, upstream_invocations: 2, average_multiplier: 2 },
+      {
+        model: 'gemini-3-pro',
+        count: 1,
+        upstream_invocations: 3,
+        average_multiplier: 3,
+        completed: 0,
+        failed: 1,
+        queue_p50_ms: 100,
+        run_p95_ms: null,
+      },
+      {
+        model: 'gpt-image-2',
+        count: 1,
+        upstream_invocations: 2,
+        average_multiplier: 2,
+        completed: 1,
+        failed: 0,
+        queue_p50_ms: 100,
+        run_p95_ms: 1000,
+      },
     ])
+  })
+
+  it('compares the window with the previous one and charts the same buckets', async () => {
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/overview?range=1d', { headers: { cookie } }),
+    )
+    const body = (await response.json()) as {
+      volume: Array<{ bucket_at: number }>
+      pulse: {
+        current: Record<string, number>
+        previous: Record<string, number>
+        series: Array<Record<string, number>>
+      }
+    }
+    expect(body.pulse.current).toEqual({
+      tasks: 2,
+      completed: 1,
+      failed: 1,
+      images: 1,
+      // 匿名设备与登录账号（经 Agent 轮次）各算一个。
+      active: 2,
+      signups: 1,
+      agent_turns: 2,
+      agent_failed: 1,
+      agent_aborted: 0,
+    })
+    expect(body.pulse.previous).toMatchObject({
+      tasks: 2,
+      completed: 1,
+      failed: 1,
+      images: 0,
+      active: 2,
+    })
+    expect(body.pulse.series.map((bucket) => bucket.bucket_at)).toEqual(
+      body.volume.map((bucket) => bucket.bucket_at),
+    )
+    const sum = (key: string) =>
+      body.pulse.series.reduce((total, bucket) => total + bucket[key]!, 0)
+    expect(sum('tasks')).toBe(2)
+    expect(sum('signups')).toBe(1)
+    expect(sum('agent_completed') + sum('agent_failed')).toBe(2)
   })
 
   it('changes the query window and bucket count', async () => {
@@ -115,8 +223,8 @@ describe('GET /api/overview', () => {
       summary: { total: number }
       volume: Array<{ total: number }>
     }
-    expect(body.summary.total).toBe(3)
+    expect(body.summary.total).toBe(5)
     expect(body.volume).toHaveLength(7)
-    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(3)
+    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(5)
   })
 })

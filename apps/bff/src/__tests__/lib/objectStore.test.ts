@@ -3,7 +3,7 @@ import { normalizeKeyPrefix } from '../../lib/objectKeyPrefix'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { createDurableMediaStore } = await import('../../lib/durableMediaStore')
-const { S3ObjectStore } = await import('../../lib/objectStore')
+const { readObjectWithinLimit, S3ObjectStore } = await import('../../lib/objectStore')
 type S3ClientLike = import('../../lib/objectStore').S3ClientLike
 
 interface ListCall {
@@ -120,6 +120,28 @@ describe('S3ObjectStore key prefix', () => {
       await expect(waiting).rejects.toThrow('deadline')
       await expect(subject.open('preaborted', controller.signal)).rejects.toThrow('deadline')
       expect(transport).toHaveBeenCalledTimes(3)
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
+  it('reads a deadline-bound object through a cancellable signed range request', async () => {
+    const subject = store(new FakeS3Client(), 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, { headers: { 'content-length': '2' } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([7, 8]), { status: 206 }))
+    try {
+      expect(
+        await readObjectWithinLimit(subject, 'agent/c/cache.json', 8, controller.signal),
+      ).toEqual(new Uint8Array([7, 8]))
+      expect(transport.mock.calls[1]?.[0]).toContain(
+        'paid/agent/c/cache.json?expiresIn=60&method=GET',
+      )
+      expect(transport.mock.calls[1]?.[1]).toMatchObject({
+        headers: { range: 'bytes=0-1' },
+        signal: controller.signal,
+      })
     } finally {
       transport.mockRestore()
     }

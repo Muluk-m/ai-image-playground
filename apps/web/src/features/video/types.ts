@@ -42,4 +42,6 @@ export interface VideoDraft {
   duration: VideoDuration
   aspectRatio: VideoAspectRatio
   resolution: VideoResolution
+  /** 预设声音 id，按选择顺序。 */
+  voices?: string[]
 }

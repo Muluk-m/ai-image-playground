@@ -323,3 +323,19 @@ it('平台记录不写进本机任务表', async () => {
 
   expect(useStore.getState().tasks).toEqual([])
 })
+
+it('恢复已有本地任务时同步待核查阶段', async () => {
+  await receivePlatformPage([{ ...summary, status: 'reconciling', completedAt: null, cover: null }])
+  const [task] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        queuePhase: 'generating',
+        outputImages: [],
+      }),
+    ],
+    useStore.getState().platformGenerations,
+  )
+  expect(task).toMatchObject({ status: 'running', queuePhase: 'reconciling' })
+})

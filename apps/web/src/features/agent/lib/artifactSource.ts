@@ -18,20 +18,37 @@ const CACHE_LIMIT = 12
  */
 const bitmaps = new Map<string, Promise<string | null>>()
 
+function remember(key: string, bitmap: Promise<string | null>): void {
+  bitmaps.set(key, bitmap)
+  for (const oldest of bitmaps.keys()) {
+    if (bitmaps.size <= CACHE_LIMIT) break
+    bitmaps.delete(oldest)
+  }
+}
+
 function cached(key: string, load: () => Promise<string | null>): Promise<string | null> {
   const scoped = `${scopedStorageName(AGENT_CONVERSATION_KEY)}:${key}`
   const hit = bitmaps.get(scoped)
   if (hit) return hit
   const pending = load().then((bitmap) => {
-    if (!bitmap) bitmaps.delete(scoped)
+    if (!bitmap && bitmaps.get(scoped) === pending) bitmaps.delete(scoped)
     return bitmap
   })
-  bitmaps.set(scoped, pending)
-  for (const oldest of bitmaps.keys()) {
-    if (bitmaps.size <= CACHE_LIMIT) break
-    bitmaps.delete(oldest)
-  }
+  remember(scoped, pending)
   return pending
+}
+
+/** 只读已有封面或正在进行的抓取，结果卡不得为封面再开一条视频流。 */
+export function cachedVideoOutputFrame(output: QueueOutputRef): Promise<string | null> | undefined {
+  return bitmaps.get(
+    `${scopedStorageName(AGENT_CONVERSATION_KEY)}:frame:${output.taskId}/${output.outputIndex}`,
+  )
+}
+
+/** 播放器已解码的首帧供画布与预览复用。 */
+export function rememberVideoOutputFrame(output: QueueOutputRef, frame: string): void {
+  const key = `${scopedStorageName(AGENT_CONVERSATION_KEY)}:frame:${output.taskId}/${output.outputIndex}`
+  remember(key, Promise.resolve(frame))
 }
 
 /** 队列里那份视频的真首帧，抓不到就是 null——画布上的封面该不该动由调用方决定。 */

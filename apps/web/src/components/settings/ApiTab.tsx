@@ -705,7 +705,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="min-w-0 truncate">{activeProfile.name}</span>
-                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-label-sm font-medium text-primary">
                   {getApiProviderLabel(draft, activeProfile.provider)}
                 </span>
               </span>
@@ -717,7 +717,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
             {showProfileMenu && (
               <>
                 <div
-                  className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down border-border dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
+                  className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card/95 py-1 shadow-popover ring-1 ring-hairline backdrop-blur-xl animate-dropdown-down border-border custom-scrollbar"
                   style={{ maxHeight: profileMenuMaxHeight }}
                 >
                   <button
@@ -747,12 +747,12 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                         <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
                           <span className="min-w-0 truncate">{profile.name}</span>
                           {isBuiltinDraftProfile(profile) && (
-                            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] shrink-0 text-warning dark:bg-warning/20 dark:text-warning">
+                            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-label-sm shrink-0 text-warning dark:bg-warning/20 dark:text-warning">
                               {t('profile.builtinBadge')}
                             </span>
                           )}
                           <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] shrink-0 ${profile.id === activeProfile.id ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' : 'bg-muted text-muted-foreground bg-accent dark:text-muted-foreground'}`}
+                            className={`rounded px-1.5 py-0.5 text-label-sm shrink-0 ${profile.id === activeProfile.id ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' : 'bg-muted text-muted-foreground bg-accent dark:text-muted-foreground'}`}
                           >
                             {getApiProviderLabel(draft, profile.provider)}
                           </span>
@@ -831,6 +831,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                 {t('provider.type')}
               </span>
               <Select
+                label={t('provider.type')}
                 value={activeProfile.provider}
                 onChange={handleProviderTypeChange}
                 options={providerOptions}
@@ -920,8 +921,9 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                 <button
                   type="button"
                   onClick={() => setShowApiKey((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
-                  tabIndex={-1}
+                  aria-label={tCommon(showApiKey ? 'action.hide' : 'action.show')}
+                  aria-pressed={showApiKey}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {showApiKey ? (
                     <svg
@@ -966,6 +968,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                   {t('apiMode.label')}
                 </span>
                 <Select
+                  label={t('apiMode.label')}
                   value={activeProfile.apiMode ?? ('images' as const)}
                   onChange={(value) => {
                     const apiMode = value as 'images' | 'responses'

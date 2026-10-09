@@ -534,3 +534,203 @@ it('刷新后读回还在跑的重试：手上没有把手，也落回记录上�
   expect(placedInto).toEqual([['placeholder-9']])
   expect(reserved).toEqual([])
 })
+
+it('automatically retries a completed batch after the bounded wake pickup is exhausted and cancels on reset', async () => {
+  vi.useFakeTimers()
+  const { state, port } = fakeSession()
+  const running = jobModule(port)
+  let offline = true
+  vi.stubGlobal('fetch', async () => Response.json({ status: 'consumed', turnId: 'turn-1' }))
+  messages = () => {
+    if (offline) throw new TypeError('Network unavailable')
+    return snapshot([historyMessage({ status: 'succeeded' }, 'batch-summary')])
+  }
+  try {
+    running.jobs.followBatch(CONVERSATION, 'completed-batch', 1)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(running.reads.snapshots).toBeGreaterThanOrEqual(8)
+    offline = false
+    // No new card render, online event or visibility transition is needed.
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(state.adopted).toHaveLength(1)
+    running.jobs.reset()
+    const reads = running.reads.snapshots
+    await vi.advanceTimersByTimeAsync(1_000)
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(running.reads.snapshots).toBe(reads)
+  } finally {
+    running.jobs.reset()
+    vi.useRealTimers()
+  }
+})
+
+it('waits for each batch version receipt when two completed batches share one conversation wake', async () => {
+  vi.useFakeTimers()
+  const { state, port } = fakeSession()
+  const running = jobModule(port)
+  let secondReady = false
+  const first = {
+    ...historyMessage({ status: 'succeeded' }, 'first-batch-summary'),
+    turnId: 'first-wake',
+  }
+  const second = {
+    ...historyMessage({ status: 'succeeded' }, 'second-batch-summary'),
+    turnId: 'second-wake',
+  }
+  messages = () => snapshot(secondReady ? [first, second] : [first])
+  const receipts: string[] = []
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input))
+    expect(init?.method ?? 'GET').toBe('GET')
+    expect(url.searchParams.get('version')).toBe('2')
+    receipts.push(url.pathname)
+    if (url.pathname.endsWith('/first-batch/wake'))
+      return Response.json({ status: 'consumed', turnId: 'first-wake' })
+    if (url.pathname.endsWith('/second-batch/wake'))
+      return Response.json(
+        secondReady ? { status: 'consumed', turnId: 'second-wake' } : { status: 'pending' },
+      )
+    throw new Error(`Unexpected receipt: ${url}`)
+  })
+  try {
+    running.jobs.followBatch(CONVERSATION, 'first-batch', 2)
+    running.jobs.followBatch(CONVERSATION, 'second-batch', 2)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(state.messages.map((message) => message.id)).toEqual(['first-batch-summary'])
+    secondReady = true
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(state.messages.map((message) => message.id)).toEqual([
+      'first-batch-summary',
+      'second-batch-summary',
+    ])
+    expect(receipts).toContain('/api/agent/batches/first-batch/wake')
+    expect(receipts).toContain('/api/agent/batches/second-batch/wake')
+    const reads = running.reads.snapshots
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(running.reads.snapshots).toBe(reads)
+  } finally {
+    running.jobs.reset()
+    vi.useRealTimers()
+  }
+})
+
+it('keeps a delayed batch pickup when online and visibility events arrive while the conversation is busy', async () => {
+  vi.useFakeTimers()
+  const { state, port } = fakeSession()
+  const running = jobModule(port)
+  state.running = true
+  messages = () => snapshot([historyMessage({ status: 'succeeded' }, 'delayed-summary')])
+  vi.stubGlobal('fetch', async () => Response.json({ status: 'consumed', turnId: 'turn-1' }))
+  try {
+    running.jobs.followBatch(CONVERSATION, 'busy-batch', 1)
+    window.dispatchEvent(new Event('online'))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(20)
+    expect(running.reads.snapshots).toBe(0)
+    state.running = false
+    await vi.advanceTimersByTimeAsync(100)
+    expect(state.messages.map((message) => message.id)).toEqual(['delayed-summary'])
+    running.jobs.followBatch(CONVERSATION, 'still-pending-batch', 2)
+    running.jobs.reset()
+    const before = running.reads.snapshots
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(running.reads.snapshots).toBe(before)
+  } finally {
+    running.jobs.reset()
+    vi.useRealTimers()
+  }
+})
+
+it('polls only the lightweight batch receipt while pending, then loads the delivered turn', async () => {
+  vi.useFakeTimers()
+  const { state, port } = fakeSession()
+  const running = jobModule(port)
+  let consumed = false
+  let receiptReads = 0
+  messages = () => snapshot([historyMessage({ status: 'succeeded' }, 'delivered-batch-summary')])
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    expect(String(input)).toBe(
+      'http://bff.test/api/agent/batches/receipt-first-batch/wake?version=3',
+    )
+    expect(init?.method ?? 'GET').toBe('GET')
+    receiptReads++
+    return Response.json(
+      consumed ? { status: 'consumed', turnId: 'turn-1' } : { status: 'pending' },
+    )
+  })
+  try {
+    running.jobs.followBatch(CONVERSATION, 'receipt-first-batch', 3)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(receiptReads).toBeGreaterThan(1)
+    expect(running.reads.snapshots).toBe(0)
+    expect(state.adopted).toHaveLength(0)
+    consumed = true
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(state.messages.map((message) => message.id)).toEqual(['delivered-batch-summary'])
+    expect(running.reads.snapshots).toBe(1)
+    const reads = receiptReads
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(receiptReads).toBe(reads)
+    expect(running.reads.snapshots).toBe(1)
+  } finally {
+    running.jobs.reset()
+    vi.useRealTimers()
+  }
+})
+
+it('does not adopt an unrelated active turn and stops immediately when a batch wake is skipped', async () => {
+  vi.useFakeTimers()
+  const { state, port } = fakeSession()
+  const running = jobModule(port)
+  let skipped = false
+  let reads = 0
+  messages = () =>
+    snapshot([historyMessage({ status: 'succeeded' }, 'unrelated')], { turnId: 'unrelated-turn' })
+  vi.stubGlobal('fetch', async () => {
+    reads++
+    return Response.json(
+      skipped ? { status: 'skipped' } : { status: 'consumed', turnId: 'target-turn' },
+    )
+  })
+  try {
+    running.jobs.followBatch(CONVERSATION, 'target-batch', 1)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(state.adopted).toHaveLength(0)
+    skipped = true
+    const snapshots = running.reads.snapshots
+    await vi.advanceTimersByTimeAsync(100)
+    expect(running.reads.snapshots).toBe(snapshots)
+    const completedReads = reads
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(reads).toBe(completedReads)
+    expect(state.adopted).toHaveLength(0)
+  } finally {
+    running.jobs.reset()
+    vi.useRealTimers()
+  }
+})
+
+it('joins the current active turn after finding the delivered batch turn in history', async () => {
+  vi.useFakeTimers()
+  const { state, port } = fakeSession()
+  const running = jobModule(port)
+  messages = () =>
+    snapshot([historyMessage({ status: 'succeeded' }, 'delivered-summary')], {
+      turnId: 'subsequent-active-turn',
+    })
+  vi.stubGlobal('fetch', async () => Response.json({ status: 'consumed', turnId: 'turn-1' }))
+  try {
+    running.jobs.followBatch(CONVERSATION, 'delivered-batch', 1)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(state.adopted).toEqual([
+      { messageIds: ['delivered-summary'], join: 'subsequent-active-turn' },
+    ])
+    const reads = running.reads.snapshots
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(running.reads.snapshots).toBe(reads)
+  } finally {
+    running.jobs.reset()
+    vi.useRealTimers()
+  }
+})

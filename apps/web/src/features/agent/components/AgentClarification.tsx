@@ -4,6 +4,7 @@ import { OptionList } from '../../../components/assistant-ui/elements/option-lis
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
+import { CARD_CONTROL } from '../agentStyles'
 import { clarificationAnswer } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
@@ -18,6 +19,9 @@ function AnsweredClarification({
   const { t } = useTranslation('agent')
   const [expanded, setExpanded] = useState(false)
   const chosen = t('clarification.chosen', { answer })
+  const answerDescription = message.options.includes(answer)
+    ? t('clarification.selected')
+    : `${t('clarification.otherAria')} · ${t('clarification.selected')}`
   return (
     <div className="studio-clarification-answered">
       <Button
@@ -38,12 +42,11 @@ function AnsweredClarification({
             options={[...new Set([...message.options, answer])].map((option) => ({
               id: option,
               label: option,
+              description: option === answer ? answerDescription : undefined,
             }))}
             choice={[answer]}
+            aria-label={message.question}
           />
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {message.options.filter((option) => option !== answer).join(' · ')}
-          </p>
         </div>
       )}
     </div>
@@ -107,6 +110,7 @@ export default function AgentClarification({
           <form className="studio-clarification-other-form" onSubmit={submitOther}>
             <Input
               autoFocus
+              className={CARD_CONTROL}
               aria-label={t('clarification.otherAria')}
               value={other}
               disabled={running}

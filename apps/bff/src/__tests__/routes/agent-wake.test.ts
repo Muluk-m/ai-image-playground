@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
@@ -20,7 +21,6 @@ import {
   scriptedAgentFetch,
   submittedPrompt,
   TEST_IMAGE_CHANNEL,
-  TEST_RESULT_PAYLOAD,
   type ToolCallSpec,
   toolCallCompletion,
 } from '../helpers/agentStubs'
@@ -37,6 +37,8 @@ process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-config.json')
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
+const { config } = await import('../../config')
+const operator = config.operator
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
@@ -64,6 +66,7 @@ const PIXEL = `data:image/png;base64,${(
     .png()
     .toBuffer()
 ).toString('base64')}`
+const TEST_RESULT_PAYLOAD = { data: [{ b64_json: PIXEL.split(',')[1]!, mime: 'image/png' }] }
 const MASK = `data:image/png;base64,${(
   await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#00000000' } })
     .png()
@@ -233,6 +236,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  config.operator = operator
   setAgentFetchForTesting()
   setObjectStoreForTesting()
 })
@@ -700,6 +704,51 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
     expect(tasks).toHaveLength(3)
     expect(tasks[2]!.request_payload.prompt).toContain(third.requestQuote)
   })
+})
+
+it('复核批次累计字节超限时停止读取后续原件，并明确联合复核未完成', async () => {
+  const store = new InMemoryObjectStore()
+  setObjectStoreForTesting(store)
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () => toolCallCompletion(generate('review-bounded', { reviewAfterCompletion: true, n: 4 })),
+      () => completionStream('不应在证据不完整时宣称复核成功'),
+    ]),
+  )
+  const conversationId = await startConversation()
+  await runTurn(conversationId, '生成四张图片并放在一起复核')
+  await confirmDrafts(conversationId)
+  const [task] = await tasksOf(conversationId)
+  const png = await sharp(randomBytes(128 * 128 * 4), {
+    raw: { width: 128, height: 128, channels: 4 },
+  })
+    .png()
+    .toBuffer()
+  const keys = [0, 1, 2, 3].map((index) => `${task!.id}/out/${index}`)
+  for (const key of keys) await store.write(key, png, 'image/png')
+  config.operator = {
+    ...operator,
+    quotas: { ...operator.quotas, 'agent:request-max-bytes': 220_000 },
+  }
+  store.events.length = 0
+  calls.length = 0
+  expect(
+    await workerSettles(task!.id, {
+      status: 'completed',
+      resultPayload: { data: keys.map((object) => ({ object, mime: 'image/png' })) },
+    }),
+  ).toBe(true)
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await waitForTurns(conversationId, 2)
+  const result = await snapshot(conversationId)
+  const failed = result.turns.find((turn) => turn.stopReason === 'failed')
+  expect(calls).toHaveLength(0)
+  expect(failed?.failure?.message.includes('未完成')).toBe(true)
+  expect(
+    store.events.some(
+      (event) => event.startsWith(`stream:${keys[3]}:`) || event === `read:${keys[3]}`,
+    ),
+  ).toBe(false)
 })
 
 describe('滚动发布', () => {

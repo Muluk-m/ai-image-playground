@@ -502,6 +502,8 @@ describe('这一轮的观众', () => {
         directory: '',
         icon: 'sparkles',
         summary: '',
+        inputs: [],
+        starters: [],
       },
     ],
   }

@@ -26,6 +26,10 @@ export function buildPromptEditorHtml(
 
   return getPromptMentionParts(prompt, labelFor)
     .map((part) => {
+      if (part.type === 'slot') {
+        const multiple = part.slot.multiple ? ' data-asset-slot-multiple=""' : ''
+        return `<span contenteditable="false" class="mention-tag asset-slot-tag" data-asset-slot="${escapeHtml(part.slot.key)}"${multiple} data-mention-text="${escapeHtml(part.token)}">${escapeHtml(part.text)}</span>`
+      }
       if (part.type === 'mention') {
         return `<span contenteditable="false" class="mention-tag" data-mention-text="${escapeHtml(getSelectedImageMentionLabel(part.imageIndex))}">${escapeHtml(part.text)}</span>`
       }

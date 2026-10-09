@@ -10,7 +10,7 @@ export default function AgentConnectionHint() {
   return (
     <p
       role="status"
-      className={`mx-3 mb-1 flex shrink-0 items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-[11px] ${INK_3}`}
+      className={`mx-3 mb-1 flex shrink-0 items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-label-sm ${INK_3}`}
     >
       <span
         className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-warning"

@@ -167,13 +167,17 @@ const COMMON_SIZE_PRESETS: Record<SizeTier, Record<PresetRatio, string>> = {
   },
 }
 
+/** 把「宽:高」约到最简；非整数比例原样拼回。 */
+export function reduceRatio(width: number, height: number): string {
+  if (!Number.isInteger(width) || !Number.isInteger(height)) return `${width}:${height}`
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
+  const divisor = gcd(width, height)
+  return `${width / divisor}:${height / divisor}`
+}
+
 function getPresetRatioKey(ratioWidth: number, ratioHeight: number): PresetRatio | null {
   if (!Number.isInteger(ratioWidth) || !Number.isInteger(ratioHeight)) return null
-
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
-  const divisor = gcd(ratioWidth, ratioHeight)
-  const key = `${ratioWidth / divisor}:${ratioHeight / divisor}`
-
+  const key = reduceRatio(ratioWidth, ratioHeight)
   return key in COMMON_SIZE_PRESETS['1K'] ? (key as PresetRatio) : null
 }
 
@@ -227,4 +231,76 @@ export function calculateImageSize(tier: SizeTier, ratio: string) {
 
   if (bestPixels === 0) return null
   return `${bestWidth}x${bestHeight}`
+}
+
+export const SIZE_TIERS: readonly SizeTier[] = ['1K', '2K', '4K']
+
+/** 生成设置里的预设比例，按「方 → 竖 → 横」排，和比例宫格从左到右一致。 */
+export const PRESET_RATIOS: readonly PresetRatio[] = [
+  '1:1',
+  '3:4',
+  '4:3',
+  '9:16',
+  '16:9',
+  '2:3',
+  '3:2',
+  '21:9',
+]
+
+/** 预设尺寸 → 档位与比例，回显时一次查表。 */
+const PRESET_BY_SIZE = new Map(
+  SIZE_TIERS.flatMap((tier) =>
+    PRESET_RATIOS.map((ratio) => [COMMON_SIZE_PRESETS[tier][ratio], { tier, ratio }] as const),
+  ),
+)
+
+/** `params.size` 在设置卡片里对应哪一格。 */
+export type SizeSelection =
+  | { kind: 'auto' }
+  | { kind: 'preset'; ratio: PresetRatio; tier: SizeTier }
+  /** 预设外的尺寸或比例：`ratio` 用来画形状。 */
+  | { kind: 'custom'; ratio: string }
+
+export interface SizeRules {
+  /** 模型只认比例，不承诺像素：分辨率档不出现。 */
+  ratioOnly: boolean
+  /** Codex CLI 只到 1K。 */
+  limitTo1K: boolean
+}
+
+/** 只认比例或限 1K 时，上游会重新量化像素，只能按比例对上预设、按 1K 写回。 */
+const byRatio = (rules: SizeRules) => rules.ratioOnly || rules.limitTo1K
+
+export function readSizeSelection(size: string, rules: SizeRules): SizeSelection {
+  if (!size || size === 'auto') return { kind: 'auto' }
+
+  const pixels = parseImageSize(size)
+  if (!pixels) {
+    // 只认比例的模型存的就是「3:4」这种比例本身。
+    const parsed = parseRatio(size)
+    if (!parsed) return { kind: 'auto' }
+    const preset = getPresetRatioKey(parsed.width, parsed.height)
+    return preset
+      ? { kind: 'preset', ratio: preset, tier: '1K' }
+      : { kind: 'custom', ratio: reduceRatio(parsed.width, parsed.height) }
+  }
+
+  if (byRatio(rules)) {
+    const ratio = PRESET_RATIOS.find((one) => sameAspectRatio(size, COMMON_SIZE_PRESETS['1K'][one]))
+    if (ratio) return { kind: 'preset', ratio, tier: '1K' }
+  } else {
+    const preset = PRESET_BY_SIZE.get(normalizeImageSize(size))
+    if (preset) return { kind: 'preset', ...preset }
+  }
+  return { kind: 'custom', ratio: reduceRatio(pixels.width, pixels.height) }
+}
+
+export function normalizeSizeFor(size: string, rules: SizeRules) {
+  return rules.limitTo1K ? normalizeCodexCliImageSize(size) : normalizeImageSize(size)
+}
+
+/** 选中一格比例或一档分辨率后要写回的尺寸。 */
+export function sizeFor(tier: SizeTier, ratio: string, rules: SizeRules): string | null {
+  const size = calculateImageSize(byRatio(rules) ? '1K' : tier, ratio)
+  return size ? normalizeSizeFor(size, rules) : null
 }

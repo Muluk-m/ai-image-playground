@@ -169,7 +169,7 @@ export async function createMaskPreviewDataUrl(
     ctx.font = `${radius * 1.3}px sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(String(index + 1), x + radius, y + radius)
+    ctx.fillText(String(region.number ?? index + 1), x + radius, y + radius)
   })
   return canvas.toDataURL('image/png')
 }

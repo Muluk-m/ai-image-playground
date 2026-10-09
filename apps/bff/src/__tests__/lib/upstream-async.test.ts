@@ -22,6 +22,7 @@ const {
   UpstreamTimeoutError,
 } = await import('../../lib/upstream')
 const { _setChannelsForTesting } = await import('../../lib/channels')
+const { isRetryableError } = await import('../../lib/retry')
 type InternalChannel = import('../../lib/channels').InternalChannel
 
 const grokChannel = (asyncTasks: boolean): InternalChannel => ({
@@ -170,15 +171,19 @@ describe('async submit', () => {
     }
 
     const persisted: string[][] = []
-    await expect(
-      callUpstream({
-        ...grokRequest,
-        request: { prompt: 'a cat', n: 2 },
-        onUpstreamTaskIds: async (taskIds) => {
-          persisted.push([...taskIds])
-        },
-      }),
-    ).rejects.toMatchObject({ upstreamStatus: 500 })
+    const error = await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat', n: 2 },
+      onUpstreamTaskIds: async (taskIds) => {
+        persisted.push([...taskIds])
+      },
+    }).catch((error) => error)
+    expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+    expect(error).toMatchObject({
+      upstreamStatus: 500,
+      upstreamPayload: { error: { message: 'nope' } },
+    })
+    expect(isRetryableError(error)).toBe(false)
 
     expect(persisted).toEqual([['imgtask_1']])
   })

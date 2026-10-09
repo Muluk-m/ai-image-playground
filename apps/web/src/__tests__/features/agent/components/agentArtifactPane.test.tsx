@@ -11,6 +11,10 @@ const previewArtifactBitmap = vi.hoisted(() =>
       `data:image/png;base64,${artifact.artifactId}`,
   ),
 )
+const resolveMediaSource = vi.hoisted(() =>
+  vi.fn<(source: string, variant: string, urgent?: boolean) => Promise<string>>(),
+)
+vi.mock('../../../../lib/cloudMedia', () => ({ resolveMediaSource }))
 const canvas = vi.hoisted(() => ({
   has: vi.fn((_id: string) => false),
   thumbnail: vi.fn(async (_id: string) => 'data:image/png;base64,canvas'),
@@ -50,10 +54,70 @@ vi.mock('../../../../features/agent/components/AgentArtifactEditDialog', () => (
   ),
 }))
 vi.mock('../../../../components/Lightbox', () => ({
-  ImagePreview: () => <div data-testid="zoomed" />,
+  ImagePreview: ({
+    originalPending,
+    originalFailed,
+    onRetryOriginal,
+  }: {
+    originalPending?: boolean
+    originalFailed?: boolean
+    onRetryOriginal?: () => void
+  }) => (
+    <div
+      data-testid="zoomed"
+      data-original-pending={originalPending}
+      data-original-failed={originalFailed}
+    >
+      <button onClick={onRetryOriginal}>Retry original</button>
+    </div>
+  ),
 }))
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+it.each([
+  true,
+  false,
+])('uses only a matching card preview before either loader settles: %s', async (matches) => {
+  canvas.has.mockReturnValue(true)
+  canvas.thumbnail.mockImplementation(() => new Promise<string>(() => {}))
+  previewArtifactBitmap.mockImplementation(() => new Promise<string | null>(() => {}))
+  const root = createRoot(document.createElement('div'))
+  const selected = message.artifacts![0]!
+  try {
+    act(() =>
+      root.render(
+        <AgentArtifactPane
+          message={{ ...message, artifacts: [selected] }}
+          initialPreview={{
+            id: matches ? selected.artifactId : 'another-result',
+            source: 'data:image/png;base64,visible-card',
+          }}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      ),
+    )
+    const image = document.querySelector('.studio-artifact-pane-image img')
+    if (matches) {
+      expect(image?.getAttribute('src')).toContain('visible-card')
+      expect(canvas.thumbnail).not.toHaveBeenCalled()
+      const download = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === '下载',
+      )!
+      expect(download.disabled).toBe(true)
+    } else {
+      expect(image).toBeNull()
+      expect(canvas.thumbnail).toHaveBeenCalled()
+    }
+  } finally {
+    act(() => root.unmount())
+    canvas.thumbnail.mockResolvedValue('data:image/png;base64,canvas')
+    previewArtifactBitmap.mockImplementation(
+      async (artifact) => `data:image/png;base64,${artifact.artifactId}`,
+    )
+  }
+})
 
 const message: AgentToolMessage = {
   kind: 'tool',
@@ -71,6 +135,7 @@ const message: AgentToolMessage = {
 
 afterEach(() => {
   previewArtifactBitmap.mockClear()
+  resolveMediaSource.mockReset()
   canvas.has.mockReset()
   canvas.has.mockReturnValue(false)
   canvas.thumbnail.mockClear()
@@ -265,6 +330,151 @@ it('keeps chat result actions inside the conversation when no canvas callback is
     expect(document.body.textContent).toContain('局部重绘')
     expect(document.body.textContent).toContain('下载')
     expect(document.body.textContent).not.toContain('在画布中编辑')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('shows the existing result while the original is delayed and upgrades when it arrives', async () => {
+  canvas.has.mockReturnValue(true)
+  let resolveOriginal!: (value: string | null) => void
+  previewArtifactBitmap.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveOriginal = resolve
+      }),
+  )
+  const root = createRoot(document.createElement('div'))
+  try {
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          message={{ ...message, artifacts: message.artifacts?.slice(0, 1) }}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      ),
+    )
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('canvas')
+    expect(document.body.textContent).not.toContain('正在载入产物')
+    expect(
+      (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    act(() =>
+      (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
+    )
+    expect(
+      document.body.querySelector('[data-testid=zoomed]')?.getAttribute('data-original-pending'),
+    ).toBe('true')
+    await act(async () => resolveOriginal('data:image/png;base64,original'))
+    expect(
+      document.body.querySelector('[data-testid=zoomed]')?.getAttribute('data-original-pending'),
+    ).toBe('false')
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('original')
+    expect(
+      (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('ignores a late original after switching to another result', async () => {
+  canvas.has.mockReturnValue(true)
+  let resolveFirst!: (value: string | null) => void
+  previewArtifactBitmap.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveFirst = resolve
+      }),
+  )
+  const root = createRoot(document.createElement('div'))
+  const single = { ...message, artifacts: message.artifacts?.slice(0, 1) }
+  try {
+    await act(async () =>
+      root.render(<AgentArtifactPane message={single} onSelect={vi.fn()} onClose={vi.fn()} />),
+    )
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          message={message}
+          selectedId="second"
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      ),
+    )
+    await act(async () => resolveFirst('data:image/png;base64,late-first'))
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('second')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('keeps a fetched preview visible and retries the original after a failure', async () => {
+  let failOriginal = true
+  resolveMediaSource.mockImplementation(async (_source, variant) => {
+    if (variant === 'original' && failOriginal) {
+      failOriginal = false
+      throw new Error('network interrupted')
+    }
+    return variant === 'preview'
+      ? 'data:image/png;base64,preview'
+      : 'data:image/png;base64,original'
+  })
+  const root = createRoot(document.createElement('div'))
+  const fetched = {
+    ...message,
+    artifacts: [],
+    fetchedImages: [
+      {
+        imageId: '11000000-0000-4000-8000-000000000002',
+        sourceUrl: 'https://example.test/image',
+        mime: 'image/png',
+        width: 1024,
+        height: 1024,
+      },
+    ],
+  }
+  try {
+    await act(async () =>
+      root.render(<AgentArtifactPane message={fetched} onSelect={vi.fn()} onClose={vi.fn()} />),
+    )
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('preview')
+    const retry = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
+      (one) => one.textContent === '重试载入',
+    )!
+    expect(retry).toBeDefined()
+    await act(async () =>
+      document.body.querySelector<HTMLButtonElement>('[aria-label="放大查看"]')!.click(),
+    )
+    expect(
+      document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-pending'),
+    ).toBe('false')
+    expect(
+      document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-failed'),
+    ).toBe('true')
+    await act(async () =>
+      [...document.querySelectorAll('button')]
+        .find((one) => one.textContent === 'Retry original')!
+        .click(),
+    )
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('original')
+    expect(
+      document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-failed'),
+    ).toBe('false')
   } finally {
     act(() => root.unmount())
   }

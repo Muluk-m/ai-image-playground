@@ -26,9 +26,13 @@ import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
+import { planImageBatch } from './planImageBatch'
 import { proposeProductionEdit, readProduction, writeProduction } from './production'
 import { proposeProductionAssets } from './production-assets'
+import { proposeBatchAnalysis } from './proposeBatchAnalysis'
+import { proposeBatchGeneration } from './proposeBatchGeneration'
 import { proposeStoryboard } from './proposeStoryboard'
+import { readBatchAnalysis } from './readBatchAnalysis'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
 import { saveAsset } from './saveAsset'
@@ -64,6 +68,10 @@ const TOOLS: readonly AgentToolSpec[] = [
   proposeProductionEdit,
   proposeProductionAssets,
   proposeStoryboard,
+  planImageBatch,
+  proposeBatchGeneration,
+  proposeBatchAnalysis,
+  readBatchAnalysis,
   generateImage,
   editImage,
   viewImage,
@@ -100,7 +108,8 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
     (tool) =>
-      tool.modes.includes(mode) &&
+      (tool.modes.includes(mode) ||
+        (audience?.experience === 'chat' && tool.name === 'generateVideo')) &&
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
       (tool.available?.(mode, audience) ?? true),
   )

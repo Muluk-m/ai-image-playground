@@ -247,6 +247,48 @@ afterEach(() => {
 })
 
 describe('rollout-runtime.sh: finite drain', () => {
+  it('exposes a direct ingestion alias only on compatible runtime generations', () => {
+    currentGeneration()
+    const result = run()
+    expect(result.status).toBe(0)
+    expect(
+      result.log.find((line) => line.startsWith('create ') && line.includes('APP_ROLE=bff ')),
+    ).toContain('--network-alias bff-logs')
+    expect(
+      result.log.find((line) => line.startsWith('create ') && line.includes('APP_ROLE=worker ')),
+    ).toContain('--network-alias worker-logs')
+    expect(readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')).toContain(
+      'host: ${LOG_INGEST_HOST:-bff-logs}',
+    )
+  })
+
+  it('preserves a socket path with spaces as one Docker argument', () => {
+    currentGeneration()
+    const docker = join(root, 'bin/docker')
+    const source = readFileSync(docker, 'utf8')
+    writeFileSync(
+      docker,
+      source.replace(
+        'cmd=$1',
+        `for arg in "$@"; do printf '%s\\n' "$arg" >> "$MOCK_ROOT/args"; done\ncmd=$1`,
+      ),
+    )
+    const socketDir = join(root, 'path with spaces')
+    expect(run({ LOG_FORWARD_DIR: socketDir }).status).toBe(0)
+    const args = readFileSync(join(root, 'args'), 'utf8').split('\n')
+    expect(
+      args.filter((arg) => arg === `fluentd-address=unix://${socketDir}/forward.sock`),
+    ).toHaveLength(3)
+    expect(args).not.toContain(`fluentd-address=unix://${root}/path`)
+  })
+  it('does not leave a rollout lock when its log directory cannot be created', () => {
+    currentGeneration()
+    const blocked = join(root, 'blocked')
+    writeFileSync(blocked, 'file')
+    expect(run({ LOG_FORWARD_DIR: join(blocked, 'child') }).status).not.toBe(0)
+    expect(existsSync(releases('lock'))).toBe(false)
+    expect(run().status).toBe(0)
+  })
   it('drains the previous generation, then stops and removes it and updates the ancillary services', () => {
     currentGeneration()
     const result = run()
@@ -275,8 +317,19 @@ describe('rollout-runtime.sh: finite drain', () => {
       'Previous executors: 2 drained cleanly, 0 stopped after the 300s drain deadline, 0 already down.',
     )
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin host-collector pg-backup$/),
+      expect.stringMatching(
+        /^compose .* up --detach --no-deps admin host-collector pg-backup cloudflared$/,
+      ),
     )
+    // The executors, the router and the migration print through the deployment's log collector.
+    const socket = `fluentd-address=unix://${xdg}/ai-image-playground/log-forward/fixture/forward.sock`
+    const launches = result.log.filter((line) => /^(create|run) /.test(line))
+    expect(launches.length).toBeGreaterThanOrEqual(3)
+    for (const line of launches) {
+      expect(line).toContain('--log-driver fluentd')
+      expect(line).toContain(socket)
+      expect(line).toContain('fluentd-async=true')
+    }
   })
 
   it('stops a busy previous generation at the drain deadline instead of retaining it', () => {
@@ -495,7 +548,7 @@ describe('rollout-runtime.sh: release router', () => {
       result.log,
       /^rename fixture-release-router fixture-release-router-retiring$/,
     )
-    const started = indexOf(result.log, /^run -d --name fixture-release-router .*fixture:new/)
+    const started = indexOf(result.log, /^run .* -d --name fixture-release-router .*fixture:new/)
     const retired = indexOf(result.log, /^stop -t \d+ fixture-release-router-retiring$/)
     expect(renamed).toBeGreaterThan(-1)
     expect(started).toBeGreaterThan(renamed)
@@ -613,6 +666,9 @@ describe('app-compose.sh up', () => {
     expect(result.status).toBe(0)
     const log = logLines()
     expect(log.some((line) => line.startsWith('create '))).toBe(true)
+    const collector = indexOf(log, /^compose .* up --detach --no-deps log-collector$/)
+    expect(collector).toBeGreaterThan(-1)
+    expect(collector).toBeLessThan(indexOf(log, /^create /))
     expect(log.some((line) => /up --detach --wait .*dependency-check bff worker/.test(line))).toBe(
       false,
     )
