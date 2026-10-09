@@ -54,8 +54,22 @@ vi.mock('../../../../features/agent/components/AgentArtifactEditDialog', () => (
   ),
 }))
 vi.mock('../../../../components/Lightbox', () => ({
-  ImagePreview: ({ originalPending }: { originalPending?: boolean }) => (
-    <div data-testid="zoomed" data-original-pending={originalPending} />
+  ImagePreview: ({
+    originalPending,
+    originalFailed,
+    onRetryOriginal,
+  }: {
+    originalPending?: boolean
+    originalFailed?: boolean
+    onRetryOriginal?: () => void
+  }) => (
+    <div
+      data-testid="zoomed"
+      data-original-pending={originalPending}
+      data-original-failed={originalFailed}
+    >
+      <button onClick={onRetryOriginal}>Retry original</button>
+    </div>
   ),
 }))
 
@@ -397,10 +411,26 @@ it('keeps a fetched preview visible and retries the original after a failure', a
       (one) => one.textContent === '重试载入',
     )!
     expect(retry).toBeDefined()
-    await act(async () => retry.click())
+    await act(async () =>
+      document.body.querySelector<HTMLButtonElement>('[aria-label="放大查看"]')!.click(),
+    )
+    expect(
+      document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-pending'),
+    ).toBe('false')
+    expect(
+      document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-failed'),
+    ).toBe('true')
+    await act(async () =>
+      [...document.querySelectorAll('button')]
+        .find((one) => one.textContent === 'Retry original')!
+        .click(),
+    )
     expect(
       document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
     ).toContain('original')
+    expect(
+      document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-failed'),
+    ).toBe('false')
   } finally {
     act(() => root.unmount())
   }

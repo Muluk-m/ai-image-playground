@@ -129,6 +129,7 @@ export default function AgentArtifactPane({
   ]
   const active = items.find((item) => item.id === selectedId) ?? items[0]
   const source = loadedSource?.id === active?.id ? (loadedSource?.value ?? null) : null
+  useEffect(() => setZoomed(false), [active?.id])
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
@@ -155,7 +156,6 @@ export default function AgentArtifactPane({
     setLoading(true)
     setLoadedSource(null)
     setPreview((previous) => (previous?.id === active?.id ? previous : null))
-    setZoomed(false)
     if (!active) return
     // Show the same canvas preview as the result card while the original loads independently.
     void active
@@ -427,7 +427,9 @@ export default function AgentArtifactPane({
       {zoomed && displaySource && (
         <ImagePreview
           src={displaySource}
-          originalPending={!source}
+          originalPending={!source && loading}
+          originalFailed={!source && !loading}
+          onRetryOriginal={() => setRetry((value) => value + 1)}
           onClose={() => setZoomed(false)}
         />
       )}
