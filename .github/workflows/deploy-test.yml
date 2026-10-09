@@ -38,7 +38,7 @@ jobs:
       VITEST_MAX_WORKERS: 1
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The commit that triggered this run, not the branch tip: a push landing mid-run would
           # otherwise be published by a job that never checked it.
@@ -82,7 +82,7 @@ jobs:
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -92,7 +92,7 @@ jobs:
         run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
       - name: Check out the private overlay at the pinned commit
         id: overlay
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
           ref: ${{ steps.lock.outputs.sha }}
@@ -102,7 +102,7 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: pnpm typecheck
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -154,7 +154,7 @@ jobs:
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -187,7 +187,7 @@ jobs:
       # 手搓那版每次都去匿名调 `api.github.com/meta`（限额 60 次/小时且按发起 IP 计，runner
       # 出口 IP 共享）。调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
       - name: Check out the private overlay at the backend commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
           ref: ${{ needs.backend.outputs.private_sha }}
