@@ -1,5 +1,5 @@
 import { encodeCanvas, type OutputFormat } from '../toolbox/lib/encode'
-import { outputFileName } from '../toolbox/lib/naming'
+import { extensionFor, outputFileName } from '../toolbox/lib/naming'
 import { createOutputCanvas } from '../toolbox/lib/render'
 
 export interface ExportSource {
@@ -72,10 +72,7 @@ export async function prepareExports(
             ctx.drawImage(bitmap, 0, 0, size.width, size.height)
             const encoded = await encodeCanvas(canvas, row.format, settings.quality / 100)
             files.push({
-              name: outputFileName(
-                `${source.name.replace(/\.[^./\\]+$/, '')}${row.scale === 1 ? '' : `@${row.scale}x`}`,
-                encoded.type,
-              ),
+              name: `${source.name.replace(/\.[^./\\]+$/, '') || 'image'}${row.scale === 1 ? '' : `@${row.scale}x`}.${extensionFor(encoded.type)}`,
               blob: encoded.blob,
             })
           } finally {

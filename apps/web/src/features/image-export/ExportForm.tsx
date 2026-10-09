@@ -325,13 +325,13 @@ export default function ExportForm({
                     >
                       <SelectTrigger
                         aria-label={t('export.formatRow', { index: index + 1 })}
-                        className={FIELD}
+                        className={cn(FIELD, 'min-w-0 flex-1')}
                       >
                         <SelectValue />
                         {output && (
-                          <span className="ml-auto mr-2 text-xs text-muted-foreground tabular-nums">
+                          <small className="ml-auto mr-2 hidden min-w-0 truncate text-xs text-muted-foreground tabular-nums min-[400px]:inline">
                             {output.width} × {output.height}
-                          </span>
+                          </small>
                         )}
                       </SelectTrigger>
                       <SelectContent data-shadcn-modal className="z-[1400]">
