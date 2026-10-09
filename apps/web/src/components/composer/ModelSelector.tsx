@@ -3,7 +3,7 @@
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
 import { Check, ChevronDown } from 'lucide-react'
-import { useId, useMemo, useState } from 'react'
+import { type KeyboardEvent, useId, useMemo, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../../lib/channels/profileSelectors'
@@ -79,6 +79,23 @@ export function useModelChoices() {
   return { options, currentValue, current, pick }
 }
 
+/** 列表内上下 / Home / End 移动焦点；选项本身是按钮，Enter / 空格直接选中。 */
+function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
+  const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
+  if (step === undefined && event.key !== 'Home' && event.key !== 'End') return
+  const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]')]
+  if (!items.length) return
+  event.preventDefault()
+  const index = items.indexOf(document.activeElement as HTMLElement)
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? items.length - 1
+        : (index + (step ?? 0) + items.length) % items.length
+  items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
+}
+
 /** 模型列表：图标 + 名称 + 所属渠道，选中项右侧打勾。 */
 export function ModelList({
   options,
@@ -121,16 +138,19 @@ export function ModelList({
         id={listId}
         role="listbox"
         aria-label={t('param.model')}
+        onKeyDown={moveOptionFocus}
         className="min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {visible.map((option) => {
+        {visible.map((option, index) => {
           const selected = option.value === value
+          const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
           return (
             <button
               key={option.value}
               type="button"
               role="option"
               aria-selected={selected}
+              tabIndex={tabStop ? 0 : -1}
               title={option.title}
               onClick={() => onPick(option.value)}
               className={cn(
@@ -176,6 +196,12 @@ export function ModelSelector({ size = 'md' }: { size?: ComposerControlSize }) {
           aria-label={`${t('param.model')} ${shown}`}
           title={current?.title ?? shown}
           className={composerModelChipClass(size)}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault()
+              setOpen(true)
+            }
+          }}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
             {current ? <ModelLogo model={current.model} /> : ChipIcons.model}
@@ -195,6 +221,13 @@ export function ModelSelector({ size = 'md' }: { size?: ComposerControlSize }) {
         align="start"
         sideOffset={6}
         collisionPadding={12}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          const content = event.currentTarget as HTMLElement
+          content
+            .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]')
+            ?.focus({ preventScroll: false })
+        }}
         className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
       >
         <ModelList

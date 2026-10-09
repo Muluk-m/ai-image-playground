@@ -113,3 +113,42 @@ it('renames the active project from the title', async () => {
     host.remove()
   }
 })
+
+it('drops an in-progress rename when the active project changes', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  stubPointerApis()
+  renameProject.mockClear()
+  const project = (id: string, name: string): CanvasProject => ({
+    id,
+    name,
+    experience: 'chat',
+    createdAt: 1,
+    updatedAt: 1,
+    kind: 'image',
+    customName: true,
+    conversationId: null,
+    sceneKey: `scene-${id}`,
+    hasContent: true,
+  })
+  useCanvasProjectStore.setState({
+    projects: [project('a', 'Alpha'), project('b', 'Beta')],
+    activeId: 'a',
+    cloudCatalog: {},
+    cloudLoading: false,
+    cloudError: null,
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectNavigation />))
+    await act(async () => host.querySelector<HTMLButtonElement>('[title="点击重命名"]')!.click())
+    await act(async () => useCanvasProjectStore.setState({ activeId: 'b' }))
+    expect(host.querySelector('input[aria-label="项目名称"]')).toBeNull()
+    expect(host.textContent).toContain('Beta')
+    expect(renameProject).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
