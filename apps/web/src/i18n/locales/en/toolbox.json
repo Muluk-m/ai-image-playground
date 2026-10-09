@@ -153,7 +153,6 @@
     "videoHint": "Videos export once in their original format. Image settings do not affect videos.",
     "undecodable": "Unsupported image format",
     "select": "Select",
-    "selectAll": "Select all in current list",
     "downloadOriginal": "Download original",
     "export": "Export"
   }

@@ -52,7 +52,6 @@
     "edit": "Edit"
   },
   "download": {
-    "started": "Download started",
     "fetchFailed": "Could not fetch the video: {{status}}"
   },
   "store": {
