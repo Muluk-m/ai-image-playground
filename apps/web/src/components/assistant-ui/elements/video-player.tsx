@@ -6,7 +6,7 @@ import { Button } from '../../ui/button'
  * 播放器在纵向 flex 里会被撑满栏宽，只写 aspect-ratio 和 max-height 时高度被截断、
  * 宽度不收回，9:16 就变成一块横着的空舞台。这里改限制宽度，高度由比例自己算。
  */
-const PLAYER_MAX_HEIGHT = 'min(24rem, 46vh)'
+export const PLAYER_MAX_HEIGHT = 'min(24rem, 46vh)'
 
 export function playerFrameStyle(aspectRatio: string): {
   aspectRatio: string
