@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { DEFAULT_IMAGES_MODEL } from '../../lib/apiProfiles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../lib/clipboard'
 import { profileSeedNames } from '../../lib/profileSeedNames'
 import { useStore } from '../../store'
 import type { CustomProviderDefinition } from '../../types'
+import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
 import { CloseIcon, LinkIcon } from '../icons'
 import Overlay from '../Overlay'
-import ViewportTooltip from '../ViewportTooltip'
 
 export interface CustomProviderForm {
   json: string
@@ -200,24 +199,6 @@ export default function CustomProviderDialog({
   const { t } = useTranslation('settings')
   const { t: tCommon } = useTranslation('common')
   const showToast = useStore((s) => s.showToast)
-  const [llmPromptTooltipVisible, setLlmPromptTooltipVisible] = useState(false)
-  const llmPromptTooltipTimerRef = useRef<number | null>(null)
-
-  useEffect(
-    () => () => {
-      if (llmPromptTooltipTimerRef.current != null)
-        window.clearTimeout(llmPromptTooltipTimerRef.current)
-    },
-    [],
-  )
-
-  const clearLlmPromptTooltipTimer = () => {
-    if (llmPromptTooltipTimerRef.current != null) {
-      window.clearTimeout(llmPromptTooltipTimerRef.current)
-      llmPromptTooltipTimerRef.current = null
-    }
-  }
-
   const copyCustomProviderLlmPrompt = async () => {
     try {
       await copyTextToClipboard(CUSTOM_PROVIDER_LLM_PROMPT)
@@ -271,36 +252,17 @@ export default function CustomProviderDialog({
               {t('customProvider.aiGenerateHint')}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="relative inline-flex">
+              <Hint tooltip={t('customProvider.copyPromptTooltip')} className="w-56 text-center">
                 <button
                   type="button"
                   onClick={copyCustomProviderLlmPrompt}
                   aria-label={t('customProvider.copyPromptAria')}
-                  onMouseEnter={() => setLlmPromptTooltipVisible(true)}
-                  onMouseLeave={() => setLlmPromptTooltipVisible(false)}
-                  onFocus={() => setLlmPromptTooltipVisible(true)}
-                  onBlur={() => setLlmPromptTooltipVisible(false)}
-                  onTouchStart={() => {
-                    clearLlmPromptTooltipTimer()
-                    llmPromptTooltipTimerRef.current = window.setTimeout(() => {
-                      setLlmPromptTooltipVisible(true)
-                      llmPromptTooltipTimerRef.current = null
-                    }, 450)
-                  }}
-                  onTouchEnd={clearLlmPromptTooltipTimer}
-                  onTouchCancel={clearLlmPromptTooltipTimer}
-                  className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground border-border dark:hover:text-white"
+                  className="relative inline-flex"
                 >
                   <LinkIcon className="h-3.5 w-3.5" />
                   {t('customProvider.copyPrompt')}
                 </button>
-                <ViewportTooltip
-                  visible={llmPromptTooltipVisible}
-                  className="w-56 whitespace-normal text-center"
-                >
-                  {t('customProvider.copyPromptTooltip')}
-                </ViewportTooltip>
-              </span>
+              </Hint>
               <button
                 type="button"
                 onClick={onPasteImport}

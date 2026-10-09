@@ -1,6 +1,6 @@
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
-import ViewportTooltip from '../../../components/ViewportTooltip'
 import { useStore } from '../../../store'
 
 /**
@@ -32,33 +32,27 @@ export default function CanvasToolbarButton({
   onClick: (button: HTMLButtonElement) => void
 }) {
   const unavailable = reason !== undefined
-  const [hovered, setHovered] = useState(false)
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className={`h-8 gap-1 text-xs ${compact ? 'w-8 px-0' : 'px-2'} ${destructive ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : ''} ${unavailable ? 'opacity-50' : ''}`}
-      aria-label={label}
-      aria-disabled={unavailable || undefined}
-      // compact 下自带浮层，再留 title 会和它叠在一起出两份说明。
-      title={compact ? undefined : (reason ?? label)}
-      disabled={disabled}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onBlur={() => setHovered(false)}
-      onClick={(event) => {
-        if (unavailable) useStore.getState().showToast(reason, 'error')
-        else onClick(event.currentTarget)
-      }}
-    >
-      {icon}
-      {compact ? (
-        <ViewportTooltip visible={hovered}>{reason ?? label}</ViewportTooltip>
-      ) : (
-        <span className="hidden sm:inline">{label}</span>
-      )}
-    </Button>
+    // compact 只留图标，说明放进提示；带文字的只在做不了时提示原因。
+    <Hint tooltip={compact ? (reason ?? label) : reason}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={`h-8 gap-1 text-xs ${compact ? 'w-8 px-0' : 'px-2'} ${destructive ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : ''} ${unavailable ? 'opacity-50' : ''}`}
+        aria-label={label}
+        aria-disabled={unavailable || undefined}
+        // 做不了的原因读屏直接念；视觉上由提示框显示。
+        aria-description={reason}
+        disabled={disabled}
+        onClick={(event) => {
+          if (unavailable) useStore.getState().showToast(reason, 'error')
+          else onClick(event.currentTarget)
+        }}
+      >
+        {icon}
+        {!compact && <span className="hidden sm:inline">{label}</span>}
+      </Button>
+    </Hint>
   )
 }
