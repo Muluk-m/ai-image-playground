@@ -3,10 +3,7 @@ import { Ruler } from 'lucide-react'
 import { memo, type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
-import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
-import { getPublicChannels } from '../lib/channels/publicChannels'
 import type { ClientProfile } from '../lib/channels/types'
-import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import {
   normalizeSizeFor,
@@ -25,10 +22,9 @@ import {
   GEMINI_THINKING_LEVELS,
   type TaskParams,
 } from '../types'
-import { ChipIcons } from './chipIcons'
+import { ModelSelector } from './composer/ModelSelector'
 import {
   type ComposerControlSize,
-  composerModelChipClass,
   DraftInput,
   RatioGrid,
   RatioShape,
@@ -37,8 +33,6 @@ import {
   SettingsSegmented,
   SettingsToggle,
 } from './composer/SettingsPanel'
-import { compactModelName, ModelLogo } from './ModelIdentity'
-import Select from './Select'
 
 /** 某条提交路径做不到的参数。开关直接不出现——显示了却不生效，比没有这个开关更糟。 */
 export type UnsupportedParam = 'transparent' | 'noRewrite'
@@ -56,85 +50,9 @@ const withAuto = (values: readonly string[], autoLabel: string) => [
 ]
 const fromAuto = <T,>(value: string) => (value === 'auto' ? undefined : (value as T))
 
-/**
- * 模型 chip：跨 profile 的模型快选，切换时同时切 activeProfileId 与该 profile 的 model。
- * `label` 用来写这条路实际生效的模型（智能体在 BYOK 下只能用内置渠道）。
- */
+/** 模型 chip。`label` 用来写这条路实际生效的模型（智能体在 BYOK 下只能用内置渠道）。 */
 export function ModelChip({ size = 'md', label }: { size?: ComposerControlSize; label?: string }) {
-  const { t } = useTranslation('composer')
-  const settings = useStore((s) => s.settings)
-  const setSettings = useStore((s) => s.setSettings)
-  const profileModelCache = useStore((s) => s.profileModelCache)
-  const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
-  const activeView = clientProfileToApiProfile(activeProfile)
-
-  // 每个 profile 的 (model + 上游拉取缓存) 扁平去重。
-  const options = useMemo(() => {
-    const publicChannels = getPublicChannels()
-    const byokEnabled = isByokGenerationEnabled()
-    const labelCounts = new Map<string, number>()
-    const list = settings.profiles
-      .filter((profile) => byokEnabled || profile.source === 'builtin-edge')
-      .flatMap((profile) => {
-        const view = clientProfileToApiProfile(profile)
-        const presetOptions = getProfileModelOptions(profile, publicChannels)
-        const knownIds = new Set(presetOptions.map((o) => o.id))
-        const cachedExtras = (profileModelCache[profile.id] ?? [])
-          .filter((id) => !knownIds.has(id))
-          .map((id) => ({ id, label: id }))
-        return [...presetOptions, ...cachedExtras].map((option) => {
-          const name = compactModelName(option.id, option.label)
-          labelCounts.set(name, (labelCounts.get(name) ?? 0) + 1)
-          return {
-            value: `${profile.id}::${option.id}`,
-            model: option.id,
-            profileId: profile.id,
-            profileName: view.name,
-            label: name,
-            icon: <ModelLogo model={option.id} />,
-            title: `${option.label} · ${view.name}\n${option.id}`,
-            description: '',
-          }
-        })
-      })
-    for (const option of list) {
-      if ((labelCounts.get(option.label) ?? 0) > 1) option.description = option.profileName
-    }
-    return list
-  }, [settings.profiles, profileModelCache])
-
-  if (options.length === 0) return null
-  const currentValue = `${activeProfile.id}::${activeView.model}`
-  const current = options.find((option) => option.value === currentValue)
-  const pick = (rawValue: string) => {
-    const option = options.find((o) => o.value === rawValue)
-    if (!option || option.value === currentValue) return
-    const publicChannels = getPublicChannels()
-    const nextProfiles = settings.profiles.map((profile) =>
-      profile.id === option.profileId
-        ? updateSelectedModel(profile, option.model, publicChannels)
-        : profile,
-    )
-    setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
-  }
-  const shown = label ?? current?.label ?? t('param.noModel')
-  return (
-    <div title={label ?? current?.title ?? shown} className={composerModelChipClass(size)}>
-      <span className="flex shrink-0 items-center text-muted-foreground">
-        {(!label && current?.icon) || ChipIcons.model}
-      </span>
-      <span className="min-w-0 truncate">{shown}</span>
-      <Select
-        value={currentValue}
-        onChange={(value) => pick(String(value))}
-        options={options}
-        className="!justify-end !border-0 !bg-transparent !px-2.5 !py-0 !shadow-none h-full"
-        wrapperClassName="absolute inset-0"
-        hideSelectedLabel
-        label={t('param.model')}
-      />
-    </div>
-  )
+  return <ModelSelector size={size} label={label} />
 }
 
 /** 调用方塞进卡片的一组自有设置（智能体的思考深度），带着自己的默认判断与重置。 */
@@ -152,6 +70,12 @@ export interface ExtraSettings {
   section: ReactNode
   dirty: boolean
   reset: () => void
+  /** 卡片最前面的一组（智能体把模型选择收进来）。 */
+  lead?: ReactNode
+  /** chip 上替代画幅形状的图标与摘要前缀（模型名）。 */
+  chip?: { icon: ReactNode; label: string }
+  /** 摘要后的状态标记。 */
+  badge?: ReactNode
   /** 卡片最后的说明。 */
   footnote?: ReactNode
 }
@@ -233,7 +157,11 @@ export function ImageSettings({
     : selection.kind === 'custom'
       ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)]
       : [ratioLabel, selection.kind === 'preset' && capabilities.size ? selection.tier : undefined]
-  const summary = [...sizeSummary, countVisible ? t('settings.count', { count: params.n }) : '']
+  const summary = [
+    extra?.chip?.label,
+    ...sizeSummary,
+    countVisible ? t('settings.count', { count: params.n }) : '',
+  ]
     .filter(Boolean)
     .join(' · ')
   // 摘要里看不到、又偏离了默认值的参数。
@@ -312,6 +240,7 @@ export function ImageSettings({
 
     return (
       <>
+        {extra?.lead}
         {extra?.section}
         <SettingsSection
           title={t('param.aspectRatio')}
@@ -504,11 +433,14 @@ export function ImageSettings({
       title={t('settings.title')}
       summary={summary}
       icon={
-        <RatioShape
-          ratio={selection.kind === 'custom' ? selection.ratio : ratio}
-          className="h-3.5 w-3.5"
-        />
+        extra?.chip?.icon ?? (
+          <RatioShape
+            ratio={selection.kind === 'custom' ? selection.ratio : ratio}
+            className="h-3.5 w-3.5"
+          />
+        )
       }
+      badge={extra?.badge}
       dirty={dirty}
       size={size}
       onReset={reset}
