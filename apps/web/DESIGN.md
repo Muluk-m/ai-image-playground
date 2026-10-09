@@ -353,7 +353,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `SettingsToggle`。图片（`ParamControls`）与视频（`CanvasVideoParams`）共用这一个外壳，
   不要再在输入框里平铺一排参数 chip。
 - **EmptyState**：一枚 24px 线性图标 + 一句 body-sm 说明 + 可选一个按钮，在内容区上部居中。
-- **图标**：一律 lucide，自定义图标集中放在 `components/icons.tsx`（或 `*Icons.tsx` 图标模块），
+- **图标**：一律 lucide，自定义图标集中放在 `components/icons.tsx`（或 `*Icons.tsx` 图标模块；品牌 Logo 放 `logos.tsx`），
   业务组件里不写内联 `<svg>`；`+ − ＋ → ↗ ×` 这类文字字符不能当图标用。
   图标尺寸跟控件走：28px 控件配 14px 图标，32–36px 配 16px。
 

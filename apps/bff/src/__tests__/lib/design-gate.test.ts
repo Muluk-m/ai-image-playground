@@ -90,6 +90,7 @@ describe('scanSource', () => {
       'inline-svg',
     ])
     expect(rulesIn('apps/web/src/components/icons.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([])
+    expect(rulesIn('apps/web/src/components/x/logos.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([])
     expect(rulesIn('apps/web/src/components/chipIcons.tsx', '<svg viewBox="0 0 1 1" />')).toEqual(
       [],
     )
