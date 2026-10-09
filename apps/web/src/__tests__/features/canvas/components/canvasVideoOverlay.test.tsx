@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CanvasVideoOverlay from '../../../../features/canvas/components/CanvasVideoOverlay'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { recoverVideoPoster } from '../../../../features/canvas/lib/recoverVideoPoster'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+
+vi.mock('../../../../features/canvas/lib/recoverVideoPoster', () => ({
+  recoverVideoPoster: vi.fn().mockResolvedValue(undefined),
+}))
 
 declare global {
   // eslint-disable-next-line no-var
@@ -34,13 +39,14 @@ function addVideo(id: string): void {
   ])
 }
 
-function render(): void {
+function render(active = true): void {
   act(() => {
-    root.render(<CanvasVideoOverlay editor={editor} />)
+    root.render(<CanvasVideoOverlay editor={editor} active={active} />)
   })
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   doc = new CanvasDoc()
   doc.setViewport(800, 600)
@@ -53,6 +59,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  vi.unstubAllGlobals()
 })
 
 describe('画布上的视频播放', () => {
@@ -86,4 +93,43 @@ describe('画布上的视频播放', () => {
 
     expect(host.querySelector('video')).toBeNull()
   })
+})
+
+it('does not fetch covers in the hidden canvas and restores only visible video objects', () => {
+  let intersect: (entries: { target: Element; isIntersecting: boolean }[]) => void = () => {}
+  const observe = vi.fn()
+  const unobserve = vi.fn()
+  const disconnect = vi.fn()
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(callback: typeof intersect) {
+        intersect = callback
+      }
+      observe = observe
+      unobserve = unobserve
+      disconnect = disconnect
+    },
+  )
+  addVideo('visible')
+  addVideo('offscreen')
+  render(false)
+  expect(observe).not.toHaveBeenCalled()
+  expect(recoverVideoPoster).not.toHaveBeenCalled()
+  render(true)
+  const visible = host.querySelector('[data-video-object="visible"]')!
+  const offscreen = host.querySelector('[data-video-object="offscreen"]')!
+  expect(observe).toHaveBeenCalledTimes(2)
+  act(() =>
+    intersect([
+      { target: visible, isIntersecting: true },
+      { target: offscreen, isIntersecting: false },
+    ]),
+  )
+  expect(recoverVideoPoster).toHaveBeenCalledExactlyOnceWith(editor, 'visible')
+  expect(unobserve).toHaveBeenCalledWith(visible)
+  render(false)
+  expect(disconnect).toHaveBeenCalled()
+  act(() => intersect([{ target: offscreen, isIntersecting: true }]))
+  expect(recoverVideoPoster).toHaveBeenCalledTimes(1)
 })

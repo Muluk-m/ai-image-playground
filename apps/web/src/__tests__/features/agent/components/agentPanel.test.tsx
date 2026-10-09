@@ -17,6 +17,7 @@ import {
   reduceAgentPanelEvent,
 } from '../../../../features/agent/lib/panelMessages'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
+import { resetAgentSkillsCache } from '../../../../features/agent/lib/useAgentSkills'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -108,6 +109,7 @@ function toolMessage(
 }
 
 beforeEach(async () => {
+  resetAgentSkillsCache()
   const session = agentDraft(null)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
   session.update(EMPTY_DRAFT)

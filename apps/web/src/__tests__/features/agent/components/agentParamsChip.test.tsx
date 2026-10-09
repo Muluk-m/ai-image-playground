@@ -26,6 +26,10 @@ function trigger(): HTMLButtonElement {
   return host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
 }
 
+function modelTrigger(): HTMLButtonElement {
+  return host.querySelector<HTMLButtonElement>('button[role="combobox"]')!
+}
+
 function toggle(): void {
   act(() => trigger().click())
 }
@@ -308,4 +312,103 @@ it('制作模式仅调整思考深度，不显示图片摘要或修改全局图�
   act(() => option('思考深度', '深度').click())
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(useStore.getState().params).toEqual(initialParams)
+})
+
+it('模型独立快选，切换后参数摘要只保留画幅，参数卡片不含模型列表', () => {
+  setChannels([
+    {
+      id: 'duo',
+      kind: 'openai-queue',
+      label: 'Duo',
+      models: [
+        { id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['quality'] },
+        { id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['quality'] },
+      ],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  useStore.setState({
+    settings: {
+      ...useStore.getState().settings,
+      activeProfileId: 'duo-profile',
+      profiles: [
+        {
+          id: 'duo-profile',
+          source: 'builtin-edge',
+          channelId: 'duo',
+          selectedModelId: 'gpt-image-2',
+        },
+      ],
+    },
+  })
+  render()
+  expect(modelTrigger().getAttribute('aria-label')).toContain('Image 2')
+  expect(trigger().getAttribute('aria-label')).not.toContain('Image 2')
+  act(() => modelTrigger().click())
+  const flare = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
+    node.textContent?.includes('Image 2.5 Flare'),
+  ) as HTMLButtonElement
+  act(() => flare.click())
+  const profile = useStore.getState().settings.profiles[0] as { selectedModelId?: string }
+  expect(profile.selectedModelId).toBe('gpt-image-2.5-flare')
+  expect(modelTrigger().getAttribute('aria-expanded')).toBe('false')
+  expect(modelTrigger().getAttribute('aria-label')).toContain('Image 2.5 Flare')
+  expect(trigger().getAttribute('aria-label')).not.toContain('Image 2.5 Flare')
+  toggle()
+  expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  const sections = [...document.body.querySelectorAll('section h3')].map((node) => node.textContent)
+  expect(sections.indexOf('比例')).toBeLessThan(sections.indexOf('思考深度'))
+})
+
+it('出图模式在卡片里切换，开着时 chip 上带闪电标记', () => {
+  useAgentStore.setState({ autoSubmit: false })
+  render()
+  expect(trigger().querySelector('[aria-label="直接出图"]')).toBeNull()
+  toggle()
+  const toggleSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!
+  act(() => toggleSwitch.click())
+  expect(useAgentStore.getState().autoSubmit).toBe(true)
+  expect(trigger().querySelector('[aria-label="直接出图"]')).not.toBeNull()
+})
+
+it('模型列表可用方向键在选项间移动焦点', () => {
+  setChannels([
+    {
+      id: 'trio',
+      kind: 'openai-queue',
+      label: 'Trio',
+      models: [
+        { id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['quality'] },
+        { id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['quality'] },
+      ],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  useStore.setState({
+    settings: {
+      ...useStore.getState().settings,
+      activeProfileId: 'trio-profile',
+      profiles: [
+        {
+          id: 'trio-profile',
+          source: 'builtin-edge',
+          channelId: 'trio',
+          selectedModelId: 'gpt-image-2',
+        },
+      ],
+    },
+  })
+  render()
+  act(() => modelTrigger().click())
+  const options = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+  expect(options.map((node) => node.tabIndex)).toEqual([0, -1])
+  options[0]!.focus()
+  act(() => {
+    options[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  })
+  expect(document.activeElement).toBe(options[1])
+  act(() => {
+    options[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+  })
+  expect(document.activeElement).toBe(options[0])
 })

@@ -30,7 +30,6 @@
     "collapseAria": "Collapse panel",
     "expand": "Open chat",
     "aria": "Creation chat",
-    "newProjectAria": "New project",
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
     "emptyBody": "Describe your idea or add a reference.",
@@ -142,6 +141,7 @@
     "voices_one": "{{count}} voice",
     "voices_other": "{{count}} voices",
     "estimatedCost": "Estimated cost",
+    "loading": "Loading video",
     "playbackFailed": "This video could not be played. Try reloading it.",
     "reload": "Reload video",
     "downloading": "Downloading…",
@@ -250,9 +250,6 @@
     "tooManyUploads_other": "At most {{count}} uploaded or library images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",
     "queue": "Queue",
-    "autoSubmitAria": "Direct generation mode",
-    "autoSubmitOnTitle": "Direct generation: the assistant starts generating — and charging — as soon as it drafts a prompt, with no per-draft confirmation",
-    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)",
     "assetViewsUnavailable": "Some asset views could not be read. Retry before attaching the asset.",
     "attachmentReadFailed": "Some images could not be read. No files were attached; please select them again.",
     "retryUpload": "Retry",
@@ -291,7 +288,9 @@
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
     "thinkingLegend": "Thinking depth",
-    "thinkingSummary": "Thinking: {{label}}"
+    "thinkingSummary": "Thinking: {{label}}",
+    "autoSubmitLabel": "Generate directly",
+    "autoSubmitHint": "The assistant starts generating (and charging) as soon as it drafts a prompt, without waiting for your confirmation."
   },
   "mentions": {
     "headingResults": "Conversation images",
@@ -422,18 +421,15 @@
     "switchAria": "Switch project, current: {{name}}",
     "switchTitle": "Switch project",
     "search": "Search projects",
-    "recent": "Recent projects",
-    "results": "Search results",
-    "newHint": "Start a new creative project",
     "expand": "Show {{remaining}} more",
     "collapse": "Show less",
     "chats": "Chats",
     "canvases": "Canvases",
     "newChat": "New chat",
     "newCanvas": "New canvas",
-    "newChatHint": "Create with the Agent",
-    "newCanvasHint": "Arrange and edit freely",
-    "all": "View all projects"
+    "all": "View all projects",
+    "renameAria": "Project name",
+    "renameHint": "Click to rename"
   },
   "assets": {
     "title": "Assets",

@@ -10,10 +10,28 @@ const EMPTY_SKILLS: readonly AgentSkillSummary[] = []
  * 自建模板增删后照样跟上。
  */
 const lastSkills = new Map<AgentMode, readonly AgentSkillSummary[]>()
+const pendingSkills = new Map<AgentMode, Promise<AgentSkillSummary[]>>()
+
+function loadSkills(mode: AgentMode): Promise<AgentSkillSummary[]> {
+  const pending = pendingSkills.get(mode)
+  if (pending) return pending
+  // 同一面板里的输入框、起手引导和历史记录共用请求；完成后允许下一次挂载刷新。
+  const request = fetchAgentSkills(mode)
+    .then((skills) => {
+      if (pendingSkills.get(mode) === request) lastSkills.set(mode, skills)
+      return skills
+    })
+    .finally(() => {
+      if (pendingSkills.get(mode) === request) pendingSkills.delete(mode)
+    })
+  pendingSkills.set(mode, request)
+  return request
+}
 
 /** 仅测试用：模块缓存跨用例存活。 */
 export function resetAgentSkillsCache(): void {
   lastSkills.clear()
+  pendingSkills.clear()
 }
 
 /** Catalogs are deployment metadata, not persisted user content. */
@@ -24,9 +42,8 @@ export function useAgentSkills(mode: AgentMode): readonly AgentSkillSummary[] {
   }>()
   useEffect(() => {
     let current = true
-    void fetchAgentSkills(mode).then(
+    void loadSkills(mode).then(
       (skills) => {
-        lastSkills.set(mode, skills)
         if (current) setLoaded({ mode, skills })
       },
       () => {

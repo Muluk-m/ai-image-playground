@@ -59,6 +59,7 @@ let turnResponse: () => Response | Promise<Response>
 let messagesResponse: () => Response
 let conversationsResponse: () => Response
 let deleteResponse: () => Response
+let withdrawalResponse: () => Response
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -69,6 +70,9 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   }
   if (init?.method === 'DELETE') return deleteResponse()
   if (url.endsWith('/api/agent/conversations')) return conversationsResponse()
+  if (url.includes('/submissions/') && (url.endsWith('/withdraw') || url.endsWith('/reconcile')))
+    return withdrawalResponse()
+  if (url.includes('/submissions/')) return Response.json({ receipt: null })
   if (url.includes('/turns')) return turnResponse()
   return messagesResponse()
 })
@@ -83,6 +87,10 @@ function state() {
 
 beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  withdrawalResponse = () =>
+    Response.json({
+      receipt: { state: 'cancelled', queued: { id: 'user-1', text: '', createdAt: 1 } },
+    })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
   setClientStorageScope(crypto.randomUUID())
@@ -604,13 +612,23 @@ describe('发送反馈', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(false)
   })
 
-  it('发送响应尚未到达时记住中止，收到轮标识后立即中止该轮', async () => {
+  it('发送响应尚未到达时保存中止身份，不阻塞退出并取消回执对应的轮', async () => {
     useAgentStore.setState({ conversationId: CONVERSATION })
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
+    withdrawalResponse = () =>
+      Response.json({
+        receipt: {
+          state: 'consumed',
+          turnId: 'turn-1',
+          queued: { id: 'user-1', text: '', createdAt: 1 },
+        },
+      })
+    let calls = 0
     turnResponse = async () => {
+      if (++calls > 1) return Response.json({ aborted: true, returned: [] })
       await gate
       return turnStream(TURN_START, TURN_END)
     }
@@ -622,7 +640,9 @@ describe('发送反馈', () => {
     const phaseAfterClick = agentActivityPhase(state())
     release()
     await sending
-    expect(phaseAfterClick).toBe('stopping')
+    expect(phaseAfterClick).toBeNull()
+    expect(state().turn).toBe('idle')
+    await vi.waitFor(() => expect(state().returnedMessagesPending).toBe(false))
     expect(
       fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/turn-1/abort')),
     ).toHaveLength(1)
