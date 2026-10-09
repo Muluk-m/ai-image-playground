@@ -2,7 +2,7 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -14,6 +14,7 @@ import { useStore } from '../../store'
 import { field } from '../assistant-ui/elements/surfaces'
 import { ChipIcons } from '../chipIcons'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
+import SearchField from '../SearchField'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { type ComposerControlSize, composerModelChipClass } from './SettingsPanel'
 
@@ -104,23 +105,17 @@ export function ModelList({
   return (
     <div className={cn('flex min-h-0 flex-col gap-1', className)}>
       {options.length > SEARCH_THRESHOLD && (
-        <div className="relative">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('param.searchModel')}
-            aria-label={t('param.searchModel')}
-            aria-controls={listId}
-            className={cn(
-              field,
-              'h-8 w-full rounded-lg border border-transparent pl-8 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/15',
-            )}
-          />
-        </div>
+        <SearchField
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t('param.searchModel')}
+          aria-label={t('param.searchModel')}
+          aria-controls={listId}
+          className={cn(
+            field,
+            'h-8 max-w-none rounded-lg border-transparent px-2.5 focus-within:border-foreground/15 focus-within:ring-0',
+          )}
+        />
       )}
       <div
         id={listId}
@@ -164,19 +159,13 @@ export function ModelList({
   )
 }
 
-/** 独立的模型选择 chip（首页、画布生成栏）。`label` 写这条路实际生效的模型。 */
-export function ModelSelector({
-  size = 'md',
-  label,
-}: {
-  size?: ComposerControlSize
-  label?: string
-}) {
+/** 独立的模型选择 chip（首页、画布生成栏）。 */
+export function ModelSelector({ size = 'md' }: { size?: ComposerControlSize }) {
   const { t } = useTranslation('composer')
   const { options, currentValue, current, pick } = useModelChoices()
   const [open, setOpen] = useState(false)
   if (options.length === 0) return null
-  const shown = label ?? current?.label ?? t('param.noModel')
+  const shown = current?.label ?? t('param.noModel')
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -185,11 +174,11 @@ export function ModelSelector({
           role="combobox"
           aria-expanded={open}
           aria-label={`${t('param.model')} ${shown}`}
-          title={label ?? current?.title ?? shown}
+          title={current?.title ?? shown}
           className={composerModelChipClass(size)}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {!label && current ? <ModelLogo model={current.model} /> : ChipIcons.model}
+            {current ? <ModelLogo model={current.model} /> : ChipIcons.model}
           </span>
           <span className="min-w-0 truncate">{shown}</span>
           <ChevronDown

@@ -6,7 +6,6 @@ import {
   LoaderCircle,
   MessageCircle,
   Plus,
-  Search,
 } from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
@@ -27,12 +26,15 @@ import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import MediaImage from './MediaImage'
+import SearchField from './SearchField'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from './ui/popover'
 
 const INITIAL_VISIBLE = { chat: RECENT_PROJECT_COUNT, canvas: RECENT_PROJECT_COUNT }
 
 const rowClass =
   'flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-60'
+
+const footerIcon = 'grid h-8 w-10 shrink-0 place-items-center text-muted-foreground'
 
 /** 项目胶囊：`leading`（品牌 logo）| 项目名（点击改名）| 展开按钮。 */
 export default function ProjectNavigation({ leading }: { leading?: ReactNode }) {
@@ -175,19 +177,16 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
           aria-label={t('navigation.switchTitle')}
           className="z-[600] flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl p-2 shadow-popover"
         >
-          <div className="relative shrink-0">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value)
-                setVisibleCounts(INITIAL_VISIBLE)
-              }}
-              placeholder={t('navigation.search')}
-              aria-label={t('navigation.search')}
-              className="studio-project-search h-10 w-full rounded-xl bg-muted pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground"
-            />
-          </div>
+          <SearchField
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setVisibleCounts(INITIAL_VISIBLE)
+            }}
+            placeholder={t('navigation.search')}
+            aria-label={t('navigation.search')}
+            className="h-10 max-w-none shrink-0 rounded-xl border-transparent bg-muted focus-within:border-foreground/15 focus-within:ring-0"
+          />
           <div className="mt-1 min-h-0 overflow-y-auto" aria-busy={busy}>
             {groups
               .filter((group) => group.items.length > 0)
@@ -311,7 +310,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
               disabled={busy}
               onClick={() => void enter(undefined, 'chat')}
             >
-              <span className="grid h-8 w-10 shrink-0 place-items-center text-muted-foreground">
+              <span className={footerIcon}>
                 {pending === 'new' ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
@@ -326,13 +325,13 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
               disabled={busy}
               onClick={() => void enter(undefined, 'canvas')}
             >
-              <span className="grid h-8 w-10 shrink-0 place-items-center text-muted-foreground">
+              <span className={footerIcon}>
                 <Plus className="h-4 w-4" aria-hidden="true" />
               </span>
               {t('navigation.newCanvas')}
             </button>
             <button type="button" className={rowClass} disabled={busy} onClick={allProjects}>
-              <span className="grid h-8 w-10 shrink-0 place-items-center text-muted-foreground">
+              <span className={footerIcon}>
                 <FolderOpen className="h-4 w-4" aria-hidden="true" />
               </span>
               {t('navigation.all')}

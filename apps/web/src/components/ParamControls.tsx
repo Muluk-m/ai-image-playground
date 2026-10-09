@@ -50,11 +50,6 @@ const withAuto = (values: readonly string[], autoLabel: string) => [
 ]
 const fromAuto = <T,>(value: string) => (value === 'auto' ? undefined : (value as T))
 
-/** 模型 chip。`label` 用来写这条路实际生效的模型（智能体在 BYOK 下只能用内置渠道）。 */
-export function ModelChip({ size = 'md', label }: { size?: ComposerControlSize; label?: string }) {
-  return <ModelSelector size={size} label={label} />
-}
-
 /** 调用方塞进卡片的一组自有设置（智能体的思考深度），带着自己的默认判断与重置。 */
 /**
  * 不读写全局 store 的一份参数：确认草稿时改的是草稿自己的参数，按草稿选定的渠道与模型
@@ -466,7 +461,7 @@ const ParamControls = memo(function ParamControls({
 }) {
   return (
     <>
-      <ModelChip size={size} />
+      <ModelSelector size={size} />
       <ImageSettings showCount={showCount} agentManaged={agentManaged} size={size} />
     </>
   )
