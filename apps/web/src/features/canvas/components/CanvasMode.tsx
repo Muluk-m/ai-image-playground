@@ -408,6 +408,27 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   useEffect(() => {
     if (pendingImages > 0) workspace.placePendingImages()
   }, [workspace, loading, loadFailed, pendingImages])
+  const homeMark = (
+    <button
+      type="button"
+      onClick={() => useStore.getState().setAppMode('image')}
+      aria-label={t('workspace.backHome')}
+      title={t('workspace.backHome')}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+    >
+      <img src="/brand/muvloom-mark.svg" alt="" className="h-6 w-6" />
+    </button>
+  )
+  const sidebarToggle = (
+    <button
+      type="button"
+      onClick={() => useStore.getState().toggleSidebar()}
+      aria-label={tShell('header.nav')}
+      className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
+    >
+      <PanelLeftOpen size={16} />
+    </button>
+  )
   return (
     <div
       className="studio-shell fixed bottom-0 right-0 z-30"
@@ -426,26 +447,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <div
               className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${sidebarOpen ? 'studio-project-viewbar--with-sidebar' : ''}`}
             >
-              <button
-                type="button"
-                onClick={() => useStore.getState().setAppMode('image')}
-                aria-label={t('workspace.backHome')}
-                title={t('workspace.backHome')}
-                className="grid h-9 w-9 shrink-0 place-items-center"
-              >
-                <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-              </button>
-              {!sidebarOpen && (
-                <button
-                  type="button"
-                  onClick={() => useStore.getState().toggleSidebar()}
-                  aria-label={tShell('header.nav')}
-                  className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
-                >
-                  <PanelLeftOpen size={16} />
-                </button>
-              )}
-              <ProjectNavigation />
+              {!sidebarOpen && sidebarToggle}
+              <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
               {projectView === 'canvas' && project?.sourceProjectId && (
                 <button
                   type="button"
@@ -552,26 +555,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 )}
                 {!hasAgent && (
                   <div className="studio-canvas-topbar">
-                    <button
-                      type="button"
-                      onClick={() => useStore.getState().setAppMode('image')}
-                      aria-label={t('workspace.backHome')}
-                      title={t('workspace.backHome')}
-                      className="grid h-9 w-8 shrink-0 place-items-center"
-                    >
-                      <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-                    </button>
-                    {!sidebarOpen && (
-                      <button
-                        type="button"
-                        onClick={() => useStore.getState().toggleSidebar()}
-                        aria-label={tShell('header.nav')}
-                        className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
-                      >
-                        <PanelLeftOpen size={16} />
-                      </button>
-                    )}
-                    <ProjectNavigation />
+                    {!sidebarOpen && sidebarToggle}
+                    <ProjectNavigation leading={homeMark} />
                   </div>
                 )}
                 {hasAgent ? (

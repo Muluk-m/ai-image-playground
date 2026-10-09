@@ -129,6 +129,29 @@
 .studio-canvas-topbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; }
 .studio-canvas-topbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
 .studio-canvas-topbar .studio-agent-project { border: 0; padding: 0; }
+.studio-project-pill {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 44px; padding: 0 6px;
+  border: 1px solid hsl(var(--border)); border-radius: 14px; background: hsl(var(--card));
+}
+.studio-project-pill-divider { flex: 0 0 1px; height: 18px; margin: 0 4px; background: hsl(var(--border)); }
+.studio-project-pill-name {
+  display: flex; align-items: center; min-width: 0; max-width: 15rem; height: 32px; padding: 0 6px;
+  border-radius: 8px; color: hsl(var(--foreground)); font-size: 14px; font-weight: 500; text-align: left;
+}
+button.studio-project-pill-name:hover { background: hsl(var(--muted)); }
+.studio-project-pill-input { width: 15rem; border: 1px solid hsl(var(--ring) / .5); background: hsl(var(--background)); outline: none; }
+.studio-project-pill-toggle {
+  display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center;
+  border-radius: 9px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); transition: color .15s, background .15s;
+}
+.studio-project-pill-toggle:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.studio-project-pill-toggle[data-state="open"] svg { transform: rotate(180deg); }
+.studio-project-pill-toggle svg { transition: transform .15s; }
+.studio-shell .studio-project-pill button:focus-visible { outline-offset: 1px; }
+.studio-project-search { border: 1px solid transparent; outline: none; }
+.studio-project-search:focus { border-color: hsl(var(--foreground) / .15); }
+/* 顶栏胶囊里已有 logo 与侧栏开关，侧栏收起时的悬浮 logo 会叠在它们上面。 */
+body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-canvas-heading { position: absolute; top: 18px; left: 22px; right: 20px; z-index: 100; pointer-events: none; display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: hsl(var(--foreground)); }
 .studio-canvas-heading span { color: hsl(var(--muted-foreground)); font-size: 11px; }
 .studio-open-chat {
@@ -208,8 +231,6 @@
     padding: 8px calc(var(--studio-header-actions-width, 40px) + 24px) 0 8px;
   }
   .studio-project-viewbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
-  .studio-project-viewbar > .studio-agent-project > div > button:last-child { display: none; }
-  .studio-project-viewbar > .studio-agent-project button { min-width: 0; padding-inline: 4px; }
   .studio-project-switch { position: absolute; top: 62px; left: 8px; margin-left: 0; }
   .studio-layout[data-project-view] { padding-top: 104px; }
   .studio-layout[data-project-view] > .studio-canvas { inset: 104px 0 0; height: calc(100% - 104px); }
@@ -542,8 +563,6 @@
 .studio-sidebar--page .studio-agent-user-message { font-size: 14px; }
 .studio-assets-trigger { display: grid; flex: 0 0 36px; width: 36px; height: 36px; margin-left: auto; place-items: center; border-radius: 10px; color: hsl(var(--muted-foreground)); }
 .studio-assets-trigger:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
-.studio-project-viewbar--with-sidebar > button:first-child { display: none; }
-.studio-project-viewbar > .studio-agent-project > div > button:last-child { display: none; }
 .studio-agent-inline-result { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .studio-agent-inline-meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .studio-agent-inline-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
