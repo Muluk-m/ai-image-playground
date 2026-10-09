@@ -27,9 +27,11 @@ const formats = ['image/png', 'image/jpeg', 'image/webp', 'image/avif'] as const
 export default function ExportForm({
   sources,
   name = 'images',
+  onBusyChange,
 }: {
   sources: readonly ExportSource[]
   name?: string
+  onBusyChange?: (busy: boolean) => void
 }) {
   const { t } = useTranslation('toolbox')
   const sizeLabels = {
@@ -54,6 +56,7 @@ export default function ExportForm({
   const [loading, setLoading] = useState(false)
   useEffect(() => {
     let alive = true
+    const controller = new AbortController()
     setDimensions(null)
     setError('')
     setDone(0)
@@ -61,7 +64,7 @@ export default function ExportForm({
     if (!single || !first) return
     setLoading(true)
     void first
-      .load()
+      .load(controller.signal)
       .then(createImageBitmap)
       .then((bitmap) => {
         if (alive) setDimensions({ width: bitmap.width, height: bitmap.height })
@@ -75,9 +78,13 @@ export default function ExportForm({
       })
     return () => {
       alive = false
+      controller.abort()
     }
   }, [single, first, t])
   useEffect(() => () => abort.current?.abort(), [])
+  useEffect(() => {
+    onBusyChange?.(progress !== null)
+  }, [progress, onBusyChange])
   const images = sources.filter((one) => one.media === 'image').length
   const count = images * settings.rows.length + sources.length - images
   const size = dimensions
@@ -154,7 +161,7 @@ export default function ExportForm({
                 <SelectTrigger aria-label={t('export.size')}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="z-[1400]">
+                <SelectContent data-shadcn-modal className="z-[1400]">
                   {(['original', 'width', 'height', 'percent'] as const).map((mode) => (
                     <SelectItem key={mode} value={mode}>
                       {sizeLabels[mode]}
@@ -240,7 +247,7 @@ export default function ExportForm({
                       >
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="z-[1400]">
+                      <SelectContent data-shadcn-modal className="z-[1400]">
                         {[0.5, 1, 2, 3, 4].map((scale) => (
                           <SelectItem key={scale} value={String(scale)}>
                             {scale}x
@@ -268,7 +275,7 @@ export default function ExportForm({
                       >
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="z-[1400]">
+                      <SelectContent data-shadcn-modal className="z-[1400]">
                         {formats.map((format) => (
                           <SelectItem key={format} value={format}>
                             {formatLabel(format)}

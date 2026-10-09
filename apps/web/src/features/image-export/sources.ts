@@ -1,15 +1,17 @@
 import { authenticatedBffFetch } from '../../lib/authClient'
-import { queueOutputUrl } from '../../lib/channels/queueClient'
+import { fetchImageDataUrl, queueOutputUrl } from '../../lib/channels/queueClient'
 import { resolveMediaSource } from '../../lib/cloudMedia'
+import { bffBaseUrl } from '../../lib/runtimeConfig'
 import type { AssetItem, StoredReferenceLoader } from '../agent/lib/assetItems'
 import type { CanvasDoc } from '../canvas/lib/canvasDoc'
 import { exportableElements, safeFileName } from '../canvas/lib/exportImages'
 import { canvasImageName } from '../canvas/lib/imageInfo'
 import type { ExportSource } from './export'
 
-export async function originalBlob(source: string): Promise<Blob> {
+export async function originalBlob(source: string, signal?: AbortSignal): Promise<Blob> {
+  signal?.throwIfAborted()
   const resolved = await resolveMediaSource(source, 'original', true)
-  const response = await fetch(resolved)
+  const response = await fetch(resolved, { signal })
   if (!response.ok) throw new Error('Original image unavailable')
   return response.blob()
 }
@@ -18,17 +20,18 @@ export function canvasExportSources(doc: CanvasDoc, ids?: Iterable<string>): Exp
     id: element.id,
     name: safeFileName(canvasImageName(element)),
     media: element.video ? 'video' : 'image',
-    load: async () => {
+    load: async (signal) => {
       if (element.video) {
         const response = await authenticatedBffFetch(
           queueOutputUrl(element.video.taskId, element.video.outputIndex),
+          { signal },
         )
         if (!response.ok) throw new Error('Video unavailable')
         return response.blob()
       }
       const source = doc.files[element.fileId]
       if (!source) throw new Error('Original image unavailable')
-      return originalBlob(source)
+      return originalBlob(source, signal)
     },
   }))
 }
@@ -40,27 +43,36 @@ export function assetExportSource(
     id: item.id,
     name: safeFileName(item.title),
     media: item.media,
-    load: async () => {
+    load: async (signal) => {
       if (item.open.kind === 'source') {
-        if (item.open.mediaId) return originalBlob(`aip-media:${item.open.mediaId}`)
+        if (item.open.mediaId) return originalBlob(`aip-media:${item.open.mediaId}`, signal)
         const ref = item.open.reference
         const source = ref
           ? await loadReference(ref.conversationId, ref.messageId, ref.index, 'original')
           : await item.load()
         if (!source) throw new Error('Original image unavailable')
-        return originalBlob(source)
+        return originalBlob(source, signal)
       }
       const artifact = item.open.message.artifacts?.find((one) => one.artifactId === item.id)
       if (artifact) {
         if (artifact.media === 'video') {
           const response = await authenticatedBffFetch(
             queueOutputUrl(artifact.taskId, artifact.outputIndex),
+            { signal },
           )
           if (!response.ok) throw new Error('Video unavailable')
           return response.blob()
         }
-        const { artifactBitmap } = await import('../agent/lib/artifactSource')
-        return originalBlob(await artifactBitmap(artifact))
+        return originalBlob(
+          await fetchImageDataUrl(
+            bffBaseUrl(),
+            artifact.taskId,
+            artifact.outputIndex,
+            artifact.mime,
+            signal,
+          ),
+          signal,
+        )
       }
       const { fetchedCanvasId } = await import('../agent/lib/artifactDelivery')
       const image = item.open.message.fetchedImages?.find(
@@ -71,7 +83,7 @@ export function assetExportSource(
           ) === item.id,
       )
       if (!image) throw new Error('Original image unavailable')
-      return originalBlob(`aip-media:${image.imageId}`)
+      return originalBlob(`aip-media:${image.imageId}`, signal)
     },
   }
 }

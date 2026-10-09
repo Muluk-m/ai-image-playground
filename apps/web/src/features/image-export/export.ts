@@ -9,7 +9,7 @@ export interface ExportSource {
   preview?: string
   width?: number
   height?: number
-  load: () => Promise<Blob>
+  load: (signal?: AbortSignal) => Promise<Blob>
 }
 export type SizeMode = 'original' | 'width' | 'height' | 'percent'
 export interface ExportSettings {
@@ -51,7 +51,7 @@ export async function prepareExports(
   const files: { name: string; blob: Blob }[] = []
   for (const [index, source] of sources.entries()) {
     signal.throwIfAborted()
-    const blob = await source.load()
+    const blob = await source.load(signal)
     signal.throwIfAborted()
     if (source.media === 'video') {
       files.push({ name: outputFileName(source.name, blob.type || 'video/mp4'), blob })

@@ -1,5 +1,5 @@
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '../../components/ui/button'
 import { useTranslation } from '../../i18n'
 import { useToolboxIntake } from '../toolbox/components/useToolboxIntake'
@@ -11,7 +11,8 @@ export default function ExportTool() {
   const items = useToolboxStore((state) => state.items)
   const close = useToolboxStore((state) => state.closeTool)
   const remove = useToolboxStore((state) => state.remove)
-  const intake = useToolboxIntake()
+  const [busy, setBusy] = useState(false)
+  const intake = useToolboxIntake(busy)
   const sources = useMemo(
     () =>
       items
@@ -40,7 +41,7 @@ export default function ExportTool() {
           <ArrowLeft />
         </Button>
         <h1 className="font-medium">{t('tool.export.name')}</h1>
-        <Button variant="outline" className="ml-auto" onClick={intake.openFiles}>
+        <Button disabled={busy} variant="outline" className="ml-auto" onClick={intake.openFiles}>
           <Plus />
           {t('intake.addImages')}
         </Button>
@@ -69,6 +70,7 @@ export default function ExportTool() {
                       </p>
                     </div>
                     <Button
+                      disabled={busy}
                       variant="ghost"
                       size="icon"
                       aria-label={t('intake.clear')}
@@ -91,7 +93,7 @@ export default function ExportTool() {
           )}
         </div>
         <aside className="flex min-h-0 flex-col border-l border-border bg-card">
-          <ExportForm sources={sources} />
+          <ExportForm sources={sources} onBusyChange={setBusy} />
         </aside>
       </div>
     </main>
