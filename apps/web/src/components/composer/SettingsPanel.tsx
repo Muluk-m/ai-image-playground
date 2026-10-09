@@ -22,7 +22,8 @@ export function composerChipClass(size: ComposerControlSize = 'md') {
     'relative inline-flex w-auto min-w-0 items-center gap-1.5 border border-input bg-background font-medium text-foreground shadow-none transition-colors duration-150 hover:border-ring/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:border-transparent data-[state=open]:bg-accent',
     size === 'md'
       ? 'h-10 shrink-0 rounded-xl px-3 text-xs'
-      : 'h-8 shrink rounded-lg px-2.5 text-label-sm',
+      : // 窄输入框里让模型 chip 去截断，参数摘要只有几个字，压扁了就只剩「智.」。
+        'h-8 shrink-0 rounded-lg px-2.5 text-label-sm',
   )
 }
 
