@@ -379,7 +379,6 @@
     "selectAll": "全选",
     "selectedCount_other": "已选 {{count}} 项",
     "exportSelected_other": "导出 {{count}} 项",
-    "exporting": "导出中 {{done}}/{{total}}",
     "marks": "画布标注",
     "markText": "文字",
     "markArrow": "箭头",

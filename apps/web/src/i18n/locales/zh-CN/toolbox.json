@@ -35,6 +35,10 @@
     "slice": {
       "name": "九宫格切图",
       "options": "3×3 · 2×2 · 1×3"
+    },
+    "export": {
+      "name": "图片尺寸与导出",
+      "options": "等比尺寸 · 倍图 · 格式"
     }
   },
   "intake": {
@@ -124,5 +128,38 @@
     "slices_other": "{{count}} 张切图",
     "up": "上移",
     "down": "下移"
+  },
+  "export": {
+    "title": "导出",
+    "description": "调整尺寸、格式和倍率，生成你需要的图片。",
+    "size": "尺寸",
+    "locked": "保持比例",
+    "original": "原始尺寸",
+    "width": "宽度",
+    "height": "高度",
+    "percent": "百分比",
+    "outputs": "导出配置",
+    "addRow": "添加导出配置",
+    "removeRow": "移除导出配置",
+    "scaleRow": "第 {{index}} 条倍率",
+    "formatRow": "第 {{index}} 条格式",
+    "selected": "已选择 {{count}} 项",
+    "batchHint": "每张图片保持各自比例，统一应用尺寸规则。",
+    "loading": "正在读取原图尺寸…",
+    "originalFailed": "无法读取原图，请稍后重试。",
+    "limit": "输出 {{width}} × {{height}} 超出当前浏览器的尺寸限制，请减小尺寸或倍率。",
+    "failed": "导出失败，请检查原图是否可用，或减小输出尺寸后重试。",
+    "done": "已导出 {{count}} 个文件",
+    "progress": "导出中 {{done}} / {{total}}",
+    "action": "导出 {{count}} 个文件",
+    "zipHint": "多个文件将打包为 ZIP 下载。",
+    "localHint": "在本地处理，不修改原图。",
+    "jpegHint": "JPG 的透明区域将填充为白色。",
+    "videoHint": "视频以原文件导出一次，尺寸和格式设置仅作用于图片。",
+    "undecodable": "无法解码此格式",
+    "select": "选择",
+    "selectAll": "全选当前列表",
+    "downloadOriginal": "下载原图",
+    "export": "导出"
   }
 }

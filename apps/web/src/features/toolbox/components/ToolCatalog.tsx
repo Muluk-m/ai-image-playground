@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import PageHeader from '../../../components/PageHeader'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { TOOL_GROUPS, TOOLS } from '../lib/registry'
@@ -12,10 +13,11 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
   const openTool = useToolboxStore((state) => state.openTool)
   const Icon = tool.icon
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
       onClick={() => openTool(tool.id)}
-      className="group flex flex-col items-start gap-3 rounded-2xl border border-border bg-card p-5 text-left transition-colors hover:border-primary/50 hover:bg-accent/40"
+      className="!h-auto !whitespace-normal justify-start group flex flex-col items-start gap-3 rounded-2xl border border-border bg-card p-5 text-left transition-colors hover:border-primary/50 hover:bg-accent/40"
     >
       <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary">
         <Icon className="h-5 w-5" />
@@ -26,7 +28,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
           {t(`tool.${tool.id}.options`)}
         </span>
       </span>
-    </button>
+    </Button>
   )
 }
 
@@ -47,14 +49,15 @@ export default function ToolCatalog() {
         {count > 0 && (
           <span className="ml-auto flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">
             {t('intake.imported', { count })}
-            <button
+            <Button
+              variant="ghost"
               type="button"
               onClick={clear}
               aria-label={t('intake.clear')}
               className="ml-1 text-muted-foreground hover:text-foreground"
             >
               <X className="h-3 w-3" />
-            </button>
+            </Button>
           </span>
         )}
       </PageHeader>
