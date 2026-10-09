@@ -2,6 +2,12 @@
 
 前端工作台内部约定。仓库级约定见根 `AGENTS.md`。
 
+## 界面与样式
+
+**写或改界面前先读 [`DESIGN.md`](./DESIGN.md)**：颜色、字阶、间距、控件高度和组件清单都以它为准，
+找不到合适档位就先改它再写代码。交互控件从 `components/ui/`（shadcn）组合；缺的组件先按 shadcn
+加进 `components/ui/`，再在业务里用。`pnpm lint` 带设计门禁，报错时按 DESIGN.md「门禁」处理。
+
 ## 服务商架构
 
 前端 dispatch 入口在 [`src/lib/api.ts`](./src/lib/api.ts) 的 `callImageApi`，按 profile.source 分两条路径：

@@ -15,9 +15,11 @@ import Sidebar from './components/Sidebar'
 import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
+import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
+import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
@@ -43,10 +45,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const user = useAuth().user
   const { t } = useTranslation('shell')
   const homeBackdropRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    document.dispatchEvent(new Event('app:boot-ready'))
-  }, [])
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -150,7 +148,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
               </div>
               <div className="safe-area-x relative mx-auto max-w-6xl">
                 <div className="pt-12 text-center">
-                  <h1 className="text-[30px] font-semibold leading-tight sm:text-[38px]">
+                  <h1 className="text-[30px] font-semibold leading-tight sm:text-display">
                     {t('hero.titleLead')}
                     <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
                   </h1>
@@ -163,6 +161,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                     <InputBar inline />
                   </div>
                 </div>
+                {/* 对话创作页签：场景起手句在上，灵感 chip 下移保留。 */}
+                {createTarget === 'chat' ? <SkillStarterGuide /> : null}
                 <InspirationChips />
                 {createTarget !== 'generate' ? (
                   <HeroCanvasProjects experience={createTarget} />
@@ -177,6 +177,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       </div>
       <DetailModal />
       <Lightbox />
+      <ImageExportDialog />
       <SettingsModal />
 
       <SaveAssetDialog />

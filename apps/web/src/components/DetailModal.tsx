@@ -300,8 +300,8 @@ export default function DetailModal() {
 
   return (
     <>
-      <Overlay onClose={() => setDetailTaskId(null)} tier="modal">
-        <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col md:flex-row z-10 ring-1 ring-black/5 dark:ring-white/10 animate-modal-in">
+      <Overlay onClose={() => setDetailTaskId(null)} tier="modal" label={t('detail.dialog')}>
+        <div className="relative bg-card/90 backdrop-blur-xl border border-border rounded-3xl shadow-dialog max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col md:flex-row z-10 ring-1 ring-hairline animate-modal-in">
           <div className="flex h-14 items-center justify-end px-4 md:hidden">
             <button
               onClick={() => setDetailTaskId(null)}
@@ -405,6 +405,8 @@ export default function DetailModal() {
                 {outputLen > 1 && (
                   <>
                     <button
+                      type="button"
+                      aria-label={t('common:action.previousImage')}
                       onClick={() => setImageIndex((imageIndex - 1 + outputLen) % outputLen)}
                       className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                     >
@@ -423,6 +425,8 @@ export default function DetailModal() {
                       </svg>
                     </button>
                     <button
+                      type="button"
+                      aria-label={t('common:action.nextImage')}
                       onClick={() => setImageIndex((imageIndex + 1) % outputLen)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                     >
@@ -846,7 +850,7 @@ export default function DetailModal() {
               <button
                 onClick={handleEdit}
                 disabled={!outputLen}
-                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-success/10 dark:bg-success/10 text-success dark:text-success hover:bg-success/10 dark:hover:bg-success/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
+                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-success/10 dark:bg-success/10 text-success dark:text-success hover:bg-success/10 dark:hover:bg-success/20 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
               >
                 <EditIcon className="w-4 h-4 flex-shrink-0" />
                 {t('action.editOutput')}
@@ -854,7 +858,7 @@ export default function DetailModal() {
               <button
                 onClick={handleSendToCanvas}
                 disabled={!outputLen}
-                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
+                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
               >
                 <svg
                   className="w-4 h-4 flex-shrink-0"
@@ -907,7 +911,11 @@ export default function DetailModal() {
       </Overlay>
 
       {showRawUrlsModal && rawImageUrls.length > 0 && (
-        <Overlay onClose={() => setShowRawUrlsModal(false)} tier="raised">
+        <Overlay
+          onClose={() => setShowRawUrlsModal(false)}
+          tier="raised"
+          label={t('rawUrls.title', { n: rawImageUrls.length })}
+        >
           <div className="flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
               <h3 className="text-base font-semibold text-foreground dark:text-white">
@@ -934,6 +942,7 @@ export default function DetailModal() {
                 </button>
                 <button
                   type="button"
+                  aria-label={t('common:action.close')}
                   onClick={() => setShowRawUrlsModal(false)}
                   className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
                 >
@@ -984,7 +993,11 @@ export default function DetailModal() {
       )}
 
       {showRawResponseModal && task?.rawResponsePayload && (
-        <Overlay onClose={() => setShowRawResponseModal(false)} tier="raised">
+        <Overlay
+          onClose={() => setShowRawResponseModal(false)}
+          tier="raised"
+          label={t('rawResponse.title')}
+        >
           <div
             className="flex w-full max-w-3xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-card shadow-xl"
             onPointerDown={(e) => {
@@ -1016,6 +1029,7 @@ export default function DetailModal() {
                 </button>
                 <button
                   type="button"
+                  aria-label={t('common:action.close')}
                   onClick={() => setShowRawResponseModal(false)}
                   className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
                 >
@@ -1026,7 +1040,7 @@ export default function DetailModal() {
             <div className="flex-1 min-h-0 overflow-y-auto p-5 bg-card/50 dark:bg-black/20 overscroll-contain">
               <pre
                 data-selectable-text
-                className="text-[11px] sm:text-xs text-muted-foreground font-mono whitespace-pre-wrap break-all select-text"
+                className="text-label-sm sm:text-xs text-muted-foreground font-mono whitespace-pre-wrap break-all select-text"
               >
                 {task.rawResponsePayload.replace(
                   /"(b64_json|base64|data)":\s*"[^"]+"/g,

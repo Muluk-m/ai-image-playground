@@ -1,4 +1,4 @@
-import type { TaskErrorType } from '@image-playground/shared'
+import type { AgentBatchPriceSnapshot, TaskErrorType } from '@image-playground/shared'
 import { type AnyElysia, Elysia, status } from 'elysia'
 import type { db as bffDb } from '../db/client'
 
@@ -47,6 +47,23 @@ export interface ChatPricing {
 }
 
 export interface PrivateTaskHooks {
+  /** Immutable token quote under the caller's price lock; absent in older overlays. */
+  quoteTokenTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    estimatedInputTokens: number
+  }): Promise<{ estimatedCredits: number; pricing: AgentBatchPriceSnapshot } | null>
+
+  /** Read-only quote. Missing hooks/prices are unavailable, never a zero-cost authorization. */
+  quoteTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    quantity: number
+    unitMultiplier: number
+  }): Promise<{ estimatedCredits: number; pricing: AgentBatchPriceSnapshot } | null>
+
   reserveTask(input: {
     tx: BffTransaction
     taskId: string

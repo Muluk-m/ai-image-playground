@@ -1,20 +1,42 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ImageIcon, LoaderCircle } from 'lucide-react'
-import { memo, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { ChevronDown, ImageIcon, LoaderCircle } from 'lucide-react'
+import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { createMaskPreviewDataUrl } from '../../../lib/canvasImage'
+import { mediaIdentity } from '../../../lib/cloudMedia'
+import {
+  localAttachmentFailure,
+  localAttachmentIdentity,
+} from '../../../lib/localAttachmentSources'
 import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { USER_BUBBLE } from '../agentStyles'
 import { fetchMessageReference } from '../lib/agentClient'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
+import {
+  fitReferenceRow,
+  REFERENCE_ROW_FALLBACK,
+  referenceChipChrome,
+  referenceFoldChrome,
+} from '../lib/referenceStrip'
 import { referenceDisplayNames } from '../lib/references'
 import { useAgentStore } from '../store'
 import type { AgentTextMessage } from '../types'
 import AgentSkillBadge from './AgentSkillBadge'
+
+let referenceMeasure: CanvasRenderingContext2D | null | undefined
+
+function referenceTextWidth(text: string, font: string): number {
+  if (referenceMeasure === undefined) {
+    referenceMeasure = document.createElement('canvas').getContext('2d')
+  }
+  if (!referenceMeasure) return text.length * 13
+  referenceMeasure.font = font
+  return referenceMeasure.measureText(text).width
+}
 
 function ReferencePreview({
   local,
@@ -86,30 +108,44 @@ function ReferenceThumbnail({
   messageId,
   index,
   name,
+  pending,
 }: {
   reference: NonNullable<AgentTextMessage['references']>[number]
   messageId: string
   index: number
   /** 同名参考图编号后的显示名；没名字的传 undefined，走序号标签。 */
   name: string | undefined
+  pending: boolean
 }) {
   const { t } = useTranslation('agent')
   const conversationId = useAgentStore((state) => state.conversationId)
   const scope = scopedStorageName('media')
-  const local = 'dataUrl' in reference ? reference.dataUrl : undefined
+  const sourceHandle = 'dataUrl' in reference ? reference.dataUrl : undefined
+  const deferred =
+    sourceHandle &&
+    (mediaIdentity(sourceHandle) ||
+      localAttachmentIdentity(sourceHandle) ||
+      localAttachmentFailure(sourceHandle))
+  // Older live messages can retain a released local handle. Once accepted, the message endpoint
+  // owns both thumbnails and annotated originals; internal handles are never browser image URLs.
+  const local = deferred && !pending ? undefined : sourceHandle
   // 服务端按下标发这张图，两种快照都认：内联那一路存在对象存储里，按 id 那一路仍是云媒体原件。
   const remote =
     'image' in reference
       ? reference.image.object
       : 'mediaId' in reference
         ? reference.mediaId
-        : undefined
+        : deferred && !pending
+          ? sourceHandle
+          : undefined
   const mask =
     'maskDataUrl' in reference
       ? reference.maskDataUrl
       : 'mask' in reference
         ? reference.mask?.object
-        : undefined
+        : 'mediaId' in reference
+          ? reference.maskMediaId
+          : undefined
   const regionsVersion = 'regions' in reference ? JSON.stringify(reference.regions) : ''
   const identity = useMemo(
     () => ({}),
@@ -181,7 +217,9 @@ function ReferenceThumbnail({
             : t('reference.view', { label })
         }
         aria-label={t('reference.view', { label })}
-        disabled={Boolean(local && mask && markedPreview?.identity !== identity)}
+        disabled={Boolean(
+          (pending && deferred) || (local && mask && markedPreview?.identity !== identity),
+        )}
         onClick={() => setOpenIdentity(identity)}
       >
         {source ? (
@@ -209,6 +247,133 @@ function ReferenceThumbnail({
   )
 }
 
+function ReferenceStrip({
+  messageId,
+  pending,
+  names,
+  attached,
+}: {
+  messageId: string
+  pending: boolean
+  names: readonly (string | undefined)[]
+  attached: readonly {
+    reference: NonNullable<AgentTextMessage['references']>[number]
+    index: number
+  }[]
+}) {
+  const { t } = useTranslation('agent')
+  const stripRef = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [box, setBox] = useState({ available: 0, font: '', gap: 6, root: 16 })
+  // 网络字体晚到时栏宽不变，但同一段文字变宽或变窄；换完字体要重新量一次。
+  const [fontsLoaded, setFontsLoaded] = useState(0)
+
+  useEffect(() => {
+    const fonts = typeof document === 'undefined' ? undefined : document.fonts
+    if (!fonts) return
+    let active = true
+    const remeasure = () => {
+      if (active) setFontsLoaded((count) => count + 1)
+    }
+    void fonts.ready.then(remeasure)
+    fonts.addEventListener('loadingdone', remeasure)
+    return () => {
+      active = false
+      fonts.removeEventListener('loadingdone', remeasure)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const node = stripRef.current
+    const parent = node?.parentElement
+    if (!parent) return
+    const read = () => {
+      const width = parent.clientWidth
+      const available = width > 0 ? Math.floor(width * 0.86) - 8 : 0
+      const sample = node.querySelector<HTMLElement>('.mention-tag')
+      const font = sample ? getComputedStyle(sample).font : ''
+      const gap = Number.parseFloat(getComputedStyle(node).columnGap)
+      const rootSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+      const next = {
+        available,
+        font,
+        gap: Number.isFinite(gap) ? gap : 6,
+        root: Number.isFinite(rootSize) && rootSize > 0 ? rootSize : 16,
+      }
+      setBox((prev) =>
+        prev.available === next.available &&
+        prev.font === next.font &&
+        prev.gap === next.gap &&
+        prev.root === next.root
+          ? prev
+          : next,
+      )
+    }
+    read()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(read)
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [attached.length])
+
+  const fitted = useMemo(() => {
+    if (!(box.available > 0)) return Math.min(REFERENCE_ROW_FALLBACK, attached.length)
+    const font = box.font || '500 13px sans-serif'
+    const chipWidths = attached.map(({ index }) => {
+      const label = names[index] ? `@${names[index]}` : getImageMentionLabel(index)
+      return Math.min(box.root * 9, referenceTextWidth(label, font)) + referenceChipChrome(box.root)
+    })
+    return fitReferenceRow(
+      box.available,
+      chipWidths,
+      (hidden) =>
+        referenceTextWidth(t('reference.more', { count: hidden }), font) +
+        referenceFoldChrome(box.root),
+      box.gap,
+      REFERENCE_ROW_FALLBACK,
+    )
+    // fontsLoaded 只用来在字体就绪后让这里重算。
+  }, [attached, box, names, t, fontsLoaded])
+
+  const folded = fitted < attached.length
+  const shown = expanded ? attached : attached.slice(0, fitted)
+  return (
+    <div
+      ref={stripRef}
+      className="agent-reference-strip flex max-w-[86%] flex-wrap justify-end gap-1.5"
+    >
+      {shown.map(({ reference, index }) => (
+        <ReferenceThumbnail
+          key={index}
+          reference={reference}
+          messageId={messageId}
+          index={index}
+          name={names[index]}
+          pending={pending}
+        />
+      ))}
+      {folded && (
+        <button
+          type="button"
+          className="mention-tag agent-reference-fold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded
+            ? t('reference.collapse')
+            : fitted === 0
+              ? t('reference.folded', { count: attached.length })
+              : t('reference.more', { count: attached.length - fitted })}
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0${expanded ? ' rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default memo(function AgentUserMessage({
   message,
   skills,
@@ -220,7 +385,8 @@ export default memo(function AgentUserMessage({
   const masked = message.references?.some(
     (reference) =>
       ('maskDataUrl' in reference && reference.maskDataUrl) ||
-      ('mask' in reference && reference.mask),
+      ('mask' in reference && reference.mask) ||
+      ('mediaId' in reference && reference.maskMediaId),
   )
   // Compatibility for existing edit messages; the transport text remains untouched.
   const prefixes = [
@@ -253,6 +419,7 @@ export default memo(function AgentUserMessage({
         messageId={message.id}
         index={index}
         name={names[index]}
+        pending={Boolean(message.pending)}
       />,
     )
     from = match.index + match[0].length
@@ -267,17 +434,12 @@ export default memo(function AgentUserMessage({
   return (
     <div className="flex flex-col items-end gap-1.5">
       {attached.length > 0 && (
-        <div className="flex max-w-[86%] flex-wrap justify-end gap-1.5">
-          {attached.map(({ reference, index }) => (
-            <ReferenceThumbnail
-              key={index}
-              reference={reference}
-              messageId={message.id}
-              index={index}
-              name={names[index]}
-            />
-          ))}
-        </div>
+        <ReferenceStrip
+          messageId={message.id}
+          pending={Boolean(message.pending)}
+          names={names}
+          attached={attached}
+        />
       )}
       <p className={`${USER_BUBBLE} studio-agent-user-message`}>
         {invocation && <AgentSkillBadge skill={invocation.skill} />}

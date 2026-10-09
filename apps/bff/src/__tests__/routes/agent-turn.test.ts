@@ -18,6 +18,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_turn')
@@ -40,7 +41,7 @@ await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
-const PIXEL = 'data:image/png;base64,aGk='
+const PIXEL = TEST_IMAGE.pngDataUrl
 
 async function post(path: string, body: unknown) {
   const response = await app.handle(
@@ -153,11 +154,11 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     for (const tool of calls[0]!.tools ?? []) expect(tool.function).not.toHaveProperty('strict')
   })
 
-  it('reuses the exact previous model input, including time and image bytes, across turns', async () => {
+  it('reuses the exact previous text-only model input and timestamps across turns', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('收到')))
     const conversationId = await startConversation()
-    await runTurn(conversationId, '记住这张图', [{ imageId: 'image-1', dataUrl: PIXEL }])
+    await runTurn(conversationId, '记住这个文字方案')
     await runTurn(conversationId, '接着分析')
 
     expect(calls).toHaveLength(2)
@@ -166,10 +167,10 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     expect(calls[1]!.messages.at(-2)).toMatchObject({ role: 'assistant', content: '收到' })
     expect(
       (await db.select().from(schema.agent_model_calls)).map((call) => call.input_image_count),
-    ).toEqual([1, 1])
+    ).toEqual([0, 0])
   })
 
-  it('preserves paired tool calls and results in the next user turn without executing them again', async () => {
+  it('replays prior image tool observations without pixels or another tool execution', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -187,8 +188,9 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     await runTurn(conversationId, '看看图片', [{ imageId: 'image-1', dataUrl: PIXEL }])
     await runTurn(conversationId, '继续')
     expect(calls).toHaveLength(3)
-    expect(calls[2]!.messages.slice(0, calls[1]!.messages.length)).toEqual(calls[1]!.messages)
-    expect(calls[2]!.messages.some((message) => message.role === 'tool')).toBe(true)
+    expect(JSON.stringify(calls[2]!.messages)).not.toContain('image_url')
+    expect(JSON.stringify(calls[2]!.messages)).toContain('已看图')
+    expect(JSON.stringify(calls[2]!.messages)).toContain('image-1')
     const stored = await readMessages(conversationId)
     expect(
       stored.flatMap((message) => message.content).filter((block) => block.type === 'toolResult'),

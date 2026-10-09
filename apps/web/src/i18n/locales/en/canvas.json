@@ -62,7 +62,6 @@
     "selected_other": "{{count}} selected",
     "export_one": "Export {{count}}",
     "export_other": "Export {{count}}",
-    "exporting": "Exporting {{done}}/{{total}}",
     "exportDone_one": "Exported {{count}} item",
     "exportDone_other": "Exported {{count}} items",
     "exportPartial": "Exported {{count}}, {{failed}} could not be fetched",
@@ -73,7 +72,19 @@
     "editTitle_other": "Edit {{count}} images",
     "editSubmit_one": "Edit {{count}} image",
     "editSubmit_other": "Edit {{count}} images",
-    "clear": "Clear selection"
+    "clear": "Clear selection",
+    "cutoutTitle_one": "Remove background from {{count}} image",
+    "cutoutTitle_other": "Remove background from {{count}} images",
+    "resizeTitle_one": "Resize {{count}} image to {{ratio}}",
+    "resizeTitle_other": "Resize {{count}} images to {{ratio}}",
+    "confirmBody_one": "This is AI processing: it starts {{count}} generation task.",
+    "confirmBody_other": "This is AI processing: each image starts its own generation task, {{count}} in total.",
+    "cutoutPlacement": "The cutout replaces the original.",
+    "resizePlacement": "Resized images go next to the originals, which are kept.",
+    "confirmCost": "Estimated cost",
+    "confirmCancel": "Cancel",
+    "confirmSubmit_one": "Generate {{count}}",
+    "confirmSubmit_other": "Generate {{count}}"
   },
   "submit": {
     "blocked": "Can't generate right now",
@@ -125,19 +136,16 @@
   "sidebar": {
     "title": "Image creation",
     "collapseAria": "Collapse panel",
-    "collapse": "Collapse ←",
+    "collapse": "Collapse",
     "emptyTitle": "What are you making today",
     "emptyBody": "Pick one to start, or just write a line.",
     "openChat": "Open creation panel"
   },
   "workspace": {
     "canvasAria": "Creation canvas",
-    "untitled": "My canvas",
-    "backToProjects": "Back to projects",
     "backHome": "Back to home",
     "assets": "Assets",
-    "sourceChat": "Back to source chat",
-    "imageTransferFailed": "Could not add this image to a new canvas. Please retry."
+    "sourceChat": "Back to source chat"
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
@@ -148,7 +156,7 @@
     "title": "Give your imagination a picture.",
     "bodyAgent": "Describe your idea and the results appear here.",
     "bodyDirect": "Describe the image to start creating.",
-    "import": "＋ Import reference images"
+    "import": "Import reference images"
   },
   "import": {
     "inputAria": "Import canvas images",
@@ -194,13 +202,13 @@
     "title": "Let the idea unfold here.",
     "subtitle": "Describe the image you want, or add a reference.",
     "recent": "Recent projects",
-    "allProjects": "All projects →"
+    "allProjects": "All projects"
   },
   "imageMenu": {
     "copied": "Image copied",
     "downloadFailed": "Download failed",
     "copy": "Copy image",
-    "download": "Download image",
+    "download": "Export",
     "preview": "View original",
     "previewTouch": "View original / hold to save",
     "previewFailed": "Could not load the original. Close and try again.",
@@ -213,15 +221,16 @@
     "loadingCloud": "Loading projects…",
     "retryCloud": "Retry loading projects",
     "refreshCloud": "Refresh projects",
+    "filterAll": "All",
+    "filterAria": "Filter projects by type",
     "loadMore": "Load more projects",
     "newProject": "New project",
     "openAria": "Open project {{name}}",
     "current": "Current project",
     "updatedAt": "Updated {{date}}",
+    "actions": "More actions",
     "actionsAria": "More actions for {{name}}",
     "rename": "Rename",
-    "renameAria": "Rename project {{name}}",
-    "deleteAria": "Delete project {{name}}",
     "deleteTitle": "Delete project",
     "deleteMessage": "Delete “{{name}}” along with its canvas and conversation? This cannot be undone.",
     "noMatch": "No matching projects",
@@ -335,15 +344,17 @@
     "open_other": "Make a video from {{count}} images",
     "title_one": "Make a video from {{count}} image",
     "title_other": "Make a video from {{count}} images",
-    "hint": "Drag to reorder. Mark each one as the first frame, the last frame or a reference.",
+    "hint": "Drag to reorder. Mark each one as the first frame, the last frame, a keyframe or a reference.",
     "listAria": "Input images",
     "roleAria": "How input {{no}} is used",
     "moveUp": "Move input {{no}} up",
     "role": {
       "reference": "Reference",
       "first": "First frame",
-      "last": "Last frame"
+      "last": "Last frame",
+      "keyframe": "Keyframe"
     },
+    "timestampAria": "Keyframe time for input {{no}}, in seconds",
     "placeholder": "e.g. the person in Image 1 swings the racket from Image 2 on the court in Image 3",
     "modelWithoutReferences": "{{label}} (no reference images)",
     "submit": "Generate video",
@@ -371,12 +382,10 @@
     },
     "brushSize": "Brush",
     "undo": "Undo mark",
-    "regions": "Edit regions",
     "regionName": "Area {{no}}",
     "removeRegion": "Remove area {{no}}",
     "promptAria": "Edit description",
     "promptPlaceholder": "Describe the change, e.g. make the laces bright blue",
-    "paintFirst": "Drag to select an area, or switch to the brush",
     "uploadReference": "Upload image",
     "removeReference": "Remove reference",
     "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
@@ -384,7 +393,11 @@
     "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
     "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
     "sourceGone": "The source image is no longer on the canvas",
-    "canvasAria": "Smart edit selection canvas"
+    "canvasAria": "Smart edit selection canvas",
+    "regionLimit": "You can mark up to {{max}} regions. Remove an unused region to continue.",
+    "regionRemoved": " (removed)",
+    "promptTooLong": "Keep the editing instructions within {{max}} characters.",
+    "regionMissing": "Remove unavailable area references or redo their selections before sending."
   },
   "crop": {
     "action": "Crop",
@@ -426,7 +439,7 @@
     "action": "Edit image",
     "singleAction": "Edit whole image",
     "title": "Edit whole image",
-    "hint": "Rewrite the whole image from one instruction; the result replaces this one. To change only a spot, use Smart edit.",
+    "hint": "The result replaces this image.",
     "promptLabel": "Describe the edit",
     "placeholder": "e.g. put it on a light wooden desk, keep the product itself unchanged",
     "submit": "Edit",
@@ -435,7 +448,6 @@
   },
   "resize": {
     "action": "Resize",
-    "hint": "Generate this image at another aspect ratio",
     "ratio": {
       "square": "Square",
       "portrait": "Portrait",

@@ -2,6 +2,7 @@ import { afterAll, beforeEach, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { ProjectDocument } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
+import { TEST_IMAGE } from '../../../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../../../helpers/inMemoryObjectStore'
 
 /**
@@ -115,13 +116,13 @@ async function project(input: {
 async function media(projectId: string, userId: string, id = MEDIA): Promise<void> {
   const now = Date.now()
   // 原件与预览给不同字节，这样断言能分清取回来的是哪一份。
-  await durable.write(`media/${id}`, new TextEncoder().encode('hi'), 'image/png')
-  await durable.write(`preview/${id}`, new TextEncoder().encode('sm'), 'image/webp')
+  await durable.write(`media/${id}`, TEST_IMAGE.png, 'image/png')
+  await durable.write(`preview/${id}`, TEST_IMAGE.webp, 'image/webp')
   await db.insert(schema.media_objects).values({
     id,
     user_id: userId,
     sha256: `sha-${id}`,
-    bytes: 2,
+    bytes: TEST_IMAGE.png.byteLength,
     content_type: 'image/png',
     status: 'ready',
     reserved_bytes: 0,
@@ -387,18 +388,18 @@ it('resolves a canvas image id straight into bytes', async () => {
 
   const resolved = await sourceFor('conv-1', USER).resolve(MEDIA)
 
-  expect(resolved?.dataUrl).toBe('data:image/png;base64,aGk=')
+  expect(resolved?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
 })
 
 it('makes an uploaded image readable before the project document syncs', async () => {
   await conversation('conv-1', USER)
   const now = Date.now()
-  await durable.write(`media/${MEDIA}`, new TextEncoder().encode('hi'), 'image/png')
+  await durable.write(`media/${MEDIA}`, TEST_IMAGE.png, 'image/png')
   await db.insert(schema.media_objects).values({
     id: MEDIA,
     user_id: USER,
     sha256: 'sha-unsynced',
-    bytes: 2,
+    bytes: TEST_IMAGE.png.byteLength,
     content_type: 'image/png',
     status: 'ready',
     reserved_bytes: 0,
@@ -418,9 +419,9 @@ it('makes an uploaded image readable before the project document syncs', async (
     userId: USER,
     canvasMediaIds: [...ready],
   })
-  expect((await inThisTurn.resolve(MEDIA))?.dataUrl).toBe('data:image/png;base64,aGk=')
+  expect((await inThisTurn.resolve(MEDIA))?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
   expect((await inThisTurn.resolve(`aip-media:${MEDIA.toUpperCase()}`))?.dataUrl).toBe(
-    'data:image/png;base64,aGk=',
+    TEST_IMAGE.pngDataUrl,
   )
   const [claims] = await db
     .select({ id: schema.media_references.media_id })
@@ -442,8 +443,8 @@ it('hands back the preview by default and the original only when asked', async (
   await media('proj-1', USER)
   const source = sourceFor('conv-1', USER)
 
-  expect((await source.resolve(MEDIA, 'preview'))?.dataUrl).toBe('data:image/webp;base64,c20=')
-  expect((await source.resolve(MEDIA, 'original'))?.dataUrl).toBe('data:image/png;base64,aGk=')
+  expect((await source.resolve(MEDIA, 'preview'))?.dataUrl).toBe(TEST_IMAGE.webpDataUrl)
+  expect((await source.resolve(MEDIA, 'original'))?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
 })
 
 // 画布里存的来源写法是 `aip-media:<uuid>`，模型多半照抄。
@@ -458,7 +459,7 @@ it('accepts the aip-media form the canvas stores', async () => {
   await media('proj-1', USER)
 
   expect((await sourceFor('conv-1', USER).resolve(`aip-media:${MEDIA}`))?.dataUrl).toBe(
-    'data:image/png;base64,aGk=',
+    TEST_IMAGE.pngDataUrl,
   )
 })
 
@@ -512,7 +513,7 @@ it('claims a user-attached media id for the conversation and reads it back', asy
     conversationId: 'conv-1',
     userId: USER,
   })
-  expect((await source.resolve('el-image'))?.dataUrl).toBe('data:image/png;base64,aGk=')
+  expect((await source.resolve('el-image'))?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
 })
 
 // 会话自己那条认领是历史的锚：用户后来把这张图从画布上删了，历史里的引用还得读得出来。
@@ -531,7 +532,7 @@ it('keeps an attached media id readable after the canvas drops it', async () => 
   await db.delete(schema.media_references).where(eq(schema.media_references.owner_kind, 'project'))
 
   expect((await sourceFor('conv-1', USER).resolve(`aip-media:${MEDIA}`))?.dataUrl).toBe(
-    'data:image/png;base64,aGk=',
+    TEST_IMAGE.pngDataUrl,
   )
 })
 

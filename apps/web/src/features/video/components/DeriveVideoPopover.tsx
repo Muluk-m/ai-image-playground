@@ -1,6 +1,7 @@
 import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../components/Credits'
+import { SettingsChoice } from '../../../components/composer/SettingsPanel'
 import Overlay from '../../../components/Overlay'
 import {
   FIELD,
@@ -15,7 +16,6 @@ import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { DEFAULT_EXTEND_SECONDS, DERIVE_RESOLUTION, VIDEO_EXTEND_SECONDS } from '../lib/derive'
 import { videoDeriveLabel } from '../lib/labels'
-import ChipRow from './ChipRow'
 
 /** 续写 / 改视频弹窗：谁的源片、提交到哪由调用方给。 */
 export default function DeriveVideoPopover({
@@ -68,7 +68,7 @@ export default function DeriveVideoPopover({
 
   return (
     <Overlay onClose={onClose} tier={tier}>
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
         <h3 className={`${PANEL_TITLE} mb-3`}>{title}</h3>
 
         <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
@@ -83,7 +83,7 @@ export default function DeriveVideoPopover({
 
         <div className="mt-3">
           {mode === 'extend' ? (
-            <ChipRow
+            <SettingsChoice
               label={t('derive.extendLabel')}
               options={VIDEO_EXTEND_SECONDS}
               value={extendSeconds}
@@ -102,13 +102,13 @@ export default function DeriveVideoPopover({
 
         <div className={`${PANEL_SECTION} mt-4`}>
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-destructive dark:text-destructive">
+            <p className="mb-1.5 text-label-sm text-destructive dark:text-destructive">
               {guard.disabledReason}
             </p>
           )}
           <SubmissionBillingAction
             blockedAction={guard.blockedAction}
-            className="mb-1.5 text-[11px]"
+            className="mb-1.5 text-label-sm"
           />
           <button
             type="button"

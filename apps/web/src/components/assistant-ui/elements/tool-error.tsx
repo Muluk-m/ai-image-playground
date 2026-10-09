@@ -25,12 +25,12 @@ export function ToolError({
     <div
       role="alert"
       data-slot="tool-error"
-      className={cn(paper, 'flex w-full max-w-xl flex-col gap-3 rounded-2xl p-3.5', className)}
+      className={cn(paper, 'flex w-full min-w-0 flex-col gap-3 rounded-2xl p-3.5', className)}
       {...props}
     >
       <div className="flex items-center gap-2.5">
-        <AlertCircleIcon aria-hidden className="size-4 shrink-0 text-destructive" />
-        <span className="min-w-0 flex-1 break-words text-[13px] font-medium">{name}</span>
+        <AlertCircleIcon aria-hidden className="size-4 shrink-0 text-foreground" />
+        <span className="min-w-0 flex-1 break-words text-body-sm font-medium">{name}</span>
       </div>
       <div
         className={cn(field, 'rounded-xl px-3 py-2 text-xs leading-relaxed text-muted-foreground')}

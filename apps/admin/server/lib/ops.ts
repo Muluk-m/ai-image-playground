@@ -118,10 +118,11 @@ async function readQueue(): Promise<OpsQueue> {
       SELECT
         COUNT(*) FILTER (WHERE status = 'queued') AS queued,
         COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+        COUNT(*) FILTER (WHERE status = 'reconciling') AS reconciling,
         EXTRACT(EPOCH FROM NOW() - MIN(submitted_at) FILTER (WHERE status = 'queued')) * 1000
           AS oldest_queued_wait_ms
       FROM queue_tasks
-      WHERE status IN ('queued', 'in_progress')
+      WHERE status IN ('queued', 'in_progress', 'reconciling')
     `),
     db.execute(sql`
       SELECT id, model, EXTRACT(EPOCH FROM started_at) * 1000 AS started_at
@@ -136,6 +137,7 @@ async function readQueue(): Promise<OpsQueue> {
   return {
     queued: Number(counts.queued ?? 0),
     in_progress: Number(counts.in_progress ?? 0),
+    ...(Number(counts.reconciling) > 0 ? { reconciling: Number(counts.reconciling) } : {}),
     oldest_queued_wait_ms:
       counts.oldest_queued_wait_ms == null
         ? null

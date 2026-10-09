@@ -1,70 +1,28 @@
 {
   "entry": {
-    "title": "给想象，一段镜头。",
-    "newCanvas": "新建视频画布",
-    "continue": "回到上次的画布"
+    "title": "给想象，一段镜头。"
   },
   "landing": {
     "title": "给想象，一段镜头。",
     "subtitle": "描述画面、动作和运镜，作品会在画布里展开。",
-    "composerAria": "视频创作",
-    "kindAria": "创作类型",
-    "kindImage": "图片",
-    "kindVideo": "视频",
-    "promptAria": "视频描述",
-    "promptPlaceholder": "描述画面、动作和运镜…（⌘/Ctrl + Enter 生成）",
-    "paramsAria": "视频参数",
-    "addFrame": "加图",
-    "frameAlt": "第 {{index}} 张参考图",
-    "removeFrame": "移除第 {{index}} 张参考图",
-    "hintText": "不加图就是文生视频；加图可当首帧或参考图",
-    "hintFirst": "这张当首帧，画幅随它",
-    "hintReferences": "{{count}} 张图当参考图",
-    "submit": "开始创作 · 进入画布",
-    "noModel": "暂时没有可用的视频模型",
-    "tools": "快捷工具",
-    "toolsHint": "从本机图片、灵感或素材开始",
-    "tool": {
-      "fromImage": {
-        "title": "图生视频",
-        "hint": "挑一张图当首帧"
-      },
-      "references": {
-        "title": "参考图生视频",
-        "hint": "挑几张图定风格与主体"
-      },
-      "inspiration": {
-        "title": "灵感库",
-        "hint": "翻现成的提示词"
-      },
-      "assets": {
-        "title": "素材库",
-        "hint": "管理已存的图片"
-      }
-    },
     "cases": "案例",
-    "casesHint": "点一下把提示词填进上面的输入框"
+    "casesHint": "点一下把提示词填进上面的输入框",
+    "promptAria": "视频描述"
   },
   "status": {
     "queued": "排队"
   },
-  "style": {
-    "realistic": "写实",
-    "magazine": "杂志",
-    "animation": "动画",
-    "any": "不限"
-  },
   "frameSlot": {
     "first": "首帧",
     "last": "尾帧",
-    "both": "首帧 · 尾帧",
-    "removeAria": "移除{{label}}"
+    "both": "首帧 · 尾帧"
   },
   "field": {
     "description": "描述",
     "model": "模型",
     "resolution": "清晰度",
-    "aspectRatio": "比例"
+    "aspectRatio": "比例",
+    "voices": "声音"
   },
   "shared": {
     "seconds": "{{seconds}} 秒"
@@ -94,7 +52,6 @@
     "edit": "改视频"
   },
   "download": {
-    "started": "开始下载",
     "fetchFailed": "视频拉取失败：{{status}}"
   },
   "store": {
@@ -116,12 +73,56 @@
     "frameUnsupported": "{{label}} 不支持{{frame}}",
     "frameImageMissing": "{{frame}}图片不存在",
     "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
-    "deriveFramesRejected": "续写和改视频不接受首尾帧或参考图",
+    "deriveFramesRejected": "续写和改视频不接受首尾帧、参考图、关键帧或声音",
     "deriveSourceMissing": "{{mode}}缺少源视频",
     "referenceUnsupported": "{{label}} 不支持参考图",
     "referenceTooMany": "{{label}} 最多 {{max}} 张参考图",
     "referenceResolutionUnsupported": "{{label}} 带参考图时清晰度最高 {{resolution}}",
     "referenceFramesRejected": "{{label}} 的参考图不能与首尾帧同时使用",
-    "referenceImageMissing": "参考图不存在"
+    "referenceImageMissing": "参考图不存在",
+    "keyframesUnsupported": "{{label}} 不支持关键帧",
+    "keyframesTooMany": "{{label}} 最多 {{max}} 个关键帧",
+    "keyframeImageMissing": "关键帧图片不存在",
+    "keyframeTimestampInvalid": "关键帧时间必须落在成片内部，并且彼此至少隔 1/3 秒",
+    "voicesUnsupported": "{{label}} 不支持预设声音",
+    "voicesTooMany": "{{label}} 最多 {{max}} 个预设声音",
+    "voiceUnknown": "不认识的声音",
+    "voiceDuplicate": "同一个声音只能选一次",
+    "guideResolutionUnsupported": "{{label}} 带尾帧、关键帧或声音时清晰度最高 {{resolution}}"
+  },
+  "voice": {
+    "add": "添加声音",
+    "remove": "移除 {{name}}",
+    "ara": "Ara · 亲切",
+    "eve": "Eve · 活泼",
+    "leo": "Leo · 有力",
+    "rex": "Rex · 清晰",
+    "sal": "Sal · 平稳",
+    "altair": "Altair · 精致",
+    "atlas": "Atlas · 自信",
+    "aurora": "Aurora · 平稳",
+    "carina": "Carina · 柔和",
+    "castor": "Castor · 随和",
+    "celeste": "Celeste · 安心",
+    "cosmo": "Cosmo · 清楚",
+    "helios": "Helios · 有活力",
+    "helix": "Helix · 有冲劲",
+    "iris": "Iris · 明快",
+    "kepler": "Kepler · 有创意",
+    "liora": "Liora · 平静",
+    "lumen": "Lumen · 清楚",
+    "luna": "Luna · 耐心",
+    "lux": "Lux · 沉稳",
+    "naksh": "Naksh · 温和",
+    "orion": "Orion · 电影感",
+    "perseus": "Perseus · 可靠",
+    "rigel": "Rigel · 专业",
+    "sirius": "Sirius · 机灵",
+    "ursa": "Ursa · 温暖",
+    "zagan": "Zagan · 戏剧",
+    "zenith": "Zenith · 锋利"
+  },
+  "settings": {
+    "title": "视频设置"
   }
 }

@@ -239,7 +239,6 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
       ? ''
       : (new URLSearchParams(window.location.search).get('ref') ?? ''),
   )
-  const [referralExpanded, setReferralExpanded] = useState(Boolean(referralCode))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -328,15 +327,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
   }
 
   const invitationField = referralEnabled ? (
-    <details
-      className="auth-referral"
-      open={referralExpanded}
-      onToggle={(event) => setReferralExpanded(event.currentTarget.open)}
-    >
-      <summary>
-        {t('referral.summary')}
-        <span>{t('referral.optional')}</span>
-      </summary>
+    <div className="auth-referral">
       <label className="auth-field">
         <span>{t('referral.label')}</span>
         <input
@@ -354,7 +345,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
           placeholder={t('referral.placeholder')}
         />
       </label>
-    </details>
+    </div>
   ) : null
   const providerButtons =
     providers.length > 0 ? (
@@ -387,7 +378,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
     ) : null
 
   return (
-    <Overlay onClose={onClose} tier="raised">
+    <Overlay onClose={onClose} tier="raised" role="none">
       <div role="dialog" aria-modal="true" aria-label={t('dialog.label')} className="auth-dialog">
         <button
           type="button"

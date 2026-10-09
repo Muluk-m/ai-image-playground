@@ -5,6 +5,7 @@ import type {
   AgentConfirmationResponse,
   AgentConversationSnapshot,
   AgentImageEditAction,
+  AgentMarkedRegion,
   AgentMessageQueuedBody,
   AgentQueueFullBody,
   AgentRetryRefusedBody,
@@ -26,12 +27,15 @@ import {
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import sharp from 'sharp'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import {
   agentJobViews,
   cancelAgentConversationJobs,
   cancelAgentJob,
 } from '../lib/agent/background-jobs'
+import { discardConversationBatchDrafts } from '../lib/agent/batch-plans'
+import { detachConversationBatches } from '../lib/agent/batch-progress'
 import {
   confirmAgentGeneration,
   discardConversationDraftInputs,
@@ -63,12 +67,17 @@ import {
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
 import {
-  claimConversationMedia,
   readConversationMedia,
   readyCanvasMediaIds,
   removeAgentConversationReferences,
+  validateConversationMediaSelections,
 } from '../lib/agent/images'
-import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
+import {
+  agentSubmissionEntry,
+  type InboxEntry,
+  queuedAgentMessages,
+  reserveAgentSubmissionCancellation,
+} from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import {
   advanceAgentRetryQueueSafely,
@@ -96,8 +105,11 @@ import {
   imageDataUrlSchema,
 } from '../lib/http'
 import { objectStore } from '../lib/objectStore'
+import { attachmentLimits, BULK_ATTACHMENT_MAX_REFERENCES } from '../lib/operator-config'
 import { reservationFailureResponse } from '../lib/private-overlay'
+import { MediaError } from '../lib/projectMedia'
 import { resolveAuthUser } from '../lib/user-auth'
+import { agentBatchRoutes } from './agent-batches'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
 function ownerOf(authUser: AuthUserView | null, deviceId: string): AgentOwner {
@@ -116,6 +128,50 @@ function referenceHeaders(contentType: string): Record<string, string> {
     'x-content-type-options': 'nosniff',
     vary: `Cookie, ${DEVICE_ID_HEADER}`,
   }
+}
+
+/** The history preview paints a mark without changing the separately served original. */
+async function renderReferenceImage(
+  image: { readonly bytes: Uint8Array; readonly contentType: string },
+  original: boolean,
+  marked?: { readonly bytes: Uint8Array; readonly contentType: string },
+  regions?: readonly AgentMarkedRegion[],
+): Promise<Response> {
+  let visibleBytes = image.bytes
+  if (marked) {
+    let mask = marked.bytes
+    let source = image.bytes
+    if (!original) {
+      const resized = await sharp(source)
+        .rotate()
+        .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer({ resolveWithObject: true })
+      source = resized.data
+      mask = await sharp(mask).resize(resized.info.width, resized.info.height).png().toBuffer()
+    }
+    if (!original && (await sharp(mask).stats()).channels.at(-1)?.min === 255) {
+      // A valid tiny mark may vanish when quantized to thumbnail pixels.
+      visibleBytes = source
+    } else {
+      const annotated = await selectionPreview({
+        dataUrl: `data:${image.contentType};base64,${Buffer.from(source).toString('base64')}`,
+        maskDataUrl: `data:${marked.contentType};base64,${Buffer.from(mask).toString('base64')}`,
+        regions,
+      })
+      visibleBytes = Buffer.from(annotated.data, 'base64')
+    }
+  }
+  const bytes = original
+    ? visibleBytes
+    : await sharp(visibleBytes)
+        .rotate()
+        .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer()
+  return new Response(bytes as Uint8Array<ArrayBuffer>, {
+    headers: referenceHeaders(original ? (marked ? 'image/png' : image.contentType) : 'image/webp'),
+  })
 }
 
 /**
@@ -164,7 +220,7 @@ const paramsSchema = t.Optional(
  *
  * 两路合成一个对象、由 `turnReferences` 分辨，而不是写成 `t.Union`：exact-mirror 没有
  * TypeCompiler 时不支持 Union，路由一编译就是一条启动期告警，而且那条路由从此不再做
- * 请求体裁剪。云媒体那一路没有遮罩：画遮罩、烧批注都产出新像素，那张图在 R2 里并不存在。
+ * 请求体裁剪。原件与遮罩分别携带内联字节或已就绪的媒体身份。
  */
 const referencesSchema = t.Optional(
   t.Array(
@@ -172,12 +228,14 @@ const referencesSchema = t.Optional(
       imageId: t.String({ minLength: 1, maxLength: 128 }),
       dataUrl: t.Optional(imageDataUrlSchema()),
       mediaId: t.Optional(t.String({ format: 'uuid' })),
+      maskMediaId: t.Optional(t.String({ format: 'uuid' })),
       name: t.Optional(t.String({ maxLength: 200 })),
       maskDataUrl: t.Optional(imageDataUrlSchema()),
       editAction: t.Optional(t.String({ pattern: '^(inpaint|erase|crop|outpaint)$' })),
       regions: t.Optional(
         t.Array(
           t.Object({
+            number: t.Optional(t.Integer({ minimum: 1, maximum: 1000000 })),
             x: t.Number({ minimum: 0, maximum: 1 }),
             y: t.Number({ minimum: 0, maximum: 1 }),
             width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
@@ -187,7 +245,7 @@ const referencesSchema = t.Optional(
         ),
       ),
     }),
-    { maxItems: AGENT_TURN_MAX_REFERENCES },
+    { maxItems: BULK_ATTACHMENT_MAX_REFERENCES },
   ),
 )
 
@@ -204,12 +262,20 @@ function isEditAction(value: string): value is AgentImageEditAction {
   return value === 'inpaint' || value === 'erase' || value === 'crop' || value === 'outpaint'
 }
 
-function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | null {
+function turnReferences(
+  raw: readonly ReferenceBody[],
+  authenticated: boolean,
+): AgentTurnReference[] | null {
+  const maximum = authenticated
+    ? (attachmentLimits(config.operator)?.logicalReferences ?? AGENT_TURN_MAX_REFERENCES)
+    : AGENT_TURN_MAX_REFERENCES
+  if (raw.length > maximum) return null
   const references: AgentTurnReference[] = []
   let inline = 0
   for (const one of raw) {
     const editAction = one.editAction && isEditAction(one.editAction) ? one.editAction : undefined
     if (one.editAction && !editAction) return null
+    if ((one.mediaId && one.maskDataUrl) || (one.dataUrl && one.maskMediaId)) return null
     if (
       one.regions?.some(
         (region) => region.x + region.width > 1 + 1e-9 || region.y + region.height > 1 + 1e-9,
@@ -218,7 +284,14 @@ function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | n
       return null
     const name = one.name ? { name: one.name } : {}
     if (one.mediaId && !one.dataUrl)
-      references.push({ imageId: one.imageId, ...name, mediaId: one.mediaId })
+      references.push({
+        imageId: one.imageId,
+        ...name,
+        mediaId: one.mediaId,
+        ...(one.maskMediaId ? { maskMediaId: one.maskMediaId } : {}),
+        ...(one.regions ? { regions: one.regions } : {}),
+        ...(editAction ? { editAction } : {}),
+      })
     else if (one.dataUrl && !one.mediaId) {
       inline += 1
       references.push({
@@ -286,6 +359,7 @@ async function conversationBusy(conversationId: string): Promise<boolean> {
 }
 
 export const agentRoutes = new Elysia()
+  .use(agentBatchRoutes)
   .use(badRequestOnValidation())
   .onBeforeHandle(() => {
     if (!isCapabilityEnabled('agent:chat')) return capabilityUnavailable('agent:chat')
@@ -368,63 +442,41 @@ export const agentRoutes = new Elysia()
       if (!reference) return status(404, { error: 'reference_not_found' })
       const original = query.variant === 'original' || query.variant === 'annotated'
       try {
-        // 云媒体那一路没有副本：缩略图直接用上传时就备好的预览，别把原件拉回来再缩一遍。
         if ('mediaId' in reference) {
+          const masked = query.variant !== 'original' && reference.maskMediaId
           const media = await readConversationMedia(
             reference.mediaId,
             conversation.id,
             authUser?.id ?? null,
-            original ? 'original' : 'preview',
+            original || masked ? 'original' : 'preview',
           )
           if (!media) return status(404, { error: 'reference_not_found' })
-          return new Response(media.bytes as Uint8Array<ArrayBuffer>, {
-            headers: referenceHeaders(media.contentType),
-          })
+          // Ordinary media retain their stored preview; selections render against original pixels.
+          if (!masked)
+            return new Response(media.bytes as Uint8Array<ArrayBuffer>, {
+              headers: referenceHeaders(media.contentType),
+            })
+          const mask = await readConversationMedia(
+            masked,
+            conversation.id,
+            authUser?.id ?? null,
+            'original',
+          )
+          if (!mask) return status(404, { error: 'reference_not_found' })
+          return await renderReferenceImage(media, original, mask, reference.regions)
         }
         const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
         const bytes = await store.read(reference.image.object)
-        let visibleBytes = bytes
         const marked = query.variant !== 'original' ? reference.mask : undefined
-        if (marked) {
-          const maskStore = marked.store === 'durable' ? durableMediaStore() : objectStore()
-          let mask = await maskStore.read(marked.object)
-          let source = bytes
-          if (!original) {
-            const resized = await sharp(bytes)
-              .rotate()
-              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
-              .png()
-              .toBuffer({ resolveWithObject: true })
-            source = resized.data
-            mask = await sharp(mask)
-              .resize(resized.info.width, resized.info.height)
-              .png()
-              .toBuffer()
-          }
-          if (!original && (await sharp(mask).stats()).channels.at(-1)?.min === 255) {
-            // A valid tiny mark may vanish when quantized to thumbnail pixels.
-            visibleBytes = source
-          } else {
-            const annotated = await selectionPreview({
-              dataUrl: `data:${reference.image.mime};base64,${Buffer.from(source).toString('base64')}`,
-              maskDataUrl: `data:${marked.mime};base64,${Buffer.from(mask).toString('base64')}`,
-              regions: reference.regions,
-            })
-            visibleBytes = Buffer.from(annotated.data, 'base64')
-          }
-        }
-        const image = original
-          ? visibleBytes
-          : await sharp(visibleBytes)
-              .rotate()
-              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
-              .webp({ quality: 80 })
-              .toBuffer()
-        return new Response(image, {
-          headers: referenceHeaders(
-            original ? (marked ? 'image/png' : reference.image.mime) : 'image/webp',
-          ),
-        })
+        const maskStore = marked?.store === 'durable' ? durableMediaStore() : objectStore()
+        return await renderReferenceImage(
+          { bytes, contentType: reference.image.mime },
+          original,
+          marked
+            ? { bytes: await maskStore.read(marked.object), contentType: marked.mime }
+            : undefined,
+          reference.regions,
+        )
       } catch {
         return status(502, { error: 'object_storage_error' })
       }
@@ -433,7 +485,7 @@ export const agentRoutes = new Elysia()
       params: t.Object({
         id: t.String(),
         messageId: t.String(),
-        index: t.Integer({ minimum: 0, maximum: AGENT_TURN_MAX_REFERENCES - 1 }),
+        index: t.Integer({ minimum: 0, maximum: BULK_ATTACHMENT_MAX_REFERENCES - 1 }),
       }),
       query: t.Object({
         variant: t.Optional(
@@ -637,7 +689,7 @@ export const agentRoutes = new Elysia()
         const forwarded = await forwardActiveTurn(conversation.id, request, body)
         if (forwarded) return forwarded
 
-        const references = turnReferences(body.references ?? [])
+        const references = turnReferences(body.references ?? [], Boolean(authUser))
         let canvas = parseAgentCanvasSnapshot(body.canvas)
         if (!references) return status(422, { error: 'invalid_reference' })
         try {
@@ -651,9 +703,6 @@ export const agentRoutes = new Elysia()
         if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
           return status(401, { error: 'unauthorized' })
         if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
-        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
-        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
-          return status(422, { error: 'invalid_reference' })
         if (canvas) {
           const ready = await readyCanvasMediaIds(
             authUser?.id ?? null,
@@ -672,18 +721,27 @@ export const agentRoutes = new Elysia()
           }
         }
         // 每条消息先进收件箱，再按顺序开轮：忙时它排在后面，闲时它当场就是下一条。
-        const sent = await sendToConversationInbox(conversation.id, {
-          clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
-          text: body.text,
-          references,
-          deviceId: body.deviceId,
-          ...(body.mode ? { mode: body.mode } : {}),
-          ...(body.params
-            ? { params: body.params as import('@image-playground/shared').AgentTurnParams }
-            : {}),
-          ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
-          ...(canvas ? { canvas } : {}),
-        })
+        let sent: Awaited<ReturnType<typeof sendToConversationInbox>>
+        try {
+          sent = await sendToConversationInbox(conversation.id, {
+            clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
+            text: body.text,
+            references,
+            deviceId: body.deviceId,
+            ...(body.mode ? { mode: body.mode } : {}),
+            ...(body.params
+              ? { params: body.params as import('@image-playground/shared').AgentTurnParams }
+              : {}),
+            ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
+            ...(canvas ? { canvas } : {}),
+            ...(body.experience === 'chat' || body.experience === 'canvas'
+              ? { experience: body.experience }
+              : {}),
+          })
+        } catch (error) {
+          if (error instanceof MediaError) return status(error.status, { error: error.message })
+          throw error
+        }
         if (sent.kind === 'full') {
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
           return status(409, full)
@@ -712,7 +770,80 @@ export const agentRoutes = new Elysia()
         clarificationAnswer: t.Optional(t.Boolean()),
         /** 发话时浏览器里的画布。不合规格就当没带，不因此拒绝这一轮。 */
         canvas: t.Optional(t.Any()),
+        /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
+        experience: t.Optional(t.Any()),
       }),
+    },
+  )
+  .get(
+    '/api/agent/conversations/:id/submissions/:clientMessageId',
+    async ({ params, headers, authUser, status, request }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      return withAgentLifecycle(owner, async () => {
+        const entry = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+        return { receipt: entry ? queuedBody(entry, runningTurn(conversation.id)?.turnId) : null }
+      })
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      headers: deviceIdHeaderSchema(),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/submissions/:clientMessageId/reconcile',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      // 原子确认只为不存在的记录预留取消终态，已排队的消息保持原状。
+      const entry = await reserveAgentSubmissionCancellation(
+        conversation.id,
+        params.clientMessageId,
+        body.deviceId,
+      )
+      if (!entry) return status(404, NOT_FOUND)
+      const receipt = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+      return { receipt: receipt ? queuedBody(receipt, runningTurn(conversation.id)?.turnId) : null }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/submissions/:clientMessageId/withdraw',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const entry = await reserveAgentSubmissionCancellation(
+        conversation.id,
+        params.clientMessageId,
+        body.deviceId,
+      )
+      if (!entry) return status(404, NOT_FOUND)
+      await withdrawFromConversationInbox(conversation.id, entry.view.id)
+      const receipt = await agentSubmissionEntry(conversation.id, params.clientMessageId)
+      return { receipt: receipt ? queuedBody(receipt, runningTurn(conversation.id)?.turnId) : null }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        clientMessageId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
     },
   )
   .get(
@@ -765,14 +896,23 @@ export const agentRoutes = new Elysia()
     '/api/agent/skills',
     async ({ query, authUser }) => {
       // 动态引入：`skills` 与 `tools` 静态依赖 pi，模块图不该因为一条清单端点被提到路由加载时。
-      const [{ listAgentSkillSummaries, ensureAgentSkills }, { resolveAgentMode }] =
-        await Promise.all([import('../lib/agent/skills'), import('../lib/agent/tools')])
+      const [
+        { listAgentSkillSummaries, ensureAgentSkills },
+        { resolveAgentMode },
+        { resolveAgentModel },
+      ] = await Promise.all([
+        import('../lib/agent/skills'),
+        import('../lib/agent/tools'),
+        import('../lib/agent/tools/queueTask'),
+      ])
       await ensureAgentSkills()
       // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
+      // 非模板技能的「已验证」跟部署默认的出图模型比（ADR 0020）。
       return {
         skills: await listAgentSkillSummaries(
           resolveAgentMode(query.mode ?? 'image'),
           authUser?.id ?? null,
+          resolveAgentModel('image')?.model,
         ),
       }
     },
@@ -843,7 +983,9 @@ export const agentRoutes = new Elysia()
         // 墓碑与取消也同一次提交，没有「删完又冒出一条任务」的缝。
         await db.transaction(async (tx) => {
           await lockConversation(tx, conversation.id, owner.kind === 'user' ? owner.userId : null)
+          await discardConversationBatchDrafts(conversation.id, tx)
           await softDeleteAgentConversation(conversation.id, owner, tx)
+          await detachConversationBatches(conversation.id, tx)
           // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
           await cancelAgentConversationJobs(conversation.id, tx)
         })
@@ -928,15 +1070,30 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       const forwarded = await forwardActiveTurn(conversation.id, request, body)
       if (forwarded) return forwarded
+      const submittedId = body.clientMessageId ? `interjection:${body.clientMessageId}` : undefined
+      if (submittedId) {
+        const [existing] = await db
+          .select({ id: schema.agent_messages.id })
+          .from(schema.agent_messages)
+          .where(
+            and(
+              eq(schema.agent_messages.conversation_id, conversation.id),
+              eq(schema.agent_messages.id, submittedId),
+              eq(schema.agent_messages.role, 'user'),
+            ),
+          )
+          .limit(1)
+        if (existing) return { messageId: existing.id }
+      }
       const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
-      const references = turnReferences(body.references ?? [])
+      const references = turnReferences(body.references ?? [], Boolean(authUser))
       if (!references) return status(422, { error: 'invalid_reference' })
-      if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
+      if (!(await validateConversationMediaSelections(authUser?.id ?? null, references)))
         return status(422, { error: 'invalid_reference' })
       let messageId: string | null
       try {
-        messageId = await activeTurn.interject(body.text, references)
+        messageId = await activeTurn.interject(body.text, references, { messageId: submittedId })
       } catch (error) {
         if (error instanceof InvalidSelectionError)
           return status(422, { error: 'invalid_selection' })
@@ -950,6 +1107,7 @@ export const agentRoutes = new Elysia()
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
         references: referencesSchema,
+        clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
       }),
     },
   )

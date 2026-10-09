@@ -58,7 +58,6 @@
     "aria": "批量操作",
     "selected_other": "已选 {{count}} 项",
     "export_other": "导出 {{count}} 项",
-    "exporting": "导出中 {{done}}/{{total}}",
     "exportDone_other": "已导出 {{count}} 项",
     "exportPartial": "已导出 {{count}} 项，{{failed}} 项取不到内容",
     "exportFailed": "导出失败，内容都没能取到",
@@ -66,7 +65,15 @@
     "needImages": "请至少选择两张图片",
     "editTitle_other": "编辑 {{count}} 张图片",
     "editSubmit_other": "逐张编辑 {{count}} 张",
-    "clear": "取消选择"
+    "clear": "取消选择",
+    "cutoutTitle_other": "为 {{count}} 张图片抠图",
+    "resizeTitle_other": "把 {{count}} 张图片调整为 {{ratio}}",
+    "confirmBody_other": "这是 AI 处理：每张图片各发起一个生成任务，共 {{count}} 个。",
+    "cutoutPlacement": "抠图结果会替换原图。",
+    "resizePlacement": "新尺寸的图片放在原图旁边，原图保留。",
+    "confirmCost": "预计消耗",
+    "confirmCancel": "取消",
+    "confirmSubmit_other": "确认生成 {{count}} 张"
   },
   "submit": {
     "blocked": "当前无法生成",
@@ -118,19 +125,16 @@
   "sidebar": {
     "title": "图片创作",
     "collapseAria": "收起面板",
-    "collapse": "收起 ←",
+    "collapse": "收起",
     "emptyTitle": "今天想做点什么",
     "emptyBody": "选一个开始，或直接写一句。",
     "openChat": "展开创作"
   },
   "workspace": {
     "canvasAria": "创作画布",
-    "untitled": "我的画布",
-    "backToProjects": "返回项目",
     "backHome": "回到主页",
     "assets": "资产库",
-    "sourceChat": "返回来源对话",
-    "imageTransferFailed": "图片未能加入新画布，请重试"
+    "sourceChat": "返回来源对话"
   },
   "saveError": {
     "message": "画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。",
@@ -141,7 +145,7 @@
     "title": "给想象，一个画面。",
     "bodyAgent": "描述你的想法，作品会在这里展开。",
     "bodyDirect": "输入画面描述，开始你的创作。",
-    "import": "＋ 导入参考图片"
+    "import": "导入参考图片"
   },
   "import": {
     "inputAria": "导入画布图片",
@@ -187,13 +191,13 @@
     "title": "让想法，从这里展开。",
     "subtitle": "描述你想创作的画面，或添加一张参考图。",
     "recent": "最近项目",
-    "allProjects": "全部项目 →"
+    "allProjects": "全部项目"
   },
   "imageMenu": {
     "copied": "图片已复制",
     "downloadFailed": "下载失败",
     "copy": "复制图片",
-    "download": "下载图片",
+    "download": "导出",
     "preview": "查看原图",
     "previewTouch": "查看原图 / 长按保存",
     "previewFailed": "原图加载失败，请关闭后重试",
@@ -206,15 +210,16 @@
     "loadingCloud": "正在读取项目…",
     "retryCloud": "重试读取项目",
     "refreshCloud": "刷新项目",
+    "filterAll": "全部",
+    "filterAria": "按类型筛选项目",
     "loadMore": "加载更多项目",
     "newProject": "新建项目",
     "openAria": "打开项目 {{name}}",
     "current": "当前项目",
     "updatedAt": "{{date}} 更新",
+    "actions": "更多操作",
     "actionsAria": "项目 {{name}} 的更多操作",
     "rename": "重命名",
-    "renameAria": "重命名项目 {{name}}",
-    "deleteAria": "删除项目 {{name}}",
     "deleteTitle": "删除项目",
     "deleteMessage": "删除“{{name}}”及其画布和会话？此操作无法撤销。",
     "noMatch": "没有找到匹配的项目",
@@ -322,15 +327,17 @@
     "toolbarAria": "用选中的图生成视频",
     "open_other": "用 {{count}} 张图生成视频",
     "title_other": "用 {{count}} 张图生成视频",
-    "hint": "拖动可调整顺序，每张可设为首帧、尾帧或参考图。",
+    "hint": "拖动可调整顺序，每张可设为首帧、尾帧、关键帧或参考图。",
     "listAria": "输入图",
     "roleAria": "第 {{no}} 张的用法",
     "moveUp": "第 {{no}} 张前移",
     "role": {
       "reference": "参考图",
       "first": "首帧",
-      "last": "尾帧"
+      "last": "尾帧",
+      "keyframe": "关键帧"
     },
+    "timestampAria": "第 {{no}} 张的关键帧时间（秒）",
     "placeholder": "例如：图片1 里的人拿着图片2 的球拍，在图片3 的球场上挥拍",
     "modelWithoutReferences": "{{label}}（不支持参考图）",
     "submit": "生成视频",
@@ -358,12 +365,10 @@
     },
     "brushSize": "笔刷",
     "undo": "撤销标记",
-    "regions": "修改区域",
     "regionName": "区域 {{no}}",
     "removeRegion": "移除区域 {{no}}",
     "promptAria": "修改要求",
     "promptPlaceholder": "描述希望怎么修改，例如：把鞋带改成亮蓝色",
-    "paintFirst": "在图片上拖动框选，或切换画笔标记位置",
     "uploadReference": "上传图片",
     "removeReference": "移除参考图",
     "modelUnsupported": "当前模型不支持遮罩重绘，请切到 GPT Image 系列",
@@ -371,7 +376,11 @@
     "tooSmall": "图片太小，局部重绘要求约 80 万像素以上",
     "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
     "sourceGone": "源图已不在画布上",
-    "canvasAria": "智能改图标记区"
+    "canvasAria": "智能改图标记区",
+    "regionLimit": "最多可标记 {{max}} 个区域，请删除不需要的区域后继续。",
+    "regionRemoved": "（已移除）",
+    "promptTooLong": "编辑要求不能超过 {{max}} 字，请缩短后再发送。",
+    "regionMissing": "有区域引用已失效，请移除引用或重做选区后再发送。"
   },
   "crop": {
     "action": "裁切",
@@ -413,7 +422,7 @@
     "action": "编辑图片",
     "singleAction": "整图编辑",
     "title": "整图编辑",
-    "hint": "按一句话整张改这张图，改完替换原图。只改一小块请用智能改图。",
+    "hint": "结果会替换原图。",
     "promptLabel": "描述编辑",
     "placeholder": "例如：把背景换成浅木色桌面，保持产品本身不变",
     "submit": "开始编辑",
@@ -422,7 +431,6 @@
   },
   "resize": {
     "action": "调整尺寸",
-    "hint": "用不同宽高比生成此图片",
     "ratio": {
       "square": "方形",
       "portrait": "竖版",

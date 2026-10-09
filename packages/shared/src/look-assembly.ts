@@ -116,8 +116,8 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
     slots.push({ name: asset.name, imageId })
   }
 
-  const carried = slots
-  const inputImageIds = [...new Set(carried.map((slot) => slot.imageId))]
+  const slotImageIds = new Set(slots.map((slot) => slot.imageId))
+  const inputImageIds = [...slotImageIds]
   const seen = new Set(inputImageIds)
   for (const imageId of look.referenceImageIds) {
     // 已经作为素材送进去的那张不再占一个位置：同一张图送两遍只是浪费输入。
@@ -137,18 +137,16 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
 
   const first = input.firstImageId ? inputImageIds.indexOf(input.firstImageId) : -1
   if (first > 0) inputImageIds.unshift(...inputImageIds.splice(first, 1))
+  const ordinals = new Map(inputImageIds.map((id, index) => [id, index + 1]))
   const finalReferences = inputImageIds.flatMap((id, index) =>
-    carried.some((slot) => slot.imageId === id) ? [] : [index + 1],
+    slotImageIds.has(id) ? [] : [index + 1],
   )
   return {
     ok: true,
     prompt: withInputList(
       look.body,
       inputListLines(
-        carried.map((slot) => ({
-          name: slot.name,
-          ordinal: inputImageIds.indexOf(slot.imageId) + 1,
-        })),
+        slots.map((slot) => ({ name: slot.name, ordinal: ordinals.get(slot.imageId)! })),
         finalReferences,
       ),
     ),

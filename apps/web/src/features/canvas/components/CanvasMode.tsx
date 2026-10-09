@@ -1,7 +1,16 @@
-import { ArrowLeft, Clapperboard, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronDown,
+  Clapperboard,
+  FolderOpen,
+  ImagePlus,
+  PanelLeftOpen,
+  Search,
+} from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
+import { useHeldLoading } from '../../../hooks/useHeldLoading'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
@@ -9,7 +18,7 @@ import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
-import { useStore } from '../../../store'
+import { defaultSidebarExpanded, useStore } from '../../../store'
 import AgentArtifactPane from '../../agent/components/AgentArtifactPane'
 import AgentAssetDrawer from '../../agent/components/AgentAssetDrawer'
 import AgentCanvasHandoffDialog from '../../agent/components/AgentCanvasHandoffDialog'
@@ -66,6 +75,8 @@ export default function CanvasMode() {
   const projectsLoaded = useCanvasProjectStore((state) => state.loaded)
   const routeError = useCanvasProjectStore((state) => state.routeError)
   const projectError = useCanvasProjectStore((state) => state.error)
+  const catalogPending = !projectsLoaded && !routeError && !projectError
+  const showCatalogMark = useHeldLoading(catalogPending)
   useEffect(() => {
     void openCurrentProject()
   }, [])
@@ -99,22 +110,38 @@ export default function CanvasMode() {
         </div>
       </div>
     ) : (
-      <CanvasLoading label={t('project.restoring')} />
+      <CanvasLoading label={t('project.restoring')} mark={showCatalogMark} />
     )
   return <CanvasWorkspaceView key={workspace.id} workspace={workspace} />
 }
 
 /**
- * 打开画布时的等待：和画布同一张点阵底，中间只有呼吸的品牌标。文字留给读屏，不摆在面上。
- * 淡入有延迟——本机缓存命中时几十毫秒就读完，一闪而过的遮罩比没有更扎眼。
+ * 打开画布时的等待。目录还没到时底下什么都没有，点阵先垫上；
+ * 品牌标要等读取真的久了才出现，短等待不画它。
+ * `decorative` 时只负责看见的那一层，读屏状态由外层另给——画布在对话视图里是藏起来的。
  */
-function CanvasLoading({ label }: { label: string }) {
+function CanvasLoading({
+  label,
+  mark = true,
+  decorative = false,
+}: {
+  label: string
+  mark?: boolean
+  decorative?: boolean
+}) {
   return (
-    <div role="status" aria-label={label} className="studio-canvas-loading">
-      <div className="studio-canvas-loading-mark">
-        <img src="/brand/muvloom-mark.svg" alt="" />
-      </div>
-      <span className="sr-only">{label}</span>
+    <div
+      className="studio-canvas-loading"
+      role={decorative ? undefined : 'status'}
+      aria-label={decorative ? undefined : label}
+      aria-hidden={decorative ? true : undefined}
+    >
+      {mark && (
+        <div className="studio-canvas-loading-mark">
+          <img src="/brand/muvloom-mark.svg" alt="" />
+        </div>
+      )}
+      {!decorative && <span className="sr-only">{label}</span>}
     </div>
   )
 }
@@ -124,19 +151,27 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t: tShell } = useTranslation('shell')
   const { t: tProduction } = useTranslation('production')
   const mobile = useMobileWorkspace()
+  const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
   const [projectView, setProjectView] = useState<'chat' | 'canvas'>(
     project ? projectExperience(project) : 'chat',
   )
-  const sidebarExpanded = useStore((state) => state.sidebarExpanded)
+  const sidebarPreference = useStore((state) => state.sidebarExpanded)
+  const appMode = useStore((state) => state.appMode)
+  const sidebarOpen =
+    sidebarPreference ??
+    defaultSidebarExpanded(appMode, project ? projectExperience(project) : null)
   const selectedResultOwner = useRef<string | null>(null)
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
   const [selectedExternalResult, setSelectedExternalResult] = useState<AgentToolMessage | null>(
     null,
   )
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>()
+  const [selectedPreview, setSelectedPreview] = useState<{ id: string; source: string } | null>(
+    null,
+  )
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
   const productionViewKey = scopedStorageName(`production-view:${workspace.id}`)
   const [productionOpen, setProductionOpen] = useState(
@@ -155,6 +190,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   }
   const [searchOpen, setSearchOpen] = useState(false)
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
+  /** 手机上 Agent 项目的画布视图：对话列不占位，要靠底部抽屉才能继续写和发送。 */
+  const [mobileChatOpen, setMobileChatOpen] = useState(false)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
@@ -177,6 +214,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     })
   }
   const hasAgent = agentPanelPresent()
+  const mobileChatSheet = mobile && hasAgent && projectView === 'canvas'
+  useEffect(() => {
+    setMobileChatOpen(false)
+  }, [project?.id, projectView])
   const messages = useAgentStore((state) => state.messages)
   const latestResult = [...messages]
     .reverse()
@@ -195,11 +236,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const activeResult = hasSelectedResult
     ? (selectedExternalResult ?? selectedResult ?? latestResult)
     : undefined
-  const previewResult = (messageId: string, artifactId?: string) => {
+  const previewResult = (messageId: string, artifactId?: string, previewSource?: string) => {
     selectedResultOwner.current = conversationId
     setSelectedExternalResult(null)
     setSelectedResultId(messageId)
     setSelectedArtifactId(artifactId)
+    setSelectedPreview(
+      artifactId && previewSource ? { id: artifactId, source: previewSource } : null,
+    )
     setAssetDrawerOpen(false)
   }
   const previewAsset = (message: AgentToolMessage, artifactId: string) => {
@@ -207,6 +251,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     setSelectedExternalResult(message)
     setSelectedResultId(message.id)
     setSelectedArtifactId(artifactId)
+    setSelectedPreview(null)
     setAssetDrawerOpen(false)
   }
   const completeHandoff = async (targetId?: string): Promise<boolean> => {
@@ -358,6 +403,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     workspace.subscribe,
     workspace.getSnapshot,
   )
+  const showRestoreMark = useHeldLoading(loading && !loadFailed)
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(window as unknown as { __canvasEditor?: CanvasEditor }).__canvasEditor = editor
@@ -370,39 +416,47 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   useEffect(() => {
     if (pendingImages > 0) workspace.placePendingImages()
   }, [workspace, loading, loadFailed, pendingImages])
+  const homeMark = (
+    <button
+      type="button"
+      onClick={() => useStore.getState().setAppMode('image')}
+      aria-label={t('workspace.backHome')}
+      title={t('workspace.backHome')}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+    >
+      <img src="/brand/muvloom-mark.svg" alt="" className="h-6 w-6" />
+    </button>
+  )
+  const sidebarToggle = (
+    <button
+      type="button"
+      onClick={() => useStore.getState().toggleSidebar()}
+      aria-label={tShell('header.nav')}
+      className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
+    >
+      <PanelLeftOpen size={16} />
+    </button>
+  )
   return (
     <div
       className="studio-shell fixed bottom-0 right-0 z-30"
       style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
     >
+      {loading && !loadFailed && (
+        <span className="sr-only" role="status">
+          {t('loading.restoring')}
+        </span>
+      )}
       {showWelcome && !mobile && !loading && !loadFailed && !hasAgent ? (
         <ProjectWelcome workspace={workspace} />
       ) : (
         <>
           {hasAgent && (
             <div
-              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${(sidebarExpanded ?? projectView === 'chat') ? 'studio-project-viewbar--with-sidebar' : ''}`}
+              className={`studio-project-viewbar studio-project-viewbar--${projectView}`}
+              style={projectView === 'canvas' && !mobile ? { width: panelWidth + 12 } : undefined}
             >
-              <button
-                type="button"
-                onClick={() => useStore.getState().setAppMode('image')}
-                aria-label={t('workspace.backHome')}
-                title={t('workspace.backHome')}
-                className="grid h-9 w-9 shrink-0 place-items-center"
-              >
-                <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-              </button>
-              {!(sidebarExpanded ?? projectView === 'chat') && (
-                <button
-                  type="button"
-                  onClick={() => useStore.getState().toggleSidebar()}
-                  aria-label={tShell('header.nav')}
-                  className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
-                >
-                  <PanelLeftOpen size={16} />
-                </button>
-              )}
-              <ProjectNavigation />
+              <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
               {projectView === 'canvas' && project?.sourceProjectId && (
                 <button
                   type="button"
@@ -466,7 +520,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
             data-mobile-view={projectView}
-            inert={loading || loadFailed}
+            data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
+            inert={loadFailed}
           >
             {!hasAgent && (
               <div
@@ -494,29 +549,22 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             {open || mobile || (hasAgent && projectView === 'chat') ? (
               <div
                 className={`studio-chat-column ${hasAgent && projectView === 'chat' ? 'studio-chat-column--page' : ''}`}
+                inert={!hasAgent && (loading || loadFailed)}
               >
+                {mobileChatSheet && mobileChatOpen && (
+                  <button
+                    type="button"
+                    className="studio-mobile-chat-close"
+                    onClick={() => setMobileChatOpen(false)}
+                    aria-label={t('sidebar.collapseAria')}
+                  >
+                    <ChevronDown size={18} aria-hidden="true" />
+                  </button>
+                )}
                 {!hasAgent && (
                   <div className="studio-canvas-topbar">
-                    <button
-                      type="button"
-                      onClick={() => useStore.getState().setAppMode('image')}
-                      aria-label={t('workspace.backHome')}
-                      title={t('workspace.backHome')}
-                      className="grid h-9 w-8 shrink-0 place-items-center"
-                    >
-                      <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-                    </button>
-                    {!(sidebarExpanded ?? projectView === 'chat') && (
-                      <button
-                        type="button"
-                        onClick={() => useStore.getState().toggleSidebar()}
-                        aria-label={tShell('header.nav')}
-                        className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
-                      >
-                        <PanelLeftOpen size={16} />
-                      </button>
-                    )}
-                    <ProjectNavigation />
+                    {!sidebarOpen && sidebarToggle}
+                    <ProjectNavigation leading={homeMark} />
                   </div>
                 )}
                 {hasAgent ? (
@@ -565,6 +613,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                             presentation="panel"
                             message={activeResult}
                             selectedId={selectedArtifactId}
+                            initialPreview={selectedPreview}
                             onSelect={setSelectedArtifactId}
                             onClose={() => {
                               setSelectedResultId(null)
@@ -623,7 +672,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     aria-label={t('sidebar.title')}
                   >
                     <div className="flex items-center justify-between px-4 pb-2 pt-3">
-                      <span className="text-[13px] font-medium text-foreground">
+                      <span className="text-body-sm font-medium text-foreground">
                         {t('sidebar.title')}
                       </span>
                       <button
@@ -684,10 +733,21 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </svg>
               </button>
             )}
+            {mobileChatSheet && !mobileChatOpen && (
+              <button
+                type="button"
+                className="studio-open-chat studio-mobile-open-chat"
+                onClick={() => setMobileChatOpen(true)}
+              >
+                <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
+                {t('sidebar.openChat')}
+              </button>
+            )}
             {hasSelectedResult && activeResult && projectView === 'chat' && !productionVisible && (
               <AgentArtifactPane
                 message={activeResult}
                 selectedId={selectedArtifactId}
+                initialPreview={selectedPreview}
                 onSelect={setSelectedArtifactId}
                 onClose={() => {
                   setSelectedResultId(null)
@@ -716,11 +776,18 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <section
               className="studio-canvas"
               aria-label={t('workspace.canvasAria')}
-              inert={hasAgent && projectView !== 'canvas'}
+              inert={loading || loadFailed || (hasAgent && projectView !== 'canvas')}
             >
+              {(loading || loadFailed) && (
+                <div className="studio-canvas-ground" aria-hidden="true" />
+              )}
+              {showRestoreMark && <CanvasLoading label={t('loading.restoring')} decorative />}
               {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
               <PlaceholderOverlay editor={editor} />
-              <CanvasVideoOverlay editor={editor} />
+              <CanvasVideoOverlay
+                editor={editor}
+                active={!loading && !loadFailed && (!hasAgent || projectView === 'canvas')}
+              />
               <CanvasVideoToolbar editor={editor} />
               <CanvasImageToolbar editor={editor} />
               <InpaintMaskLayer editor={editor} />
@@ -772,6 +839,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     className="studio-secondary"
                     onClick={() => fileInput.current?.click()}
                   >
+                    <ImagePlus className="h-4 w-4" aria-hidden="true" />
                     {t('empty.import')}
                   </button>
                 </div>
@@ -815,9 +883,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             </button>
           </div>
         </div>
-      ) : (
-        loading && <CanvasLoading label={t('loading.restoring')} />
-      )}
+      ) : null}
     </div>
   )
 }

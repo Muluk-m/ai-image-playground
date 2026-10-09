@@ -1,6 +1,8 @@
 import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
+import { originalBlob } from '../features/image-export/sources'
+import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
@@ -11,6 +13,7 @@ import { loadImageOriginal } from '../lib/imageSource'
 import { useStore } from '../store'
 import { DownloadIcon, VideoIcon } from './icons'
 import Overlay from './Overlay'
+import { Button } from './ui/button'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 10
@@ -22,6 +25,7 @@ function clamp(v: number, min: number, max: number) {
 }
 
 export default function Lightbox() {
+  const { t } = useTranslation('task')
   const lightboxImageId = useStore((s) => s.lightboxImageId)
   const lightboxImageList = useStore((s) => s.lightboxImageList)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
@@ -150,7 +154,13 @@ export default function Lightbox() {
   if (!lightboxImageId) return null
   if (!displaySrc) {
     return (
-      <Overlay onClose={close} tier="raised" backdrop="none" layout="fill">
+      <Overlay
+        onClose={close}
+        tier="raised"
+        backdrop="none"
+        layout="fill"
+        label={t('lightbox.dialog')}
+      >
         <div className="flex h-full w-full items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
           <LoaderCircle className="relative h-10 w-10 animate-spin text-white/80" />
@@ -175,11 +185,26 @@ export default function Lightbox() {
   )
 }
 
-/** A canvas original can be previewed without importing it into generation history. */
-export function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
+/** Preview canvas pixels without importing them into generation history. */
+export function ImagePreview({
+  src,
+  onClose,
+  originalPending = false,
+  originalFailed = false,
+  onRetryOriginal,
+}: {
+  src: string
+  onClose: () => void
+  originalPending?: boolean
+  originalFailed?: boolean
+  onRetryOriginal?: () => void
+}) {
   return (
     <LightboxInner
       src={src}
+      originalPending={originalPending}
+      originalFailed={originalFailed}
+      onRetryOriginal={onRetryOriginal}
       imageId=""
       onClose={onClose}
       showNav={false}
@@ -195,6 +220,8 @@ interface LightboxInnerProps {
   src: string
   /** 展示的还是缩略图，原图仍在读：下载得等真像素，界面也要说清楚。 */
   originalPending?: boolean
+  originalFailed?: boolean
+  onRetryOriginal?: () => void
   imageId: string
   maskPreviewSrc?: string
   onClose: () => void
@@ -209,6 +236,8 @@ interface LightboxInnerProps {
 function LightboxInner({
   src,
   originalPending = false,
+  originalFailed = false,
+  onRetryOriginal,
   imageId,
   maskPreviewSrc,
   onClose,
@@ -218,10 +247,10 @@ function LightboxInner({
   onPrev,
   onNext,
 }: LightboxInnerProps) {
-  const { t } = useTranslation('task')
+  const { t } = useTranslation(['task', 'common', 'toolbox'])
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
-  const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
+  const originalUnavailable = originalPending || originalFailed
   // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
   const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
@@ -415,8 +444,8 @@ function LightboxInner({
     async (e: React.MouseEvent) => {
       e.stopPropagation()
       // 还在读原图时存下去只会得到一张缩略图，宁可让用户再等一下。
-      if (originalPending) {
-        showToast(t('lightbox.loadingOriginal'))
+      if (originalUnavailable) {
+        showToast(t(originalFailed ? 'lightbox.originalFailed' : 'lightbox.loadingOriginal'))
         return
       }
       try {
@@ -434,7 +463,7 @@ function LightboxInner({
         showToast(t('lightbox.saveFailed'), 'error')
       }
     },
-    [originalPending, src, showToast, t],
+    [originalUnavailable, originalFailed, src, showToast, t],
   )
 
   // ====== 触控事件 ======
@@ -587,7 +616,13 @@ function LightboxInner({
     'flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm text-white backdrop-blur-sm transition-all hover:bg-black/60'
 
   return (
-    <Overlay onClose={onClose} tier="raised" backdrop="none" layout="fill">
+    <Overlay
+      onClose={onClose}
+      tier="raised"
+      backdrop="none"
+      layout="fill"
+      label={t('lightbox.dialog')}
+    >
       <div
         ref={containerRef}
         data-lightbox-root
@@ -609,7 +644,8 @@ function LightboxInner({
             <img
               src={src}
               data-image-id={imageId}
-              className="saveable-image max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
+              data-image-preview-only={originalUnavailable || undefined}
+              className={`${originalUnavailable ? '' : 'saveable-image '}max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl`}
               onDragStart={(e) => e.preventDefault()}
               alt=""
             />
@@ -622,43 +658,75 @@ function LightboxInner({
             )}
           </div>
         </div>
-        {originalPending && (
+        {originalUnavailable && (
           <span
             className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur-sm"
             aria-live="polite"
           >
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            {t('lightbox.loadingOriginal')}
+            {originalPending && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+            {t(originalFailed ? 'lightbox.originalFailed' : 'lightbox.loadingOriginal')}
+            {originalFailed && onRetryOriginal && (
+              <Button
+                variant="secondary"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onRetryOriginal()
+                }}
+              >
+                {t('common:action.retry')}
+              </Button>
+            )}
           </span>
         )}
 
-        {(videoAvailable || coarsePointer) && (
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-            {videoAvailable && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void startVideoFromImage(imageId)
-                }}
-                className={actionBtnClass}
-              >
-                <VideoIcon className="w-4 h-4" />
-                {t('menu.makeVideo')}
-              </button>
-            )}
-            {coarsePointer && (
-              <button data-save-image onClick={handleSave} className={actionBtnClass}>
-                <DownloadIcon className="w-4 h-4" />
-                {t('lightbox.saveImage')}
-              </button>
-            )}
-          </div>
-        )}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+          {videoAvailable && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                void startVideoFromImage(imageId)
+              }}
+              className={actionBtnClass}
+            >
+              <VideoIcon className="w-4 h-4" />
+              {t('menu.makeVideo')}
+            </button>
+          )}
+          <Button
+            data-save-image
+            variant="secondary"
+            disabled={originalUnavailable}
+            onClick={handleSave}
+            className={actionBtnClass}
+          >
+            <DownloadIcon className="w-4 h-4" />
+            {t('toolbox:export.downloadOriginal')}
+          </Button>
+          <Button
+            disabled={originalUnavailable}
+            onClick={(event) => {
+              event.stopPropagation()
+              openImageExport([
+                {
+                  id: imageId || src,
+                  name: 'image',
+                  media: 'image',
+                  load: (signal) => originalBlob(src, signal),
+                },
+              ])
+            }}
+          >
+            <DownloadIcon className="w-4 h-4" />
+            {t('toolbox:export.export')}
+          </Button>
+        </div>
 
         {/* 左右切换按钮 */}
         {showNav && !isZoomed && (
           <>
             <button
+              type="button"
+              aria-label={t('common:action.previousImage')}
               className={`${navBtnClass} left-3 sm:left-5`}
               onClick={(e) => {
                 e.stopPropagation()
@@ -680,6 +748,8 @@ function LightboxInner({
               </svg>
             </button>
             <button
+              type="button"
+              aria-label={t('common:action.nextImage')}
               className={`${navBtnClass} right-3 sm:right-5`}
               onClick={(e) => {
                 e.stopPropagation()

@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
+import { taskExportSources } from '../features/image-export/sources'
+import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useTranslation } from '../i18n'
-import { downloadImagesByIds } from '../lib/downloadImages'
 import { removeMultipleTasks, setTaskFavorite, useStore } from '../store'
 
 /**
@@ -65,17 +66,14 @@ export default function TaskBulkActions() {
     })
   }, [selectedTaskIds, setConfirmDialog, t])
 
-  const handleDownloadSelected = useCallback(async () => {
+  const handleExportSelected = useCallback(() => {
     const selected = tasks.filter((task) => selectedTaskIds.includes(task.id))
-    const imageIds = selected.flatMap((task) => task.outputImages || [])
-    if (imageIds.length === 0) {
+    const sources = taskExportSources(selected)
+    if (sources.length === 0) {
       showToast(t('bulk.noImages'), 'info')
       return
     }
-    showToast(t('bulk.downloadStarted', { count: imageIds.length }), 'info')
-    const { success, failed } = await downloadImagesByIds(imageIds)
-    if (failed > 0) showToast(t('bulk.downloadPartial', { success, failed }), 'info')
-    else showToast(t('bulk.downloadSucceeded', { count: success }), 'success')
+    openImageExport(sources)
     clearSelection()
   }, [tasks, selectedTaskIds, showToast, clearSelection, t])
 
@@ -86,7 +84,7 @@ export default function TaskBulkActions() {
       className="pointer-events-none fixed inset-x-0 bottom-36 z-30 flex justify-center px-4"
       style={{ paddingLeft: 'var(--app-sidebar-width)' }}
     >
-      <div className="pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur dark:shadow-lg">
+      <div className="pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-popover backdrop-blur">
         <button
           type="button"
           onClick={clearSelection}
@@ -153,9 +151,10 @@ export default function TaskBulkActions() {
         <div className="mx-1 h-5 w-px bg-muted" />
         <button
           type="button"
-          onClick={() => void handleDownloadSelected()}
+          onClick={handleExportSelected}
           className="p-2 text-success transition-colors"
-          title={t('bulk.download')}
+          title={t('bulk.export')}
+          aria-label={t('bulk.export')}
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path

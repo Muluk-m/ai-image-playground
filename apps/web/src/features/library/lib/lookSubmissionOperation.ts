@@ -4,7 +4,8 @@ import {
   discardPendingSubmission,
   subscribePendingSubmissionRemoval,
 } from '../../../auth/pendingSubmission'
-import { accountScope, isUserStorageScope, scopedStorageName } from '../../../lib/authScope'
+import { isUserStorageScope, scopedStorageName } from '../../../lib/authScope'
+import { watchSubmissionContext } from '../../../lib/submissionContext'
 import { useStore } from '../../../store'
 import { useActiveLook } from './activeLook'
 
@@ -33,21 +34,14 @@ export function cancelLookSubmission(): void {
 export function beginLookSubmission(): LookSubmissionOperation | null {
   if (useLookSubmission.getState().submitting) return null
   cancelLookSubmission()
-  const start = useStore.getState()
-  const sameAccount = accountScope()
   const sourcePath = window.location.pathname
   const controller = new AbortController()
   let edited = false
   let pending = false
-  const current = () =>
-    !controller.signal.aborted &&
-    sameAccount() &&
-    window.location.pathname === sourcePath &&
-    useStore.getState().appMode === start.appMode &&
-    useStore.getState().createTarget === start.createTarget
-  const onNavigate = () => {
-    if (active === operation && !current()) operation.cancel()
-  }
+  const context = watchSubmissionContext(sourcePath, () => {
+    if (active === operation) operation.cancel()
+  })
+  const current = () => !controller.signal.aborted && context.isCurrent()
   let remainingMs = 30_000
   let timerStartedAt = Date.now()
   let confirming = false
@@ -55,7 +49,6 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
     setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), remainingMs)
   let timeout = armTimeout()
   const unwatch = useStore.subscribe((next, prev) => {
-    onNavigate()
     if (
       next.prompt !== prev.prompt ||
       next.inputImages !== prev.inputImages ||
@@ -78,13 +71,12 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
     if (!pending || !consumePendingLoginNavigation(operation.id)) operation.cancel()
   }
   window.addEventListener('pagehide', onPageHide)
-  window.addEventListener('popstate', onNavigate)
   const cleanup = () => {
     clearTimeout(timeout)
     unwatch()
     unwatchLook()
     unwatchPending()
-    window.removeEventListener('popstate', onNavigate)
+    context.dispose()
     window.removeEventListener('pagehide', onPageHide)
   }
   const operation: LookSubmissionOperation = {

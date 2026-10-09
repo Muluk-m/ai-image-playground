@@ -131,6 +131,8 @@ export interface MaskDraft {
   targetImageId: string
   maskDataUrl: string
   updatedAt: number
+  /** 遮罩写进 IndexedDB 后的 id；刷新恢复只认它，localStorage 里不放遮罩本体。 */
+  maskImageId?: string
 }
 
 /**

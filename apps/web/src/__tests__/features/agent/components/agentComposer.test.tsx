@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 
+vi.mock('../../../../lib/imagePreprocessing', async () => ({
+  IMAGE_PREPROCESSING: { maxPixels: 4194304 },
+  preprocessImageFile: (await import('../../../helpers/preparedImageFile')).preparedImageFile,
+}))
+
 import 'fake-indexeddb/auto'
 import type { AgentTurnReference } from '@image-playground/shared'
 import { act } from 'react'
@@ -73,7 +78,7 @@ function options(): HTMLElement[] {
 function pick(label: string): void {
   const option = options().find((one) => one.textContent?.includes(label))!
   act(() => {
-    option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    option.click()
   })
 }
 
@@ -83,6 +88,17 @@ function click(label: string): void {
     [...host.querySelectorAll('button')].find((one) => one.textContent === label)!
   act(() => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+
+async function openMask(label: string): Promise<void> {
+  const previous = useStore.getState().maskEditorSession
+  await act(async () => {
+    click(label)
+    await vi.waitFor(() => {
+      expect(useStore.getState().maskEditorSession).not.toBeNull()
+      expect(useStore.getState().maskEditorSession).not.toBe(previous)
+    })
   })
 }
 
@@ -194,7 +210,7 @@ describe('智能体输入框', () => {
     const sources = await attached()
     expect(sources).toHaveLength(1)
     expect(sources[0]).toMatch(/^data:image\/png;base64,/)
-    expect(host.textContent).toContain('海报底图')
+    expect(host.querySelector('img[alt="海报底图"]')).not.toBeNull()
     expect(host.textContent).not.toContain('松开即作为参考图')
 
     type('把它放到浴缸旁边')
@@ -229,8 +245,10 @@ describe('智能体输入框', () => {
     const dialog = useStore.getState().confirmDialog
     if (!dialog) throw new Error('missing confirm dialog')
 
-    act(() => dialog.action())
-    expect(await attached()).toHaveLength(4)
+    await act(async () => {
+      dialog.action()
+      await vi.waitFor(() => expect(host.querySelectorAll('img')).toHaveLength(4))
+    })
   })
 
   it('确认框没点确认，草稿一张参考图都不多', async () => {
@@ -289,14 +307,14 @@ describe('智能体输入框', () => {
     pickFiles(folderInput, [folderFile('产品A/2.png'), folderFile('产品A/10.png')])
 
     expect(await attached()).toHaveLength(2)
-    expect(host.textContent).toContain('2')
+    expect(host.querySelector('img[alt="2"]')).not.toBeNull()
   })
 
   it('输入框卸载再挂载后保留文字、引用和遮罩', async () => {
     render()
     type('把@')
     pick('画布图1')
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'prepared', targetDataUrl: PREPARED })
     act(() => root.render(null))
     render()
@@ -337,6 +355,9 @@ describe('智能体输入框', () => {
     await act(async () => click('发送并拟提示词'))
     expect(editor().textContent).toBe('重试这段内容')
     expect(useStore.getState().toast?.message).toContain('草稿已放回')
+    await act(async () => {
+      await vi.waitFor(() => expect(agentDraft(null).getSnapshot().submitting).toBe(false))
+    })
 
     let finish!: () => void
     useAgentStore.setState({
@@ -541,12 +562,12 @@ describe('智能体输入框', () => {
     ])
   })
 
-  it('给已引用的画布图开遮罩编辑器，直接把图交过去而不是按 id 回存储里找', () => {
+  it('给已引用的画布图开遮罩编辑器，直接把图交过去而不是按 id 回存储里找', async () => {
     render()
     type('把@')
     pick('画布图1')
 
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
 
     const state = useStore.getState()
     expect(state.maskEditorImageId).toBe('canvas-1')
@@ -561,7 +582,7 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type('的桌面换成木纹')
 
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
     click('发送并拟提示词')
@@ -574,10 +595,10 @@ describe('智能体输入框', () => {
     render()
     type('把@')
     pick('画布图1')
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
-    click('修改参考图 @图1 的遮罩')
+    await openMask('修改参考图 @图1 的遮罩')
     expect(useStore.getState().maskEditorSession?.maskDataUrl).toBe(MASK)
 
     await act(async () => {
@@ -602,11 +623,24 @@ describe('智能体输入框', () => {
 })
 
 describe('未发送的草稿', () => {
-  /** 上次在这个会话里没发出去的一句话；回到它时输入框由一个新会话读回。 */
-  async function leftBehind(conversationId: string, prompt: string): Promise<void> {
+  /** 上次在这个会话里发送失败的一句话（`failed: false` 是只打了字没发）；回到它时由一个新会话读回。 */
+  async function leftBehind(conversationId: string, prompt: string, failed = true): Promise<void> {
     const previous = new DraftSession(scopedStorageName(`agent-draft:${conversationId}`))
     await previous.ready
-    previous.update({ prompt, references: [] })
+    previous.update({
+      prompt,
+      references: [],
+      ...(failed && {
+        submission: {
+          id: `failed-${conversationId}`,
+          text: prompt,
+          mode: 'image' as const,
+          references: [],
+          params: { model: 'gpt-image-2', size: '1536x1024' },
+          clarificationAnswer: false,
+        },
+      }),
+    })
     await previous.flush()
     useAgentStore.setState({ conversationId })
   }
@@ -616,7 +650,7 @@ describe('未发送的草稿', () => {
     await vi.waitFor(() => expect(editor().getAttribute('aria-busy')).toBe('false'))
   }
 
-  it('回到项目时提示有未发送的草稿，恢复后放回输入框并能发出', async () => {
+  it('回到项目时提示发送失败的那条，恢复后放回输入框并能发出', async () => {
     await leftBehind('draft-restore', '上次没发出去的那句')
     await renderLoaded()
     expect(host.textContent).toContain('你有一条未发送的草稿')
@@ -643,16 +677,19 @@ describe('未发送的草稿', () => {
     expect(again.getSnapshot().draft.prompt).toBe('')
   })
 
-  it('开始打新内容时提示让位，清空后又回来', async () => {
+  it('打新内容时失败的那条仍在提示里，不会被盖掉', async () => {
     await leftBehind('draft-typing', '旧的那句')
     await renderLoaded()
     type('新的')
-    expect(host.textContent).not.toContain('你有一条未发送的草稿')
-    editor().textContent = ''
-    act(() => {
-      editor().dispatchEvent(new Event('input', { bubbles: true }))
-    })
     expect(host.textContent).toContain('你有一条未发送的草稿')
+    expect(host.textContent).toContain('旧的那句')
+  })
+
+  it('只打了字没发出去的，回来直接在输入框里，不弹提示', async () => {
+    await leftBehind('draft-typed', '写到一半', false)
+    await renderLoaded()
+    expect(host.textContent).not.toContain('你有一条未发送的草稿')
+    expect(editor().textContent).toBe('写到一半')
   })
 })
 

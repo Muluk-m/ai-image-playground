@@ -1,5 +1,6 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
+import type { AgentBatchAnalysisLimit } from './agent-batch'
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type {
@@ -52,6 +53,10 @@ export type AgentToolName =
   | 'proposeProductionEdit'
   | 'proposeProductionAssets'
   | 'proposeStoryboard'
+  | 'planImageBatch'
+  | 'proposeBatchGeneration'
+  | 'readBatchAnalysis'
+  | 'proposeBatchAnalysis'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
@@ -130,6 +135,59 @@ export interface AgentSkillTemplate {
 }
 
 /**
+ * 起手句的分组（见 CONTEXT.md「场景」）。取值固定，界面按它排场景按钮，文案在前端语料里。
+ * 与换背景语境里的「场景」不是一回事。
+ */
+export const AGENT_SKILL_SCENES = ['ecommerce', 'poster', 'scene-character', 'look'] as const
+
+export type AgentSkillScene = (typeof AGENT_SKILL_SCENES)[number]
+
+/** 运营在 `meta.json` 里写的中英两份文案；英文缺席时界面回退中文。 */
+export interface AgentLocalizedText {
+  readonly 'zh-CN': string
+  readonly en?: string
+}
+
+/**
+ * 技能声明的一个**素材位**（见 CONTEXT.md「素材位」）：一个位代表一个主体。
+ * 预置模板没写时由 `slotCount` 派生成 `asset1..N`。
+ */
+export interface AgentSkillInput {
+  /** 稳定标识，起手句里写成 `{key}` 引用它。 */
+  readonly key: string
+  readonly label: AgentLocalizedText
+  readonly required: boolean
+  /** 能不能放同一主体的多张图。 */
+  readonly multiple: boolean
+}
+
+/**
+ * 技能声明的一条**起手句**（见 CONTEXT.md「起手句」）。文字里的 `{key}` 是素材位引用，
+ * 只能引用这条技能声明过的位。
+ */
+export interface AgentSkillStarter {
+  readonly text: AgentLocalizedText
+  /** 填进输入框后自动选中的那个示例词；必须出现在对应语言的 `text` 里。 */
+  readonly highlight?: AgentLocalizedText
+}
+
+/** 起手句文字里的素材位引用：`{key}`。服务端校验与界面拆分共用这一条。 */
+export const AGENT_SKILL_INPUT_REF_RE = /\{([A-Za-z0-9_-]+)\}/g
+
+/** 这份文案按界面语言该取哪一种：英文缺席或为空时回退中文。 */
+export function localizedTextLocale(
+  text: AgentLocalizedText,
+  language: string,
+): keyof AgentLocalizedText {
+  return language.startsWith('en') && text.en ? 'en' : 'zh-CN'
+}
+
+/** 文案按界面语言取一份：英文缺席或为空时回退中文。 */
+export function localizedText(text: AgentLocalizedText, language: string): string {
+  return text[localizedTextLocale(text, language)] ?? text['zh-CN']
+}
+
+/**
  * 技能清单端点给前端的那一份：标识、标题、「何时用」，外加界面用的图标与一句话简介。
  * `name` 是 Agent Skills 标准的 kebab-case 标识，服务端只认它；`title` 是给人看的那个名字。
  *
@@ -146,16 +204,25 @@ export interface AgentSkillSummary {
   readonly summary: string
   /** 这条技能同时是一条预置模板时才有；缺席即它只是流程指引。 */
   readonly template?: AgentSkillTemplate
+  /** 素材位声明，始终在：预置模板没写时已由 `slotCount` 派生好。 */
+  readonly inputs: readonly AgentSkillInput[]
+  /** 起手句；引用了未声明素材位的那些已在服务端丢掉。 */
+  readonly starters: readonly AgentSkillStarter[]
+  /** 起手句归在哪个场景下；缺席即不进场景引导。 */
+  readonly scene?: AgentSkillScene
+  /**
+   * 服务端算好的「已验证」：有验证记录且记录的模型就是这条技能此刻会用的模型。
+   * 界面只露出为 true 的技能的起手句，自己不判断。
+   */
+  readonly verified: boolean
 }
 
 /**
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
  * 所以顺序不能在传输途中被重排。
  *
- * 两种形态由字节在哪儿决定，不由来源决定：像素只在这台浏览器里（拖进来的文件、
- * 烧了批注的合成图、遮罩编辑器的产出）就内联；字节已经在云媒体里（画布上选中的原图）
- * 就只带 id。后者曾经也内联：一次把八张原图下回浏览器再 base64 传上去，
- * 请求体几十 MB、要传几分钟，还白占一遍出站带宽。
+ * 启用附件上传后，原件与遮罩先就绪再传媒体身份；旧客户端与纯静态入口仍可内联。
+ * 批注、裁剪、扩图产生的新像素必须拥有自己的媒体身份，不能沿用画布原图绑定。
  */
 export type AgentTurnReference = AgentInlineReference | AgentMediaReference
 
@@ -163,6 +230,8 @@ export type AgentImageEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
 
 /** Numbered selection bounds in normalized image coordinates; the mask remains authoritative. */
 export interface AgentMarkedRegion {
+  /** Stable visible number; absent on older clients, which use array position. */
+  readonly number?: number
   readonly x: number
   readonly y: number
   readonly width: number
@@ -184,12 +253,15 @@ export interface AgentInlineReference {
 /**
  * 字节在云媒体里的参考图（`media_objects.id`）。
  *
- * 它没有遮罩：画遮罩与烧批注都产出新像素，那张图在 R2 里并不存在，只能内联。
+ * 原件和遮罩分别使用不可变媒体身份，编辑动作与区域属于同一份发话快照。
  */
 export interface AgentMediaReference {
   readonly imageId: string
   readonly mediaId: string
   readonly name?: string
+  readonly maskMediaId?: string
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 export type AgentStoredReference = AgentStoredInlineReference | AgentStoredMediaReference
@@ -204,11 +276,7 @@ export interface AgentStoredInlineReference {
 }
 
 /** 云媒体那一路的快照：字节留在 R2，会话只按 id 认领它（见 `media_references`）。 */
-export interface AgentStoredMediaReference {
-  readonly imageId: string
-  readonly name?: string
-  readonly mediaId: string
-}
+export type AgentStoredMediaReference = AgentMediaReference
 
 /**
  * 一轮里生效的生成参数：用户在输入框的参数浮层里选，随起轮一起送到服务端，
@@ -547,8 +615,35 @@ export interface AgentSaveResponse {
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
+/** Visual conclusions are accepted only after these pixels were dispatched to the model. */
+export interface AgentVisualEvidence {
+  readonly imageId: string
+  readonly source: string
+  readonly representation:
+    | 'original'
+    | 'preview'
+    | 'region'
+    | 'selection-location'
+    | 'selection-crop'
+    | 'tool-output'
+  readonly width: number | null
+  readonly height: number | null
+  readonly bytes: number
+  readonly selection: boolean
+}
+
+export interface AgentVisualObservation {
+  readonly imageId: string
+  readonly observation: string
+  readonly evidence: readonly AgentVisualEvidence[]
+}
+
 export interface AgentToolResultBlock {
   readonly productionDraftRevision?: number
+  /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
+  readonly video?: VideoGenerationRecord
+  readonly analysisLimit?: AgentBatchAnalysisLimit
+  readonly batchId?: string
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
@@ -590,6 +685,7 @@ export interface AgentToolResultBlock {
   readonly sources?: readonly AgentWebSource[]
   /** 取图这一步存下的网图。缺席即这条不是取图工具，或者没有取到。 */
   readonly fetchedImages?: readonly AgentFetchedImage[]
+  readonly visualObservations?: readonly AgentVisualObservation[]
 }
 
 /**
@@ -832,6 +928,11 @@ export interface AgentConversationView {
   readonly title: string
   readonly createdAt: number
   readonly updatedAt: number
+  /**
+   * 仅列表接口给：这段对话最近一次生成的第一张输出图。没有云端项目的对话在客户端只有
+   * 一条本地项目记录，画布又是空的，封面只能靠它。
+   */
+  readonly coverMediaId?: string
 }
 
 /** 一轮的消耗明细，单位是积分。 */
@@ -1059,6 +1160,7 @@ export type AgentTurnErrorCode =
   | 'agent_tool_failed'
   | 'agent_turn_interrupted'
   | 'agent_context_overflow'
+  | 'agent_request_budget_exceeded'
 
 /** 失败诊断只保留错误文本与调用标识，不包含请求内容或认证信息。 */
 export interface AgentTurnFailure {
@@ -1216,6 +1318,8 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return block.saveCard.status === 'saved'
       ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
       : `${title}：卡片已经给到用户，他还没按下保存`
+  if (block.visualObservations?.length)
+    return `${title}：完成；已观察结论：${block.visualObservations.map((entry) => `图片 ${entry.imageId}：${entry.observation}`).join('；')}。需要像素时用 viewImage 重读。`
   if (block.fetchedImages?.length)
     return `${title}：完成，${block.fetchedImages
       .map((image) => `图片 ${image.imageId}（来自 ${image.sourceUrl}）`)

@@ -22,13 +22,7 @@ export function ToolStatus({
     <span
       data-slot="tool-status"
       data-status={status}
-      className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
-        status === 'failed'
-          ? 'bg-destructive/10 text-destructive'
-          : status === 'succeeded'
-            ? 'bg-primary/10 text-primary'
-            : 'bg-background/70 text-muted-foreground'
-      }`}
+      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-foreground/5 px-1.5 py-0.5 text-label-sm font-medium text-muted-foreground"
     >
       <Icon
         aria-hidden="true"

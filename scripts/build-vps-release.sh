@@ -37,7 +37,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 acquire_deploy_lock "$build_lock" "images $target $public_sha $private_sha"
-# Fail on missing registry credentials now rather than after the builds.
+# Fail on missing tools or registry credentials now rather than after the first image is pushed.
+if [ "$transport" = registry ] && ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required to read the pushed image digests (brew install jq / apt-get install jq)." >&2
+  exit 1
+fi
 [ "$transport" = archive ] || ghcr_login "${GHCR_PUSH_TOKEN_FILE:-$config_root/ghcr-push-token}"
 snapshot=$(mktemp -d)
 mkdir "$snapshot/public" "$snapshot/private"
@@ -57,24 +61,37 @@ fi
 docker buildx inspect "$builder" --bootstrap >/dev/null
 limits=$(docker inspect buildx_buildkit_aip-release0 --format '{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}} {{.HostConfig.CpuQuota}}')
 [ "$limits" = '6442450944 6442450944 400000' ] || { echo "Unexpected release builder resource limits: $limits" >&2; exit 1; }
-# push_image <local-image> <registry-tag> pushes the image to GHCR and sets $repo_digest to the
-# digest reference the VPS pulls. In archive transport it only sets $repo_digest to `-`.
-push_image() {
-  repo_digest=-
-  [ "$transport" = registry ] || return 0
+# build_image <local-image> <registry-tag> <context> [buildx args...] builds one image and sets
+# $image_id and $repo_digest for images.tsv.
+#
+# Registry transport pushes straight from the builder: exporting into the local Docker store and
+# pushing from there cost about a minute and a half per image for nothing the VPS uses. The VPS
+# pulls by $repo_digest; provenance and SBOM stay off so that digest names one linux/amd64
+# Docker v2 manifest, the same shape `docker push` produced. Archive transport loads the image
+# so `docker save` can pack it.
+build_image() {
+  local_image=$1
   remote=$ghcr_repository:$2
-  docker tag "$1" "$remote"
-  if ! docker push "$remote" >"$snapshot/push.log"; then
-    cat "$snapshot/push.log"
-    echo "Push failed: $remote" >&2
-    exit 1
+  context=$3
+  shift 3
+  if [ "$transport" = registry ]; then
+    docker buildx build --builder "$builder" --platform linux/amd64 \
+      --provenance=false --sbom=false --metadata-file "$snapshot/metadata.json" \
+      --output "type=image,name=$remote,push=true,oci-mediatypes=false" "$@" "$context"
+    image_id=$(jq -r '."containerimage.config.digest" // empty' "$snapshot/metadata.json")
+    manifest=$(jq -r '."containerimage.digest" // empty' "$snapshot/metadata.json")
+    if ! printf '%s\n%s\n' "$image_id" "$manifest" | grep -Ecx 'sha256:[0-9a-f]{64}' | grep -qx 2; then
+      echo "No image digests in the build metadata for $remote" >&2
+      exit 1
+    fi
+    repo_digest=$ghcr_repository@$manifest
+    rm -f "$snapshot/metadata.json"
+  else
+    docker buildx build --builder "$builder" --platform linux/amd64 --load \
+      --tag "$local_image" "$@" "$context"
+    image_id=$(docker image inspect "$local_image" --format '{{.Id}}')
+    repo_digest=-
   fi
-  cat "$snapshot/push.log"
-  pushed=$(sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "$snapshot/push.log" | tail -n 1)
-  [ -n "$pushed" ] || { echo "No digest in the push output for $remote" >&2; exit 1; }
-  repo_digest=$ghcr_repository@$pushed
-  # Only the local tag names the image from here on; untagging leaves the image itself in place.
-  docker rmi "$remote" >/dev/null || true
 }
 mkdir -p "$output/scripts/lib" "$output/deploy"
 cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" \
@@ -94,21 +111,16 @@ for edition in $editions; do
     registry_tag=$edition-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
     set -- --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true
   fi
-  docker buildx build --builder "$builder" --platform linux/amd64 --load \
-    --build-arg "APP_VERSION=$version" --tag "$image" "$@" "$snapshot/public"
-  image_id=$(docker image inspect "$image" --format '{{.Id}}')
-  push_image "$image" "$registry_tag"
+  build_image "$image" "$registry_tag" "$snapshot/public" --build-arg "APP_VERSION=$version" "$@"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$edition" "$image" "$image_id" "$public_sha" "$private_sha" \
     "$repo_digest" >> "$output/images.tsv"
   images="$images $image"
 done
 # The backup sidecar is also prebuilt; production Compose has no build context.
 backup_image=ai-image-playground:backup-$(printf %.12s "$public_sha")
-docker buildx build --builder "$builder" --platform linux/amd64 --load \
-  --build-arg "APP_VERSION=$public_sha" --tag "$backup_image" "$snapshot/public/deploy/backup"
-backup_id=$(docker image inspect "$backup_image" --format '{{.Id}}')
-push_image "$backup_image" "backup-$(printf %.12s "$public_sha")"
-printf 'backup\t%s\t%s\t%s\t-\t%s\n' "$backup_image" "$backup_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
+build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/backup" \
+  --build-arg "APP_VERSION=$public_sha"
+printf 'backup\t%s\t%s\t%s\t-\t%s\n' "$backup_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
 images="$images $backup_image"
 if [ "$transport" = archive ]; then
   # Separate commands preserve save failures (a shell pipeline would only report gzip's status).

@@ -1,4 +1,51 @@
 {
   "icon": "scan-search",
-  "summary": "看着参考图反推出可复现的提示词"
+  "summary": "看着参考图反推出可复现的提示词",
+  "inputs": [
+    {
+      "key": "reference",
+      "label": {
+        "zh-CN": "参考图",
+        "en": "Reference image"
+      }
+    },
+    {
+      "key": "product",
+      "label": {
+        "zh-CN": "我的商品",
+        "en": "My product"
+      },
+      "required": false,
+      "multiple": true
+    }
+  ],
+  "scene": "scene-character",
+  "starters": [
+    {
+      "text": {
+        "zh-CN": "把 {reference} 反推成一段能复现它的提示词",
+        "en": "Reverse-engineer a prompt that recreates {reference}"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "照着 {reference} 的光线和构图，给 {product} 出一张同款",
+        "en": "Shoot {product} with the lighting and composition of {reference}"
+      },
+      "highlight": {
+        "zh-CN": "光线和构图",
+        "en": "lighting and composition"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "把 {reference} 的风格写成一份模板",
+        "en": "Turn the style of {reference} into a template"
+      },
+      "highlight": {
+        "zh-CN": "风格",
+        "en": "style"
+      }
+    }
+  ]
 }

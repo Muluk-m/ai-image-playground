@@ -4,6 +4,7 @@ import type {
   AgentStoredReference,
   AgentTurnReference,
 } from '@image-playground/shared'
+import { TEST_IMAGE } from '../../helpers/imageFixtures'
 
 // 只问引用的形状，一个字节都不取：库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-images'
@@ -13,7 +14,7 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
 const { createAgentImageSource, activeAgentReferences } = await import('../../../lib/agent/images')
 
-const PIXEL = 'data:image/png;base64,aGk='
+const PIXEL = TEST_IMAGE.pngDataUrl
 
 function userMessage(references: readonly AgentStoredReference[]): AgentMessageView {
   return {

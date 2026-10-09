@@ -12,10 +12,6 @@
       "name": "转格式",
       "options": "JPG · PNG · WebP · AVIF"
     },
-    "resize": {
-      "name": "改尺寸",
-      "options": "长边 · 宽度 · 百分比"
-    },
     "crop": {
       "name": "裁剪",
       "options": "比例 · 电商 / 社媒尺寸"
@@ -35,6 +31,10 @@
     "slice": {
       "name": "九宫格切图",
       "options": "3×3 · 2×2 · 1×3"
+    },
+    "export": {
+      "name": "尺寸与导出",
+      "options": "等比缩放 · 倍图 · 格式"
     }
   },
   "intake": {
@@ -44,21 +44,16 @@
     "addFolder": "文件夹",
     "hint": "拖入图片或文件夹，也可以直接粘贴",
     "chooseImages": "选择图片",
-    "chooseFolder": "选择文件夹"
+    "chooseFolder": "选择文件夹",
+    "clearAll": "清空全部"
   },
   "page": {
-    "back": "工具箱"
+    "returnToTools": "返回工具箱"
   },
   "params": {
     "format": "输出格式",
     "quality": "质量",
     "convertTo": "转成",
-    "resizeBy": "按",
-    "resize": {
-      "longEdge": "长边",
-      "width": "宽度",
-      "percent": "百分比"
-    },
     "rotate": "旋转",
     "flip": "翻转",
     "flipH": "水平",
@@ -124,5 +119,40 @@
     "slices_other": "{{count}} 张切图",
     "up": "上移",
     "down": "下移"
+  },
+  "export": {
+    "title": "导出",
+    "description": "设置尺寸、倍率和格式后导出图片",
+    "size": "尺寸",
+    "width": "宽度",
+    "height": "高度",
+    "reset": "恢复原始尺寸",
+    "by": {
+      "original": "原始尺寸",
+      "width": "按宽度",
+      "height": "按高度",
+      "percent": "按百分比"
+    },
+    "outputs": "导出规格",
+    "addRow": "添加规格",
+    "removeRow": "移除规格",
+    "scaleRow": "规格 {{index}} 倍率",
+    "formatRow": "规格 {{index}} 格式",
+    "selected_other": "{{count}} 个文件",
+    "batchHint": "每张图保持原比例",
+    "loading": "正在读取尺寸…",
+    "originalFailed": "原图读取失败，请稍后重试",
+    "limit": "输出尺寸 {{width}} × {{height}} 超出浏览器上限，请调小尺寸或倍率",
+    "failed": "导出失败，请重试；图片较大时可调小尺寸或倍率",
+    "done_other": "已导出 {{count}} 个文件",
+    "progress": "正在导出 {{done}} / {{total}}",
+    "action_other": "导出 {{count}} 个文件",
+    "zipHint": "多个文件会打包成 ZIP 下载",
+    "jpegHint": "JPG 不支持透明，透明区域会填充为白色",
+    "videoHint": "视频按原文件导出，尺寸和格式只对图片生效",
+    "undecodable": "无法解码此格式",
+    "select": "选择",
+    "downloadOriginal": "下载原图",
+    "export": "导出"
   }
 }

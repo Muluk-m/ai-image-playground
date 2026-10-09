@@ -1,5 +1,5 @@
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { finishTask, heldBy } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
@@ -12,6 +12,7 @@ import type {
   TaskUsage,
 } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
+import { reservedTokenUsage, settledTokenUsage } from '../token-pricing'
 import { AGENT_EXECUTION_LEASE_MS, agentExecutionToken } from './execution'
 import type { AgentTurnSettlement } from './turn'
 
@@ -105,47 +106,16 @@ export function chatTurnSettle(
   }
 }
 
-/**
- * 单价表的每单位积分数是正整数，装不下按千 token 的小数单价：把千 token 数塞进单位倍率，
- * 钩子里的「单价 × 数量 × 倍率后向上取整」才算得出输入 6 / 输出 30 这两档。
- */
-function usageUnits(
-  inputTokens: number,
-  outputTokens: number,
-  pricing: ChatTaskPricing,
-  cachedInputTokens = 0,
-): { quantity: number; unitMultiplier: number } {
-  return {
-    quantity: 1,
-    unitMultiplier:
-      (inputTokens -
-        cachedInputTokens +
-        cachedInputTokens * (pricing.cachedInputPriceRatio ?? 0) +
-        outputTokens * pricing.outputPriceRatio) /
-      1_000,
-  }
-}
-
-/**
- * 预扣：输入按起轮前的估算，输出按预留上限。
- * 与 `actualChatUsage` 一起导出给私有计费套件：它拿真实账本验这套折算端到端对得上。
- */
+/** Preserve the existing chat host exports while sharing token conversion with other task kinds. */
 export function reservedChatUsage(
   estimatedInputTokens: number,
   pricing: ChatTaskPricing,
 ): TaskUsage {
-  return usageUnits(estimatedInputTokens, pricing.outputReserveTokens, pricing)
+  return reservedTokenUsage(estimatedInputTokens, pricing)
 }
 
 export function actualChatUsage(usage: AgentTurnUsage, pricing: ChatTaskPricing): TaskUsage {
-  return {
-    ...usageUnits(usage.inputTokens, usage.outputTokens, pricing, usage.cachedInputTokens),
-    tokens: {
-      input: usage.inputTokens,
-      output: usage.outputTokens,
-      ...(usage.cachedInputTokens ? { cachedInput: usage.cachedInputTokens } : {}),
-    },
-  }
+  return settledTokenUsage(usage, pricing)
 }
 
 /**
@@ -195,6 +165,7 @@ async function collectTurnCost(conversationId: string, turnId: string): Promise<
         // 前导列不给全就用不上 idx_tasks_agent_turn，退化成全表扫。
         eq(schema.tasks.agent_conversation_id, conversationId),
         eq(schema.tasks.agent_turn_id, turnId),
+        inArray(schema.tasks.kind, ['queue', 'chat']),
       ),
     )
   const overlay = await loadPrivateBffOverlay()

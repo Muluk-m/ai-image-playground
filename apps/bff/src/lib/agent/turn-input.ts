@@ -15,12 +15,7 @@ import {
 } from './images'
 import { agentModel } from './model'
 import { requestOverheadTokens } from './request-budget'
-import {
-  type EvidenceListing,
-  evidenceBlocks,
-  evidenceManifest,
-  referenceEvidence,
-} from './selection-preview'
+import { type EvidenceListing, evidenceBlocks, evidenceManifest } from './selection-preview'
 import {
   type AgentSkill,
   type AgentTurnAudience,
@@ -31,6 +26,7 @@ import {
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations, agentToolGuidance } from './tools'
+import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**
  * 「这一轮送给模型的输入长什么样」只由本模块回答，因为它有两个读者：起轮前的预扣估算
@@ -64,6 +60,7 @@ const PLACEHOLDER_SELECTION = {
 function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
   return references.map((reference) => ({
     imageId: reference.imageId,
+    representation: 'mediaId' in reference && !referenceHasMask(reference) ? 'preview' : 'original',
     ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
     ...('editAction' in reference && reference.editAction
       ? { editAction: reference.editAction }
@@ -137,13 +134,21 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
   auto: '这一轮是出图模式：生图、生视频与改图工具拟好提示词就当场提交并计费，用户不再逐张确认，所以一次调用就是一次真实花费——想清楚再调，不要试探性地多调。任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。工具回执会说清这一次到底提交了没有：说「等待确认」就是没提交（额度用完或余额不足退回了待确认），这时照对话模式的规矩说话，不要声称已经在生成。复核后若需要新的生成，重新调用一次即可，但不自行付费重试同一件事。',
 }
 
-function systemPrompt(mode: AgentMode, autoSubmit: boolean, audience: AgentTurnAudience): string {
+export function systemPrompt(
+  mode: AgentMode,
+  autoSubmit: boolean,
+  audience: AgentTurnAudience,
+): string {
   return [
     audience.experience === 'chat'
       ? '你是对话中的创作助手。根据用户消息、本轮附件和对话历史里的图片帮助用户创作；查看图片使用对话中的真实图片 ID，不猜测图片 ID。当前是 chat，没有画布，不读取、整理或编辑画布，也不引导用户去画布。'
       : '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
     '用中文回答，简短、具体，不要复述用户的话。',
-    MODE_LINE[mode],
+    audience.experience === 'chat'
+      ? agentToolDeclarations(mode, audience).some((tool) => tool.name === 'generateVideo')
+        ? '根据用户当前请求选择图片或视频工具，项目类型不限制对话里的创作。用户明确要求视频才使用生视频工具；只能使用本轮实际提供的工具，不承诺尚未提供的能力。'
+        : '当前对话仅提供图片创作工具，不支持生成视频；用户明确要视频时如实说明限制，不得替他改为生图。'
+      : MODE_LINE[mode],
     '设计请求先抓住用户想表达的意思，再决定观众第一眼看到什么、视线如何移动；构图、光线、色彩与材质都服务于这个表达。用户说过的要求和你自行补的设计选择要分清；只靠“高级感”“氛围感”等空词不能算完成设计。',
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(mode, audience),
@@ -320,8 +325,9 @@ export interface TurnVisualEvidence {
 /** 视觉证据要读图片字节，所以只有实发路径走得起；预扣估算改用占位块。 */
 export function turnVisualEvidence(
   images: readonly ResolvedAgentImage[],
+  source: VisualEvidenceSource = 'initial',
 ): Promise<TurnVisualEvidence> {
-  return referenceEvidence(images)
+  return prepareVisualEvidence(images, source)
 }
 
 /** 交给 `agent.prompt` / `agent.steer` 的那一份：文字在前，视觉证据的清单收尾。 */

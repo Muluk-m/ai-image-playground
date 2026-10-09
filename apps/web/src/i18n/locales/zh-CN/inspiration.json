@@ -1,10 +1,9 @@
 {
   "panel": {
-    "title": "灵感库",
-    "count_other": "{{count}} 条",
     "searchPlaceholder": "搜索标题 / 提示词 / 标签"
   },
   "filter": {
+    "provider": "模型",
     "all": "全部",
     "imageEdit": "图生图 · 看前后对比"
   },

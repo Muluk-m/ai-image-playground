@@ -1,5 +1,6 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
+import { inspectMaskedAlignment } from '../../../lib/agent/masked-alignment'
 import { protectMaskedOutput } from '../../../lib/agent/masked-output'
 
 async function png(values: number[], mask = false) {
@@ -14,6 +15,81 @@ async function png(values: number[], mask = false) {
 const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`
 const source = await png([255, 0, 0, 255, 0, 255, 0, 255, 255, 0, 0, 255])
 const mask = await png([0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 128], true)
+
+it('accepts fine texture changes on a flat background but rejects a different background tone', async () => {
+  const width = 768,
+    height = 768
+  const source = Buffer.alloc(width * height * 4),
+    candidate = Buffer.alloc(source.length),
+    mask = Buffer.alloc(source.length, 255)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      const texture = (x + y) % 2 ? 30 : -30
+      source.set([128 + texture, 128 + texture, 128 + texture, 255], i)
+      candidate.set([128 - texture, 128 - texture, 128 - texture, 255], i)
+      if (x > 390 && y > 390) mask[i + 3] = 0
+    }
+  const encode = (data: Buffer) =>
+    sharp(data, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+  const protect = await protectMaskedOutput(url(await encode(source)), url(await encode(mask)))
+  const result = await protect(await encode(candidate))
+  expect(result.inspection.texturedRegions).toBe(0)
+  const output = await sharp(result.bytes).raw().toBuffer()
+  for (let i = 0; i < source.length; i += 4)
+    if (mask[i + 3] === 255 && !source.subarray(i, i + 4).equals(output.subarray(i, i + 4)))
+      throw new Error('changed protected pixel')
+  for (let i = 0; i < candidate.length; i += 4)
+    for (let channel = 0; channel < 3; channel++) candidate[i + channel]! += 20
+  await expect(protect(await encode(candidate))).rejects.toThrow('位置对应无法确认')
+})
+
+it('accepts a product edit with regenerated fine texture but rejects shifted protected objects', async () => {
+  const width = 768,
+    height = 768
+  const source = Buffer.alloc(width * height * 4),
+    candidate = Buffer.alloc(source.length),
+    mask = Buffer.alloc(source.length, 255)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      const selected = x > 390 && y > 390
+      const object = x > 80 && x < 680 && y > 80 && y < 680
+      const tone = object ? 110 + 45 * Math.sin(x / 35) * Math.cos(y / 30) : 255
+      const texture = object ? ((x + y) % 2 ? 30 : -30) : 0
+      source.set([tone + texture, tone + texture, tone + texture, 255], i)
+      candidate.set(
+        selected ? [20, 160, 120, 255] : [tone - texture, tone - texture, tone - texture, 255],
+        i,
+      )
+      if (selected) mask[i + 3] = 0
+    }
+  const encode = (data: Buffer) =>
+    sharp(data, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+  // 原逐像素相关性会被反相的细纹理击穿，即使商品轮廓仍在原位。
+  expect(inspectMaskedAlignment(source, candidate, mask, width, height).accepted).toBe(true)
+  const protect = await protectMaskedOutput(url(await encode(source)), url(await encode(mask)))
+  const result = await protect(
+    await sharp(await encode(candidate))
+      .jpeg({ quality: 85 })
+      .toBuffer(),
+  )
+  const output = await sharp(result.bytes).ensureAlpha().raw().toBuffer()
+  for (let i = 0; i < source.length; i += 4)
+    if (mask[i + 3] === 255 && !source.subarray(i, i + 4).equals(output.subarray(i, i + 4)))
+      throw new Error('changed protected pixel')
+  expect(result.inspection.insideChangedPixels).toBeGreaterThan(0)
+  const shifted = await sharp(await encode(candidate))
+    .extract({ left: 24, top: 0, width: width - 24, height })
+    .extend({ left: 0, right: 24, top: 0, bottom: 0, background: '#fff' })
+    .png()
+    .toBuffer()
+  await expect(protect(shifted)).rejects.toThrow('位置对应无法确认')
+})
 
 it('restores protected pixels exactly and confines feathering to the approved selection', async () => {
   const protect = await protectMaskedOutput(url(source), url(mask))

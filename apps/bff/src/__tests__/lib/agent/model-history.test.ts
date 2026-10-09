@@ -4,8 +4,15 @@ import type { AgentMessageView } from '@image-playground/shared'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = 'postgres://unused/model-history'
-const { modelHistoryTransform, modelHistorySkillsMatch, readModelHistory, writeModelHistory } =
-  await import('../../../lib/agent/model-history')
+const {
+  canRetainModelHistory,
+  modelHistoryFingerprint,
+  modelHistoryTransform,
+  modelHistorySkillsMatch,
+  readModelHistory,
+  referenceCarriesSelection,
+  writeModelHistory: writeWithSignal,
+} = await import('../../../lib/agent/model-history')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 
 const product: AgentMessageView[] = [
@@ -25,10 +32,7 @@ const identity = {
 const messages: AgentMessage[] = [
   {
     role: 'user',
-    content: [
-      { type: 'text', text: '当前时间：2026-10-01\n看看这张图' },
-      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
-    ],
+    content: [{ type: 'text', text: '当前时间：2026-10-01\n看看这张图' }],
     timestamp: 1,
   },
   {
@@ -54,15 +58,24 @@ const messages: AgentMessage[] = [
     role: 'toolResult',
     toolCallId: 'call-1',
     toolName: 'viewImage',
-    content: [
-      { type: 'text', text: '原图' },
-      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
-    ],
+    content: [{ type: 'text', text: '原图' }],
     isError: false,
     timestamp: 3,
   },
 ]
 let store: InMemoryObjectStore
+
+/** 轮后保存那一步先比对过产品历史，这里直接按传入的历史算指纹。 */
+const writeModelHistory = (
+  key: typeof identity & { skillTexts?: ReadonlyMap<string, string> },
+  native: readonly AgentMessage[],
+  signal: AbortSignal = AbortSignal.timeout(5_000),
+) =>
+  writeWithSignal(
+    { ...key, historyFingerprint: modelHistoryFingerprint(key.history) },
+    native,
+    signal,
+  )
 beforeEach(() => {
   store = new InMemoryObjectStore()
   setObjectStoreForTesting(store)
@@ -70,7 +83,7 @@ beforeEach(() => {
 afterEach(() => setObjectStoreForTesting())
 
 describe('durable model history cache', () => {
-  it('restores paired tools, exact timestamps and image bytes through the storage boundary', async () => {
+  it('restores text-only paired tools and exact timestamps through the storage boundary', async () => {
     await writeModelHistory(identity, messages)
     expect(await readModelHistory(identity)).toEqual(messages)
     await writeModelHistory(identity, messages)
@@ -124,16 +137,30 @@ describe('durable model history cache', () => {
     ).toBe(false)
   })
 
-  it('falls back when valid JSON contains an image header that breaks token estimation', async () => {
-    await writeModelHistory(identity, messages)
-    const header = Buffer.alloc(16)
-    Buffer.from('89504e470d0a1a0a', 'hex').copy(header)
-    for (const object of store.objects.values()) {
-      const snapshot = JSON.parse(Buffer.from(object.bytes).toString())
-      snapshot.messages[0].content[1].data = header.toString('base64')
-      object.bytes = Buffer.from(JSON.stringify(snapshot))
+  it('never writes image blocks, including already released buffers, to native history', async () => {
+    for (const data of ['aGk=', '']) {
+      const visualMessages = structuredClone(messages)
+      const first = visualMessages[0]!
+      if (first.role !== 'user' || !Array.isArray(first.content)) throw new Error('invalid fixture')
+      first.content.push({ type: 'image', data, mimeType: 'image/png' })
+      await writeModelHistory(identity, visualMessages)
+      expect(store.objects.size).toBe(0)
+      expect(await readModelHistory(identity)).toBeUndefined()
     }
-    expect(await readModelHistory(identity)).toBeUndefined()
+  })
+
+  it('rejects legacy cached user and tool images rather than restoring untracked pixels', async () => {
+    for (const index of [0, 2]) {
+      for (const data of ['aGk=', '']) {
+        await writeModelHistory(identity, messages)
+        for (const object of store.objects.values()) {
+          const snapshot = JSON.parse(Buffer.from(object.bytes).toString())
+          snapshot.messages[index].content.push({ type: 'image', data, mimeType: 'image/png' })
+          object.bytes = Buffer.from(JSON.stringify(snapshot))
+        }
+        expect(await readModelHistory(identity)).toBeUndefined()
+      }
+    }
   })
 
   it('cancels a stalled metadata request at the read deadline', async () => {
@@ -166,22 +193,93 @@ describe('durable model history cache', () => {
         }
       })
     }
-    await writeModelHistory(identity, messages)
+    await expect(writeModelHistory(identity, messages, AbortSignal.timeout(50))).rejects.toThrow()
     expect(signal?.aborted).toBe(true)
     await finish()
     expect(
       await readModelHistory({ ...identity, history: [{ ...product[0]!, id: 'next-user' }] }),
     ).toBeUndefined()
-  }, 10_000)
+  })
+
+  it('keeps cloud mask bindings scoped to the originating request', () => {
+    const history = {
+      coveredCount: 0,
+      compaction: { summary: null, anchor: null, verbatim: null, failureCount: 0, openedAt: null },
+      messages: product,
+    }
+    expect(canRetainModelHistory(history)).toBe(true)
+    expect(
+      canRetainModelHistory({
+        ...history,
+        messages: [
+          {
+            ...product[0]!,
+            content: [
+              {
+                type: 'text',
+                text: '只改选区',
+                references: [
+                  {
+                    imageId: 'photo',
+                    mediaId: '11111111-1111-4111-8111-111111111111',
+                    maskMediaId: '22222222-2222-4222-8222-222222222222',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(false)
+  })
 
   it('never restores unfinished calls or request-scoped selection bindings', async () => {
     await writeModelHistory(identity, messages.slice(0, 2))
     expect(await readModelHistory(identity)).toBeUndefined()
-    await writeModelHistory(identity, [
-      { role: 'user', content: 'selection_old_scope', timestamp: 0 },
-      ...messages,
-    ])
+    const bound = structuredClone(messages)
+    const call = bound[1]
+    if (call?.role !== 'assistant' || call.content[0]?.type !== 'toolCall')
+      throw new Error('invalid fixture')
+    call.content[0].arguments = {
+      imageIds: ['image-1'],
+      selectionBindings: [{ imageId: 'image-1', selectionId: `selection_${'a'.repeat(64)}` }],
+    }
+    await writeModelHistory(identity, bound)
+    expect(store.objects.size).toBe(0)
+    // 旧对象里若已带着选区绑定，读取同样拒绝。
+    await writeModelHistory(identity, messages)
+    for (const object of store.objects.values()) {
+      const snapshot = JSON.parse(Buffer.from(object.bytes).toString())
+      snapshot.messages[1].content[0].arguments = {
+        deferredEdits: [
+          { targetImageId: 'image-2', selectionId: 'selection_x', requestQuote: 'q' },
+        ],
+      }
+      object.bytes = Buffer.from(JSON.stringify(snapshot))
+    }
     expect(await readModelHistory(identity)).toBeUndefined()
+  })
+
+  it('keeps caching when the user merely mentions a selection id in plain text', async () => {
+    const mentioned: AgentMessage[] = [
+      { role: 'user', content: '上次那个 selection_old_scope 是什么意思？', timestamp: 0 },
+      ...messages,
+    ]
+    await writeModelHistory(identity, mentioned)
+    expect(await readModelHistory(identity)).toEqual(mentioned)
+  })
+
+  it('treats every stored or request selection form as request-scoped', () => {
+    expect(referenceCarriesSelection({ imageId: 'a', mediaId: 'm' })).toBe(false)
+    expect(referenceCarriesSelection({ imageId: 'a', regions: [] })).toBe(false)
+    for (const field of [
+      { mask: 'data:image/png;base64,AA==' },
+      { maskMediaId: 'mask-media' },
+      { maskDataUrl: 'data:image/png;base64,AA==' },
+      { regions: [{ x: 0, y: 0, width: 1, height: 1 }] },
+      { editAction: 'remove' },
+    ])
+      expect(referenceCarriesSelection({ imageId: 'a', ...field })).toBe(true)
   })
 
   it('rejects oversized objects before opening a response stream', async () => {
@@ -197,9 +295,9 @@ describe('durable model history cache', () => {
     expect(streamed).toBe(false)
   })
 
-  it('falls back on unavailable storage without changing the caller outcome', async () => {
+  it('leaves nothing readable when storage rejects the write', async () => {
     store.writeFailuresRemaining = 1
-    await expect(writeModelHistory(identity, messages)).resolves.toBeUndefined()
+    await expect(writeModelHistory(identity, messages)).rejects.toThrow()
     expect(await readModelHistory(identity)).toBeUndefined()
   })
 
@@ -207,9 +305,14 @@ describe('durable model history cache', () => {
     const replay: AgentMessage[] = [{ role: 'user', content: '历史摘要', timestamp: 1 }]
     const current: AgentMessage = { role: 'user', content: '现在的问题', timestamp: 4 }
     const seen: AgentMessage[][] = []
+    let replays = 0
     const transform = modelHistoryTransform({
+      signature: 'model-and-authority-1',
       nativePrefixLength: messages.length,
-      replay,
+      replay: () => {
+        replays++
+        return replay
+      },
       settings: {
         contextWindow: 1_000,
         maxOutputTokens: 100,
@@ -234,5 +337,6 @@ describe('durable model history cache', () => {
       [...replay, current, large, current],
     ])
     expect(transform.reusable()).toBe(false)
+    expect(replays).toBe(1)
   })
 })

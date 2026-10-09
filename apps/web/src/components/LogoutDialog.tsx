@@ -14,8 +14,8 @@ export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps)
   const [clearLocalData, setClearLocalData] = useState(false)
 
   return (
-    <Overlay onClose={onCancel} tier="alert">
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
+    <Overlay onClose={onCancel} tier="alert" label={t('logout.title')}>
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
         <h3 className="text-base font-semibold text-foreground">{t('logout.title')}</h3>
 
         <Checkbox

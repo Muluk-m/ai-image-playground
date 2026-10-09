@@ -61,7 +61,9 @@ async function doApply(item: InspirationItem): Promise<void> {
     // already-staged reference IDs to the first agent turn.
     current.setPrompt(`/${item.skill} ${item.prompt}`)
     inspiration.closeDetail()
-    if (!(await startCanvasFromComposer())) {
+    // 跟首屏输入框同一套：选的是「对话」就开对话项目，其余（画布、快速生成）开画布。
+    const experience = current.createTarget === 'chat' ? 'chat' : 'canvas'
+    if (!(await startCanvasFromComposer(undefined, experience))) {
       current.showToast(i18next.t('apply.canvasFailed', { ns: 'inspiration' }), 'error')
     }
     return

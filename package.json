@@ -10,8 +10,10 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "lint": "biome check . && bun run scripts/check-private-boundary.ts",
+    "lint": "biome check . && bun run scripts/check-private-boundary.ts && bun run scripts/check-adr-numbers.ts && bun run scripts/check-i18n-keys.ts && bun run scripts/check-design.ts",
+    "design:baseline": "bun run scripts/check-design.ts --update",
     "i18n:check": "bun run scripts/check-i18n-keys.ts",
+    "lint:sh": "shellcheck -x -P SCRIPTDIR -S warning scripts/*.sh scripts/lib/*.sh deploy/backup/*.sh",
     "format": "biome format --write .",
     "test:deps:up": "./scripts/infra-compose.sh up",
     "test:deps:down": "./scripts/infra-compose.sh down",
@@ -20,6 +22,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
-    "turbo": "^2.5.0"
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "exact-mirror": "0.2.7"
+    }
   }
 }

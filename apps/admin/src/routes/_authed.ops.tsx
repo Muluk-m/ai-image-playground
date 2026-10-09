@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 
 import { OpsBoard } from '@/components/ops/OpsBoard'
 import { ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
+import { Button } from '@/components/ui/button'
 import { useOps } from '@/lib/queries'
 import {
   DEFAULT_OPS_RANGE,
@@ -62,6 +63,9 @@ function OpsPage() {
       ) : (
         <PendingState label="正在查看部署状况" />
       )}
+      <Button variant="outline" asChild>
+        <Link to="/logs">查看服务端日志</Link>
+      </Button>
     </Page>
   )
 }

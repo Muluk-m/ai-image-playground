@@ -15,8 +15,14 @@ import { openCanvas } from '../../helpers/activeProject'
 
 const state = () => useAgentStore.getState()
 let turnResponse: () => Promise<Response>
+let receiptResponse: () => Response
+let withdrawalResponse: () => Response
 const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   const url = String(input)
+  if (url.includes('/submissions/'))
+    return url.endsWith('/withdraw') || url.endsWith('/reconcile')
+      ? withdrawalResponse()
+      : receiptResponse()
   if (url.endsWith('/abort')) return Response.json({ aborted: true })
   if (url.endsWith('/conversations') && init?.method === 'POST')
     return Response.json({
@@ -27,6 +33,11 @@ const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   return Response.json({ messages: [], turns: [], activeTurn: null })
 })
 beforeEach(async () => {
+  receiptResponse = () => Response.json({ receipt: null })
+  withdrawalResponse = () =>
+    Response.json({
+      receipt: { state: 'cancelled', queued: { id: 'not-accepted', text: '', createdAt: 1 } },
+    })
   history.replaceState(null, '', '/')
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
@@ -62,7 +73,17 @@ it.each([false, true])('发送中点中止后切项目，重新订阅=%s 时仍�
   const sending = state().send('旧项目生成')
   await vi.waitFor(() => expect(release).toBeTypeOf('function'))
   const oldConversation = state().conversationId
+  receiptResponse = () =>
+    Response.json({
+      receipt: {
+        state: 'consumed',
+        turnId: 'old-turn',
+        queued: { id: 'old-user', text: '旧项目生成', createdAt: 1 },
+      },
+    })
+  withdrawalResponse = receiptResponse
   await state().abort()
+  await vi.waitFor(() => expect(state().returnedMessagesPending).toBe(false))
   expect(await state().createProject()).toBe(true)
   let resumed: ReadableStreamDefaultController<Uint8Array> | undefined
   if (reopen) {
@@ -404,4 +425,38 @@ it('删除当前空项目时必须切换到另一个项目，不能复用即将�
   expect(next).toBeTruthy()
   expect(next).not.toBe(first)
   expect(useCanvasProjectStore.getState().projects.some((one) => one.id === next)).toBe(true)
+})
+
+it('删除当前画布项目后顶上来的仍是画布项目，不会被送进对话页', async () => {
+  expect(await state().createProject(undefined, false, 'canvas')).toBe(true)
+  const canvas = useCanvasProjectStore.getState().activeId!
+  expect(await state().deleteProject(canvas)).toBe(true)
+  const next = useCanvasProjectStore
+    .getState()
+    .projects.find((one) => one.id === useCanvasProjectStore.getState().activeId)
+  expect(next?.id).not.toBe(canvas)
+  expect(next?.experience).toBe('canvas')
+})
+
+it('在画布项目里另起新对话，仍开一个画布项目', async () => {
+  expect(await state().createProject(undefined, false, 'canvas')).toBe(true)
+  currentCanvasWorkspace().doc.addElements([
+    {
+      id: 'kept',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      rotation: 0,
+      fileId: 'kept-file',
+    },
+  ])
+  const canvas = useCanvasProjectStore.getState().activeId!
+  state().startNewConversation()
+  await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).not.toBe(canvas))
+  const next = useCanvasProjectStore
+    .getState()
+    .projects.find((one) => one.id === useCanvasProjectStore.getState().activeId)
+  expect(next?.experience).toBe('canvas')
 })

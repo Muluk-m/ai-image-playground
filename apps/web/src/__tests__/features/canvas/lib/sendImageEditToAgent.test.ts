@@ -233,3 +233,16 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
     expect(agent.send).not.toHaveBeenCalled()
   })
 })
+
+it('forwards stable region numbers with their mask and normalized coordinates', async () => {
+  const regions = [{ number: 2, x: 0.2, y: 0.3, width: 0.2, height: 0.1 }]
+  const sent = await sendImageEditToAgent(editor(), image, '将@区域2改成红色', {
+    strokes: [{ tool: 'brush', width: 20, points: [{ x: 100, y: 100 }] }],
+    regions,
+  })
+  expect(sent).toBe(true)
+  expect(agent.send.mock.calls[0]?.[0]).toBe('将@区域2改成红色')
+  expect(agent.send.mock.calls[0]?.[1]).toEqual([
+    expect.objectContaining({ regions, maskDataUrl: 'data:image/png;base64,MASK' }),
+  ])
+})

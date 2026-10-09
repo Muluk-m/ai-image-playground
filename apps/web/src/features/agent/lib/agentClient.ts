@@ -3,6 +3,9 @@ import type {
   AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentBackgroundJobView,
+  AgentBatchPage,
+  AgentBatchUpdate,
+  AgentBatchWakeReceipt,
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
@@ -27,6 +30,7 @@ import type {
 } from '@image-playground/shared'
 import {
   AGENT_FRAME_SEPARATOR,
+  AGENT_SSE_HEARTBEAT_MS,
   DEVICE_ID_HEADER,
   isAgentToolErrorCode,
   parseAgentFrame,
@@ -37,8 +41,59 @@ import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 const CONTROL_REQUEST_TIMEOUT_MS = 15_000
+const STREAM_IDLE_TIMEOUT_MS = AGENT_SSE_HEARTBEAT_MS * 3
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
+
+function withSignal<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener('abort', abort)
+      reject(signal.reason)
+    }
+    if (signal.aborted) abort()
+    else signal.addEventListener('abort', abort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
+}
+
+/** Keep the deadline through JSON/error bodies; callers release it when SSE takes over. */
+async function fetchStreamResponse(
+  fetcher: Fetcher,
+  path: string,
+  init: RequestInit,
+): Promise<{ response: Response; releaseDeadline: () => void }> {
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Agent request timed out', 'TimeoutError')),
+    CONTROL_REQUEST_TIMEOUT_MS,
+  )
+  const releaseDeadline = () => clearTimeout(timer)
+  try {
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, controller.signal])
+      : controller.signal
+    const response = await withSignal(fetcher(path, { ...init, signal }), signal)
+    return { response, releaseDeadline }
+  } catch (error) {
+    releaseDeadline()
+    throw new AgentTransportError('response_headers', error)
+  }
+}
+
+export class AgentTransportError extends Error {
+  constructor(
+    readonly phase: 'response_headers' | 'response_body',
+    readonly cause: unknown,
+    readonly requestId?: string,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name =
+      cause && typeof cause === 'object' && 'name' in cause
+        ? String(cause.name)
+        : 'AgentTransportError'
+  }
+}
 
 export class AgentRequestError extends Error {
   constructor(
@@ -92,7 +147,10 @@ function deviceHeaders(): Record<string, string> {
 export async function createConversation(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView> {
-  const response = await fetcher(url('/conversations'), jsonInit({ deviceId: getDeviceId() }))
+  const response = await fetcher(url('/conversations'), {
+    ...jsonInit({ deviceId: getDeviceId() }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { conversation: AgentConversationView }).conversation
 }
@@ -100,7 +158,10 @@ export async function createConversation(
 export async function fetchConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView[]> {
-  const response = await fetcher(url('/conversations'), { headers: deviceHeaders() })
+  const response = await fetcher(url('/conversations'), {
+    headers: deviceHeaders(),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
 }
@@ -137,6 +198,73 @@ export async function fetchMessages(
   if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentConversationState
 }
+export async function fetchSubmissionReceipt(
+  conversationId: string,
+  clientMessageId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+  cancellation?: AbortSignal,
+): Promise<AgentMessageQueuedBody | null> {
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
+  signal.throwIfAborted()
+  const response = await withSignal(
+    fetcher(
+      url(
+        `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}`,
+      ),
+      {
+        headers: deviceHeaders(),
+        signal,
+      },
+    ),
+    signal,
+  )
+  if (!response.ok) throw await requestError(response)
+  const body = (await withSignal(response.json(), signal)) as {
+    receipt: AgentMessageQueuedBody | null
+  }
+  if (!('receipt' in body)) throw new Error('Missing Agent submission receipt')
+  return body.receipt
+}
+
+async function mutateSubmission(
+  conversationId: string,
+  clientMessageId: string,
+  action: 'withdraw' | 'reconcile',
+  cancellation?: AbortSignal,
+): Promise<AgentMessageQueuedBody> {
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
+  signal.throwIfAborted()
+  const response = await withSignal(
+    authenticatedBffFetch(
+      url(
+        `/conversations/${encodeURIComponent(conversationId)}/submissions/${encodeURIComponent(clientMessageId)}/${action}`,
+      ),
+      { ...jsonInit({ deviceId: getDeviceId() }), signal },
+    ),
+    signal,
+  )
+  if (!response.ok) throw await requestError(response)
+  const body = (await withSignal(response.json(), signal)) as {
+    receipt: AgentMessageQueuedBody | null
+  }
+  if (!body.receipt) throw new Error('Missing Agent submission receipt')
+  return body.receipt
+}
+
+export function withdrawSubmission(conversationId: string, clientMessageId: string) {
+  return mutateSubmission(conversationId, clientMessageId, 'withdraw')
+}
+
+export function reconcileSubmission(
+  conversationId: string,
+  clientMessageId: string,
+  cancellation?: AbortSignal,
+) {
+  return mutateSubmission(conversationId, clientMessageId, 'reconcile', cancellation)
+}
+
 export async function fetchMessageReference(
   conversationId: string,
   messageId: string,
@@ -198,13 +326,29 @@ async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
       if (frame) yield frame
     }
   }
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffered += decoder.decode(value, { stream: true })
-    yield* drain(false)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    while (true) {
+      // Comment heartbeats also count as traffic: quiet model/tool work is still healthy.
+      const idle = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new DOMException('Agent stream stopped responding', 'TimeoutError')),
+          STREAM_IDLE_TIMEOUT_MS,
+        )
+      })
+      const { done, value } = await Promise.race([reader.read(), idle])
+      clearTimeout(timer)
+      if (done) break
+      buffered += decoder.decode(value, { stream: true })
+      yield* drain(false)
+    }
+    yield* drain(true)
+  } finally {
+    clearTimeout(timer)
+    // A broken transport may never acknowledge cancellation; reconnect without waiting for it.
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
-  yield* drain(true)
 }
 
 /**
@@ -235,7 +379,10 @@ export async function fetchAgentSkills(
   mode: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentSkillSummary[]> {
-  const response = await fetcher(url(`/skills?mode=${mode}`), { headers: deviceHeaders() })
+  // 目录按登录 cookie 区分自建模板，不使用设备 ID；多余的设备头会触发跨域预检。
+  const response = await fetcher(url(`/skills?mode=${mode}`), {
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   const body = (await response.json()) as { skills?: AgentSkillSummary[] }
   return body.skills ?? []
@@ -254,6 +401,9 @@ export async function startTurn(
   clarificationAnswer = false,
   /** 发话时屏幕上的画布。没有打开画布就不带。 */
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
+  /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
+  experience?: 'chat' | 'canvas',
+  signal?: AbortSignal,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
   const init = jsonInit({
@@ -266,25 +416,41 @@ export async function startTurn(
     ...(mode && mode !== 'image' ? { mode } : {}),
     ...(params ? { params } : {}),
     ...(canvas ? { canvas } : {}),
+    ...(experience ? { experience } : {}),
   })
+  init.signal = signal
+  signal?.throwIfAborted()
   const path = url(`/conversations/${conversationId}/turns`)
-  let response: Response
+  let opened: Awaited<ReturnType<typeof fetchStreamResponse>>
   try {
-    response = await fetcher(path, init)
-  } catch {
+    opened = await fetchStreamResponse(fetcher, path, init)
+  } catch (error) {
+    if (signal?.aborted) throw error
     // 请求可能已经到了服务端、只是回程断了：同一个 id 再发一次，服务端按它去重。
-    response = await fetcher(path, init)
+    opened = await fetchStreamResponse(fetcher, path, init)
   }
-  if (response.status === 202) {
-    return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+  const { response } = opened
+  try {
+    if (response.status === 202) {
+      return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+    }
+    if (response.status === 409) {
+      // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
+      const turnId = await alreadyRunningTurnId(response.clone())
+      if (turnId) return { kind: 'alreadyRunning', turnId }
+    }
+    if (!response.ok || !response.body) throw await requestError(response)
+    return { kind: 'frames', frames: readFrames(response) }
+  } catch (error) {
+    if (error instanceof AgentRequestError) throw error
+    throw new AgentTransportError(
+      'response_body',
+      error,
+      response.headers.get('x-request-id') ?? undefined,
+    )
+  } finally {
+    opened.releaseDeadline()
   }
-  if (response.status === 409) {
-    // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
-    const turnId = await alreadyRunningTurnId(response.clone())
-    if (turnId) return { kind: 'alreadyRunning', turnId }
-  }
-  if (!response.ok || !response.body) throw await requestError(response)
-  return { kind: 'frames', frames: readFrames(response) }
 }
 
 /** `lastEventId` 为 0 表示从头要一遍这一轮。 */
@@ -297,12 +463,23 @@ async function* resumeTurn(
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetcher(url(`/conversations/${conversationId}/turns/${turnId}/events`), {
-    headers,
-  })
-  // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
-  if (response.ok && response.body) onOpen?.()
-  yield* readFrames(response)
+  const opened = await fetchStreamResponse(
+    fetcher,
+    url(`/conversations/${conversationId}/turns/${turnId}/events`),
+    {
+      headers,
+    },
+  )
+  try {
+    // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
+    if (opened.response.ok && opened.response.body) {
+      opened.releaseDeadline()
+      onOpen?.()
+    }
+    yield* readFrames(opened.response)
+  } finally {
+    opened.releaseDeadline()
+  }
 }
 
 /** 会话级增量：`lastEventId` 之后这个会话的全部事件，不分哪一轮。 */
@@ -314,9 +491,20 @@ async function* resumeConversation(
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetcher(url(`/conversations/${conversationId}/events`), { headers })
-  if (response.ok && response.body) onOpen?.()
-  yield* readFrames(response)
+  const opened = await fetchStreamResponse(
+    fetcher,
+    url(`/conversations/${conversationId}/events`),
+    { headers },
+  )
+  try {
+    if (opened.response.ok && opened.response.body) {
+      opened.releaseDeadline()
+      onOpen?.()
+    }
+    yield* readFrames(opened.response)
+  } finally {
+    opened.releaseDeadline()
+  }
 }
 
 /** 断了之后隔多久再续播。第一次立刻重试：多数断流是中间设备掐的，续播马上就接上了。 */
@@ -354,6 +542,8 @@ export interface AgentTurnStream {
   /** 流走完之后的终局；走完之前是 `null`。 */
   readonly outcome: AgentTurnOutcome | null
   readonly lastError: unknown
+  /** 已归约的会话游标，长时间断线后继续沿用去重断点。 */
+  readonly cursor: number
 }
 
 /**
@@ -370,6 +560,7 @@ export function followTurn(
     onReconnectingChange,
   }: FollowTurnOptions = {},
 ): AgentTurnStream {
+  let seen = 'turnId' in source ? (source.cursor ?? 0) : 0
   let lastError: unknown
   let outcome: AgentTurnOutcome | null = null
   let reconnecting = false
@@ -389,7 +580,6 @@ export function followTurn(
         ? resumeTurn(conversationId, turnId, after, fetcher, connected)
         : resumeConversation(conversationId, after, fetcher, connected)
     // 见过的最大帧标识，就是续播的断点；快照已经覆盖到游标为止。
-    let seen = cursor ?? 0
     let frames = 'frames' in source ? source.frames : resume(seen)
     // 流里最近一个 `turnStart` 属于哪一轮；它之后、下一个 `turnStart` 之前的事件都归它。
     // 续播从一轮中间接上时还没见过 `turnStart`，那段就是这一轮自己的。
@@ -454,6 +644,9 @@ export function followTurn(
     events: follow(),
     get lastError() {
       return lastError
+    },
+    get cursor() {
+      return seen
     },
     get outcome() {
       return outcome
@@ -605,11 +798,15 @@ export async function interjectTurn(
   text: string,
   references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
+  clientMessageId: string = crypto.randomUUID(),
 ): Promise<string> {
   references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
-    jsonInit({ deviceId: getDeviceId(), text, references }),
+    {
+      ...jsonInit({ deviceId: getDeviceId(), text, references, clientMessageId }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
   )
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { messageId: string }).messageId
@@ -650,7 +847,96 @@ async function resolveReferences(
       resolved.push({ ...rest, mediaId })
       continue
     }
-    resolved.push({ ...reference, dataUrl: await resolveMediaSource(reference.dataUrl) })
+    resolved.push({
+      ...reference,
+      dataUrl: await resolveMediaSource(reference.dataUrl),
+      ...(reference.maskDataUrl
+        ? { maskDataUrl: await resolveMediaSource(reference.maskDataUrl) }
+        : {}),
+    })
   }
   return resolved
+}
+
+/** The complete fixed scope is bounded to 100 items by the plan API. */
+export async function fetchBatchWakeReceipt(
+  batchId: string,
+  version: number,
+): Promise<AgentBatchWakeReceipt> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/wake?version=${version}`),
+    { headers: deviceHeaders(), signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchWakeReceipt
+}
+
+export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
+    {
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function updateBatchPlan(
+  batchId: string,
+  update: AgentBatchUpdate,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(url(`/batches/${encodeURIComponent(batchId)}`), {
+    ...jsonInit(update, 'PATCH'),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function cancelBatchPlan(
+  batchId: string,
+  expectedVersion: number,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/cancel`),
+    {
+      ...jsonInit({ expectedVersion }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export type AgentBatchCommand =
+  | {
+      action: 'confirm' | 'resume'
+      commandId: string
+      expectedVersion: number
+      expectedDigest: string
+      deviceId: string
+    }
+  | { action: 'pause' | 'reprice'; commandId: string; expectedVersion: number }
+  | {
+      action: 'retry-quote'
+      commandId: string
+      expectedVersion: number
+      itemKeys: readonly string[]
+    }
+
+export async function executeBatchCommand(
+  batchId: string,
+  command: AgentBatchCommand,
+): Promise<AgentBatchPage> {
+  const { action, ...body } = command
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/${action}`),
+    {
+      ...jsonInit(body),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
 }

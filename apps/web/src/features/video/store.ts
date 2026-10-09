@@ -12,6 +12,13 @@ import { videoModelOptions } from '../../lib/channels/videoChannels'
 import { clampDraftToSupport } from './lib/draft'
 import type { VideoDraft } from './types'
 
+function supportFor(model: string) {
+  return (
+    videoModelOptions().find((item) => item.modelId === model)?.support ??
+    VIDEO_MODEL_SUPPORT[model]
+  )
+}
+
 export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   model: '',
   duration: VIDEO_DEFAULT_DURATION,
@@ -28,6 +35,7 @@ export interface VideoState {
   setDuration(duration: VideoDuration): void
   setAspectRatio(aspectRatio: VideoAspectRatio): void
   setResolution(resolution: VideoResolution): void
+  setVoices(voices: readonly string[]): void
 }
 
 export const useVideoStore = create<VideoState>((set, get) => ({
@@ -41,7 +49,7 @@ export const useVideoStore = create<VideoState>((set, get) => ({
     set({ draft: clampDraftToSupport({ ...draft, model: option.modelId }, option.support) })
   },
   setModel(model) {
-    const support = VIDEO_MODEL_SUPPORT[model]
+    const support = supportFor(model)
     if (!support) return
     set((state) => ({ draft: clampDraftToSupport({ ...state.draft, model }, support) }))
   },
@@ -53,8 +61,15 @@ export const useVideoStore = create<VideoState>((set, get) => ({
   },
   setResolution(resolution) {
     set((state) => {
-      const support = VIDEO_MODEL_SUPPORT[state.draft.model]
+      const support = supportFor(state.draft.model)
       const draft = { ...state.draft, resolution }
+      return { draft: support ? clampDraftToSupport(draft, support) : draft }
+    })
+  },
+  setVoices(voices) {
+    set((state) => {
+      const support = supportFor(state.draft.model)
+      const draft = { ...state.draft, voices: [...voices] }
       return { draft: support ? clampDraftToSupport(draft, support) : draft }
     })
   },

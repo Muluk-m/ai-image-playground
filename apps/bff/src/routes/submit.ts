@@ -45,6 +45,16 @@ const submitBodySchema = t.Object({
       first_frame_index: t.Optional(t.Number({ minimum: 0 })),
       last_frame_index: t.Optional(t.Number({ minimum: 0 })),
       reference_image_indices: t.Optional(t.Array(t.Number({ minimum: 0 }), { maxItems: 16 })),
+      keyframes: t.Optional(
+        t.Array(
+          t.Object({
+            image_index: t.Number({ minimum: 0 }),
+            timestamp_seconds: t.Number({ exclusiveMinimum: 0 }),
+          }),
+          { maxItems: 4 },
+        ),
+      ),
+      voices: t.Optional(t.Array(t.String({ minLength: 1, maxLength: 32 }), { maxItems: 3 })),
       mode: t.Optional(t.String()),
       source_task_id: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
       source_output_index: t.Optional(t.Number({ minimum: 0 })),

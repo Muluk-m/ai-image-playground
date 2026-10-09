@@ -11,23 +11,23 @@ export default function UpdateBanner() {
   return (
     <div
       role="status"
-      className="animate-slide-down-in fixed right-3 sm:right-4 z-[115] max-w-[calc(100vw-1.5rem)]"
+      className="animate-slide-down-in fixed right-3 sm:right-4 z-[1390] max-w-[calc(100vw-1.5rem)]"
       style={{ top: 'calc(var(--safe-area-top) + var(--header-height) + 0.75rem)' }}
     >
-      <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card/95 backdrop-blur-xl px-4 py-2.5 shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] ring-1 ring-black/5 dark:ring-white/10">
+      <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card/95 backdrop-blur-xl px-4 py-2.5 shadow-popover ring-1 ring-hairline">
         <span className="text-sm font-medium text-foreground">{t('update.available')}</span>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-lg bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground transition hover:bg-primary/90"
+            className="rounded-lg bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
             {t('update.refresh')}
           </button>
           <button
             type="button"
             onClick={skip}
-            className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition hover:bg-card"
+            className="rounded-lg border border-border px-3 py-1.5 text-body-sm text-muted-foreground transition hover:bg-card"
           >
             {t('update.skip')}
           </button>

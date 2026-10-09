@@ -11,6 +11,10 @@ function getScrollBoundary(
   target: EventTarget | null,
   allowRefs?: ScrollBoundaryRef | ScrollBoundaryRef[],
 ) {
+  if (target instanceof Element) {
+    const modal = target.closest<HTMLElement>('[data-shadcn-modal]')
+    if (modal) return modal
+  }
   if (!(target instanceof Node) || !allowRefs) return null
 
   const refs = Array.isArray(allowRefs) ? allowRefs : [allowRefs]

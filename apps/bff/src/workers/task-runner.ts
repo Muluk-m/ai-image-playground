@@ -60,7 +60,7 @@ async function tryScheduleRetry(
   retryable: boolean,
   errSummary: string,
 ): Promise<boolean> {
-  if (!retryable) return false
+  if (!retryable || execution.task.reconciliation_required) return false
   const plan = planNextAttempt(attemptJustFailed)
   if (!plan.shouldRetry) return false
   if (!(await execution.requeue(attemptJustFailed, plan.nextRetryAt))) return false
@@ -87,6 +87,7 @@ export async function runTask(id: string): Promise<void> {
   try {
     await executeTask(execution)
   } catch (error) {
+    if (await execution.reconcile('执行中断，上游结果待核查')) throw error
     await execution.finish({
       status: 'failed',
       errorType: 'interrupted',
@@ -147,7 +148,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   }
   try {
     if (await stopExpiredArchive()) return
-    if (cloudArchive && !archivePayload) {
+    if ((cloudArchive || task.reconciliation_required) && !archivePayload) {
       const preserved = await execution.preserveInputs(request)
       if (!preserved) return
       request = preserved
@@ -193,6 +194,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       return
     }
     const upstreamCall: UpstreamCallParams = {
+      reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
       model: task.model,
       request: hydratedRequest,
@@ -200,11 +202,19 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       resume,
       onUpstreamTaskIds: (taskIds) =>
         execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
+      onRequestDispatched: (dispatchId) => execution.recordDispatchStarted(dispatchId),
+      onUpstreamTaskId: (dispatchId, upstreamTaskId) =>
+        execution.recordDispatchTaskId(dispatchId, upstreamTaskId),
+      onRequestId: (dispatchId, requestId) =>
+        execution.recordDispatchRequestId(dispatchId, requestId),
       beforeRequest: async () => {
         if (resume && task.upstream_invocation_count > resume.taskIds.length) {
           throw new UpstreamResultUnknownError('上次提交的部分结果未知，未重复生成')
         }
-        if (await execution.recordUpstreamInvocation()) return
+        if (task.reconciliation_required) {
+          const dispatchId = await execution.recordDispatchIntent()
+          if (dispatchId) return dispatchId
+        } else if (await execution.recordUpstreamInvocation()) return
         // 记不上账就是这一行不归我了：扇出的其余请求一并停掉。
         execution.abort()
         throw new DOMException('Task is no longer running', 'AbortError')
@@ -305,6 +315,14 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     if (err instanceof UpstreamPartialResultError && cloudArchive && !archivePayload) {
       archivePayload = generationSourceCheckpoint(id, task.provider, err.payload)
     }
+    if (
+      err instanceof UpstreamResultUnknownError &&
+      (task.reconciliation_required || err.requiresReconciliation)
+    ) {
+      if (archivePayload) await execution.saveCheckpoint(archivePayload)
+      await execution.reconcile(err.message, { requireReconciliation: err.requiresReconciliation })
+      return
+    }
     const rejectedMaskedOutput =
       err instanceof MaskedOutputArchiveError && err.cause instanceof MaskedOutputError
     if (archivePayload && !rejectedMaskedOutput) {
@@ -318,7 +336,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     }
     const isTimeout = err instanceof UpstreamTimeoutError
     const isUnknownResult = err instanceof UpstreamResultUnknownError
-    const isStorageError = err instanceof ObjectStorageError
+    const isStorageError = err instanceof ObjectStorageError && !rejectedMaskedOutput
     const message = isTimeout
       ? `上游超时：BFF 等待超过 ${Math.round(QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS / 60000)} 分钟未拿到响应`
       : err instanceof Error

@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'image-playground.device_id'
+import { DEVICE_ID_STORAGE_KEY as STORAGE_KEY } from '../boot/constants'
+
 let cached: string | null = null
 
 /**

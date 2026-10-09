@@ -115,7 +115,7 @@
           "id": "grok-imagine-video",
           "label": "Grok Imagine Video",
           "media": "video",
-          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame", "reference_images"]
+          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame", "last_frame", "reference_images", "voices", "keyframes"]
         }
       ],
       "defaults": {

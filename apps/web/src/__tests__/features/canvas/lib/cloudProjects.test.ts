@@ -533,7 +533,8 @@ it('读取期间加了图、原图上传又失败：下次同步重读前仍认�
         return new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
       if (url.endsWith('/uploads')) {
         uploads += 1
-        if (uploads === 1) throw new TypeError('network down')
+        if (uploads === 1)
+          return Response.json({ error: 'media_descriptor_mismatch' }, { status: 400 })
         return Response.json({ id: crypto.randomUUID(), status: 'ready' })
       }
       if (init?.method === 'PUT') {

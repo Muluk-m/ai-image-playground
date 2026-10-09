@@ -77,3 +77,34 @@ it('超出上限时先丢最久没用过的那张', async () => {
   await next.resolveMediaSource(ref(3), 'preview')
   expect(fetcher).toHaveBeenCalled()
 })
+
+it('displays a hot original without requesting or storing a second preview', async () => {
+  const media = await newSession()
+  const original = await media.resolveMediaSource(ref(5), 'original')
+  fetcher.mockClear()
+  expect(await media.resolveMediaSource(ref(5), 'display')).toBe(original)
+  expect(fetcher).not.toHaveBeenCalled()
+  const { getCachedMedia } = await import('../../lib/db')
+  expect(await getCachedMedia(`${ref(5).slice(10)}:preview`)).toBeUndefined()
+})
+
+it('a display retry bypasses a rejected original and retrieves a fresh preview', async () => {
+  const media = await newSession()
+  await media.resolveMediaSource(ref(6), 'original')
+  await media.invalidateMediaPreview(ref(6))
+  fetcher.mockClear()
+  await media.resolveMediaSource(ref(6), 'display')
+  expect(fetcher.mock.calls.map(([url]) => String(url))).toContain('https://media.example/preview')
+  expect(fetcher.mock.calls.map(([url]) => String(url))).not.toContain(
+    'https://media.example/original',
+  )
+})
+
+it('a cold display fetches only the small preview', async () => {
+  const media = await newSession()
+  await media.resolveMediaSource(ref(7), 'display')
+  expect(fetcher.mock.calls.map(([url]) => String(url))).toContain('https://media.example/preview')
+  expect(fetcher.mock.calls.map(([url]) => String(url))).not.toContain(
+    'https://media.example/original',
+  )
+})

@@ -1,4 +1,6 @@
 import { type CSSProperties, useEffect, useState, useSyncExternalStore } from 'react'
+import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
+import { ShimmerLabel } from '../../../components/assistant-ui/elements/surfaces'
 import Credits from '../../../components/Credits'
 import { i18next, useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
@@ -9,11 +11,7 @@ import {
   useAgentToolProgress,
 } from '../../agent/components/AgentJobProgress'
 import { AgentRetryWithdraw } from '../../agent/components/AgentToolCard'
-import {
-  AGENT_JOB_STEPS,
-  agentJobStep,
-  toolMessageForPlaceholder,
-} from '../../agent/lib/jobProgress'
+import { toolMessageForPlaceholder } from '../../agent/lib/jobProgress'
 import {
   agentLiveRetry,
   agentRerunBlock,
@@ -113,37 +111,15 @@ function AgentPlaceholderLabel({ placeholder }: { placeholder: PlaceholderView }
   )
   const progress = useAgentToolProgress(message)
   const text = useAgentJobProgressText(progress)
-  const reached = progress ? AGENT_JOB_STEPS.indexOf(agentJobStep(progress.phase)) : -1
+  return <GeneratingLabel>{text ?? t('placeholder.generating')}</GeneratingLabel>
+}
+
+/** 生成中那句话：与对话里的状态行同一道流光，等宽数字让秒数走起来不晃。 */
+function GeneratingLabel({ children }: { children: string }) {
   return (
-    <span
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 8,
-        width: '100%',
-      }}
-    >
-      <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {text ?? t('placeholder.generating')}
-      </span>
-      {reached >= 0 && (
-        <span aria-hidden="true" style={{ display: 'flex', gap: 4, width: 'min(120px, 100%)' }}>
-          {AGENT_JOB_STEPS.map((step, index) => (
-            <span
-              key={step}
-              className={index === reached ? 'animate-pulse' : undefined}
-              style={{
-                flex: 1,
-                height: 4,
-                borderRadius: 4,
-                background: index <= reached ? 'hsl(var(--primary))' : 'hsl(var(--border))',
-              }}
-            />
-          ))}
-        </span>
-      )}
-    </span>
+    <ShimmerLabel className="relative z-[1] text-[13px] tabular-nums leading-5">
+      {children}
+    </ShimmerLabel>
   )
 }
 
@@ -264,7 +240,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                 background: 'hsl(var(--background) / 0.72)',
                 backdropFilter: 'blur(3px)',
                 WebkitBackdropFilter: 'blur(3px)',
-                borderRadius: 6,
+                borderRadius: 12,
               }}
             />
             <div
@@ -287,22 +263,15 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
             >
               {isLoading ? (
                 <>
-                  <div
-                    style={{
-                      width: 28,
-                      height: 28,
-                      border: `3px solid ${accent}`,
-                      borderTopColor: 'transparent',
-                      borderRadius: '50%',
-                      animation: 'canvas-placeholder-spin 0.8s linear infinite',
-                    }}
+                  <ImageGeneration
+                    generating
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 h-full aspect-auto rounded-none bg-transparent opacity-40"
                   />
                   {p.meta.agent ? (
                     <AgentPlaceholderLabel placeholder={p} />
                   ) : (
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {editProgressText(p, now)}
-                    </span>
+                    <GeneratingLabel>{editProgressText(p, now)}</GeneratingLabel>
                   )}
                 </>
               ) : (
@@ -328,7 +297,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       <span style={{ fontWeight: 600 }}>{t('agent:retry.queued')}</span>
                       <AgentRetryWithdraw
                         message={queuedRetry}
-                        className="pointer-events-auto rounded-lg border border-border bg-background px-3.5 py-1 text-[13px] font-medium"
+                        className="pointer-events-auto rounded-lg border border-border bg-background px-3.5 py-1 text-body-sm font-medium"
                       />
                     </>
                   )}

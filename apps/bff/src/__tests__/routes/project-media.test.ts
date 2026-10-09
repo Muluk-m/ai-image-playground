@@ -1,5 +1,5 @@
-import { afterAll, beforeEach, expect, it } from 'bun:test'
-import { createHash } from 'node:crypto'
+import { afterAll, beforeEach, expect, it, spyOn } from 'bun:test'
+import { createHash, randomFillSync } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import sharp from 'sharp'
@@ -54,6 +54,107 @@ function request(path: string, cookie: string, body?: unknown, method = body ? '
   )
 }
 const key = (url: string) => new URL(url).pathname.slice(1)
+
+it('五张并发上传确认排队完成，存储读取并行但缓冲最多两张原件', async () => {
+  const { config } = await import('../../config')
+  const previousOperator = config.operator
+  config.operator = {
+    ...previousOperator,
+    quotas: { ...previousOperator.quotas, 'sync:user-media-bytes': 4 * 1024 * 1024 },
+  }
+  let release!: () => void
+  let secondStarted!: () => void
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const overlap = new Promise<void>((resolve) => {
+    secondStarted = resolve
+  })
+  let active = 0
+  let peak = 0
+  const originalOpen = storage.open.bind(storage)
+  let completions: Promise<Response>[] = []
+  try {
+    const readyBytes = await sharp({
+      create: { width: 4, height: 4, channels: 4, background: '#abcdef' },
+    })
+      .png()
+      .toBuffer()
+    const readyUpload = await (
+      await request('media/uploads', deviceA, {
+        bytes: readyBytes.length,
+        contentType: 'image/png',
+        sha256: createHash('sha256').update(readyBytes).digest('hex'),
+      })
+    ).json()
+    await storage.write(key(readyUpload.uploadUrl), readyBytes, 'image/png')
+    expect((await request(`media/${readyUpload.id}/complete`, deviceA, {})).status).toBe(200)
+    storage.open = async (path) => {
+      if (!path.startsWith('staging/')) return originalOpen(path)
+      peak = Math.max(peak, ++active)
+      if (active === 2) secondStarted()
+      try {
+        await blocked
+        return await originalOpen(path)
+      } finally {
+        active--
+      }
+    }
+    const uploads: { id: string; bytes: Buffer }[] = []
+    for (const color of ['#110000', '#220000', '#330000', '#440000', '#550000']) {
+      const bytes = await sharp({
+        create: { width: 32, height: 24, channels: 4, background: color },
+      })
+        .png()
+        .toBuffer()
+      const reserved = await request('media/uploads', deviceA, {
+        bytes: bytes.length,
+        contentType: 'image/png',
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      })
+      expect(reserved.status).toBe(200)
+      const upload = await reserved.json()
+      await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+      uploads.push({ id: upload.id, bytes })
+    }
+    completions = uploads.map((upload) => request(`media/${upload.id}/complete`, deviceA, {}))
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        overlap,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('storage operations did not overlap')), 2000)
+        }),
+      ])
+    } finally {
+      clearTimeout(timeout)
+    }
+    const replay = await Promise.race([
+      request(`media/${readyUpload.id}/complete`, deviceA, {}),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('ready confirmation waited for processing')),
+          1000,
+        )
+      }),
+    ]).finally(() => clearTimeout(timeout))
+    expect(replay.status).toBe(200)
+    release()
+    expect(peak).toBe(2)
+    for (const [index, response] of (await Promise.all(completions)).entries()) {
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ id: uploads[index]!.id, status: 'ready' })
+      const access = await (await request(`media/${uploads[index]!.id}/access`, deviceA)).json()
+      expect(await storage.read(key(access.originalUrl))).toEqual(
+        new Uint8Array(uploads[index]!.bytes),
+      )
+    }
+  } finally {
+    release()
+    await Promise.allSettled(completions)
+    config.operator = previousOperator
+  }
+})
 
 it('上传确认后另一设备恢复图片结构，原件直读且旧上传地址不能改写已确认图片', async () => {
   const bytes = await sharp({
@@ -233,9 +334,37 @@ it('同一份字节改用正确的类型重新预留，沿用原身份并能确�
     await request('media/uploads', deviceA, { ...descriptor, contentType: 'image/png' })
   ).json()
   await storage.write(key(mislabeled.uploadUrl), bytes, 'image/webp')
-  expect(await (await request(`media/${mislabeled.id}/complete`, deviceA, {})).json()).toEqual({
-    error: 'media_invalid_image',
-  })
+  const { log } = await import('../../lib/logger')
+  const warning = spyOn(log, 'warn')
+  try {
+    expect(await (await request(`media/${mislabeled.id}/complete`, deviceA, {})).json()).toEqual({
+      error: 'media_invalid_image',
+    })
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'media.validation_failed',
+        userId: 'media-owner',
+        mediaId: mislabeled.id,
+        reason: 'content_type_mismatch',
+        detectedFormat: 'webp',
+        declaredContentType: 'image/png',
+      }),
+      'uploaded image validation failed',
+    )
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'media.request_rejected',
+        userId: 'media-owner',
+        mediaId: mislabeled.id,
+        stage: 'complete',
+        errorCode: 'media_invalid_image',
+        status: 422,
+      }),
+      'media request rejected',
+    )
+  } finally {
+    warning.mockRestore()
+  }
 
   const corrected = await request('media/uploads', deviceA, {
     ...descriptor,
@@ -265,3 +394,101 @@ it('申报了不收的类型：400 带一行可读原因，而不是整份校验
   expect(body.message).toStartWith('/contentType: ')
   expect(body.message).not.toContain('\n')
 })
+
+it('reserves 50 MiB originals but rejects the first byte beyond the configured file budget', async () => {
+  const { config } = await import('../../config')
+  const previous = config.operator
+  config.operator = {
+    ...previous,
+    quotas: {
+      ...previous.quotas,
+      'sync:user-media-bytes': 512 * 1024 * 1024,
+      'sync:asset-image-bytes': 50 * 1024 * 1024,
+    },
+  }
+  try {
+    const descriptor = { bytes: 50 * 1024 * 1024, sha256: 'c'.repeat(64), contentType: 'image/png' }
+    expect((await request('media/uploads', deviceA, descriptor)).status).toBe(200)
+    const rejected = await request('media/uploads', deviceA, {
+      ...descriptor,
+      bytes: descriptor.bytes + 1,
+      sha256: 'd'.repeat(64),
+    })
+    expect(rejected.status).toBe(413)
+    expect(await rejected.json()).toEqual({ error: 'media_too_large' })
+  } finally {
+    config.operator = previous
+  }
+})
+
+it('refuses an unsafe scanline width before allocating a full decode and explains the failure', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#abcdef' } })
+    .png()
+    .toBuffer()
+  const safe = await sharp(bytes).metadata()
+  const metadata = spyOn(sharp.prototype, 'metadata').mockResolvedValue({
+    ...safe,
+    width: 1_000_000,
+    height: 100,
+  })
+  try {
+    const reserved = await request('media/uploads', deviceA, {
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      contentType: 'image/png',
+    })
+    const upload = await reserved.json()
+    await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+    const completed = await request(`media/${upload.id}/complete`, deviceA, {})
+    expect(completed.status).toBe(422)
+    expect(await completed.json()).toEqual({ error: 'media_image_processing_limit' })
+    expect((await request(`media/${upload.id}/access`, deviceA)).status).toBe(409)
+  } finally {
+    metadata.mockRestore()
+  }
+})
+
+it('confirms an actual 48 MiB PNG and retains its original alongside a small preview', async () => {
+  const { config } = await import('../../config')
+  const previous = config.operator
+  config.operator = {
+    ...previous,
+    quotas: {
+      ...previous.quotas,
+      'sync:user-media-bytes': 512 * 1024 * 1024,
+      'sync:asset-image-bytes': 50 * 1024 * 1024,
+    },
+  }
+  try {
+    const pixels = randomFillSync(Buffer.alloc(4096 * 4096 * 3))
+    const bytes = await sharp(pixels, { raw: { width: 4096, height: 4096, channels: 3 } })
+      .png({ compressionLevel: 0 })
+      .toBuffer()
+    expect(bytes.length).toBeGreaterThan(48 * 1024 * 1024)
+    expect(bytes.length).toBeLessThan(50 * 1024 * 1024)
+    const reserved = await request('media/uploads', deviceA, {
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      contentType: 'image/png',
+    })
+    expect(reserved.status).toBe(200)
+    const upload = await reserved.json()
+    await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+    const completed = await request(`media/${upload.id}/complete`, deviceA, {})
+    expect(completed.status).toBe(200)
+    expect(await completed.json()).toMatchObject({ status: 'ready' })
+    const access = await request(`media/${upload.id}/access`, deviceA)
+    expect(access.status).toBe(200)
+    const urls = await access.json()
+    expect(
+      createHash('sha256')
+        .update(await storage.read(key(urls.originalUrl)))
+        .digest('hex'),
+    ).toBe(createHash('sha256').update(bytes).digest('hex'))
+    const preview = await sharp(await storage.read(key(urls.previewUrl))).metadata()
+    expect(preview.width).toBeLessThanOrEqual(1024)
+    expect(preview.height).toBeLessThanOrEqual(1024)
+  } finally {
+    config.operator = previous
+  }
+}, 30_000)

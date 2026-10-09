@@ -1,5 +1,6 @@
 import { ChevronRight, ListChecks } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -40,8 +41,7 @@ function useOutcomeText(message: AgentToolMessage): string {
 }
 
 /**
- * 这批活儿走到哪儿了：已完成一段、没成的一段，余下留给还在跑的那几个，跑着就一直呼吸。
- * 两个裸计数说不清进度，一条走满的杠看得见。
+ * 连续进度统计已结束的任务（成功或失败）；各结果仍由列表分别说明。
  */
 function InboxProgress({
   completed,
@@ -53,19 +53,12 @@ function InboxProgress({
   running: number
 }) {
   const total = completed + failed + running
+  const { t } = useTranslation('agent')
   return (
-    <span
-      aria-hidden="true"
-      className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-border"
-    >
-      {completed > 0 && (
-        <span className="bg-primary" style={{ width: `${(completed / total) * 100}%` }} />
-      )}
-      {failed > 0 && (
-        <span className="bg-destructive" style={{ width: `${(failed / total) * 100}%` }} />
-      )}
-      {running > 0 && <span className="flex-1 animate-pulse bg-primary/40" />}
-    </span>
+    <JobProgress
+      progress={total ? ((completed + failed) / total) * 100 : 0}
+      label={t('job.inbox.count', { done: completed + failed, total })}
+    />
   )
 }
 
@@ -109,7 +102,7 @@ function InboxGroup({
         aria-expanded={open}
         disabled={messages.length === 0}
         onClick={() => setOpen((value) => !value)}
-        className={`flex w-full items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] transition-colors ${INK_3} enabled:hover:bg-muted disabled:opacity-60`}
+        className={`flex w-full items-center gap-1 rounded-lg px-1.5 py-1 text-label-sm transition-colors ${INK_3} enabled:hover:bg-muted disabled:opacity-50`}
       >
         <ChevronRight
           className={`h-3 w-3 transition-transform ${open && messages.length > 0 ? 'rotate-90' : ''}`}
@@ -194,13 +187,13 @@ export default function AgentJobInbox() {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
         }}
-        className={`flex items-center gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-[11px] shadow-lg backdrop-blur transition-colors ${INK} hover:border-primary/40`}
+        className={`flex items-center gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-label-sm shadow-lg backdrop-blur transition-colors ${INK} hover:border-foreground/40`}
       >
         <ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span>{t('job.inbox.title')}</span>
         {inbox.running.length > 0 && (
           <span
-            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-foreground"
             aria-hidden="true"
           />
         )}
@@ -209,14 +202,14 @@ export default function AgentJobInbox() {
       {open && (
         <div className="absolute right-0 top-full z-10 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-xl">
           <p className={`text-xs font-semibold ${INK}`}>{t('job.inbox.title')}</p>
-          <p className={`mt-0.5 text-[11px] ${INK_3}`}>{t('job.inbox.subtitle')}</p>
+          <p className={`mt-0.5 text-label-sm ${INK_3}`}>{t('job.inbox.subtitle')}</p>
           <div className="mt-2 flex items-center gap-2">
             <InboxProgress
               completed={inbox.completed}
               failed={inbox.failed}
               running={inbox.running.length}
             />
-            <span className={`shrink-0 text-[11px] tabular-nums ${INK_3}`}>{count}</span>
+            <span className={`shrink-0 text-label-sm tabular-nums ${INK_3}`}>{count}</span>
           </div>
           <div role="tablist" className="mt-2 flex gap-1 rounded-lg bg-muted p-0.5">
             {(['running', 'finished'] as const).map((one) => (
@@ -226,7 +219,7 @@ export default function AgentJobInbox() {
                 role="tab"
                 aria-selected={tab === one}
                 onClick={() => setTab(one)}
-                className={`flex-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                className={`flex-1 rounded-md px-2 py-1 text-label-sm transition-colors ${
                   tab === one ? `bg-sidebar font-semibold ${INK} shadow-sm` : INK_3
                 }`}
               >
@@ -258,7 +251,7 @@ export default function AgentJobInbox() {
               </ul>
             )}
             {shown === 0 && tab === 'finished' && (
-              <p className={`px-1.5 py-2 text-[11px] ${INK_3}`}>{t('job.inbox.empty')}</p>
+              <p className={`px-1.5 py-2 text-label-sm ${INK_3}`}>{t('job.inbox.empty')}</p>
             )}
           </div>
         </div>

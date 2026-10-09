@@ -1,4 +1,14 @@
-import type { HostSample, OpsBackups, TaskStatus } from '@image-playground/shared'
+import type {
+  AgentBatchPriceSnapshot,
+  AgentTurnUsage,
+  AgentVisualEvidence,
+  AnalysisCoverage,
+  AnalysisFinding,
+  HostSample,
+  OpsBackups,
+  TaskStatus,
+} from '@image-playground/shared'
+import { TASK_STATUSES } from '@image-playground/shared'
 
 export const RANGES = ['1d', '7d', '30d'] as const
 export type Range = (typeof RANGES)[number]
@@ -82,6 +92,7 @@ export interface ListDevicesResult {
 }
 
 export interface TaskListItem {
+  kind?: 'queue' | 'analysis'
   id: string
   provider: string
   model: string
@@ -107,7 +118,20 @@ export interface TaskImageMeta {
   mime: string
 }
 
+export interface AnalysisTaskDetail {
+  pricing: AgentBatchPriceSnapshot
+  reservedCredits: number
+  actualCredits: number | null
+  findings: readonly AnalysisFinding[] | null
+  coverage: AnalysisCoverage | null
+  evidence: readonly AgentVisualEvidence[] | null
+  usage: AgentTurnUsage | null
+  upstreamRequestId: string | null
+  localRejection: string | null
+}
+
 export interface TaskDetail extends TaskListItem {
+  analysis?: AnalysisTaskDetail
   request_payload: unknown
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
@@ -181,13 +205,48 @@ export interface OverviewSummary {
   p50_duration_ms: number | null
   p95_duration_ms: number | null
   upstream_invocations: number
+  /** 从提交到开始执行的等待时长中位数。上面两个耗时量的是开始执行到完成，不含排队。 */
+  queue_p50_ms: number | null
+}
+
+/** 一个时间窗里的业务量；当前窗与紧挨着它的上一个同长度窗口各一份，用来算环比。 */
+export interface OverviewPulseWindow {
+  tasks: number
+  completed: number
+  failed: number
+  /** 成功任务请求的张数之和。 */
+  images: number
+  /** 提交过生成任务或跑过 Agent 轮次的账号与匿名设备数。 */
+  active: number
+  signups: number
+  agent_turns: number
+  agent_failed: number
+  agent_aborted: number
+}
+
+export interface OverviewPulseBucket {
+  bucket_at: number
+  tasks: number
+  images: number
+  active: number
+  signups: number
+  agent_completed: number
+  agent_failed: number
+  agent_aborted: number
 }
 
 export interface OverviewResult {
   summary: OverviewSummary
   volume: TaskVolumeBucket[]
   volume_bucket: VolumeBucketUnit
-  failures: Array<{ error_type: string; count: number }>
+  /** previous_count 是上一个同长度窗口里同一原因的次数。 */
+  failures: Array<{ error_type: string; count: number; previous_count: number }>
+  pulse: {
+    current: OverviewPulseWindow
+    previous: OverviewPulseWindow
+    /** 与 volume 同一套分桶。 */
+    series: OverviewPulseBucket[]
+  }
   agent_cache: {
     calls: number
     input_tokens: number
@@ -206,6 +265,12 @@ export interface OverviewResult {
     count: number
     upstream_invocations: number
     average_multiplier: number | null
+    completed: number
+    failed: number
+    /** 提交到开始执行的中位等待。 */
+    queue_p50_ms: number | null
+    /** 成功任务从开始执行到完成的 95 分位。 */
+    run_p95_ms: number | null
   }>
 }
 
@@ -224,6 +289,7 @@ export interface OpsStuckTask {
 export interface OpsQueue {
   queued: number
   in_progress: number
+  reconciling?: number
   /** 最老的排队任务已经等了多久；队列为空时是 null。 */
   oldest_queued_wait_ms: number | null
   /** 运行超过这个时长即视为卡住，与 worker 回收无主任务用的是同一个阈值。 */
@@ -406,4 +472,168 @@ export interface OperatorAuditRow {
 export interface ListAuditsResult {
   audits: OperatorAuditRow[]
   nextCursor: string | null
+}
+
+/** 浏览器上报的错误。kind 的含义见 packages/shared/src/client-errors.ts。 */
+export type ClientErrorKind = 'boot' | 'error' | 'rejection' | 'react'
+
+/** 同一指纹在时间窗内聚成的一个问题；kind 以下几项取自最近一次。 */
+export interface ClientErrorGroup {
+  fingerprint: string
+  kind: ClientErrorKind
+  name: string | null
+  message: string
+  count: number
+  devices: number
+  users: number
+  first_seen: number
+  last_seen: number
+  last_url: string | null
+  last_release: string | null
+}
+
+export interface ClientErrorTrendBucket {
+  bucket_at: number
+  boot: number
+  runtime: number
+}
+
+export interface ClientErrorsResult {
+  range: Range
+  bucket_unit: VolumeBucketUnit
+  summary: { events: number; devices: number; boot_events: number; groups: number }
+  trend: ClientErrorTrendBucket[]
+  /** 按次数从多到少，最多 100 组。 */
+  groups: ClientErrorGroup[]
+}
+
+export interface ClientErrorEvent {
+  id: string
+  received_at: number
+  kind: ClientErrorKind
+  name: string | null
+  message: string
+  stack: string | null
+  url: string | null
+  release: string | null
+  device_id: string | null
+  user_id: string | null
+  user_agent: string | null
+  context: Record<string, unknown> | null
+}
+
+export interface ClientErrorEventsResult {
+  fingerprint: string
+  /** 时间窗内最近的 50 次。 */
+  events: ClientErrorEvent[]
+}
+
+export interface TimeWindow {
+  from: number
+  to: number
+}
+
+const DAY_MS = 86400_000
+const BEIJING_OFFSET = 8 * 3600_000
+
+export function todayWindow(now = Date.now()): TimeWindow {
+  return { from: Math.floor((now + BEIJING_OFFSET) / DAY_MS) * DAY_MS - BEIJING_OFFSET, to: now }
+}
+
+export function parseTimeWindow(
+  input: Record<string, unknown>,
+  now = Date.now(),
+): TimeWindow | undefined {
+  if (input.from === undefined || input.to === undefined) return undefined
+  const from = Number(input.from)
+  const to = Number(input.to)
+  return Number.isSafeInteger(from) &&
+    Number.isSafeInteger(to) &&
+    from >= 0 &&
+    to > from &&
+    to - from <= 31 * DAY_MS &&
+    to <= now + 60_000
+    ? { from, to }
+    : undefined
+}
+
+export interface GenerationTaskFilters {
+  userId?: string
+  deviceId?: string
+  unassigned?: '1'
+  status?: TaskStatus
+  from?: number
+  to?: number
+}
+
+export function parseGenerationTaskFilters(input: Record<string, unknown>): GenerationTaskFilters {
+  const out: GenerationTaskFilters = { ...parseTimeWindow(input) }
+  for (const key of ['userId', 'deviceId'] as const) {
+    if (typeof input[key] === 'string' && input[key].trim().length > 0 && input[key].length <= 128)
+      out[key] = input[key].trim()
+  }
+  if (input.unassigned === '1') out.unassigned = '1'
+  if (TASK_STATUSES.includes(input.status as TaskStatus)) out.status = input.status as TaskStatus
+  return out
+}
+
+export interface GenerationActor {
+  kind: 'user' | 'device' | 'unassigned'
+  id: string | null
+  username: string | null
+  note: string | null
+  tasks: number
+  completed: number
+  failed: number
+  in_progress: number
+  queued: number
+  reconciling: number
+  last_submitted_at: number
+}
+
+export interface TodayOverviewResult {
+  window: TimeWindow
+  actors: GenerationActor[]
+  truncated: boolean
+  summary: {
+    users: number
+    devices: number
+    tasks: number
+    completed: number
+    failed: number
+    in_progress: number
+    queued: number
+    reconciling: number
+  }
+}
+
+export interface GenerationTaskItem extends TaskListItem {
+  user_id: string | null
+  device_id: string | null
+  username: string | null
+}
+
+export interface GenerationTasksResult {
+  window: TimeWindow
+  tasks: GenerationTaskItem[]
+  nextCursor: string | null
+}
+
+export interface TodayErrorItem {
+  instance?: string | null
+  source: 'server' | 'client'
+  id: string
+  at: number
+  service: string
+  message: string
+  task_id: string | null
+  request_id: string | null
+  group: string | null
+  stack: string | null
+}
+
+export interface TodayErrorsResult {
+  window: TimeWindow
+  total: number
+  entries: TodayErrorItem[]
 }

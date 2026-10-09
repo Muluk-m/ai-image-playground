@@ -141,6 +141,7 @@ it('retains an incompatible candidate and fails without a second generation', as
   await runTask('mismatch')
   expect(await task('mismatch')).toMatchObject({
     status: 'failed',
+    error_type: 'upstream_error',
     attempt_count: 0,
     upstream_invocation_count: 1,
   })
@@ -212,7 +213,7 @@ it('cloud archive terminates an incompatible masked candidate without repeating 
   }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
   await submit(id, true)
   await runTask(id)
-  expect((await task(id)).status).toBe('failed')
+  expect(await task(id)).toMatchObject({ status: 'failed', error_type: 'upstream_error' })
   expect((await task(id)).error_message).toContain('尺寸与原图不一致')
   expect(await durable.read(`${id}/candidate/0`)).toEqual(new Uint8Array(candidate))
   await runTask(id)

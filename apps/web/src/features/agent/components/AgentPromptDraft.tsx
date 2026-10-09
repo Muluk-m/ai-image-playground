@@ -1,11 +1,11 @@
-import { ImageIcon } from 'lucide-react'
+import { ImageIcon, VideoIcon } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import ProductionDraftCard from '../../production/components/ProductionDraftCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
+import { CARD_NOTE, CARD_TEXT, GHOST_LINK } from '../agentStyles'
 import { agentDraftOutputCount, isProductionDraft } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
@@ -15,6 +15,7 @@ import {
 } from '../lib/toolFailure'
 import { type AgentPromptConfirmResult, useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import { AgentVideoDetails, AgentVideoEstimate } from './AgentVideoDetails'
 
 type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }>
 
@@ -77,7 +78,13 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
       state={submitting ? 'running' : 'request'}
       title={t('confirm.submit')}
       subtitle={message.title}
-      icon={<ImageIcon className="size-4" />}
+      icon={
+        message.toolName === 'generateVideo' ? (
+          <VideoIcon className="size-4" />
+        ) : (
+          <ImageIcon className="size-4" />
+        )
+      }
       onAllowOnce={confirm}
       allowOnceLabel={t('confirm.submit')}
       statusLabel={t('confirm.submitting')}
@@ -86,14 +93,20 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
       <p id={noteId} className="text-xs leading-relaxed text-muted-foreground">
         {t('confirm.pending')}
       </p>
+      {message.video && (
+        <>
+          <AgentVideoDetails video={message.video} />
+          <AgentVideoEstimate video={message.video} />
+        </>
+      )}
       <Textarea
         aria-label={t('confirm.fieldAria')}
         aria-describedby={noteId}
         aria-invalid={ready ? undefined : true}
         value={prompt}
-        rows={7}
+        rows={4}
         disabled={submitting}
-        className="max-h-64 min-h-32 w-full resize-y rounded-xl border border-input/60 bg-background/60 p-3 text-[13px] leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
+        className={`${CARD_TEXT} max-h-36`}
         onChange={(event) =>
           useAgentStore.getState().setPromptDraft(message.id, event.target.value)
         }

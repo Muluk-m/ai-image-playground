@@ -113,7 +113,7 @@ function CompressControls({
           value={params.format}
           onValueChange={(format) => onChange({ format: format as CompressFormat })}
         >
-          <SelectTrigger className="h-8 w-36 text-[13px]" aria-label={t('params.format')}>
+          <SelectTrigger className="h-8 w-36 text-body-sm" aria-label={t('params.format')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

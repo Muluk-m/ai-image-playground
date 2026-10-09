@@ -1,3 +1,4 @@
+import { ArrowRight } from 'lucide-react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { StarIcon } from '../../../components/icons'
 import { useTranslation } from '../../../i18n'
@@ -41,7 +42,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       onClick={onClick}
       onKeyDown={handleKeyDown}
       title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
-      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring/60"
+      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div
         className={`relative overflow-hidden bg-muted ${reference ? 'aspect-[4/3]' : 'aspect-[3/4]'}`}
@@ -55,7 +56,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-label-sm font-medium text-white">
                 {t('card.before')}
               </span>
             </div>
@@ -66,7 +67,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-label-sm font-medium text-white">
                 {t('card.after')}
               </span>
             </div>
@@ -80,7 +81,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           />
         )}
 
-        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/60 px-2.5 py-1 text-label-sm font-medium text-white backdrop-blur-sm">
           {reference ? t('card.imageEdit') : item.category}
         </span>
 
@@ -108,12 +109,15 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
             {item.description}
           </p>
         )}
-        <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-[11px] text-muted-foreground">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-label-sm text-muted-foreground">
           <span className="truncate">
             {item.category}
             {referenceCount > 0 && ` · ${t('card.referenceCount', { count: referenceCount })}`}
           </span>
-          <span className="shrink-0 font-medium text-primary">{t('card.viewCase')} →</span>
+          <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-primary">
+            {t('card.viewCase')}
+            <ArrowRight className="h-3 w-3" aria-hidden="true" />
+          </span>
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import {
   type AgentBackgroundJobsResponse,
   type AgentToolResultBlock,
   type AgentTurnEvent,
+  type ChannelCapability,
   DEVICE_ID_HEADER,
   projectArtifactId,
 } from '@image-playground/shared'
@@ -22,6 +23,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
@@ -52,7 +54,7 @@ type InternalChannel = import('../../lib/channels').InternalChannel
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-video-user'
-const PIXEL = 'data:image/png;base64,aGk='
+const PIXEL = TEST_IMAGE.pngDataUrl
 
 const GROK = 'grok-imagine-video'
 const VEO = 'veo-3.1-lite-generate-preview'
@@ -62,7 +64,10 @@ const VIDEO_RESULT_PAYLOAD = {
   data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
 }
 
-function videoChannel(modelId: string): InternalChannel {
+function videoChannel(
+  modelId: string,
+  capabilities: ChannelCapability[] = ['generate', 'reference_images'],
+): InternalChannel {
   return {
     id: 'video-gateway',
     kind: 'openai-queue',
@@ -75,7 +80,7 @@ function videoChannel(modelId: string): InternalChannel {
         id: modelId,
         label: modelId,
         media: 'video',
-        capabilities: ['generate', 'reference_images'],
+        capabilities,
       },
     ],
     defaults: { asyncTasks: true },
@@ -99,7 +104,7 @@ async function post(path: string, body: unknown) {
   return { status: response.status, json: await response.json() }
 }
 
-async function startConversation(): Promise<string> {
+async function startConversation(experience: 'chat' | 'canvas' = 'canvas'): Promise<string> {
   const { status, json } = await post('/api/agent/conversations', { deviceId: DEVICE })
   expect(status).toBe(200)
   const id = (json as { conversation: { id: string } }).conversation.id
@@ -109,7 +114,12 @@ async function startConversation(): Promise<string> {
     user_id: USER_ID,
     name: 'Video canvas',
     revision: 1,
-    document: { version: 1, experience: 'canvas', kind: 'video', elements: [] },
+    document: {
+      version: 1,
+      experience,
+      kind: experience === 'chat' ? 'image' : 'video',
+      elements: [],
+    },
     element_count: 0,
     conversation_id: id,
     receipts: [],
@@ -119,7 +129,12 @@ async function startConversation(): Promise<string> {
   return id
 }
 
-async function runTurn(conversationId: string, text: string, references: unknown[] = []) {
+async function runTurn(
+  conversationId: string,
+  text: string,
+  references: unknown[] = [],
+  mode = 'video',
+) {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
       method: 'POST',
@@ -127,8 +142,8 @@ async function runTurn(conversationId: string, text: string, references: unknown
         'content-type': 'application/json',
         cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
       },
-      // 生视频工具只在视频轮进模型的清单，所以这一整份用例都按视频轮起。
-      body: JSON.stringify({ deviceId: DEVICE, text, references, mode: 'video' }),
+      // 默认覆盖视频画布；Chat 用例显式传 image，验证跨创作类型工具装配。
+      body: JSON.stringify({ deviceId: DEVICE, text, references, mode }),
     }),
   )
   return parseFrames(await response.text())
@@ -250,6 +265,275 @@ afterAll(async () => {
 })
 
 describe('智能体生视频工具', () => {
+  it('generates video from an image-kind chat, confirms once and restores playable results', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪', durationSeconds: 8, aspectRatio: '9:16' })
+    const id = await startConversation('chat')
+    const frames = await runTurn(id, '生成一段八秒竖屏海浪视频', [], 'image')
+    const names = calls[0]!.tools!.map((tool) => tool.function.name)
+    expect(names).toContain('generateVideo')
+    expect(names).not.toContain('arrangeTimeline')
+    expect(names).not.toContain('readCanvas')
+    const draft = eventsOfType(frames, 'toolEnd')[0]!
+    expect(draft).toMatchObject({
+      status: 'awaiting_confirmation',
+      video: { model: GROK, duration: 8, aspectRatio: '9:16' },
+    })
+    expect(await videoTasks()).toHaveLength(0)
+    const body = { deviceId: DEVICE, messageId: draft.messageId, prompt: '海浪缓慢涌来' }
+    const responses = await Promise.all([
+      post(`/api/agent/conversations/${id}/confirmations`, body),
+      post(`/api/agent/conversations/${id}/confirmations`, body),
+    ])
+    expect(responses.map((one) => one.status)).toEqual([200, 200])
+    expect(await videoTasks()).toHaveLength(1)
+    expect(billing.reservations.filter((one) => one.model === GROK)).toHaveLength(1)
+    await settleQueuedTasks(() => ({ status: 'completed', resultPayload: VIDEO_RESULT_PAYLOAD }))
+    const [result] = await settledJobs(id)
+    expect(result).toMatchObject({
+      status: 'succeeded',
+      artifacts: [{ media: 'video', mime: 'video/mp4' }],
+    })
+    expect((await videoTask()).request_payload.prompt).toBe('海浪缓慢涌来')
+  })
+
+  it('selects an explicit model and freezes both frames with the same target in its retry snapshot', async () => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(GROK), videoChannel(AGNES)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '从早晨变为夜晚',
+      model: AGNES,
+      imageId: 'first',
+      lastFrameId: 'last',
+      durationSeconds: 8,
+    })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '用 Agnes 首尾帧生成',
+      [
+        { imageId: 'first', dataUrl: PIXEL },
+        { imageId: 'last', dataUrl: PIXEL },
+      ],
+      'image',
+    )
+    const draft = eventsOfType(frames, 'toolEnd')[0]!
+    expect(draft).toMatchObject({
+      video: { model: AGNES, firstFrameId: 'first', lastFrameId: 'last', duration: 8 },
+      snapshot: { target: { model: AGNES } },
+    })
+    await confirmDrafts(id)
+    expect(await videoTask()).toMatchObject({
+      model: AGNES,
+      request_payload: { video: { first_frame_index: 0, last_frame_index: 1 } },
+    })
+    expect((await videoTask()).request_payload.input_images).toHaveLength(2)
+  })
+
+  it.each([
+    AGNES,
+    'doubao-seedance-2-0-mini-260615',
+    GROK,
+  ])('normalizes frame aliases before checking reference support and resolution for %s', async (model) => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(model)])
+    const last = model !== GROK
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      model,
+      prompt: '首尾过渡',
+      imageId: 'image 1',
+      ...(last ? { lastFrameId: 'last' } : {}),
+      referenceImageIds: ['first', ...(last ? ['image 2'] : [])],
+      resolution: last ? '720p' : '1080p',
+    })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '根据图片生成视频',
+      [
+        { imageId: 'first', dataUrl: PIXEL },
+        ...(last ? [{ imageId: 'last', dataUrl: PIXEL }] : []),
+      ],
+      'image',
+    )
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'awaiting_confirmation',
+      video: { model, firstFrameId: 'first' },
+    })
+    await confirmDrafts(id)
+    const task = await videoTask()
+    expect(task.request_payload.input_images).toHaveLength(last ? 2 : 1)
+    expect(task.request_payload.video).toMatchObject({
+      resolution: last ? '720p' : '1080p',
+      first_frame_index: 0,
+    })
+    expect(task.request_payload.video?.reference_image_indices).toBeUndefined()
+  })
+
+  it('rejects a missing explicit model instead of spending on the default', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪', model: 'missing-model' })
+    const id = await startConversation('chat')
+    const frames = await runTurn(id, '指定模型生成视频', [], 'image')
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'model_unavailable',
+    })
+    expect(await videoTasks()).toHaveLength(0)
+  })
+
+  it('rejects unsupported last frames without creating a draft or charging', async () => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(VEO)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪', model: VEO, lastFrameId: 'last' })
+    const id = await startConversation()
+    await runTurn(id, '到这张图结束', [{ imageId: 'last', dataUrl: PIXEL }])
+    expect(modelReport(calls)).toContain('frameUnsupported')
+    expect(await confirmDrafts(id)).toHaveLength(0)
+    expect(await videoTasks()).toHaveLength(0)
+  })
+
+  it('refuses voices and keyframes the channel has not declared', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪说话', voiceIds: ['eve'] })
+    const voiced = await startConversation()
+    await runTurn(voiced, '给海浪配上声音')
+    expect(modelReport(calls)).toContain('voicesUnsupported')
+    expect(await videoTasks()).toHaveLength(0)
+
+    videoTurn(calls, {
+      prompt: '海浪说到一半换画面',
+      keyframes: [{ imageId: 'mid', timestampSeconds: 2 }],
+    })
+    const keyed = await startConversation()
+    await runTurn(keyed, '中间换一张图', [{ imageId: 'mid', dataUrl: PIXEL }])
+    expect(modelReport(calls)).toContain('keyframesUnsupported')
+    expect(await videoTasks()).toHaveLength(0)
+  })
+
+  it('queues a last frame, voices and keyframes after the references', async () => {
+    _setChannelsForTesting([
+      TEST_IMAGE_CHANNEL,
+      videoChannel(GROK, ['generate', 'reference_images', 'voices', 'keyframes']),
+    ])
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '从白天到夜里，用活泼的声音',
+      imageId: 'first',
+      lastFrameId: 'last',
+      referenceImageIds: ['ref'],
+      voiceIds: ['Eve'],
+      keyframes: [{ imageId: 'mid', timestampSeconds: 2 }],
+    })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '首尾帧加关键帧',
+      [
+        { imageId: 'first', dataUrl: PIXEL },
+        { imageId: 'last', dataUrl: PIXEL },
+        { imageId: 'ref', dataUrl: PIXEL },
+        { imageId: 'mid', dataUrl: PIXEL },
+      ],
+      'image',
+    )
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'awaiting_confirmation',
+      video: {
+        model: GROK,
+        firstFrameId: 'first',
+        lastFrameId: 'last',
+        referenceIds: ['ref'],
+        voices: ['eve'],
+        keyframes: [{ imageId: 'mid', timestampSeconds: 2 }],
+      },
+    })
+    await confirmDrafts(id)
+    const task = await videoTask()
+    expect(task.request_payload.input_images).toHaveLength(4)
+    expect(task.request_payload.video).toMatchObject({
+      first_frame_index: 0,
+      last_frame_index: 1,
+      reference_image_indices: [2],
+      keyframes: [{ image_index: 3, timestamp_seconds: 2 }],
+      voices: ['eve'],
+    })
+  })
+
+  it('returns a normal result when one image is given two roles', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪', imageId: 'same', lastFrameId: 'same' })
+    const id = await startConversation()
+    await runTurn(id, '同一张图做首尾', [{ imageId: 'same', dataUrl: PIXEL }])
+    expect(modelReport(calls)).toContain('同一张图只能担任一种角色')
+    expect(await videoTasks()).toHaveLength(0)
+  })
+
+  it.each([
+    'prompt',
+    'channel',
+  ] as const)('revalidates %s changes before confirming a frozen draft', async (changed) => {
+    const model = changed === 'prompt' ? VEO : GROK
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(model)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '海浪',
+      ...(changed === 'channel' ? { referenceImageIds: ['ref'] } : {}),
+    })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '生成视频',
+      changed === 'channel' ? [{ imageId: 'ref', dataUrl: PIXEL }] : [],
+      'image',
+    )
+    const draft = eventsOfType(frames, 'toolEnd')[0]!
+    if (changed === 'channel') {
+      const channel = videoChannel(GROK)
+      channel.models[0]!.capabilities = ['generate']
+      _setChannelsForTesting([TEST_IMAGE_CHANNEL, channel])
+    }
+    const response = await post(`/api/agent/conversations/${id}/confirmations`, {
+      deviceId: DEVICE,
+      messageId: draft.messageId,
+      prompt: changed === 'prompt' ? '海'.repeat(1025) : '海浪',
+    })
+    expect(response.status).toBe(409)
+    expect(await videoTasks()).toHaveLength(0)
+    expect(billing.reservations.filter((one) => one.model === model)).toHaveLength(0)
+  })
+
+  it('revalidates channel reference support before retrying a failed video without charging again', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '海浪', referenceImageIds: ['ref'] })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '参考这张图生成视频',
+      [{ imageId: 'ref', dataUrl: PIXEL }],
+      'image',
+    )
+    const draft = eventsOfType(frames, 'toolEnd')[0]!
+    await confirmDrafts(id)
+    await settleQueuedTasks(() => ({
+      status: 'failed',
+      errorType: 'upstream_error',
+      errorMessage: 'upstream failed',
+    }))
+    await settledJobs(id)
+    const channel = videoChannel(GROK)
+    channel.models[0]!.capabilities = ['generate']
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, channel])
+    const response = await post(`/api/agent/conversations/${id}/retries`, {
+      deviceId: DEVICE,
+      messageId: draft.messageId,
+    })
+    expect(response.status).toBe(409)
+    expect(response.json).toMatchObject({ code: 'invalid_params' })
+    expect(await videoTasks()).toHaveLength(1)
+    expect(billing.reservations.filter((one) => one.model === GROK)).toHaveLength(1)
+  })
+
   it('offers the tool where generation:video is on', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好')]))

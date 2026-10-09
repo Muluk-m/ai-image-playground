@@ -1,12 +1,15 @@
 import { agentTurnCostTotal, type AgentTurnCost as TurnCost } from '@image-playground/shared'
-import { ChevronDown, ImageIcon, MessageCircle, VideoIcon } from 'lucide-react'
+import { ArrowRightIcon, ChevronDown, ImageIcon, MessageCircle, VideoIcon } from 'lucide-react'
 import { Fragment, type ReactNode, useState } from 'react'
+import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import Credits from '../../../components/Credits'
+import { Button } from '../../../components/ui/button'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
 import { CARD_NOTE } from '../agentStyles'
 import { turnCostWithJobs } from '../lib/turnCost'
+import { useAgentStore } from '../store'
 import type { AgentToolMessage, AgentTurnFooter } from '../types'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 
@@ -25,6 +28,10 @@ export default function AgentTurnCost({
 }) {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
+  const resumeBlocked = useAgentStore(
+    (state) => state.turn === 'running' || state.historyLoading || state.historyFailed,
+  )
+
   const cost = footer.cost ? turnCostWithJobs(footer.cost, jobs) : undefined
   const total = cost ? agentTurnCostTotal(cost) : null
   const failed = footer.stopReason === 'failed'
@@ -42,13 +49,14 @@ export default function AgentTurnCost({
         {t(
           footer.error === 'agent_turn_interrupted'
             ? 'cost.interrupted'
-            : footer.error === 'agent_context_overflow'
-              ? 'cost.contextOverflow'
-              : 'cost.failed',
+            : footer.error === 'agent_request_budget_exceeded'
+              ? 'cost.requestBudgetExceeded'
+              : footer.error === 'agent_context_overflow'
+                ? 'cost.contextOverflow'
+                : 'cost.failed',
         )}
       </span>,
     )
-  if (footer.stopReason === 'aborted') parts.push(<span>{t('cost.stopped')}</span>)
   if (footer.durationMs !== undefined) {
     parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
   }
@@ -65,7 +73,7 @@ export default function AgentTurnCost({
     )
   }
 
-  return (
+  const receipt = (
     <div className={`studio-agent-turn-cost flex flex-wrap items-center gap-1 ${CARD_NOTE}`}>
       {parts.map((part, index) => (
         <Fragment key={index}>
@@ -97,6 +105,26 @@ export default function AgentTurnCost({
         </span>
       )}
     </div>
+  )
+  return footer.stopReason === 'aborted' ? (
+    <StoppedRun
+      reason={t('cost.stopped')}
+      actions={
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={resumeBlocked}
+          onClick={() => void useAgentStore.getState().send(t('cost.continuePrompt'))}
+        >
+          {t('cost.continue')}
+          <ArrowRightIcon aria-hidden className="size-3" />
+        </Button>
+      }
+    >
+      {parts.length > 0 && receipt}
+    </StoppedRun>
+  ) : (
+    receipt
   )
 }
 

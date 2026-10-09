@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { eq } from 'drizzle-orm'
 
 const bffRoot = resolve(import.meta.dir, '../../..')
 process.env.PORT = '0'
@@ -9,9 +10,15 @@ process.env.OPERATOR_CONFIG_FILE = resolve(bffRoot, 'operator-config.example.jso
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
 const { app, apiMetrics } = await import('../../app')
-const { close } = await import('../../db/client')
+const { close, db, schema } = await import('../../db/client')
+const { log } = await import('../../lib/logger')
+const { closeServerLogDatabase } = await import('../../lib/server-logs')
+const { withRequestContext } = await import('../../lib/request-context')
+const { captureLogLines } = await import('../helpers/logCapture')
+const lines = captureLogLines(log)
 
 afterAll(async () => {
+  await closeServerLogDatabase()
   await close()
 })
 
@@ -20,6 +27,85 @@ function get(path: string, headers: Record<string, string> = {}): Promise<Respon
 }
 
 describe('API statistics on the real request pipeline', () => {
+  it('stores access logs forwarded by the collector, with request correlation and a template route, excluding health and internal requests', async () => {
+    const handler = withRequestContext((request) => app.handle(request))
+    await handler(
+      new Request('http://localhost/api/capabilities', {
+        headers: { 'x-request-id': 'access-log-request' },
+      }),
+    )
+    await handler(
+      new Request('http://localhost/api/no-such-endpoint', {
+        headers: { 'x-request-id': 'rejected-log-request' },
+      }),
+    )
+    await handler(
+      new Request('http://localhost/health', {
+        headers: { 'x-request-id': 'excluded-health-request' },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // What the deployment's Fluent Bit posts: one record per line the BFF container printed.
+    const forwarded = lines.splice(0).map((line) => ({
+      date: Date.now() / 1000,
+      container_name: '/image-playground-paid-r20261007153518-2827408-bff',
+      source: 'stdout',
+      log: line,
+    }))
+    const ingest = await app.handle(
+      new Request('http://localhost/internal/logs/ingest', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer fixture-service-credential-alpha',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(forwarded),
+      }),
+    )
+    expect(ingest.status).toBe(204)
+    const retry = await app.handle(
+      new Request('http://localhost/internal/logs/ingest', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer fixture-service-credential-alpha',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify([...forwarded, null, {}]),
+      }),
+    )
+    expect(retry.status).toBe(204)
+    const denied = await app.handle(
+      new Request('http://localhost/internal/logs/ingest', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(forwarded),
+      }),
+    )
+    expect(denied.status).toBe(401)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // The ingest call itself is never logged, or every flush would feed the next one.
+    expect(lines.some((line) => line.includes('/internal/logs/ingest'))).toBe(false)
+    const records = await db
+      .select()
+      .from(schema.server_logs)
+      .where(eq(schema.server_logs.event, 'http.request'))
+    expect(records.filter((row) => row.request_id === 'access-log-request')).toHaveLength(1)
+    const successful = records.find((row) => row.request_id === 'access-log-request')
+    const rejected = records.find((row) => row.request_id === 'rejected-log-request')
+    expect(successful).toMatchObject({
+      service: 'bff',
+      instance: 'image-playground-paid-r20261007153518-2827408-bff',
+      level: 'info',
+      fields: { status: 200, route: 'GET /api/capabilities' },
+    })
+    expect(rejected).toMatchObject({
+      level: 'warn',
+      fields: { status: 404, path: '/api/no-such-endpoint' },
+    })
+    expect(successful?.fields).not.toHaveProperty('path')
+    expect(records.some((row) => row.request_id === 'excluded-health-request')).toBe(false)
+  })
+
   it('counts user-facing API calls by route template and status, and nothing else', async () => {
     apiMetrics.drain(Date.now(), true)
 
@@ -37,5 +123,30 @@ describe('API statistics on the real request pipeline', () => {
     const clientErrors = rows.reduce((sum, row) => sum + row.client_errors, 0)
     expect(requests).toBe(2)
     expect(clientErrors).toBe(1)
+  })
+  it('rejects oversized bodies before parsing and invalid batch envelopes', async () => {
+    const send = (body: BodyInit, headers: Record<string, string> = {}) =>
+      app.handle(
+        new Request('http://localhost/internal/logs/ingest', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer fixture-service-credential-alpha',
+            'content-type': 'application/json',
+            ...headers,
+          },
+          body,
+        }),
+      )
+    expect((await send('[]', { 'content-length': String(9 * 1024 * 1024) })).status).toBe(413)
+    expect((await send(JSON.stringify(Array(20_001).fill(null)))).status).toBe(413)
+    expect((await send('{')).status).toBe(400)
+    expect((await send('{}')).status).toBe(400)
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1))
+        controller.close()
+      },
+    })
+    expect((await send(stream)).status).toBe(413)
   })
 })

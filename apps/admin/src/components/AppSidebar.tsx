@@ -3,11 +3,14 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
+  Bug,
   ClipboardList,
   HeartPulse,
   LogOut,
   type LucideIcon,
+  ReceiptText,
   RefreshCw,
+  ScrollText,
   Settings,
   Shapes,
   Sparkles,
@@ -31,15 +34,19 @@ import {
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
 import { usePrivateAdminNavigation } from '@/lib/private-overlay'
+import { ADMIN_REFRESH_EVENT } from '@/lib/queries'
 
 export type NavTo =
   | '/overview'
+  | '/tasks'
   | '/users'
   | '/devices'
   | '/inspirations'
   | '/inspirations/skills'
   | '/inspirations/categories'
   | '/ops'
+  | '/errors'
+  | '/logs'
   | '/audit'
 
 export interface NavEntry {
@@ -71,7 +78,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
-      { to: '/devices', icon: ClipboardList, label: '任务与设备' },
+      { to: '/tasks', icon: ClipboardList, label: '生成任务' },
+      { to: '/devices', icon: ClipboardList, label: '设备' },
     ],
   },
   {
@@ -84,13 +92,32 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     label: '运维',
-    entries: [{ to: '/ops', icon: HeartPulse, label: '运维看板' }],
+    entries: [
+      { to: '/logs', icon: ScrollText, label: '服务端日志' },
+      { to: '/ops', icon: HeartPulse, label: '运维看板' },
+      { to: '/errors', icon: Bug, label: '前端错误' },
+    ],
   },
   {
     label: '设置',
     entries: [{ to: '/audit', icon: BookOpen, label: '审计' }],
   },
 ]
+
+/**
+ * 私有导航项来自 /api/extensions，只有名称与链接；图标在这里按链接认领。
+ * 认不出的新入口退回齿轮，不会因为私有树加了入口就让公开侧报错。
+ */
+const OVERLAY_NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
+  '/billing/orders': ReceiptText,
+  '/billing/settings': Settings,
+}
+
+function overlayNavIcon(href: string): LucideIcon {
+  return Object.prototype.hasOwnProperty.call(OVERLAY_NAV_ICONS, href)
+    ? OVERLAY_NAV_ICONS[href]!
+    : Settings
+}
 
 // 选中态用芽绿（tokens.css 的 --shell-nav-item-active-*），盖掉 shadcn 默认的中性 accent；
 // hover 也一并钉住，否则鼠标扫过当前模块会把它变回灰的。
@@ -105,8 +132,14 @@ export function AppSidebar() {
   const privateNavigation = usePrivateAdminNavigation()
 
   function refresh(): void {
+    const refreshEvent = new Event(ADMIN_REFRESH_EVENT, { cancelable: true })
+    window.dispatchEvent(refreshEvent)
     // 刷新只重拉数据，'me' 留着：动它会把登录态重检也拖进来。
-    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'me' })
+    void queryClient.invalidateQueries({
+      predicate: (query) =>
+        query.queryKey[0] !== 'me' &&
+        !(refreshEvent.defaultPrevented && query.queryKey[0] === 'generation-tasks'),
+    })
   }
 
   async function logout(): Promise<void> {
@@ -157,16 +190,19 @@ export function AppSidebar() {
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu aria-label={group.label}>
-                  {overlayEntries.map((entry) => (
-                    <SidebarMenuItem key={entry.href}>
-                      <SidebarMenuButton asChild tooltip={entry.label}>
-                        <a href={entry.href}>
-                          <Settings />
-                          <span>{entry.label}</span>
-                        </a>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  {overlayEntries.map((entry) => {
+                    const Icon = overlayNavIcon(entry.href)
+                    return (
+                      <SidebarMenuItem key={entry.href}>
+                        <SidebarMenuButton asChild tooltip={entry.label}>
+                          <a href={entry.href}>
+                            <Icon />
+                            <span>{entry.label}</span>
+                          </a>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
                   {entries.map((entry) => (
                     <SidebarMenuItem key={entry.to}>
                       <SidebarMenuButton

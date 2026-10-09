@@ -20,6 +20,12 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
+import {
+  type AgentSkillStarterMeta,
+  isAgentSkillVerified,
+  parseAgentSkillStarterMeta,
+  templateSlotInputs,
+} from './skill-starters'
 
 /**
  * 技能（Agent Skill）：一份写在 `SKILL.md` 里的专业流程指引，按 agentskills.io 的目录约定放在
@@ -31,7 +37,7 @@ import { log } from '../logger'
  */
 
 /** 一条加载好的技能。`directory` 只给服务端读附属文件用，任何进模型的文本里都不许出现。 */
-export interface AgentSkill {
+export interface AgentSkill extends AgentSkillStarterMeta {
   /** Agent Skills 标准的 kebab-case 标识，与父目录同名。模型和 `/name` 都按它认。 */
   readonly name: string
   /**
@@ -52,6 +58,7 @@ export interface AgentSkill {
    * **不进任何给模型的文本**：模板正文照常由 `loadSkill` 读，这几项只供界面排卡片。
    */
   readonly template?: AgentSkillTemplateMeta
+  // 继承来的素材位、起手句、场景与验证记录同样**不进任何给模型的文本**；素材位始终在。
 }
 
 /**
@@ -78,7 +85,7 @@ export interface AgentSkillTemplateMeta {
  * 框架的 `loadSkills` 也不保留额外字段——塞进去等于加一条只有我们认的方言，还拿不回来。
  * 旁路文件读不到就整条回退，技能本身照常可用。
  */
-export interface AgentSkillMeta {
+export interface AgentSkillMeta extends AgentSkillStarterMeta {
   readonly icon: string
   readonly summary: string
   /** 有它就说明这条技能是一条预置模板；写坏了会被丢掉，技能本身不受影响。 */
@@ -88,7 +95,12 @@ export interface AgentSkillMeta {
 /** 技能目录里那份界面元数据的文件名。 */
 export const AGENT_SKILL_META_FILE = 'meta.json'
 
-const FALLBACK_META: AgentSkillMeta = { icon: DEFAULT_AGENT_SKILL_ICON, summary: '' }
+const FALLBACK_META: AgentSkillMeta = {
+  icon: DEFAULT_AGENT_SKILL_ICON,
+  summary: '',
+  inputs: [],
+  starters: [],
+}
 
 /** lucide 图标名的形状：kebab-case。写成 `Clapperboard` 这种前端映射表里查不到。 */
 const ICON_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -116,7 +128,7 @@ async function loadSkillMeta(directory: string, name: string): Promise<AgentSkil
     )
     return FALLBACK_META
   }
-  const raw = parsed as { icon?: unknown; summary?: unknown; template?: unknown }
+  const raw = parsed as Record<string, unknown>
   const icon = typeof raw.icon === 'string' ? raw.icon.trim() : ''
   const summary = typeof raw.summary === 'string' ? raw.summary.trim() : ''
   if (!ICON_NAME_RE.test(icon)) {
@@ -136,6 +148,7 @@ async function loadSkillMeta(directory: string, name: string): Promise<AgentSkil
     icon: ICON_NAME_RE.test(icon) ? icon : DEFAULT_AGENT_SKILL_ICON,
     summary,
     ...(template ? { template } : {}),
+    ...parseAgentSkillStarterMeta(raw, template?.slotCount, name),
   }
 }
 
@@ -267,9 +280,7 @@ async function loadFrom(dirs: readonly string[]): Promise<LoadedSkills> {
           description: skill.description,
           content: skill.content,
           directory,
-          icon: meta.icon,
-          summary: meta.summary,
-          ...(meta.template ? { template: meta.template } : {}),
+          ...meta,
         }
       }),
   )
@@ -353,19 +364,33 @@ export function titleSourceText(text: string, mode: AgentMode): string {
   return match && skill ? skill.title + trimmed.slice(match[0].length) : text
 }
 
-export function agentSkillSummaries(mode: AgentMode): AgentSkillSummary[] {
-  return agentSkills(mode).map(agentSkillSummary)
+/**
+ * `imageModel` 是这个部署默认的出图模型（智能体没被指定模型时用的那个），非模板技能的
+ * 「已验证」跟它比；部署没有出图模型时传 undefined，非模板技能一律不算已验证。
+ */
+export function agentSkillSummaries(
+  mode: AgentMode,
+  imageModel: string | undefined,
+): AgentSkillSummary[] {
+  return index[mode].map((skill) => agentSkillSummary(skill, imageModel))
 }
 
-/** 一条技能发给界面的那一份。模板的图片在这里换成地址：前端拼不出这条路，也不该拼。 */
-function agentSkillSummary(skill: AgentSkill): AgentSkillSummary {
-  const { name, title, description, icon, summary, template } = skill
+/**
+ * 一条技能发给界面的那一份。模板的图片在这里换成地址：前端拼不出这条路，也不该拼。
+ * 验证记录本身不发，只发算好的 `verified`。
+ */
+function agentSkillSummary(skill: AgentSkill, imageModel: string | undefined): AgentSkillSummary {
+  const { name, title, description, icon, summary, template, inputs, starters, scene } = skill
   return {
     name,
     title,
     description,
     icon,
     summary,
+    inputs,
+    starters,
+    ...(scene ? { scene } : {}),
+    verified: isAgentSkillVerified(skill, imageModel),
     ...(template
       ? {
           template: {
@@ -407,9 +432,12 @@ export function visibleAgentSkills(
 export async function listAgentSkillSummaries(
   mode: AgentMode,
   userId: string | null,
+  imageModel: string | undefined,
 ): Promise<AgentSkillSummary[]> {
   const looks = mode === 'image' ? await userLookSkills(userId) : []
-  return visibleAgentSkills(mode, { userId, looks }).map(agentSkillSummary)
+  return visibleAgentSkills(mode, { userId, looks }).map((skill) =>
+    agentSkillSummary(skill, imageModel),
+  )
 }
 
 /**
@@ -572,6 +600,9 @@ function lookSkill(row: LookRow): AgentSkill | undefined {
     directory: '',
     icon: DEFAULT_AGENT_SKILL_ICON,
     summary: '',
+    // 用户模板没有 meta.json：素材位按它自己的 `slot_count` 派生，没有起手句，也从不算已验证。
+    inputs: templateSlotInputs(row.slotCount ?? 0),
+    starters: [],
   }
 }
 

@@ -1,14 +1,32 @@
-import { BookOpen, LoaderCircle, MessageCircle, PanelLeftClose, Plus } from 'lucide-react'
+import {
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  LoaderCircle,
+  MessageCircle,
+  PanelLeftClose,
+  Plus,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
-import { projectCatalog } from '../features/canvas/lib/projectCatalog'
+import {
+  projectCatalog,
+  projectsByExperience,
+  RECENT_PROJECT_COUNT,
+} from '../features/canvas/lib/projectCatalog'
 import { projectEntryName, projectExperience } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
 import { BRAND_WORDMARK, brandNeedsWordmark, currentLocale, useTranslation } from '../i18n'
 
-import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
+import {
+  APP_MODE_LABELS,
+  type AppMode,
+  defaultSidebarExpanded,
+  NAV_APP_MODES,
+  useStore,
+} from '../store'
 import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon, ToolboxIcon } from './icons'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
@@ -21,13 +39,11 @@ const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
 }
 
 const ITEM =
-  'flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  'flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 /** 主入口选中只换字色，不铺底：底色留给下面「正在打开的项目」那一行。 */
 const ACTIVE_ITEM = 'font-semibold text-primary'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
 const ACTIVE_ROW = 'bg-accent font-medium text-foreground'
-/** 最近列表只摆几条；更多的去「资产 → 项目」。 */
-const RECENT_COUNT = 5
 type RecentKind = 'chat' | 'canvas'
 
 /**
@@ -41,15 +57,13 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
-  // 画布是沉浸式的：那里**永远**没有这条宽栏，连手动展开都不给——左上角那颗 logo 直接回项目页。
-  // 别处默认摊开，用户收起过就以他的选择为准。
+  // 对话留着这条宽栏，发出消息也不收。画布默认收起：左上角 logo 回首页，旁边按钮可手动展开。
+  // 别处默认摊开；用户在当前入口手动开合过，就以他的选择为准。
   const activeProject = projects.find((project) => project.id === activeId)
-  const expanded = useStore(
-    (state) =>
-      state.sidebarExpanded ??
-      (!isWorkbenchMode(state.appMode) ||
-        (activeProject ? projectExperience(activeProject) === 'chat' : true)),
-  )
+  const sidebarPreference = useStore((state) => state.sidebarExpanded)
+  const expanded =
+    sidebarPreference ??
+    defaultSidebarExpanded(appMode, activeProject ? projectExperience(activeProject) : null)
   const toggleSidebar = () => useStore.setState({ sidebarExpanded: !expanded })
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
@@ -69,9 +83,7 @@ export default function Sidebar() {
   useEffect(() => {
     if (activeKind) setKind(activeKind)
   }, [activeId, activeKind])
-  const listed = recent
-    .filter((project) => projectExperience(project) === kind)
-    .slice(0, RECENT_COUNT)
+  const listed = projectsByExperience(recent)[kind].slice(0, RECENT_PROJECT_COUNT)
 
   // 正在打开的那个项目。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 这一行不给反馈的话点下去像没反应。
@@ -121,7 +133,7 @@ export default function Sidebar() {
           type="button"
           onClick={appMode === 'canvas' ? () => setAppMode('image') : toggleSidebar}
           aria-label={t(appMode === 'canvas' ? 'brand.home' : 'header.nav')}
-          className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
+          className="app-floating-mark fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
         </button>
@@ -140,7 +152,7 @@ export default function Sidebar() {
               className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-muted"
             >
               <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
-              <span className="truncate text-[15px] font-semibold">
+              <span className="truncate text-title font-semibold">
                 {t('header.brandName')}
                 {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
               </span>
@@ -195,7 +207,7 @@ export default function Sidebar() {
                   type="button"
                   disabled={opening !== null}
                   onClick={() => void openProject(project.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[13px]"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-body-sm"
                 >
                   {opening === project.id ? (
                     <LoaderCircle
@@ -216,7 +228,7 @@ export default function Sidebar() {
                   title={t('nav.immersive')}
                   className="grid h-6 w-6 shrink-0 place-items-center rounded-md opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
                 >
-                  ↗
+                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
             )
@@ -225,9 +237,13 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={openProjects}
-            className="flex h-8 items-center px-3 text-left text-[12px] text-muted-foreground hover:text-foreground"
+            className="group flex h-8 items-center gap-1 px-3 text-left text-xs text-muted-foreground hover:text-foreground"
           >
-            {t('nav.viewAll')} →
+            {t('nav.viewAll')}
+            <ArrowRight
+              className="h-3 w-3 transition-transform group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
           </button>
           {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}
           <div className="min-h-6 flex-1" aria-hidden="true" />
@@ -258,7 +274,7 @@ export default function Sidebar() {
               type="button"
               onClick={() => setAppMode(mode)}
               aria-pressed={active}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] ${
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-label-sm ${
                 active ? 'text-primary' : 'text-muted-foreground'
               }`}
             >

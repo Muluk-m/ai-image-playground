@@ -5,35 +5,48 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const session = vi.hoisted(() => ({ accountsLogin: true, accountsSync: true }))
+const session = vi.hoisted(() => ({
+  accountsLogin: true,
+  accountsSync: true,
+  failToday: false,
+  showError: false,
+  errorRequest: true,
+  taskAt: undefined as number | undefined,
+  completedAt: undefined as number | undefined,
+}))
+const requests = vi.hoisted(() => [] as string[])
 const patch = vi.hoisted(() => vi.fn(async () => ({ note: '合作方' })))
 
 vi.mock('../../lib/api-client', () => {
+  const window = { from: Date.now() - 1000, to: Date.now() }
   const overview = {
+    window,
+    truncated: false,
     summary: {
-      total: 3,
+      users: 1,
+      devices: 0,
+      tasks: 3,
       completed: 2,
       failed: 1,
-      success_rate: 2 / 3,
-      p50_duration_ms: 1200,
-      p95_duration_ms: 4200,
-      upstream_invocations: 4,
+      queued: 0,
+      in_progress: 0,
+      reconciling: 0,
     },
-    volume: [{ bucket_at: Date.now(), total: 3, completed: 2, failed: 1 }],
-    volume_bucket: 'day',
-    failures: [{ error_type: 'upstream_timeout', count: 1 }],
-    agent_cache: {
-      calls: 2,
-      input_tokens: 1000,
-      cache_read_tokens: 640,
-      first_call: { calls: 1, input_tokens: 900, cache_read_tokens: 600 },
-      continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
-      models: [
-        { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
-        { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
-      ],
-    },
-    models: [{ model: 'gpt-image-2', count: 3, upstream_invocations: 4, average_multiplier: 1.33 }],
+    actors: [
+      {
+        kind: 'user',
+        id: 'user-1',
+        username: 'alice',
+        note: '设计师',
+        tasks: 3,
+        completed: 2,
+        failed: 1,
+        queued: 0,
+        in_progress: 0,
+        reconciling: 0,
+        last_submitted_at: Date.now(),
+      },
+    ],
   }
   const user = {
     id: 'user-1',
@@ -51,6 +64,7 @@ vi.mock('../../lib/api-client', () => {
   }
 
   async function get(url: string): Promise<unknown> {
+    requests.push(url)
     if (url === '/api/me') {
       return {
         ok: true,
@@ -59,7 +73,78 @@ vi.mock('../../lib/api-client', () => {
       }
     }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
-    if (url.startsWith('/api/overview')) return overview
+    if (url.startsWith('/api/overview/errors'))
+      return {
+        window,
+        total: session.showError ? 1 : 0,
+        entries: session.showError
+          ? [
+              {
+                source: 'server',
+                id: 'error-1',
+                at: Date.now(),
+                service: 'worker',
+                message: '上游请求失败',
+                stack: '    at callProvider (worker.ts:42)\n    at run (queue.ts:12)',
+                instance: 'worker-1',
+                task_id: null,
+                request_id: session.errorRequest ? 'request-1' : null,
+                group: 'generation.failed',
+              },
+            ]
+          : [],
+      }
+    if (url.startsWith('/api/overview')) {
+      if (session.failToday) throw new Error('today unavailable')
+      return overview
+    }
+    if (url.startsWith('/api/client-errors')) {
+      return {
+        range: '7d',
+        bucket_unit: 'day',
+        summary: { events: 3, devices: 2, boot_events: 2, groups: 1 },
+        trend: [],
+        groups: [
+          {
+            fingerprint: 'aaaaaaaaaaaaaaaa',
+            kind: 'boot',
+            name: 'BootFailure',
+            message: 'timeout',
+            count: 2,
+            devices: 2,
+            users: 0,
+            first_seen: Date.now() - 3600_000,
+            last_seen: Date.now() - 60_000,
+            last_url: null,
+            last_release: null,
+          },
+        ],
+      }
+    }
+    if (url.startsWith('/api/tasks?'))
+      return {
+        window,
+        tasks: [
+          {
+            id: 'task-1',
+            user_id: 'user-1',
+            device_id: 'device-1',
+            username: 'alice',
+            provider: 'openai-compat',
+            model: 'gpt-image-2',
+            status: 'failed',
+            submitted_at: session.taskAt ?? Date.now(),
+            started_at: null,
+            completed_at: session.completedAt ?? null,
+            error_type: 'upstream_error',
+            upstream_status: 500,
+            prompt: '商品主图',
+            attempt_count: 1,
+            upstream_invocation_count: 1,
+          },
+        ],
+        nextCursor: null,
+      }
     if (url.includes('/tasks')) return { tasks: [], nextCursor: null }
     if (url.startsWith('/api/users/')) {
       return {
@@ -125,6 +210,12 @@ function renderAt(path: string): void {
 
 beforeEach(() => {
   patch.mockClear()
+  requests.length = 0
+  session.failToday = false
+  session.showError = false
+  session.errorRequest = true
+  session.taskAt = undefined
+  session.completedAt = undefined
   session.accountsLogin = true
   session.accountsSync = true
   document.cookie = 'sidebar_state=; path=/; max-age=0'
@@ -154,7 +245,7 @@ describe('sidebar navigation', () => {
     const business = await navGroup('经营')
     expect(await business.findByRole('link', { name: '用户' })).toBeInTheDocument()
     expect(business.getByRole('link', { name: '概览' })).toBeInTheDocument()
-    expect(business.getByRole('link', { name: '任务与设备' })).toBeInTheDocument()
+    expect(business.getByRole('link', { name: '生成任务' })).toBeInTheDocument()
   })
 
   it('hides the user entry when accounts:login is disabled', async () => {
@@ -222,23 +313,160 @@ describe('sync footprint', () => {
   })
 })
 
-describe('time range placement', () => {
-  it('shows the token-weighted Agent cache hit rate and per-model usage', async () => {
+describe('今日概览', () => {
+  it('shows generation users and links to their exact daily tasks instead of unrelated statistics', async () => {
     renderAt('/overview')
-    expect(await screen.findByText('Agent 输入缓存 · 7 天')).toBeInTheDocument()
-    expect(screen.getByText('64.0%')).toBeInTheDocument()
-    expect(screen.getByText('每轮首调')).toBeInTheDocument()
-    expect(screen.getByText('轮内续调')).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('row', { name: /model-b/ })).getByText('66.7%'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('今天谁在生成')).toBeInTheDocument()
+    const user = await screen.findByRole('link', { name: '设计师' })
+    expect(user.getAttribute('href')).toMatch(/userId=user-1/)
+    expect(user.getAttribute('href')).toMatch(/from=/)
+    expect(user.getAttribute('href')).toMatch(/to=/)
+    expect(screen.getByRole('link', { name: '设计师的失败任务' }).getAttribute('href')).toMatch(
+      /status=failed/,
+    )
+    expect(screen.queryByText('Agent 输入缓存')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('时间范围')).not.toBeInTheDocument()
   })
 
-  it('renders the range control next to the task pulse chart on 概览', async () => {
+  it('opens the same user and time window in the task list', async () => {
     renderAt('/overview')
-    expect(await screen.findByLabelText('时间范围')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('link', { name: '设计师的失败任务' }))
+    expect(await screen.findByRole('button', { name: '商品主图' })).toBeInTheDocument()
+    const url = requests.find((url) => url.startsWith('/api/tasks?'))!
+    const params = new URLSearchParams(url.split('?')[1])
+    expect(params.get('userId')).toBe('user-1')
+    expect(params.get('status')).toBe('failed')
+    expect(params.has('from')).toBe(true)
+    expect(params.has('to')).toBe(true)
   })
 
+  it('still shows errors and health when the daily task query fails', async () => {
+    session.failToday = true
+    renderAt('/overview')
+    expect(await screen.findByText(/今日任务加载失败/)).toBeInTheDocument()
+    expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '服务健康' })).toBeInTheDocument()
+  })
+
+  it('shows the full error and indented stack in a scrollable terminal without per-frame cards', async () => {
+    session.showError = true
+    renderAt('/overview')
+    const terminal = await screen.findByRole('log', { name: '今日错误终端' })
+    const output = terminal.querySelector('pre')!
+    expect(output.textContent).toBe(
+      '上游请求失败\n    at callProvider (worker.ts:42)\n    at run (queue.ts:12)',
+    )
+    expect(terminal.querySelector('details')).toBeNull()
+    expect(output.className).toContain('whitespace-pre')
+    expect(within(terminal).getByRole('link', { name: '相关日志 →' })).toBeInTheDocument()
+  })
+
+  it('opens plain terminal errors with same-container context instead of filtering out their stack', async () => {
+    session.showError = true
+    session.errorRequest = false
+    renderAt('/overview')
+    const link = await screen.findByRole('link', { name: '相关日志 →' })
+    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    expect(params.get('instance')).toBe('worker-1')
+    expect(params.has('group')).toBe(false)
+    expect(Number(params.get('to')) - Number(params.get('from'))).toBeLessThanOrEqual(120_000)
+  })
+
+  it('keeps missing health data visibly unknown and shows the daily error list independently', async () => {
+    renderAt('/overview')
+    const health = within(await screen.findByRole('region', { name: '服务健康' }))
+    expect(await health.findByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
+    expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
+  })
+})
+
+describe('generation task drill-down', () => {
+  it('advances the default today window on refresh, including after filtering status', async () => {
+    const start = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
+    try {
+      renderAt('/tasks')
+      await screen.findByRole('button', { name: '商品主图' })
+      expect(screen.getByText(/· 北京时间$/)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('radio', { name: '失败' }))
+      await waitFor(() => expect(requests.some((url) => url.includes('status=failed'))).toBe(true))
+      await waitFor(() =>
+        expect(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]).not.toBeDisabled(),
+      )
+      clock.mockReturnValue(start + 120_000)
+      fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
+      await waitFor(() => {
+        const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
+        const params = new URLSearchParams(url.split('?')[1])
+        expect(Number(params.get('to'))).toBe(start + 120_000)
+        expect(params.get('status')).toBe('failed')
+      })
+      clock.mockReturnValue(start + 240_000)
+      const beforeGlobalRefresh = requests.filter((url) => url.startsWith('/api/tasks?')).length
+      fireEvent.click(screen.getAllByRole('button', { name: '刷新' })[0]!)
+      await waitFor(() => {
+        const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
+        expect(Number(new URLSearchParams(url.split('?')[1]).get('to'))).toBe(start + 240_000)
+      })
+      expect(requests.filter((url) => url.startsWith('/api/tasks?'))).toHaveLength(
+        beforeGlobalRefresh + 1,
+      )
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('shows invalid time windows without silently querying today and offers a valid reset', async () => {
+    renderAt('/tasks?from=invalid&to=1234')
+    expect(await screen.findByText(/任务筛选无效/)).toBeInTheDocument()
+    expect(requests.some((url) => url.startsWith('/api/tasks?'))).toBe(false)
+    fireEvent.click(screen.getByRole('link', { name: '查看今天全部任务' }))
+    expect(await screen.findByRole('button', { name: '商品主图' })).toBeInTheDocument()
+  })
+
+  it('keeps an explicitly selected historical window on refresh', async () => {
+    const to = Date.now() - 86400_000,
+      from = to - 3600_000
+    renderAt(`/tasks?from=${from}&to=${to}&userId=user-1`)
+    await screen.findByRole('button', { name: '商品主图' })
+    const count = requests.filter((url) => url.startsWith('/api/tasks?')).length
+    fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
+    await waitFor(() =>
+      expect(requests.filter((url) => url.startsWith('/api/tasks?')).length).toBeGreaterThan(count),
+    )
+    const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
+    const params = new URLSearchParams(url.split('?')[1])
+    expect(Number(params.get('from'))).toBe(from)
+    expect(Number(params.get('to'))).toBe(to)
+    expect(params.get('userId')).toBe('user-1')
+  })
+
+  it('anchors a task log link to that task rather than the end of a long list window', async () => {
+    const to = Date.now(),
+      at = to - 20 * 86400_000
+    session.taskAt = at
+    session.completedAt = at + 30_000
+    renderAt(`/tasks?from=${at - 3600_000}&to=${to}`)
+    const link = await screen.findByRole('link', { name: '日志 →' })
+    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    expect(params.get('taskId')).toBe('task-1')
+    expect(Number(params.get('from'))).toBeLessThanOrEqual(at)
+    expect(Number(params.get('to'))).toBeGreaterThanOrEqual(session.completedAt)
+    expect(Number(params.get('to')) - Number(params.get('from'))).toBeLessThanOrEqual(7 * 86400_000)
+  })
+
+  it('opens all events in the same request without retaining the error group filter', async () => {
+    session.showError = true
+    renderAt('/overview')
+    await screen.findByRole('log', { name: '今日错误终端' })
+    const link = screen.getByRole('link', { name: '相关日志 →' })
+    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    expect(params.get('requestId')).toBe('request-1')
+    expect(params.has('group')).toBe(false)
+  })
+})
+
+describe('user detail controls', () => {
   it('renders no range control on the user detail page', async () => {
     renderAt('/users/user-1')
     expect(await screen.findByLabelText('任务状态筛选')).toBeInTheDocument()
