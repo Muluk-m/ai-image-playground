@@ -100,7 +100,7 @@ export function SettingsPopover({
         aria-labelledby={titleId}
         className={cn(
           paper,
-          'flex max-h-[min(36rem,calc(100dvh-6rem))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-[20px] p-0 shadow-popover',
+          'flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-[20px] p-0 shadow-popover',
         )}
       >
         <div className="flex items-center justify-between px-4 pb-1 pt-3">
