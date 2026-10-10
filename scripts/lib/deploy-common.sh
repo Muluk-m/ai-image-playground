@@ -92,7 +92,12 @@ release_untagged_image() {
     --format '{{range .RepoTags}}{{println .}}{{end}}{{range .RepoDigests}}{{println .}}{{end}}' \
     2>/dev/null) || return 0
   printf '%s\n' "$names" | grep -q "^$2[:@]" && return 0
-  docker rmi "$1" >/dev/null 2>&1 && echo "released the registry reference of $1"
+  # 发布已经切过去了：回收失败只留下这个镜像，不能让 set -e 把整次部署判成失败。
+  if docker rmi "$1" >/dev/null 2>&1; then
+    echo "released the registry reference of $1"
+  else
+    echo "could not release $1; leaving it" >&2
+  fi
 }
 
 # release_was_deployed <release-directory>
