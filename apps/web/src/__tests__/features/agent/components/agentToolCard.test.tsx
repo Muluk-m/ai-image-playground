@@ -143,7 +143,7 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
   }
 })
 
-it('browses generated images and previews the selected artifact without opening the first one', async () => {
+it('shows all generated images together and edits the clicked artifact', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   const preview = vi.fn()
@@ -178,9 +178,10 @@ it('browses generated images and previews the selected artifact without opening 
         />,
       ),
     )
-    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
-    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(2)
+    act(() =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="查看第 2 个产物"]')!.click(),
+    )
     expect(preview).toHaveBeenCalledWith('group', 'second', 'data:image/png;base64,second')
     preview.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
@@ -224,13 +225,14 @@ it('keeps the visible and editable artifact aligned after delivery temporarily u
     )
   try {
     await render('placed')
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    act(() =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="查看第 2 个产物"]')!.click(),
+    )
     await render('pending')
     expect(host.querySelector('[data-slot="image-gallery"]')).toBeNull()
     await render('placed')
-    expect(host.querySelector('.studio-agent-inline-open')!.getAttribute('aria-label')).toBe(
-      '查看第 2 个产物',
-    )
+    expect(host.querySelectorAll('.studio-agent-inline-open')).toHaveLength(2)
+    expect(host.querySelector('[data-selected]')!.getAttribute('aria-label')).toBe('第 2 个产物')
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
     expect(preview).toHaveBeenCalledWith('delivery-group', 'second', 'data:image/png;base64,second')
   } finally {
@@ -272,10 +274,9 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
         />,
       ),
     )
-    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(2)
     expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
-    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    act(() => host.querySelectorAll<HTMLButtonElement>('.studio-agent-inline-open')[1]!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
     viewCanvas.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())

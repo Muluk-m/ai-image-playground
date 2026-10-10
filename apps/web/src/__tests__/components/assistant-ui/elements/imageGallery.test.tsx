@@ -26,8 +26,6 @@ function GalleryHarness({ current, visible }: { current: typeof items; visible: 
       items={current}
       selectedId={selectedId}
       onSelect={(item) => setSelectedId(item.id)}
-      previousLabel="Previous"
-      nextLabel="Next"
       itemLabel={(index) => `Image ${index + 1}`}
       renderItem={(item) => (
         <button type="button" data-current={item.id} onClick={() => open(item.id)}>
@@ -40,51 +38,51 @@ function GalleryHarness({ current, visible }: { current: typeof items; visible: 
 function render(current = items, visible = true) {
   act(() => root.render(<GalleryHarness current={current} visible={visible} />))
 }
-function button(label: string) {
-  return host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+function tile(id: string) {
+  return host.querySelector<HTMLButtonElement>(`[data-current="${id}"]`)!
 }
-function current() {
-  return host.querySelector<HTMLButtonElement>('[data-current]')!
+function selected() {
+  return host.querySelector('[data-selected] [data-current]')!.getAttribute('data-current')
 }
-it('browses with arrows and thumbnails and opens the selected artifact', () => {
+it('shows every artifact and opens each directly while preserving keyboard navigation', () => {
   render()
-  expect(button('Previous').disabled).toBe(true)
-  act(() => button('Next').click())
-  expect(current().dataset.current).toBe('two')
-  expect(button('Image 2').getAttribute('aria-pressed')).toBe('true')
-  act(() => current().click())
+  expect(host.querySelectorAll('[data-current]')).toHaveLength(3)
+  act(() => tile('two').click())
   expect(open).toHaveBeenCalledWith('two')
-  act(() => button('Image 3').click())
-  expect(current().dataset.current).toBe('three')
-  expect(button('Next').disabled).toBe(true)
+  expect(selected()).toBe('two')
   act(() =>
-    current().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })),
+    tile('two').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
   )
-  expect(current().dataset.current).toBe('two')
-  act(() => button('Previous').click())
-  expect(current().dataset.current).toBe('one')
+  expect(selected()).toBe('three')
+  expect(document.activeElement).toBe(tile('three'))
+  act(() =>
+    tile('three').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
+  )
+  expect(selected()).toBe('three')
+  act(() =>
+    tile('three').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })),
+  )
+  expect(selected()).toBe('two')
 })
 it('keeps selection by artifact id when items reorder and falls back when removed', () => {
   render()
-  act(() => button('Image 2').click())
+  act(() => tile('two').click())
   render([items[1], items[0], items[2]])
-  expect(current().dataset.current).toBe('two')
-  expect(button('Image 1').getAttribute('aria-pressed')).toBe('true')
+  expect(selected()).toBe('two')
   render([items[0], items[2]])
-  expect(current().dataset.current).toBe('one')
+  expect(selected()).toBe('one')
 })
-it('hides navigation for one item and handles an empty group', () => {
+it('handles one item and an empty group', () => {
   render([items[0]])
   expect(host.querySelectorAll('button')).toHaveLength(1)
   render([])
   expect(host.childElementCount).toBe(0)
 })
-
 it('keeps the controlled selection when the gallery unmounts temporarily', () => {
   render()
-  act(() => button('Image 2').click())
+  act(() => tile('two').click())
   render(items, false)
   expect(host.childElementCount).toBe(0)
   render(items, true)
-  expect(current().dataset.current).toBe('two')
+  expect(selected()).toBe('two')
 })
