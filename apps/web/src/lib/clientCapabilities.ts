@@ -31,7 +31,7 @@ let currentManifest = disabledManifest()
 let currentBffEnabled = false
 let projectDocumentIdentity = false
 let attachmentLimits: AttachmentLimits | undefined
-const CAPABILITY_TIMEOUT_MS = 5000
+const CAPABILITY_TIMEOUTS_MS = [5000, 10_000, 15_000]
 
 export async function bootstrapClientCapabilities(
   bffEnabled: boolean,
@@ -44,13 +44,16 @@ export async function bootstrapClientCapabilities(
   attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
 
-  let result: { body: unknown; parsed: ClientCapabilityManifest | null } | null
+  let result: { body: unknown; parsed: ClientCapabilityManifest | null } | null = null
   try {
-    try {
-      result = await requestManifest(bffBaseUrl)
-    } catch {
-      // 首个请求还要建连，慢网络上会单独超时；复用已建好的连接再试一次，用户才不会落到「暂不可用」。
-      result = await requestManifest(bffBaseUrl)
+    // 偶发的单次传输卡顿不该把用户挡在工作台外：逐次放宽超时再试，全部失败才进「暂不可用」。
+    for (const [attempt, timeoutMs] of CAPABILITY_TIMEOUTS_MS.entries()) {
+      try {
+        result = await requestManifest(bffBaseUrl, timeoutMs)
+        break
+      } catch (error) {
+        if (attempt === CAPABILITY_TIMEOUTS_MS.length - 1) throw error
+      }
     }
     if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
     if (result?.parsed) currentManifest = result.parsed
@@ -91,6 +94,7 @@ export async function bootstrapClientCapabilities(
 
 async function requestManifest(
   bffBaseUrl: string,
+  timeoutMs: number,
 ): Promise<{ body: unknown; parsed: ClientCapabilityManifest | null } | null> {
   const controller = new AbortController()
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -108,7 +112,7 @@ async function requestManifest(
         timeout = setTimeout(() => {
           controller.abort()
           reject(new Error('capability_request_timeout'))
-        }, CAPABILITY_TIMEOUT_MS)
+        }, timeoutMs)
       }),
     ])
   } finally {
