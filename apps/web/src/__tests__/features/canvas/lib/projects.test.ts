@@ -109,16 +109,16 @@ describe('项目入口名', () => {
   const named = (name: string, customName: boolean) =>
     ({ name, customName, conversationId: 'c', hasContent: true }) as CanvasProject
 
-  it('自动名去掉早先截进来的 Markdown 记号，用户起的名字原样显示', () => {
+  it('名字里早先截进来的 Markdown 记号显示时去掉，云端载入的自动名也一样', () => {
     expect(projectEntryName(named('**漫剧名称：《折扇惊梦》** **场景：** 烟…', false))).toBe(
       '漫剧名称：《折扇惊梦》 场景： 烟…',
     )
-    expect(projectEntryName(named('**加粗是我故意的**', true))).toBe('**加粗是我故意的**')
+    expect(projectEntryName(named('**漫剧名称：《折扇惊梦》**', true))).toBe(
+      '漫剧名称：《折扇惊梦》',
+    )
   })
 
-  it('自动名只剩 Markdown 记号时退回未命名', () => {
-    expect(projectEntryName(named('***', false))).toBe(
-      projectEntryName(named(UNTITLED_PROJECT, false)),
-    )
+  it('名字只剩 Markdown 记号时保留原名', () => {
+    expect(projectEntryName(named('***', false))).toBe('***')
   })
 })
