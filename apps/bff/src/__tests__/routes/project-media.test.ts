@@ -500,7 +500,7 @@ describe('confirmation coordination', () => {
     const previous = config.operator
     config.operator = {
       ...previous,
-      quotas: { ...previous.quotas, 'sync:user-media-bytes': 4 * 1024 * 1024 },
+      quotas: { ...previous.quotas, 'sync:user-media-bytes': 8 * 1024 * 1024 },
     }
     restoreQuota = () => {
       config.operator = previous
@@ -693,6 +693,40 @@ describe('confirmation coordination', () => {
       unlock()
       releaseBusy()
       await Promise.allSettled([...local, confirmation, lock])
+    }
+  })
+
+  it('bounds distinct lock waiters, lets duplicates join at capacity, and releases admission afterward', async () => {
+    const locks = await import('../../lib/mediaObjectLock')
+    const { completeMedia } = await import('../../lib/projectMedia')
+    const uploads = []
+    for (let i = 0; i < 11; i++)
+      uploads.push(await pendingConfirmation(`#${(0x100000 + i).toString(16)}`))
+    const originalLock = locks.withMediaObjectLock
+    let blocked = true
+    const lock = spyOn(locks, 'withMediaObjectLock').mockImplementation(async (...args) =>
+      blocked ? undefined : originalLock(...args),
+    )
+    const pending = uploads.slice(0, 10).map((upload) => completeMedia('media-owner', upload.id))
+    try {
+      for (let attempt = 0; lock.mock.calls.length < 10 && attempt < 100; attempt++)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(lock.mock.calls.length).toBeGreaterThanOrEqual(10)
+      pending.push(completeMedia('media-owner', uploads[0]!.id))
+      await expect(completeMedia('media-stranger', uploads[0]!.id)).rejects.toMatchObject({
+        status: 404,
+      })
+      await expect(completeMedia('media-owner', uploads[10]!.id)).rejects.toMatchObject({
+        status: 503,
+        reason: 'confirmation_capacity_full',
+      })
+      blocked = false
+      for (const result of await Promise.all(pending)) expect(result.status).toBe('ready')
+      expect((await completeMedia('media-owner', uploads[10]!.id)).status).toBe('ready')
+    } finally {
+      blocked = false
+      await Promise.allSettled(pending)
+      lock.mockRestore()
     }
   })
 
