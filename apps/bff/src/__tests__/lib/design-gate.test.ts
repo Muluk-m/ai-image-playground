@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 
 import {
+  adoptRule,
   countHits,
   findRegressions,
   scanSource,
@@ -83,6 +84,21 @@ describe('scanSource', () => {
   it('treats a lone glyph as an icon but not a dimension separator', () => {
     expect(rulesIn('apps/web/src/A.tsx', '<span>×</span>')).toEqual(['glyph-icon'])
     expect(rulesIn('apps/web/src/A.tsx', '<span>{w} × {h}</span>')).toEqual([])
+  })
+
+  it('flags runtime lucide imports outside components/ui but not type imports', () => {
+    const source = [
+      "import { X } from 'lucide-react'",
+      "import type { LucideIcon } from 'lucide-react'",
+      'import {',
+      '  ChevronDown,',
+      "} from 'lucide-react'",
+    ].join('\n')
+    expect(scanSource('apps/web/src/features/x/Panel.tsx', source)).toEqual([
+      { rule: 'lucide-import', line: 1 },
+      { rule: 'lucide-import', line: 5 },
+    ])
+    expect(rulesIn('apps/web/src/components/ui/icon.tsx', source)).toEqual([])
   })
 
   it('allows inline svg only in icon modules', () => {
@@ -180,6 +196,14 @@ describe('baseline ratchet', () => {
     expect(
       findRegressions(current, { 'a.tsx': { 'native-control': 3 }, 'b.tsx': { 'inline-svg': 1 } }),
     ).toEqual([])
+  })
+
+  it('adopts only the named rule when a new rule lands', () => {
+    const baseline = { 'a.tsx': { 'native-control': 1 } }
+    expect(adoptRule(current, baseline, 'inline-svg')).toEqual({
+      'a.tsx': { 'native-control': 1 },
+      'b.tsx': { 'inline-svg': 1 },
+    })
   })
 
   it('only ever tightens the baseline', () => {
