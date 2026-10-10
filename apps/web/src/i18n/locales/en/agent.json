@@ -49,6 +49,9 @@
     "characterPrompt": "Draw a half-length cyberpunk girl character: a rainy street at night, neon light reflecting off her raincoat, cinematic framing.",
     "draftKeptToast": "The input already has text; clear it to use an example"
   },
+  "userMessage": {
+    "reedit": "Edit again"
+  },
   "reply": {
     "copyAria": "Copy reply",
     "copied": "Copied",
