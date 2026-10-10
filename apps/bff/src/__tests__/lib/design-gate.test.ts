@@ -101,15 +101,12 @@ describe('scanSource', () => {
     expect(rulesIn('apps/web/src/components/ui/icon.tsx', source)).toEqual([])
   })
 
-  it('allows inline svg only in icon modules', () => {
-    expect(rulesIn('apps/web/src/components/Header.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([
-      'inline-svg',
-    ])
-    expect(rulesIn('apps/web/src/components/icons.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([])
-    expect(rulesIn('apps/web/src/components/x/logos.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([])
-    expect(rulesIn('apps/web/src/components/chipIcons.tsx', '<svg viewBox="0 0 1 1" />')).toEqual(
-      [],
-    )
+  it('allows inline svg only for brand logos', () => {
+    const svg = '<svg viewBox="0 0 1 1" />'
+    expect(rulesIn('apps/web/src/components/Header.tsx', svg)).toEqual(['inline-svg'])
+    expect(rulesIn('apps/web/src/components/icons.tsx', svg)).toEqual(['inline-svg'])
+    expect(rulesIn('apps/web/src/components/x/logos.tsx', svg)).toEqual([])
+    expect(rulesIn('apps/web/src/components/ui/icon.tsx', svg)).toEqual([])
   })
 
   it('honours design-allow on the same or previous line', () => {
