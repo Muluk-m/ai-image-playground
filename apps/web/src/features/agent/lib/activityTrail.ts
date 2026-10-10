@@ -15,6 +15,7 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   proposeProductionAssets: undefined,
   proposeStoryboard: undefined,
   viewImage: true,
+  readConversationImages: true,
   readBatchAnalysis: true,
   readLibrary: true,
   readCanvas: true,
