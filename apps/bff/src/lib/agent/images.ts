@@ -1,4 +1,5 @@
 import type {
+  AgentMediaReference,
   AgentMessageView,
   AgentStoredReference,
   AgentToolArtifact,
@@ -6,7 +7,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { AGENT_TURN_ATTACHED_MEDIA_MAX, parseProjectArtifactId } from '@image-playground/shared'
-import { and, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, exists, inArray, isNull, notExists, or, sql } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
@@ -20,6 +21,7 @@ import { lockMediaOwner } from '../projectMedia'
 import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
+import { findConversationImages } from './conversation-images'
 import { toModelImageDataUrl, toPreviewDataUrl } from './modelImage'
 import { InvalidSelectionError, imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
@@ -59,6 +61,10 @@ export interface AgentImageSource {
   attach(references: readonly AgentTurnReference[]): void
   identify(imageId: string): string
   resolve(imageId: string, variant?: AgentImageVariant): Promise<ResolvedAgentImage | null>
+  /** Freeze original identities without fetching pixels; null entries are not durable inputs. */
+  resolveMediaReferences(
+    imageIds: readonly string[],
+  ): Promise<readonly (AgentMediaReference | null)[]>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
   note(artifacts: readonly AgentToolArtifact[]): void
 }
@@ -208,6 +214,28 @@ async function readTaskOutput(
   output: TaskOutput,
   userId: string | null,
 ): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const g = schema.generation_records
+  const gi = schema.generation_images
+  const m = schema.media_objects
+  const archivedOutputs = db
+    .select({ one: sql`1` })
+    .from(gi)
+    .where(and(eq(gi.generation_id, g.id), eq(gi.role, 'output')))
+  const readyLegacyOutput = db
+    .select({ one: sql`1` })
+    .from(gi)
+    .innerJoin(
+      m,
+      and(
+        eq(m.id, gi.media_id),
+        eq(m.user_id, g.user_id),
+        eq(m.status, 'ready'),
+        sql`${m.object_key} IS NOT NULL`,
+      ),
+    )
+    .where(
+      and(eq(gi.generation_id, g.id), eq(gi.role, 'output'), eq(gi.position, output.outputIndex)),
+    )
   const [task] = await db
     .select({
       status: schema.tasks.status,
@@ -215,7 +243,24 @@ async function readTaskOutput(
       result_payload: schema.tasks.result_payload,
     })
     .from(schema.tasks)
-    .where(taskAccessWhere(output.taskId, userId))
+    .leftJoin(schema.generation_records, eq(schema.generation_records.id, schema.tasks.id))
+    // No-sync deployments and old records without source metadata still use retained tasks.
+    // Never bypass deletion or a modern durable output's unavailable original.
+    .where(
+      and(
+        taskAccessWhere(output.taskId, userId),
+        or(
+          isNull(g.id),
+          and(
+            isNull(g.deleted_at),
+            or(
+              and(eq(g.archive_status, 'none'), notExists(archivedOutputs)),
+              and(isNull(g.source), eq(g.archive_status, 'ready'), exists(readyLegacyOutput)),
+            ),
+          ),
+        ),
+      ),
+    )
     .limit(1)
   if (!task || task.status !== 'completed') return null
   const provider = asQueueProvider(task.provider)
@@ -244,7 +289,7 @@ async function readTaskOutput(
 }
 
 /**
- * 窗口之外的产物。
+ * 尚无持久生成记录的旧产物（包括匿名产物）。
  *
  * 折进摘要的那段历史不再读回来（#708），可摘要的「产物」一节仍然点着它们的 id，模型照样
  * 会去 `viewImage` / `editImage`。好在产物 id 本身就是 `agent_<任务 id>_<下标>`，解开它
@@ -451,7 +496,7 @@ async function readCanvasMedia(
   }
 }
 
-/** 历史里的工具结果块记着每张产出图的任务与下标，所以产物不必另立一张表。 */
+/** 历史工具结果提供本轮产物身份；旧产物仍以任务和下标读取。 */
 function outputsFromHistory(history: readonly AgentMessageView[]): Map<string, TaskOutput> {
   const outputs = new Map<string, TaskOutput>()
   for (const message of history) {
@@ -887,7 +932,7 @@ export async function archiveAgentReferences(
 
 export function createAgentImageSource(input: {
   readonly references: readonly AgentTurnReference[]
-  /** 锚点之后那一段历史。更早的产物不在这里，按 id 回表取（`readFoldedOutput`）。 */
+  /** 锚点之后的历史；更早的图片按 id 从持久目录或旧任务回查。 */
   readonly history: readonly AgentMessageView[]
   readonly conversationId: string
   readonly userId: string | null
@@ -923,6 +968,25 @@ export function createAgentImageSource(input: {
   // 只去重在途读取；完成后不让原件缓存随本轮已看图片数无限增长。
   const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
 
+  const resolveMediaReferences = async (imageIds: readonly string[]) => {
+    const ids = imageIds.map((id) => identify(id))
+    const missing = [...new Set(ids.filter((id) => !references.has(id)))]
+    const stored =
+      userId && missing.length
+        ? await findConversationImages({
+            conversationId: input.conversationId,
+            userId,
+            imageIds: missing,
+          })
+        : []
+    const durable = new Map(stored.map((row) => [row.imageId, row.reference]))
+    return ids.map((id): AgentMediaReference | null => {
+      const reference = references.get(id)
+      if (reference) return 'mediaId' in reference ? reference : null
+      return durable.get(id) ?? null
+    })
+  }
+
   const read = async (
     imageId: string,
     variant: AgentImageVariant,
@@ -954,6 +1018,8 @@ export function createAgentImageSource(input: {
           : {}),
       }
     }
+    const [durable] = await resolveMediaReferences([imageId])
+    if (durable) return readMediaReference(durable, input.conversationId, userId, variant, true)
     const output = outputs.get(imageId)
     if (output) {
       const image = await readTaskOutput(output, userId)
@@ -1006,6 +1072,7 @@ export function createAgentImageSource(input: {
     },
 
     identify,
+    resolveMediaReferences,
 
     resolve(imageId, variant = 'original') {
       const id = identify(imageId)
