@@ -129,10 +129,6 @@
     "inline-svg": 5,
     "native-control": 5
   },
-  "apps/web/src/components/TaskCard.tsx": {
-    "inline-svg": 14,
-    "native-control": 7
-  },
   "apps/web/src/components/Toast.tsx": {
     "inline-svg": 3
   },
