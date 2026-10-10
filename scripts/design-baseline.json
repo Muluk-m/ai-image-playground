@@ -42,15 +42,6 @@
   "apps/web/src/components/HeaderMembershipChip.tsx": {
     "native-control": 2
   },
-  "apps/web/src/components/InputBar.tsx": {
-    "arbitrary-font": 3,
-    "focus-not-visible": 1,
-    "font-weight": 1,
-    "inline-svg": 7,
-    "lucide-import": 1,
-    "native-control": 16,
-    "offscale-font": 2
-  },
   "apps/web/src/components/Lightbox.tsx": {
     "inline-svg": 2,
     "lucide-import": 1,
