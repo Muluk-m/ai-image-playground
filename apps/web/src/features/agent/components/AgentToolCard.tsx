@@ -686,7 +686,11 @@ function StandardAgentToolCard({
             <AgentJobCancel message={message} />
           </div>
           <AgentJobProgress progress={progress} />
-          <ImageGeneration generating={progress.phase !== 'delivering'} aria-hidden="true" />
+          <ImageGeneration
+            generating={progress.phase !== 'delivering'}
+            className="aspect-square max-w-[240px]"
+            aria-hidden="true"
+          />
           <RetryRecord message={message} />
         </div>
         {promptOpen && message.prompt && (
@@ -733,12 +737,16 @@ function StandardAgentToolCard({
       })),
       ...fetchedTiles,
     ]
+    const tileRatio = (tile: (typeof tiles)[number]) =>
+      imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
+    const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const renderTile = (tile: (typeof tiles)[number], index: number) => (
       <div
         className="studio-agent-inline-tile"
         key={tile.id}
         style={{
-          aspectRatio: imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined),
+          aspectRatio: generatedImage ? groupRatio : tileRatio(tile),
+          ...(generatedImage && { width: `${240 * Math.min(groupRatio, 1)}px` }),
         }}
       >
         <button
@@ -823,8 +831,6 @@ function StandardAgentToolCard({
           <ImageGallery
             items={tiles}
             selectedId={selectedArtifactId}
-            previousLabel={t('tool.previousResult')}
-            nextLabel={t('tool.nextResult')}
             itemLabel={(index) => t('tool.resultNumber', { number: index + 1 })}
             renderItem={renderTile}
             onSelect={(tile) => setSelectedArtifactId(tile.id)}
