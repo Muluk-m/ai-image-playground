@@ -20,7 +20,8 @@ export type DesignRule = {
 }
 
 const outsideUi = (path: string) => !path.includes('/components/ui/')
-const isIconModule = (path: string) => /\/(icons|logos|\w+Icons)\.tsx$/.test(path)
+// 品牌 Logo 是唯一允许手写 svg 的地方；icons.tsx 与 *Icons.tsx 是待迁走的旧图标模块。
+const isLogoModule = (path: string) => /\/logos\.tsx$/.test(path)
 const palette =
   'zinc|gray|slate|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
 const colorUtilities =
@@ -79,7 +80,7 @@ export const DESIGN_RULES: readonly DesignRule[] = [
     fix: '图标用 components/ui/icon 的 <Icon name>；缺的图形先登记进它的 ICONS 对照表',
     pattern: /<svg\b/g,
     extensions: ['tsx'],
-    appliesTo: (path) => outsideUi(path) && !isIconModule(path),
+    appliesTo: (path) => outsideUi(path) && !isLogoModule(path),
   },
   {
     id: 'lucide-import',
