@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 
 import {
+  adoptRule,
   countHits,
   findRegressions,
   scanSource,
@@ -85,15 +86,31 @@ describe('scanSource', () => {
     expect(rulesIn('apps/web/src/A.tsx', '<span>{w} × {h}</span>')).toEqual([])
   })
 
-  it('allows inline svg only in icon modules', () => {
-    expect(rulesIn('apps/web/src/components/Header.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([
-      'inline-svg',
+  it('flags runtime lucide imports outside components/ui but not type imports', () => {
+    const source = [
+      "import { X } from 'lucide-react'",
+      "import type { LucideIcon } from 'lucide-react'",
+      "import { type LucideProps } from 'lucide-react'",
+      'import {',
+      '  ChevronDown,',
+      '} from',
+      "  'lucide-react'",
+      "export { Star } from 'lucide-react'",
+    ].join('\n')
+    expect(scanSource('apps/web/src/features/x/Panel.tsx', source)).toEqual([
+      { rule: 'lucide-import', line: 1 },
+      { rule: 'lucide-import', line: 4 },
+      { rule: 'lucide-import', line: 8 },
     ])
-    expect(rulesIn('apps/web/src/components/icons.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([])
-    expect(rulesIn('apps/web/src/components/x/logos.tsx', '<svg viewBox="0 0 1 1" />')).toEqual([])
-    expect(rulesIn('apps/web/src/components/chipIcons.tsx', '<svg viewBox="0 0 1 1" />')).toEqual(
-      [],
-    )
+    expect(rulesIn('apps/web/src/components/ui/icon.tsx', source)).toEqual([])
+  })
+
+  it('allows inline svg only for brand logos', () => {
+    const svg = '<svg viewBox="0 0 1 1" />'
+    expect(rulesIn('apps/web/src/components/Header.tsx', svg)).toEqual(['inline-svg'])
+    expect(rulesIn('apps/web/src/components/icons.tsx', svg)).toEqual(['inline-svg'])
+    expect(rulesIn('apps/web/src/components/x/logos.tsx', svg)).toEqual([])
+    expect(rulesIn('apps/web/src/components/ui/icon.tsx', svg)).toEqual([])
   })
 
   it('honours design-allow on the same or previous line', () => {
@@ -180,6 +197,24 @@ describe('baseline ratchet', () => {
     expect(
       findRegressions(current, { 'a.tsx': { 'native-control': 3 }, 'b.tsx': { 'inline-svg': 1 } }),
     ).toEqual([])
+  })
+
+  it('refuses to re-adopt a rule the baseline already tracks', () => {
+    expect(() =>
+      adoptRule(current, { 'a.tsx': { 'native-control': 1 } }, 'native-control'),
+    ).toThrow()
+  })
+
+  it('refuses to adopt an unknown rule', () => {
+    expect(() => adoptRule(current, {}, 'lucide-improt')).toThrow()
+  })
+
+  it('adopts only the named rule when a new rule lands', () => {
+    const baseline = { 'a.tsx': { 'native-control': 1 } }
+    expect(adoptRule(current, baseline, 'inline-svg')).toEqual({
+      'a.tsx': { 'native-control': 1 },
+      'b.tsx': { 'inline-svg': 1 },
+    })
   })
 
   it('only ever tightens the baseline', () => {

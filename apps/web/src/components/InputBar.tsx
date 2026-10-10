@@ -1,4 +1,3 @@
-import { FolderOpen, Images, Square } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
@@ -62,20 +61,21 @@ import {
 import type { InputImage } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
-import { ChipIcons } from './chipIcons'
-import { BookmarkIcon, CloseIcon, LibraryIcon, LinkIcon, MaskBrushIcon } from './icons'
 import LookChips, { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
 import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 const TEXTAREA_CLASS =
   'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 pr-9 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] text-foreground'
 
-const SAVE_TEMPLATE_BUTTON_CLASS =
-  'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150 hover:border-border/80 hover:bg-card disabled:cursor-not-allowed disabled:border-border/60 disabled:bg-muted/60 disabled:text-foreground dark:hover:border-white/[0.20] dark:disabled:border-white/[0.08]'
+// 输入框底栏的方形工具按钮（附图、素材库、存模板），配 icon-lg：首页输入框的控件是 40 档。
+const COMPOSER_TOOL_CLASS =
+  'h-10 w-10 shrink-0 rounded-xl border-border/80 bg-card/70 text-muted-foreground'
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -260,7 +260,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? t('submit.maskEditShortcut')
           : t('submit.generateShortcut')
         : t('submit.configureApiFirst'))
-  const stopIcon = <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
+  const stopIcon = <Icon name="stop" size="xs" filled />
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
   // 模型由服务端定，所以只剩条的上限管着。
@@ -1073,47 +1073,47 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               </div>
             )}
             {isMaskTarget && (
-              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
+              // design-allow arbitrary-font: 52px 缩略图角标，DESIGN.md 允许 7–9px
+              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-semibold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                 MASK
               </span>
             )}
+            {/* design-allow arbitrary-font: 52px 缩略图上的序号角标 */}
             <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
               {idx + 1}
             </span>
             {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
               images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
             {canEdit && supportsMask && (
-              <button
-                className="absolute inset-0 w-full h-full bg-black/40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-20 focus:outline-none border-none"
+              <Button
+                type="button"
+                variant="ghost"
+                className="absolute inset-0 z-20 h-full w-full rounded-xl bg-black/40 p-0 opacity-0 transition-opacity hover:bg-black/40 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation()
                   setMaskEditorImageId(img.id)
                 }}
                 title={isMaskTarget ? t('mask.title') : t('image.addMask')}
+                aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
               >
-                <MaskBrushIcon className="w-5 h-5 text-white" />
-              </button>
+                <Icon name="brush" size="md" className="text-white" />
+              </Button>
             )}
           </div>
           {!isMaskTarget && (
-            <button
+            <Button
               type="button"
+              variant="destructive"
+              size="icon-xs"
               aria-label={t('common:action.remove')}
-              className="absolute right-0 top-0 flex h-5 w-5 translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-destructive text-white opacity-0 shadow-md transition-opacity hover:bg-destructive/90 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:none)]:opacity-100 z-30"
+              className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
               onClick={(e) => {
                 e.stopPropagation()
                 removeInputImage(idx)
               }}
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
+              <Icon name="close" size="xs" />
+            </Button>
           )}
         </div>
       </Hint>
@@ -1121,7 +1121,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }
 
   const renderClearAllButton = () => (
-    <button
+    <Button
+      type="button"
+      variant="ghost"
       onClick={() =>
         setConfirmDialog({
           title: maskTargetImage ? t('image.clearAllTitle') : t('image.clearReferencesTitle'),
@@ -1131,21 +1133,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           action: () => clearInputImages(),
         })
       }
-      className="w-[52px] h-[52px] rounded-xl border border-dashed border-border flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-destructive hover:border-destructive hover:bg-destructive/50 dark:hover:bg-destructive/30 transition-all cursor-pointer flex-shrink-0"
+      className="h-[52px] w-[52px] shrink-0 flex-col gap-0.5 rounded-xl border border-dashed border-border p-0 text-muted-foreground hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
       title={maskTargetImage ? t('image.clearAllTooltip') : t('image.clearReferencesTooltip')}
     >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-        />
-      </svg>
-      <span className="text-[8px] leading-none">
+      <Icon name="delete" />
+      <span className="text-label-sm leading-none">
         {maskTargetImage ? t('image.clearAllLabel') : t('common:action.clear')}
       </span>
-    </button>
+    </Button>
   )
 
   const renderImageThumbs = () => {
@@ -1173,7 +1168,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         {thumbMenu && (
           <ContextMenu x={thumbMenu.x} y={thumbMenu.y} onClose={() => setThumbMenu(null)}>
             <ContextMenuItem
-              icon={<LinkIcon className="h-4 w-4 flex-shrink-0" />}
+              icon={<Icon name="link" />}
               label={t('image.insertMention')}
               onClick={() => {
                 insertImageMentionAtCursor(thumbMenu.index)
@@ -1181,7 +1176,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               }}
             />
             <ContextMenuItem
-              icon={<LibraryIcon className="h-4 w-4 flex-shrink-0" />}
+              icon={<Icon name="assets" />}
               label={t('image.saveAsAsset')}
               onClick={() => {
                 startNamingAsset(thumbMenu.imageId)
@@ -1208,46 +1203,22 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               }`}
             >
               {atImageLimit ? (
-                <svg
-                  className="w-10 h-10 text-destructive"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
-                  />
-                </svg>
+                <Icon name="blocked" size="lg" className="text-destructive" />
               ) : (
-                <svg
-                  className="w-10 h-10 text-primary"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
+                <Icon name="image" size="lg" className="text-primary" />
               )}
             </div>
             <div className="text-center">
               {atImageLimit ? (
                 <>
-                  <p className="text-lg font-semibold text-destructive">
+                  <p className="text-xl font-semibold text-destructive">
                     {t('image.limitReached', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">{t('image.limitHint')}</p>
                 </>
               ) : (
                 <>
-                  <p className="text-lg font-semibold text-foreground">{t('image.dropToAdd')}</p>
+                  <p className="text-xl font-semibold text-foreground">{t('image.dropToAdd')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
                     {t('image.dropFormats', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
                   </p>
@@ -1282,71 +1253,60 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         >
           {barCollapsed ? (
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-lg"
                 onClick={() => setBarCollapsed(false)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted/80"
+                className="shrink-0 rounded-xl text-muted-foreground"
                 title={t('bar.expand')}
+                aria-label={t('bar.expand')}
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                </svg>
-              </button>
-              <button
+                <Icon name="chevronUp" />
+              </Button>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => setBarCollapsed(false)}
-                className="min-w-0 flex-1 truncate rounded-xl bg-muted/60 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
+                className="h-10 min-w-0 flex-1 justify-start rounded-xl px-3 font-normal text-muted-foreground"
                 title={t('bar.expandHint')}
               >
-                {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
-              </button>
+                <span className="min-w-0 truncate">
+                  {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
+                </span>
+              </Button>
               <Hint tooltip={submitBlockedTip}>
                 <div className="relative flex items-center gap-2">
                   <SubmissionBillingAction
                     blockedAction={submissionGuard.blockedAction}
                     className="text-label-sm"
                   />
-                  <button
+                  <Button
                     type="button"
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
-                    className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
-                      !apiReady
-                        ? 'bg-muted text-muted-foreground'
-                        : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
-                    }`}
+                    className={`h-10 shrink-0 rounded-xl px-4 active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                     title={submitTitle}
                   >
-                    {lookSubmitting ? stopIcon : ChipIcons.sparkles}
+                    {lookSubmitting ? stopIcon : <Icon name="sparkles" />}
                     <span>{submitLabel}</span>
-                  </button>
+                  </Button>
                 </div>
               </Hint>
             </div>
           ) : (
             <>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setBarCollapsed(true)}
-                className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-md bg-card/60 text-muted-foreground backdrop-blur-sm hover:bg-muted/80 hover:text-muted-foreground"
+                className="absolute right-2 top-2 z-20 bg-card/60 text-muted-foreground backdrop-blur-sm"
                 title={t('bar.collapse')}
+                aria-label={t('bar.collapse')}
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+                <Icon name="chevronDown" size="xs" />
+              </Button>
               {/* 移动端拖动条 */}
               <div
                 ref={handleRef}
@@ -1455,16 +1415,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   }}
                 />
                 {prompt.length > 0 && (
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon-sm"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={handleClearPrompt}
-                    className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground"
+                    className="absolute right-1 top-1 text-muted-foreground"
                     title={t('editor.clearPrompt')}
                     aria-label={t('editor.clearPrompt')}
                   >
-                    <CloseIcon className="h-4 w-4" />
-                  </button>
+                    <Icon name="close" />
+                  </Button>
                 )}
               </div>
 
@@ -1474,43 +1436,49 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 <div className="hidden sm:flex flex-wrap items-center gap-2">
                   <Hint tooltip={attachDisabled ? attachDisabledReason : undefined}>
                     <div className="relative flex-shrink-0">
-                      <button
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-lg"
                         onClick={(e) => !attachDisabled && openAttachMenu(e)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
-                          attachDisabled
-                            ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
-                            : 'border-border/80 bg-card/70 text-muted-foreground hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]'
-                        }`}
+                        aria-disabled={attachDisabled || undefined}
+                        className={`${COMPOSER_TOOL_CLASS} ${attachDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
                         title={
                           attachDisabled
                             ? attachDisabledReason
                             : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
                         }
                       >
-                        {ChipIcons.imageAttach}
-                      </button>
+                        <Icon name="attach" />
+                      </Button>
                     </div>
                   </Hint>
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="icon-lg"
                     onClick={() => {
                       useLibraryStore.getState().setTab('assets')
                       setAppMode('library')
                     }}
-                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150 hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]"
+                    className={COMPOSER_TOOL_CLASS}
                     title={t('bar.library')}
+                    aria-label={t('bar.library')}
                   >
-                    <LibraryIcon className="h-5 w-5" />
-                  </button>
-                  <button
+                    <Icon name="assets" />
+                  </Button>
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="icon-lg"
                     onClick={startNamingTemplate}
                     disabled={!prompt.trim()}
-                    className={SAVE_TEMPLATE_BUTTON_CLASS}
+                    className={COMPOSER_TOOL_CLASS}
                     title={t('bar.saveTemplate')}
+                    aria-label={t('bar.saveTemplate')}
                   >
-                    <BookmarkIcon className="h-5 w-5" />
-                  </button>
+                    <Icon name="bookmark" />
+                  </Button>
                   <ParamControls showCount agentManaged={toCanvas} />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <Hint tooltip={submitBlockedTip}>
@@ -1519,13 +1487,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         blockedAction={submissionGuard.blockedAction}
                         className="text-xs"
                       />
-                      <button
+                      <Button
+                        type="button"
                         onClick={onSubmitClick}
                         disabled={submitDisabled}
-                        className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-full pl-4 pr-6 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
+                        className={`group/gen relative h-12 gap-1.5 overflow-hidden rounded-full pl-4 pr-6 font-semibold leading-none [&_svg]:size-5 transition-all duration-200 active:scale-[0.97] ${
                           !apiReady
                             ? 'bg-muted text-muted-foreground'
-                            : 'studio-generate-button disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
+                            : 'studio-generate-button disabled:cursor-not-allowed disabled:opacity-100 disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
                         }`}
                         title={submitTitle}
                       >
@@ -1535,22 +1504,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         {lookSubmitting ? (
                           stopIcon
                         ) : (
-                          <svg
-                            className="h-[18px] w-[18px] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
-                            />
-                          </svg>
+                          <Icon
+                            name="sparkles"
+                            size="md"
+                            className="drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
+                          />
                         )}
                         <span>{submitLabel}</span>
-                      </button>
+                      </Button>
                     </div>
                   </Hint>
                 </div>
@@ -1570,61 +1531,64 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   <div className="flex items-center gap-2">
                     <Hint tooltip={attachDisabled ? attachDisabledReason : undefined}>
                       <div className="relative">
-                        <button
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-lg"
                           onClick={(e) => !attachDisabled && openAttachMenu(e)}
-                          className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
-                            attachDisabled
-                              ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
-                              : 'border-border/80 bg-card/70 text-muted-foreground hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]'
-                          }`}
+                          aria-disabled={attachDisabled || undefined}
+                          className={`${COMPOSER_TOOL_CLASS} ${attachDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
                           title={
                             attachDisabled
                               ? attachDisabledReason
                               : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
                           }
                         >
-                          {ChipIcons.imageAttach}
-                        </button>
+                          <Icon name="attach" />
+                        </Button>
                       </div>
                     </Hint>
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="icon-lg"
                       onClick={() => {
                         useLibraryStore.getState().setTab('assets')
                         setAppMode('library')
                       }}
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150"
+                      className={COMPOSER_TOOL_CLASS}
                       title={t('bar.library')}
+                      aria-label={t('bar.library')}
                     >
-                      <LibraryIcon className="h-5 w-5" />
-                    </button>
-                    <button
+                      <Icon name="assets" />
+                    </Button>
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="icon-lg"
                       onClick={startNamingTemplate}
                       disabled={!prompt.trim()}
-                      className={SAVE_TEMPLATE_BUTTON_CLASS}
+                      className={COMPOSER_TOOL_CLASS}
                       title={t('bar.saveTemplate')}
+                      aria-label={t('bar.saveTemplate')}
                     >
-                      <BookmarkIcon className="h-5 w-5" />
-                    </button>
+                      <Icon name="bookmark" />
+                    </Button>
                     <Hint tooltip={submitBlockedTip}>
                       <div className="relative flex flex-1 items-center gap-2">
                         <SubmissionBillingAction
                           blockedAction={submissionGuard.blockedAction}
                           className="text-label-sm"
                         />
-                        <button
+                        <Button
+                          type="button"
                           onClick={onSubmitClick}
                           disabled={submitDisabled}
-                          className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
-                            !apiReady
-                              ? 'bg-muted text-muted-foreground'
-                              : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
-                          }`}
+                          className={`h-10 w-full rounded-xl px-3.5 text-xs active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                         >
-                          {lookSubmitting ? stopIcon : ChipIcons.sparkles}
+                          {lookSubmitting ? stopIcon : <Icon name="sparkles" />}
                           <span>{compactSubmitLabel}</span>
-                        </button>
+                        </Button>
                       </div>
                     </Hint>
                   </div>
@@ -1660,7 +1624,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               {attachMenu && (
                 <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
                   <ContextMenuItem
-                    icon={<Images className="h-4 w-4 flex-shrink-0" aria-hidden="true" />}
+                    icon={<Icon name="images" />}
                     label={t('image.attachImages')}
                     onClick={() => {
                       setAttachMenu(null)
@@ -1668,7 +1632,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     }}
                   />
                   <ContextMenuItem
-                    icon={<FolderOpen className="h-4 w-4 flex-shrink-0" aria-hidden="true" />}
+                    icon={<Icon name="folderOpen" />}
                     label={t('image.attachFolder')}
                     onClick={() => {
                       setAttachMenu(null)

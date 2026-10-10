@@ -146,7 +146,7 @@ export function ImageSettings({
   const sizeSummary = isGemini
     ? [ratioLabel, tuning ? params.gemini_image_size : undefined]
     : selection.kind === 'custom'
-      ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)]
+      ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)] // design-allow glyph-icon: 乘号
       : [ratioLabel, selection.kind === 'preset' && capabilities.size ? selection.tier : undefined]
   const summary = [...sizeSummary, countVisible ? t('settings.count', { count: params.n }) : '']
     .filter(Boolean)
@@ -247,6 +247,7 @@ export function ImageSettings({
                   value={String(draftPixels.width)}
                   onCommit={(width) => commitPixels(width, String(draftPixels.height))}
                 />
+                {/* design-allow glyph-icon: 宽高之间的乘号，不是图标 */}
                 <span aria-hidden="true" className="text-muted-foreground">
                   ×
                 </span>
