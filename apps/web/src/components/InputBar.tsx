@@ -73,7 +73,7 @@ import { Icon } from './ui/icon'
 const TEXTAREA_CLASS =
   'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 pr-9 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] text-foreground'
 
-// 输入框底栏的 40px 方形工具按钮（附图、素材库、存模板）：DESIGN.md 里首页输入框的控件是 40 档。
+// 输入框底栏的方形工具按钮（附图、素材库、存模板），配 icon-lg：首页输入框的控件是 40 档。
 const COMPOSER_TOOL_CLASS =
   'h-10 w-10 shrink-0 rounded-xl border-border/80 bg-card/70 text-muted-foreground'
 
@@ -1106,7 +1106,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               variant="destructive"
               size="icon-xs"
               aria-label={t('common:action.remove')}
-              className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 [&_svg]:size-3"
+              className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
               onClick={(e) => {
                 e.stopPropagation()
                 removeInputImage(idx)
@@ -1137,8 +1137,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       title={maskTargetImage ? t('image.clearAllTooltip') : t('image.clearReferencesTooltip')}
     >
       <Icon name="delete" />
-      {/* design-allow arbitrary-font: 52px 格子里的小字说明 */}
-      <span className="text-[8px] leading-none">
+      <span className="text-label-sm leading-none">
         {maskTargetImage ? t('image.clearAllLabel') : t('common:action.clear')}
       </span>
     </Button>
@@ -1257,9 +1256,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
+                size="icon-lg"
                 onClick={() => setBarCollapsed(false)}
-                className="h-10 w-10 shrink-0 rounded-xl text-muted-foreground"
+                className="shrink-0 rounded-xl text-muted-foreground"
                 title={t('bar.expand')}
                 aria-label={t('bar.expand')}
               >
@@ -1284,7 +1283,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     type="button"
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
-                    className={`h-10 shrink-0 rounded-xl px-4 active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : ''}`}
+                    className={`h-10 shrink-0 rounded-xl px-4 active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                     title={submitTitle}
                   >
                     {lookSubmitting ? stopIcon : <Icon name="sparkles" />}
@@ -1438,7 +1437,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       <Button
                         type="button"
                         variant="outline"
-                        size="icon"
+                        size="icon-lg"
                         onClick={(e) => !attachDisabled && openAttachMenu(e)}
                         aria-disabled={attachDisabled || undefined}
                         className={`${COMPOSER_TOOL_CLASS} ${attachDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
@@ -1447,7 +1446,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                             ? attachDisabledReason
                             : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
                         }
-                        aria-label={t('image.attachImages')}
                       >
                         <Icon name="attach" />
                       </Button>
@@ -1456,7 +1454,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
+                    size="icon-lg"
                     onClick={() => {
                       useLibraryStore.getState().setTab('assets')
                       setAppMode('library')
@@ -1470,7 +1468,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
+                    size="icon-lg"
                     onClick={startNamingTemplate}
                     disabled={!prompt.trim()}
                     className={COMPOSER_TOOL_CLASS}
@@ -1534,7 +1532,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         <Button
                           type="button"
                           variant="outline"
-                          size="icon"
+                          size="icon-lg"
                           onClick={(e) => !attachDisabled && openAttachMenu(e)}
                           aria-disabled={attachDisabled || undefined}
                           className={`${COMPOSER_TOOL_CLASS} ${attachDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
@@ -1543,7 +1541,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                               ? attachDisabledReason
                               : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
                           }
-                          aria-label={t('image.attachImages')}
                         >
                           <Icon name="attach" />
                         </Button>
@@ -1552,7 +1549,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     <Button
                       type="button"
                       variant="outline"
-                      size="icon"
+                      size="icon-lg"
                       onClick={() => {
                         useLibraryStore.getState().setTab('assets')
                         setAppMode('library')
@@ -1566,7 +1563,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     <Button
                       type="button"
                       variant="outline"
-                      size="icon"
+                      size="icon-lg"
                       onClick={startNamingTemplate}
                       disabled={!prompt.trim()}
                       className={COMPOSER_TOOL_CLASS}
@@ -1585,7 +1582,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                           type="button"
                           onClick={onSubmitClick}
                           disabled={submitDisabled}
-                          className={`h-10 w-full rounded-xl px-3.5 text-xs active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : ''}`}
+                          className={`h-10 w-full rounded-xl px-3.5 text-xs active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                         >
                           {lookSubmitting ? stopIcon : <Icon name="sparkles" />}
                           <span>{compactSubmitLabel}</span>

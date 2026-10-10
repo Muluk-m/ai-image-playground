@@ -340,7 +340,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 - **Button**：只用 `components/ui/button.tsx` 的 variant（default / outline / ghost /
   destructive）与 size；不要在业务里手写一套 `rounded-xl border px-3.5 py-2.5` 的按钮。
   size 对照控件高度：`xs` 28（页签、小按钮）、`sm` 32、`default` 36、`lg` 40；纯图标按钮用
-  `icon-sm` 32（工具条、卡片操作）或 `icon-xs` 28，`icon` 36 只给表单行里与输入框并排的按钮。
+  `icon-sm` 32（工具条、卡片操作）、`icon-xs` 28、`icon-lg` 40（首页输入框工具），`icon` 36 给表单行里
+  与输入框并排、或与 36px 文字按钮同排的按钮。
 - **PageHeader**：所有浏览页共用一个组件，固定 56px，右侧按账号簇宽度让位。
 - **SectionHeader**：标题 title-sm + 右侧「查看全部」链接（body-sm、muted、lucide 箭头），
   链接文字与下方网格右边缘对齐。
@@ -360,7 +361,10 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   - 名字是语义（`download`、`delete`、`imageAdd`），不是形状；同一含义只有一个名字。缺的先登记进
     `ICONS` 对照表。换成自绘图标只改对照表那一行（用 lucide 的 `createLucideIcon` 包，参数同下）。
   - 网格 24、描线、`round` 端点与连接，任何尺寸下视觉线宽都是 1.5px；实心只给选中态。
-  - 尺寸四档：`xs` 14（28px 控件）、`sm` 16（32–36px 控件，默认）、`md` 20、`lg` 24（空态、大入口）。
+  - 尺寸四档：`xs` 14（28px 控件）、`sm` 16（32–36px 控件，默认）、`md` 20（40px 控件）、`lg` 24（空态、
+    加载与报错占位、大入口）。
+  - 贴在缩略图角上的小按钮（移除参考图）是唯一的 20px 控件，配 `xs` 图标；它属于缩略图，不在控件高度表里。
+  - 「停止」用实心方块，是媒体控制约定俗成的例外。
   - 图标单独表达含义（没有文字的按钮）时传 `label` 给读屏，或由外层按钮的 `aria-label` 承担。
   - 品牌 Logo（`logos.tsx`）不在此列。
 

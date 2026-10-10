@@ -476,7 +476,7 @@ export default function TaskCard({
                     aria-label={t('action.sendToCanvasTitle')}
                     disabled={!task.outputImages?.length}
                   >
-                    <Icon name="image" size="xs" />
+                    <Icon name="sendToCanvas" size="xs" />
                   </Button>
                 </Hint>
                 <Hint tooltip={exportLabel}>
