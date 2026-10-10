@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, it, spyOn } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { createHash, randomFillSync } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
@@ -492,3 +492,251 @@ it('confirms an actual 48 MiB PNG and retains its original alongside a small pre
     config.operator = previous
   }
 }, 30_000)
+
+describe('confirmation coordination', () => {
+  let restoreQuota: (() => void) | undefined
+  beforeEach(async () => {
+    const { config } = await import('../../config')
+    const previous = config.operator
+    config.operator = {
+      ...previous,
+      quotas: { ...previous.quotas, 'sync:user-media-bytes': 4 * 1024 * 1024 },
+    }
+    restoreQuota = () => {
+      config.operator = previous
+    }
+  })
+  afterEach(() => restoreQuota?.())
+  async function pendingConfirmation(color = '#654321') {
+    const bytes = await sharp({ create: { width: 8, height: 8, channels: 4, background: color } })
+      .png()
+      .toBuffer()
+    const upload = await (
+      await request('media/uploads', deviceA, {
+        bytes: bytes.length,
+        contentType: 'image/png',
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      })
+    ).json()
+    await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+    return upload as { id: string; uploadUrl: string }
+  }
+
+  it('same-image confirmations share processing, preserve ownership and leave capacity for other images', async () => {
+    const upload = await pendingConfirmation()
+    const other = await pendingConfirmation('#abcdef')
+    const originalOpen = storage.open.bind(storage)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const reading = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let reads = 0
+    storage.open = async (path) => {
+      if (path === key(upload.uploadUrl)) {
+        reads++
+        started()
+        await blocked
+      }
+      return originalOpen(path)
+    }
+    const first = request(`media/${upload.id}/complete`, deviceA, {})
+    await reading
+    const copies = Array.from({ length: 12 }, () =>
+      request(`media/${upload.id}/complete`, deviceB, {}),
+    )
+    try {
+      expect((await request(`media/${upload.id}/complete`, stranger, {})).status).toBe(404)
+      expect((await request(`media/${other.id}/complete`, deviceA, {})).status).toBe(200)
+    } finally {
+      release()
+    }
+    for (const response of await Promise.all([first, ...copies])) {
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ id: upload.id, status: 'ready' })
+    }
+    expect(reads).toBe(1)
+  })
+
+  it('a cross-instance object lock is waited out without blocking an unrelated confirmation', async () => {
+    const { withMediaObjectLock } = await import('../../lib/mediaObjectLock')
+    const upload = await pendingConfirmation()
+    const other = await pendingConfirmation('#abcdef')
+    let unlock!: () => void
+    let locked!: () => void
+    const held = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const blocker = new Promise<void>((resolve) => {
+      unlock = resolve
+    })
+    const lock = withMediaObjectLock(upload.id, async () => {
+      locked()
+      await blocker
+      return true
+    })
+    await held
+    const pending = request(`media/${upload.id}/complete`, deviceA, {})
+    let settled = false
+    void pending.then(() => {
+      settled = true
+    })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(settled).toBe(false)
+      expect((await request(`media/${other.id}/complete`, deviceA, {})).status).toBe(200)
+    } finally {
+      unlock()
+      await lock
+    }
+    expect((await pending).status).toBe(200)
+  })
+
+  it('shared storage failure stays a 503 and a later confirmation can retry', async () => {
+    const upload = await pendingConfirmation()
+    const originalOpen = storage.open.bind(storage)
+    let release!: () => void
+    let started!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const reading = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    storage.open = async () => {
+      started()
+      await blocked
+      throw new Error('storage offline')
+    }
+    const first = request(`media/${upload.id}/complete`, deviceA, {})
+    await reading
+    const second = request(`media/${upload.id}/complete`, deviceB, {})
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    release()
+    for (const response of await Promise.all([first, second])) {
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: 'media_storage_unavailable' })
+    }
+    storage.open = originalOpen
+    expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
+  })
+
+  it('observes another instance publishing ready even when both local processing slots are occupied', async () => {
+    const { eq } = await import('drizzle-orm')
+    const { withMediaObjectLock } = await import('../../lib/mediaObjectLock')
+    const target = await pendingConfirmation()
+    expect((await request(`media/${target.id}/complete`, deviceA, {})).status).toBe(200)
+    await db
+      .update(schema.media_objects)
+      .set({ status: 'pending' })
+      .where(eq(schema.media_objects.id, target.id))
+    const busy = await Promise.all([pendingConfirmation('#112233'), pendingConfirmation('#445566')])
+    const originalOpen = storage.open.bind(storage)
+    let releaseBusy!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      releaseBusy = resolve
+    })
+    let occupied!: () => void
+    const occupiedSlots = new Promise<void>((resolve) => {
+      occupied = resolve
+    })
+    let reads = 0
+    storage.open = async (path) => {
+      if (path.startsWith('staging/')) {
+        if (++reads === 2) occupied()
+        await blocked
+      }
+      return originalOpen(path)
+    }
+    const local = busy.map((upload) => request(`media/${upload.id}/complete`, deviceA, {}))
+    await occupiedSlots
+    let unlock!: () => void
+    let locked!: () => void
+    const held = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const blocker = new Promise<void>((resolve) => {
+      unlock = resolve
+    })
+    const lock = withMediaObjectLock(target.id, async () => {
+      locked()
+      await blocker
+      return true
+    })
+    await held
+    const confirmation = request(`media/${target.id}/complete`, deviceA, {})
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await db
+        .update(schema.media_objects)
+        .set({ status: 'ready' })
+        .where(eq(schema.media_objects.id, target.id))
+      unlock()
+      await lock
+      const response = await Promise.race([
+        confirmation,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('ready media waited for local processing')),
+            2000,
+          )
+        }),
+      ])
+      expect(response.status).toBe(200)
+      expect(reads).toBe(2)
+    } finally {
+      clearTimeout(timeout)
+      unlock()
+      releaseBusy()
+      await Promise.allSettled([...local, confirmation, lock])
+    }
+  })
+
+  it('bounds cross-instance lock waiting and identifies the lock timeout separately from queue pressure', async () => {
+    const { withMediaObjectLock } = await import('../../lib/mediaObjectLock')
+    const { log } = await import('../../lib/logger')
+    const upload = await pendingConfirmation()
+    let unlock!: () => void
+    let locked!: () => void
+    const held = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const blocker = new Promise<void>((resolve) => {
+      unlock = resolve
+    })
+    const lock = withMediaObjectLock(upload.id, async () => {
+      locked()
+      await blocker
+      return true
+    })
+    await held
+    let ticks = 0
+    const clock = spyOn(performance, 'now').mockImplementation(() => (ticks++ === 0 ? 0 : 60_001))
+    const logged = spyOn(log, 'info')
+    try {
+      const { completeMedia } = await import('../../lib/projectMedia')
+      await expect(completeMedia('media-owner', upload.id)).rejects.toMatchObject({
+        status: 503,
+        reason: 'object_lock_timeout',
+      })
+      expect(logged).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'media.confirmation_finished',
+          lockContended: true,
+          outcome: 'failed',
+          reason: 'object_lock_timeout',
+        }),
+        'media confirmation finished',
+      )
+    } finally {
+      clock.mockRestore()
+      logged.mockRestore()
+      unlock()
+      await lock
+    }
+  })
+})

@@ -12,6 +12,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm'
+import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
 import sharp, { type Metadata } from 'sharp'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -38,6 +39,7 @@ export class MediaError extends Error {
   constructor(
     readonly status: 404 | 409 | 413 | 422 | 503,
     code: string,
+    readonly reason?: string,
   ) {
     super(code)
   }
@@ -187,7 +189,8 @@ const processingQueue: { resume: () => void; reject: () => void }[] = []
 async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
   if (processing < 2) processing++
   else {
-    if (processingQueue.length >= 8) throw new MediaError(503, 'media_processing_busy')
+    if (processingQueue.length >= 8)
+      throw new MediaError(503, 'media_processing_busy', 'processing_queue_full')
     await new Promise<void>((resolve, reject) => {
       const entry = {
         resume: () => {
@@ -197,7 +200,7 @@ async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
         reject: () => {
           const index = processingQueue.indexOf(entry)
           if (index >= 0) processingQueue.splice(index, 1)
-          reject(new MediaError(503, 'media_processing_busy'))
+          reject(new MediaError(503, 'media_processing_busy', 'processing_queue_timeout'))
         },
       }
       const timer = setTimeout(entry.reject, 10_000)
@@ -226,161 +229,248 @@ async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
     release()
   }
 }
+const confirmations = new Map<string, Promise<ReturnType<typeof summary>>>()
+const CONFIRM_LOCK_WAIT_MS = 60_000
+
 export async function completeMedia(userId: string, id: string) {
-  // A lost confirmation response must not make immutable, verified media wait behind new I/O.
+  // Authorize before joining another request's result, including ready replays.
   const existing = await ownedMedia(userId, id)
   if (existing.status === 'ready') return summary(existing)
-  const result = await withMediaProcessing(() =>
-    withMediaObjectLock(id, async (database) => {
-      const row = await ownedMedia(userId, id, database)
-      if (row.status === 'ready') return summary(row)
-      if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
-      if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
-      const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
-      if (limits && row.bytes > limits.imageBytes) throw new MediaError(413, 'media_too_large')
-      let candidatePrefix: string | undefined
-      let published = false
-      try {
-        const store = durableMediaStore()
-        const source = await store.open(row.staging_key)
-        if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
-        const reader = source.stream(0, row.bytes - 1).getReader()
-        const bytes = new Uint8Array(row.bytes)
-        let offset = 0
-        try {
-          while (true) {
-            const part = await reader.read()
-            if (part.done) break
-            if (offset + part.value.length > bytes.length)
-              throw new MediaError(422, 'media_size_mismatch')
-            bytes.set(part.value, offset)
-            offset += part.value.length
-          }
-        } finally {
-          await reader.cancel()
-          reader.releaseLock()
-        }
-        if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
-          throw new MediaError(422, 'media_hash_mismatch')
-        let metadata: Metadata
-        let preview: Buffer
-        let observed: Metadata | undefined
-        try {
-          const decoded = await withMediaDecode(async () => {
-            const image = sharp(bytes, {
-              limitInputPixels: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
-              failOn: 'warning',
+  const key = JSON.stringify([userId, id])
+  const pending = confirmations.get(key)
+  if (pending) return pending
+  const operation = processMedia(userId, id).finally(() => confirmations.delete(key))
+  confirmations.set(key, operation)
+  return operation
+}
+
+async function processMedia(userId: string, id: string) {
+  const started = performance.now()
+  let phase = 'lock_wait'
+  let phaseStarted = started
+  const phaseMs: Record<string, number> = {}
+  const mark = (next: string) => {
+    const now = performance.now()
+    phaseMs[phase] = (phaseMs[phase] ?? 0) + Math.round(now - phaseStarted)
+    phase = next
+    phaseStarted = now
+  }
+  let failure: unknown
+  let lockContended = false
+  try {
+    while (true) {
+      // Failed lock attempts release their connection before sleeping and consume no processing slot.
+      mark('lock_wait')
+      const available = await withMediaObjectLock(id, async () => true)
+      mark(available ? 'processing_wait' : 'lock_wait')
+      const result = available
+        ? await withMediaProcessing(() => {
+            mark('lock_wait')
+            return withMediaObjectLock(id, async (database) => {
+              mark('read_metadata')
+              return publishMedia(userId, id, database, mark)
             })
-            const metadata = await image.metadata()
-            observed = metadata
-            if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
-            if (
-              `image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type
-            )
-              throw new Error('content_type_mismatch')
-            assertMediaImageProcessingBudget(metadata)
-            const preview = await image
-              .timeout({ seconds: 15 })
-              .rotate()
-              .resize(PREVIEW_RESIZE)
-              .webp({ quality: 75 })
-              .toBuffer()
-            if (!metadata.width || !metadata.height || preview.length > PREVIEW_BUDGET)
-              throw new Error('invalid_preview')
-            return { metadata, preview }
+          }).catch(async (error: unknown) => {
+            // A different instance may publish while this request waits for local capacity.
+            if (error instanceof MediaError && error.message === 'media_processing_busy') {
+              const current = await ownedMedia(userId, id)
+              if (current.status === 'ready') return summary(current)
+            }
+            throw error
           })
-          metadata = decoded.metadata
-          preview = decoded.preview
-        } catch (error) {
-          const message = error instanceof Error ? error.message : ''
-          let reason = observed ? 'preview_failed' : 'decode_failed'
-          if (message === 'processing_budget' || /timeout/i.test(message))
-            reason = 'processing_budget'
-          else if (/pixel limit/i.test(message)) reason = 'pixel_limit'
-          else if (['animated_image', 'content_type_mismatch', 'invalid_preview'].includes(message))
-            reason = message
-          let errorCode = 'media_invalid_image'
-          if (reason === 'pixel_limit') errorCode = 'media_image_pixels_exceeded'
-          else if (reason === 'processing_budget') errorCode = 'media_image_processing_limit'
-          log.warn(
-            {
-              event: 'media.validation_failed',
-              userId,
-              mediaId: id,
-              errorCode,
-              reason,
-              bytes: row.bytes,
-              declaredContentType: row.content_type,
-              detectedFormat: observed?.format,
-              width: observed?.width,
-              height: observed?.height,
-              pixelLimit: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
-              err: error,
-            },
-            'uploaded image validation failed',
-          )
-          throw new MediaError(422, errorCode)
-        }
-        // Never publish the client-writable key. This verified buffer is written to a fresh server-only key.
-        const prefix = `objects/${userId}/${id}/${crypto.randomUUID()}`
-        candidatePrefix = prefix
-        const objectKey = `${prefix}/original`
-        const previewKey = `${prefix}/preview.webp`
-        const written = await Promise.allSettled([
-          store.write(objectKey, bytes, row.content_type),
-          store.write(previewKey, preview, 'image/webp'),
-        ])
-        for (const result of written) if (result.status === 'rejected') throw result.reason
-        const [original, thumbnail] = await Promise.all([
-          store.open(objectKey),
-          store.open(previewKey),
-        ])
-        if (original.size !== bytes.length || thumbnail.size !== preview.length)
-          throw new MediaError(503, 'media_not_readable')
-        return await database.transaction(async (tx) => {
-          await lockMediaOwner(tx, userId)
-          const [current] = await tx
-            .select()
-            .from(media)
-            .where(and(eq(media.id, id), eq(media.user_id, userId)))
-          if (!current) throw new MediaError(404, 'media_not_found')
-          if (current.status === 'ready') return summary(current)
-          if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
-          if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
-            throw new MediaError(409, 'media_upload_expired')
-          const [ready] = await tx
-            .update(media)
-            .set({
-              status: 'ready',
-              object_key: objectKey,
-              preview_key: previewKey,
-              preview_bytes: preview.length,
-              reserved_bytes: bytes.length + preview.length,
-              width: metadata.width!,
-              height: metadata.height!,
-              updated_at: Date.now(),
-            })
-            .where(eq(media.id, id))
-            .returning()
-          published = true
-          return summary(ready!)
-        })
-      } catch (error) {
-        if (error instanceof MediaError) throw error
-        throw new MediaError(503, 'media_storage_unavailable')
-      } finally {
-        if (candidatePrefix && !published) {
-          try {
-            await durableMediaStore().deletePrefix(`${candidatePrefix}/`)
-          } catch {
-            /* Still charged; the managed media sweep retries the whole prefix. */
-          }
-        }
+        : undefined
+      if (result) return result
+      lockContended = true
+      mark('lock_wait')
+      if (performance.now() - started >= CONFIRM_LOCK_WAIT_MS)
+        throw new MediaError(503, 'media_processing_busy', 'object_lock_timeout')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const current = await ownedMedia(userId, id)
+      if (current.status === 'ready') return summary(current)
+      if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
+      if (current.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
+    }
+  } catch (error) {
+    failure = error
+    throw error
+  } finally {
+    mark(phase)
+    log.info(
+      {
+        event: 'media.confirmation_finished',
+        userId,
+        mediaId: id,
+        durationMs: Math.round(performance.now() - started),
+        phaseMs,
+        lockContended,
+        outcome: failure ? 'failed' : 'ready',
+        ...(failure
+          ? {
+              failedPhase: phase,
+              errorCode: failure instanceof MediaError ? failure.message : 'internal_error',
+              reason: failure instanceof MediaError ? failure.reason : undefined,
+            }
+          : {}),
+      },
+      'media confirmation finished',
+    )
+  }
+}
+
+async function publishMedia(
+  userId: string,
+  id: string,
+  database: BunSQLDatabase<typeof schema>,
+  mark: (phase: string) => void,
+) {
+  const row = await ownedMedia(userId, id, database)
+  if (row.status === 'ready') return summary(row)
+  if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
+  if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
+  const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
+  if (limits && row.bytes > limits.imageBytes) throw new MediaError(413, 'media_too_large')
+  let candidatePrefix: string | undefined
+  let published = false
+  try {
+    const store = durableMediaStore()
+    mark('storage_open')
+    const source = await store.open(row.staging_key)
+    if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
+    mark('storage_read')
+    const reader = source.stream(0, row.bytes - 1).getReader()
+    const bytes = new Uint8Array(row.bytes)
+    let offset = 0
+    try {
+      while (true) {
+        const part = await reader.read()
+        if (part.done) break
+        if (offset + part.value.length > bytes.length)
+          throw new MediaError(422, 'media_size_mismatch')
+        bytes.set(part.value, offset)
+        offset += part.value.length
       }
-    }),
-  )
-  if (!result) throw new MediaError(503, 'media_processing_busy')
-  return result
+    } finally {
+      await reader.cancel()
+      reader.releaseLock()
+    }
+    mark('hash')
+    if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
+      throw new MediaError(422, 'media_hash_mismatch')
+    let metadata: Metadata
+    let preview: Buffer
+    let observed: Metadata | undefined
+    try {
+      mark('decode_wait')
+      const decoded = await withMediaDecode(async () => {
+        mark('decode')
+        const image = sharp(bytes, {
+          limitInputPixels: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
+          failOn: 'warning',
+        })
+        const metadata = await image.metadata()
+        observed = metadata
+        if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
+        if (`image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type)
+          throw new Error('content_type_mismatch')
+        assertMediaImageProcessingBudget(metadata)
+        mark('preview')
+        const preview = await image
+          .timeout({ seconds: 15 })
+          .rotate()
+          .resize(PREVIEW_RESIZE)
+          .webp({ quality: 75 })
+          .toBuffer()
+        if (!metadata.width || !metadata.height || preview.length > PREVIEW_BUDGET)
+          throw new Error('invalid_preview')
+        return { metadata, preview }
+      })
+      metadata = decoded.metadata
+      preview = decoded.preview
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      let reason = observed ? 'preview_failed' : 'decode_failed'
+      if (message === 'processing_budget' || /timeout/i.test(message)) reason = 'processing_budget'
+      else if (/pixel limit/i.test(message)) reason = 'pixel_limit'
+      else if (['animated_image', 'content_type_mismatch', 'invalid_preview'].includes(message))
+        reason = message
+      let errorCode = 'media_invalid_image'
+      if (reason === 'pixel_limit') errorCode = 'media_image_pixels_exceeded'
+      else if (reason === 'processing_budget') errorCode = 'media_image_processing_limit'
+      log.warn(
+        {
+          event: 'media.validation_failed',
+          userId,
+          mediaId: id,
+          errorCode,
+          reason,
+          bytes: row.bytes,
+          declaredContentType: row.content_type,
+          detectedFormat: observed?.format,
+          width: observed?.width,
+          height: observed?.height,
+          pixelLimit: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
+          err: error,
+        },
+        'uploaded image validation failed',
+      )
+      throw new MediaError(422, errorCode)
+    }
+    // Never publish the client-writable key. This verified buffer is written to a fresh server-only key.
+    const prefix = `objects/${userId}/${id}/${crypto.randomUUID()}`
+    candidatePrefix = prefix
+    const objectKey = `${prefix}/original`
+    const previewKey = `${prefix}/preview.webp`
+    mark('storage_write')
+    const written = await Promise.allSettled([
+      store.write(objectKey, bytes, row.content_type),
+      store.write(previewKey, preview, 'image/webp'),
+    ])
+    for (const result of written) if (result.status === 'rejected') throw result.reason
+    mark('storage_verify')
+    const [original, thumbnail] = await Promise.all([store.open(objectKey), store.open(previewKey)])
+    if (original.size !== bytes.length || thumbnail.size !== preview.length)
+      throw new MediaError(503, 'media_not_readable')
+    mark('publish')
+    return await database.transaction(async (tx) => {
+      await lockMediaOwner(tx, userId)
+      const [current] = await tx
+        .select()
+        .from(media)
+        .where(and(eq(media.id, id), eq(media.user_id, userId)))
+      if (!current) throw new MediaError(404, 'media_not_found')
+      if (current.status === 'ready') return summary(current)
+      if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
+      if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
+        throw new MediaError(409, 'media_upload_expired')
+      const [ready] = await tx
+        .update(media)
+        .set({
+          status: 'ready',
+          object_key: objectKey,
+          preview_key: previewKey,
+          preview_bytes: preview.length,
+          reserved_bytes: bytes.length + preview.length,
+          width: metadata.width!,
+          height: metadata.height!,
+          updated_at: Date.now(),
+        })
+        .where(eq(media.id, id))
+        .returning()
+      published = true
+      return summary(ready!)
+    })
+  } catch (error) {
+    if (error instanceof MediaError) throw error
+    throw new MediaError(503, 'media_storage_unavailable')
+  } finally {
+    if (candidatePrefix && !published) {
+      try {
+        await durableMediaStore().deletePrefix(`${candidatePrefix}/`)
+      } catch {
+        /* Still charged; the managed media sweep retries the whole prefix. */
+      }
+    }
+  }
 }
 
 export async function accessMedia(userId: string, id: string) {
