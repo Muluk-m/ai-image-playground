@@ -50,14 +50,17 @@ vi.mock('../../../../features/agent/lib/agentClient', async () => {
 })
 
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
+import AgentUserMessage from '../../../../features/agent/components/AgentUserMessage'
 import { fillAgentComposer } from '../../../../features/agent/lib/composerFill'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
+import type { AgentTextMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasProject } from '../../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../../features/library/store'
+import { getContentEditableSelection } from '../../../../lib/promptEditorDom'
 import { stubPointerApis } from '../../../helpers/radix'
 
 declare global {
@@ -250,6 +253,86 @@ describe('起手句填进项目输入框', () => {
       fillAgentComposer({ skill: 'storyboard-short', text: '另一句' })
     })
     expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toContain('要横屏')
+  })
+})
+
+describe('用户消息重新编辑', () => {
+  it('图片引用回填为可读名称，不把传输标记绑定到草稿中的其他图片', async () => {
+    const message: AgentTextMessage = {
+      kind: 'text',
+      id: 'user-reference',
+      turnId: 'turn-reference',
+      role: 'user',
+      streaming: false,
+      text: '把 [image 1] 的背景改白',
+      references: [{ imageId: 'old-image', name: '产品图', dataUrl: 'data:image/png;base64,AA==' }],
+    }
+    const session = agentDraft(null, PROJECT_ID)
+    session.update({
+      prompt: '',
+      references: [{ id: 'new-image', dataUrl: 'data:image/png;base64,AQ==' }],
+    })
+    act(() => {
+      root.render(
+        <>
+          <AgentUserMessage message={message} skills={[]} />
+          <AgentComposer doc={doc} />
+        </>,
+      )
+    })
+    await settle()
+    click('重新编辑')
+    expect(session.getSnapshot().draft.prompt).toBe('把 @产品图 的背景改白')
+    expect(editor().querySelector('[data-image-index]')).toBeNull()
+    expect(session.getSnapshot().draft.references.map((reference) => reference.id)).toEqual([
+      'new-image',
+    ])
+    expect(send).not.toHaveBeenCalled()
+  })
+  it.each([
+    'idle',
+    'running',
+  ] as const)('%s 时点击消息图标填回原文并聚焦末尾，修改后由用户发送', async (turn) => {
+    useAgentStore.setState({ turn })
+    const message: AgentTextMessage = {
+      kind: 'text',
+      id: 'user-reedit',
+      turnId: 'turn-reedit',
+      role: 'user',
+      streaming: false,
+      text: '我只要一张小米\n你先设计几个风格，我来选一个',
+    }
+    act(() => {
+      root.render(
+        <>
+          <AgentUserMessage message={message} skills={[]} />
+          <AgentComposer doc={doc} />
+        </>,
+      )
+    })
+    await settle()
+    type('已有草稿')
+
+    click('重新编辑')
+    const session = agentDraft(null, PROJECT_ID)
+    expect(session.getSnapshot().draft.prompt).toBe(message.text)
+    expect(document.activeElement).toBe(editor())
+    expect(window.getSelection()?.isCollapsed).toBe(true)
+    expect(getContentEditableSelection(editor())).toEqual({
+      start: message.text.length,
+      end: message.text.length,
+    })
+    expect(send).not.toHaveBeenCalled()
+    expect(host.querySelector('.studio-agent-user-message')?.textContent).toBe(message.text)
+
+    act(() => fillAgentComposer('建议文字'))
+    expect(session.getSnapshot().draft.prompt).toBe(message.text)
+
+    type('，改成暖色')
+    act(() => useAgentStore.setState({ turn: 'idle' }))
+    click('发送并拟提示词')
+    expect(send).toHaveBeenCalledWith(`${message.text}，改成暖色`, [], 'image')
+    expect(message.text).toBe('我只要一张小米\n你先设计几个风格，我来选一个')
   })
 })
 
