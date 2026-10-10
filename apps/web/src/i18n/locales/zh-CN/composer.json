@@ -68,7 +68,7 @@
     "configureApiFirst": "请先配置 API",
     "apiNotConfigured": "请先在设置里配置 API",
     "startCanvas": "开始创作",
-    "skillNeedsCanvas": "技能只能在项目中使用，切到「对话创作」或「画布创作」再发送"
+    "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送"
   },
   "search": {
     "favoriteOnly": "只看收藏",

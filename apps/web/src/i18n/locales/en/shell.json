@@ -79,7 +79,7 @@
   "createTarget": {
     "aria": "Where this prompt goes",
     "generate": "Quick generate",
-    "chat": "Chat",
+    "chat": "Smart creation",
     "canvas": "Canvas"
   }
 }
