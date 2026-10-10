@@ -392,6 +392,117 @@ it('shows the assistant-ui image element only while an image result is pending',
     act(() => root.unmount())
   }
 })
+it.each([
+  1, 3,
+])('keeps %i image slots from submission through delivery and completion', async (count) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'loading-count',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: 'Logo candidates',
+    status: 'submitted',
+    snapshot: { mode: 'image', args: { n: count }, params: { size: '1024x1024' } },
+  }
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    expect(host.querySelectorAll('[data-slot="image-generation"]')).toHaveLength(count)
+    const artifacts = Array.from({ length: count }, (_, outputIndex) => ({
+      artifactId: `logo-${outputIndex}`,
+      taskId: 'task',
+      outputIndex,
+      media: 'image' as const,
+      mime: 'image/png',
+      width: 1024,
+      height: 1024,
+    }))
+    act(() =>
+      root.render(
+        <AgentToolCard
+          message={{ ...message, status: 'succeeded', delivery: 'pending', artifacts }}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('[data-slot="image-generation"]')).toHaveLength(count)
+    expect(host.querySelector('[data-generating="true"]')).toBeNull()
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{ ...message, status: 'succeeded', delivery: 'placed', artifacts }}
+        />,
+      ),
+    )
+    expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(count)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it.each([
+  { size: '1600x900' },
+  { gemini_aspect_ratio: '16:9' },
+])('matches loading and completed landscape proportions for %o', async (params) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'loading-ratio',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: 'Landscape',
+    status: 'submitted',
+    snapshot: { mode: 'image', args: { n: 3 }, params },
+  }
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    const placeholder = host.querySelector<HTMLElement>('[data-slot="image-generation"]')!
+    const loadingRatio = placeholder.style.aspectRatio
+    const loadingWidth = placeholder.style.width
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            ...message,
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: [
+              {
+                artifactId: 'landscape',
+                taskId: 'task',
+                outputIndex: 0,
+                media: 'image',
+                mime: 'image/png',
+                width: 1600,
+                height: 900,
+              },
+            ],
+          }}
+        />,
+      ),
+    )
+    const tile = host.querySelector<HTMLElement>('.studio-agent-inline-tile')!
+    expect(tile.style.aspectRatio).toBe(loadingRatio)
+    expect(tile.style.width).toBe(loadingWidth)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 describe('后台任务的进度与取消', () => {
   const NOW = Date.UTC(2026, 8, 18, 10, 0, 0)
   const submitted = {
