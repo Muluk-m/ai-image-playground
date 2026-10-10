@@ -185,6 +185,9 @@
   "apps/web/src/components/assistant-ui/elements/video-player.tsx": {
     "lucide-import": 1
   },
+  "apps/web/src/components/chipIcons.tsx": {
+    "inline-svg": 14
+  },
   "apps/web/src/components/composer/ModelSelector.tsx": {
     "lucide-import": 1,
     "native-control": 2
@@ -194,6 +197,9 @@
     "lucide-import": 1,
     "native-control": 4,
     "opacity-text": 2
+  },
+  "apps/web/src/components/icons.tsx": {
+    "inline-svg": 36
   },
   "apps/web/src/components/panelStyles.ts": {
     "focus-not-visible": 4

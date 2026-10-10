@@ -300,7 +300,7 @@ export default function DetailModal() {
               variant="ghost"
               size="icon-sm"
               onClick={() => setDetailTaskId(null)}
-              className="rounded-full text-muted-foreground"
+              className="text-muted-foreground"
               aria-label={t('common:action.close')}
             >
               <Icon name="close" />
@@ -393,7 +393,7 @@ export default function DetailModal() {
                       size="icon-sm"
                       aria-label={t('common:action.previousImage')}
                       onClick={() => setImageIndex((imageIndex - 1 + outputLen) % outputLen)}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/30 text-white hover:bg-black/50 hover:text-white"
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/30 text-white hover:bg-black/50 hover:text-white"
                     >
                       <Icon name="chevronLeft" />
                     </Button>
@@ -403,7 +403,7 @@ export default function DetailModal() {
                       size="icon-sm"
                       aria-label={t('common:action.nextImage')}
                       onClick={() => setImageIndex((imageIndex + 1) % outputLen)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/30 text-white hover:bg-black/50 hover:text-white"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/30 text-white hover:bg-black/50 hover:text-white"
                     >
                       <Icon name="chevronRight" />
                     </Button>
@@ -452,7 +452,7 @@ export default function DetailModal() {
                     variant="outline"
                     size="sm"
                     onClick={handleReuse}
-                    className="mt-3 rounded-full"
+                    className="mt-3"
                   >
                     {t('detail.rewritePrompt')}
                   </Button>
@@ -463,7 +463,6 @@ export default function DetailModal() {
                       type="button"
                       variant="outline"
                       size="icon-sm"
-                      className="rounded-full"
                       onClick={handleCopyError}
                       aria-label={t('detail.copyFullError')}
                     >
@@ -476,7 +475,6 @@ export default function DetailModal() {
                         type="button"
                         variant="outline"
                         size="icon-sm"
-                        className="rounded-full"
                         onClick={() => setShowRawResponseModal(true)}
                         aria-label={t('detail.viewRawResponse')}
                       >
@@ -490,7 +488,6 @@ export default function DetailModal() {
                         type="button"
                         variant="outline"
                         size="icon-sm"
-                        className="rounded-full"
                         onClick={async () => {
                           if (task.rawImageUrls!.length === 1) {
                             try {
@@ -519,7 +516,6 @@ export default function DetailModal() {
                         type="button"
                         variant="outline"
                         size="icon-sm"
-                        className="rounded-full"
                         onClick={handleRetry}
                         aria-label={t('action.retryTask')}
                       >
@@ -539,7 +535,7 @@ export default function DetailModal() {
               variant="ghost"
               size="icon-sm"
               onClick={() => setDetailTaskId(null)}
-              className="absolute right-3 top-3 z-10 hidden rounded-full text-muted-foreground md:inline-flex"
+              className="absolute right-3 top-3 z-10 hidden text-muted-foreground md:inline-flex"
               aria-label={t('common:action.close')}
             >
               <Icon name="close" />
@@ -627,8 +623,7 @@ export default function DetailModal() {
                               overrideSrc={isMaskTarget ? maskPreviewSrc : ''}
                             />
                             {isMaskTarget && (
-                              // design-allow arbitrary-font: 64px 缩略图上的角标，DESIGN.md 允许 7–9px
-                              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-semibold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
+                              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-label-sm leading-none text-primary-foreground font-semibold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                                 MASK
                               </span>
                             )}
@@ -754,7 +749,7 @@ export default function DetailModal() {
                 disabled={!outputLen}
                 className="col-span-4 sm:flex-1"
               >
-                <Icon name="image" />
+                <Icon name="sendToCanvas" />
                 {t('action.sendToCanvas')}
               </Button>
               <Button
@@ -823,7 +818,7 @@ export default function DetailModal() {
                   size="icon-sm"
                   aria-label={t('common:action.close')}
                   onClick={() => setShowRawUrlsModal(false)}
-                  className="rounded-full text-muted-foreground"
+                  className="text-muted-foreground"
                 >
                   <Icon name="close" />
                 </Button>
@@ -861,7 +856,6 @@ export default function DetailModal() {
                       }}
                       className="shrink-0"
                       title={t('rawUrls.copyLink')}
-                      aria-label={t('rawUrls.copyLink')}
                     >
                       <Icon name="copy" size="xs" />
                       <span className="hidden sm:inline">{t('common:action.copy')}</span>
@@ -917,7 +911,7 @@ export default function DetailModal() {
                   size="icon-sm"
                   aria-label={t('common:action.close')}
                   onClick={() => setShowRawResponseModal(false)}
-                  className="rounded-full text-muted-foreground"
+                  className="text-muted-foreground"
                 >
                   <Icon name="close" />
                 </Button>

@@ -21,10 +21,11 @@ const buttonVariants = cva(
         sm: 'h-8 rounded-md px-3 text-xs',
         lg: 'h-10 rounded-md px-8',
         icon: 'h-9 w-9',
-        // 28 / 32 档见 apps/web/DESIGN.md「控件高度」：页签与小按钮 28，图标按钮 32。
+        // 28 / 32 / 40 档见 apps/web/DESIGN.md「控件高度」：页签与小按钮 28，图标按钮 32，首页输入框工具 40。
         xs: 'h-7 gap-1.5 rounded-md px-2.5 text-xs [&_svg]:size-3.5',
         'icon-sm': 'size-8',
         'icon-xs': 'size-7 [&_svg]:size-3.5',
+        'icon-lg': 'size-10 [&_svg]:size-5',
       },
     },
     defaultVariants: {
