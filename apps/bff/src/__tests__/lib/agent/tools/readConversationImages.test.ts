@@ -354,3 +354,72 @@ it('exposes the catalog, declarations and guidance to signed-in image and video 
     )
   }
 })
+
+it('still views delivered task outputs in deployments without durable generation archival', async () => {
+  const turn = await conversation('catalog-no-sync')
+  const id = 'legacy-no-sync'
+  await db.insert(schema.tasks).values({
+    id,
+    user_id: USER,
+    provider: 'openai-compat',
+    model: 'gpt-image-1',
+    status: 'completed',
+    submitted_at: Date.now(),
+    agent_conversation_id: turn.conversationId,
+    request_payload: { prompt: 'legacy' },
+    result_payload: {
+      data: [{ b64_json: TEST_IMAGE.png.toString('base64'), mime: 'image/png' }],
+    },
+  })
+  await db.insert(schema.generation_records).values({
+    id,
+    user_id: USER,
+    provider: 'openai-compat',
+    model: 'gpt-image-1',
+    status: 'completed',
+    archive_status: 'none',
+    prompt: 'legacy',
+    created_at: Date.now(),
+    revision: 1n,
+    source: {
+      kind: 'agent',
+      conversationId: turn.conversationId,
+      turnId: 'legacy-turn',
+      projectId: null,
+    },
+  })
+  expect((await turn.images.resolve(projectArtifactId(id, 0)))?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
+  await db
+    .update(schema.generation_records)
+    .set({ deleted_at: Date.now() })
+    .where(eq(schema.generation_records.id, id))
+  expect(await turn.images.resolve(projectArtifactId(id, 0))).toBeNull()
+})
+
+it('preserves retained legacy outputs with unknown source without bypassing unavailable media', async () => {
+  const turn = await conversation('catalog-unknown-source')
+  const original = await generated('unknown-source', 0, Date.now(), turn.conversationId)
+  await db
+    .update(schema.generation_records)
+    .set({ source: null })
+    .where(eq(schema.generation_records.id, 'unknown-source'))
+  await db.insert(schema.tasks).values({
+    id: 'unknown-source',
+    user_id: USER,
+    provider: 'openai-compat',
+    model: 'gpt-image-1',
+    status: 'completed',
+    submitted_at: Date.now(),
+    agent_conversation_id: turn.conversationId,
+    request_payload: { prompt: 'legacy' },
+    result_payload: {
+      data: [{ b64_json: TEST_IMAGE.png.toString('base64'), mime: 'image/png' }],
+    },
+  })
+  expect((await turn.images.resolve(original.imageId))?.dataUrl).toBe(TEST_IMAGE.pngDataUrl)
+  await db
+    .update(schema.media_objects)
+    .set({ status: 'deleting' })
+    .where(eq(schema.media_objects.id, original.mediaId))
+  expect(await turn.images.resolve(original.imageId)).toBeNull()
+})
