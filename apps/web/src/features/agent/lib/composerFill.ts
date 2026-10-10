@@ -106,7 +106,8 @@ export function useComposerFillTarget(target: ComposerFillTarget, enabled = true
         useStore.getState().showToast(i18next.t('agent:suggestions.draftKeptToast'), 'info')
         return
       }
-      suggestedRef.current = write(content)
+      const written = write(content)
+      suggestedRef.current = content.replace ? null : written
     })
   }, [enabled])
 }

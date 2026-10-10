@@ -325,6 +325,9 @@ describe('用户消息重新编辑', () => {
     expect(send).not.toHaveBeenCalled()
     expect(host.querySelector('.studio-agent-user-message')?.textContent).toBe(message.text)
 
+    act(() => fillAgentComposer('建议文字'))
+    expect(session.getSnapshot().draft.prompt).toBe(message.text)
+
     type('，改成暖色')
     act(() => useAgentStore.setState({ turn: 'idle' }))
     click('发送并拟提示词')
