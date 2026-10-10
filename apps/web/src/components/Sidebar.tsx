@@ -143,7 +143,7 @@ export default function Sidebar() {
         <nav
           aria-label={t('header.nav')}
           style={{ width: 'var(--app-sidebar-size)' }}
-          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto [&>*]:shrink-0 overflow-x-hidden bg-background px-2.5 pb-4 pt-3 md:flex"
+          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto [&>*]:shrink-0 overflow-x-hidden border-r border-border bg-background px-2.5 pb-4 pt-3 md:flex"
         >
           <div className="mb-2 flex items-center gap-1">
             <button
