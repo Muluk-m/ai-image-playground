@@ -46,14 +46,95 @@ describe('阈值两侧', () => {
 })
 
 describe('用户错误告警', () => {
-  it('接口 5xx 越线后去重，并在恢复时通知', () => {
-    const bad = { api: { requests: 100, server_errors: 6 } }
-    const good = { api: { requests: 100, server_errors: 0 } }
+  const api = (requests: number, errors: number, success: number | null = null, bucket = T0) => ({
+    api: {
+      requests,
+      server_errors: errors,
+      errors_by_minute: errors ? { [bucket]: errors } : {},
+      successes_by_minute: success === null ? {} : { [success]: requests - errors },
+      error_routes: { 'POST /api/media/:id/complete': errors },
+    },
+  })
+
+  it('waits for sustained recovery and fresh successful traffic', () => {
     expect(
       run([
-        [T0, bad],
-        [T0 + minute, bad],
-        [T0 + 2 * minute, good],
+        [T0, api(79, 4)],
+        [T0 + minute, api(99, 4, T0 + minute)],
+        [T0 + 2 * minute, api(200, 4, T0 + minute)],
+        [T0 + 3 * minute, api(200, 4, T0 + 2 * minute)],
+        [T0 + 4 * minute, api(200, 4, T0 + 3 * minute)],
+      ]),
+    ).toEqual([['firing:api'], [], [], [], ['resolved:api']])
+  })
+
+  it('does not re-alert on the same four errors when successful requests leave the window', () => {
+    expect(
+      run([
+        [T0, api(79, 4)],
+        [T0 + minute, api(200, 4, T0 + minute)],
+        [T0 + 3 * minute, api(200, 4, T0 + 2 * minute)],
+        [T0 + 10 * minute, api(74, 4, T0 + 2 * minute)],
+        [T0 + 11 * minute, api(73, 4, T0 + 2 * minute)],
+        [T0 + 12 * minute, api(74, 5, T0 + 2 * minute)],
+      ]),
+    ).toEqual([['firing:api'], [], ['resolved:api'], [], [], ['firing:api']])
+  })
+
+  it('re-alerts when a new error minute breaches even if the total error count stays the same', () => {
+    expect(
+      run([
+        [T0, api(79, 4)],
+        [T0 + minute, api(200, 4, T0 + minute)],
+        [T0 + 3 * minute, api(200, 4, T0 + 2 * minute)],
+        [T0 + 4 * minute, api(74, 4, T0 + 3 * minute, T0 + 4 * minute)],
+      ]),
+    ).toEqual([['firing:api'], [], ['resolved:api'], ['firing:api']])
+  })
+
+  it('does not report idle windows or old successful traffic as recovery', () => {
+    expect(
+      run([
+        [T0, api(79, 4)],
+        [T0 + minute, api(200, 4, T0 - minute)],
+        [T0 + 3 * minute, api(200, 4, T0 - minute)],
+        [T0 + 20 * minute, api(0, 0)],
+        [T0 + 60 * minute, api(0, 0)],
+        [T0 + 61 * minute, api(1, 0, T0 + 61 * minute)],
+        [T0 + 63 * minute, api(1, 0, T0 + 61 * minute)],
+      ]),
+    ).toEqual([['firing:api'], [], [], [], [], [], ['resolved:api']])
+  })
+
+  it('resets the recovery timer when observations are missing or cross the recovery line', () => {
+    expect(
+      run([
+        [T0, api(79, 4)],
+        [T0 + minute, api(200, 4, T0 + minute)],
+        [T0 + 2 * minute, {}],
+        [T0 + 3 * minute, api(200, 4, T0 + 3 * minute)],
+        [T0 + 4 * minute, api(100, 4, T0 + 4 * minute)],
+        [T0 + 5 * minute, api(200, 4, T0 + 5 * minute)],
+        [T0 + 7 * minute, api(200, 4, T0 + 6 * minute)],
+      ]),
+    ).toEqual([['firing:api'], [], [], [], [], [], ['resolved:api']])
+  })
+
+  it('keeps the low-volume absolute threshold and names the failing route', () => {
+    const result = evaluateAlerts(api(5, 5), {}, T0)
+    expect(result.messages[0]?.text).toContain('5/5')
+    expect(result.messages[0]?.text).toContain('POST /api/media/:id/complete × 5')
+  })
+
+  it('counts fresh successes in the same minute as a non-aligned alert', () => {
+    const bucket = Math.floor(T0 / minute) * minute
+    const initial = api(79, 4, bucket, bucket)
+    const recovered = api(200, 4, bucket, bucket)
+    expect(
+      run([
+        [bucket + 20_000, initial],
+        [bucket + 40_000, recovered],
+        [bucket + 160_000, recovered],
       ]),
     ).toEqual([['firing:api'], [], ['resolved:api']])
   })

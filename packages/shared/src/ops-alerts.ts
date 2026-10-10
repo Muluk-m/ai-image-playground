@@ -32,7 +32,13 @@ export interface AlertObservation {
   backup?: { latest_modified_at: number | null }
   restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
-  api?: { requests: number; server_errors: number }
+  api?: {
+    requests: number
+    server_errors: number
+    errors_by_minute: Record<string, number>
+    successes_by_minute: Record<string, number>
+    error_routes: Record<string, number>
+  }
   failures?: { generation_system: number; agent: number }
 }
 
@@ -44,7 +50,15 @@ interface RuleState {
   lastSentAt: number | null
 }
 
-export type AlertState = Partial<Record<AlertRule, RuleState>>
+interface ApiRuleState extends RuleState {
+  coveredErrors: Record<string, number>
+  recoverySince: number | null
+  successesAtTrigger: Record<string, number>
+}
+
+export type AlertState = Partial<Record<Exclude<AlertRule, 'api'>, RuleState>> & {
+  api?: ApiRuleState
+}
 
 export interface AlertMessage {
   rule: AlertRule
@@ -97,20 +111,7 @@ function readings(
   now: number,
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
-  const { host, queue, backup, restoreDrill, heartbeats, api, failures } = observation
-
-  if (api) {
-    const ratio = api.requests > 0 ? api.server_errors / api.requests : 0
-    out.api = {
-      breached:
-        api.server_errors >= OPS_THRESHOLDS.API_SERVER_ERROR_ABSOLUTE ||
-        (api.requests >= OPS_THRESHOLDS.API_MIN_REQUESTS_FOR_RATIO &&
-          ratio > OPS_THRESHOLDS.API_SERVER_ERROR_RATIO),
-      sustainMs: 0,
-      firingText: `近 15 分钟用户接口 ${api.server_errors}/${api.requests} 次返回 5xx（${percent(ratio)}）`,
-      resolvedText: '已恢复：近 15 分钟用户接口 5xx 回到告警线内',
-    }
-  }
+  const { host, queue, backup, restoreDrill, heartbeats, failures } = observation
 
   if (failures) {
     out.generation = {
@@ -212,6 +213,88 @@ function readings(
   return out
 }
 
+function evaluateApi(
+  api: NonNullable<AlertObservation['api']>,
+  previous: ApiRuleState | undefined,
+  now: number,
+): { state: ApiRuleState; messages: AlertMessage[] } {
+  const state: ApiRuleState = previous
+    ? { ...previous }
+    : {
+        breachedSince: null,
+        firing: false,
+        lastSentAt: null,
+        coveredErrors: {},
+        recoverySince: null,
+        successesAtTrigger: {},
+      }
+  state.coveredErrors = Object.fromEntries(
+    Object.entries(state.coveredErrors).filter(
+      ([minute]) => Number(minute) >= now - OPS_THRESHOLDS.API_RECENT_WINDOW_MS,
+    ),
+  )
+  const newErrors = Object.entries(api.errors_by_minute).some(
+    ([minute, count]) => count > (state.coveredErrors[minute] ?? 0),
+  )
+  const ratio = api.requests > 0 ? api.server_errors / api.requests : 0
+  const breached =
+    api.server_errors >= OPS_THRESHOLDS.API_SERVER_ERROR_ABSOLUTE ||
+    (api.requests >= OPS_THRESHOLDS.API_MIN_REQUESTS_FOR_RATIO &&
+      ratio > OPS_THRESHOLDS.API_SERVER_ERROR_RATIO)
+  const messages: AlertMessage[] = []
+  const due =
+    breached &&
+    (state.firing
+      ? state.lastSentAt === null || now - state.lastSentAt >= REMIND_AFTER_MS
+      : newErrors)
+  if (due) {
+    const routes = Object.entries(api.error_routes)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([route, count]) => `${route} × ${count}`)
+      .join('；')
+    messages.push({
+      rule: 'api',
+      kind: 'firing',
+      text: `近 15 分钟用户接口 ${api.server_errors}/${api.requests} 次返回 5xx（${(ratio * 100).toFixed(2)}%）${routes ? `；${routes}` : ''}`,
+    })
+    if (!state.firing) state.successesAtTrigger = { ...api.successes_by_minute }
+    state.firing = true
+    state.breachedSince ??= now
+    state.lastSentAt = now
+  }
+  if (state.firing) {
+    // Keep the high-water count for each minute: a shrinking denominator is not a new incident.
+    for (const [minute, count] of Object.entries(api.errors_by_minute))
+      state.coveredErrors[minute] = Math.max(state.coveredErrors[minute] ?? 0, count)
+    const healthy =
+      api.server_errors < OPS_THRESHOLDS.API_SERVER_ERROR_ABSOLUTE &&
+      ratio < OPS_THRESHOLDS.API_RECOVERY_RATIO &&
+      (api.server_errors === 0 || api.requests >= OPS_THRESHOLDS.API_MIN_REQUESTS_FOR_RATIO) &&
+      Object.entries(api.successes_by_minute).some(
+        ([minute, count]) =>
+          Number(minute) + 60_000 > (state.breachedSince ?? now) &&
+          count > (state.successesAtTrigger[minute] ?? 0),
+      )
+    state.recoverySince = healthy ? (state.recoverySince ?? now) : null
+    if (
+      state.recoverySince !== null &&
+      now - state.recoverySince >= OPS_THRESHOLDS.API_RECOVERY_SUSTAIN_MS
+    ) {
+      messages.push({
+        rule: 'api',
+        kind: 'resolved',
+        text: '已恢复：近 15 分钟用户接口 5xx 持续 2 分钟低于 3%，且已有成功请求',
+      })
+      state.firing = false
+      state.breachedSince = null
+      state.lastSentAt = null
+      state.recoverySince = null
+    }
+  }
+  return { state, messages }
+}
+
 /**
  * 输入这一轮的现状、上一轮留下的状态与当前时间，输出要发的消息与新状态。
  * 调用方只管把 `state` 原样传回来；放在进程内存里即可，重启后最多重发一次。
@@ -223,9 +306,16 @@ export function evaluateAlerts(
 ): { messages: AlertMessage[]; state: AlertState } {
   const next: AlertState = { ...state }
   const messages: AlertMessage[] = []
+  if (observation.api) {
+    const api = evaluateApi(observation.api, state.api, now)
+    next.api = api.state
+    messages.push(...api.messages)
+  } else if (state.api) {
+    next.api = { ...state.api, recoverySince: null }
+  }
 
   for (const [rule, reading] of Object.entries(readings(observation, state, now)) as Array<
-    [AlertRule, Reading]
+    [Exclude<AlertRule, 'api'>, Reading]
   >) {
     const previous = state[rule] ?? { breachedSince: null, firing: false, lastSentAt: null }
 
