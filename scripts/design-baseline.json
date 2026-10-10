@@ -63,7 +63,6 @@
     "native-control": 3
   },
   "apps/web/src/components/ParamControls.tsx": {
-    "glyph-icon": 1,
     "lucide-import": 1
   },
   "apps/web/src/components/ProjectNavigation.tsx": {

@@ -90,13 +90,17 @@ describe('scanSource', () => {
     const source = [
       "import { X } from 'lucide-react'",
       "import type { LucideIcon } from 'lucide-react'",
+      "import { type LucideProps } from 'lucide-react'",
       'import {',
       '  ChevronDown,',
-      "} from 'lucide-react'",
+      '} from',
+      "  'lucide-react'",
+      "export { Star } from 'lucide-react'",
     ].join('\n')
     expect(scanSource('apps/web/src/features/x/Panel.tsx', source)).toEqual([
       { rule: 'lucide-import', line: 1 },
-      { rule: 'lucide-import', line: 5 },
+      { rule: 'lucide-import', line: 4 },
+      { rule: 'lucide-import', line: 8 },
     ])
     expect(rulesIn('apps/web/src/components/ui/icon.tsx', source)).toEqual([])
   })
@@ -193,6 +197,16 @@ describe('baseline ratchet', () => {
     expect(
       findRegressions(current, { 'a.tsx': { 'native-control': 3 }, 'b.tsx': { 'inline-svg': 1 } }),
     ).toEqual([])
+  })
+
+  it('refuses to re-adopt a rule the baseline already tracks', () => {
+    expect(() =>
+      adoptRule(current, { 'a.tsx': { 'native-control': 1 } }, 'native-control'),
+    ).toThrow()
+  })
+
+  it('refuses to adopt an unknown rule', () => {
+    expect(() => adoptRule(current, {}, 'lucide-improt')).toThrow()
   })
 
   it('adopts only the named rule when a new rule lands', () => {
