@@ -24,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { parseRatio } from '../../../lib/size'
 import type { ProductionPane } from '../../production/lib/productionContext'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
@@ -44,6 +45,7 @@ import {
 } from '../lib/artifactPreview'
 import { previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
+import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
   agentToolFailureAction,
@@ -62,6 +64,7 @@ import AgentPromptDraft from './AgentPromptDraft'
 import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
+const IMAGE_PREVIEW_MAX_EDGE = 240
 
 function useStatusNote(
   message: AgentToolMessage,
@@ -665,11 +668,19 @@ function StandardAgentToolCard({
     )
   }
   if (imageGenerating && progress) {
+    const count = agentDraftOutputCount(message)
+    const params = message.snapshot?.params
+    const dimensions =
+      parseRatio(params?.gemini_aspect_ratio ?? '') ?? parseRatio(params?.size ?? '')
+    const ratio = dimensions ? dimensions.width / dimensions.height : 1
+    const width = IMAGE_PREVIEW_MAX_EDGE * Math.min(ratio, 1)
     return (
       <div
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
         className="studio-agent-generation-card"
+        // Gallery gaps plus the body's horizontal padding and card borders.
+        style={{ width: count * width + (count - 1) * 5 + 34 }}
       >
         <div className="studio-agent-generation-body">
           <div className="flex min-w-0 items-center gap-2">
@@ -686,11 +697,16 @@ function StandardAgentToolCard({
             <AgentJobCancel message={message} />
           </div>
           <AgentJobProgress progress={progress} />
-          <ImageGeneration
-            generating={progress.phase !== 'delivering'}
-            className="aspect-square max-w-[240px]"
-            aria-hidden="true"
-          />
+          <div className="studio-agent-generation-gallery" aria-hidden="true">
+            {Array.from({ length: count }, (_, index) => (
+              <ImageGeneration
+                key={index}
+                generating={progress.phase !== 'delivering'}
+                className="shrink-0"
+                style={{ width, aspectRatio: ratio }}
+              />
+            ))}
+          </div>
           <RetryRecord message={message} />
         </div>
         {promptOpen && message.prompt && (
@@ -746,7 +762,7 @@ function StandardAgentToolCard({
         key={tile.id}
         style={{
           aspectRatio: generatedImage ? groupRatio : tileRatio(tile),
-          ...(generatedImage && { width: `${240 * Math.min(groupRatio, 1)}px` }),
+          ...(generatedImage && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
         }}
       >
         <button

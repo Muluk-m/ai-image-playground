@@ -855,13 +855,15 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 
 /* Keep conversation previews bounded even on wide screens. */
 .studio-agent-generation-card {
-  width: 100%;
+  max-width: 100%;
+  align-self: flex-start;
   overflow: hidden;
   border: 1px solid hsl(var(--border) / .65);
   border-radius: 16px;
   background: hsl(var(--card) / .45);
 }
 .studio-agent-generation-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px; }
+.studio-agent-generation-gallery { display: flex; flex-wrap: nowrap; gap: 5px; min-width: 0; overflow-x: auto; }
 .studio-agent-generation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; line-height: 1.5; color: hsl(var(--foreground) / .85); }
 .studio-agent-generation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .studio-agent-generation-actions:empty { display: none; }
