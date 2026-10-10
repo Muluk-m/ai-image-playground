@@ -2,6 +2,7 @@
 /**
  * 设计规范门禁，规则、baseline 棘轮与 `design-allow` 豁免见 apps/web/DESIGN.md「门禁」。
  * 用法：bun run scripts/check-design.ts [--update]   # --update 只把 baseline 往下收紧
+ *       bun run scripts/check-design.ts --adopt <rule> # 新增规则时登记它的存量
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -75,14 +76,22 @@ export const DESIGN_RULES: readonly DesignRule[] = [
   },
   {
     id: 'inline-svg',
-    fix: '图标用 lucide-react；自定义图标收进 components/icons.tsx',
+    fix: '图标用 components/ui/icon 的 <Icon name>；缺的图形先登记进它的 ICONS 对照表',
     pattern: /<svg\b/g,
     extensions: ['tsx'],
     appliesTo: (path) => outsideUi(path) && !isIconModule(path),
   },
   {
+    id: 'lucide-import',
+    fix: '图标用 components/ui/icon 的 <Icon name>，不直接 import lucide-react（纯类型导入除外）',
+    pattern: /from ['"]lucide-react['"]/g,
+    appliesTo: outsideUi,
+    exempt: (source, index) =>
+      /^import\s+type\b/.test(source.slice(source.lastIndexOf('import', index), index)),
+  },
+  {
     id: 'glyph-icon',
-    fix: '× → ↗ ✓ 这类字符不能当图标，换成 lucide 图标（X、ArrowRight、Check…）',
+    fix: '× → ↗ ✓ 这类字符不能当图标，换成 <Icon>（close、arrowRight、check…）',
     pattern: />\s*[×→←↗↘＋✕✓✔▾▸◫≡]\s*<|['"`][×→←↗↘＋✕✓✔▾▸◫≡]['"`]/g,
   },
   {
@@ -252,6 +261,23 @@ export function findRegressions(current: DesignCounts, baseline: DesignCounts): 
   return regressions
 }
 
+/** 新加一条规则时把它的存量登记进 baseline；其他规则的计数原样保留。 */
+export function adoptRule(
+  current: DesignCounts,
+  baseline: DesignCounts,
+  rule: string,
+): DesignCounts {
+  const merged: DesignCounts = structuredClone(baseline)
+  for (const [file, rules] of Object.entries(current)) {
+    const count = rules[rule]
+    if (!count) continue
+    merged[file] ??= {}
+    merged[file][rule] = count
+  }
+  // 借 tightenBaseline 排序：两边相同时它只做排序。
+  return tightenBaseline(merged, merged)
+}
+
 /** baseline 只往下收：已修掉的条目删除，计数取两者较小值，从不新增。 */
 export function tightenBaseline(current: DesignCounts, baseline: DesignCounts): DesignCounts {
   const next: DesignCounts = {}
@@ -294,6 +320,14 @@ if (import.meta.main) {
   const baseline: DesignCounts = existsSync(baselinePath)
     ? JSON.parse(readFileSync(baselinePath, 'utf8'))
     : current
+
+  const adopt = process.argv[process.argv.indexOf('--adopt') + 1]
+  if (process.argv.includes('--adopt') && adopt) {
+    const next = adoptRule(current, baseline, adopt)
+    writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`)
+    console.log(`adopted existing ${adopt} hits into the design baseline`)
+    process.exit(0)
+  }
 
   if (update) {
     const next = tightenBaseline(current, baseline)
