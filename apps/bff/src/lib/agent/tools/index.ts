@@ -34,6 +34,7 @@ import { proposeBatchGeneration } from './proposeBatchGeneration'
 import { proposeStoryboard } from './proposeStoryboard'
 import { readBatchAnalysis } from './readBatchAnalysis'
 import { readCanvas } from './readCanvas'
+import { readConversationImages } from './readConversationImages'
 import { readLibrary } from './readLibrary'
 import { saveAsset } from './saveAsset'
 import { saveLook } from './saveLook'
@@ -75,6 +76,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   generateImage,
   editImage,
   viewImage,
+  readConversationImages,
   readLibrary,
   readCanvas,
   generateVideo,

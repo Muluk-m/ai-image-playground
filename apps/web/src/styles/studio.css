@@ -853,15 +853,17 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 }
 
 
-/* Pending media fills the conversation column. */
+/* Keep conversation previews bounded even on wide screens. */
 .studio-agent-generation-card {
-  width: 100%;
+  max-width: 100%;
+  align-self: flex-start;
   overflow: hidden;
   border: 1px solid hsl(var(--border) / .65);
   border-radius: 16px;
   background: hsl(var(--card) / .45);
 }
 .studio-agent-generation-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px; }
+.studio-agent-generation-gallery { display: flex; flex-wrap: nowrap; gap: 5px; min-width: 0; overflow-x: auto; }
 .studio-agent-generation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; line-height: 1.5; color: hsl(var(--foreground) / .85); }
 .studio-agent-generation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .studio-agent-generation-actions:empty { display: none; }
@@ -874,7 +876,8 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 @keyframes agent-job-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
 @media (prefers-reduced-motion: reduce) { .agent-job-progress-sweep { animation: none; transform: translateX(100%); opacity: .6; } }
 .studio-agent-inline-result--generated { width: 100%; }
-.studio-agent-inline-result [data-slot="image-gallery"] .studio-agent-inline-tile { width: 100%; max-width: none; }
+.studio-agent-inline-result [data-slot="image-gallery"] { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 5px; max-width: 100%; overflow-x: auto; }
+.studio-agent-inline-result [data-slot="image-gallery"] .studio-agent-inline-tile { max-width: 100%; max-height: 240px; }
 .studio-artifact-edit-cursor { position: absolute; z-index: 5; border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
 .studio-artifact-edit-hit[data-tool="pan"] { cursor: grab; }
 .studio-artifact-edit-hit[data-tool="brush"], .studio-artifact-edit-hit[data-tool="eraser"] { cursor: none; }

@@ -26,11 +26,11 @@ import { profileSeedNames } from '../../lib/profileSeedNames'
 import { getProviderModelOptions } from '../../lib/providerModels'
 import { useStore } from '../../store'
 import type { AppSettings, CustomProviderDefinition } from '../../types'
+import { TooltipIconButton } from '../assistant-ui/elements/tooltip-icon-button'
 import { ChevronDownIcon, CopyIcon, LinkIcon, PlusIcon, TrashIcon } from '../icons'
 import ModelCombobox from '../ModelCombobox'
 import Select from '../Select'
 import { Switch } from '../Switch'
-import ViewportTooltip from '../ViewportTooltip'
 import {
   createDefaultOpenAIProfile,
   DEFAULT_BYOK_BASEURL,
@@ -110,16 +110,12 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
   )
   const [customProviderImportError, setCustomProviderImportError] = useState<string | null>(null)
   const [isImportingJson, setIsImportingJson] = useState(false)
-  const [profileImportUrlTooltipVisible, setProfileImportUrlTooltipVisible] = useState(false)
-  const [duplicateProfileTooltipVisible, setDuplicateProfileTooltipVisible] = useState(false)
   const [copyImportUrlProfile, setCopyImportUrlProfile] = useState<ApiProfile | null>(null)
   const [copyImportUrlOptions, setCopyImportUrlOptions] =
     useState<CopyImportUrlOptions>(readCopyImportUrlOptions)
 
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const profileMenuTriggerRef = useRef<HTMLButtonElement>(null)
-  const profileImportUrlTooltipTimerRef = useRef<number | null>(null)
-  const duplicateProfileTooltipTimerRef = useRef<number | null>(null)
 
   const activeProfile =
     draft.profiles.find((profile) => profile.id === draft.activeProfileId) ??
@@ -190,30 +186,6 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
       window.removeEventListener('scroll', handleReposition, true)
     }
   }, [showProfileMenu])
-
-  useEffect(
-    () => () => {
-      if (profileImportUrlTooltipTimerRef.current != null)
-        window.clearTimeout(profileImportUrlTooltipTimerRef.current)
-      if (duplicateProfileTooltipTimerRef.current != null)
-        window.clearTimeout(duplicateProfileTooltipTimerRef.current)
-    },
-    [],
-  )
-
-  const clearProfileImportUrlTooltipTimer = () => {
-    if (profileImportUrlTooltipTimerRef.current != null) {
-      window.clearTimeout(profileImportUrlTooltipTimerRef.current)
-      profileImportUrlTooltipTimerRef.current = null
-    }
-  }
-
-  const clearDuplicateProfileTooltipTimer = () => {
-    if (duplicateProfileTooltipTimerRef.current != null) {
-      window.clearTimeout(duplicateProfileTooltipTimerRef.current)
-      duplicateProfileTooltipTimerRef.current = null
-    }
-  }
 
   const commitSettings = (nextDraft: DraftSettings) => {
     const defaultOpenAI = createDefaultOpenAIProfile()
@@ -386,7 +358,6 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
 
   const confirmCopyProfileImportUrl = (profile: ApiProfile) => {
     setShowProfileMenu(false)
-    setProfileImportUrlTooltipVisible(false)
     setCopyImportUrlProfile(profile)
     setCopyImportUrlOptions(readCopyImportUrlOptions())
   }
@@ -407,7 +378,6 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
   }
 
   const duplicateActiveProfile = () => {
-    setDuplicateProfileTooltipVisible(false)
     const profile: ApiProfile = {
       ...activeProfile,
       id: newId(activeProfile.provider === 'openai' ? 'openai' : 'profile'),
@@ -631,65 +601,25 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
         <div>
           <div className="mb-1.5 flex items-center gap-1.5">
             <span className="block text-sm text-muted-foreground">{t('profile.current')}</span>
-            <span className="relative inline-flex">
-              <button
-                type="button"
-                onClick={() => confirmCopyProfileImportUrl(activeProfile)}
-                onMouseEnter={() => setProfileImportUrlTooltipVisible(true)}
-                onMouseLeave={() => setProfileImportUrlTooltipVisible(false)}
-                onFocus={() => setProfileImportUrlTooltipVisible(true)}
-                onBlur={() => setProfileImportUrlTooltipVisible(false)}
-                onTouchStart={() => {
-                  clearProfileImportUrlTooltipTimer()
-                  profileImportUrlTooltipTimerRef.current = window.setTimeout(() => {
-                    setProfileImportUrlTooltipVisible(true)
-                    profileImportUrlTooltipTimerRef.current = null
-                  }, 450)
-                }}
-                onTouchEnd={clearProfileImportUrlTooltipTimer}
-                onTouchCancel={clearProfileImportUrlTooltipTimer}
-                className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
-                aria-label={t('profile.copyImportUrlFor', { name: activeProfile.name })}
-              >
-                <LinkIcon className="h-3.5 w-3.5" />
-              </button>
-              <ViewportTooltip
-                visible={profileImportUrlTooltipVisible}
-                className="whitespace-nowrap"
-              >
-                {t('profile.copyImportUrl')}
-              </ViewportTooltip>
-            </span>
+            <TooltipIconButton
+              className="size-5 rounded-md hover:bg-accent [&_svg]:size-3.5"
+              side="top"
+              aria-label={t('profile.copyImportUrlFor', { name: activeProfile.name })}
+              tooltip={t('profile.copyImportUrl')}
+              onClick={() => confirmCopyProfileImportUrl(activeProfile)}
+            >
+              <LinkIcon />
+            </TooltipIconButton>
             {!activeIsBuiltin && (
-              <span className="relative inline-flex">
-                <button
-                  type="button"
-                  onClick={duplicateActiveProfile}
-                  onMouseEnter={() => setDuplicateProfileTooltipVisible(true)}
-                  onMouseLeave={() => setDuplicateProfileTooltipVisible(false)}
-                  onFocus={() => setDuplicateProfileTooltipVisible(true)}
-                  onBlur={() => setDuplicateProfileTooltipVisible(false)}
-                  onTouchStart={() => {
-                    clearDuplicateProfileTooltipTimer()
-                    duplicateProfileTooltipTimerRef.current = window.setTimeout(() => {
-                      setDuplicateProfileTooltipVisible(true)
-                      duplicateProfileTooltipTimerRef.current = null
-                    }, 450)
-                  }}
-                  onTouchEnd={clearDuplicateProfileTooltipTimer}
-                  onTouchCancel={clearDuplicateProfileTooltipTimer}
-                  className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
-                  aria-label={t('profile.duplicateAria', { name: activeProfile.name })}
-                >
-                  <CopyIcon className="h-3.5 w-3.5" />
-                </button>
-                <ViewportTooltip
-                  visible={duplicateProfileTooltipVisible}
-                  className="whitespace-nowrap"
-                >
-                  {t('profile.duplicate')}
-                </ViewportTooltip>
-              </span>
+              <TooltipIconButton
+                className="size-5 rounded-md hover:bg-accent [&_svg]:size-3.5"
+                side="top"
+                aria-label={t('profile.duplicateAria', { name: activeProfile.name })}
+                tooltip={t('profile.duplicate')}
+                onClick={duplicateActiveProfile}
+              >
+                <CopyIcon />
+              </TooltipIconButton>
             )}
           </div>
           <div ref={profileMenuRef} className="relative">

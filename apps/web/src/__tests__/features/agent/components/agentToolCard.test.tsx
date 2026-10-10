@@ -143,7 +143,7 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
   }
 })
 
-it('browses generated images and previews the selected artifact without opening the first one', async () => {
+it('shows all generated images together and edits the clicked artifact', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   const preview = vi.fn()
@@ -178,9 +178,10 @@ it('browses generated images and previews the selected artifact without opening 
         />,
       ),
     )
-    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
-    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(2)
+    act(() =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="查看第 2 个产物"]')!.click(),
+    )
     expect(preview).toHaveBeenCalledWith('group', 'second', 'data:image/png;base64,second')
     preview.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
@@ -224,13 +225,14 @@ it('keeps the visible and editable artifact aligned after delivery temporarily u
     )
   try {
     await render('placed')
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
+    act(() =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="查看第 2 个产物"]')!.click(),
+    )
     await render('pending')
     expect(host.querySelector('[data-slot="image-gallery"]')).toBeNull()
     await render('placed')
-    expect(host.querySelector('.studio-agent-inline-open')!.getAttribute('aria-label')).toBe(
-      '查看第 2 个产物',
-    )
+    expect(host.querySelectorAll('.studio-agent-inline-open')).toHaveLength(2)
+    expect(host.querySelector('[data-selected]')!.getAttribute('aria-label')).toBe('第 2 个产物')
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
     expect(preview).toHaveBeenCalledWith('delivery-group', 'second', 'data:image/png;base64,second')
   } finally {
@@ -272,10 +274,9 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
         />,
       ),
     )
-    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(1)
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(2)
     expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="下一个产物"]')!.click())
-    act(() => host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    act(() => host.querySelectorAll<HTMLButtonElement>('.studio-agent-inline-open')[1]!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
     viewCanvas.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
@@ -391,6 +392,139 @@ it('shows the assistant-ui image element only while an image result is pending',
     act(() => root.unmount())
   }
 })
+it.each([
+  1, 3,
+])('keeps %i image slots from submission through delivery and completion', async (count) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'loading-count',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: 'Logo candidates',
+    status: 'submitted',
+    snapshot: { mode: 'image', args: { n: count }, params: { size: '1024x1024' } },
+  }
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    expect(host.querySelectorAll('[data-slot="image-generation"]')).toHaveLength(count)
+    const artifacts = Array.from({ length: count }, (_, outputIndex) => ({
+      artifactId: `logo-${outputIndex}`,
+      taskId: 'task',
+      outputIndex,
+      media: 'image' as const,
+      mime: 'image/png',
+      width: 1024,
+      height: 1024,
+    }))
+    act(() =>
+      root.render(
+        <AgentToolCard
+          message={{ ...message, status: 'succeeded', delivery: 'pending', artifacts }}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('[data-slot="image-generation"]')).toHaveLength(count)
+    expect(host.querySelector('[data-generating="true"]')).toBeNull()
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{ ...message, status: 'succeeded', delivery: 'placed', artifacts }}
+        />,
+      ),
+    )
+    expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(count)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it.each([
+  { params: { size: '1600x900' }, width: 1600, height: 900 },
+  { params: { gemini_aspect_ratio: '16:9' }, width: 1600, height: 900 },
+  {
+    params: { size: '1600x900', gemini_aspect_ratio: '9:16' },
+    provider: 'openai-compat',
+    width: 1600,
+    height: 900,
+  },
+  {
+    params: { size: '1600x900', gemini_aspect_ratio: '9:16' },
+    provider: 'gemini',
+    width: 900,
+    height: 1600,
+  },
+])('matches loading and completed proportions for the selected model: %o', async ({
+  params,
+  provider,
+  width,
+  height,
+}) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'loading-ratio',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: 'Landscape',
+    status: 'submitted',
+    snapshot: {
+      mode: 'image',
+      args: { n: 3 },
+      params,
+      ...(provider ? { target: { provider, model: 'test-model' } } : {}),
+    },
+  }
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    const placeholder = host.querySelector<HTMLElement>('[data-slot="image-generation"]')!
+    const loadingRatio = placeholder.style.aspectRatio
+    const loadingWidth = placeholder.style.width
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            ...message,
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: [
+              {
+                artifactId: 'landscape',
+                taskId: 'task',
+                outputIndex: 0,
+                media: 'image',
+                mime: 'image/png',
+                width,
+                height,
+              },
+            ],
+          }}
+        />,
+      ),
+    )
+    const tile = host.querySelector<HTMLElement>('.studio-agent-inline-tile')!
+    expect(tile.style.aspectRatio).toBe(loadingRatio)
+    expect(tile.style.width).toBe(loadingWidth)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 describe('后台任务的进度与取消', () => {
   const NOW = Date.UTC(2026, 8, 18, 10, 0, 0)
   const submitted = {

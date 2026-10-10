@@ -93,7 +93,11 @@ export function parseContainerLog(record: unknown): ServerLogEntry | null {
     service,
     instance,
     version: '',
-    level: textLevel(header, stream),
+    level:
+      // cloudflared reports a client that hung up mid-request (tab closed, fetch aborted) as ERR.
+      service === 'cloudflared' && /\bcontext canceled\b/.test(header)
+        ? 'warn'
+        : textLevel(header, stream),
     event: null,
     group_key: redactLogText(header)
       .replace(/^\S*\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s*/, '')

@@ -57,6 +57,14 @@ describe('container log records', () => {
       parseContainerLog(record(line, '/image-playground-paid-cloudflared-1', source))!.level
     expect(level('2026-10-08T03:01:40Z ERR Failed to serve tunnel connection')).toBe('error')
     expect(level('2026-10-08T03:01:40Z WRN Connection terminated', 'stderr')).toBe('warn')
+    expect(
+      level(
+        '2026-10-10T03:17:45Z ERR failed to serve incoming request error="Failed to proxy HTTP: context canceled"',
+      ),
+    ).toBe('warn')
+    expect(
+      level('2026-10-10T03:17:45Z ERR  error="context canceled" connIndex=2 event=1 ingressRule=0'),
+    ).toBe('warn')
     expect(level('2026-10-08T03:01:40Z INF Registered tunnel connection', 'stderr')).toBe('info')
     expect(level('[ops] snapshot built in 41ms')).toBe('info')
     expect(level('something odd happened', 'stderr')).toBe('warn')

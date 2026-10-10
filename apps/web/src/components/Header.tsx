@@ -7,7 +7,6 @@ import { agentPanelPresent } from '../features/agent/panelLayout'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useLibraryStore } from '../features/library/store'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
-import { useTooltip } from '../hooks/useTooltip'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { isInFloatingLayer } from '../lib/dropdown'
 import {
@@ -16,14 +15,12 @@ import {
   PrivateWebReplacesAuthActions,
 } from '../lib/privateOverlay'
 import { useSyncStatus } from '../lib/sync/status'
-import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import HeaderMembershipChip from './HeaderMembershipChip'
 import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
-import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
   const { t } = useTranslation('shell')
@@ -38,8 +35,6 @@ export default function Header() {
   const headerActionsRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
 
-  const inspirationTooltip = useTooltip()
-  const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
 
   useLayoutEffect(() => {
@@ -90,7 +85,6 @@ export default function Header() {
   }, [accountMenuOpen])
 
   const openSettings = () => {
-    dismissAllTooltips()
     setAccountMenuOpen(false)
     setShowSettings(true)
   }
