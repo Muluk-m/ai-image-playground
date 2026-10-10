@@ -7,7 +7,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { AGENT_TURN_ATTACHED_MEDIA_MAX, parseProjectArtifactId } from '@image-playground/shared'
-import { and, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, exists, inArray, isNull, notExists, or, sql } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
@@ -214,6 +214,28 @@ async function readTaskOutput(
   output: TaskOutput,
   userId: string | null,
 ): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const g = schema.generation_records
+  const gi = schema.generation_images
+  const m = schema.media_objects
+  const archivedOutputs = db
+    .select({ one: sql`1` })
+    .from(gi)
+    .where(and(eq(gi.generation_id, g.id), eq(gi.role, 'output')))
+  const readyLegacyOutput = db
+    .select({ one: sql`1` })
+    .from(gi)
+    .innerJoin(
+      m,
+      and(
+        eq(m.id, gi.media_id),
+        eq(m.user_id, g.user_id),
+        eq(m.status, 'ready'),
+        sql`${m.object_key} IS NOT NULL`,
+      ),
+    )
+    .where(
+      and(eq(gi.generation_id, g.id), eq(gi.role, 'output'), eq(gi.position, output.outputIndex)),
+    )
   const [task] = await db
     .select({
       status: schema.tasks.status,
@@ -222,8 +244,23 @@ async function readTaskOutput(
     })
     .from(schema.tasks)
     .leftJoin(schema.generation_records, eq(schema.generation_records.id, schema.tasks.id))
-    // Durable records own modern outputs; queue payloads are only a legacy fallback.
-    .where(and(taskAccessWhere(output.taskId, userId), isNull(schema.generation_records.id)))
+    // No-sync deployments and old records without source metadata still use retained tasks.
+    // Never bypass deletion or a modern durable output's unavailable original.
+    .where(
+      and(
+        taskAccessWhere(output.taskId, userId),
+        or(
+          isNull(g.id),
+          and(
+            isNull(g.deleted_at),
+            or(
+              and(eq(g.archive_status, 'none'), notExists(archivedOutputs)),
+              and(isNull(g.source), eq(g.archive_status, 'ready'), exists(readyLegacyOutput)),
+            ),
+          ),
+        ),
+      ),
+    )
     .limit(1)
   if (!task || task.status !== 'completed') return null
   const provider = asQueueProvider(task.provider)
