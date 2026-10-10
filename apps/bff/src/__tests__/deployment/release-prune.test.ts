@@ -112,3 +112,36 @@ describe('prune_old_releases', () => {
     expect(await exists(join(half, 'images.tar.gz'))).toBe(true)
   })
 })
+
+describe('release_untagged_image', () => {
+  // 发布已经切过去了，回收一个旧镜像失败不该把整次部署判成失败（set -e 下会直接退出）。
+  it('leaves an image it cannot remove and lets the deploy carry on', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aip-untag-'))
+    temporary.push(root)
+    const bin = join(root, 'bin')
+    await mkdir(bin)
+    await writeFile(
+      join(bin, 'docker'),
+      [
+        '#!/bin/sh',
+        'case "$1 $2" in',
+        '  "image inspect") echo "ghcr.io/x/ai-image-playground@sha256:abc" ;;',
+        '  rmi*) echo "conflict: image is being used by a stopped container" >&2; exit 1 ;;',
+        'esac',
+        '',
+      ].join('\n'),
+      { mode: 0o755 },
+    )
+    const proc = Bun.spawn(
+      [
+        'sh',
+        '-c',
+        `set -e; . "${common}"; release_untagged_image sha256:old ai-image-playground:test; echo carried-on`,
+      ],
+      { env: { PATH: `${bin}:${process.env.PATH}`, HOME: root }, stdout: 'pipe', stderr: 'pipe' },
+    )
+    expect(await proc.exited).toBe(0)
+    expect(await new Response(proc.stdout).text()).toContain('carried-on')
+    expect(await new Response(proc.stderr).text()).toContain('sha256:old')
+  })
+})
