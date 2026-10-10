@@ -670,8 +670,11 @@ function StandardAgentToolCard({
   if (imageGenerating && progress) {
     const count = agentDraftOutputCount(message)
     const params = message.snapshot?.params
+    const provider = message.snapshot?.target?.provider
     const dimensions =
-      parseRatio(params?.gemini_aspect_ratio ?? '') ?? parseRatio(params?.size ?? '')
+      provider && provider !== 'gemini'
+        ? parseRatio(params?.size ?? '')
+        : (parseRatio(params?.gemini_aspect_ratio ?? '') ?? parseRatio(params?.size ?? ''))
     const ratio = dimensions ? dimensions.width / dimensions.height : 1
     const width = IMAGE_PREVIEW_MAX_EDGE * Math.min(ratio, 1)
     return (
