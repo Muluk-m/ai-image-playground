@@ -448,9 +448,26 @@ it.each([
 })
 
 it.each([
-  { size: '1600x900' },
-  { gemini_aspect_ratio: '16:9' },
-])('matches loading and completed landscape proportions for %o', async (params) => {
+  { params: { size: '1600x900' }, width: 1600, height: 900 },
+  { params: { gemini_aspect_ratio: '16:9' }, width: 1600, height: 900 },
+  {
+    params: { size: '1600x900', gemini_aspect_ratio: '9:16' },
+    provider: 'openai-compat',
+    width: 1600,
+    height: 900,
+  },
+  {
+    params: { size: '1600x900', gemini_aspect_ratio: '9:16' },
+    provider: 'gemini',
+    width: 900,
+    height: 1600,
+  },
+])('matches loading and completed proportions for the selected model: %o', async ({
+  params,
+  provider,
+  width,
+  height,
+}) => {
   const host = document.createElement('div')
   const root = createRoot(host)
   const message: AgentToolMessage = {
@@ -461,7 +478,12 @@ it.each([
     toolName: 'generateImage',
     title: 'Landscape',
     status: 'submitted',
-    snapshot: { mode: 'image', args: { n: 3 }, params },
+    snapshot: {
+      mode: 'image',
+      args: { n: 3 },
+      params,
+      ...(provider ? { target: { provider, model: 'test-model' } } : {}),
+    },
   }
   setAgentCanvasSink({
     has: () => true,
@@ -486,8 +508,8 @@ it.each([
                 outputIndex: 0,
                 media: 'image',
                 mime: 'image/png',
-                width: 1600,
-                height: 900,
+                width,
+                height,
               },
             ],
           }}
