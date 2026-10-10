@@ -45,6 +45,9 @@
     "characterPrompt": "画一个赛博朋克风格的少女角色半身像：雨夜街头，霓虹灯光映在雨衣上，电影感构图。",
     "draftKeptToast": "输入框里已有内容，清空后再选示例"
   },
+  "userMessage": {
+    "reedit": "重新编辑"
+  },
   "reply": {
     "copyAria": "复制回复",
     "copied": "已复制",

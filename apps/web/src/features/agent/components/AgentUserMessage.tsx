@@ -1,6 +1,7 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ChevronDown, ImageIcon, LoaderCircle } from 'lucide-react'
+import { ChevronDown, ImageIcon, LoaderCircle, SquarePen } from 'lucide-react'
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
 import Overlay from '../../../components/Overlay'
@@ -16,6 +17,7 @@ import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { USER_BUBBLE } from '../agentStyles'
 import { fetchMessageReference } from '../lib/agentClient'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
+import { fillAgentComposer } from '../lib/composerFill'
 import {
   fitReferenceRow,
   REFERENCE_ROW_FALLBACK,
@@ -405,6 +407,11 @@ export default memo(function AgentUserMessage({
   const content: ReactNode[] = []
   const inlined = new Set<number>()
   const names = referenceDisplayNames(message.references ?? [])
+  const editableText = visible.replace(/\[image ([1-9]\d*)\]/g, (marker, number: string) => {
+    const index = Number(number) - 1
+    if (!message.references?.[index]) return marker
+    return names[index] ? `@${names[index]}` : getImageMentionLabel(index)
+  })
   let from = 0
   for (const match of text.matchAll(/\[image ([1-9]\d*)\]/g)) {
     const index = Number(match[1]) - 1
@@ -445,6 +452,12 @@ export default memo(function AgentUserMessage({
         {invocation && <AgentSkillBadge skill={invocation.skill} />}
         {content}
       </p>
+      <TooltipIconButton
+        tooltip={t('userMessage.reedit')}
+        onClick={() => fillAgentComposer({ text: editableText, replace: true })}
+      >
+        <SquarePen aria-hidden="true" />
+      </TooltipIconButton>
     </div>
   )
 })
