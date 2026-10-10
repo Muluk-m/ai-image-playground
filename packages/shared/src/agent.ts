@@ -60,6 +60,7 @@ export type AgentToolName =
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
+  | 'readConversationImages'
   | 'readLibrary'
   | 'readCanvas'
   | 'generateVideo'

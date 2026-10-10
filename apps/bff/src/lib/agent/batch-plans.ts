@@ -115,57 +115,10 @@ export async function createAgentBatchPlan(
       input.items.flatMap((item) => item.imageIds.map((id) => context.images.identify(id))),
     ),
   ]
-  // Project only the newest requested bindings; inline replacements must shadow older media too.
-  const referenceId = sql<string>`ref.value->>'imageId'`
-  const archivedReferences = await db
-    .selectDistinctOn([referenceId], {
-      imageId: referenceId,
-      mediaId: sql<string | null>`ref.value->>'mediaId'`,
-      name: sql<string | null>`ref.value->>'name'`,
-    })
-    .from(schema.agent_messages)
-    .innerJoin(
-      schema.agent_conversations,
-      eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
-    )
-    .innerJoin(
-      sql`jsonb_array_elements(${schema.agent_messages.content}) WITH ORDINALITY AS block(value, position)`,
-      sql`true`,
-    )
-    .innerJoin(
-      sql`jsonb_array_elements(CASE WHEN jsonb_typeof(block.value->'references') = 'array' THEN block.value->'references' ELSE '[]'::jsonb END) WITH ORDINALITY AS ref(value, position)`,
-      sql`true`,
-    )
-    .where(
-      and(
-        eq(schema.agent_messages.conversation_id, context.conversationId),
-        eq(schema.agent_messages.role, 'user'),
-        isNull(schema.agent_messages.deleted_at),
-        eq(schema.agent_conversations.user_id, userId),
-        isNull(schema.agent_conversations.deleted_at),
-        sql`block.value->>'type' = 'text'`,
-        inArray(referenceId, requestedIds),
-      ),
-    )
-    .orderBy(
-      referenceId,
-      desc(schema.agent_messages.seq),
-      sql`block.position DESC`,
-      sql`ref.position DESC`,
-    )
-  const references = new Map<string, AgentMediaReference>()
-  for (const reference of archivedReferences) {
-    if (reference.mediaId)
-      references.set(reference.imageId, {
-        imageId: reference.imageId,
-        mediaId: reference.mediaId,
-        ...(reference.name ? { name: reference.name } : {}),
-      })
-  }
-  for (const reference of context.images.references) {
-    if ('mediaId' in reference) references.set(reference.imageId, reference)
-    else references.delete(reference.imageId)
-  }
+  const resolved = await context.images.resolveMediaReferences(requestedIds)
+  const references = new Map(
+    resolved.flatMap((reference) => (reference ? [[reference.imageId, reference] as const] : [])),
+  )
   const keys = new Set<string>()
   const { autoSubmit: _autoSubmit, ...params } = context.params ?? {}
   const items: AgentBatchItem[] = []
@@ -178,7 +131,9 @@ export async function createAgentBatchPlan(
       const identified = context.images.identify(imageId)
       const reference = references.get(identified)
       if (!reference || !('mediaId' in reference))
-        invalid(`图片 ${imageId} 没有可持久保存的完整输入，请重新附上原图。`)
+        invalid(
+          `图片 ${imageId} 当前没有可用的已保存原图。请用 readConversationImages 核对会话图片及可用状态；新上传的图片请等待保存完成。`,
+        )
       return { ...reference, imageId: identified }
     })
     const common = {
