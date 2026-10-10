@@ -85,14 +85,42 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
     }),
     attempt('api', async () => {
       const rows = (await db.execute(sql`
-        SELECT COALESCE(SUM(requests), 0) AS requests,
-          COALESCE(SUM(server_errors), 0) AS server_errors
-        FROM api_minutes WHERE minute >= NOW() - INTERVAL '15 minutes'
-      `)) as unknown as Array<Record<string, unknown>>
-      return {
-        requests: Number(rows[0]?.requests ?? 0),
-        server_errors: Number(rows[0]?.server_errors ?? 0),
+        SELECT EXTRACT(EPOCH FROM minute) * 1000 AS minute,
+          requests, client_errors, server_errors, server_error_routes
+        FROM api_minutes
+        WHERE minute >= to_timestamp(${options.now / 1000}) - INTERVAL '15 minutes'
+          AND minute <= to_timestamp(${options.now / 1000})
+      `)) as unknown as Array<{
+        minute: string
+        requests: number
+        client_errors: number
+        server_errors: number
+        server_error_routes: Record<string, number> | null
+      }>
+      const api: NonNullable<AlertObservation['api']> = {
+        requests: 0,
+        server_errors: 0,
+        errors_by_minute: {},
+        successes_by_minute: {},
+        error_routes: {},
       }
+      for (const row of rows) {
+        const minute = Number(row.minute)
+        api.requests += Number(row.requests)
+        api.server_errors += Number(row.server_errors)
+        if (row.server_errors > 0)
+          api.errors_by_minute[minute] =
+            (api.errors_by_minute[minute] ?? 0) + Number(row.server_errors)
+        if (row.requests > row.client_errors + row.server_errors)
+          api.successes_by_minute[minute] =
+            (api.successes_by_minute[minute] ?? 0) +
+            row.requests -
+            row.client_errors -
+            row.server_errors
+        for (const [route, count] of Object.entries(row.server_error_routes ?? {}))
+          api.error_routes[route] = (api.error_routes[route] ?? 0) + count
+      }
+      return api
     }),
     attempt('failures', async () => {
       const [generationRaw, agentRaw] = await Promise.all([

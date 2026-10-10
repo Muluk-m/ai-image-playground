@@ -25,6 +25,8 @@ export const OPS_THRESHOLDS = {
   /** 最近这段时间 5xx 占比超过这个比例、且请求数不少于下面的数，看板标红。 */
   API_SERVER_ERROR_RATIO: 0.05,
   API_MIN_REQUESTS_FOR_RATIO: 20,
+  API_RECOVERY_RATIO: 0.03,
+  API_RECOVERY_SUSTAIN_MS: 2 * 60 * 1000,
   /** 低流量时也要捕获绝对数量明显异常的 5xx。 */
   API_SERVER_ERROR_ABSOLUTE: 5,
   /** 最近 15 分钟的系统性业务失败；内容策略拒绝不属于服务事故。 */

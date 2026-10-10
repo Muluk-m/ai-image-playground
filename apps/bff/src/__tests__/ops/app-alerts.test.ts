@@ -154,7 +154,13 @@ describe('observeApp', () => {
     // 只看后端最新的那个实例；worker 不判断自己的心跳，发告警的就是它。
     expect(observation.heartbeats).toEqual({ bff: now - 5 * minute })
     expect(observation.host).toBeUndefined()
-    expect(observation.api).toEqual({ requests: 20, server_errors: 0 })
+    expect(observation.api).toEqual({
+      requests: 20,
+      server_errors: 0,
+      errors_by_minute: {},
+      successes_by_minute: { [Math.floor((now - minute) / minute) * minute]: 20 },
+      error_routes: {},
+    })
     expect(observation.failures).toEqual({ generation_system: 1, agent: 0 })
   })
 
@@ -239,4 +245,54 @@ describe('createAppAlerting', () => {
     await check(now + 5 * minute)
     expect(attempts).toBe(2)
   })
+})
+
+it('aggregates error minute counts across instances without counting client errors as successes', async () => {
+  const { eq } = await import('drizzle-orm')
+  const errorMinute = Math.floor((now - 3 * minute) / minute) * minute
+  const instances = ['alert-errors-one', 'alert-errors-two']
+  try {
+    await writer.db.insert(writer.schema.api_minutes).values([
+      {
+        minute: errorMinute,
+        instance: instances[0]!,
+        requests: 3,
+        client_errors: 1,
+        server_errors: 2,
+        server_error_routes: { 'POST /api/media/:id/complete': 2 },
+      },
+      {
+        minute: errorMinute,
+        instance: instances[1]!,
+        requests: 3,
+        client_errors: 0,
+        server_errors: 3,
+        server_error_routes: { 'POST /api/media/:id/complete': 3 },
+      },
+      {
+        minute: Math.floor(now / minute) * minute,
+        instance: instances[1]!,
+        requests: 2,
+        client_errors: 2,
+        server_errors: 0,
+      },
+    ])
+    const observation = await observeApp({
+      now,
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+    })
+    expect(observation.api).toEqual({
+      requests: 28,
+      server_errors: 5,
+      errors_by_minute: { [errorMinute]: 5 },
+      successes_by_minute: { [Math.floor((now - minute) / minute) * minute]: 20 },
+      error_routes: { 'POST /api/media/:id/complete': 5 },
+    })
+  } finally {
+    for (const instance of instances)
+      await writer.db
+        .delete(writer.schema.api_minutes)
+        .where(eq(writer.schema.api_minutes.instance, instance))
+  }
 })

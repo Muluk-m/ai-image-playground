@@ -17,6 +17,7 @@ async function respond(
           event: 'media.request_rejected',
           ...context,
           errorCode: error.message,
+          reason: error.reason,
           status: error.status,
         },
         'media request rejected',
