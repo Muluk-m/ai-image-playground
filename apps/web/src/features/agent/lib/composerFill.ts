@@ -16,6 +16,8 @@ import { useStore } from '../../../store'
  */
 export interface ComposerFill {
   readonly text: string
+  /** Explicit re-edit actions replace the current text; suggestions preserve typed drafts. */
+  readonly replace?: boolean
   /** 技能的 kebab-case 标识；缺席即一句普通的话。 */
   readonly skill?: string
   /** 填好后选中的那一段，按 `text` 里的下标算。 */
@@ -88,7 +90,7 @@ export interface ComposerFillTarget {
 
 /**
  * 输入框登记自己为「填一句话」的目标。三处宿主共用同一条规矩：只换掉空草稿或上一条原样未动的
- * 建议，用户自己写的话一个字都不动，提示一声。宿主只管怎么读写自己的提示词。
+ * 建议；显式重新编辑可替换当前文本，其余入口保留用户草稿并提示。宿主只管怎么读写提示词。
  */
 export function useComposerFillTarget(target: ComposerFillTarget, enabled = true): void {
   const targetRef = useRef(target)
@@ -100,7 +102,7 @@ export function useComposerFillTarget(target: ComposerFillTarget, enabled = true
       const { read, write, busy } = targetRef.current
       if (busy?.()) return
       const current = read()
-      if (current.trim() !== '' && current !== suggestedRef.current) {
+      if (!content.replace && current.trim() !== '' && current !== suggestedRef.current) {
         useStore.getState().showToast(i18next.t('agent:suggestions.draftKeptToast'), 'info')
         return
       }
