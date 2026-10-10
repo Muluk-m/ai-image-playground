@@ -1,4 +1,4 @@
-import { LayoutDashboard, MessageCircle } from 'lucide-react'
+import { Bot, LayoutDashboard } from 'lucide-react'
 import { useTranslation } from '../i18n'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { useStore } from '../store'
@@ -16,7 +16,7 @@ export default function CreateTargetSwitch() {
           {
             id: 'chat' as const,
             label: t('createTarget.chat'),
-            icon: <MessageCircle className="h-4 w-4" />,
+            icon: <Bot className="h-4 w-4" aria-hidden="true" />,
           },
         ]
       : []),

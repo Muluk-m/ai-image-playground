@@ -36,5 +36,5 @@ No assistant-ui runtime migration: existing Agent store, transport, persistence 
 `job-progress.tsx` and `image-gallery.tsx` adapt the official Elements registry fetched on 2026-10-09.
 
 - JobProgress uses a continuous monochrome track. Generation jobs expose phases and elapsed time only, so their track is indeterminate; batch inbox percentages count completed and failed items.
-- ImageGallery retains artifact ids while browsing one full-width image, with arrow buttons, keyboard navigation and thumbnails. Existing preview, download and canvas actions own media access.
+- ImageGallery displays bounded previews in one horizontal row, retaining artifact ids and keyboard navigation; narrow views scroll horizontally. Existing preview, download and canvas actions own media access.
 - Image/video waiting surfaces and recovery controls use neutral theme tokens and icon buttons with translated accessible labels. Portrait playback keeps a height cap within the full-width result card.

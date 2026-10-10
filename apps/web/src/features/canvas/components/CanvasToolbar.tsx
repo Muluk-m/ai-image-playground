@@ -1,5 +1,6 @@
 import { FolderOpen, Images, Maximize2, Minus, Paperclip, Plus } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
+import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
@@ -109,22 +110,24 @@ function ToolButton({
   disabled?: boolean
   children: React.ReactNode
 }) {
+  // 工具栏贴在画布左侧，提示朝右出，不压住按钮本身。
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
-        active
-          ? 'bg-primary text-primary-foreground'
-          : 'text-foreground hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent'
-      }`}
-    >
-      {children}
-    </button>
+    <Hint tooltip={title} side="right">
+      <button
+        type="button"
+        aria-label={title}
+        aria-pressed={active}
+        disabled={disabled}
+        onClick={onClick}
+        className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+          active
+            ? 'bg-primary text-primary-foreground'
+            : 'text-foreground hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent'
+        }`}
+      >
+        {children}
+      </button>
+    </Hint>
   )
 }
 
@@ -237,14 +240,16 @@ export default function CanvasToolbar({
       <ToolButton title={t('toolbar.zoomOut')} onClick={() => zoomStep(-1)}>
         <Minus size={18} aria-hidden="true" />
       </ToolButton>
-      <button
-        type="button"
-        title={t('toolbar.resetZoom')}
-        onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-        className="h-9 w-9 rounded-xl px-0 text-label-sm text-foreground tabular-nums transition-colors hover:bg-muted"
-      >
-        {camera.zoom < 0.01 ? '<1%' : `${Math.round(camera.zoom * 100)}%`}
-      </button>
+      <Hint tooltip={t('toolbar.resetZoom')} side="right">
+        <button
+          type="button"
+          aria-label={t('toolbar.resetZoom')}
+          onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
+          className="h-9 w-9 rounded-xl px-0 text-label-sm text-foreground tabular-nums transition-colors hover:bg-muted"
+        >
+          {camera.zoom < 0.01 ? '<1%' : `${Math.round(camera.zoom * 100)}%`}
+        </button>
+      </Hint>
       <ToolButton title={t('toolbar.zoomIn')} onClick={() => zoomStep(1)}>
         <Plus size={18} aria-hidden="true" />
       </ToolButton>

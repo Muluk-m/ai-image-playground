@@ -89,7 +89,7 @@ const page = (items: unknown[], nextCursor: string | null = null) =>
 /** 浮层 portal 到 body，所以按钮在整篇文档里找，不只在挂载点里。 */
 const button = (label: string) => {
   const found = [...document.body.querySelectorAll('button')].find(
-    (node) => node.textContent?.includes(label) || node.title.includes(label),
+    (node) => node.textContent?.includes(label) || node.getAttribute('aria-label')?.includes(label),
   )
   if (!found) throw new Error(`missing button: ${label}`)
   return found
@@ -104,7 +104,7 @@ const click = async (label: string) => {
 }
 const findButton = (label: string) =>
   [...document.body.querySelectorAll('button')].some(
-    (node) => node.textContent?.includes(label) || node.title.includes(label),
+    (node) => node.textContent?.includes(label) || node.getAttribute('aria-label')?.includes(label),
   )
 const cards = () => [...host.querySelectorAll('.task-card-wrapper')]
 

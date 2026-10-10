@@ -3,7 +3,6 @@ import { LoaderCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
-import { useTooltip } from '../hooks/useTooltip'
 import { useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
@@ -15,7 +14,6 @@ import {
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
-import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
   editOutputImage,
   removeTask,
@@ -25,10 +23,9 @@ import {
   setTaskFavorite,
   useStore,
 } from '../store'
+import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { CloseIcon, CodeIcon, CopyIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
 import Overlay from './Overlay'
-
-import ViewportTooltip from './ViewportTooltip'
 
 export default function DetailModal() {
   const { t } = useTranslation(['task', 'common'])
@@ -54,11 +51,6 @@ export default function DetailModal() {
   const imagePanelRef = useRef<HTMLDivElement>(null)
   const mainImageRef = useRef<HTMLImageElement>(null)
   const [imageLabelLeft, setImageLabelLeft] = useState(8)
-
-  const copyErrorTooltip = useTooltip()
-  const copyRawUrlsTooltip = useTooltip()
-  const viewRawResponseTooltip = useTooltip()
-  const retryTooltip = useTooltip()
 
   const clearTextSelection = () => {
     const selection = window.getSelection()
@@ -530,12 +522,10 @@ export default function DetailModal() {
                   </button>
                 )}
                 <div className="mt-3 flex items-center justify-center gap-2">
-                  <div className="relative group">
+                  <Hint tooltip={t('detail.copyFullError')}>
                     <button
                       type="button"
-                      {...copyErrorTooltip.handlers}
                       onClick={(e) => {
-                        copyErrorTooltip.handlers.onClick()
                         handleCopyError()
                       }}
                       className="inline-flex items-center justify-center rounded-full border border-destructive/80 bg-card/80 px-3 py-1.5 text-destructive transition hover:bg-destructive/10 dark:border-destructive/20 dark:hover:bg-destructive/10"
@@ -543,20 +533,12 @@ export default function DetailModal() {
                     >
                       <CopyIcon className="h-4 w-4" />
                     </button>
-                    <ViewportTooltip
-                      visible={copyErrorTooltip.visible}
-                      className="whitespace-nowrap"
-                    >
-                      {t('detail.copyFullError')}
-                    </ViewportTooltip>
-                  </div>
+                  </Hint>
                   {task.rawResponsePayload && (
-                    <div className="relative group">
+                    <Hint tooltip={t('detail.viewRawResponse')}>
                       <button
                         type="button"
-                        {...viewRawResponseTooltip.handlers}
                         onClick={(e) => {
-                          dismissAllTooltips()
                           setShowRawResponseModal(true)
                         }}
                         className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-primary/10 px-3 py-1.5 text-primary transition hover:bg-primary/10"
@@ -564,22 +546,14 @@ export default function DetailModal() {
                       >
                         <CodeIcon className="h-4 w-4" />
                       </button>
-                      <ViewportTooltip
-                        visible={viewRawResponseTooltip.visible}
-                        className="whitespace-nowrap"
-                      >
-                        {t('detail.viewRawResponse')}
-                      </ViewportTooltip>
-                    </div>
+                    </Hint>
                   )}
                   {task.rawImageUrls && task.rawImageUrls.length > 0 && (
-                    <div className="relative group">
+                    <Hint tooltip={t('detail.copyImageUrls')}>
                       <button
                         type="button"
-                        {...copyRawUrlsTooltip.handlers}
                         onClick={async (e) => {
                           if (task.rawImageUrls!.length === 1) {
-                            copyRawUrlsTooltip.handlers.onClick()
                             try {
                               await copyTextToClipboard(task.rawImageUrls![0])
                               showToast(t('detail.imageUrlCopied'), 'success')
@@ -590,7 +564,6 @@ export default function DetailModal() {
                               )
                             }
                           } else {
-                            dismissAllTooltips()
                             setShowRawUrlsModal(true)
                           }
                         }}
@@ -599,22 +572,14 @@ export default function DetailModal() {
                       >
                         <LinkIcon className="h-4 w-4" />
                       </button>
-                      <ViewportTooltip
-                        visible={copyRawUrlsTooltip.visible}
-                        className="whitespace-nowrap"
-                      >
-                        {t('detail.copyImageUrls')}
-                      </ViewportTooltip>
-                    </div>
+                    </Hint>
                   )}
                   {/* 内容安全拒绝原样重试稳定复现，只留改提示词那条出路。 */}
                   {!blockedByContentPolicy && (
-                    <div className="relative group">
+                    <Hint tooltip={t('action.retryTask')}>
                       <button
                         type="button"
-                        {...retryTooltip.handlers}
                         onClick={(e) => {
-                          retryTooltip.handlers.onClick()
                           handleRetry()
                         }}
                         className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
@@ -637,10 +602,7 @@ export default function DetailModal() {
                           />
                         </svg>
                       </button>
-                      <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
-                        {t('action.retryTask')}
-                      </ViewportTooltip>
-                    </div>
+                    </Hint>
                   )}
                 </div>
               </div>

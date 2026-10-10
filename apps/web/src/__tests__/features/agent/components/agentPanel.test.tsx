@@ -360,7 +360,7 @@ describe('AgentPanel', () => {
     await settle()
     const log = host.querySelector('[aria-label="对话记录"]')!
     expect(log.querySelector('img')?.getAttribute('src')).toBe('blob:archived-reference')
-    expect(log.textContent).toBe('@图1换一身衣服')
+    expect(log.querySelector('.studio-agent-user-message')?.textContent).toBe('@图1换一身衣服')
     vi.stubGlobal('matchMedia', () => ({
       matches: false,
       addEventListener() {},
