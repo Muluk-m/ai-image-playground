@@ -1,5 +1,4 @@
 import { formatImageRatio } from '@image-playground/shared'
-import { LoaderCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
@@ -24,8 +23,9 @@ import {
   useStore,
 } from '../store'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
-import { CloseIcon, CodeIcon, CopyIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
 import Overlay from './Overlay'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 export default function DetailModal() {
   const { t } = useTranslation(['task', 'common'])
@@ -295,13 +295,16 @@ export default function DetailModal() {
       <Overlay onClose={() => setDetailTaskId(null)} tier="modal" label={t('detail.dialog')}>
         <div className="relative bg-card/90 backdrop-blur-xl border border-border rounded-3xl shadow-dialog max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col md:flex-row z-10 ring-1 ring-hairline animate-modal-in">
           <div className="flex h-14 items-center justify-end px-4 md:hidden">
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setDetailTaskId(null)}
-              className="p-1 rounded-full hover:bg-muted transition text-muted-foreground"
+              className="text-muted-foreground"
               aria-label={t('common:action.close')}
             >
-              <CloseIcon className="w-6 h-6" />
-            </button>
+              <Icon name="close" />
+            </Button>
           </div>
 
           {/* 左侧：图片 */}
@@ -355,7 +358,7 @@ export default function DetailModal() {
                     className="absolute bottom-3 right-3 flex items-center gap-1 rounded bg-black/50 px-2 py-0.5 text-xs text-white backdrop-blur-sm"
                     aria-live="polite"
                   >
-                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                    <Icon name="loading" size="xs" className="animate-spin" />
                     {t('detail.loadingOriginal')}
                   </span>
                 )}
@@ -376,19 +379,7 @@ export default function DetailModal() {
                   ) : (
                     formatDuration() && (
                       <span className="flex items-center gap-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm font-mono">
-                        <svg
-                          className="w-3 h-3"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
+                        <Icon name="clock" size="xs" />
                         {formatDuration()}
                       </span>
                     )
@@ -396,46 +387,26 @@ export default function DetailModal() {
                 </div>
                 {outputLen > 1 && (
                   <>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={t('common:action.previousImage')}
                       onClick={() => setImageIndex((imageIndex - 1 + outputLen) % outputLen)}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/30 text-white hover:bg-black/50 hover:text-white"
                     >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 19l-7-7 7-7"
-                        />
-                      </svg>
-                    </button>
-                    <button
+                      <Icon name="chevronLeft" />
+                    </Button>
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={t('common:action.nextImage')}
                       onClick={() => setImageIndex((imageIndex + 1) % outputLen)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/30 text-white hover:bg-black/50 hover:text-white"
                     >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5l7 7-7 7"
-                        />
-                      </svg>
-                    </button>
+                      <Icon name="chevronRight" />
+                    </Button>
                     <span className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">
                       {imageIndex + 1} / {outputLen}
                     </span>
@@ -445,61 +416,24 @@ export default function DetailModal() {
             )}
             {task.status === 'done' && outputLen > 0 && !outputDisplaySrc && (
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+                <Icon name="loading" size="lg" className="animate-spin text-primary" />
                 <span className="text-xs">{t('detail.loadingImage')}</span>
               </div>
             )}
             {task.status === 'running' && (
               <>
                 <div className="absolute left-4 top-4 flex items-center gap-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm font-mono">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
+                  <Icon name="clock" size="xs" />
                   {formatDuration()}
                 </div>
                 {task.status === 'running' && (
-                  <svg
-                    className="w-10 h-10 text-primary animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
+                  <Icon name="loading" size="lg" className="animate-spin text-primary" />
                 )}
               </>
             )}
             {task.status === 'error' && (
               <div className="w-full max-w-md px-4 text-center">
-                <svg
-                  className="w-10 h-10 text-destructive mx-auto mb-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
+                <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
                 <p
                   className="overflow-hidden whitespace-pre-line text-sm leading-6 text-destructive break-words"
                   style={{
@@ -513,46 +447,48 @@ export default function DetailModal() {
                     : task.error || t('detail.generateFailed')}
                 </p>
                 {blockedByContentPolicy && (
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={handleReuse}
-                    className="mt-3 inline-flex items-center justify-center rounded-full border border-primary/80 bg-primary/10 px-4 py-1.5 text-sm text-primary transition hover:bg-primary/20"
+                    className="mt-3"
                   >
                     {t('detail.rewritePrompt')}
-                  </button>
+                  </Button>
                 )}
                 <div className="mt-3 flex items-center justify-center gap-2">
                   <Hint tooltip={t('detail.copyFullError')}>
-                    <button
+                    <Button
                       type="button"
-                      onClick={(e) => {
-                        handleCopyError()
-                      }}
-                      className="inline-flex items-center justify-center rounded-full border border-destructive/80 bg-card/80 px-3 py-1.5 text-destructive transition hover:bg-destructive/10 dark:border-destructive/20 dark:hover:bg-destructive/10"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={handleCopyError}
                       aria-label={t('detail.copyFullError')}
                     >
-                      <CopyIcon className="h-4 w-4" />
-                    </button>
+                      <Icon name="copy" />
+                    </Button>
                   </Hint>
                   {task.rawResponsePayload && (
                     <Hint tooltip={t('detail.viewRawResponse')}>
-                      <button
+                      <Button
                         type="button"
-                        onClick={(e) => {
-                          setShowRawResponseModal(true)
-                        }}
-                        className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-primary/10 px-3 py-1.5 text-primary transition hover:bg-primary/10"
+                        variant="outline"
+                        size="icon-sm"
+                        onClick={() => setShowRawResponseModal(true)}
                         aria-label={t('detail.viewRawResponse')}
                       >
-                        <CodeIcon className="h-4 w-4" />
-                      </button>
+                        <Icon name="code" />
+                      </Button>
                     </Hint>
                   )}
                   {task.rawImageUrls && task.rawImageUrls.length > 0 && (
                     <Hint tooltip={t('detail.copyImageUrls')}>
-                      <button
+                      <Button
                         type="button"
-                        onClick={async (e) => {
+                        variant="outline"
+                        size="icon-sm"
+                        onClick={async () => {
                           if (task.rawImageUrls!.length === 1) {
                             try {
                               await copyTextToClipboard(task.rawImageUrls![0])
@@ -567,41 +503,24 @@ export default function DetailModal() {
                             setShowRawUrlsModal(true)
                           }
                         }}
-                        className="inline-flex items-center justify-center rounded-full border border-success/80 bg-success/10 px-3 py-1.5 text-success transition hover:bg-success/10 dark:border-success/20 dark:bg-success/10 dark:text-success dark:hover:bg-success/20"
                         aria-label={t('detail.copyImageUrls')}
                       >
-                        <LinkIcon className="h-4 w-4" />
-                      </button>
+                        <Icon name="link" />
+                      </Button>
                     </Hint>
                   )}
                   {/* 内容安全拒绝原样重试稳定复现，只留改提示词那条出路。 */}
                   {!blockedByContentPolicy && (
                     <Hint tooltip={t('action.retryTask')}>
-                      <button
+                      <Button
                         type="button"
-                        onClick={(e) => {
-                          handleRetry()
-                        }}
-                        className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
+                        variant="outline"
+                        size="icon-sm"
+                        onClick={handleRetry}
                         aria-label={t('action.retryTask')}
                       >
-                        <svg
-                          className="h-4 w-4"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
-                      </button>
+                        <Icon name="refresh" />
+                      </Button>
                     </Hint>
                   )}
                 </div>
@@ -611,13 +530,16 @@ export default function DetailModal() {
 
           {/* 右侧：信息 */}
           <div className="md:w-1/2 w-full p-5 overflow-y-auto overscroll-contain flex flex-col">
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setDetailTaskId(null)}
-              className="absolute top-3 right-3 hidden p-1 rounded-full hover:bg-muted transition text-muted-foreground z-10 md:block"
+              className="absolute right-3 top-3 z-10 hidden text-muted-foreground md:inline-flex"
               aria-label={t('common:action.close')}
             >
-              <CloseIcon className="w-5 h-5" />
-            </button>
+              <Icon name="close" />
+            </Button>
 
             <div data-selectable-text className="flex-1">
               <div className="flex items-center gap-1.5 mb-2">
@@ -625,13 +547,17 @@ export default function DetailModal() {
                   {t('detail.inputSection')}
                 </h3>
                 {task.prompt && (
-                  <button
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={handleCopyPrompt}
-                    className="p-1 rounded text-muted-foreground hover:bg-muted transition"
+                    className="text-muted-foreground"
                     title={t('detail.copyPrompt')}
+                    aria-label={t('detail.copyPrompt')}
                   >
-                    <CopyIcon className="h-4 w-4" />
-                  </button>
+                    <Icon name="copy" size="xs" />
+                  </Button>
                 )}
               </div>
               <p
@@ -642,12 +568,15 @@ export default function DetailModal() {
                 {task.prompt || t('prompt.empty')}
               </p>
               {(task.prompt?.length ?? 0) > 120 && (
-                <button
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
                   onClick={() => setPromptExpanded((v) => !v)}
-                  className="mb-3 text-xs text-primary hover:text-primary transition"
+                  className="mb-3 h-auto px-0"
                 >
                   {promptExpanded ? t('common:action.collapse') : t('detail.expandAll')}
-                </button>
+                </Button>
               )}
               {(task.prompt?.length ?? 0) <= 120 && <span className="block mb-3" />}
               {showRevisedPrompt && currentRevisedPrompt && (
@@ -666,13 +595,17 @@ export default function DetailModal() {
                     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       {t('detail.referenceSection')}
                     </h3>
-                    <button
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={handleCopyInputImage}
-                      className="p-1 rounded text-muted-foreground hover:bg-muted transition"
+                      className="text-muted-foreground"
                       title={t('detail.copyReference')}
+                      aria-label={t('detail.copyReference')}
                     >
-                      <CopyIcon className="h-4 w-4" />
-                    </button>
+                      <Icon name="copy" size="xs" />
+                    </Button>
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     {allInputImageIds.map((imgId) => {
@@ -690,7 +623,7 @@ export default function DetailModal() {
                               overrideSrc={isMaskTarget ? maskPreviewSrc : ''}
                             />
                             {isMaskTarget && (
-                              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
+                              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-label-sm leading-none text-primary-foreground font-semibold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                                 MASK
                               </span>
                             )}
@@ -790,83 +723,58 @@ export default function DetailModal() {
 
             {/* 操作按钮：三个主操作带文字均分；删除 / 收藏为图标小方钮，避免一行挤爆 */}
             <div className="grid grid-cols-8 sm:flex gap-2 pt-4 border-t border-border">
-              <button
+              <Button
+                type="button"
+                variant="secondary"
                 onClick={handleReuse}
-                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/10 transition text-sm font-medium whitespace-nowrap"
+                className="col-span-4 sm:flex-1"
               >
-                <svg
-                  className="w-4 h-4 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                  />
-                </svg>
+                <Icon name="reuse" />
                 {t('action.reuse')}
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
                 onClick={handleEdit}
                 disabled={!outputLen}
-                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-success/10 dark:bg-success/10 text-success dark:text-success hover:bg-success/10 dark:hover:bg-success/20 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
+                className="col-span-4 sm:flex-1"
               >
-                <EditIcon className="w-4 h-4 flex-shrink-0" />
+                <Icon name="edit" />
                 {t('action.editOutput')}
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
                 onClick={handleSendToCanvas}
                 disabled={!outputLen}
-                className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
+                className="col-span-4 sm:flex-1"
               >
-                <svg
-                  className="w-4 h-4 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z M4 15l4-4a2 2 0 012.8 0l4 4 M14 13l1.5-1.5a2 2 0 012.8 0L20 13 M9 9a1 1 0 100-2 1 1 0 000 2z"
-                  />
-                </svg>
+                <Icon name="sendToCanvas" />
                 {t('action.sendToCanvas')}
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 onClick={handleDelete}
-                className="col-span-2 sm:flex-none sm:w-11 w-full flex items-center justify-center rounded-xl bg-destructive/10 dark:bg-destructive/10 text-destructive dark:text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 transition"
+                className="col-span-2 w-full text-muted-foreground hover:text-destructive sm:w-9"
                 title={t('action.deleteRecord')}
+                aria-label={t('action.deleteRecord')}
               >
-                <TrashIcon className="w-5 h-5" />
-              </button>
-              <button
+                <Icon name="delete" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 onClick={handleToggleFavorite}
-                className={`col-span-2 sm:flex-none sm:w-11 w-full flex items-center justify-center rounded-xl transition ${
-                  task.isFavorite
-                    ? 'bg-warning/10 text-warning hover:bg-warning/10 dark:bg-warning/10 dark:hover:bg-warning/20'
-                    : 'bg-card text-muted-foreground hover:bg-warning/10 hover:text-warning dark:hover:bg-warning/10'
-                }`}
+                aria-pressed={task.isFavorite}
+                className={`col-span-2 w-full sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
                 title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
+                aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
               >
-                <svg
-                  className="w-5 h-5"
-                  fill={task.isFavorite ? 'currentColor' : 'none'}
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                  />
-                </svg>
-              </button>
+                <Icon name="favorite" filled={task.isFavorite} />
+              </Button>
             </div>
           </div>
         </div>
@@ -884,8 +792,10 @@ export default function DetailModal() {
                 {t('rawUrls.title', { n: rawImageUrls.length })}
               </h3>
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   onClick={async () => {
                     try {
                       await copyTextToClipboard(rawImageUrls.join('\n'))
@@ -897,19 +807,21 @@ export default function DetailModal() {
                       )
                     }
                   }}
-                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-card text-muted-foreground hover:bg-muted transition-colors text-xs font-medium"
+                  className="text-muted-foreground"
                 >
-                  <CopyIcon className="w-3.5 h-3.5" />
+                  <Icon name="copy" size="xs" />
                   {t('detail.copyAll')}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label={t('common:action.close')}
                   onClick={() => setShowRawUrlsModal(false)}
-                  className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
+                  className="text-muted-foreground"
                 >
-                  <CloseIcon className="w-5 h-5" />
-                </button>
+                  <Icon name="close" />
+                </Button>
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 bg-card/50 dark:bg-black/20 overscroll-contain">
@@ -927,8 +839,10 @@ export default function DetailModal() {
                         {url}
                       </div>
                     </div>
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="xs"
                       onClick={async () => {
                         try {
                           await copyTextToClipboard(url)
@@ -940,12 +854,12 @@ export default function DetailModal() {
                           )
                         }
                       }}
-                      className="flex-shrink-0 p-2 sm:px-3 sm:py-1.5 flex items-center justify-center gap-1.5 rounded-lg bg-card text-muted-foreground hover:bg-muted transition-colors text-xs font-medium border border-transparent border-border"
+                      className="shrink-0"
                       title={t('rawUrls.copyLink')}
                     >
-                      <CopyIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                      <Icon name="copy" size="xs" />
                       <span className="hidden sm:inline">{t('common:action.copy')}</span>
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -971,8 +885,10 @@ export default function DetailModal() {
                 {t('rawResponse.title')}
               </h3>
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   onClick={async () => {
                     try {
                       await copyTextToClipboard(task.rawResponsePayload!)
@@ -984,19 +900,21 @@ export default function DetailModal() {
                       )
                     }
                   }}
-                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-card text-muted-foreground hover:bg-muted transition-colors text-xs font-medium"
+                  className="text-muted-foreground"
                 >
-                  <CopyIcon className="w-3.5 h-3.5" />
+                  <Icon name="copy" size="xs" />
                   {t('detail.copyAll')}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label={t('common:action.close')}
                   onClick={() => setShowRawResponseModal(false)}
-                  className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-muted-foreground transition-colors"
+                  className="text-muted-foreground"
                 >
-                  <CloseIcon className="w-5 h-5" />
-                </button>
+                  <Icon name="close" />
+                </Button>
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-5 bg-card/50 dark:bg-black/20 overscroll-contain">
