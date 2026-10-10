@@ -36,13 +36,6 @@
   "apps/web/src/components/Credits.tsx": {
     "inline-svg": 1
   },
-  "apps/web/src/components/DetailModal.tsx": {
-    "arbitrary-font": 1,
-    "font-weight": 1,
-    "inline-svg": 10,
-    "lucide-import": 1,
-    "native-control": 22
-  },
   "apps/web/src/components/Header.tsx": {
     "native-control": 5
   },

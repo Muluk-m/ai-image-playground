@@ -45,6 +45,13 @@ describe('Icon', () => {
     expect(svg.getAttribute('aria-hidden')).toBeNull()
   })
 
+  it('fills the glyph only for a selected state', () => {
+    expect(svgOf(renderToStaticMarkup(<Icon name="favorite" />)).getAttribute('fill')).toBe('none')
+    expect(svgOf(renderToStaticMarkup(<Icon name="favorite" filled />)).getAttribute('fill')).toBe(
+      'currentColor',
+    )
+  })
+
   it('passes className through for colour and motion', () => {
     const svg = svgOf(renderToStaticMarkup(<Icon name="loading" className="animate-spin" />))
     expect(svg.getAttribute('class')).toContain('animate-spin')

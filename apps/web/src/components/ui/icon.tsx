@@ -24,9 +24,11 @@ import {
   CircleHelp,
   Clapperboard,
   Clock3,
+  Code,
   Copy,
   CornerDownLeft,
   CornerDownRight,
+  CornerUpLeft,
   Crop,
   Database,
   Download,
@@ -67,6 +69,7 @@ import {
   LayoutTemplate,
   Library,
   Lightbulb,
+  Link,
   ListChecks,
   ListCollapse,
   LoaderCircle,
@@ -126,6 +129,7 @@ import {
   Square,
   SquareArrowOutUpRight,
   SquarePen,
+  Star,
   Store,
   Terminal,
   Trash2,
@@ -159,6 +163,10 @@ export const ICONS = {
   more: Ellipsis,
   delete: Trash2,
   copy: Copy,
+  reuse: CornerUpLeft,
+  link: Link,
+  code: Code,
+  favorite: Star,
   edit: Pencil,
   editLine: PencilLine,
   editSquare: SquarePen,
@@ -319,15 +327,18 @@ export interface IconProps {
   className?: string
   /** 图标单独表达含义时给读屏的名字；装饰性图标不传。 */
   label?: string
+  /** 实心只给选中态（已收藏、已选中），其余一律描线。 */
+  filled?: boolean
 }
 
-export function Icon({ name, size = 'sm', className, label }: IconProps) {
+export function Icon({ name, size = 'sm', className, label, filled = false }: IconProps) {
   const Glyph = ICONS[name]
   return (
     <Glyph
       size={ICON_SIZE_PX[size]}
       strokeWidth={STROKE_WIDTH}
       absoluteStrokeWidth
+      fill={filled ? 'currentColor' : 'none'}
       className={cn('shrink-0', className)}
       {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     />
