@@ -3,6 +3,7 @@
     "arbitrary-font": 1
   },
   "apps/web/src/auth/AuthGate.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/auth/LoginDialog.tsx": {
@@ -29,6 +30,7 @@
     "native-control": 2
   },
   "apps/web/src/components/CreateTargetSwitch.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/components/Credits.tsx": {
@@ -38,6 +40,7 @@
     "arbitrary-font": 1,
     "font-weight": 1,
     "inline-svg": 10,
+    "lucide-import": 1,
     "native-control": 22
   },
   "apps/web/src/components/Header.tsx": {
@@ -51,11 +54,13 @@
     "focus-not-visible": 1,
     "font-weight": 1,
     "inline-svg": 7,
+    "lucide-import": 1,
     "native-control": 16,
     "offscale-font": 2
   },
   "apps/web/src/components/Lightbox.tsx": {
     "inline-svg": 2,
+    "lucide-import": 1,
     "native-control": 3
   },
   "apps/web/src/components/LogoutDialog.tsx": {
@@ -74,10 +79,15 @@
     "native-control": 3
   },
   "apps/web/src/components/ParamControls.tsx": {
-    "glyph-icon": 1
+    "glyph-icon": 1,
+    "lucide-import": 1
   },
   "apps/web/src/components/ProjectNavigation.tsx": {
+    "lucide-import": 1,
     "native-control": 10
+  },
+  "apps/web/src/components/RegionPromptEditor.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/components/SearchBar.tsx": {
     "focus-not-visible": 3,
@@ -85,9 +95,11 @@
     "native-control": 2
   },
   "apps/web/src/components/SearchField.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/components/SectionHeader.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/components/SegmentedTabs.tsx": {
@@ -102,6 +114,7 @@
   },
   "apps/web/src/components/Sidebar.tsx": {
     "arbitrary-font": 2,
+    "lucide-import": 1,
     "native-control": 10,
     "opacity-text": 1
   },
@@ -135,19 +148,34 @@
   },
   "apps/web/src/components/assistant-ui/elements/approval-card.tsx": {
     "arbitrary-font": 1,
+    "lucide-import": 1,
     "opacity-text": 8
   },
   "apps/web/src/components/assistant-ui/elements/attachment.tsx": {
     "arbitrary-font": 1,
-    "arbitrary-radius": 1
+    "arbitrary-radius": 1,
+    "lucide-import": 1
   },
   "apps/web/src/components/assistant-ui/elements/composer.tsx": {
     "inline-svg": 1,
     "native-control": 2,
     "opacity-text": 1
   },
+  "apps/web/src/components/assistant-ui/elements/error-state.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/image-generation.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/message-actions.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/components/assistant-ui/elements/option-list.tsx": {
-    "arbitrary-font": 1
+    "arbitrary-font": 1,
+    "lucide-import": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/stopped-run.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/components/assistant-ui/elements/surfaces.tsx": {
     "arbitrary-font": 1,
@@ -160,17 +188,30 @@
   },
   "apps/web/src/components/assistant-ui/elements/tool-call.tsx": {
     "arbitrary-spacing": 2,
+    "lucide-import": 1,
     "native-control": 1,
     "opacity-text": 1
   },
+  "apps/web/src/components/assistant-ui/elements/tool-error.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/components/assistant-ui/elements/tool-status.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/components/assistant-ui/elements/video-generation.tsx": {
+    "lucide-import": 1,
     "opacity-text": 1
   },
+  "apps/web/src/components/assistant-ui/elements/video-player.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/components/composer/ModelSelector.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/components/composer/SettingsPanel.tsx": {
     "arbitrary-radius": 2,
+    "lucide-import": 1,
     "native-control": 4,
     "opacity-text": 2
   },
@@ -179,12 +220,18 @@
   },
   "apps/web/src/components/settings/ApiTab.tsx": {
     "inline-svg": 2,
-    "native-control": 12
+    "native-control": 10
   },
   "apps/web/src/components/settings/CustomProviderDialog.tsx": {
     "font-weight": 1,
     "inline-svg": 2,
     "native-control": 6
+  },
+  "apps/web/src/components/settings/DataTab.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/components/settings/GeneralTab.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/components/settings/ImportUrlDialog.tsx": {
     "arbitrary-font": 3,
@@ -194,6 +241,7 @@
   },
   "apps/web/src/components/settings/SettingsModal.tsx": {
     "font-weight": 1,
+    "lucide-import": 1,
     "native-control": 2,
     "offscale-font": 1
   },
@@ -205,76 +253,121 @@
   },
   "apps/web/src/features/agent/components/AgentActivityTrail.tsx": {
     "arbitrary-spacing": 2,
+    "lucide-import": 1,
     "native-control": 1,
     "opacity-text": 1
   },
   "apps/web/src/features/agent/components/AgentArtifactEditDialog.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/agent/components/AgentArtifactPane.tsx": {
+    "lucide-import": 1,
     "native-control": 16
   },
   "apps/web/src/features/agent/components/AgentAssetDrawer.tsx": {
-    "arbitrary-radius": 1
+    "arbitrary-radius": 1,
+    "lucide-import": 1
+  },
+  "apps/web/src/features/agent/components/AgentBatchItemResult.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AgentBatchPlanCard.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/agent/components/AgentCanvasHandoffDialog.tsx": {
+    "lucide-import": 1,
     "native-control": 3
+  },
+  "apps/web/src/features/agent/components/AgentClarification.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AgentComposer.tsx": {
     "arbitrary-font": 2,
     "font-weight": 1,
+    "lucide-import": 1,
     "native-control": 5
+  },
+  "apps/web/src/features/agent/components/AgentCopyDiagnostic.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AgentCreations.tsx": {
     "native-control": 3
+  },
+  "apps/web/src/features/agent/components/AgentCreationsGallery.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AgentHistoryStatus.tsx": {
     "native-control": 1
   },
   "apps/web/src/features/agent/components/AgentJobInbox.tsx": {
+    "lucide-import": 1,
     "native-control": 4
+  },
+  "apps/web/src/features/agent/components/AgentJobProgress.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AgentMarkdown.tsx": {
     "palette-class": 1
   },
   "apps/web/src/features/agent/components/AgentMessageQueue.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/agent/components/AgentPanel.tsx": {
+    "lucide-import": 1,
     "native-control": 6
+  },
+  "apps/web/src/features/agent/components/AgentParamsChip.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AgentPromptDialog.tsx": {
     "native-control": 5
   },
   "apps/web/src/features/agent/components/AgentPromptDraft.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/agent/components/AgentResultShelf.tsx": {
     "native-control": 3
   },
   "apps/web/src/features/agent/components/AgentSaveCard.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/agent/components/AgentToolCard.tsx": {
+    "lucide-import": 1,
     "native-control": 15
   },
   "apps/web/src/features/agent/components/AgentTurnCost.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/agent/components/AgentUserMessage.tsx": {
+    "lucide-import": 1,
     "native-control": 3
   },
+  "apps/web/src/features/agent/components/AgentVideoDetails.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/features/agent/components/AgentVideoToolCard.tsx": {
-    "arbitrary-font": 1
+    "arbitrary-font": 1,
+    "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AssetSlotChip.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/agent/components/SkillStarterGuide.tsx": {
+    "lucide-import": 1,
     "native-control": 3
+  },
+  "apps/web/src/features/agent/lib/agentSkillIcons.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/canvas/components/CanvasBatchBar.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/canvas/components/CanvasBatchConfirmDialog.tsx": {
     "native-control": 2
@@ -289,12 +382,15 @@
     "native-control": 3
   },
   "apps/web/src/features/canvas/components/CanvasImageMenu.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/canvas/components/CanvasImageToolbar.tsx": {
+    "lucide-import": 1,
     "native-control": 5
   },
   "apps/web/src/features/canvas/components/CanvasMode.tsx": {
+    "lucide-import": 1,
     "native-control": 17
   },
   "apps/web/src/features/canvas/components/CanvasShortcutsHint.tsx": {
@@ -304,13 +400,20 @@
   },
   "apps/web/src/features/canvas/components/CanvasToolbar.tsx": {
     "inline-svg": 10,
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/canvas/components/CanvasVideoOverlay.tsx": {
     "native-control": 1
   },
+  "apps/web/src/features/canvas/components/CanvasVideoToolbar.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/features/canvas/components/CreationInspiration.tsx": {
     "native-control": 1
+  },
+  "apps/web/src/features/canvas/components/FilmExportStatus.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/canvas/components/HeroCanvasProjects.tsx": {
     "native-control": 1
@@ -321,6 +424,7 @@
   },
   "apps/web/src/features/canvas/components/InpaintPanel.tsx": {
     "arbitrary-color": 4,
+    "lucide-import": 1,
     "native-control": 7
   },
   "apps/web/src/features/canvas/components/KonvaCanvas.tsx": {
@@ -331,16 +435,22 @@
     "native-control": 4
   },
   "apps/web/src/features/canvas/components/ProjectCover.tsx": {
+    "lucide-import": 1,
     "opacity-text": 1
   },
   "apps/web/src/features/canvas/components/ProjectGrid.tsx": {
     "arbitrary-spacing": 1,
+    "lucide-import": 1,
     "native-control": 5,
     "palette-class": 6
+  },
+  "apps/web/src/features/canvas/components/ProjectSyncStatus.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/canvas/components/ProjectWelcome.tsx": {
     "arbitrary-radius": 2,
     "arbitrary-spacing": 1,
+    "lucide-import": 1,
     "native-control": 2,
     "offscale-font": 2
   },
@@ -348,6 +458,7 @@
     "native-control": 1
   },
   "apps/web/src/features/canvas/components/ReferenceVideoPopover.tsx": {
+    "lucide-import": 1,
     "native-control": 3
   },
   "apps/web/src/features/canvas/components/RegenerateVideoPopover.tsx": {
@@ -360,6 +471,7 @@
     "native-control": 2
   },
   "apps/web/src/features/canvas/components/TimelineEditor.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/canvas/components/canvasPanelStyles.ts": {
@@ -373,23 +485,33 @@
     "arbitrary-radius": 2,
     "arbitrary-spacing": 3,
     "font-weight": 2,
+    "lucide-import": 1,
     "opacity-text": 7
+  },
+  "apps/web/src/features/image-export/ExportForm.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/image-export/ExportTool.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/inspiration/components/ExplorePage.tsx": {
     "native-control": 1
   },
   "apps/web/src/features/inspiration/components/InspirationCard.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/inspiration/components/InspirationCategoryFilter.tsx": {
     "native-control": 1
   },
   "apps/web/src/features/inspiration/components/InspirationChips.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/inspiration/components/InspirationDetail.tsx": {
     "font-weight": 1,
     "inline-svg": 1,
+    "lucide-import": 1,
     "native-control": 4
   },
   "apps/web/src/features/library/components/AssetCard.tsx": {
@@ -405,6 +527,9 @@
     "focus-not-visible": 6,
     "native-control": 11,
     "offscale-font": 1
+  },
+  "apps/web/src/features/library/components/LibraryEmpty.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/library/components/LookCard.tsx": {
     "native-control": 2
@@ -434,48 +559,69 @@
     "native-control": 2
   },
   "apps/web/src/features/production/components/ProductionAssetPane.tsx": {
+    "lucide-import": 1,
     "native-control": 10
   },
   "apps/web/src/features/production/components/ProductionAssetProposalPane.tsx": {
+    "lucide-import": 1,
     "native-control": 3
   },
   "apps/web/src/features/production/components/ProductionAssets.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/production/components/ProductionClipPane.tsx": {
+    "lucide-import": 1,
     "native-control": 12
   },
   "apps/web/src/features/production/components/ProductionDependencyNotice.tsx": {
+    "lucide-import": 1,
     "native-control": 3
   },
   "apps/web/src/features/production/components/ProductionDocumentPane.tsx": {
+    "lucide-import": 1,
     "native-control": 13
   },
+  "apps/web/src/features/production/components/ProductionDraftCard.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/features/production/components/ProductionExportPane.tsx": {
+    "lucide-import": 1,
     "native-control": 8
   },
   "apps/web/src/features/production/components/ProductionGenerationPane.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/production/components/ProductionProposals.tsx": {
+    "lucide-import": 1,
     "native-control": 3
   },
   "apps/web/src/features/production/components/ProductionQuotableText.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/production/components/ProductionQuoteChip.tsx": {
+    "lucide-import": 1,
     "native-control": 2
   },
   "apps/web/src/features/production/components/ProductionReferenceEditor.tsx": {
+    "lucide-import": 1,
     "native-control": 5
   },
+  "apps/web/src/features/production/components/ProductionReferencePreview.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/features/production/components/ProductionResultCard.tsx": {
+    "lucide-import": 1,
     "native-control": 1
   },
   "apps/web/src/features/production/components/ProductionShotPane.tsx": {
+    "lucide-import": 1,
     "native-control": 18
   },
   "apps/web/src/features/production/components/ProductionWorkspace.tsx": {
+    "lucide-import": 1,
     "native-control": 10
   },
   "apps/web/src/features/production/production.css": {
@@ -483,16 +629,46 @@
     "css-font-size": 53
   },
   "apps/web/src/features/toolbox/components/CombineView.tsx": {
+    "lucide-import": 1,
     "native-control": 3
   },
   "apps/web/src/features/toolbox/components/ToolResultCard.tsx": {
+    "lucide-import": 1,
     "native-control": 1
+  },
+  "apps/web/src/features/toolbox/components/ToolShell.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/components/ToolboxHeader.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/toolbox/components/fields.tsx": {
     "native-control": 1
   },
+  "apps/web/src/features/toolbox/lib/registry.ts": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/tools/collage.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/tools/compress.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/tools/convert.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/tools/crop.tsx": {
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/tools/rotate.tsx": {
+    "lucide-import": 1
+  },
   "apps/web/src/features/toolbox/tools/slice.tsx": {
-    "glyph-icon": 1
+    "glyph-icon": 1,
+    "lucide-import": 1
+  },
+  "apps/web/src/features/toolbox/tools/stitch.tsx": {
+    "lucide-import": 1
   },
   "apps/web/src/features/video/components/DeriveVideoPopover.tsx": {
     "native-control": 2
