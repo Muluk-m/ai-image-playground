@@ -74,7 +74,7 @@
   "createTarget": {
     "aria": "这句话交给谁",
     "generate": "快速生成",
-    "chat": "对话创作",
+    "chat": "智能创作",
     "canvas": "画布创作"
   }
 }
