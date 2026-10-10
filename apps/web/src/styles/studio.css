@@ -873,8 +873,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .agent-job-progress-sweep { animation: agent-job-progress-sweep 2.4s ease-in-out infinite; }
 @keyframes agent-job-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
 @media (prefers-reduced-motion: reduce) { .agent-job-progress-sweep { animation: none; transform: translateX(100%); opacity: .6; } }
-.studio-agent-inline-result--generated { width: 100%; }
-.studio-agent-inline-result [data-slot="image-gallery"] .studio-agent-inline-tile { width: 100%; max-width: none; }
+/* 生成结果按比例定宽、高度封顶，方图和竖图在宽对话里不再撑出一整屏。
+   用 cqw 而不是 100%：外层 fit-content 时百分比宽度会循环成 0。 */
+.studio-agent-inline-result--generated { width: 100%; container-type: inline-size; }
+.studio-agent-inline-result [data-slot="image-gallery"] > :first-child { width: fit-content; max-width: 100%; }
+.studio-agent-inline-result [data-slot="image-gallery"] .studio-agent-inline-tile { width: min(calc(min(480px, 60vh) * var(--tile-ratio, 1.6)), 100cqw); max-width: none; }
 .studio-artifact-edit-cursor { position: absolute; z-index: 5; border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
 .studio-artifact-edit-hit[data-tool="pan"] { cursor: grab; }
 .studio-artifact-edit-hit[data-tool="brush"], .studio-artifact-edit-hit[data-tool="eraser"] { cursor: none; }

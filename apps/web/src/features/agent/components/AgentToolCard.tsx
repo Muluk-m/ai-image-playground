@@ -11,7 +11,7 @@ import {
   Square,
   Wallet,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
@@ -737,9 +737,11 @@ function StandardAgentToolCard({
       <div
         className="studio-agent-inline-tile"
         key={tile.id}
-        style={{
-          aspectRatio: imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined),
-        }}
+        style={(() => {
+          const ratio = imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
+          // --tile-ratio 给生成结果按最大高度反推宽度（studio.css）。
+          return { aspectRatio: ratio, '--tile-ratio': ratio } as CSSProperties
+        })()}
       >
         <button
           type="button"
