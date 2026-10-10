@@ -231,6 +231,8 @@ async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
 }
 const confirmations = new Map<string, Promise<ReturnType<typeof summary>>>()
 const CONFIRM_LOCK_WAIT_MS = 60_000
+// Bound all distinct operations, including cross-instance lock waiters outside the processing queue.
+const MAX_CONFIRMATIONS = 10
 
 export async function completeMedia(userId: string, id: string) {
   // Authorize before joining another request's result, including ready replays.
@@ -239,6 +241,8 @@ export async function completeMedia(userId: string, id: string) {
   const key = JSON.stringify([userId, id])
   const pending = confirmations.get(key)
   if (pending) return pending
+  if (confirmations.size >= MAX_CONFIRMATIONS)
+    throw new MediaError(503, 'media_processing_busy', 'confirmation_capacity_full')
   const operation = processMedia(userId, id).finally(() => confirmations.delete(key))
   confirmations.set(key, operation)
   return operation
