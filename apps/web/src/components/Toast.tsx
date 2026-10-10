@@ -48,11 +48,12 @@ export default function Toast() {
   }
 
   // live region 必须常驻：节点和文字同时出现时读屏常常不播报，所以只切换里面的内容。
+  // 放在页头下方：底部会压住输入框和它向下展开的生成设置弹层。
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-24 left-1/2 z-[1400] pointer-events-none"
+      className="fixed left-1/2 top-16 z-[1400] pointer-events-none"
     >
       {toast && (
         <div
