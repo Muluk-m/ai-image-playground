@@ -1268,10 +1268,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 type="button"
                 variant="secondary"
                 onClick={() => setBarCollapsed(false)}
-                className="h-10 min-w-0 flex-1 justify-start truncate rounded-xl px-3 font-normal text-muted-foreground"
+                className="h-10 min-w-0 flex-1 justify-start rounded-xl px-3 font-normal text-muted-foreground"
                 title={t('bar.expandHint')}
               >
-                {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
+                <span className="min-w-0 truncate">
+                  {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
+                </span>
               </Button>
               <Hint tooltip={submitBlockedTip}>
                 <div className="relative flex items-center gap-2">

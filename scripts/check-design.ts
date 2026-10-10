@@ -11,7 +11,10 @@ import ts from 'typescript'
 export type DesignRule = {
   id: string
   fix: string
-  pattern: RegExp
+  /** 按行匹配的正则；与 find 二选一 */
+  pattern?: RegExp
+  /** 在语法树上找命中，返回偏移量；正则描述不了结构（跨行、类型导入）时用 */
+  find?: (file: ts.SourceFile) => number[]
   /** 默认 ts / tsx */
   extensions?: readonly string[]
   appliesTo?: (path: string) => boolean
@@ -63,6 +66,25 @@ const NON_TEXT_INPUT_TYPES = new Set([
   'submit',
 ])
 
+// lucide-react 的 import / export 声明里只要带了运行时的值（不全是类型）就算。
+function isRuntimeLucideImport(statement: ts.Statement): boolean {
+  if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) return false
+  const specifier = statement.moduleSpecifier
+  if (!specifier || !ts.isStringLiteral(specifier) || specifier.text !== 'lucide-react')
+    return false
+  if (ts.isExportDeclaration(statement)) {
+    if (statement.isTypeOnly) return false
+    const clause = statement.exportClause
+    return !clause || !ts.isNamedExports(clause) || clause.elements.some((e) => !e.isTypeOnly)
+  }
+  const clause = statement.importClause
+  if (!clause) return true
+  if (clause.isTypeOnly) return false
+  if (clause.name) return true
+  const bindings = clause.namedBindings
+  return !bindings || !ts.isNamedImports(bindings) || bindings.elements.some((e) => !e.isTypeOnly)
+}
+
 export const DESIGN_RULES: readonly DesignRule[] = [
   {
     id: 'native-control',
@@ -85,10 +107,8 @@ export const DESIGN_RULES: readonly DesignRule[] = [
   {
     id: 'lucide-import',
     fix: '图标用 components/ui/icon 的 <Icon name>，不直接 import lucide-react（纯类型导入除外）',
-    pattern: /from ['"]lucide-react['"]/g,
+    find: (file) => file.statements.filter(isRuntimeLucideImport).map((s) => s.getStart(file)),
     appliesTo: outsideUi,
-    exempt: (source, index) =>
-      /^import\s+type\b/.test(source.slice(source.lastIndexOf('import', index), index)),
   },
   {
     id: 'glyph-icon',
@@ -169,17 +189,10 @@ export type DesignCounts = Record<string, Record<string, number>>
 export type DesignHit = { rule: string; line: number }
 
 // 用 TypeScript 语法树找注释（CSS 只有块注释），别自己猜 // 与 /* 是不是在字符串里。
-function commentRanges(path: string, source: string): Array<[number, number]> {
-  if (path.endsWith('.css')) {
+function commentRanges(source: string, file: ts.SourceFile | undefined): Array<[number, number]> {
+  if (!file) {
     return [...source.matchAll(/\/\*[\s\S]*?\*\//g)].map((m) => [m.index, m.index + m[0].length])
   }
-  const file = ts.createSourceFile(
-    path,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  )
   const ranges = new Map<number, number>()
   const visit = (node: ts.Node) => {
     // JSX 文本里的 // 是页面上的字，不是注释。
@@ -204,6 +217,15 @@ export function scanSource(path: string, source: string): DesignHit[] {
     (rule) =>
       (rule.extensions ?? ['ts', 'tsx']).includes(extension) && (rule.appliesTo?.(path) ?? true),
   )
+  const file = path.endsWith('.css')
+    ? undefined
+    : ts.createSourceFile(
+        path,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      )
   const code = source.split('')
   const lineStarts = [0, ...[...source.matchAll(/\n/g)].map((match) => match.index + 1)]
   const lineOf = (offset: number) => {
@@ -212,30 +234,32 @@ export function scanSource(path: string, source: string): DesignHit[] {
     return line
   }
   const notes: string[] = []
-  for (const [start, end] of commentRanges(path, source)) {
+  for (const [start, end] of commentRanges(source, file)) {
     const line = lineOf(end - 1)
     notes[line] = `${notes[line] ?? ''} ${source.slice(start, end)}`
     for (let index = start; index < end; index += 1) if (code[index] !== '\n') code[index] = ' '
   }
   const masked = code.join('')
   const lines = masked.split('\n')
-  const hits: DesignHit[] = []
-  let lineStart = 0
-  lines.forEach((line, index) => {
-    const offset = lineStart
-    lineStart += line.length + 1
-    // 只有注释的上一行（含 JSX 的 {/* … */}）才豁免下一行。
+  // 只有注释的上一行（含 JSX 的 {/* … */}）才豁免下一行。
+  const allowed = (rule: string, index: number) => {
     const above = /^\s*(\{\s*\})?\s*$/.test(lines[index - 1] ?? 'x') ? (notes[index - 1] ?? '') : ''
-    const allowance = `${notes[index] ?? ''} ${above}`
-    for (const rule of rules) {
-      if (new RegExp(`design-allow ${rule.id}\\b`).test(allowance)) continue
-      for (const match of line.matchAll(rule.pattern)) {
-        if (rule.exempt?.(masked, offset + match.index)) continue
-        hits.push({ rule: rule.id, line: index + 1 })
-      }
+    return new RegExp(`design-allow ${rule}\\b`).test(`${notes[index] ?? ''} ${above}`)
+  }
+  const hits: Array<DesignHit & { offset: number }> = []
+  for (const rule of rules) {
+    const offsets = rule.find
+      ? file
+        ? rule.find(file)
+        : []
+      : [...masked.matchAll(rule.pattern ?? /$^/g)].map((match) => match.index)
+    for (const offset of offsets) {
+      const index = lineOf(offset)
+      if (allowed(rule.id, index) || rule.exempt?.(masked, offset)) continue
+      hits.push({ rule: rule.id, line: index + 1, offset })
     }
-  })
-  return hits
+  }
+  return hits.sort((a, b) => a.offset - b.offset).map(({ rule, line }) => ({ rule, line }))
 }
 
 export function countHits(hitsByFile: Record<string, DesignHit[]>): DesignCounts {
@@ -268,6 +292,10 @@ export function adoptRule(
   baseline: DesignCounts,
   rule: string,
 ): DesignCounts {
+  if (!DESIGN_RULES.some((known) => known.id === rule)) throw new Error(`未知规则：${rule}`)
+  if (Object.values(baseline).some((rules) => rule in rules)) {
+    throw new Error(`baseline 里已经有 ${rule}，存量只能收紧，不能重新登记`)
+  }
   const merged: DesignCounts = structuredClone(baseline)
   for (const [file, rules] of Object.entries(current)) {
     const count = rules[rule]
@@ -322,9 +350,19 @@ if (import.meta.main) {
     ? JSON.parse(readFileSync(baselinePath, 'utf8'))
     : current
 
-  const adopt = process.argv[process.argv.indexOf('--adopt') + 1]
-  if (process.argv.includes('--adopt') && adopt) {
-    const next = adoptRule(current, baseline, adopt)
+  if (process.argv.includes('--adopt')) {
+    const adopt = process.argv[process.argv.indexOf('--adopt') + 1] ?? ''
+    if (update || adopt.startsWith('--')) {
+      console.error('用法：bun run scripts/check-design.ts --adopt <rule>（不能与 --update 同用）')
+      process.exit(1)
+    }
+    let next: DesignCounts
+    try {
+      next = adoptRule(current, baseline, adopt)
+    } catch (error) {
+      console.error((error as Error).message)
+      process.exit(1)
+    }
     writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`)
     console.log(`adopted existing ${adopt} hits into the design baseline`)
     process.exit(0)
