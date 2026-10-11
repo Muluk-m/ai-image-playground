@@ -447,7 +447,7 @@
     "timeline_other": "时间线 · {{count}} 段",
     "generating": "生成中",
     "failed": "生成失败",
-    "mediaMissing": "图片缺失",
+    "mediaMissing": "素材缺失",
     "loadFailed": "节点画布打不开，请刷新重试"
   }
 }

@@ -8,7 +8,7 @@ import {
   PanelLeftOpen,
   Search,
 } from 'lucide-react'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { Button } from '../../../components/ui/button'
@@ -45,6 +45,7 @@ import {
 } from '../lib/activeProject'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
+import { cloudProjectsEnabled } from '../lib/projectClient'
 import { projectExperience } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import type { CanvasWorkspace } from '../lib/workspaces'
@@ -61,11 +62,13 @@ import CanvasVideoToolbar from './CanvasVideoToolbar'
 import FilmExportStatus from './FilmExportStatus'
 import InpaintMaskLayer from './InpaintMaskLayer'
 import KonvaCanvas from './KonvaCanvas'
-import NodeCanvas from './NodeCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
 import TimelineEditorHost from './TimelineEditor'
+
+// React Flow 只在开着节点画布时下载。
+const NodeCanvas = lazy(() => import('./NodeCanvas'))
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
@@ -198,7 +201,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
-  const nodeCanvas = isClientCapabilityEnabled('canvas:nodes') && !workspace.cloud
+  // 云端会话在加载里异步挂上，按项目记录判，免得云端项目先被当成本机项目转换一遍。
+  const nodeCanvas =
+    isClientCapabilityEnabled('canvas:nodes') && !(project?.cloud && cloudProjectsEnabled())
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)
@@ -776,7 +781,12 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               )}
               {showRestoreMark && <CanvasLoading label={t('loading.restoring')} decorative />}
               {nodeCanvas ? (
-                !loading && !loadFailed && <NodeCanvas workspace={workspace} />
+                !loading &&
+                !loadFailed && (
+                  <Suspense fallback={null}>
+                    <NodeCanvas workspace={workspace} />
+                  </Suspense>
+                )
               ) : (
                 <>
                   {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
@@ -828,7 +838,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 {!nodeCanvas && <CanvasShortcutsHint />}
                 {!nodeCanvas && <CanvasMinimap editor={editor} />}
               </div>
-              {!hasContent && !loading && !loadFailed && (
+              {!hasContent && !nodeCanvas && !loading && !loadFailed && (
                 <div className="studio-empty">
                   <img src="/brand/muvloom-mark.svg" alt="" />
                   <h2>{t('empty.title')}</h2>

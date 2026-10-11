@@ -30,8 +30,11 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { getTheme, subscribeTheme } from '../../../theme'
 import { type NodeCanvasDocument, openNodeCanvasDocument } from '../lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../lib/workspaces'
 
@@ -59,14 +62,7 @@ function useDocumentSnapshot(canvas: NodeCanvasDocument): CanvasSnapshot {
 }
 
 function useColorMode(): ColorMode {
-  const read = () => (document.documentElement.classList.contains('dark') ? 'dark' : 'light')
-  const [mode, setMode] = useState<ColorMode>(read)
-  useEffect(() => {
-    const observer = new MutationObserver(() => setMode(read()))
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => observer.disconnect()
-  }, [])
-  return mode
+  return useSyncExternalStore(subscribeTheme, getTheme)
 }
 
 function toFlowNode(node: CanvasNode, selected: boolean): FlowNode {
@@ -116,7 +112,7 @@ const ImageNode = memo(function ImageNode({ data }: NodeProps<FlowNode>) {
     rotation?: number
   }
   return (
-    <div className="studio-node studio-node--image">
+    <div className="studio-node studio-node--image" data-rotated={rotation ? true : undefined}>
       {pending ? <Pending pending={pending} /> : <Picture fileId={fileId} rotation={rotation} />}
     </div>
   )
@@ -124,13 +120,42 @@ const ImageNode = memo(function ImageNode({ data }: NodeProps<FlowNode>) {
 
 const VideoNode = memo(function VideoNode({ data }: NodeProps<FlowNode>) {
   const { t } = useTranslation('canvas')
-  const { fileId } = data.node.data as { fileId?: string }
+  const [playing, setPlaying] = useState(false)
+  const { fileId, rotation, video } = data.node.data as {
+    fileId?: string
+    rotation?: number
+    video?: { taskId: string; outputIndex: number }
+  }
+  if (playing && video)
+    return (
+      <div className="studio-node studio-node--video nodrag nopan">
+        <video
+          className="studio-node-media studio-node-player"
+          src={queueOutputUrl(video.taskId, video.outputIndex)}
+          controls
+          autoPlay
+          playsInline
+        />
+      </div>
+    )
   return (
-    <div className="studio-node studio-node--video" aria-label={t('nodes.video')}>
-      <Picture fileId={fileId} />
-      <span className="studio-node-badge bg-foreground/60 text-background">
-        <Icon name="play" size="xs" />
-      </span>
+    <div
+      className="studio-node studio-node--video"
+      data-rotated={rotation ? true : undefined}
+      aria-label={t('nodes.video')}
+    >
+      <Picture fileId={fileId} rotation={rotation} />
+      {video && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="studio-node-badge nodrag size-8 rounded-full bg-foreground/60 text-background hover:bg-foreground/75 hover:text-background"
+          aria-label={t('videoOverlay.play')}
+          onClick={() => setPlaying(true)}
+        >
+          <Icon name="play" size="xs" />
+        </Button>
+      )}
     </div>
   )
 })
@@ -161,25 +186,22 @@ const TimelineNode = memo(function TimelineNode({ data }: NodeProps<FlowNode>) {
 
 const nodeTypes = { image: ImageNode, video: VideoNode, text: TextNode, timeline: TimelineNode }
 
+/** 箭头头部：沿最后一段方向画实心三角，颜色跟线一致（marker 的 context-stroke 支持不稳）。 */
+function arrowHead(points: readonly number[], width: number): string {
+  const [x1, y1, x2, y2] = points.slice(-4)
+  const angle = Math.atan2(y2! - y1!, x2! - x1!)
+  const size = Math.max(width * 2.5, 12)
+  const corner = (offset: number) =>
+    `${x2! - size * Math.cos(angle + offset)},${y2! - size * Math.sin(angle + offset)}`
+  return `${x2},${y2} ${corner(0.45)} ${corner(-0.45)}`
+}
+
 function Annotations({ annotations }: { annotations: readonly CanvasAnnotation[] }) {
   if (!annotations.length) return null
   return (
     <ViewportPortal>
       {/* design-allow inline-svg: 这是标注的绘制层，不是图标 */}
       <svg className="studio-node-annotations" aria-hidden="true">
-        <defs>
-          <marker
-            id="studio-node-arrowhead"
-            viewBox="0 0 10 10"
-            refX="8"
-            refY="5"
-            markerWidth="4"
-            markerHeight="4"
-            orient="auto-start-reverse"
-          >
-            <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
-          </marker>
-        </defs>
         {annotations.map((one) => {
           const points = one.points
             .reduce<string[]>((pairs, value, index) => {
@@ -188,16 +210,19 @@ function Annotations({ annotations }: { annotations: readonly CanvasAnnotation[]
             }, [])
             .join(' ')
           return (
-            <polyline
-              key={one.id}
-              points={points}
-              fill="none"
-              stroke={one.stroke}
-              strokeWidth={one.strokeWidth}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              markerEnd={one.type === 'arrow' ? 'url(#studio-node-arrowhead)' : undefined}
-            />
+            <g key={one.id}>
+              <polyline
+                points={points}
+                fill="none"
+                stroke={one.stroke}
+                strokeWidth={one.strokeWidth}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {one.type === 'arrow' && (
+                <polygon points={arrowHead(one.points, one.strokeWidth)} fill={one.stroke} />
+              )}
+            </g>
           )
         })}
       </svg>
@@ -245,6 +270,7 @@ function Flow({ canvas }: { canvas: NodeCanvasDocument }) {
       minZoom={0.05}
       maxZoom={8}
       fitView
+      fitViewOptions={{ maxZoom: 1 }}
       deleteKeyCode={null}
       proOptions={{ hideAttribution: true }}
     >
@@ -275,23 +301,23 @@ export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }
       (one) => {
         opened = one
         if (alive) setCanvas(one)
-        else one.destroy()
+        else void one.destroy()
       },
       () => alive && setFailed(true),
     )
     return () => {
       alive = false
-      opened?.destroy()
+      void opened?.destroy()
     }
   }, [key, workspace])
   const content = useMemo(
     () =>
       canvas && (
         <ReactFlowProvider>
-          <Flow canvas={canvas} />
+          <Flow key={key} canvas={canvas} />
         </ReactFlowProvider>
       ),
-    [canvas],
+    [canvas, key],
   )
   if (failed)
     return (
