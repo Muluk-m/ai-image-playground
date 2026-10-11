@@ -55,7 +55,13 @@ jobs:
       - run: pnpm typecheck
       # The same build the release job runs, failing here instead of half way through an upload.
       - run: pnpm test --concurrency=1 --env-mode=loose
-      - run: pnpm --dir apps/web build
+      - run: pnpm --dir apps/web build:static-host
+        env:
+          BFF_ENABLED: 'true'
+          BFF_BASE_URL: https://startup-api.invalid
+      - uses: ./.github/actions/pages-browser
+        with:
+          label: test-startup-public
       - run: pnpm --dir apps/admin build
 
   backend:
@@ -102,6 +108,13 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm --dir apps/web build:static-host
+        env:
+          BFF_ENABLED: 'true'
+          BFF_BASE_URL: https://startup-api.invalid
+      - uses: ./.github/actions/pages-browser
+        with:
+          label: test-startup-paid
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
@@ -202,15 +215,28 @@ jobs:
           PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
         run: |
           scripts/check-test-isolation.sh pages "$PAGES_ENV_FILE"
+          # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
           expected="$PUBLIC_SHA+$PRIVATE_SHA"
-          for attempt in $(seq 1 30); do
+          for _attempt in $(seq 1 30); do
             actual=$(curl -fsS --max-time 10 "$TEST_BFF_BASE_URL/health" | jq -r .version) || actual=
             [ "$actual" != "$expected" ] || break
             sleep 10
           done
           [ "$actual" = "$expected" ] || { echo "::error::Test API is not serving the checked release"; exit 1; }
       - run: ./scripts/pages-release.sh test
+      - uses: ./.github/actions/pages-browser
+        with:
+          target: https://test.muvloom.online
+          live: 'true'
+          label: test-startup-live
+      - name: Save upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-upload-startup
+          path: ~/.cache/ai-image-playground/playwright-1.58.2/results
+          retention-days: 7
       - name: Remove secrets from the runner
         if: always()
         run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
