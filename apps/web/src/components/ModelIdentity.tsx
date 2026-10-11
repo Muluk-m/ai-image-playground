@@ -9,6 +9,7 @@ const COMPACT_MODEL_NAMES: Readonly<Record<string, string>> = {
   'gemini-3.1-flash-image-preview': 'Gemini 3.1 Preview',
   'gemini-2.5-flash-image': 'Gemini 2.5 Flash',
   'agnes-image-2.1-flash': 'Agnes 2.1 Flash',
+  'agnes-image-2.5-flash': 'Agnes 2.5 Flash',
   'agnes-video-2.5-flash': 'Agnes Video 2.5',
   'grok-imagine-image': 'Grok Image 1.0',
   'grok-imagine-image-2.0': 'Grok Image 2.0',
