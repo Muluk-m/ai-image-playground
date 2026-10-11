@@ -1101,3 +1101,29 @@ it('首次归档凭据写入短暂失败仍保存已返回原图，不释放响�
     await db.execute(sql`DROP SEQUENCE generation_checkpoint_fault`)
   }
 })
+
+it('keeps Grok account-pool details out of queue and agent responses while retaining the stored cause', async () => {
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const raw = 'No eligible Grok media accounts'
+  await db
+    .update(schema.tasks)
+    .set({ status: 'failed', error_message: raw, error_type: 'upstream_error' })
+    .where(eq(schema.tasks.id, id))
+  for (const suffix of ['/status', '']) {
+    const response = await request(`/v1/queue/requests/${id}${suffix}`, deviceB)
+    const body = await response.json()
+    expect(body.error.message).toBe(
+      'Grok model channel is temporarily unavailable. Please try again later.',
+    )
+    expect(body.error.type).toBe('upstream_error')
+  }
+  const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+  expect(stored!.error_message).toBe(raw)
+  const { queueTaskOutcome } = await import('../../lib/taskSubmission')
+  expect(queueTaskOutcome(stored!)).toMatchObject({
+    kind: 'failed',
+    reason: 'Grok model channel is temporarily unavailable. Please try again later.',
+  })
+})

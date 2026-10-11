@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import {
+  catalogProjectId,
   projectCatalog,
   projectsByExperience,
   RECENT_PROJECT_COUNT,
@@ -64,9 +65,9 @@ export default function Sidebar() {
   useEffect(() => {
     document.documentElement.style.setProperty('--app-sidebar-size', expanded ? '13rem' : '0px')
   }, [expanded])
-  const recent = projectCatalog(projects, cloudCatalog).filter(
-    (project) => project.hasContent || project.workspaceOpened,
-  )
+  const catalog = projectCatalog(projects, cloudCatalog)
+  const selectedId = catalogProjectId(activeProject, catalog)
+  const recent = catalog.filter((project) => project.hasContent || project.workspaceOpened)
   // 对话与画布共用一块位置，用分组标题上的两个标签切换。项目是异步恢复的、侧栏也不随页面
   // 重挂，所以每次换到另一个项目（或它恢复出来）时跟到它那一类；同一项目下用户手动切的保留。
   const [kind, setKind] = useState<RecentKind>('chat')
@@ -192,7 +193,7 @@ export default function Sidebar() {
             </Button>
           </div>
           {listed.map((project) => {
-            const active = appMode === 'canvas' && project.id === activeId
+            const active = appMode === 'canvas' && project.id === selectedId
             return (
               <div
                 key={project.id}

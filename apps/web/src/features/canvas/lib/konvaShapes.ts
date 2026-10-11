@@ -31,9 +31,9 @@ export function measureText(text: string, fontSize: number): { width: number; he
  * 笔迹轮廓缓存：元素 copy-on-write，对象引用即缓存键；
  * 拖拽中每次加点都会生成新对象，自然失效重算。
  */
-const strokeOutlineCache = new WeakMap<FreedrawEl, number[]>()
+const strokeOutlineCache = new WeakMap<Pick<FreedrawEl, 'points' | 'strokeWidth'>, number[]>()
 
-function freedrawOutline(el: FreedrawEl): number[] {
+export function freedrawOutline(el: Pick<FreedrawEl, 'points' | 'strokeWidth'>): number[] {
   const hit = strokeOutlineCache.get(el)
   if (hit) return hit
   const pts: Array<[number, number]> = []
@@ -61,6 +61,9 @@ export function freedrawProps(el: FreedrawEl): Konva.LineConfig {
   }
 }
 
+/** 箭头头部尺寸（页面单位），节点画布的标注层照同一份画。 */
+export const ARROW_POINTER = { length: 12, width: 10 } as const
+
 export function arrowProps(el: ArrowEl): Konva.ArrowConfig {
   return {
     points: [...el.points],
@@ -68,8 +71,8 @@ export function arrowProps(el: ArrowEl): Konva.ArrowConfig {
     fill: el.stroke,
     strokeWidth: el.strokeWidth,
     lineCap: 'round',
-    pointerLength: 12,
-    pointerWidth: 10,
+    pointerLength: ARROW_POINTER.length,
+    pointerWidth: ARROW_POINTER.width,
   }
 }
 

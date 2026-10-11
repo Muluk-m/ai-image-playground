@@ -415,8 +415,8 @@ describe('callImageApi', () => {
       label: 'With Size',
       models: [
         {
-          id: 'agnes-image-2.1-flash',
-          label: 'Agnes Image 2.1 Flash',
+          id: 'agnes-image-2.5-flash',
+          label: 'Agnes Image 2.5 Flash',
           capabilities: ['generate', 'edit', 'size'],
         },
       ],
@@ -755,7 +755,7 @@ describe('callImageApi', () => {
       kind: 'openai-queue',
       label: 'SoftMask',
       // Agnes 风格：支持 edit 但无原生 mask 能力
-      models: [{ id: 'agnes-image-2.1-flash', label: 'Agnes', capabilities: ['generate', 'edit'] }],
+      models: [{ id: 'agnes-image-2.5-flash', label: 'Agnes', capabilities: ['generate', 'edit'] }],
       defaults: { apiMode: 'images', timeout: 600 },
     }
     mockChannels.list = [channel]

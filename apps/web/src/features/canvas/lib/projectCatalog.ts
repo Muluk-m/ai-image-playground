@@ -1,12 +1,35 @@
 import type { CloudProjectSummary } from '@image-playground/shared'
 import { type CanvasProject, projectExperience } from './projectRepository'
 
+/** 旧会话场景保留作本机存档；已有云端对话项目时，目录只显示云端入口。 */
+export function catalogProjectId(
+  project: CanvasProject | undefined,
+  projects: readonly CanvasProject[],
+): string | undefined {
+  if (
+    !project?.id.startsWith('legacy:') ||
+    !project.conversationId ||
+    projectExperience(project) !== 'chat'
+  )
+    return project?.id
+  return (
+    projects.find(
+      (candidate) =>
+        !candidate.id.startsWith('legacy:') &&
+        candidate.cloud &&
+        !candidate.cloud.deleted &&
+        candidate.conversationId === project.conversationId &&
+        projectExperience(candidate) === 'chat',
+    )?.id ?? project.id
+  )
+}
+
 /** 云端目录负责显示新名称，本机未同步的改名优先。列表与快捷切换用同一份视图。 */
 export function projectCatalog(
   projects: readonly CanvasProject[],
   cloud: Record<string, CloudProjectSummary>,
 ): CanvasProject[] {
-  return projects
+  const available = projects
     .filter((project) => !project.cloud?.deleted)
     .map((project) => {
       const remote = cloud[project.id]
@@ -29,6 +52,8 @@ export function projectCatalog(
           }
         : project
     })
+  return available
+    .filter((project) => catalogProjectId(project, available) === project.id)
     .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 

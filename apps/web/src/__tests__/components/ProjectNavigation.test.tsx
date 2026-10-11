@@ -11,6 +11,57 @@ import { stubPointerApis } from '../helpers/radix'
 const renameProject = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../features/canvas/lib/activeProject', () => ({ renameProject }))
 
+it('lists a cloud conversation once and keeps selection and rename coherent for its old link', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  stubPointerApis()
+  renameProject.mockClear()
+  const cloud: CanvasProject = {
+    id: 'cloud-chat',
+    name: 'Same conversation',
+    experience: 'chat',
+    createdAt: 1,
+    updatedAt: 1,
+    kind: 'image',
+    customName: true,
+    conversationId: 'shared',
+    sceneKey: 'cloud-scene',
+    hasContent: true,
+    cloud: { revision: 1 },
+  }
+  const legacy = { ...cloud, id: 'legacy:canvas:conversation:shared', cloud: undefined }
+  useCanvasProjectStore.setState({
+    projects: [legacy, cloud],
+    activeId: legacy.id,
+    cloudCatalog: {},
+    cloudLoading: false,
+    cloudError: null,
+    loaded: true,
+  })
+  const refresh = vi
+    .spyOn(useCanvasProjectStore.getState(), 'refreshCloud')
+    .mockResolvedValue(undefined)
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectNavigation />))
+    const trigger = host.querySelector<HTMLButtonElement>('[aria-label^="切换项目"]')!
+    await act(async () => host.querySelector<HTMLButtonElement>('[title="点击重命名"]')!.click())
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="项目名称"]')!
+    input.value = 'Renamed conversation'
+    await act(async () => input.blur())
+    expect(renameProject).toHaveBeenCalledWith(cloud.id, 'Renamed conversation')
+    await act(async () => trigger.click())
+    const rows = document.querySelectorAll('button[data-project-row]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].getAttribute('aria-current')).toBe('true')
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    refresh.mockRestore()
+  }
+})
+
 it.each([
   'chat',
   'canvas',

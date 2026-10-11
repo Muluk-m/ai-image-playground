@@ -52,6 +52,7 @@
     "fallback": "Cannot unlink right now, please try again later"
   },
   "generations": {
+    "grok_channel_unavailable": "Grok model channel is temporarily unavailable. Please try again later.",
     "fallback": "Unable to load the history. Please refresh and try again."
   },
   "projectSync": {
