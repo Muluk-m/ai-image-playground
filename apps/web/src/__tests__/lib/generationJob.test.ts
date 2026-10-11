@@ -273,6 +273,26 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
     expect(failures[0]!.text).not.toContain('safety system')
   })
 
+  it.each([
+    'No eligible Grok media accounts',
+    'Grok model channel is temporarily unavailable. Please try again later.',
+  ])('restored Grok failures show channel availability without account-pool details: %s', async (message) => {
+    const settings = builtinSettings(channelWith(['generate']))
+    stubResumeStatus({
+      status: 'failed',
+      submitted_at: 0,
+      error: { message, type: 'upstream_error' },
+    })
+    const { sink, failures } = recordingSink()
+    await resumeGeneration(
+      { settings, prompt: '一只猫', params: { ...DEFAULT_PARAMS }, requestId: 'rid-1' },
+      0,
+      sink,
+    )
+    expect(failures[0]!.text).toBe('Grok 模型渠道暂不可用，请稍后再试')
+    expect(failures[0]!.code).toBe('upstream_error')
+  })
+
   it('续跑落地也结算：出错与结束的通知都要发，否则余额停在续跑之前那一份', async () => {
     const settings = builtinSettings(channelWith(['generate']))
     stubResumeStatus({
