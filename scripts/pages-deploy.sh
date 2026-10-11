@@ -112,5 +112,10 @@ if [ -n "${EXTRA_ASSETS_DIR:-}" ]; then
   echo "Copied $EXTRA_ASSETS_DIR into $app dist/op/ (published at /op/<file>)."
 fi
 
+if [ "$app" = web ]; then
+  # Run the exact final dist before any upload; a failed smoke leaves the current site intact.
+  sh "$repo_root/scripts/pages-browser-smoke.sh" --dist "$dist_dir"
+fi
+
 cd "$repo_root/apps/$app"
 pnpm exec wrangler pages deploy "$dist_dir" --project-name "$project" --branch "$branch"
