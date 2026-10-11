@@ -148,9 +148,16 @@ function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnn
   }
 }
 
+/** 转换专用的 Yjs 客户端号。真实客户端号是 32 位随机数，0 不会被占用。 */
+const LEGACY_IMPORT_CLIENT_ID = 0
+
 /**
  * 把旧存档的元素搬进一份空文档。文档已有内容时什么都不做：转换只发生一次，
  * 之后以 `Y.Doc` 为准，旧存档原样留着。
+ *
+ * 两个副本可能同时转换同一份存档（双挂载、多标签页）。转换固定在同一个客户端号下按同样顺序写，
+ * 同一份存档产出逐字节相同的更新，合并时去重；否则同 id 的节点会互相覆盖，后来的编辑可能落在输掉的那份上。
+ * 因此同一个文档只能拿同一份存档来转换。
  */
 export function importLegacyElements(
   doc: Y.Doc,
@@ -158,14 +165,18 @@ export function importLegacyElements(
   origin: CanvasOrigin,
 ): void {
   if (!isCanvasDocumentEmpty(doc)) return
-  doc.transact(() => {
+  const staging = new Y.Doc()
+  staging.clientID = LEGACY_IMPORT_CLIENT_ID
+  staging.transact(() => {
     elements.forEach((element, z) => {
       const item = toNode(element, z)
       if (item.type === 'arrow' || item.type === 'freedraw') {
-        annotationsOf(doc).set(item.id, item as CanvasAnnotation)
-      } else writeNode(doc, item as CanvasNode)
+        annotationsOf(staging).set(item.id, item as CanvasAnnotation)
+      } else writeNode(staging, item as CanvasNode)
     })
-  }, origin)
+  })
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(staging), origin)
+  staging.destroy()
 }
 
 /** 转换的反面：按叠放次序还原成旧存档的元素，用来核对转换没有丢东西。 */

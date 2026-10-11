@@ -135,6 +135,19 @@ describe('legacy conversion', () => {
   })
 })
 
+it('converges when two replicas convert the same scene concurrently', () => {
+  const left = imported()
+  const right = imported()
+  moveCanvasNodes(right, [{ id: 'img', x: 99, y: 88 }], canvasOrigin('user', 'me'))
+  Y.applyUpdate(left, Y.encodeStateAsUpdate(right))
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left))
+  for (const doc of [left, right]) {
+    const image = readCanvasDocument(doc).nodes.find((node) => node.id === 'img')!
+    expect([image.x, image.y]).toEqual([99, 88])
+    expect(readCanvasDocument(doc).nodes).toHaveLength(6)
+  }
+})
+
 describe('moving nodes', () => {
   it('updates positions and survives a sync to another replica', () => {
     const doc = imported()
