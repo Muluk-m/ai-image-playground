@@ -4,7 +4,6 @@ import PlayBadge from '../../video/components/PlayBadge'
 import type { CanvasEditor } from '../lib/editor'
 import { recoverVideoPoster } from '../lib/recoverVideoPoster'
 import { type CanvasVideo, canvasVideos } from '../lib/videoElements'
-import CanvasVideoPlayer from './CanvasVideoPlayer'
 
 /**
  * 视频对象的播放浮层：封面由画布本体画（image 元素），播放器走 DOM 浮层。
@@ -79,12 +78,12 @@ export default function CanvasVideoOverlay({
           }}
         >
           {playingId === video.id ? (
-            <CanvasVideoPlayer
+            <Player
               poster={(() => {
                 const el = editor.getElement(video.id)
                 return el?.type === 'image' ? editor.doc.files[el.fileId] : undefined
               })()}
-              src={video.url}
+              video={video}
               onEnded={() => setPlayingId(null)}
             />
           ) : (
@@ -101,5 +100,46 @@ export default function CanvasVideoOverlay({
         </div>
       ))}
     </div>
+  )
+}
+
+function Player({
+  video,
+  poster,
+  onEnded,
+}: {
+  video: CanvasVideo
+  poster?: string
+  onEnded: () => void
+}) {
+  const element = useRef<HTMLVideoElement>(null)
+
+  // 摘下来的 <video> 在被回收前还在拉流、还在响；React 不替你停。
+  useEffect(
+    () => () => {
+      const node = element.current
+      if (!node) return
+      node.pause()
+      node.removeAttribute('src')
+      node.load()
+    },
+    [],
+  )
+
+  return (
+    <video
+      ref={element}
+      src={video.url}
+      poster={poster}
+      playsInline
+      crossOrigin="use-credentials"
+      className="pointer-events-auto h-full w-full bg-black object-contain"
+      controls
+      autoPlay
+      onPointerDown={(event) => event.stopPropagation()}
+      onEnded={onEnded}
+    >
+      <track kind="captions" />
+    </video>
   )
 }
