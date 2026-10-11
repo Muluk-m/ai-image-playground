@@ -121,6 +121,14 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
     await writeFile(join(dist, 'assets/main.js'), 'import "./missing-chunk.js"')
     await expect(check()).rejects.toThrow('Asset HTTP 404')
   })
+  it('ignores scripts the CDN injects under /cdn-cgi/', async () => {
+    // Cloudflare's bot challenge answers its own script with a 302 on live origins.
+    await writeFile(
+      join(dist, 'index.html'),
+      `<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>${html}`,
+    )
+    await check()
+  })
   it('rejects a missing stylesheet even if the workspace mounts', async () => {
     await writeFile(
       join(dist, 'index.html'),
