@@ -77,21 +77,6 @@
     "inline-svg": 2,
     "native-control": 2
   },
-  "apps/web/src/components/SearchField.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/SectionHeader.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/SegmentedTabs.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/components/Select.tsx": {
-    "arbitrary-radius": 1,
-    "native-control": 1
-  },
   "apps/web/src/components/SetHistoryCard.tsx": {
     "native-control": 1
   },
@@ -107,9 +92,6 @@
   "apps/web/src/components/SubmissionBillingAction.tsx": {
     "native-control": 1,
     "palette-class": 2
-  },
-  "apps/web/src/components/Switch.tsx": {
-    "native-control": 1
   },
   "apps/web/src/components/SyncStatusPanel.tsx": {
     "font-weight": 1,
@@ -202,6 +184,24 @@
   },
   "apps/web/src/components/panelStyles.ts": {
     "focus-not-visible": 4
+  },
+  "apps/web/src/components/patterns/SearchField.tsx": {
+    "lucide-import": 1,
+    "native-control": 1
+  },
+  "apps/web/src/components/patterns/SectionHeader.tsx": {
+    "lucide-import": 1,
+    "native-control": 1
+  },
+  "apps/web/src/components/patterns/SegmentedTabs.tsx": {
+    "native-control": 1
+  },
+  "apps/web/src/components/patterns/Select.tsx": {
+    "arbitrary-radius": 1,
+    "native-control": 1
+  },
+  "apps/web/src/components/patterns/Switch.tsx": {
+    "native-control": 1
   },
   "apps/web/src/components/settings/ApiTab.tsx": {
     "inline-svg": 2,

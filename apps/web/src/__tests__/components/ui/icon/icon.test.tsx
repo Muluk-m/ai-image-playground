@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ICON_SIZE_PX, ICONS, Icon, type IconName } from '../../../components/ui/icon'
+import { ICON_SIZE_PX, ICONS, Icon, type IconName } from '../../../../components/ui/icon'
 
 const svgOf = (markup: string) => {
   const host = document.createElement('div')

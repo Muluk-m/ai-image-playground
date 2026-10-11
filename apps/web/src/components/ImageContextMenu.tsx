@@ -6,8 +6,8 @@ import { describeError, useTranslation } from '../i18n'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { editImageInComposer, ensureImageCached, storeImageFromUrl, useStore } from '../store'
-import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon, VideoIcon } from './icons'
+import ContextMenu, { ContextMenuItem } from './patterns/ContextMenu'
 
 export default function ImageContextMenu() {
   const { t } = useTranslation(['task', 'common'])

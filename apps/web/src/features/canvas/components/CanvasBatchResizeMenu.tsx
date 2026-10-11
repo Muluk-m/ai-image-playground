@@ -1,4 +1,4 @@
-import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
+import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
 import { useTranslation } from '../../../i18n'
 import { RESIZE_RATIOS, type ResizeRatio } from '../lib/canvasImageEdits'
 

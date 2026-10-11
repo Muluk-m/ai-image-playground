@@ -1,4 +1,4 @@
-import SegmentedTabs from '../../../components/SegmentedTabs'
+import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { useTranslation } from '../../../i18n'
 import { type InspirationProviderFilter, useInspirationStore } from '../store'
 

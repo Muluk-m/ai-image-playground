@@ -26,7 +26,7 @@ import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import MediaImage from './MediaImage'
-import SearchField from './SearchField'
+import SearchField from './patterns/SearchField'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from './ui/popover'
 
 const INITIAL_VISIBLE = { chat: RECENT_PROJECT_COUNT, canvas: RECENT_PROJECT_COUNT }

@@ -1,6 +1,6 @@
 import { ArrowRight } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
 
 /** 区块标题 + 右侧「查看全部」类链接；链接文字与下方网格右边缘对齐。 */
 export default function SectionHeader({

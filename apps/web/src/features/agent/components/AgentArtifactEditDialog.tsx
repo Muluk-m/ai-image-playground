@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { type PointerEvent, useEffect, useRef, useState } from 'react'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import RegionPromptEditor, { useRegionPrompt } from '../../../components/RegionPromptEditor'
 import { Button } from '../../../components/ui/button'
 import { Slider } from '../../../components/ui/slider'

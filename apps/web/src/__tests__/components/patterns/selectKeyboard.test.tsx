@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import Select from '../../components/Select'
+import Select from '../../../components/patterns/Select'
 
 declare global {
   // eslint-disable-next-line no-var

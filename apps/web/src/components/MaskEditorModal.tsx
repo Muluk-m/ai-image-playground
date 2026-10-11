@@ -22,7 +22,7 @@ import {
   zoomAtPoint,
 } from '../lib/viewportTransform'
 import { ensureImageCached, useStore } from '../store'
-import Overlay from './Overlay'
+import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
 
 type Tool = 'lasso' | 'brush' | 'eraser'

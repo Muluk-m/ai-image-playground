@@ -1,5 +1,5 @@
 import { FileText, ImagePlus, SearchX } from 'lucide-react'
-import EmptyState from '../../../components/EmptyState'
+import EmptyState from '../../../components/patterns/EmptyState'
 import { useTranslation } from '../../../i18n'
 import NewAssetButton from './NewAssetButton'
 

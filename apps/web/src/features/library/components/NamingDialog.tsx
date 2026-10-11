@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import { useTranslation } from '../../../i18n'
 
 interface NamingDialogProps {
