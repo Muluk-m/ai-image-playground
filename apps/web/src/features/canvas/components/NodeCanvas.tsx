@@ -245,18 +245,19 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
   let minY = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
   let maxY = Number.NEGATIVE_INFINITY
-  for (const node of nodes) {
-    minX = Math.min(minX, node.x)
-    minY = Math.min(minY, node.y)
-    maxX = Math.max(maxX, node.x + node.width)
-    maxY = Math.max(maxY, node.y + node.height)
+  const include = (left: number, top: number, right: number, bottom: number) => {
+    // 坏数据（NaN、奇数长度的点列）跳过，免得一个坏点把整个视野带歪。
+    if (![left, top, right, bottom].every(Number.isFinite)) return
+    minX = Math.min(minX, left)
+    minY = Math.min(minY, top)
+    maxX = Math.max(maxX, right)
+    maxY = Math.max(maxY, bottom)
   }
+  for (const node of nodes) include(node.x, node.y, node.x + node.width, node.y + node.height)
   for (const one of annotations)
-    for (let i = 0; i < one.points.length; i += 2) {
-      minX = Math.min(minX, one.points[i]! - one.strokeWidth)
-      minY = Math.min(minY, one.points[i + 1]! - one.strokeWidth)
-      maxX = Math.max(maxX, one.points[i]! + one.strokeWidth)
-      maxY = Math.max(maxY, one.points[i + 1]! + one.strokeWidth)
+    for (let i = 0; i + 1 < one.points.length; i += 2) {
+      const [x, y, pad] = [one.points[i]!, one.points[i + 1]!, one.strokeWidth]
+      include(x - pad, y - pad, x + pad, y + pad)
     }
   if (!Number.isFinite(minX)) return null
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
