@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { SparkleIcon } from '../../../components/icons'
-import SectionHeader from '../../../components/SectionHeader'
+import SectionHeader from '../../../components/patterns/SectionHeader'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'

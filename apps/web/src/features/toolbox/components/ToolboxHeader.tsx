@@ -1,6 +1,6 @@
 import { ArrowLeft, FolderOpen, ImagePlus, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import PageHeader from '../../../components/PageHeader'
+import PageHeader from '../../../components/patterns/PageHeader'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useToolboxStore } from '../store'

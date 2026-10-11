@@ -1,7 +1,7 @@
 import { ASSET_KINDS, LOOK_PURPOSES } from '@image-playground/shared'
 import { useRef, useState } from 'react'
 import { CloseIcon, FolderIcon, PlusIcon, SparkleIcon } from '../../../components/icons'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import {

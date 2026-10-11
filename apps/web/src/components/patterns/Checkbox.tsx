@@ -1,7 +1,7 @@
 import * as React from 'react'
-import { cn } from '../lib/utils'
-import { Checkbox as CheckboxRoot } from './ui/checkbox'
-import { Label } from './ui/label'
+import { cn } from '../../lib/utils'
+import { Checkbox as CheckboxRoot } from '../ui/checkbox'
+import { Label } from '../ui/label'
 
 type RootProps = React.ComponentPropsWithoutRef<typeof CheckboxRoot>
 

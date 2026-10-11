@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
-import PageHeader from '../../../components/PageHeader'
-import SearchField from '../../../components/SearchField'
+import PageHeader from '../../../components/patterns/PageHeader'
+import SearchField from '../../../components/patterns/SearchField'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { useInspirationStore } from '../store'

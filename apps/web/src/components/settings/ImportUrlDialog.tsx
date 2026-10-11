@@ -1,7 +1,7 @@
 import { useTranslation } from '../../i18n'
-import { Checkbox } from '../Checkbox'
 import { CloseIcon, CopyIcon } from '../icons'
-import Overlay from '../Overlay'
+import { Checkbox } from '../patterns/Checkbox'
+import Overlay from '../patterns/Overlay'
 
 const COPY_IMPORT_URL_OPTIONS_STORAGE_KEY = 'image-playground.copy-import-url-options'
 

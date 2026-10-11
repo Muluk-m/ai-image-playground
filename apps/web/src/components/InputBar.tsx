@@ -60,10 +60,10 @@ import {
 } from '../store'
 import type { InputImage } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
-import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import LookChips, { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
+import ContextMenu, { ContextMenuItem } from './patterns/ContextMenu'
 import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
@@ -1268,10 +1268,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 type="button"
                 variant="secondary"
                 onClick={() => setBarCollapsed(false)}
-                className="h-10 min-w-0 flex-1 justify-start truncate rounded-xl px-3 font-normal text-muted-foreground"
+                className="h-10 min-w-0 flex-1 justify-start rounded-xl px-3 font-normal text-muted-foreground"
                 title={t('bar.expandHint')}
               >
-                {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
+                <span className="min-w-0 truncate">
+                  {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
+                </span>
               </Button>
               <Hint tooltip={submitBlockedTip}>
                 <div className="relative flex items-center gap-2">

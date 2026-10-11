@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { BookmarkIcon, CloseIcon, CodeIcon, CopyIcon } from '../../../components/icons'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import { useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
