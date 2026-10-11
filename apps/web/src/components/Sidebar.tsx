@@ -1,12 +1,3 @@
-import {
-  ArrowRight,
-  ArrowUpRight,
-  BookOpen,
-  LoaderCircle,
-  MessageCircle,
-  PanelLeftClose,
-  Plus,
-} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import {
@@ -27,21 +18,21 @@ import {
   NAV_APP_MODES,
   useStore,
 } from '../store'
-import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon, ToolboxIcon } from './icons'
+import { Button } from './ui/button'
+import { Icon, type IconName } from './ui/icon'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
-const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
-  image: PromptImageIcon,
-  canvas: CanvasIcon,
-  explore: SparkleIcon,
-  library: AssetIcon,
-  tools: ToolboxIcon,
+const MODE_ICONS: Record<AppMode, IconName> = {
+  image: 'create',
+  canvas: 'canvas',
+  explore: 'explore',
+  library: 'assets',
+  tools: 'toolbox',
 }
 
-const ITEM =
-  'flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-/** 主入口选中只换字色，不铺底：底色留给下面「正在打开的项目」那一行。 */
-const ACTIVE_ITEM = 'font-semibold text-primary'
+const ITEM = 'h-9 w-full justify-start gap-2.5 px-3 text-body-sm font-normal'
+/** 主入口选中换字色与双色图标，不铺底：底色留给下面「正在打开的项目」那一行。 */
+const ACTIVE_ITEM = 'font-semibold text-primary hover:bg-muted hover:text-primary'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
 const ACTIVE_ROW = 'bg-accent font-medium text-foreground'
 type RecentKind = 'chat' | 'canvas'
@@ -109,34 +100,36 @@ export default function Sidebar() {
   }
 
   const item = (mode: AppMode) => {
-    const Icon = MODE_ICONS[mode]
     const active = appMode === mode || (mode === 'image' && appMode === 'canvas')
     return (
-      <button
+      <Button
         key={mode}
         type="button"
+        variant="ghost"
         onClick={() => setAppMode(mode)}
         aria-pressed={active}
         aria-label={APP_MODE_LABELS[mode]}
         className={`${ITEM} ${active ? ACTIVE_ITEM : IDLE_ITEM}`}
       >
-        <Icon className="h-4 w-4" aria-hidden="true" />
+        <Icon name={MODE_ICONS[mode]} filled={active} />
         {APP_MODE_LABELS[mode]}
-      </button>
+      </Button>
     )
   }
 
   return (
     <>
       {!expanded && (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="icon"
           onClick={appMode === 'canvas' ? () => setAppMode('image') : toggleSidebar}
           aria-label={t(appMode === 'canvas' ? 'brand.home' : 'header.nav')}
-          className="app-floating-mark fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
+          className="app-floating-mark fixed left-3 top-3 z-40 hidden bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:inline-flex"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-        </button>
+        </Button>
       )}
       {expanded ? (
         // 子项一律不收缩：列表展开变长时由整栏滚动，而不是把每一行压扁。
@@ -146,105 +139,110 @@ export default function Sidebar() {
           className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto [&>*]:shrink-0 overflow-x-hidden border-r border-border bg-background px-2.5 pb-4 pt-3 md:flex"
         >
           <div className="mb-2 flex items-center gap-1">
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={() => setAppMode('image')}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-muted"
+              className="h-auto min-w-0 flex-1 justify-start gap-2 px-1.5 py-1"
             >
               <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
               <span className="truncate text-title font-semibold">
                 {t('header.brandName')}
                 {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={toggleSidebar}
               aria-label={t('nav.collapse')}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="text-muted-foreground"
             >
-              <PanelLeftClose size={16} />
-            </button>
+              <Icon name="sidebar" />
+            </Button>
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 对话与画布是两种记录；生成结果留在对话里，需要编辑时可新建独立画布。 */}
           <div className="mt-4 flex h-8 items-center gap-3.5 px-3">
             {(['chat', 'canvas'] as const).map((one) => (
-              <button
+              <Button
                 key={one}
                 type="button"
+                variant="link"
                 aria-pressed={kind === one}
                 onClick={() => setKind(one)}
-                className={`text-[12px] font-medium leading-none tracking-wide ${
-                  kind === one
-                    ? 'text-foreground'
-                    : 'text-muted-foreground/70 hover:text-muted-foreground'
+                className={`h-auto p-0 text-xs font-medium leading-none tracking-wide hover:no-underline ${
+                  kind === one ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {t(one === 'chat' ? 'nav.chats' : 'nav.canvases')}
-              </button>
+              </Button>
             ))}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               onClick={() => void newProject(kind)}
               aria-label={t(kind === 'chat' ? 'nav.newChat' : 'nav.newCanvas')}
               title={t(kind === 'chat' ? 'nav.newChat' : 'nav.newCanvas')}
-              className="ml-auto grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="ml-auto text-muted-foreground"
             >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
+              <Icon name="add" size="xs" />
+            </Button>
           </div>
           {listed.map((project) => {
             const active = appMode === 'canvas' && project.id === activeId
             return (
               <div
                 key={project.id}
-                className={`group/row flex h-9 items-center gap-2 rounded-xl px-3 ${
+                className={`group/row flex h-9 items-center gap-2 rounded-md pl-3 pr-1 ${
                   active ? ACTIVE_ROW : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   disabled={opening !== null}
                   onClick={() => void openProject(project.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-body-sm"
+                  className="h-full min-w-0 flex-1 justify-start gap-2.5 px-0 text-body-sm font-normal text-inherit hover:bg-transparent hover:text-inherit disabled:opacity-100"
                 >
                   {opening === project.id ? (
-                    <LoaderCircle
-                      className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
-                      aria-hidden="true"
-                    />
-                  ) : kind === 'chat' ? (
-                    <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <Icon name="loading" size="xs" className="animate-spin text-primary" />
                   ) : (
-                    <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <Icon name={kind === 'chat' ? 'chat' : 'canvas'} size="xs" />
                   )}
                   <span className="truncate">{projectEntryName(project)}</span>
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   onClick={() => void openProject(project.id, true)}
                   aria-label={t('nav.immersive')}
                   title={t('nav.immersive')}
-                  className="grid h-6 w-6 shrink-0 place-items-center rounded-md opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
+                  className="opacity-0 transition-opacity hover:bg-background focus-visible:opacity-100 group-hover/row:opacity-100"
                 >
-                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
+                  <Icon name="fullscreen" size="xs" />
+                </Button>
               </div>
             )
           })}
           {/* 画布项目是资产的一部分：「查看全部」去「资产 → 项目」，那时点亮的是「资产」。 */}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={openProjects}
-            className="group flex h-8 items-center gap-1 px-3 text-left text-xs text-muted-foreground hover:text-foreground"
+            className="group h-8 justify-start gap-1 px-3 font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
           >
             {t('nav.viewAll')}
-            <ArrowRight
-              className="h-3 w-3 transition-transform group-hover:translate-x-0.5"
-              aria-hidden="true"
+            <Icon
+              name="arrowRight"
+              size="xs"
+              className="transition-transform group-hover:translate-x-0.5"
             />
-          </button>
+          </Button>
           {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}
           <div className="min-h-6 flex-1" aria-hidden="true" />
           {/* 指南是独立的静态页，新标签打开，工作台原地不动。 */}
@@ -252,9 +250,9 @@ export default function Sidebar() {
             href={GUIDE_PATHS[currentLocale()]}
             target="_blank"
             rel="noopener"
-            className="flex h-8 items-center gap-2 px-3 text-[12px] text-muted-foreground hover:text-foreground"
+            className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground"
           >
-            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            <Icon name="guide" size="xs" />
             {t('nav.guide')}
           </a>
         </nav>
@@ -266,21 +264,21 @@ export default function Sidebar() {
         className="studio-mobile-nav fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-sidebar px-2 md:hidden"
       >
         {NAV_APP_MODES.map((mode) => {
-          const Icon = MODE_ICONS[mode]
           const active = appMode === mode || (mode === 'image' && appMode === 'canvas')
           return (
-            <button
+            <Button
               key={mode}
               type="button"
+              variant="ghost"
               onClick={() => setAppMode(mode)}
               aria-pressed={active}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-label-sm ${
-                active ? 'text-primary' : 'text-muted-foreground'
+              className={`h-auto flex-1 flex-col gap-0.5 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5 ${
+                active ? 'text-primary hover:text-primary' : 'text-muted-foreground'
               }`}
             >
-              <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+              <Icon name={MODE_ICONS[mode]} size="md" filled={active} />
               {APP_MODE_LABELS[mode]}
-            </button>
+            </Button>
           )
         })}
       </nav>
