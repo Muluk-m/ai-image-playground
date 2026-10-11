@@ -11,6 +11,7 @@ import { type ReactNode, useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { renameProject } from '../features/canvas/lib/activeProject'
 import {
+  catalogProjectId,
   projectCatalog,
   projectsByExperience,
   RECENT_PROJECT_COUNT,
@@ -53,7 +54,11 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
   const [pending, setPending] = useState<string | 'new' | null>(null)
   const busy = pending !== null
   const catalog = useMemo(() => projectCatalog(projects, cloudCatalog), [projects, cloudCatalog])
-  const current = catalog.find((project) => project.id === activeId)
+  const selectedId = catalogProjectId(
+    projects.find((project) => project.id === activeId),
+    catalog,
+  )
+  const current = catalog.find((project) => project.id === selectedId)
   const name = current
     ? projectEntryName(current)
     : projectDisplayName(
@@ -61,7 +66,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
       )
   const query = search.trim().toLocaleLowerCase()
   const recent = current
-    ? [current, ...catalog.filter((project) => project.id !== activeId)]
+    ? [current, ...catalog.filter((project) => project.id !== selectedId)]
     : catalog
   const matches = (query ? catalog : recent).filter((project) =>
     projectEntryName(project).toLocaleLowerCase().includes(query),
@@ -95,8 +100,8 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
     }
   }
   // 项目一换，这次编辑就作废；切回来也不会带着旧名字重新进入编辑。
-  if (editing && editing.id !== activeId) setEditing(null)
-  const renaming = editing?.id === activeId ? editing : null
+  if (editing && editing.id !== selectedId) setEditing(null)
+  const renaming = editing?.id === selectedId ? editing : null
   const commitName = (value: string) => {
     setEditing(null)
     const next = value.trim()
@@ -151,8 +156,8 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                 className="studio-project-pill-name"
                 title={t('navigation.renameHint')}
                 aria-label={t('navigation.renameAria')}
-                disabled={!activeId || busy}
-                onClick={() => activeId && setEditing({ id: activeId, name })}
+                disabled={!selectedId || busy}
+                onClick={() => selectedId && setEditing({ id: selectedId, name })}
               >
                 <span className="truncate">{name}</span>
               </button>
@@ -205,7 +210,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                     {t(group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases')}
                   </p>
                   {group.visible.map((project) => {
-                    const active = project.id === activeId
+                    const active = project.id === selectedId
                     return (
                       <button
                         key={project.id}

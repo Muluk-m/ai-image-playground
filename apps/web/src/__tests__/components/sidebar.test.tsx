@@ -120,6 +120,26 @@ function seed(experience: 'chat' | 'canvas', count: number): CanvasProject[] {
   }))
 }
 
+it('同一会话的云端与旧本机存档只列一个入口，旧链接仍标记当前对话', () => {
+  const cloud = { ...seed('chat', 1)[0], conversationId: 'shared', cloud: { revision: 1 } }
+  const legacy = { ...cloud, id: 'legacy:canvas:conversation:shared', cloud: undefined }
+  act(() => {
+    useStore.setState({ appMode: 'canvas', sidebarExpanded: true })
+    useCanvasProjectStore.setState({
+      projects: [legacy, cloud],
+      cloudCatalog: {},
+      activeId: legacy.id,
+      loaded: true,
+    })
+  })
+  const rows = [...host.querySelectorAll('span.truncate')].filter(
+    (el) => el.textContent === cloud.name,
+  )
+  expect(rows).toHaveLength(1)
+  expect(rows[0].closest('.group\\/row')?.className).toContain('bg-accent')
+  expect(useCanvasProjectStore.getState().projects).toHaveLength(2)
+})
+
 it('每个标签最多列五条，切换后只列那一种', () => {
   act(() =>
     useCanvasProjectStore.setState({
