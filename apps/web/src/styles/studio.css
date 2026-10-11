@@ -924,4 +924,4 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node--timeline { display: flex; align-items: center; gap: 8px; padding: 0 16px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--foreground)); }
 .studio-node-pending, .studio-node-missing { display: grid; width: 100%; height: 100%; place-items: center; border: 1px dashed hsl(var(--border)); border-radius: 12px; color: hsl(var(--muted-foreground)); }
 .studio-node-pending[data-failed] { border-color: hsl(var(--destructive) / .6); color: hsl(var(--destructive)); }
-.studio-node-annotations { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.studio-node-annotations { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }

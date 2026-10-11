@@ -791,7 +791,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 !loading &&
                 !loadFailed && (
                   <Suspense fallback={null}>
-                    <NodeCanvas workspace={workspace} />
+                    <NodeCanvas
+                      workspace={workspace}
+                      active={projectView === 'canvas' || (!hasAgent && !mobile)}
+                    />
                   </Suspense>
                 )
               ) : (

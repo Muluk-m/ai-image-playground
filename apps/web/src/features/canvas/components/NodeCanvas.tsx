@@ -2,10 +2,13 @@ import {
   type CanvasAnnotation,
   type CanvasNode,
   type CanvasSnapshot,
+  canvasOrigin,
   type LegacyCanvasElement,
   moveCanvasNodes,
   type PendingGeneration,
   readCanvasDocument,
+  reconcileLegacyElements,
+  synchronizeLegacyElements,
 } from '@image-playground/shared'
 import {
   applyNodeChanges,
@@ -20,7 +23,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   type Rect,
-  ViewportPortal,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
@@ -45,7 +47,8 @@ import { type NodeCanvasDocument, openNodeCanvasDocument } from '../lib/nodeCanv
 import type { CanvasWorkspace } from '../lib/workspaces'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 
-type FlowNode = Node<{ node: CanvasNode }>
+type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation }>
+const legacyOrigin = canvasOrigin('system', 'legacy-update')
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
@@ -136,7 +139,7 @@ function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
 }
 
 const ImageNode = memo(function ImageNode({ data: { node } }: NodeProps<FlowNode>) {
-  if (node.type !== 'image') return null
+  if (node?.type !== 'image') return null
   const { pending, fileId, rotation } = node.data
   return (
     <div className="studio-node studio-node--image" data-rotated={rotation ? true : undefined}>
@@ -149,16 +152,26 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
-  if (node.type !== 'video') return null
+  if (node?.type !== 'video') return null
   const { fileId, rotation, video } = node.data
   if (playing)
     return (
-      <div className="studio-node studio-node--video nodrag nopan">
-        <CanvasVideoPlayer
-          src={queueOutputUrl(video.taskId, video.outputIndex)}
-          poster={fileId ? files[fileId] : undefined}
-          onEnded={() => setPlaying(false)}
-        />
+      <div
+        className="studio-node studio-node--video nodrag nopan"
+        data-rotated={rotation ? true : undefined}
+      >
+        <div
+          className="h-full w-full"
+          style={
+            rotation ? { transform: `rotate(${rotation}deg)`, transformOrigin: '0 0' } : undefined
+          }
+        >
+          <CanvasVideoPlayer
+            src={queueOutputUrl(video.taskId, video.outputIndex)}
+            poster={fileId ? files[fileId] : undefined}
+            onEnded={() => setPlaying(false)}
+          />
+        </div>
       </div>
     )
   return (
@@ -178,7 +191,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
 })
 
 const TextNode = memo(function TextNode({ data: { node } }: NodeProps<FlowNode>) {
-  if (node.type !== 'text') return null
+  if (node?.type !== 'text') return null
   const { text, fontSize, fill } = node.data
   return (
     <div className="studio-node studio-node--text" style={{ fontSize, color: fill }}>
@@ -189,7 +202,7 @@ const TextNode = memo(function TextNode({ data: { node } }: NodeProps<FlowNode>)
 
 const TimelineNode = memo(function TimelineNode({ data: { node } }: NodeProps<FlowNode>) {
   const { t } = useTranslation('canvas')
-  if (node.type !== 'timeline') return null
+  if (node?.type !== 'timeline') return null
   return (
     <div className="studio-node studio-node--timeline text-sm">
       <Icon name="video" />
@@ -197,8 +210,6 @@ const TimelineNode = memo(function TimelineNode({ data: { node } }: NodeProps<Fl
     </div>
   )
 })
-
-const nodeTypes = { image: ImageNode, video: VideoNode, text: TextNode, timeline: TimelineNode }
 
 /** 箭头头部：与旧画布 Konva 箭头同一份尺寸，填充并描边成同色三角。 */
 function arrowHead(points: readonly number[]): string {
@@ -213,31 +224,78 @@ function arrowHead(points: readonly number[]): string {
   return `${x2},${y2} ${back(1)} ${back(-1)}`
 }
 
-const Annotations = memo(function Annotations({
-  annotations,
-}: {
-  annotations: readonly CanvasAnnotation[]
-}) {
-  if (!annotations.length) return null
+const AnnotationNode = memo(function AnnotationNode({
+  data: { annotation: one },
+}: NodeProps<FlowNode>) {
+  if (!one) return null
+  const bounds = annotationBounds(one)
   return (
-    <ViewportPortal>
-      {/* design-allow inline-svg: 这是标注的绘制层，不是图标 */}
-      <svg className="studio-node-annotations" aria-hidden="true">
-        {annotations.map((one) =>
-          one.type === 'freedraw' ? (
-            <polygon key={one.id} points={freedrawOutline(one).join(' ')} fill={one.stroke} />
-          ) : (
-            <g key={one.id} stroke={one.stroke} strokeWidth={one.strokeWidth}>
-              <polyline points={one.points.join(' ')} fill="none" strokeLinecap="round" />
-              {/* 与 Konva 一致：尖角连接、canvas 默认的斜接上限 10，头部才和旧画布一样大。 */}
-              <polygon points={arrowHead(one.points)} fill={one.stroke} strokeMiterlimit={10} />
-            </g>
-          ),
-        )}
-      </svg>
-    </ViewportPortal>
+    // design-allow inline-svg: 这是标注的绘制层，不是图标
+    <svg
+      className="studio-node-annotations"
+      aria-hidden="true"
+      viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`}
+      width={bounds.width}
+      height={bounds.height}
+    >
+      {one.type === 'freedraw' ? (
+        <polygon key={one.id} points={freedrawOutline(one).join(' ')} fill={one.stroke} />
+      ) : (
+        <g key={one.id} stroke={one.stroke} strokeWidth={one.strokeWidth}>
+          <polyline points={one.points.join(' ')} fill="none" strokeLinecap="round" />
+          {/* 与 Konva 一致：尖角连接、canvas 默认的斜接上限 10，头部才和旧画布一样大。 */}
+          <polygon points={arrowHead(one.points)} fill={one.stroke} strokeMiterlimit={10} />
+        </g>
+      )}
+    </svg>
   )
 })
+
+const nodeTypes = {
+  image: ImageNode,
+  video: VideoNode,
+  text: TextNode,
+  timeline: TimelineNode,
+  annotation: AnnotationNode,
+}
+
+function annotationBounds(annotation: CanvasAnnotation): Rect {
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (let i = 0; i + 1 < annotation.points.length; i += 2) {
+    const x = annotation.points[i]!
+    const y = annotation.points[i + 1]!
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      minX = Math.min(minX, x)
+      minY = Math.min(minY, y)
+      maxX = Math.max(maxX, x)
+      maxY = Math.max(maxY, y)
+    }
+  }
+  if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 1, height: 1 }
+  const pad = annotation.strokeWidth + (annotation.type === 'arrow' ? ARROW_POINTER.length : 0)
+  const x = minX - pad
+  const y = minY - pad
+  return { x, y, width: Math.max(1, maxX + pad - x), height: Math.max(1, maxY + pad - y) }
+}
+
+function toAnnotationNode(annotation: CanvasAnnotation): FlowNode {
+  const bounds = annotationBounds(annotation)
+  return {
+    id: annotation.id,
+    type: 'annotation',
+    position: { x: bounds.x, y: bounds.y },
+    width: bounds.width,
+    height: bounds.height,
+    zIndex: annotation.z,
+    draggable: false,
+    selectable: false,
+    focusable: false,
+    data: { annotation },
+  }
+}
 
 /** 节点与标注的总范围：只框节点的话，只有笔迹的旧项目一打开是空白。 */
 function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
@@ -254,11 +312,10 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
     maxY = Math.max(maxY, bottom)
   }
   for (const node of nodes) include(node.x, node.y, node.x + node.width, node.y + node.height)
-  for (const one of annotations)
-    for (let i = 0; i + 1 < one.points.length; i += 2) {
-      const [x, y, pad] = [one.points[i]!, one.points[i + 1]!, one.strokeWidth]
-      include(x - pad, y - pad, x + pad, y + pad)
-    }
+  for (const one of annotations) {
+    const bounds = annotationBounds(one)
+    include(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height)
+  }
   if (!Number.isFinite(minX)) return null
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
@@ -266,9 +323,11 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
 function Flow({
   canvas,
   container,
+  active,
 }: {
   canvas: NodeCanvasDocument
   container: RefObject<HTMLDivElement | null>
+  active: boolean
 }) {
   const snapshot = useDocumentSnapshot(canvas)
   const { theme } = useTheme()
@@ -276,24 +335,33 @@ function Flow({
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
-      return snapshot.nodes.map((node) => {
+      const media = snapshot.nodes.map((node) => {
         const old = previous.get(node.id)
         return old?.data.node === node ? old : toFlowNode(node, old?.selected ?? false)
       })
+      return [
+        ...media,
+        ...snapshot.annotations.map((annotation) => {
+          const old = previous.get(annotation.id)
+          return old?.data.annotation === annotation ? old : toAnnotationNode(annotation)
+        }),
+      ]
     })
   }, [snapshot])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!active || event.defaultPrevented) return
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target?.isContentEditable || target?.closest('input, textarea, [contenteditable]')) return
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
       event.preventDefault()
       if (event.shiftKey) canvas.undo.redo()
       else canvas.undo.undo()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [canvas])
+  }, [canvas, active])
   return (
     <ReactFlow<FlowNode>
       nodes={nodes}
@@ -304,7 +372,9 @@ function Flow({
       onNodeDragStop={(_event, _node, dragged) =>
         moveCanvasNodes(
           canvas.doc,
-          dragged.map((one) => ({ id: one.id, x: one.position.x, y: one.position.y })),
+          dragged
+            .filter((one) => one.data.node)
+            .map((one) => ({ id: one.id, x: one.position.x, y: one.position.y })),
           canvas.origin,
         )
       }
@@ -324,7 +394,6 @@ function Flow({
       deleteKeyCode={null}
       proOptions={{ hideAttribution: true }}
     >
-      <Annotations annotations={snapshot.annotations} />
       <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
       <MiniMap pannable zoomable />
       <Controls showInteractive={false} />
@@ -333,7 +402,13 @@ function Flow({
 }
 
 /** 节点画布（`canvas:nodes`）：一个项目的 `Y.Doc` 渲染成 React Flow。 */
-export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }) {
+export default function NodeCanvas({
+  workspace,
+  active,
+}: {
+  workspace: CanvasWorkspace
+  active: boolean
+}) {
   const { t } = useTranslation('canvas')
   const files = useSyncExternalStore(workspace.doc.subscribe, () => workspace.doc.files)
   const [canvas, setCanvas] = useState<NodeCanvasDocument | null>(null)
@@ -343,21 +418,37 @@ export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }
   useEffect(() => {
     let alive = true
     let opened: NodeCanvasDocument | undefined
+    let previous = workspace.doc.elements as readonly LegacyCanvasElement[]
+    const queued: Array<readonly [readonly LegacyCanvasElement[], readonly LegacyCanvasElement[]]> =
+      []
+    const unsubscribe = workspace.doc.subscribe(() => {
+      const next = workspace.doc.elements as readonly LegacyCanvasElement[]
+      if (opened && alive) synchronizeLegacyElements(opened.doc, previous, next, legacyOrigin)
+      else if (alive && previous !== next) queued.push([previous, next])
+      previous = next
+    })
     setCanvas(null)
     setFailed(false)
-    openNodeCanvasDocument(
-      key,
-      () => workspace.doc.elements as readonly LegacyCanvasElement[],
-    ).then(
-      (one) => {
+    openNodeCanvasDocument(key, () => workspace.doc.elements as readonly LegacyCanvasElement[])
+      .then((one) => {
+        if (!alive) {
+          void one.destroy()
+          return
+        }
         opened = one
-        if (alive) setCanvas(one)
-        else void one.destroy()
-      },
-      () => alive && setFailed(true),
-    )
+        reconcileLegacyElements(one.doc, previous, legacyOrigin)
+        // 迁移可能读过中间状态；逐次重放也能接住「添加后撤销」这类净差异为零的变化。
+        for (const [before, after] of queued)
+          synchronizeLegacyElements(one.doc, before, after, legacyOrigin)
+        queued.length = 0
+        setCanvas(one)
+      })
+      .catch(() => {
+        if (alive) setFailed(true)
+      })
     return () => {
       alive = false
+      unsubscribe()
       void opened?.destroy()
     }
   }, [key, workspace])
@@ -366,10 +457,10 @@ export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }
     () =>
       canvas && (
         <ReactFlowProvider>
-          <Flow canvas={canvas} container={container} />
+          <Flow canvas={canvas} container={container} active={active} />
         </ReactFlowProvider>
       ),
-    [canvas],
+    [canvas, active],
   )
   if (failed)
     return (
