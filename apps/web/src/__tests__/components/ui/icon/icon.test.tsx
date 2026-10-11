@@ -20,14 +20,12 @@ describe('Icon', () => {
     expect(svg.getAttribute('height')).toBe(String(px))
   })
 
-  it('keeps the same 1.5px visual stroke at every size', () => {
-    for (const px of Object.values(ICON_SIZE_PX)) {
-      const size = Object.entries(ICON_SIZE_PX).find(([, value]) => value === px)?.[0]
-      const svg = svgOf(
-        renderToStaticMarkup(<Icon name="close" size={size as keyof typeof ICON_SIZE_PX} />),
-      )
-      // lucide 在 24 的 viewBox 里画；绝对线宽 = 1.5 × 24 / 渲染尺寸。
-      expect(Number(svg.getAttribute('stroke-width'))).toBeCloseTo((1.5 * 24) / px, 3)
+  it('draws a 1.5px stroke in screen pixels whatever size CSS gives it', () => {
+    for (const size of Object.keys(ICON_SIZE_PX) as Array<keyof typeof ICON_SIZE_PX>) {
+      const svg = svgOf(renderToStaticMarkup(<Icon name="close" size={size} />))
+      // 线宽按屏幕像素算（non-scaling-stroke），Button 用 CSS 改图标尺寸也不会变粗变细。
+      expect(svg.getAttribute('stroke-width')).toBe('1.5')
+      expect(svg.getAttribute('class')).toContain('[vector-effect:non-scaling-stroke]')
     }
   })
 
@@ -62,7 +60,7 @@ describe('Icon', () => {
       const svg = svgOf(renderToStaticMarkup(<Icon name={name} size="lg" />))
       expect(svg.getAttribute('viewBox'), name).toBe('0 0 24 24')
       expect(svg.getAttribute('stroke-linecap'), name).toBe('round')
-      expect(Number(svg.getAttribute('stroke-width')), name).toBeCloseTo(1.5, 3)
+      expect(svg.getAttribute('stroke-width'), name).toBe('1.5')
     }
   })
 })

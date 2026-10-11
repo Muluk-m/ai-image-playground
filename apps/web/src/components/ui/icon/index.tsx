@@ -8,7 +8,10 @@ export { ICONS, type IconName }
 export const ICON_SIZE_PX = { xs: 14, sm: 16, md: 20, lg: 24 } as const
 export type IconSize = keyof typeof ICON_SIZE_PX
 
-/** 所有尺寸下视觉线宽都是 1.5px（absoluteStrokeWidth）。 */
+/**
+ * 线宽 1.5px，按屏幕像素算（non-scaling-stroke）：Button 等会用 CSS 改图标尺寸，
+ * 按 size 换算的线宽在那时会变粗变细。
+ */
 const STROKE_WIDTH = 1.5
 
 export interface IconProps {
@@ -27,9 +30,8 @@ export function Icon({ name, size = 'sm', className, label, filled = false }: Ic
     <Glyph
       size={ICON_SIZE_PX[size]}
       strokeWidth={STROKE_WIDTH}
-      absoluteStrokeWidth
       fill={filled ? 'currentColor' : 'none'}
-      className={cn('shrink-0', className)}
+      className={cn('shrink-0 [&_*]:[vector-effect:non-scaling-stroke]', className)}
       {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     />
   )
