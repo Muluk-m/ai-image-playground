@@ -13,16 +13,21 @@ export default function CanvasVideoPlayer({
   const element = useRef<HTMLVideoElement>(null)
 
   // 摘下来的 <video> 在被回收前还在拉流、还在响；React 不替你停。
-  // 卸载时 ref 先于清理函数被置空，所以在挂载时就把元素记下来。
+  // 卸载时 ref 先于清理函数被置空，所以在挂载时就把元素记下来；
+  // StrictMode 会先清理再重挂同一个元素，重挂时把被摘掉的来源补回去。
   useEffect(() => {
     const node = element.current
+    if (node && !node.getAttribute('src')) {
+      node.setAttribute('src', src)
+      node.load()
+    }
     return () => {
       if (!node) return
       node.pause()
       node.removeAttribute('src')
       node.load()
     }
-  }, [])
+  }, [src])
 
   return (
     <video
