@@ -201,6 +201,9 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             if (!transform(moved) || transform(before) === transform(moved))
               throw new Error('Node drag did not change its position')
             console.log(`Node drag: ${transform(before)} -> ${transform(moved)}`)
+            const selectedStacking = await Promise.all([first, arrow, last].map((node) => node.evaluate((el) => Number(getComputedStyle(el).zIndex))))
+            if (selectedStacking.join(',') !== stacking.join(','))
+              throw new Error(`Selection changed annotation stacking: ${stacking} -> ${selectedStacking}`)
             // Wait for the real IndexedDB write, rather than reloading while the browser is committing it.
             await page.waitForFunction(({ database, updateCount }) => new Promise((accept, reject) => {
               const request = indexedDB.open(database)
