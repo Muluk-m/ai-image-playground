@@ -288,6 +288,44 @@ describe('today generation overview', () => {
     expect(empty.recent?.entries).toEqual([])
   })
 
+  it('extracts string err from both the failure itself and correlated request logs', async () => {
+    const now = to + 3 * 86400_000
+    await writer.db.insert(writer.schema.server_logs).values([
+      {
+        ...log,
+        id: 'batch-error-string',
+        at: now - 1,
+        level: 'error',
+        message: 'batch dispatch failed',
+        fields: { err: 'Dispatch connection closed' },
+      },
+      {
+        ...log,
+        id: 'http-error-string',
+        at: now - 2,
+        level: 'error',
+        message: 'API request failed',
+        request_id: 'string-err-request',
+        fields: { route: 'POST /api/agent', status: 500 },
+      },
+      {
+        ...log,
+        id: 'string-err-cause',
+        at: now - 3,
+        level: 'warn',
+        request_id: 'string-err-request',
+        fields: { err: 'Agent dispatch unavailable' },
+      },
+    ])
+    const data = await getTodayErrors(now)
+    expect(data.entries.find((entry) => entry.id === 'batch-error-string')?.reason).toBe(
+      'Dispatch connection closed',
+    )
+    expect(data.entries.find((entry) => entry.id === 'http-error-string')?.reason).toBe(
+      'Agent dispatch unavailable',
+    )
+  })
+
   it('requires authentication and rejects malformed time, identity, status and pagination filters', async () => {
     for (const path of ['/api/overview/today', '/api/overview/errors', '/api/tasks'])
       expect((await app.handle(new Request(`http://localhost${path}`))).status).toBe(401)
