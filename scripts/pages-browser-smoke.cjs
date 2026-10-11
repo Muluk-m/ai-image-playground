@@ -51,7 +51,7 @@ async function serveDist(dist) {
   }
 }
 
-async function checkWorkspace(browser, origin, { local = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
+async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
   for (const [index, path] of PATHS.entries()) {
     // Cold browser storage and module cache on each direct navigation, including the deep link.
     const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
@@ -85,7 +85,8 @@ async function checkWorkspace(browser, origin, { local = false, optionalStyles =
         if (request.resourceType() === 'stylesheet' && optionalStyles.includes(url.href))
           return route.fulfill({ contentType: 'text/css', body: '' })
         const fixtures = {
-          '/api/capabilities': { 'accounts:login': true, 'generation:byok': true },
+          '/api/capabilities': { 'accounts:login': true, 'generation:byok': true,
+            ...(nodeCanvas ? { 'canvas:nodes': true } : {}) },
           '/api/channels': { channels: [] },
           '/api/agent/skills': { skills: [] },
           '/api/inspirations/manifest': {
@@ -113,7 +114,7 @@ async function checkWorkspace(browser, origin, { local = false, optionalStyles =
         return route.continue()
       })
     }
-    const label = index === 0 ? 'home' : 'project'
+    const label = `${nodeCanvas ? 'nodes-' : ''}${index === 0 ? 'home' : 'project'}`
     try {
       // A known offline project exercises direct routing without an account or server writes.
       // The fixture document loads no app modules, so the subsequent navigation stays cold.
@@ -121,22 +122,31 @@ async function checkWorkspace(browser, origin, { local = false, optionalStyles =
         const fixtureUrl = new URL('/__startup_fixture__', origin).href
         await context.route(fixtureUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<html></html>' }))
         await page.goto(fixtureUrl)
-        await page.evaluate((id) => new Promise((accept, reject) => {
+        await page.evaluate(({ id, exercise }) => new Promise((accept, reject) => {
           const request = indexedDB.open('image-playground-canvas', 1)
           request.onupgradeneeded = () => request.result.createObjectStore('scene')
           request.onerror = () => reject(request.error)
           request.onsuccess = () => {
             const db = request.result
             const transaction = db.transaction('scene', 'readwrite')
-            transaction.objectStore('scene').put({
+            const store = transaction.objectStore('scene')
+            store.put({
               id, name: 'Startup fixture', customName: true, conversationId: null,
               sceneKey: `canvas:project:${id}`, createdAt: 1, updatedAt: 1,
-              hasContent: false, workspaceOpened: true, kind: 'image', experience: 'canvas',
+              hasContent: exercise, workspaceOpened: true, kind: 'image', experience: 'canvas',
             }, `canvas-project:project:${id}`)
+            if (exercise) {
+              const image = (id, x) => ({ id, type: 'image', fileId: 'fixture-pixel', x, y: 20, width: 120, height: 120, rotation: 0 })
+              store.put({ version: 2, elements: [
+                image('fixture-first', 20),
+                { id: 'fixture-arrow', type: 'arrow', points: [50, 50, 240, 80], stroke: '#ff0000', strokeWidth: 3 },
+                image('fixture-last', 200),
+              ], files: { 'fixture-pixel': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j38sAAAAASUVORK5CYII=' }, camera: { x: 0, y: 0, zoom: 1 } }, `canvas:project:${id}`)
+            }
             transaction.oncomplete = () => { db.close(); accept() }
             transaction.onabort = () => { db.close(); reject(transaction.error) }
           }
-        }), PROJECT_ID)
+        }), { id: PROJECT_ID, exercise: nodeCanvas && exerciseNodes })
         await context.unroute(fixtureUrl)
       }
       await Promise.race([
@@ -144,11 +154,74 @@ async function checkWorkspace(browser, origin, { local = false, optionalStyles =
           const response = await page.goto(new URL(path, origin).href,
             { waitUntil: 'domcontentloaded', timeout: timeoutMs })
           if (!response?.ok()) throw new Error(`Page HTTP ${response?.status()}: ${path}`)
-          const ready = index === 0 ? '[aria-label="创作"]' : '[aria-label="创作画布"] canvas'
+          const ready = index === 0 ? '[aria-label="创作"]'
+            : nodeCanvas ? '[aria-label="创作画布"] .react-flow'
+            : local ? '[aria-label="创作画布"] canvas'
+            : '[aria-label="创作画布"] canvas, [aria-label="创作画布"] .react-flow'
           await page.locator(ready).first().waitFor({ timeout: timeoutMs })
+          if (nodeCanvas && index === 1)
+            await page.locator('.react-flow__minimap').waitFor({ timeout: timeoutMs })
           await page.locator('#boot').waitFor({ state: 'detached', timeout: timeoutMs })
           // Let initialization effects and their asset requests finish before declaring readiness.
           await page.waitForLoadState('networkidle', { timeout: timeoutMs })
+          if (nodeCanvas && exerciseNodes && index === 1) {
+            const first = page.locator('.react-flow__node[data-id="fixture-first"]')
+            const arrow = page.locator('.react-flow__node[data-id="fixture-arrow"]')
+            const last = page.locator('.react-flow__node[data-id="fixture-last"]')
+            await first.waitFor({ timeout: timeoutMs })
+            await arrow.waitFor({ timeout: timeoutMs })
+            await last.waitFor({ timeout: timeoutMs })
+            const stacking = await Promise.all([first, arrow, last].map((node) => node.evaluate((el) => Number(getComputedStyle(el).zIndex))))
+            if (!(stacking[0] < stacking[1] && stacking[1] < stacking[2]))
+              throw new Error(`Annotation stacking is incorrect: ${stacking}`)
+            const drawing = await arrow.locator('svg').boundingBox()
+            if (!drawing || drawing.width < 100 || drawing.height < 10)
+              throw new Error('Annotation bounds do not describe its drawing')
+            const before = await first.getAttribute('style')
+            const database = `image-playground-nodes:canvas:project:${PROJECT_ID}`
+            const updateCount = await page.evaluate((name) => new Promise((accept, reject) => {
+              const request = indexedDB.open(name)
+              request.onerror = () => reject(request.error)
+              request.onsuccess = () => {
+                const db = request.result
+                const transaction = db.transaction('updates', 'readonly')
+                const count = transaction.objectStore('updates').count()
+                transaction.oncomplete = () => { db.close(); accept(count.result) }
+                transaction.onabort = () => { db.close(); reject(transaction.error) }
+              }
+            }), database)
+            const box = await first.boundingBox()
+            if (!box) throw new Error('Migrated image is not visible')
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+            await page.mouse.down()
+            await page.mouse.move(box.x + box.width / 2 + 70, box.y + box.height / 2 + 40, { steps: 8 })
+            await page.mouse.up()
+            const moved = await first.getAttribute('style')
+            const transform = (style) => /transform:\s*([^;]+)/.exec(style || '')?.[1]
+            if (!transform(moved) || transform(before) === transform(moved))
+              throw new Error('Node drag did not change its position')
+            console.log(`Node drag: ${transform(before)} -> ${transform(moved)}`)
+            // Wait for the real IndexedDB write, rather than reloading while the browser is committing it.
+            await page.waitForFunction(({ database, updateCount }) => new Promise((accept, reject) => {
+              const request = indexedDB.open(database)
+              request.onerror = () => reject(request.error)
+              request.onsuccess = () => {
+                const db = request.result
+                const transaction = db.transaction('updates', 'readonly')
+                const count = transaction.objectStore('updates').count()
+                transaction.oncomplete = () => { db.close(); accept(count.result > updateCount) }
+                transaction.onabort = () => { db.close(); reject(transaction.error) }
+              }
+            }), { database, updateCount }, { timeout: timeoutMs })
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: timeoutMs })
+            await page.waitForFunction(({ movedTransform }) => {
+              const node = document.querySelector('.react-flow__node[data-id="fixture-first"]')
+              return node?.style.transform === movedTransform
+            }, { movedTransform: transform(moved) }, { timeout: timeoutMs })
+            await page.locator('#boot').waitFor({ state: 'detached', timeout: timeoutMs })
+            await page.waitForLoadState('networkidle', { timeout: timeoutMs })
+            console.log('PASS node canvas: legacy media/annotation migration, stacking, drag and persisted reload')
+          }
           if (errors.length) throw new Error(errors.join('\n'))
         })(),
         failure,
@@ -157,7 +230,7 @@ async function checkWorkspace(browser, origin, { local = false, optionalStyles =
         await mkdir(outputDir, { recursive: true })
         await page.screenshot({ path: join(outputDir, `${label}.png`) })
       }
-      console.log(`PASS ${path}: workspace mounted, boot removed, no JavaScript or asset errors`)
+      console.log(`PASS ${path}${nodeCanvas ? ' (canvas:nodes on)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
     } catch (error) {
       if (outputDir) {
         await mkdir(outputDir, { recursive: true })
@@ -188,6 +261,10 @@ async function main() {
     browser = await chromium.launch()
     await checkWorkspace(browser, server?.origin || target, {
       local, optionalStyles, timeoutMs: local ? 30000 : 60000,
+      outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
+    })
+    if (local) await checkWorkspace(browser, server.origin, {
+      local, nodeCanvas: true, exerciseNodes: true, optionalStyles, timeoutMs: 30000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
     })
   } finally {
