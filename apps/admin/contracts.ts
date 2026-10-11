@@ -620,6 +620,10 @@ export interface GenerationTasksResult {
 }
 
 export interface TodayErrorItem {
+  route?: string | null
+  status?: number | null
+  errorCode?: string | null
+  reason?: string | null
   instance?: string | null
   source: 'server' | 'client'
   id: string
@@ -636,4 +640,5 @@ export interface TodayErrorsResult {
   window: TimeWindow
   total: number
   entries: TodayErrorItem[]
+  recent?: { window: TimeWindow; total: number; entries: TodayErrorItem[] }
 }
