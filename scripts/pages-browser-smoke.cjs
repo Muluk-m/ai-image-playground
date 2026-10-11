@@ -51,7 +51,7 @@ async function serveDist(dist) {
   }
 }
 
-async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
+async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
   for (const [index, path] of PATHS.entries()) {
     // Cold browser storage and module cache on each direct navigation, including the deep link.
     const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
@@ -116,6 +116,35 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
     }
     const label = `${nodeCanvas ? 'nodes-' : ''}${index === 0 ? 'home' : 'project'}`
     try {
+      if (local && exerciseCatalog && index === 0) {
+        const fixtureUrl = new URL('/__catalog_fixture__', origin).href
+        await context.route(fixtureUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<html></html>' }))
+        await page.goto(fixtureUrl)
+        await page.evaluate(() => new Promise((accept, reject) => {
+          const request = indexedDB.open('image-playground-canvas', 1)
+          request.onupgradeneeded = () => request.result.createObjectStore('scene')
+          request.onerror = () => reject(request.error)
+          request.onsuccess = () => {
+            const db = request.result
+            const transaction = db.transaction('scene', 'readwrite')
+            const store = transaction.objectStore('scene')
+            const cloud = {
+              id: 'catalog-cloud', name: 'Conversation catalog fixture', customName: true,
+              conversationId: 'catalog-conversation', sceneKey: 'canvas:project:catalog-cloud',
+              createdAt: 1, updatedAt: 2, hasContent: true, kind: 'image', experience: 'chat', cloud: { revision: 1 },
+            }
+            const legacy = { ...cloud, id: 'legacy:canvas:conversation:catalog-conversation',
+              sceneKey: 'canvas:conversation:catalog-conversation', cloud: undefined }
+            const separate = { ...cloud, id: 'catalog-separate',
+              sceneKey: 'canvas:project:catalog-separate', conversationId: 'different-conversation' }
+            for (const project of [cloud, legacy, separate])
+              store.put(project, `canvas-project:project:${project.id}`)
+            transaction.oncomplete = () => { db.close(); accept() }
+            transaction.onabort = () => { db.close(); reject(transaction.error) }
+          }
+        }))
+        await context.unroute(fixtureUrl)
+      }
       // A known offline project exercises direct routing without an account or server writes.
       // The fixture document loads no app modules, so the subsequent navigation stays cold.
       if (index === 1) {
@@ -164,6 +193,11 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
           await page.locator('#boot').waitFor({ state: 'detached', timeout: timeoutMs })
           // Let initialization effects and their asset requests finish before declaring readiness.
           await page.waitForLoadState('networkidle', { timeout: timeoutMs })
+          if (local && exerciseCatalog && index === 0) {
+            const count = await page.locator('nav span.truncate').filter({ hasText: 'Conversation catalog fixture' }).count()
+            if (count !== 2) throw new Error(`Conversation catalog identity: expected 2 independent chats, received ${count}`)
+            console.log('PASS conversation catalog: one cloud/legacy entry, separate same-title chat retained')
+          }
           if (nodeCanvas && exerciseNodes && index === 1) {
             const first = page.locator('.react-flow__node[data-id="fixture-first"]')
             const arrow = page.locator('.react-flow__node[data-id="fixture-arrow"]')
@@ -263,11 +297,11 @@ async function main() {
   try {
     browser = await chromium.launch()
     await checkWorkspace(browser, server?.origin || target, {
-      local, optionalStyles, timeoutMs: local ? 30000 : 60000,
+      local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
     })
     if (local) await checkWorkspace(browser, server.origin, {
-      local, nodeCanvas: true, exerciseNodes: true, optionalStyles, timeoutMs: 30000,
+      local, nodeCanvas: true, exerciseNodes: true, exerciseCatalog: true, optionalStyles, timeoutMs: 30000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
     })
   } finally {
