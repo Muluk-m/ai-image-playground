@@ -709,9 +709,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       <h3>{t('sidebar.emptyTitle')}</h3>
                       <p>{t('sidebar.emptyBody')}</p>
                       {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
-                      <AgentSuggestions className="studio-suggestions mt-5" />
+                      {!nodeCanvas && <AgentSuggestions className="studio-suggestions mt-5" />}
                     </div>
-                    <CanvasGenerateBar editor={editor} />
+                    {/* 侧栏输入框只会写进旧画布；节点画布里的生成随节点输入框（#1140）上线。 */}
+                    {nodeCanvas ? (
+                      <p className="m-4 rounded-xl border border-border p-3 text-sm text-muted-foreground">
+                        {t('nodes.generateUnavailable')}
+                      </p>
+                    ) : (
+                      <CanvasGenerateBar editor={editor} />
+                    )}
                   </aside>
                 )}
               </div>

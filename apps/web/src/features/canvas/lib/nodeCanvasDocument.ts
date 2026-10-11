@@ -35,12 +35,15 @@ export async function openNodeCanvasDocument(
   const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(sceneKey), doc)
   try {
     await persistence.whenSynced
+    importLegacyElements(doc, legacy(), importOrigin)
   } catch (error) {
-    await persistence.destroy()
-    doc.destroy()
+    try {
+      await persistence.destroy()
+    } finally {
+      doc.destroy()
+    }
     throw error
   }
-  importLegacyElements(doc, legacy(), importOrigin)
   const undo = createCanvasUndoManager(doc, deviceOrigin)
   return {
     doc,
