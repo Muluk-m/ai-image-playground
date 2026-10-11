@@ -208,6 +208,86 @@ describe('today generation overview', () => {
     })
   })
 
+  it('counts the full recent window before limiting rows and correlates request reasons without counting warnings', async () => {
+    const now = to + 86400_000
+    const failure = {
+      ...log,
+      service: 'bff' as const,
+      event: 'http.request',
+      message: 'API request failed',
+      task_id: null,
+      request_id: 'media-request',
+      fields: { route: 'POST /api/media/:id/complete', status: 503 },
+    }
+    await writer.db.insert(writer.schema.server_logs).values([
+      { ...failure, id: 'media-http', at: now - 20, level: 'error' },
+      {
+        ...failure,
+        id: 'media-cause',
+        at: now - 21,
+        level: 'warn',
+        event: 'media.request_rejected',
+        fields: { errorCode: 'media_processing_busy', reason: 'object_lock_timeout' },
+      },
+      {
+        ...failure,
+        id: 'other-instance',
+        instance: 'other',
+        at: now - 19,
+        level: 'warn',
+        fields: { errorCode: 'wrong_instance', reason: 'wrong_instance' },
+      },
+      {
+        ...failure,
+        id: 'future-cause',
+        at: now + 1,
+        level: 'warn',
+        fields: { errorCode: 'future_cause', reason: 'future_cause' },
+      },
+      { ...log, id: 'earlier-today', at: now - 3600_000 + 1000, level: 'error' },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        ...log,
+        id: `recent-${i}`,
+        at: now - 100 - i,
+        level: 'error' as const,
+      })),
+    ])
+    const data = await getTodayErrors(now)
+    expect(data.total).toBe(14)
+    expect(data.recent?.total).toBe(13)
+    expect(data.entries).toHaveLength(10)
+    expect(data.recent?.entries).toHaveLength(10)
+    expect(data.entries[0]).toMatchObject({
+      id: 'media-http',
+      route: 'POST /api/media/:id/complete',
+      status: 503,
+      errorCode: 'media_processing_busy',
+      reason: 'object_lock_timeout',
+    })
+    expect(JSON.stringify(data)).not.toContain('wrong_instance')
+    expect(JSON.stringify(data)).not.toContain('future_cause')
+  })
+
+  it('keeps recent errors from the previous day after midnight while today is empty', async () => {
+    const midnight = from + 2 * 86400_000
+    await writer.db.insert(writer.schema.client_errors).values({
+      id: 'before-midnight',
+      fingerprint: 'bbbbbbbbbbbbbbbb',
+      kind: 'boot',
+      message: 'timeout',
+      received_at: midnight - 1,
+    })
+    const data = await getTodayErrors(midnight + 5 * 60_000)
+    expect(data.total).toBe(0)
+    expect(data.entries).toEqual([])
+    expect(data.recent?.total).toBe(1)
+    expect(data.recent?.entries[0]?.id).toBe('before-midnight')
+    expect(data.recent?.window).toEqual({ from: midnight - 10 * 60_000, to: midnight + 5 * 60_000 })
+    const empty = await getTodayErrors(midnight + 16 * 60_000)
+    expect(empty.recent?.total).toBe(0)
+    expect(empty.recent?.entries).toEqual([])
+  })
+
   it('requires authentication and rejects malformed time, identity, status and pagination filters', async () => {
     for (const path of ['/api/overview/today', '/api/overview/errors', '/api/tasks'])
       expect((await app.handle(new Request(`http://localhost${path}`))).status).toBe(401)

@@ -82,41 +82,87 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
   }
 }
 
+function logText(fields: unknown, key: string): string | null {
+  if (!fields || typeof fields !== 'object') return null
+  const value = (fields as Record<string, unknown>)[key]
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function logReason(fields: unknown): string | null {
+  if (!fields || typeof fields !== 'object') return null
+  const value = fields as Record<string, unknown>
+  return (
+    logText(fields, 'reason') ??
+    logText(value.err, 'message') ??
+    logText(fields, 'error') ??
+    logText(value.error, 'message')
+  )
+}
+
 export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResult> {
   const window = todayWindow(now)
+  const recentWindow = { from: now - 15 * 60_000, to: now }
+  const scanFrom = new Date(Math.min(window.from, recentWindow.from))
   const rows = (await getDbHandle().db.execute(sql`
     WITH errors AS (
       SELECT 'server' AS source, id, at, service, instance, message, task_id, request_id, group_key AS "group",
-        COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack
+        COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields
       FROM server_logs
-      WHERE at >= ${new Date(window.from)} AND at <= ${new Date(window.to)}
+      WHERE at >= ${scanFrom} AND at <= ${new Date(now)}
         AND ${effectiveLogLevel} IN ('error', 'fatal')
       UNION ALL
       SELECT 'client' AS source, id, received_at AS at, '前端' AS service, NULL::text AS instance,
         CASE WHEN name IS NULL THEN message ELSE name || ': ' || message END AS message,
-        NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack
+        NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack, '{}'::jsonb AS fields
       FROM client_errors
-      WHERE received_at >= ${new Date(window.from)} AND received_at <= ${new Date(window.to)}
+      WHERE received_at >= ${scanFrom} AND received_at <= ${new Date(now)}
+    ), latest AS (
+      SELECT *, COUNT(*) FILTER (WHERE at >= ${new Date(window.from)}) OVER() AS total,
+        COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER() AS recent_total
+      FROM errors ORDER BY at DESC, source, id DESC LIMIT 10
     )
-    SELECT *, COUNT(*) OVER() AS total FROM errors ORDER BY at DESC, source, id DESC LIMIT 10
+    SELECT latest.*, cause.fields AS cause_fields FROM latest
+    LEFT JOIN LATERAL (
+      SELECT fields FROM server_logs related
+      WHERE latest.source = 'server' AND latest.request_id IS NOT NULL
+        AND related.request_id = latest.request_id AND related.id <> latest.id
+        AND related.service = latest.service AND related.instance = latest.instance
+        AND related.at BETWEEN latest.at - interval '1 minute' AND latest.at + interval '1 minute'
+        AND related.at <= ${new Date(now)}
+        AND (fields ? 'errorCode' OR fields ? 'reason' OR fields ? 'err' OR fields ? 'error')
+      ORDER BY (fields ? 'reason') DESC, (fields ? 'errorCode') DESC, at DESC, id DESC LIMIT 1
+    ) cause ON true
+    ORDER BY latest.at DESC, latest.source, latest.id DESC
   `)) as unknown as Row[]
+  const entries = rows.map((row): TodayErrorItem => {
+    const fields = row.fields as Record<string, unknown> | null
+    const status = Number(fields?.status)
+    return {
+      source: row.source as TodayErrorItem['source'],
+      id: String(row.id),
+      at: epoch(row.at),
+      service: String(row.service),
+      instance: nullableText(row.instance),
+      message: String(row.message),
+      task_id: nullableText(row.task_id),
+      request_id: nullableText(row.request_id),
+      group: nullableText(row.group),
+      stack: nullableText(row.stack),
+      route: logText(fields, 'route'),
+      status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+      errorCode: logText(fields, 'errorCode') ?? logText(row.cause_fields, 'errorCode'),
+      reason: logReason(fields) ?? logReason(row.cause_fields),
+    }
+  })
   return {
     window,
     total: Number(rows[0]?.total ?? 0),
-    entries: rows.map(
-      (row): TodayErrorItem => ({
-        source: row.source as TodayErrorItem['source'],
-        id: String(row.id),
-        at: epoch(row.at),
-        service: String(row.service),
-        instance: nullableText(row.instance),
-        message: String(row.message),
-        task_id: nullableText(row.task_id),
-        request_id: nullableText(row.request_id),
-        group: nullableText(row.group),
-        stack: nullableText(row.stack),
-      }),
-    ),
+    entries: entries.filter((entry) => entry.at >= window.from),
+    recent: {
+      window: recentWindow,
+      total: Number(rows[0]?.recent_total ?? 0),
+      entries: entries.filter((entry) => entry.at >= recentWindow.from),
+    },
   }
 }
 
