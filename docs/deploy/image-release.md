@@ -14,7 +14,11 @@
 
 ### 前端启动验收
 
-`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识（整份 HTML 的 sha256，含独立启动脚本）、所有构建 JS/CSS 的 MIME 与字节内容，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开付费站，确认工作台挂载、启动遮罩消失且无 JavaScript 异常。
+`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识（整份 HTML 的 sha256，含独立启动脚本）、所有构建 JS/CSS 的 MIME 与字节内容，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开两套生产站，确认首页工作台与隔离的本地项目画布挂载、启动遮罩消失且无 JavaScript 异常。
+
+PR/main/test 的公开版与带 overlay 构建都在 Chromium 中冷启动首页和项目深链接；工作台未挂载、启动遮罩未消失、JS 异常或分片加载失败均阻止检查通过。`pages-release.sh` 调用的上传入口还会在构建与附加资源复制后，对最终 `dist` 重跑同一检查，通过后才执行 Wrangler 上传，不以重新构建替代已测产物。发布后继续验证两个生产域名的真实加载。
+
+浏览器运行时由 `scripts/pages-browser-smoke.sh` 在仓库外准备固定版本 Playwright；手动应急发布也必须通过该检查。本地产物检查按 `_redirects` 提供路由，保留缺失资源 404；项目直链使用隔离浏览器内预置的本地画布，首次导航前不加载任何应用模块。检查只 mock 匿名启动所需的只读 API 并阻止其它外部请求；不连接生产 API、不调用付费生成。它验证生产分片的真实求值与启动，不替代登录、业务数据及生成验收。失败时保存截图、原始 JS/资源错误和页面 HTML，CI 上传为七天保留的 artifact。
 
 静态资源缺失不得回退首页：web 使用顶层 `404.html` 关闭 Pages 默认 SPA 回退，`_redirects` 只列真实业务路由，构建时由 `apps/web/src/lib/pagesRedirects.ts` 从 `appPaths.ts` 生成，新增入口只改 `appPaths.ts`。`/assets/*` 使用一年 `immutable`：Pages 的 `_headers` 不作用于 404，发布校验也会确认缺失资源返回不可复用的 404；前提是不恢复全站 SPA 回退。资产页路由同样是 `/assets`：带斜杠的 `/assets/` 落在这条规则里，只做 301 跳到 `/assets`，不回退 SPA；发布校验会拒绝带长缓存的业务深链。
 

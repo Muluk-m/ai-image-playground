@@ -222,6 +222,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: pnpm install --frozen-lockfile
       - name: Release the internal site (no private overlay)
+        env:
+          PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-internal-build
         run: ./scripts/pages-release.sh internal
       # 与 backend 同一份 overlay：那边已经把 `verified` 解成了具体 sha，这里照它取，
       # 两个 job 之间不会因为指针中途前移而错开。
@@ -240,6 +242,8 @@ jobs:
       # The overlay packages are workspace members; install their dependencies too.
       - run: pnpm install --frozen-lockfile
       - name: Release the paid site (with private overlay)
+        env:
+          PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-paid-build
         run: ./scripts/pages-release.sh paid
       - name: Wait for the Admin API when cut over
         env:
@@ -261,15 +265,22 @@ jobs:
               { echo "::error::$ADMIN_BFF_BASE_URL/health reports '${version}', expected $PUBLIC_SHA+$PRIVATE_SHA"; exit 1; }
             sleep 10
           done
-      - name: Verify the paid workspace in Chromium
+      - name: Verify both production workspaces in Chromium
         run: |
-          smoke_dir="$RUNNER_TEMP/pages-smoke"
-          mkdir -p "$smoke_dir"
-          npm install --prefix "$smoke_dir" --no-package-lock --no-save playwright@1.58.2
-          "$smoke_dir/node_modules/.bin/playwright" install --with-deps chromium
-          cp scripts/pages-browser-smoke.cjs "$smoke_dir/smoke.cjs"
+          # shellcheck source=/dev/null
           source "$PAGES_ENV_FILE"
-          node "$smoke_dir/smoke.cjs" "$PAID_PUBLIC_ORIGIN"
+          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-internal-live" sh scripts/pages-browser-smoke.sh "$INTERNAL_PUBLIC_ORIGIN"
+          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-paid-live" sh scripts/pages-browser-smoke.sh "$PAID_PUBLIC_ORIGIN"
+
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-pages-startup
+          path: |
+            ${{ runner.temp }}/pages-*-build
+            ${{ runner.temp }}/pages-*-live
+          retention-days: 7
 
       - name: Release the paid Admin site when cut over
         run: |

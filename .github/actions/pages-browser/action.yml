@@ -1,0 +1,41 @@
+name: Verify production browser startup
+description: Cold-start the production build in Chromium before it can be published.
+inputs:
+  target:
+    description: Built dist directory or deployed origin
+    default: apps/web/dist
+  live:
+    description: Check a deployed origin instead of a local build
+    default: 'false'
+  label:
+    description: Artifact name for screenshots and failure evidence
+    default: pages-startup
+  test-runner:
+    description: Exercise the smoke runner's failure cases
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Check browser regression cases
+      if: inputs.test-runner == 'true'
+      shell: bash
+      run: sh scripts/pages-browser-smoke.sh --test
+    - name: Verify startup
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        LIVE: ${{ inputs.live }}
+        PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/${{ inputs.label }}
+      run: |
+        if [ "$LIVE" = true ]; then
+          sh scripts/pages-browser-smoke.sh "$TARGET"
+        else
+          sh scripts/pages-browser-smoke.sh --dist "$TARGET"
+        fi
+    - name: Save browser evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ${{ inputs.label }}
+        path: ${{ runner.temp }}/${{ inputs.label }}
+        retention-days: 7
