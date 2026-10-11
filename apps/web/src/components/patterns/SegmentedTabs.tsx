@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
 
 export interface SegmentedTab<T extends string> {
   value: T

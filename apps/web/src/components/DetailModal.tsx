@@ -23,7 +23,7 @@ import {
   useStore,
 } from '../store'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
-import Overlay from './Overlay'
+import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 

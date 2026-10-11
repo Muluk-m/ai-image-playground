@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CloseIcon, EditIcon, SparkleIcon, TrashIcon } from '../../../components/icons'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import { useTranslation } from '../../../i18n'
 import { formatDateTime } from '../../../i18n/format'
 import { useStore } from '../../../store'

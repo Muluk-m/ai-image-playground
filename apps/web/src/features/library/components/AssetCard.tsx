@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useMemo, useState } from 'react'
-import Badge from '../../../components/Badge'
 import { EditIcon, LayersIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
+import Badge from '../../../components/patterns/Badge'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'

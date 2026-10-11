@@ -1,9 +1,9 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
-import { useTranslation } from '../i18n'
-import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
-import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from './icons'
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
+import { useTranslation } from '../../i18n'
+import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../../lib/dropdown'
+import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from '../icons'
 
 interface Option {
   label: string

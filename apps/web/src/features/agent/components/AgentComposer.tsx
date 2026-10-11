@@ -23,11 +23,11 @@ import {
   ComposerSend,
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
-import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import LookChips from '../../../components/LookChips'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
+import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
 import SuggestionMenu, {
   type SuggestionMenuGroup,
   useSuggestionMenu,

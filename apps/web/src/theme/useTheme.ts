@@ -6,7 +6,7 @@ import {
   subscribeTheme,
   type Theme,
   type ThemeChoice,
-} from './index'
+} from '.'
 
 export interface ThemeControls {
   /** 此刻生效的主题。 */

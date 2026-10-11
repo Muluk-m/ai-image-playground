@@ -1,8 +1,8 @@
 import { CornerDownLeft, Eraser, RefreshCw, RotateCcw } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useStore } from '../../store'
-import { SettingRow } from '../SettingRow'
-import { Switch } from '../Switch'
+import { SettingRow } from '../patterns/SettingRow'
+import { Switch } from '../patterns/Switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import SettingsSection from './SettingsSection'
 

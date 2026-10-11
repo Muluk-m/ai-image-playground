@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import Overlay from '../../../components/Overlay'
 import {
   FIELD,
   LABEL,
@@ -7,6 +6,7 @@ import {
   PANEL_TITLE,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
+import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'

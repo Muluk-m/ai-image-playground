@@ -1,7 +1,7 @@
 import { Check, Download, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { VideoIcon } from '../../../components/icons'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
 import { useTranslation } from '../../../i18n'

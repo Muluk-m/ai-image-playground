@@ -29,8 +29,8 @@ import type { AppSettings, CustomProviderDefinition } from '../../types'
 import { TooltipIconButton } from '../assistant-ui/elements/tooltip-icon-button'
 import { ChevronDownIcon, CopyIcon, LinkIcon, PlusIcon, TrashIcon } from '../icons'
 import ModelCombobox from '../ModelCombobox'
-import Select from '../Select'
-import { Switch } from '../Switch'
+import Select from '../patterns/Select'
+import { Switch } from '../patterns/Switch'
 import {
   createDefaultOpenAIProfile,
   DEFAULT_BYOK_BASEURL,

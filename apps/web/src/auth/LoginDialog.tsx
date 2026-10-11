@@ -1,6 +1,6 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import Overlay from '../components/Overlay'
+import Overlay from '../components/patterns/Overlay'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
