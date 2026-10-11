@@ -2,7 +2,6 @@ import { snapVideoKeyframeTimestamp, videoRateMultiplier } from '@image-playgrou
 import { ArrowUp, GripVertical } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import Overlay from '../../../components/Overlay'
 import {
   FIELD,
   LABEL,
@@ -10,6 +9,7 @@ import {
   PANEL_TITLE,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
+import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Input } from '../../../components/ui/input'
 import {

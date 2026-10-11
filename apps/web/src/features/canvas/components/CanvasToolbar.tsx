@@ -1,7 +1,7 @@
 import { FolderOpen, Images, Maximize2, Minus, Paperclip, Plus } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
 import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
-import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
+import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { duplicateSelection } from '../lib/canvasClipboard'

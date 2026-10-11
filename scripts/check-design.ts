@@ -23,6 +23,9 @@ export type DesignRule = {
 }
 
 const outsideUi = (path: string) => !path.includes('/components/ui/')
+// 原生控件与 focus: 的写法只许出现在设计系统内部（ui 原语与 patterns 组合件）。
+const DESIGN_LAYERS = /\/components\/(ui|patterns)\//
+const outsideDesignSystem = (path: string) => !DESIGN_LAYERS.test(path)
 // 品牌 Logo 是唯一允许手写 svg 的地方；icons.tsx 与 *Icons.tsx 是待迁走的旧图标模块。
 const isLogoModule = (path: string) => /\/logos\.tsx$/.test(path)
 const palette =
@@ -85,13 +88,46 @@ function isRuntimeLucideImport(statement: ts.Statement): boolean {
   return !bindings || !ts.isNamedImports(bindings) || bindings.elements.some((e) => !e.isTypeOnly)
 }
 
+// 设计系统分层：ui（原语）← patterns（通用组合件）← 业务。下层只能依赖更下层与通用工具，
+// assistant-ui/elements 是外部 UI 套件的改写，算 UI 层。没放进 biome 的 noRestrictedImports：
+// 那边按目录的覆盖会整组替换禁令列表，相对路径也得逐层写 glob。
+function layerViolations(file: ts.SourceFile): number[] {
+  const layer = DESIGN_LAYERS.exec(file.fileName)?.[1]
+  if (!layer) return []
+  const dir = resolve(file.fileName, '..')
+  const srcRoot = resolve(file.fileName.slice(0, file.fileName.indexOf('/components/')))
+  return file.statements.flatMap((statement) => {
+    if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) return []
+    const specifier = statement.moduleSpecifier
+    if (!specifier || !ts.isStringLiteral(specifier)) return []
+    const { text } = specifier
+    // `@/` 对应 apps/web/tsconfig.json 的 "@/*": ["./src/*"]。
+    const target = text.startsWith('@/')
+      ? resolve(srcRoot, text.slice(2))
+      : text.startsWith('.')
+        ? resolve(dir, text)
+        : null
+    if (!target) return []
+    // 去掉扩展名再比：tsconfig 开了 allowImportingTsExtensions，'../../store.ts' 是合法写法。
+    const inside = target.slice(srcRoot.length).replace(/\.(tsx?|jsx?)$/, '')
+    const allowed =
+      inside.startsWith('/components/ui/') ||
+      (layer === 'patterns' && inside.startsWith('/components/patterns/')) ||
+      inside.startsWith('/components/assistant-ui/elements/') ||
+      (!inside.startsWith('/components/') &&
+        !inside.startsWith('/features/') &&
+        !/^\/store(\/|$)/.test(inside))
+    return allowed ? [] : [statement.getStart(file)]
+  })
+}
+
 export const DESIGN_RULES: readonly DesignRule[] = [
   {
     id: 'native-control',
-    fix: '用 components/ui 的 Button / Input / Textarea / Select 等组件，不写原生控件',
+    fix: '用 components/ui 或 components/patterns 里的组件，不写原生控件（新控件类型先加进 patterns）',
     pattern: /<(button|select|textarea|dialog|input)\b/g,
     extensions: ['tsx'],
-    appliesTo: outsideUi,
+    appliesTo: outsideDesignSystem,
     exempt: (source, index) => {
       const tag = openingTagAt(source, index)
       return tag.startsWith('<input') && ['file', 'hidden'].includes(typeOf(tag) ?? '')
@@ -109,6 +145,11 @@ export const DESIGN_RULES: readonly DesignRule[] = [
     fix: '图标用 components/ui/icon 的 <Icon name>，不直接 import lucide-react（纯类型导入除外）',
     find: (file) => file.statements.filter(isRuntimeLucideImport).map((s) => s.getStart(file)),
     appliesTo: outsideUi,
+  },
+  {
+    id: 'layer-import',
+    fix: 'components/ui 与 components/patterns 不依赖业务（store、features、components 根目录）；ui 也不依赖 patterns',
+    find: layerViolations,
   },
   {
     id: 'glyph-icon',
@@ -160,7 +201,7 @@ export const DESIGN_RULES: readonly DesignRule[] = [
     id: 'focus-not-visible',
     fix: '焦点环用 focus-visible:，只有文本输入框允许 focus:',
     pattern: /(?<![-\w])focus:(ring|outline)/g,
-    appliesTo: outsideUi,
+    appliesTo: outsideDesignSystem,
     exempt: (source, index) => {
       const tag = enclosingTag(source, index)
       return (

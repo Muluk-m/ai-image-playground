@@ -4,7 +4,7 @@ import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
-import Overlay from '../../../components/Overlay'
+import Overlay from '../../../components/patterns/Overlay'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { createMaskPreviewDataUrl } from '../../../lib/canvasImage'

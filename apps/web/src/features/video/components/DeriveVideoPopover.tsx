@@ -2,7 +2,6 @@ import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/sha
 import { useState } from 'react'
 import Credits from '../../../components/Credits'
 import { SettingsChoice } from '../../../components/composer/SettingsPanel'
-import Overlay from '../../../components/Overlay'
 import {
   FIELD,
   LABEL,
@@ -10,6 +9,7 @@ import {
   PANEL_TITLE,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
+import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'

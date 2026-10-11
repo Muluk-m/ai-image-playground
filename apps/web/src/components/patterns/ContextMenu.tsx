@@ -7,8 +7,8 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
-import { Button } from './ui/button'
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
+import { Button } from '../ui/button'
 
 interface ContextMenuProps {
   x: number

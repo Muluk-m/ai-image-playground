@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import Badge from '../../../components/Badge'
+import Badge from '../../../components/patterns/Badge'
 import { useTranslation } from '../../../i18n'
 import type { LookItem } from '../lib/looks'
 import LookImage from './LookImage'

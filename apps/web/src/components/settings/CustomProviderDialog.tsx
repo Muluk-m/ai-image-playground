@@ -6,7 +6,7 @@ import { useStore } from '../../store'
 import type { CustomProviderDefinition } from '../../types'
 import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
 import { CloseIcon, LinkIcon } from '../icons'
-import Overlay from '../Overlay'
+import Overlay from '../patterns/Overlay'
 
 export interface CustomProviderForm {
   json: string

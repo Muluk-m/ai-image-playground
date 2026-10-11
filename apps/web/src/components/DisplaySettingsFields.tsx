@@ -4,7 +4,7 @@ import type { ThemeChoice } from '../theme'
 import { THEME_LABEL_KEY } from '../theme/labels'
 import { useTheme } from '../theme/useTheme'
 import { GlobeIcon, MoonIcon, SunIcon } from './icons'
-import { SettingRow } from './SettingRow'
+import { SettingRow } from './patterns/SettingRow'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 /** 设置面板与头像菜单共用这两个主题选项。 */

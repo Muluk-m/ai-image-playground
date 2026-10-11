@@ -20,9 +20,9 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Checkbox } from '../../../components/Checkbox'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
+import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'

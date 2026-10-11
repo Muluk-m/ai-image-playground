@@ -1,6 +1,6 @@
-import { ArrowRight } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
+import { Icon } from '../ui/icon'
 
 /** 区块标题 + 右侧「查看全部」类链接；链接文字与下方网格右边缘对齐。 */
 export default function SectionHeader({
@@ -32,9 +32,10 @@ export default function SectionHeader({
         >
           {action.label}
           {!action.expanded ? (
-            <ArrowRight
-              className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
-              aria-hidden="true"
+            <Icon
+              name="arrowRight"
+              size="xs"
+              className="transition-transform group-hover:translate-x-0.5"
             />
           ) : null}
         </button>

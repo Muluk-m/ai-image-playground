@@ -1,4 +1,4 @@
-import { currentLocale } from './index'
+import { currentLocale } from '.'
 
 /**
  * 日期与数字一律走这里，不要再写 `toLocaleString('zh-CN')`。写死 locale 的地方在切到英文后

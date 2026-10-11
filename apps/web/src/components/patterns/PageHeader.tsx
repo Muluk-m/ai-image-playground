@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
 
 /**
  * 浏览页的页头：固定 56px，右侧按浮动账号簇的实际宽度让位（`--studio-header-actions-width`

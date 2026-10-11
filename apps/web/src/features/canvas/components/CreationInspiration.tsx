@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import SectionHeader from '../../../components/SectionHeader'
+import SectionHeader from '../../../components/patterns/SectionHeader'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
