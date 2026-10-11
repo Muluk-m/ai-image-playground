@@ -8,6 +8,8 @@ import {
   type LegacyCanvasElement,
   moveCanvasNodes,
   readCanvasDocument,
+  reconcileLegacyElements,
+  synchronizeLegacyElements,
 } from '../canvas-document'
 
 /** 转换的反面：按叠放次序还原成旧存档的元素，核对转换没有丢东西。 */
@@ -165,11 +167,148 @@ it('converges when two replicas convert the same scene concurrently', () => {
   moveCanvasNodes(right, [{ id: 'img', x: 99, y: 88 }], canvasOrigin('user', 'me'))
   Y.applyUpdate(left, Y.encodeStateAsUpdate(right))
   Y.applyUpdate(right, Y.encodeStateAsUpdate(left))
-  for (const doc of [left, right]) {
-    const image = readCanvasDocument(doc).nodes.find((node) => node.id === 'img')!
-    expect([image.x, image.y]).toEqual([99, 88])
-    expect(readCanvasDocument(doc).nodes).toHaveLength(6)
-  }
+  expect(readCanvasDocument(left)).toEqual(readCanvasDocument(right))
+  expect(readCanvasDocument(left).nodes).toHaveLength(6)
+})
+
+it('converges when independent replicas migrate different legacy snapshots', () => {
+  const left = imported([{ ...legacy[0]!, id: 'old' }])
+  const right = imported([{ ...legacy[0]!, id: 'new' }])
+  Y.applyUpdate(left, Y.encodeStateAsUpdate(right))
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left))
+  const sorted = (doc: Y.Doc) =>
+    readCanvasDocument(doc).nodes.sort((a, b) => a.id.localeCompare(b.id))
+  expect(sorted(left)).toEqual(sorted(right))
+  expect(sorted(left).map((node) => node.id)).toEqual(['new', 'old'])
+})
+
+describe('legacy write bridge', () => {
+  const origin = canvasOrigin('system', 'legacy-bridge')
+
+  it('adds and removes legacy elements without resetting independently moved nodes', () => {
+    const before = [legacy[0]!]
+    const doc = imported(before)
+    moveCanvasNodes(doc, [{ id: 'img', x: 99, y: 88 }], canvasOrigin('user', 'me'))
+    const added = [legacy[0]!, legacy[3]!]
+    synchronizeLegacyElements(doc, before, added, origin)
+    expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'img')).toMatchObject({
+      x: 99,
+      y: 88,
+    })
+    expect(readCanvasDocument(doc).nodes.map((node) => node.id)).toEqual(['img', 'note'])
+    synchronizeLegacyElements(doc, added, [legacy[3]!], origin)
+    expect(readCanvasDocument(doc).nodes.map((node) => node.id)).toEqual(['note'])
+  })
+
+  it('preserves the node map and user geometry when a pending task completes', () => {
+    const pending = legacy[5]!
+    const doc = imported([pending])
+    const node = doc.getMap<Y.Map<unknown>>('nodes').get(pending.id)
+    moveCanvasNodes(doc, [{ id: pending.id, x: 99, y: 88 }], canvasOrigin('user', 'me'))
+    const finished = { ...legacy[0]!, id: pending.id }
+    synchronizeLegacyElements(doc, [pending], [finished], origin)
+    expect(doc.getMap('nodes').get(pending.id)).toBe(node)
+    expect(readCanvasDocument(doc).nodes[0]).toMatchObject({
+      x: 99,
+      y: 88,
+      width: 256,
+      height: 256,
+      data: { fileId: 'file_1' },
+    })
+    expect(readCanvasDocument(doc).nodes[0]!.data).not.toHaveProperty('pending')
+  })
+
+  it('reuses an element reconciled before its queued legacy addition is replayed', () => {
+    const doc = imported([])
+    reconcileLegacyElements(doc, [legacy[0]!], origin)
+    const node = doc.getMap('nodes').get('img')
+    moveCanvasNodes(doc, [{ id: 'img', x: 99, y: 88 }], canvasOrigin('user', 'me'))
+    synchronizeLegacyElements(doc, [], [legacy[0]!], origin)
+    expect(doc.getMap('nodes').get('img')).toBe(node)
+    expect(readCanvasDocument(doc).nodes[0]).toMatchObject({ x: 99, y: 88 })
+  })
+
+  it('preserves user geometry when an image becomes a video', () => {
+    const doc = imported([legacy[0]!])
+    moveCanvasNodes(doc, [{ id: 'img', x: 99, y: 88 }], canvasOrigin('user', 'me'))
+    synchronizeLegacyElements(doc, [legacy[0]!], [{ ...legacy[1]!, id: 'img' }], origin)
+    expect(readCanvasDocument(doc).nodes[0]).toMatchObject({
+      type: 'video',
+      x: 99,
+      y: 88,
+      width: 300,
+      height: 200,
+    })
+  })
+
+  it('updates content and shared z order while keeping unchanged node coordinates', () => {
+    const before = [legacy[0]!, legacy[2]!, legacy[3]!]
+    const doc = imported(before)
+    moveCanvasNodes(doc, [{ id: 'note', x: 99, y: 88 }], canvasOrigin('user', 'me'))
+    const next: LegacyCanvasElement[] = [
+      {
+        ...legacy[3]!,
+        type: 'text',
+        text: 'Updated',
+        x: 0,
+        y: 300,
+        width: 200,
+        height: 80,
+        fontSize: 64,
+        fill: '#ef4444',
+      },
+      legacy[0]!,
+      legacy[2]!,
+    ]
+    synchronizeLegacyElements(doc, before, next, origin)
+    expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'note')).toMatchObject({
+      x: 99,
+      y: 88,
+      z: 0,
+      data: { text: 'Updated' },
+    })
+    expect(readCanvasDocument(doc).annotations[0]).toMatchObject({ id: 'arrow', z: 2 })
+  })
+
+  it('reconciles missing and completed elements without deleting node-only content or moving nodes', () => {
+    const pending = legacy[5]!
+    const doc = imported([pending, { ...legacy[0]!, id: 'node-only' }])
+    moveCanvasNodes(doc, [{ id: pending.id, x: 99, y: 88 }], canvasOrigin('user', 'me'))
+    reconcileLegacyElements(doc, [{ ...legacy[0]!, id: pending.id }, legacy[3]!], origin)
+    expect(
+      readCanvasDocument(doc)
+        .nodes.map((node) => node.id)
+        .sort(),
+    ).toEqual(['node-only', 'note', 'pending'])
+    expect(readCanvasDocument(doc).nodes.find((node) => node.id === pending.id)).toMatchObject({
+      x: 99,
+      y: 88,
+      data: { fileId: 'file_1' },
+    })
+  })
+
+  it.each(['error', 'stale'])('reconciles a recovered %s placeholder', (status) => {
+    const pending = legacy[5]!
+    const doc = imported([pending])
+    reconcileLegacyElements(
+      doc,
+      [
+        {
+          ...pending,
+          type: 'placeholder',
+          status,
+          message: 'Recovered',
+          meta: {},
+          x: 800,
+          y: 0,
+          width: 256,
+          height: 256,
+        },
+      ],
+      origin,
+    )
+    expect(readCanvasDocument(doc).nodes[0]!.data).toMatchObject({ pending: { status } })
+  })
 })
 
 describe('moving nodes', () => {
