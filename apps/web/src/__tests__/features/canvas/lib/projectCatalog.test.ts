@@ -1,6 +1,6 @@
 import type { CloudProjectSummary } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
-import { projectCatalog } from '../../../../features/canvas/lib/projectCatalog'
+import { catalogProjectId, projectCatalog } from '../../../../features/canvas/lib/projectCatalog'
 import type { CanvasProject } from '../../../../features/canvas/lib/projectRepository'
 
 const local: CanvasProject = {
@@ -37,5 +37,47 @@ describe('projectCatalog cover', () => {
     expect(projectCatalog([{ ...local, cover: 'data:local' }], { p1: remote })[0]?.cover).toBe(
       'data:local',
     )
+  })
+})
+
+const cloudChat: CanvasProject = { ...local, cloud: { revision: 1 } }
+const legacyChat: CanvasProject = {
+  ...local,
+  id: 'legacy:canvas:conversation:c1',
+  sceneKey: 'canvas:conversation:c1',
+  updatedAt: 300,
+}
+
+describe('conversation catalog identity', () => {
+  it('lists the cloud chat once while retaining the legacy record and its active identity', () => {
+    const projects = [legacyChat, cloudChat]
+    expect(projectCatalog(projects, {})).toEqual([cloudChat])
+    expect(catalogProjectId(legacyChat, projects)).toBe(cloudChat.id)
+    expect(projects).toEqual([legacyChat, cloudChat])
+    expect(projectCatalog([{ ...legacyChat, cloud: { revision: 0 } }, cloudChat], {})).toEqual([
+      cloudChat,
+    ])
+  })
+
+  it('keeps unrelated chats with identical names and canvas projects linked to the conversation', () => {
+    const separateChat = { ...cloudChat, id: 'p2', conversationId: 'c2' }
+    const canvas = { ...cloudChat, id: 'canvas', experience: 'canvas' as const }
+    expect(projectCatalog([legacyChat, cloudChat, separateChat, canvas], {})).toEqual([
+      cloudChat,
+      separateChat,
+      canvas,
+    ])
+  })
+
+  it('keeps a legacy chat available when the cloud project is missing or deleted', () => {
+    expect(projectCatalog([legacyChat], {})).toEqual([legacyChat])
+    const deleted = { ...cloudChat, cloud: { revision: 1, deleted: true } }
+    expect(projectCatalog([legacyChat, deleted], {})).toEqual([legacyChat])
+    expect(catalogProjectId(legacyChat, [legacyChat, deleted])).toBe(legacyChat.id)
+  })
+
+  it('does not hide independently created projects sharing a conversation', () => {
+    const independent = { ...local, id: 'local-project' }
+    expect(projectCatalog([independent, cloudChat], {})).toEqual([independent, cloudChat])
   })
 })

@@ -52,6 +52,7 @@
     "fallback": "暂时无法解绑，请稍后重试"
   },
   "generations": {
+    "grok_channel_unavailable": "Grok 模型渠道暂不可用，请稍后再试",
     "fallback": "暂时无法加载记录，请刷新重试。"
   },
   "projectSync": {

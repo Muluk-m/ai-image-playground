@@ -92,6 +92,23 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
   it('cold-starts both the home page and project deep link', async () => {
     await check()
   })
+  it('cold-starts node mode using capability fixtures on both routes', async () => {
+    await writeFile(
+      join(dist, 'assets/main.js'),
+      `
+      const capabilities = await fetch('/api/capabilities').then(r => r.json());
+      if (!capabilities['canvas:nodes']) throw new Error('Node capability missing');
+      document.getElementById('boot').remove();
+      document.getElementById('root').innerHTML = '<button aria-label="创作">创作</button><div aria-label="创作画布"><div class="react-flow" style="width:300px;height:300px"><div class="react-flow__minimap" style="width:100px;height:100px"></div></div></div>';
+    `,
+    )
+    await checkWorkspace(browser, server.origin, { local: true, nodeCanvas: true, timeoutMs: 3000 })
+  })
+  it('rejects node mode when the project still renders only the legacy canvas', async () => {
+    await expect(
+      checkWorkspace(browser, server.origin, { local: true, nodeCanvas: true, timeoutMs: 800 }),
+    ).rejects.toThrow('Startup smoke failed at /p/')
+  })
   it('supports credentialed cross-origin anonymous startup without a real API', async () => {
     await writeFile(
       join(dist, 'assets/main.js'),

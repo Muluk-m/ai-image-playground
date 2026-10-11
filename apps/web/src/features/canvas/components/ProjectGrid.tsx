@@ -12,7 +12,7 @@ import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
 import { renameProject } from '../lib/activeProject'
-import { projectCatalog, RECENT_PROJECT_COUNT } from '../lib/projectCatalog'
+import { catalogProjectId, projectCatalog, RECENT_PROJECT_COUNT } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import {
   type CanvasProject,
@@ -68,6 +68,10 @@ export default function ProjectGrid({
   const cloudLoading = useCanvasProjectStore((state) => state.cloudLoading)
   const cloudCursor = useCanvasProjectStore((state) => state.cloudCursor)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
+  const selectedId = catalogProjectId(
+    projects.find((project) => project.id === activeId),
+    projects,
+  )
   const [trash, setTrash] = useState(false)
   const [renaming, setRenaming] = useState<CanvasProject | null>(null)
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null)
@@ -201,7 +205,7 @@ export default function ProjectGrid({
         {visible.map((project) => {
           const { Icon: TypeIcon, label, tone } = projectBadge(project)
           const typeLabel = t(label)
-          const isCurrent = project.id === activeId
+          const isCurrent = project.id === selectedId
           const statusLabel = [typeLabel, ...(isCurrent ? [t('grid.current')] : [])].join(' · ')
           return (
             <article key={project.id} className="group relative">
