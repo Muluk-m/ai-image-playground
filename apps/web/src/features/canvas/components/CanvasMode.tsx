@@ -61,6 +61,7 @@ import CanvasVideoToolbar from './CanvasVideoToolbar'
 import FilmExportStatus from './FilmExportStatus'
 import InpaintMaskLayer from './InpaintMaskLayer'
 import KonvaCanvas from './KonvaCanvas'
+import NodeCanvas from './NodeCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
@@ -196,6 +197,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
+  // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
+  const nodeCanvas = isClientCapabilityEnabled('canvas:nodes') && !workspace.cloud
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)
@@ -772,32 +775,38 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <div className="studio-canvas-ground" aria-hidden="true" />
               )}
               {showRestoreMark && <CanvasLoading label={t('loading.restoring')} decorative />}
-              {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
-              <PlaceholderOverlay editor={editor} />
-              <CanvasVideoOverlay
-                editor={editor}
-                active={!loading && !loadFailed && (!hasAgent || projectView === 'canvas')}
-              />
-              <CanvasVideoToolbar editor={editor} />
-              <CanvasImageToolbar editor={editor} />
-              <InpaintMaskLayer editor={editor} />
-              <CanvasRectEditLayer editor={editor} />
-              <TimelineEditorHost editor={editor} />
-              <FilmExportStatus />
-              <CanvasToolbar
-                doc={doc}
-                onFitContent={() =>
-                  editor.scrollToElements(
-                    doc.elements.map((one) => one.id),
-                    false,
-                  )
-                }
-                onImportImages={() => fileInput.current?.click()}
-                onImportFolder={() => folderInput.current?.click()}
-              />
-              <CanvasBatchBar editor={editor} />
-              {hasAgent && projectView === 'canvas' && <AgentResultShelf doc={doc} />}
-              <StylePanel doc={doc} />
+              {nodeCanvas ? (
+                !loading && !loadFailed && <NodeCanvas workspace={workspace} />
+              ) : (
+                <>
+                  {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
+                  <PlaceholderOverlay editor={editor} />
+                  <CanvasVideoOverlay
+                    editor={editor}
+                    active={!loading && !loadFailed && (!hasAgent || projectView === 'canvas')}
+                  />
+                  <CanvasVideoToolbar editor={editor} />
+                  <CanvasImageToolbar editor={editor} />
+                  <InpaintMaskLayer editor={editor} />
+                  <CanvasRectEditLayer editor={editor} />
+                  <TimelineEditorHost editor={editor} />
+                  <FilmExportStatus />
+                  <CanvasToolbar
+                    doc={doc}
+                    onFitContent={() =>
+                      editor.scrollToElements(
+                        doc.elements.map((one) => one.id),
+                        false,
+                      )
+                    }
+                    onImportImages={() => fileInput.current?.click()}
+                    onImportFolder={() => folderInput.current?.click()}
+                  />
+                  <CanvasBatchBar editor={editor} />
+                  {hasAgent && projectView === 'canvas' && <AgentResultShelf doc={doc} />}
+                  <StylePanel doc={doc} />
+                </>
+              )}
               {saveFailed && (
                 <div
                   role="alert"
@@ -816,8 +825,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {/* 右下角控件栈：小地图贴角，快捷键速查叠在它上面。两者共用一列，天然不重叠；
             底部工具条居中、智能体面板在左，都不落在这一列里。 */}
               <div className="pointer-events-none absolute bottom-24 right-4 z-[400] hidden flex-col items-end gap-2 sm:flex">
-                <CanvasShortcutsHint />
-                <CanvasMinimap editor={editor} />
+                {!nodeCanvas && <CanvasShortcutsHint />}
+                {!nodeCanvas && <CanvasMinimap editor={editor} />}
               </div>
               {!hasContent && !loading && !loadFailed && (
                 <div className="studio-empty">
