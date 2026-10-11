@@ -93,6 +93,7 @@ function logReason(fields: unknown): string | null {
   const value = fields as Record<string, unknown>
   return (
     logText(fields, 'reason') ??
+    logText(fields, 'err') ??
     logText(value.err, 'message') ??
     logText(fields, 'error') ??
     logText(value.error, 'message')

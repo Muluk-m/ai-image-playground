@@ -186,18 +186,22 @@ export function TodayErrorsCard() {
   )
 }
 
-const reasons: Record<string, string> = {
-  confirmation_capacity_full: '同时确认的图片过多，已达到容量上限',
-  processing_queue_full: '图片处理队列已满',
-  processing_queue_timeout: '等待图片处理超时',
-  object_lock_timeout: '等待同一图片的其他处理请求超时',
-  media_processing_busy: '图片处理繁忙，暂时无法完成确认',
-  media_storage_unavailable: '图片存储暂时不可用',
-  media_hash_mismatch: '上传文件校验不一致',
-  media_size_mismatch: '上传文件大小与声明不一致',
-}
+const reasons = new Map(
+  Object.entries({
+    confirmation_capacity_full: '同时确认的图片过多，已达到容量上限',
+    processing_queue_full: '图片处理队列已满',
+    processing_queue_timeout: '等待图片处理超时',
+    object_lock_timeout: '等待同一图片的其他处理请求超时',
+    media_processing_busy: '图片处理繁忙，暂时无法完成确认',
+    media_storage_unavailable: '图片存储暂时不可用',
+    media_hash_mismatch: '上传文件校验不一致',
+    media_size_mismatch: '上传文件大小与声明不一致',
+  }),
+)
 
 function errorReason(reason?: string | null, code?: string | null) {
-  if (reason) return reasons[reason] ? `${reasons[reason]}（${reason}）` : reason
-  return (code && reasons[code]) || '未记录具体错误原因，可查看相关日志。'
+  const key = reason ?? code
+  const translation = key ? reasons.get(key) : undefined
+  if (reason) return translation ? `${translation}（${reason}）` : reason
+  return translation ?? '未记录具体错误原因，可查看相关日志。'
 }

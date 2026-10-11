@@ -12,6 +12,8 @@ const session = vi.hoisted(() => ({
   showError: false,
   errorRequest: true,
   recentAvailable: true,
+  errorCode: 'media_processing_busy',
+  errorReason: 'object_lock_timeout' as string | null,
   taskAt: undefined as number | undefined,
   completedAt: undefined as number | undefined,
 }))
@@ -88,8 +90,8 @@ vi.mock('../../lib/api-client', () => {
                 id: 'error-1',
                 route: 'POST /api/media/:id/complete',
                 status: 503,
-                errorCode: 'media_processing_busy',
-                reason: 'object_lock_timeout',
+                errorCode: session.errorCode,
+                reason: session.errorReason,
                 at: Date.now(),
                 service: 'worker',
                 message: '上游请求失败',
@@ -217,6 +219,8 @@ function renderAt(path: string): void {
 }
 
 beforeEach(() => {
+  session.errorCode = 'media_processing_busy'
+  session.errorReason = 'object_lock_timeout'
   session.recentAvailable = true
   patch.mockClear()
   requests.length = 0
@@ -407,6 +411,18 @@ describe('今日概览', () => {
     expect(screen.getByRole('link', { name: '服务端日志 →' }).getAttribute('href')).toContain(
       'from=',
     )
+  })
+
+  it.each([
+    '__proto__',
+    'toString',
+  ])('renders unknown error code %s as text without inherited-object translations', async (code) => {
+    session.showError = true
+    session.errorCode = code
+    session.errorReason = null
+    renderAt('/overview')
+    expect(await screen.findByText(`错误码：${code}`)).toBeInTheDocument()
+    expect(screen.getByText('未记录具体错误原因，可查看相关日志。')).toBeInTheDocument()
   })
 
   it('opens plain terminal errors with same-container context instead of filtering out their stack', async () => {
