@@ -12,21 +12,25 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  getViewportForBounds,
   MiniMap,
   type Node,
   type NodeChange,
   type NodeProps,
   ReactFlow,
   ReactFlowProvider,
+  type Rect,
   ViewportPortal,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
   createContext,
   memo,
+  type RefObject,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
@@ -235,7 +239,36 @@ const Annotations = memo(function Annotations({
   )
 })
 
-function Flow({ canvas }: { canvas: NodeCanvasDocument }) {
+/** 节点与标注的总范围：只框节点的话，只有笔迹的旧项目一打开是空白。 */
+function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x)
+    minY = Math.min(minY, node.y)
+    maxX = Math.max(maxX, node.x + node.width)
+    maxY = Math.max(maxY, node.y + node.height)
+  }
+  for (const one of annotations)
+    for (let i = 0; i < one.points.length; i += 2) {
+      minX = Math.min(minX, one.points[i]! - one.strokeWidth)
+      minY = Math.min(minY, one.points[i + 1]! - one.strokeWidth)
+      maxX = Math.max(maxX, one.points[i]! + one.strokeWidth)
+      maxY = Math.max(maxY, one.points[i + 1]! + one.strokeWidth)
+    }
+  if (!Number.isFinite(minX)) return null
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+function Flow({
+  canvas,
+  container,
+}: {
+  canvas: NodeCanvasDocument
+  container: RefObject<HTMLDivElement | null>
+}) {
   const snapshot = useDocumentSnapshot(canvas)
   const { theme } = useTheme()
   const [nodes, setNodes] = useState<FlowNode[]>([])
@@ -277,8 +310,15 @@ function Flow({ canvas }: { canvas: NodeCanvasDocument }) {
       colorMode={theme}
       minZoom={0.05}
       maxZoom={8}
-      fitView
-      fitViewOptions={{ maxZoom: 1 }}
+      onInit={(flow) => {
+        const bounds = contentBounds(snapshot)
+        const box = container.current
+        if (!bounds || !box) return
+        // 与旧画布一致：打开时最多按 100% 显示。
+        flow.setViewport(
+          getViewportForBounds(bounds, box.clientWidth, box.clientHeight, 0.05, 1, 0.1),
+        )
+      }}
       deleteKeyCode={null}
       proOptions={{ hideAttribution: true }}
     >
@@ -297,6 +337,7 @@ export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }
   const [canvas, setCanvas] = useState<NodeCanvasDocument | null>(null)
   const [failed, setFailed] = useState(false)
   const key = workspace.record.key
+  const container = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let alive = true
     let opened: NodeCanvasDocument | undefined
@@ -323,7 +364,7 @@ export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }
     () =>
       canvas && (
         <ReactFlowProvider>
-          <Flow canvas={canvas} />
+          <Flow canvas={canvas} container={container} />
         </ReactFlowProvider>
       ),
     [canvas],
@@ -336,7 +377,9 @@ export default function NodeCanvas({ workspace }: { workspace: CanvasWorkspace }
     )
   return (
     <FilesContext.Provider value={files}>
-      <div className="studio-node-canvas">{content}</div>
+      <div ref={container} className="studio-node-canvas">
+        {content}
+      </div>
     </FilesContext.Provider>
   )
 }

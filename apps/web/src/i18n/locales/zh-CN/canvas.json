@@ -445,6 +445,7 @@
   "nodes": {
     "timeline_other": "时间线 · {{count}} 段",
     "mediaMissing": "素材缺失",
-    "loadFailed": "节点画布打不开，请刷新重试"
+    "loadFailed": "节点画布打不开，请刷新重试",
+    "generateUnavailable": "节点画布暂不支持生成，生成功能会随节点输入框一起上线。"
   }
 }
