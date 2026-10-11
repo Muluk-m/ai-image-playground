@@ -108,7 +108,8 @@ function layerViolations(file: ts.SourceFile): number[] {
         ? resolve(dir, text)
         : null
     if (!target) return []
-    const inside = target.slice(srcRoot.length)
+    // 去掉扩展名再比：tsconfig 开了 allowImportingTsExtensions，'../../store.ts' 是合法写法。
+    const inside = target.slice(srcRoot.length).replace(/\.(tsx?|jsx?)$/, '')
     const allowed =
       inside.startsWith('/components/ui/') ||
       (layer === 'patterns' && inside.startsWith('/components/patterns/')) ||

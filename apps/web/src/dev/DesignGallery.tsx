@@ -233,7 +233,7 @@ function Forms() {
             { label: '预设 A', value: 'a' },
             { label: '预设 B', value: 'b' },
           ]}
-          wrapperClassName="h-9 rounded-md border border-input px-3 text-sm"
+          wrapperClassName="relative h-9 w-full rounded-md border border-input px-3 text-sm"
         />
         <Checkbox checked={checked} onChange={setChecked} label="勾选框" />
         <Checkbox checked={checked} onChange={setChecked} label="会清掉数据的勾选" tone="danger" />
