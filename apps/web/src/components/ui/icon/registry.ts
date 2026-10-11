@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   Ban,
   Bookmark,
   Brush,
@@ -14,6 +15,7 @@ import {
   CornerUpLeft,
   Download,
   FolderOpen,
+  GripVertical,
   Image,
   Images,
   ImageUp,
@@ -25,6 +27,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Sparkles,
   Square,
   Star,
@@ -48,11 +51,14 @@ export const ICONS = {
   attach: Paperclip,
   refresh: RefreshCw,
   loading: LoaderCircle,
+  search: Search,
+  dragHandle: GripVertical,
   // 方向
   chevronUp: ChevronUp,
   chevronDown: ChevronDown,
   chevronLeft: ChevronLeft,
   chevronRight: ChevronRight,
+  arrowRight: ArrowRight,
   // 导航与收藏
   folderOpen: FolderOpen,
   assets: LayoutGrid,

@@ -185,24 +185,6 @@
   "apps/web/src/components/panelStyles.ts": {
     "focus-not-visible": 4
   },
-  "apps/web/src/components/patterns/SearchField.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/patterns/SectionHeader.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/patterns/SegmentedTabs.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/components/patterns/Select.tsx": {
-    "arbitrary-radius": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/patterns/Switch.tsx": {
-    "native-control": 1
-  },
   "apps/web/src/components/settings/ApiTab.tsx": {
     "inline-svg": 2,
     "native-control": 10
@@ -228,9 +210,6 @@
     "font-weight": 1,
     "lucide-import": 1,
     "native-control": 2,
-    "offscale-font": 1
-  },
-  "apps/web/src/components/ui/sheet.tsx": {
     "offscale-font": 1
   },
   "apps/web/src/features/agent/agentStyles.ts": {
