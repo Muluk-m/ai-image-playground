@@ -4,12 +4,29 @@ import {
   CANVAS_NODE_TYPES,
   canvasOrigin,
   createCanvasUndoManager,
-  exportLegacyElements,
   importLegacyElements,
   type LegacyCanvasElement,
   moveCanvasNodes,
   readCanvasDocument,
 } from '../canvas-document'
+
+/** 转换的反面：按叠放次序还原成旧存档的元素，核对转换没有丢东西。 */
+function exportLegacyElements(doc: Y.Doc): LegacyCanvasElement[] {
+  const { nodes, annotations } = readCanvasDocument(doc)
+  return [...nodes, ...annotations]
+    .sort((a, b) => a.z - b.z)
+    .map((item) => {
+      if (!('data' in item)) {
+        const { z: _z, ...annotation } = item
+        return annotation as LegacyCanvasElement
+      }
+      const { id, x, y, width, height } = item
+      if ('pending' in item.data && item.data.pending)
+        return { id, x, y, width, height, ...item.data.pending } as LegacyCanvasElement
+      const type = item.type === 'video' ? 'image' : item.type
+      return { id, type, x, y, width, height, ...item.data } as LegacyCanvasElement
+    })
+}
 
 const generation = {
   model: 'grok-imagine-video',
@@ -218,7 +235,7 @@ describe('undo', () => {
   })
 })
 
-it('returns the same origin object for the same actor', () => {
+it('tells actors apart by kind and id', () => {
   expect(canvasOrigin('user', 'me')).toBe(canvasOrigin('user', 'me'))
   expect(canvasOrigin('user', 'me')).not.toBe(canvasOrigin('agent', 'me'))
 })
