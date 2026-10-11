@@ -153,7 +153,7 @@ function Buttons() {
         <Row key={variant} label={variant}>
           {TEXT_SIZES.map((size) => (
             <Button key={size} variant={variant} size={size}>
-              <Icon name="sparkles" />
+              <Icon name="generate" />
               {size}
             </Button>
           ))}
@@ -190,9 +190,14 @@ function Icons() {
           ))}
         </Row>
       ))}
-      <Row label="filled">
-        <Icon name="favorite" filled />
-        <Icon name="stop" filled size="xs" />
+      <Row label="filled 20">
+        {names.map((name) => (
+          <Hint key={name} tooltip={`${name} filled`}>
+            <span className="grid size-8 place-items-center rounded-md text-primary hover:bg-muted">
+              <Icon name={name} size="md" filled label={name} />
+            </span>
+          </Hint>
+        ))}
       </Row>
     </Section>
   )
@@ -238,7 +243,7 @@ function Forms() {
         <Checkbox checked={checked} onChange={setChecked} label="勾选框" />
         <Checkbox checked={checked} onChange={setChecked} label="会清掉数据的勾选" tone="danger" />
         <SettingRow
-          icon={<Icon name="sparkles" />}
+          icon={<Icon name="generate" />}
           label="一行设置"
           hint="补充说明"
           control={<Switch checked={on} onChange={setOn} aria-label="一行设置" />}
