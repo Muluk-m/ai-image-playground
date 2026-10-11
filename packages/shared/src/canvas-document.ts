@@ -1,5 +1,11 @@
 import * as Y from 'yjs'
-import type { ProjectElement, ProjectImage } from './project-protocol'
+import type {
+  ProjectElement,
+  ProjectGeneration,
+  ProjectImage,
+  ProjectTimeline,
+  ProjectVideoRef,
+} from './project-protocol'
 
 /**
  * 项目画布的文档模型（ADR 0023）：一个 `Y.Doc`，浏览器与服务端共用这一份读写规则。
@@ -11,17 +17,56 @@ export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number]
 
 export type CanvasAnnotationType = 'arrow' | 'freedraw'
 
-export interface CanvasNode {
+/** 还在跑或已失败的生成：原记录整份保留，任务续跑与失败出路照旧认它。 */
+export type PendingGeneration =
+  | Omit<ProjectGeneration, 'id' | 'x' | 'y' | 'width' | 'height'>
+  | Omit<LegacyPlaceholder, 'id' | 'x' | 'y' | 'width' | 'height'>
+
+export interface ImageNodeData {
+  /** 本机位图用 `fileId`，云端用 `mediaId`。 */
+  fileId?: string
+  mediaId?: string
+  rotation?: number
+  name?: string
+  naturalWidth?: number
+  naturalHeight?: number
+  createdAt?: number
+  groupId?: string
+  meta?: Record<string, string>
+  pending?: PendingGeneration
+}
+
+export interface VideoNodeData extends ImageNodeData {
+  video: ProjectVideoRef
+}
+
+export interface TextNodeData {
+  text: string
+  fontSize: number
+  fill: string
+}
+
+export interface TimelineNodeData {
+  clips: ProjectTimeline['clips']
+}
+
+interface CanvasNodeBase {
   id: string
-  type: CanvasNodeType
   x: number
   y: number
   width: number
   height: number
   /** 叠放次序，越大越靠上；节点与标注共用一条序列。 */
   z: number
-  data: Record<string, unknown>
 }
+
+export type CanvasNode = CanvasNodeBase &
+  (
+    | { type: 'image'; data: ImageNodeData }
+    | { type: 'video'; data: VideoNodeData }
+    | { type: 'text'; data: TextNodeData }
+    | { type: 'timeline'; data: TimelineNodeData }
+  )
 
 export interface CanvasAnnotation {
   id: string
@@ -37,41 +82,29 @@ export interface CanvasSnapshot {
   annotations: CanvasAnnotation[]
 }
 
+interface LegacyPlaceholder {
+  id: string
+  type: 'placeholder'
+  x: number
+  y: number
+  width: number
+  height: number
+  status: string
+  message: string
+  meta: object
+}
+
 /** 本机存档里的元素：位图用 `fileId`，运行中的任务是 `placeholder`。 */
 export type LegacyCanvasElement =
   | Exclude<ProjectElement, ProjectImage>
   | (Omit<ProjectImage, 'mediaId'> & ({ mediaId: string } | { fileId: string }))
-  | {
-      id: string
-      type: 'placeholder'
-      x: number
-      y: number
-      width: number
-      height: number
-      status: string
-      message: string
-      meta: object
-    }
+  | LegacyPlaceholder
 
-/**
- * 改动的发起人。Yjs 按对象身份比较 origin，同一个发起人必须拿到同一个对象，
- * 撤销才认得出「这是我的改动」。
- */
-export interface CanvasOrigin {
-  readonly kind: 'user' | 'agent' | 'system'
-  readonly id: string
-}
+/** 改动的发起人，撤销按它分组。用字符串：Yjs 按值比较才认得出同一个发起人。 */
+export type CanvasOrigin = `${'user' | 'agent' | 'system'}:${string}`
 
-const origins = new Map<string, CanvasOrigin>()
-
-export function canvasOrigin(kind: CanvasOrigin['kind'], id: string): CanvasOrigin {
-  const key = `${kind}:${id}`
-  let origin = origins.get(key)
-  if (!origin) {
-    origin = Object.freeze({ kind, id })
-    origins.set(key, origin)
-  }
-  return origin
+export function canvasOrigin(kind: 'user' | 'agent' | 'system', id: string): CanvasOrigin {
+  return `${kind}:${id}`
 }
 
 function nodesOf(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
@@ -82,21 +115,9 @@ function annotationsOf(doc: Y.Doc): Y.Map<CanvasAnnotation> {
   return doc.getMap('annotations')
 }
 
-function readNode(map: Y.Map<unknown>): CanvasNode {
-  return {
-    id: map.get('id') as string,
-    type: map.get('type') as CanvasNodeType,
-    x: map.get('x') as number,
-    y: map.get('y') as number,
-    width: map.get('width') as number,
-    height: map.get('height') as number,
-    z: map.get('z') as number,
-    data: (map.get('data') as Record<string, unknown>) ?? {},
-  }
-}
-
+/** 节点按写入顺序给出；叠放看 `z`。标注按 `z` 排好，绘制层直接按序画。 */
 export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
-  const nodes = [...nodesOf(doc).values()].map(readNode).sort((a, b) => a.z - b.z)
+  const nodes = [...nodesOf(doc).values()].map((map) => map.toJSON() as CanvasNode)
   const annotations = [...annotationsOf(doc).values()].sort((a, b) => a.z - b.z)
   return { nodes, annotations }
 }
@@ -113,18 +134,26 @@ function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnn
     case 'arrow':
     case 'freedraw':
       return { ...element, points: [...element.points], z }
-    case 'image':
-    case 'text':
+    case 'image': {
+      const { id, x, y, width, height, type: _type, ...data } = element
+      const base = { id, x, y, width, height, z }
+      return data.video
+        ? { ...base, type: 'video', data: { ...data, video: data.video } }
+        : { ...base, type: 'image', data }
+    }
+    case 'text': {
+      const { id, x, y, width, height, type: _type, ...data } = element
+      return { id, x, y, width, height, z, type: 'text', data }
+    }
     case 'timeline': {
-      const { id, x, y, width, height, ...data } = element
-      const type = element.type === 'image' && element.video ? 'video' : element.type
-      return { id, type, x, y, width, height, z, data }
+      const { id, x, y, width, height, type: _type, ...data } = element
+      return { id, x, y, width, height, z, type: 'timeline', data }
     }
     case 'placeholder':
     case 'generation': {
-      // 运行中或失败的生成在节点画布里是还没有结果的图片节点；原记录整份保留，任务续跑与失败出路照旧认它。
+      // 运行中或失败的生成在节点画布里是还没有结果的图片节点。
       const { id, x, y, width, height, ...pending } = element
-      return { id, type: 'image', x, y, width, height, z, data: { pending } }
+      return { id, x, y, width, height, z, type: 'image', data: { pending } }
     }
   }
 }
@@ -152,32 +181,12 @@ export function importLegacyElements(
     staging.getMap('meta').set('legacyImported', true)
     elements.forEach((element, z) => {
       const item = toNode(element, z)
-      if (item.type === 'arrow' || item.type === 'freedraw') {
-        annotationsOf(staging).set(item.id, item as CanvasAnnotation)
-      } else writeNode(staging, item as CanvasNode)
+      if ('points' in item) annotationsOf(staging).set(item.id, item)
+      else writeNode(staging, item)
     })
   })
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(staging), origin)
   staging.destroy()
-}
-
-/** 转换的反面：按叠放次序还原成旧存档的元素，用来核对转换没有丢东西。 */
-export function exportLegacyElements(doc: Y.Doc): LegacyCanvasElement[] {
-  const { nodes, annotations } = readCanvasDocument(doc)
-  const items: (CanvasNode | CanvasAnnotation)[] = [...nodes, ...annotations].sort(
-    (a, b) => a.z - b.z,
-  )
-  return items.map((item) => {
-    if (item.type === 'arrow' || item.type === 'freedraw') {
-      const { z: _z, ...annotation } = item as CanvasAnnotation
-      return annotation as LegacyCanvasElement
-    }
-    const { id, type, x, y, width, height, data } = item as CanvasNode
-    const pending = data.pending as Record<string, unknown> | undefined
-    if (pending) return { id, x, y, width, height, ...pending } as LegacyCanvasElement
-    const legacyType = type === 'video' ? 'image' : type
-    return { id, type: legacyType, x, y, width, height, ...data } as LegacyCanvasElement
-  })
 }
 
 export function moveCanvasNodes(
