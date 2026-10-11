@@ -366,6 +366,7 @@ function Flow({
     <ReactFlow<FlowNode>
       nodes={nodes}
       nodeTypes={nodeTypes}
+      elevateNodesOnSelect={false}
       onNodesChange={(changes: NodeChange<FlowNode>[]) =>
         setNodes((current) => applyNodeChanges(changes, current))
       }
