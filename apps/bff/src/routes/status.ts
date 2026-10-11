@@ -3,6 +3,7 @@ import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
 import { readGeneration } from '../lib/generations'
+import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { taskProgressPhase } from '../lib/task-progress'
@@ -73,7 +74,7 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
 
     if (task.status === 'failed' && task.error_message) {
       base.error = {
-        message: task.error_message,
+        message: publicTaskErrorMessage(task.error_message),
         type: (task.error_type ?? 'unknown') as TaskErrorType,
       }
     }
