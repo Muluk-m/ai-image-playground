@@ -1288,7 +1288,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     className={`h-10 shrink-0 rounded-xl px-4 active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                     title={submitTitle}
                   >
-                    {lookSubmitting ? stopIcon : <Icon name="sparkles" />}
+                    {lookSubmitting ? stopIcon : <Icon name="generate" />}
                     <span>{submitLabel}</span>
                   </Button>
                 </div>
@@ -1477,7 +1477,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     title={t('bar.saveTemplate')}
                     aria-label={t('bar.saveTemplate')}
                   >
-                    <Icon name="bookmark" />
+                    <Icon name="template" />
                   </Button>
                   <ParamControls showCount agentManaged={toCanvas} />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
@@ -1505,7 +1505,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                           stopIcon
                         ) : (
                           <Icon
-                            name="sparkles"
+                            name="generate"
                             size="md"
                             className="drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
                           />
@@ -1572,7 +1572,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       title={t('bar.saveTemplate')}
                       aria-label={t('bar.saveTemplate')}
                     >
-                      <Icon name="bookmark" />
+                      <Icon name="template" />
                     </Button>
                     <Hint tooltip={submitBlockedTip}>
                       <div className="relative flex flex-1 items-center gap-2">
@@ -1586,7 +1586,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                           disabled={submitDisabled}
                           className={`h-10 w-full rounded-xl px-3.5 text-xs active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                         >
-                          {lookSubmitting ? stopIcon : <Icon name="sparkles" />}
+                          {lookSubmitting ? stopIcon : <Icon name="generate" />}
                           <span>{compactSubmitLabel}</span>
                         </Button>
                       </div>
@@ -1632,7 +1632,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     }}
                   />
                   <ContextMenuItem
-                    icon={<Icon name="folderOpen" />}
+                    icon={<Icon name="folder" />}
                     label={t('image.attachFolder')}
                     onClick={() => {
                       setAttachMenu(null)

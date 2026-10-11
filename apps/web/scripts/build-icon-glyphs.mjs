@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+/**
+ * 生成 src/components/ui/icon/glyphs.gen.ts：语义名 → 图形（线性款 + 选中用的双色款）。
+ * 图形取自 Solar（480 Design，CC BY 4.0）；Solar 缺的几个取自 lucide（ISC），线宽统一到 1.5。
+ * 换图形、加名字都改下面的 GLYPHS，再运行：node scripts/build-icon-glyphs.mjs
+ * 新增名字后同步补 docs/design-system/icons.md 的语义名表（icon.test.tsx 会查）。
+ */
+import { writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** 语义名: [来源, 图形名]。来源 solar 取 `-linear` 与 `-bold-duotone`，lucide 只有线性款。 */
+const GLYPHS = {
+  // 导航
+  create: ['solar', 'magic-stick-3'],
+  explore: ['solar', 'compass'],
+  assets: ['solar', 'album'],
+  toolbox: ['solar', 'toolbox'],
+  guide: ['solar', 'book'],
+  chat: ['solar', 'chat-round'],
+  canvas: ['solar', 'frame'],
+  settings: ['solar', 'settings'],
+  user: ['solar', 'user-circle'],
+  logout: ['solar', 'logout'],
+  sidebar: ['solar', 'sidebar'],
+  light: ['solar', 'sun'],
+  dark: ['solar', 'moon'],
+  // 创作
+  generate: ['solar', 'stars'],
+  wand: ['solar', 'magic-wand'],
+  model: ['solar', 'cpu'],
+  ratio: ['solar', 'crop-minimalistic'],
+  quality: ['solar', 'crown-line'],
+  settingsAdjust: ['solar', 'tuning'],
+  imageAdd: ['solar', 'gallery-add'],
+  attach: ['solar', 'paperclip'],
+  send: ['solar', 'arrow-up'],
+  stop: ['solar', 'stop'],
+  refresh: ['solar', 'refresh'],
+  upscale: ['solar', 'maximize-square'],
+  removeBg: ['solar', 'scissors'],
+  brush: ['solar', 'paint-brush'],
+  crop: ['solar', 'crop'],
+  variant: ['solar', 'shuffle'],
+  template: ['solar', 'bookmark'],
+  favorite: ['solar', 'star'],
+  reuse: ['solar', 'undo-left-round'],
+  prompt: ['solar', 'document-text'],
+  sendToCanvas: ['solar', 'gallery-send'],
+  // 画布工具
+  select: ['solar', 'cursor'],
+  pan: ['lucide', 'hand'],
+  draw: ['solar', 'pen'],
+  erase: ['solar', 'eraser'],
+  drawArrow: ['solar', 'arrow-right-up'],
+  text: ['lucide', 'type'],
+  shape: ['lucide', 'shapes'],
+  undo: ['solar', 'undo-left'],
+  redo: ['solar', 'undo-right'],
+  duplicate: ['solar', 'copy'],
+  zoomIn: ['solar', 'magnifer-zoom-in'],
+  zoomOut: ['solar', 'magnifer-zoom-out'],
+  fit: ['solar', 'maximize'],
+  layers: ['solar', 'layers'],
+  // 媒体与文件
+  image: ['solar', 'gallery'],
+  images: ['solar', 'gallery-wide'],
+  video: ['solar', 'videocamera'],
+  play: ['solar', 'play'],
+  pause: ['solar', 'pause'],
+  volume: ['solar', 'volume-loud'],
+  fullscreen: ['solar', 'full-screen'],
+  download: ['solar', 'download-minimalistic'],
+  upload: ['solar', 'upload-minimalistic'],
+  share: ['solar', 'share'],
+  link: ['solar', 'link'],
+  copy: ['solar', 'copy'],
+  folder: ['solar', 'folder-open'],
+  delete: ['solar', 'trash-bin-2'],
+  edit: ['solar', 'pen-2'],
+  code: ['solar', 'code'],
+  // 通用
+  search: ['solar', 'magnifer'],
+  add: ['solar', 'add'],
+  close: ['solar', 'close'],
+  check: ['solar', 'check'],
+  more: ['solar', 'menu-dots'],
+  filter: ['solar', 'filter'],
+  sort: ['solar', 'sort'],
+  grid: ['solar', 'widget'],
+  list: ['solar', 'list'],
+  chevronUp: ['solar', 'alt-arrow-up'],
+  chevronDown: ['solar', 'alt-arrow-down'],
+  chevronLeft: ['solar', 'alt-arrow-left'],
+  chevronRight: ['solar', 'alt-arrow-right'],
+  arrowRight: ['solar', 'arrow-right'],
+  external: ['solar', 'square-top-up'],
+  drag: ['solar', 'hamburger-menu'],
+  // 状态
+  loading: ['lucide', 'loader-circle'],
+  success: ['solar', 'check-circle'],
+  warning: ['solar', 'danger-triangle'],
+  error: ['solar', 'danger-circle'],
+  info: ['solar', 'info-circle'],
+  blocked: ['solar', 'forbidden-circle'],
+  lock: ['solar', 'lock'],
+  visible: ['solar', 'eye'],
+  notify: ['solar', 'bell'],
+  credits: ['solar', 'bolt'],
+  clock: ['solar', 'clock-circle'],
+}
+
+async function fetchSet(prefix, names) {
+  const url = `https://api.iconify.design/${prefix}.json?icons=${[...new Set(names)].join(',')}`
+  const response = await fetch(url, { headers: { 'User-Agent': 'muvloom-icon-build/1.0' } })
+  if (!response.ok) throw new Error(`${url} → ${response.status}`)
+  const data = await response.json()
+  const lookup = (name) =>
+    data.icons[name]?.body ?? (data.aliases?.[name] ? lookup(data.aliases[name].parent) : null)
+  return lookup
+}
+
+const solarNames = Object.values(GLYPHS)
+  .filter(([source]) => source === 'solar')
+  .flatMap(([, name]) => [`${name}-linear`, `${name}-bold-duotone`])
+const lucideNames = Object.values(GLYPHS)
+  .filter(([source]) => source === 'lucide')
+  .map(([, name]) => name)
+const [solar, lucide] = await Promise.all([
+  fetchSet('solar', solarNames),
+  fetchSet('lucide', lucideNames),
+])
+
+const out = {}
+const missing = []
+for (const [id, [source, name]] of Object.entries(GLYPHS)) {
+  if (source === 'solar') {
+    const line = solar(`${name}-linear`)
+    const solid = solar(`${name}-bold-duotone`)
+    if (!line || !solid) missing.push(`${id} (${name})`)
+    out[id] = { line, solid }
+  } else {
+    const line = lucide(name)?.replace(/stroke-width="[\d.]+"/g, 'stroke-width="1.5"')
+    if (!line) missing.push(`${id} (${name})`)
+    out[id] = { line }
+  }
+}
+if (missing.length) throw new Error(`missing glyphs: ${missing.join(', ')}`)
+
+const lines = Object.entries(out).map(([id, glyph]) => `  ${id}: ${JSON.stringify(glyph)},`)
+const target = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../src/components/ui/icon/glyphs.gen.ts',
+)
+writeFileSync(
+  target,
+  [
+    '// 由 scripts/build-icon-glyphs.mjs 生成，不要手改。',
+    '// 图形：Solar by 480 Design（CC BY 4.0），pan / text / shape / loading 取自 lucide（ISC）。',
+    '// 授权与署名见同目录 NOTICE.md。',
+    'export const GLYPHS = {',
+    ...lines,
+    '} as const satisfies Record<string, { line: string; solid?: string }>',
+    '',
+  ].join('\n'),
+)
+console.log(`wrote ${Object.keys(out).length} glyphs → ${target}`)
