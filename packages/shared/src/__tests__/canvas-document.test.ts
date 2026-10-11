@@ -128,6 +128,13 @@ describe('legacy conversion', () => {
     expect(exportLegacyElements(imported())).toEqual(legacy)
   })
 
+  it('converts only once, even when the first conversion was empty', () => {
+    const doc = new Y.Doc()
+    importLegacyElements(doc, [], canvasOrigin('system', 'import'))
+    importLegacyElements(doc, legacy, canvasOrigin('system', 'import'))
+    expect(readCanvasDocument(doc).nodes).toEqual([])
+  })
+
   it('does nothing to a document that already has content', () => {
     const doc = imported()
     importLegacyElements(doc, [legacy[3]!], canvasOrigin('user', 'me'))
