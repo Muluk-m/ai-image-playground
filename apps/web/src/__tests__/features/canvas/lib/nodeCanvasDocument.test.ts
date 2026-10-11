@@ -26,9 +26,7 @@ it('converts the legacy scene once and keeps later edits across reopen', async (
   const first = await openNodeCanvasDocument('scene-a', () => legacy)
   expect(readCanvasDocument(first.doc).nodes.map((node) => node.id)).toEqual(['img'])
   moveCanvasNodes(first.doc, [{ id: 'img', x: 99, y: 88 }], first.origin)
-  first.destroy()
-  // y-indexeddb 写盘是异步的，给它一拍。
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await first.destroy()
 
   const second = await openNodeCanvasDocument('scene-a', () => legacy)
   const node = readCanvasDocument(second.doc).nodes[0]!

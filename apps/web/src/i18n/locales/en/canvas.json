@@ -465,7 +465,7 @@
     "timeline_other": "Timeline · {{count}} clips",
     "generating": "Generating",
     "failed": "Generation failed",
-    "mediaMissing": "Image missing",
+    "mediaMissing": "Media missing",
     "loadFailed": "The node canvas couldn't open. Refresh to try again."
   }
 }

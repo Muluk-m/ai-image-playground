@@ -13,7 +13,7 @@ export interface NodeCanvasDocument {
   readonly doc: Y.Doc
   readonly origin: CanvasOrigin
   readonly undo: Y.UndoManager
-  destroy(): void
+  destroy(): Promise<void>
 }
 
 const deviceOrigin = canvasOrigin('user', 'device')
@@ -46,9 +46,10 @@ export async function openNodeCanvasDocument(
     doc,
     origin: deviceOrigin,
     undo,
-    destroy() {
+    async destroy() {
       undo.destroy()
-      void persistence.destroy()
+      // 关库会等未写完的更新落盘。
+      await persistence.destroy()
       doc.destroy()
     },
   }
