@@ -2,7 +2,7 @@ import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
-import { useTranslation } from '../i18n'
+import { describeError, useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
@@ -248,7 +248,7 @@ export default function DetailModal() {
   }
 
   const handleCopyError = async () => {
-    const errorText = task.error || t('detail.generateFailed')
+    const errorText = task.error ? describeError(task.error) : t('detail.generateFailed')
     try {
       await copyTextToClipboard(errorText)
       showToast(t('detail.errorCopied'), 'success')
@@ -444,7 +444,9 @@ export default function DetailModal() {
                 >
                   {blockedByContentPolicy
                     ? t('detail.contentPolicy')
-                    : task.error || t('detail.generateFailed')}
+                    : task.error
+                      ? describeError(task.error)
+                      : t('detail.generateFailed')}
                 </p>
                 {blockedByContentPolicy && (
                   <Button
