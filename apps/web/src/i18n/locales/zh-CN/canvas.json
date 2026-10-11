@@ -441,5 +441,13 @@
   },
   "drop": {
     "hint": "松手放到画布，文件夹也行"
+  },
+  "nodes": {
+    "video": "视频",
+    "timeline_other": "时间线 · {{count}} 段",
+    "generating": "生成中",
+    "failed": "生成失败",
+    "mediaMissing": "图片缺失",
+    "loadFailed": "节点画布打不开，请刷新重试"
   }
 }
