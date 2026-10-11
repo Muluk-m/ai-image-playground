@@ -6,9 +6,8 @@
 
 **写或改界面前先查 [`docs/design-system/`](./docs/design-system/README.md) 的「我要做 X → 用哪个」**，
 组件的变体、尺寸、配方与图标语义名都在那里；颜色、字阶、间距等 token 与原则以 [`DESIGN.md`](./DESIGN.md)
-为准，找不到合适档位就先改它再写代码。组件分三层，依赖只能自上而下：业务 → `components/patterns/` →
-`components/ui/`。缺的组件按那份 README 的流程新增，不在业务里手搭；改完到 `?dev=design` 陈列页
-浅色深色各看一眼。`pnpm lint` 带设计门禁，报错时按 DESIGN.md「门禁」处理。
+为准，找不到合适档位就先改它再写代码。缺的组件按那份 README 的流程新增，不在业务里手搭；改完到陈列页
+（开发服务器的 `/design.html`）浅色深色各看一眼。`pnpm lint` 带设计门禁，报错时按 DESIGN.md「门禁」处理。
 
 ## 服务商架构
 

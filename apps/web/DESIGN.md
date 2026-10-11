@@ -333,10 +333,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 ## Components
 
-组件分三层，依赖只能自上而下：业务 → `components/patterns/`（通用组合件）→ `components/ui/`
-（shadcn 原语与 `<Icon>`）。每个组件何时用、有哪些变体与尺寸、配方与禁忌，写在
-[`docs/design-system/`](./docs/design-system/README.md)：先查那里的「我要做 X → 用哪个」速查表，
-找不到再按它的流程新增组件，不在业务里手搭控件。
+组件怎么分层、何时用哪个、变体与配方，写在 [`docs/design-system/`](./docs/design-system/README.md)：
+先查那里的「我要做 X → 用哪个」速查表，找不到再按它的流程新增组件，不在业务里手搭控件。
 
 下面只记产品专属、不属于任何通用组件的规则。
 

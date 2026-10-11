@@ -4,7 +4,7 @@ import { ICONS, type IconName } from './registry'
 
 export { ICONS, type IconName }
 
-/** 四档尺寸，见 DESIGN.md「图标」：28px 控件配 xs，32–36px 配 sm，40px 配 md。 */
+/** 四档尺寸，用法见 docs/design-system/icons.md；放进 Button 时尺寸由按钮的 size 接管。 */
 export const ICON_SIZE_PX = { xs: 14, sm: 16, md: 20, lg: 24 } as const
 export type IconSize = keyof typeof ICON_SIZE_PX
 
@@ -31,7 +31,7 @@ export function Icon({ name, size = 'sm', className, label, filled = false }: Ic
       size={ICON_SIZE_PX[size]}
       strokeWidth={STROKE_WIDTH}
       fill={filled ? 'currentColor' : 'none'}
-      className={cn('shrink-0 [&_*]:[vector-effect:non-scaling-stroke]', className)}
+      className={cn('shrink-0 [&>*]:[vector-effect:non-scaling-stroke]', className)}
       {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     />
   )

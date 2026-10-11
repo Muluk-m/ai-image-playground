@@ -1,7 +1,7 @@
 # 图标
 
 业务代码只用 `<Icon>`，不直接 import `lucide-react`，不写内联 `<svg>`，也不拿 `× → ↗ ✓` 这类字符
-当图标。门禁的 `lucide-import`、`inline-svg`、`glyph-icon` 会拦。
+当图标。
 
 ```tsx
 import { Icon } from '@/components/ui/icon'
