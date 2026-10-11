@@ -188,7 +188,7 @@ const TimelineNode = memo(function TimelineNode({ data: { node } }: NodeProps<Fl
   if (node.type !== 'timeline') return null
   return (
     <div className="studio-node studio-node--timeline text-sm">
-      <Icon name="timeline" />
+      <Icon name="video" />
       {t('nodes.timeline', { count: node.data.clips.length })}
     </div>
   )
