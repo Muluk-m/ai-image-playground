@@ -99,12 +99,14 @@ export function TodayErrorsCard() {
                         未记录具体错误原因，可查看相关日志。
                       </p>
                     ) : null}
-                    <pre className="whitespace-pre-wrap break-words leading-5">
-                      {entry.message}
-                      {entry.stack && !entry.message.includes(entry.stack)
-                        ? `\n${entry.stack}`
-                        : ''}
-                    </pre>
+                    {entry.message !== 'task failed' || !entry.reason || entry.stack ? (
+                      <pre className="whitespace-pre-wrap break-words leading-5">
+                        {entry.message}
+                        {entry.stack && !entry.message.includes(entry.stack)
+                          ? `\n${entry.stack}`
+                          : ''}
+                      </pre>
+                    ) : null}
                     <div className="mt-1 text-xs">
                       <div className="flex flex-wrap gap-2">
                         {entry.task_id ? (
@@ -200,6 +202,7 @@ const reasons = new Map(
 )
 
 function errorReason(reason?: string | null, code?: string | null) {
+  if (reason === 'No eligible Grok media accounts') return 'Grok 模型渠道暂不可用，请稍后再试'
   const key = reason ?? code
   const translation = key ? reasons.get(key) : undefined
   if (reason) return translation ? `${translation}（${reason}）` : reason

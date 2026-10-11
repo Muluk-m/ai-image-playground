@@ -27,6 +27,7 @@ import { objectStore } from './objectStore'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
+import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 
@@ -450,7 +451,7 @@ export function queueTaskOutcome(task: QueueTaskTerminalRow): QueueTaskOutcome |
   if (task.status === 'failed') {
     return {
       kind: 'failed',
-      reason: task.error_message ?? '任务失败',
+      reason: publicTaskErrorMessage(task.error_message ?? '任务失败'),
       // 列是自由文本；写它的只有 worker，值域就是 `TaskErrorType`。
       errorType: (task.error_type as TaskErrorType | null) ?? null,
     }

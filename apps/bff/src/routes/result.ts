@@ -8,6 +8,7 @@ import { readGeneration } from '../lib/generations'
 import { jsonResponse } from '../lib/gzipResponse'
 import { isStoredImageRef } from '../lib/imageArchive'
 import { type ObjectRangeReader, objectStore } from '../lib/objectStore'
+import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { requireUserOrService } from '../lib/user-auth'
@@ -67,7 +68,7 @@ export const resultRoutes = new Elysia()
           request_id: task.id,
           status: 'failed',
           error: {
-            message: task.error_message ?? 'unknown',
+            message: publicTaskErrorMessage(task.error_message ?? 'unknown'),
             type: (task.error_type ?? 'unknown') as TaskErrorType,
           },
         }
