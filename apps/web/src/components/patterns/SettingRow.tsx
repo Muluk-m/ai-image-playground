@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
 
 export interface SettingRowProps {
   /** 每一行都有图标：一眼认出这行管什么，不靠读完整句话。 */

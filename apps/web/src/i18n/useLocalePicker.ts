@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { type AppLocale, currentLocale, setLocale, useTranslation } from './index'
+import { type AppLocale, currentLocale, setLocale, useTranslation } from '.'
 
 export interface LocalePicker {
   /** 当前应当显示在下拉里的值。切换在途时是目标语言，不是还没变的当前语言。 */

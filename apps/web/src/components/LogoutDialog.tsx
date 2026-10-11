@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from '../i18n'
-import { Checkbox } from './Checkbox'
-import Overlay from './Overlay'
+import { Checkbox } from './patterns/Checkbox'
+import Overlay from './patterns/Overlay'
 
 interface LogoutDialogProps {
   onCancel: () => void

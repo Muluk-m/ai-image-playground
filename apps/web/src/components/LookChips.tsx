@@ -7,8 +7,8 @@ import { type LookItem, lookNeedsRetune, mergeLookItems } from '../features/libr
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
-import Badge from './Badge'
 import { ChevronRightIcon, CloseIcon } from './icons'
+import Badge from './patterns/Badge'
 
 const PILL =
   'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background py-0.5 pl-1 pr-3 text-xs text-foreground transition hover:border-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'

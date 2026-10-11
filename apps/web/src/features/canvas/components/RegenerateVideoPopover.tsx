@@ -1,7 +1,6 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import Overlay from '../../../components/Overlay'
 import {
   FIELD,
   LABEL,
@@ -9,6 +8,7 @@ import {
   PANEL_TITLE,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
+import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import {
   Select,

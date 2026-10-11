@@ -1,6 +1,6 @@
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
-import Select from './Select'
+import Select from './patterns/Select'
 
 /** `compact`：首屏「我的作品」那一行用的窄版，不自带上下留白。 */
 export default function SearchBar({ compact = false }: { compact?: boolean } = {}) {
