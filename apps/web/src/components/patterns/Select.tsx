@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
 import { useTranslation } from '../../i18n'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../../lib/dropdown'
-import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from '../icons'
+import { Icon } from '../ui/icon'
 
 interface Option {
   label: string
@@ -270,13 +270,16 @@ export default function Select({
         title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
+        // design-allow arbitrary-radius: 触发区继承外层 chip 的圆角
         className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring ${className ?? ''} ${
           disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50' : ''
         }`}
       >
         {!hideSelectedLabel && <span className="truncate">{selectedOption?.label ?? value}</span>}
-        <ChevronDownIcon
-          className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        <Icon
+          name="chevronDown"
+          size="xs"
+          className={`text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
       </div>
 
@@ -499,7 +502,7 @@ export default function Select({
                     style={{ touchAction: 'none' }}
                     title={t('select.dragToReorder')}
                   >
-                    <DragHandleIcon className="h-3.5 w-3.5" />
+                    <Icon name="dragHandle" size="xs" />
                   </div>
                 )}
                 {option.icon && (
@@ -541,9 +544,9 @@ export default function Select({
                       }`}
                     >
                       {action.label === t('common:action.edit') ? (
-                        <EditIcon className="w-3.5 h-3.5" />
+                        <Icon name="edit" size="xs" />
                       ) : action.label === t('common:action.delete') ? (
-                        <TrashIcon className="w-3.5 h-3.5" />
+                        <Icon name="delete" size="xs" />
                       ) : (
                         action.label
                       )}
@@ -553,7 +556,7 @@ export default function Select({
               ) : null}
               {option.variant === 'action' && (
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                  <PlusIcon className="h-4 w-4" />
+                  <Icon name="add" />
                 </span>
               )}
             </div>
@@ -574,7 +577,7 @@ export default function Select({
             }}
           >
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
-              <DragHandleIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Icon name="dragHandle" size="xs" className="text-muted-foreground" />
               <span className="min-w-0 truncate">{touchDragPreview.label}</span>
             </div>
           </div>,

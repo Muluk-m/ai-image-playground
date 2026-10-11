@@ -105,6 +105,28 @@ describe('scanSource', () => {
     expect(rulesIn('apps/web/src/components/ui/icon.tsx', source)).toEqual([])
   })
 
+  it('keeps ui and patterns free of business imports', () => {
+    const source = [
+      "import { cn } from '../../lib/utils'",
+      "import { Button } from '../ui/button'",
+      "import { Hint } from '../assistant-ui/elements/tooltip-icon-button'",
+      "import { useStore } from '../../store'",
+      "import { openCanvas } from '../../features/canvas/lib/activeProject'",
+      "import TaskCard from '../TaskCard'",
+    ].join('\n')
+    expect(scanSource('apps/web/src/components/patterns/Example.tsx', source)).toEqual([
+      { rule: 'layer-import', line: 4 },
+      { rule: 'layer-import', line: 5 },
+      { rule: 'layer-import', line: 6 },
+    ])
+    expect(
+      rulesIn('apps/web/src/components/ui/example.tsx', "import Overlay from '../patterns/Overlay'"),
+    ).toEqual(['layer-import'])
+    expect(rulesIn('apps/web/src/components/TaskCard.tsx', "import { useStore } from '../store'")).toEqual(
+      [],
+    )
+  })
+
   it('allows inline svg only for brand logos', () => {
     const svg = '<svg viewBox="0 0 1 1" />'
     expect(rulesIn('apps/web/src/components/Header.tsx', svg)).toEqual(['inline-svg'])
