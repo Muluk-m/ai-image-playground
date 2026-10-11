@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
+import { manualChunks } from './src/boot/manualChunks'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
@@ -121,23 +122,7 @@ export default defineConfig(({ command }) => {
           ...guideHtmlEntries(__dirname),
         },
         output: {
-          // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor
-          // 大概率不变，业务代码改动只 bust 业务 chunk）。用函数形式才能匹配
-          // deep imports（react/jsx-runtime、react-dom/client 等）。
-          manualChunks(id) {
-            // 独立成块并由入口第一个导入：共享块先于入口正文执行，内联进入口就补晚了。
-            if (id.includes('/src/boot/polyfills')) return 'polyfills'
-            if (!id.includes('node_modules')) return undefined
-            if (
-              id.includes('/react/') ||
-              id.includes('/react-dom/') ||
-              id.includes('/scheduler/')
-            ) {
-              return 'react-vendor'
-            }
-            if (id.includes('/zustand/')) return 'zustand'
-            return undefined
-          },
+          manualChunks,
         },
       },
     },
