@@ -115,19 +115,26 @@ describe('scanSource', () => {
       "import TaskCard from '../TaskCard'",
       "import { useStore } from '@/store'",
       "import { cn } from '@/lib/utils'",
+      "import { setAppMode } from '../../store.ts'",
+      "import { draft } from '@/features/agent/store'",
     ].join('\n')
     expect(scanSource('apps/web/src/components/patterns/Example.tsx', source)).toEqual([
       { rule: 'layer-import', line: 4 },
       { rule: 'layer-import', line: 5 },
       { rule: 'layer-import', line: 6 },
       { rule: 'layer-import', line: 7 },
+      { rule: 'layer-import', line: 9 },
+      { rule: 'layer-import', line: 10 },
     ])
     expect(
-      rulesIn('apps/web/src/components/ui/example.tsx', "import Overlay from '../patterns/Overlay'"),
+      rulesIn(
+        'apps/web/src/components/ui/example.tsx',
+        "import Overlay from '../patterns/Overlay'",
+      ),
     ).toEqual(['layer-import'])
-    expect(rulesIn('apps/web/src/components/TaskCard.tsx', "import { useStore } from '../store'")).toEqual(
-      [],
-    )
+    expect(
+      rulesIn('apps/web/src/components/TaskCard.tsx', "import { useStore } from '../store'"),
+    ).toEqual([])
   })
 
   it('allows inline svg only for brand logos', () => {
