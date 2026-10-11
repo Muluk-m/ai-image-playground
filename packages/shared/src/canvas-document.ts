@@ -158,15 +158,9 @@ function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnn
   }
 }
 
-/** 转换专用的 Yjs 客户端号。真实客户端号是 32 位随机数，0 不会被占用。 */
-const LEGACY_IMPORT_CLIENT_ID = 0
-
 /**
  * 把旧存档的元素搬进文档。转换只发生一次，之后以 `Y.Doc` 为准，旧存档原样留着。
- *
- * 两个副本可能同时转换同一份存档（双挂载、多标签页）。转换固定在同一个客户端号下按同样顺序写，
- * 同一份存档产出逐字节相同的更新，合并时去重；否则同 id 的节点会互相覆盖，后来的编辑可能落在输掉的那份上。
- * 因此同一个文档只能拿同一份存档来转换。
+ * 持久化层须串行决定首次迁移者；保留 Yjs 客户端身份，避免不同快照复用同一组操作 ID。
  */
 export function importLegacyElements(
   doc: Y.Doc,
@@ -174,19 +168,118 @@ export function importLegacyElements(
   origin: CanvasOrigin,
 ): void {
   if (doc.getMap('meta').get('legacyImported')) return
-  const staging = new Y.Doc()
-  staging.clientID = LEGACY_IMPORT_CLIENT_ID
-  staging.transact(() => {
+  doc.transact(() => {
     // 以标记而不是「文档为空」判断转换过没有：转换结果为空、或之后被清空的画布不能再导一次。
-    staging.getMap('meta').set('legacyImported', true)
+    doc.getMap('meta').set('legacyImported', true)
     elements.forEach((element, z) => {
       const item = toNode(element, z)
-      if ('points' in item) annotationsOf(staging).set(item.id, item)
-      else writeNode(staging, item)
+      if ('points' in item) annotationsOf(doc).set(item.id, item)
+      else writeNode(doc, item)
     })
-  })
-  Y.applyUpdate(doc, Y.encodeStateAsUpdate(staging), origin)
-  staging.destroy()
+  }, origin)
+}
+
+function sameField(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function isPending(node: CanvasNode): boolean {
+  return 'pending' in node.data && Boolean(node.data.pending)
+}
+
+const GEOMETRY_FIELDS = new Set(['x', 'y', 'width', 'height'])
+
+/** 过渡期只接旧编辑器的真实增量；未变的几何不能盖掉用户在节点画布上的拖动。 */
+export function synchronizeLegacyElements(
+  doc: Y.Doc,
+  previous: readonly LegacyCanvasElement[],
+  next: readonly LegacyCanvasElement[],
+  origin: CanvasOrigin,
+): void {
+  if (previous === next) return
+  const before = new Map(previous.map((element, z) => [element.id, toNode(element, z)]))
+  const after = new Map(next.map((element, z) => [element.id, toNode(element, z)]))
+  const nodes = nodesOf(doc)
+  const annotations = annotationsOf(doc)
+  doc.transact(() => {
+    for (const id of before.keys()) {
+      if (after.has(id)) continue
+      nodes.delete(id)
+      annotations.delete(id)
+    }
+    for (const [id, item] of after) {
+      const old = before.get(id)
+      if (old && sameField(old, item)) continue
+      if ('points' in item) {
+        if (old && !('points' in old)) nodes.delete(id)
+        const current = annotations.get(id)
+        if (!old || !('points' in old) || !current) annotations.set(id, item)
+        else {
+          const updated = { ...current }
+          for (const field of Object.keys(item) as (keyof CanvasAnnotation)[]) {
+            if (!sameField(old[field], item[field]))
+              Object.assign(updated, { [field]: item[field] })
+          }
+          if (!sameField(current, updated)) annotations.set(id, updated)
+        }
+        continue
+      }
+      if (old && 'points' in old) annotations.delete(id)
+      const current = nodes.get(id)
+      if (!current) {
+        writeNode(doc, item)
+        continue
+      }
+      const beforeNode = old && !('points' in old) ? old : undefined
+      const preserveGeometry =
+        !beforeNode ||
+        (isPending(beforeNode) && !isPending(item)) ||
+        (beforeNode.type === 'image' && item.type === 'video')
+      for (const field of Object.keys(item) as (keyof CanvasNode)[]) {
+        if (preserveGeometry && GEOMETRY_FIELDS.has(field)) continue
+        if (
+          (!beforeNode || !sameField(beforeNode[field], item[field])) &&
+          !sameField(current.get(field), item[field])
+        )
+          current.set(field, item[field])
+      }
+    }
+  }, origin)
+}
+
+/** 重开时仅补旧编辑器新增内容与任务终态，节点文档自己的几何和额外节点仍是正本。 */
+export function reconcileLegacyElements(
+  doc: Y.Doc,
+  current: readonly LegacyCanvasElement[],
+  origin: CanvasOrigin,
+): void {
+  const nodes = nodesOf(doc)
+  const annotations = annotationsOf(doc)
+  doc.transact(() => {
+    current.forEach((element, z) => {
+      const item = toNode(element, z)
+      if (!nodes.has(item.id) && !annotations.has(item.id)) {
+        if ('points' in item) annotations.set(item.id, item)
+        else writeNode(doc, item)
+        return
+      }
+      if ('points' in item) return
+      const node = nodes.get(item.id)
+      if (!node) return
+      const data = node.get('data') as ImageNodeData | undefined
+      if (!data?.pending) return
+      const pending = 'pending' in item.data ? item.data.pending : undefined
+      const settled =
+        !pending ||
+        (pending.type === 'generation'
+          ? Boolean(pending.errorCode)
+          : pending.status === 'error' || pending.status === 'stale')
+      if (settled) {
+        if (node.get('type') !== item.type) node.set('type', item.type)
+        if (!sameField(data, item.data)) node.set('data', item.data)
+      }
+    })
+  }, origin)
 }
 
 export function moveCanvasNodes(
