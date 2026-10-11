@@ -1,6 +1,6 @@
 import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
 import { requireAccount } from '../auth/loginPrompt'
-import { i18next } from '../i18n'
+import { describeError, i18next } from '../i18n'
 import { useStore } from '../store'
 import type { AppSettings, TaskParams } from '../types'
 import { callImageApi, resumeQueueImageApi } from './api'
@@ -171,9 +171,7 @@ export function generationFailure(err: unknown): GenerationFailure {
     text:
       code === 'content_policy'
         ? i18next.t('detail.contentPolicy', { ns: 'task' })
-        : err instanceof Error
-          ? err.message
-          : String(err),
+        : describeError(err),
   }
 }
 
