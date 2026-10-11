@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import { CopyIcon } from './icons'
-import Overlay from './Overlay'
+import Overlay from './patterns/Overlay'
 
 function renderMessage(message: string) {
   // 强调段两种写法：中文用「」，英文用弯引号，同一条消息翻过去后还是会被加粗。

@@ -14,7 +14,7 @@ import { useStore } from '../../store'
 import { field } from '../assistant-ui/elements/surfaces'
 import { ChipIcons } from '../chipIcons'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
-import SearchField from '../SearchField'
+import SearchField from '../patterns/SearchField'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { type ComposerControlSize, composerModelChipClass } from './SettingsPanel'
 

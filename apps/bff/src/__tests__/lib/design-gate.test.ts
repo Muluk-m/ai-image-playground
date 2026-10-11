@@ -90,15 +90,51 @@ describe('scanSource', () => {
     const source = [
       "import { X } from 'lucide-react'",
       "import type { LucideIcon } from 'lucide-react'",
+      "import { type LucideProps } from 'lucide-react'",
       'import {',
       '  ChevronDown,',
-      "} from 'lucide-react'",
+      '} from',
+      "  'lucide-react'",
+      "export { Star } from 'lucide-react'",
     ].join('\n')
     expect(scanSource('apps/web/src/features/x/Panel.tsx', source)).toEqual([
       { rule: 'lucide-import', line: 1 },
-      { rule: 'lucide-import', line: 5 },
+      { rule: 'lucide-import', line: 4 },
+      { rule: 'lucide-import', line: 8 },
     ])
     expect(rulesIn('apps/web/src/components/ui/icon.tsx', source)).toEqual([])
+  })
+
+  it('keeps ui and patterns free of business imports', () => {
+    const source = [
+      "import { cn } from '../../lib/utils'",
+      "import { Button } from '../ui/button'",
+      "import { Hint } from '../assistant-ui/elements/tooltip-icon-button'",
+      "import { useStore } from '../../store'",
+      "import { openCanvas } from '../../features/canvas/lib/activeProject'",
+      "import TaskCard from '../TaskCard'",
+      "import { useStore } from '@/store'",
+      "import { cn } from '@/lib/utils'",
+      "import { setAppMode } from '../../store.ts'",
+      "import { draft } from '@/features/agent/store'",
+    ].join('\n')
+    expect(scanSource('apps/web/src/components/patterns/Example.tsx', source)).toEqual([
+      { rule: 'layer-import', line: 4 },
+      { rule: 'layer-import', line: 5 },
+      { rule: 'layer-import', line: 6 },
+      { rule: 'layer-import', line: 7 },
+      { rule: 'layer-import', line: 9 },
+      { rule: 'layer-import', line: 10 },
+    ])
+    expect(
+      rulesIn(
+        'apps/web/src/components/ui/example.tsx',
+        "import Overlay from '../patterns/Overlay'",
+      ),
+    ).toEqual(['layer-import'])
+    expect(
+      rulesIn('apps/web/src/components/TaskCard.tsx', "import { useStore } from '../store'"),
+    ).toEqual([])
   })
 
   it('allows inline svg only for brand logos', () => {
@@ -193,6 +229,16 @@ describe('baseline ratchet', () => {
     expect(
       findRegressions(current, { 'a.tsx': { 'native-control': 3 }, 'b.tsx': { 'inline-svg': 1 } }),
     ).toEqual([])
+  })
+
+  it('refuses to re-adopt a rule the baseline already tracks', () => {
+    expect(() =>
+      adoptRule(current, { 'a.tsx': { 'native-control': 1 } }, 'native-control'),
+    ).toThrow()
+  })
+
+  it('refuses to adopt an unknown rule', () => {
+    expect(() => adoptRule(current, {}, 'lucide-improt')).toThrow()
   })
 
   it('adopts only the named rule when a new rule lands', () => {

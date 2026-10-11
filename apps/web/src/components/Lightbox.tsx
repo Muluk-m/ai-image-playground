@@ -12,7 +12,7 @@ import { downloadBlob } from '../lib/downloadImages'
 import { loadImageOriginal } from '../lib/imageSource'
 import { useStore } from '../store'
 import { DownloadIcon, VideoIcon } from './icons'
-import Overlay from './Overlay'
+import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
 
 const MIN_SCALE = 1

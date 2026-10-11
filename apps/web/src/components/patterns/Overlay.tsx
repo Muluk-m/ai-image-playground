@@ -1,9 +1,9 @@
 import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
-import { useFocusTrap } from '../hooks/useFocusTrap'
-import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
-import { closeTooltips } from './assistant-ui/elements/tooltip-icon-button'
+import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { usePreventBackgroundScroll } from '../../hooks/usePreventBackgroundScroll'
+import { closeTooltips } from '../assistant-ui/elements/tooltip-icon-button'
 
 /**
  * Overlay — 所有模态浮层的唯一外壳。拥有六条纪律：
@@ -28,7 +28,7 @@ const TIER_CLASS = {
   artifact: 'z-[1200]',
 } as const
 
-type OverlayTier = keyof typeof TIER_CLASS
+export type OverlayTier = keyof typeof TIER_CLASS
 
 /**
  * 所有打开中的 Overlay 的滚动边界。嵌套浮层时，子浮层是 body 下的兄弟 portal，不在父浮层的

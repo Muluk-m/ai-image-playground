@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ICON_SIZE_PX, ICONS, Icon, type IconName } from '../../../components/ui/icon'
+import { ICON_SIZE_PX, ICONS, Icon, type IconName } from '../../../../components/ui/icon'
 
 const svgOf = (markup: string) => {
   const host = document.createElement('div')
@@ -20,14 +22,12 @@ describe('Icon', () => {
     expect(svg.getAttribute('height')).toBe(String(px))
   })
 
-  it('keeps the same 1.5px visual stroke at every size', () => {
-    for (const px of Object.values(ICON_SIZE_PX)) {
-      const size = Object.entries(ICON_SIZE_PX).find(([, value]) => value === px)?.[0]
-      const svg = svgOf(
-        renderToStaticMarkup(<Icon name="close" size={size as keyof typeof ICON_SIZE_PX} />),
-      )
-      // lucide 在 24 的 viewBox 里画；绝对线宽 = 1.5 × 24 / 渲染尺寸。
-      expect(Number(svg.getAttribute('stroke-width'))).toBeCloseTo((1.5 * 24) / px, 3)
+  it('draws a 1.5px stroke in screen pixels whatever size CSS gives it', () => {
+    for (const size of Object.keys(ICON_SIZE_PX) as Array<keyof typeof ICON_SIZE_PX>) {
+      const svg = svgOf(renderToStaticMarkup(<Icon name="close" size={size} />))
+      // 线宽按屏幕像素算（non-scaling-stroke），Button 用 CSS 改图标尺寸也不会变粗变细。
+      expect(svg.getAttribute('stroke-width')).toBe('1.5')
+      expect(svg.getAttribute('class')).toContain('[&>*]:[vector-effect:non-scaling-stroke]')
     }
   })
 
@@ -62,7 +62,14 @@ describe('Icon', () => {
       const svg = svgOf(renderToStaticMarkup(<Icon name={name} size="lg" />))
       expect(svg.getAttribute('viewBox'), name).toBe('0 0 24 24')
       expect(svg.getAttribute('stroke-linecap'), name).toBe('round')
-      expect(Number(svg.getAttribute('stroke-width')), name).toBeCloseTo(1.5, 3)
+      expect(svg.getAttribute('stroke-width'), name).toBe('1.5')
     }
+  })
+
+  it('lists every registered name in docs/design-system/icons.md', () => {
+    // 文档里那张语义名表是给人和 Agent 查的，登记新名字时要一起补上（vitest 在 apps/web 下跑）。
+    const doc = readFileSync(resolve(process.cwd(), 'docs/design-system/icons.md'), 'utf8')
+    const missing = Object.keys(ICONS).filter((name) => !doc.includes(`\`${name}\``))
+    expect(missing).toEqual([])
   })
 })

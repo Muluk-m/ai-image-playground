@@ -63,7 +63,6 @@
     "native-control": 3
   },
   "apps/web/src/components/ParamControls.tsx": {
-    "glyph-icon": 1,
     "lucide-import": 1
   },
   "apps/web/src/components/ProjectNavigation.tsx": {
@@ -77,21 +76,6 @@
     "focus-not-visible": 3,
     "inline-svg": 2,
     "native-control": 2
-  },
-  "apps/web/src/components/SearchField.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/SectionHeader.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/components/SegmentedTabs.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/components/Select.tsx": {
-    "arbitrary-radius": 1,
-    "native-control": 1
   },
   "apps/web/src/components/SetHistoryCard.tsx": {
     "native-control": 1
@@ -108,9 +92,6 @@
   "apps/web/src/components/SubmissionBillingAction.tsx": {
     "native-control": 1,
     "palette-class": 2
-  },
-  "apps/web/src/components/Switch.tsx": {
-    "native-control": 1
   },
   "apps/web/src/components/SyncStatusPanel.tsx": {
     "font-weight": 1,
@@ -229,9 +210,6 @@
     "font-weight": 1,
     "lucide-import": 1,
     "native-control": 2,
-    "offscale-font": 1
-  },
-  "apps/web/src/components/ui/sheet.tsx": {
     "offscale-font": 1
   },
   "apps/web/src/features/agent/agentStyles.ts": {

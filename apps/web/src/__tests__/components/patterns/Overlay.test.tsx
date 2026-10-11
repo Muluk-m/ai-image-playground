@@ -2,9 +2,9 @@
 import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Hint } from '../../components/assistant-ui/elements/tooltip-icon-button'
-import Overlay from '../../components/Overlay'
-import { stubPointerApis } from '../helpers/radix'
+import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
+import Overlay from '../../../components/patterns/Overlay'
+import { stubPointerApis } from '../../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var

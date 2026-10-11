@@ -1,6 +1,6 @@
-import { Search } from 'lucide-react'
 import type { InputHTMLAttributes } from 'react'
-import { cn } from '../lib/utils'
+import { cn } from '../../lib/utils'
+import { Icon } from '../ui/icon'
 
 export default function SearchField({
   className,
@@ -13,7 +13,7 @@ export default function SearchField({
         className,
       )}
     >
-      <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <Icon name="search" />
       <input
         type="search"
         className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"

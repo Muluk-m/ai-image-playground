@@ -8,7 +8,7 @@ import {
   PASSWORD_MIN_LENGTH,
 } from '@image-playground/shared'
 import { type FormEvent, useEffect, useState } from 'react'
-import Overlay from '../components/Overlay'
+import Overlay from '../components/patterns/Overlay'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
