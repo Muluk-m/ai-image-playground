@@ -64,8 +64,8 @@
       },
       "models": [
         {
-          "id": "agnes-image-2.1-flash",
-          "label": "Agnes Image 2.1 Flash",
+          "id": "agnes-image-2.5-flash",
+          "label": "Agnes Image 2.5 Flash",
           "capabilities": ["generate", "edit", "size"]
         }
       ],
