@@ -358,7 +358,7 @@ describe('callUpstream 独立直连 channel 路由（CHANNEL_ROUTE_STYLES）', (
     auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
     allowedPaths: ['images/generations'],
     models: [
-      { id: 'agnes-image-2.1-flash', label: 'Agnes Image 2.1 Flash', capabilities: ['generate'] },
+      { id: 'agnes-image-2.5-flash', label: 'Agnes Image 2.5 Flash', capabilities: ['generate'] },
     ],
     defaults: { apiMode: 'images', timeout: 600 },
   }
@@ -386,7 +386,7 @@ describe('callUpstream 独立直连 channel 路由（CHANNEL_ROUTE_STYLES）', (
   it('agnes 模型走 channel baseUrl + 相对路径，不再拼出 /v1/v1（双 /v1 事故回归）', async () => {
     await callUpstream({
       provider: 'openai-compat',
-      model: 'agnes-image-2.1-flash',
+      model: 'agnes-image-2.5-flash',
       request: { prompt: 'a cat', size: '1024x1024' },
     })
     expect(calls).toHaveLength(1)
@@ -489,8 +489,8 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     allowedPaths: ['images/generations'],
     models: [
       {
-        id: 'agnes-image-2.1-flash',
-        label: 'Agnes Image 2.1 Flash',
+        id: 'agnes-image-2.5-flash',
+        label: 'Agnes Image 2.5 Flash',
         capabilities: ['generate', 'edit'],
       },
     ],
@@ -520,7 +520,7 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
   it('带 input_images：仍走 generations JSON，图放 extra_body.image（无 edits multipart）', async () => {
     await callUpstream({
       provider: 'openai-compat',
-      model: 'agnes-image-2.1-flash',
+      model: 'agnes-image-2.5-flash',
       request: {
         prompt: 'make it blue',
         size: '1024x1024',
@@ -545,7 +545,7 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     try {
       await callUpstream({
         provider: 'openai-compat',
-        model: 'agnes-image-2.1-flash',
+        model: 'agnes-image-2.5-flash',
         request: { prompt: 'edit', input_images: [TINY_PNG_DATA_URL], mask: TINY_PNG_DATA_URL },
         beforeRequest: async () => {
           dispatches += 1
@@ -565,7 +565,7 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     let dispatches = 0
     const result = await callUpstream({
       provider: 'openai-compat',
-      model: 'agnes-image-2.1-flash',
+      model: 'agnes-image-2.5-flash',
       request: { prompt: 'a star', n: 3 },
       beforeRequest: async () => {
         dispatches += 1
@@ -1122,7 +1122,7 @@ describe('callUpstream 取消传播', () => {
     baseUrl: 'https://apihub.agnes-ai.com/v1',
     auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
     allowedPaths: ['images/generations'],
-    models: [{ id: 'agnes-image-2.1-flash', label: 'Agnes', capabilities: ['generate'] }],
+    models: [{ id: 'agnes-image-2.5-flash', label: 'Agnes', capabilities: ['generate'] }],
     defaults: { apiMode: 'images' },
   }
 
@@ -1160,7 +1160,7 @@ describe('callUpstream 取消传播', () => {
     ],
     [
       'agnes generations',
-      { provider: 'openai-compat', model: 'agnes-image-2.1-flash', request: { prompt: 'a cat' } },
+      { provider: 'openai-compat', model: 'agnes-image-2.5-flash', request: { prompt: 'a cat' } },
     ],
     [
       'gemini fan-out',
