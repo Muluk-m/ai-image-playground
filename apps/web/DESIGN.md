@@ -333,21 +333,13 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 ## Components
 
-- **基础组件只从 `components/ui/` 取**（shadcn new-york，Radix 原语只在这里封装一次）。
-  业务代码不写原生 `<button>`、`<input>`、`<select>`、`<textarea>`、`<dialog>`，也不直接 import
-  `@radix-ui/*`；缺什么组件就先按 shadcn 加进 `components/ui/`，再在业务里组合。现有清单：
-  Button、Input、Textarea、Label、Checkbox、Select、Slider、Popover、Sheet。
-- **Button**：只用 `components/ui/button.tsx` 的 variant（default / outline / ghost /
-  destructive）与 size；不要在业务里手写一套 `rounded-xl border px-3.5 py-2.5` 的按钮。
-  size 对照控件高度：`xs` 28（页签、小按钮）、`sm` 32、`default` 36、`lg` 40；纯图标按钮用
-  `icon-sm` 32（工具条、卡片操作）、`icon-xs` 28、`icon-lg` 40（首页输入框工具），`icon` 36 给表单行里
-  与输入框并排、或与 36px 文字按钮同排的按钮。
-- **PageHeader**：所有浏览页共用一个组件，固定 56px，右侧按账号簇宽度让位。
-- **SectionHeader**：标题 title-sm + 右侧「查看全部」链接（body-sm、muted、lucide 箭头），
-  链接文字与下方网格右边缘对齐。
-- **SegmentedTabs**：页内切换（资产页签、探索的模型筛选）统一 28px 高的胶囊页签，
-  选中态 accent 底。
-- **SearchField**：带放大镜图标的 36px 输入框，宽 280px。
+组件分三层，依赖只能自上而下：业务 → `components/patterns/`（通用组合件）→ `components/ui/`
+（shadcn 原语与 `<Icon>`）。每个组件何时用、有哪些变体与尺寸、配方与禁忌，写在
+[`docs/design-system/`](./docs/design-system/README.md)：先查那里的「我要做 X → 用哪个」速查表，
+找不到再按它的流程新增组件，不在业务里手搭控件。
+
+下面只记产品专属、不属于任何通用组件的规则。
+
 - **Composer 参数**：每个创作输入框底部只有「附件 · 模型 chip · 参数摘要 chip · 生成」。
   模型单独一个 chip；比例、分辨率、数量、质量、格式等全部收进摘要 chip 点开的设置卡片
   （`components/composer/SettingsPanel.tsx`）：标题 + 关闭、按组排列、底部「恢复默认 / 完成」，
@@ -355,18 +347,6 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   一个点。卡片里的互斥档位一律用 `SettingsSegmented`（比例用 `RatioGrid`），开关用
   `SettingsToggle`。图片（`ParamControls`）与视频（`CanvasVideoParams`）共用这一个外壳，
   不要再在输入框里平铺一排参数 chip。
-- **EmptyState**：一枚 24px 线性图标 + 一句 body-sm 说明 + 可选一个按钮，在内容区上部居中。
-- **图标**：业务代码只用 `components/ui/icon` 的 `<Icon name size label?>`，不直接 import
-  lucide-react，不写内联 `<svg>`，`+ − ＋ → ↗ ×` 这类文字字符也不能当图标。
-  - 名字是语义（`download`、`delete`、`imageAdd`），不是形状；同一含义只有一个名字。缺的先登记进
-    `ICONS` 对照表。换成自绘图标只改对照表那一行（用 lucide 的 `createLucideIcon` 包，参数同下）。
-  - 网格 24、描线、`round` 端点与连接，任何尺寸下视觉线宽都是 1.5px；实心只给选中态。
-  - 尺寸四档：`xs` 14（28px 控件）、`sm` 16（32–36px 控件，默认）、`md` 20（40px 控件）、`lg` 24（空态、
-    加载与报错占位、大入口）。
-  - 贴在缩略图角上的小按钮（移除参考图）是唯一的 20px 控件，配 `xs` 图标；它属于缩略图，不在控件高度表里。
-  - 「停止」用实心方块，是媒体控制约定俗成的例外。
-  - 图标单独表达含义（没有文字的按钮）时传 `label` 给读屏，或由外层按钮的 `aria-label` 承担。
-  - 品牌 Logo（`logos.tsx`）不在此列。
 
 ## Do's and Don'ts
 
@@ -382,9 +362,11 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 ## 门禁
 
-`pnpm lint` 会跑 `scripts/check-design.ts`，拦下业务代码里的原生控件、内联 `<svg>`、字符图标、
-任意字号 / 间距 / 圆角 / 颜色、Tailwind 调色板类、字阶外字号、超出三档的字重、`/70` 灰字、
-`focus:` 焦点环，以及 CSS 里写死的颜色与字号，规则与修法见脚本里的 `DESIGN_RULES`。
+`pnpm lint` 会跑 `scripts/check-design.ts`，拦下业务代码里的原生控件、直接 import `lucide-react`、
+内联 `<svg>`、字符图标、任意字号 / 间距 / 圆角 / 颜色、Tailwind 调色板类、字阶外字号、超出三档的
+字重、`/70` 灰字、`focus:` 焦点环，CSS 里写死的颜色与字号，以及 `ui/`、`patterns/` 对业务代码的
+依赖（`layer-import`），规则与修法见脚本里的 `DESIGN_RULES`。原生控件与 `focus:` 只在设计系统内部
+（`ui/`、`patterns/`）放行。
 `components/ui/` 之外 import `@radix-ui/*`、以及任何非 lucide 图标库，由 `biome.json` 的
 `noRestrictedImports` 拦截。
 

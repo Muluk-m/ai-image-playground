@@ -61,6 +61,13 @@ async function start(): Promise<void> {
         <BootReady>{node}</BootReady>
       </StrictMode>,
     )
+  // 设计系统陈列页（?dev=design）只在开发环境存在：生产构建里 DEV 恒为 false，这段连同分片一起被摇掉。
+  if (import.meta.env.DEV && new URLSearchParams(location.search).get('dev') === 'design') {
+    await localeReady
+    const { default: DesignGallery } = await import('./dev/DesignGallery')
+    render(<DesignGallery />)
+    return
+  }
   async function mountAfterCapabilities(): Promise<void> {
     try {
       // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
