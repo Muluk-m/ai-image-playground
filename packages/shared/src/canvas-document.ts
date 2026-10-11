@@ -9,18 +9,7 @@ import type { ProjectElement, ProjectImage } from './project-protocol'
 export const CANVAS_NODE_TYPES = ['text', 'image', 'video', 'timeline'] as const
 export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number]
 
-export const CANVAS_ANNOTATION_TYPES = ['arrow', 'freedraw'] as const
-export type CanvasAnnotationType = (typeof CANVAS_ANNOTATION_TYPES)[number]
-
-/** 节点注册表：每种节点的默认尺寸。连线规则、输入框与工具条随后续节点能力加进来。 */
-export const CANVAS_NODE_REGISTRY: Readonly<
-  Record<CanvasNodeType, { readonly defaultWidth: number; readonly defaultHeight: number }>
-> = {
-  text: { defaultWidth: 320, defaultHeight: 160 },
-  image: { defaultWidth: 320, defaultHeight: 320 },
-  video: { defaultWidth: 320, defaultHeight: 180 },
-  timeline: { defaultWidth: 640, defaultHeight: 120 },
-}
+export type CanvasAnnotationType = 'arrow' | 'freedraw'
 
 export interface CanvasNode {
   id: string
@@ -112,10 +101,7 @@ export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
   return { nodes, annotations }
 }
 
-export function isCanvasDocumentEmpty(doc: Y.Doc): boolean {
-  return nodesOf(doc).size === 0 && annotationsOf(doc).size === 0
-}
-
+// 几何是逐字段可合并的；`data` 先整块存，按节点能力逐步换成细粒度的 Yjs 类型。
 function writeNode(doc: Y.Doc, node: CanvasNode): void {
   const map = new Y.Map<unknown>()
   for (const [key, value] of Object.entries(node)) map.set(key, value)
@@ -127,17 +113,12 @@ function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnn
     case 'arrow':
     case 'freedraw':
       return { ...element, points: [...element.points], z }
-    case 'image': {
-      const { id, x, y, width, height, ...data } = element
-      return { id, type: data.video ? 'video' : 'image', x, y, width, height, z, data }
-    }
-    case 'text': {
-      const { id, x, y, width, height, ...data } = element
-      return { id, type: 'text', x, y, width, height, z, data }
-    }
+    case 'image':
+    case 'text':
     case 'timeline': {
       const { id, x, y, width, height, ...data } = element
-      return { id, type: 'timeline', x, y, width, height, z, data }
+      const type = element.type === 'image' && element.video ? 'video' : element.type
+      return { id, type, x, y, width, height, z, data }
     }
     case 'placeholder':
     case 'generation': {
@@ -152,8 +133,7 @@ function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnn
 const LEGACY_IMPORT_CLIENT_ID = 0
 
 /**
- * 把旧存档的元素搬进一份空文档。文档已有内容时什么都不做：转换只发生一次，
- * 之后以 `Y.Doc` 为准，旧存档原样留着。
+ * 把旧存档的元素搬进文档。转换只发生一次，之后以 `Y.Doc` 为准，旧存档原样留着。
  *
  * 两个副本可能同时转换同一份存档（双挂载、多标签页）。转换固定在同一个客户端号下按同样顺序写，
  * 同一份存档产出逐字节相同的更新，合并时去重；否则同 id 的节点会互相覆盖，后来的编辑可能落在输掉的那份上。
@@ -164,10 +144,12 @@ export function importLegacyElements(
   elements: readonly LegacyCanvasElement[],
   origin: CanvasOrigin,
 ): void {
-  if (!isCanvasDocumentEmpty(doc)) return
+  if (doc.getMap('meta').get('legacyImported')) return
   const staging = new Y.Doc()
   staging.clientID = LEGACY_IMPORT_CLIENT_ID
   staging.transact(() => {
+    // 以标记而不是「文档为空」判断转换过没有：转换结果为空、或之后被清空的画布不能再导一次。
+    staging.getMap('meta').set('legacyImported', true)
     elements.forEach((element, z) => {
       const item = toNode(element, z)
       if (item.type === 'arrow' || item.type === 'freedraw') {
