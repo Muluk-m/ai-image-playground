@@ -11,6 +11,7 @@ const session = vi.hoisted(() => ({
   failToday: false,
   showError: false,
   errorRequest: true,
+  recentAvailable: true,
   taskAt: undefined as number | undefined,
   completedAt: undefined as number | undefined,
 }))
@@ -76,12 +77,19 @@ vi.mock('../../lib/api-client', () => {
     if (url.startsWith('/api/overview/errors'))
       return {
         window,
-        total: session.showError ? 1 : 0,
+        total: session.showError ? 24 : 0,
+        recent: session.recentAvailable
+          ? { window: { from: window.to - 900_000, to: window.to }, total: 0, entries: [] }
+          : undefined,
         entries: session.showError
           ? [
               {
                 source: 'server',
                 id: 'error-1',
+                route: 'POST /api/media/:id/complete',
+                status: 503,
+                errorCode: 'media_processing_busy',
+                reason: 'object_lock_timeout',
                 at: Date.now(),
                 service: 'worker',
                 message: '上游请求失败',
@@ -209,6 +217,7 @@ function renderAt(path: string): void {
 }
 
 beforeEach(() => {
+  session.recentAvailable = true
   patch.mockClear()
   requests.length = 0
   session.failToday = false
@@ -359,6 +368,45 @@ describe('今日概览', () => {
     expect(terminal.querySelector('details')).toBeNull()
     expect(output.className).toContain('whitespace-pre')
     expect(within(terminal).getByRole('link', { name: '相关日志 →' })).toBeInTheDocument()
+  })
+
+  it('distinguishes historical errors from recent additions and displays the route and concrete cause', async () => {
+    session.showError = true
+    renderAt('/overview')
+    const today = await screen.findByRole('button', { name: '今日累计 24 条' })
+    expect(today).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('POST /api/media/:id/complete')).toBeInTheDocument()
+    expect(screen.getByText('HTTP 503')).toBeInTheDocument()
+    expect(screen.getByText(/等待同一图片的其他处理请求超时/)).toBeInTheDocument()
+    expect(screen.getByText('错误码：media_processing_busy')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '最近 15 分钟新增 0 条' }))
+    expect(screen.getByText('最近 15 分钟没有新增错误日志')).toBeInTheDocument()
+    expect(screen.queryByText('POST /api/media/:id/complete')).not.toBeInTheDocument()
+    const params = new URLSearchParams(
+      screen.getByRole('link', { name: '服务端日志 →' }).getAttribute('href')!.split('?')[1],
+    )
+    expect(Number(params.get('to')) - Number(params.get('from'))).toBe(900_000)
+    fireEvent.click(today)
+    expect(screen.getByText('POST /api/media/:id/complete')).toBeInTheDocument()
+  })
+
+  it('falls back to today if a refresh no longer provides the recent statistics', async () => {
+    session.showError = true
+    renderAt('/overview')
+    fireEvent.click(await screen.findByRole('button', { name: '最近 15 分钟新增 0 条' }))
+    expect(screen.getByText('最近 15 分钟没有新增错误日志')).toBeInTheDocument()
+    session.recentAvailable = false
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+    expect(await screen.findByRole('button', { name: '最近 15 分钟新增 暂不可用' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '今日累计 24 条' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.queryByText('最近 15 分钟没有新增错误日志')).not.toBeInTheDocument()
+    expect(screen.getByText('POST /api/media/:id/complete')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '服务端日志 →' }).getAttribute('href')).toContain(
+      'from=',
+    )
   })
 
   it('opens plain terminal errors with same-container context instead of filtering out their stack', async () => {
