@@ -15,8 +15,6 @@ export const CAPABILITIES = {
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
-  /** 节点画布（ADR 0022 / 0023）。跑通前只在测试站开；关着时画布照旧。 */
-  'canvas:nodes': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
    * （`chatTurnsBilled()`），这一轮的 `cost.chat` 恒为 0；工具产生的生图 / 生视频

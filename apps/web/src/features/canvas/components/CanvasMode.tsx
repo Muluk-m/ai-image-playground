@@ -8,7 +8,7 @@ import {
   PanelLeftOpen,
   Search,
 } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { Button } from '../../../components/ui/button'
@@ -45,7 +45,6 @@ import {
 } from '../lib/activeProject'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
-import { cloudProjectsEnabled } from '../lib/projectClient'
 import { projectExperience } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import type { CanvasWorkspace } from '../lib/workspaces'
@@ -66,9 +65,6 @@ import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
 import TimelineEditorHost from './TimelineEditor'
-
-// React Flow 只在开着节点画布时下载。
-const NodeCanvas = lazy(() => import('./NodeCanvas'))
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
@@ -200,10 +196,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
-  // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
-  // 云端会话在加载里异步挂上，按项目记录判，免得云端项目先被当成本机项目转换一遍。
-  const nodeCanvas =
-    isClientCapabilityEnabled('canvas:nodes') && !(project?.cloud && cloudProjectsEnabled())
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)
@@ -709,16 +701,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       <h3>{t('sidebar.emptyTitle')}</h3>
                       <p>{t('sidebar.emptyBody')}</p>
                       {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
-                      {!nodeCanvas && <AgentSuggestions className="studio-suggestions mt-5" />}
+                      <AgentSuggestions className="studio-suggestions mt-5" />
                     </div>
-                    {/* 侧栏输入框只会写进旧画布；节点画布里的生成随节点输入框（#1140）上线。 */}
-                    {nodeCanvas ? (
-                      <p className="m-4 rounded-xl border border-border p-3 text-sm text-muted-foreground">
-                        {t('nodes.generateUnavailable')}
-                      </p>
-                    ) : (
-                      <CanvasGenerateBar editor={editor} />
-                    )}
+                    <CanvasGenerateBar editor={editor} />
                   </aside>
                 )}
               </div>
@@ -787,43 +772,32 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <div className="studio-canvas-ground" aria-hidden="true" />
               )}
               {showRestoreMark && <CanvasLoading label={t('loading.restoring')} decorative />}
-              {nodeCanvas ? (
-                !loading &&
-                !loadFailed && (
-                  <Suspense fallback={null}>
-                    <NodeCanvas workspace={workspace} />
-                  </Suspense>
-                )
-              ) : (
-                <>
-                  {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
-                  <PlaceholderOverlay editor={editor} />
-                  <CanvasVideoOverlay
-                    editor={editor}
-                    active={!loading && !loadFailed && (!hasAgent || projectView === 'canvas')}
-                  />
-                  <CanvasVideoToolbar editor={editor} />
-                  <CanvasImageToolbar editor={editor} />
-                  <InpaintMaskLayer editor={editor} />
-                  <CanvasRectEditLayer editor={editor} />
-                  <TimelineEditorHost editor={editor} />
-                  <FilmExportStatus />
-                  <CanvasToolbar
-                    doc={doc}
-                    onFitContent={() =>
-                      editor.scrollToElements(
-                        doc.elements.map((one) => one.id),
-                        false,
-                      )
-                    }
-                    onImportImages={() => fileInput.current?.click()}
-                    onImportFolder={() => folderInput.current?.click()}
-                  />
-                  <CanvasBatchBar editor={editor} />
-                  {hasAgent && projectView === 'canvas' && <AgentResultShelf doc={doc} />}
-                  <StylePanel doc={doc} />
-                </>
-              )}
+              {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
+              <PlaceholderOverlay editor={editor} />
+              <CanvasVideoOverlay
+                editor={editor}
+                active={!loading && !loadFailed && (!hasAgent || projectView === 'canvas')}
+              />
+              <CanvasVideoToolbar editor={editor} />
+              <CanvasImageToolbar editor={editor} />
+              <InpaintMaskLayer editor={editor} />
+              <CanvasRectEditLayer editor={editor} />
+              <TimelineEditorHost editor={editor} />
+              <FilmExportStatus />
+              <CanvasToolbar
+                doc={doc}
+                onFitContent={() =>
+                  editor.scrollToElements(
+                    doc.elements.map((one) => one.id),
+                    false,
+                  )
+                }
+                onImportImages={() => fileInput.current?.click()}
+                onImportFolder={() => folderInput.current?.click()}
+              />
+              <CanvasBatchBar editor={editor} />
+              {hasAgent && projectView === 'canvas' && <AgentResultShelf doc={doc} />}
+              <StylePanel doc={doc} />
               {saveFailed && (
                 <div
                   role="alert"
@@ -842,10 +816,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {/* 右下角控件栈：小地图贴角，快捷键速查叠在它上面。两者共用一列，天然不重叠；
             底部工具条居中、智能体面板在左，都不落在这一列里。 */}
               <div className="pointer-events-none absolute bottom-24 right-4 z-[400] hidden flex-col items-end gap-2 sm:flex">
-                {!nodeCanvas && <CanvasShortcutsHint />}
-                {!nodeCanvas && <CanvasMinimap editor={editor} />}
+                <CanvasShortcutsHint />
+                <CanvasMinimap editor={editor} />
               </div>
-              {!hasContent && !nodeCanvas && !loading && !loadFailed && (
+              {!hasContent && !loading && !loadFailed && (
                 <div className="studio-empty">
                   <img src="/brand/muvloom-mark.svg" alt="" />
                   <h2>{t('empty.title')}</h2>
