@@ -575,8 +575,14 @@ it.each([
   try {
     await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
     const clickSend = async () => {
+      const button = await vi.waitFor(async () => {
+        await act(async () => {})
+        const current = host.querySelector<HTMLButtonElement>('button[aria-label="发送并拟提示词"]')
+        expect(current).not.toBeNull()
+        expect(current?.disabled).toBe(false)
+        return current!
+      })
       await act(async () => {
-        const button = host.querySelector<HTMLButtonElement>('button[aria-label="发送并拟提示词"]')!
         button.click()
       })
     }
