@@ -1,10 +1,10 @@
-import { type ReactNode, useState, useSyncExternalStore } from 'react'
+import { type ReactNode, useState } from 'react'
 import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
 import Badge from '../components/patterns/Badge'
 import { Checkbox } from '../components/patterns/Checkbox'
 import ContextMenu, { ContextMenuItem } from '../components/patterns/ContextMenu'
+import Dialog from '../components/patterns/Dialog'
 import EmptyState from '../components/patterns/EmptyState'
-import Overlay from '../components/patterns/Overlay'
 import PageHeader from '../components/patterns/PageHeader'
 import SearchField from '../components/patterns/SearchField'
 import SectionHeader from '../components/patterns/SectionHeader'
@@ -12,8 +12,8 @@ import SegmentedTabs from '../components/patterns/SegmentedTabs'
 import PatternSelect from '../components/patterns/Select'
 import { SettingRow } from '../components/patterns/SettingRow'
 import { Switch } from '../components/patterns/Switch'
-import { Button, type ButtonProps } from '../components/ui/button'
-import { ICON_SIZE_PX, ICONS, Icon, type IconName } from '../components/ui/icon'
+import { Button } from '../components/ui/button'
+import { ICON_SIZE_PX, ICONS, Icon, type IconName, type IconSize } from '../components/ui/icon'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
@@ -27,14 +27,14 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../components/ui/sheet'
 import { Slider } from '../components/ui/slider'
 import { Textarea } from '../components/ui/textarea'
-import { getTheme, setThemeChoice, subscribeTheme } from '../theme'
+import { useTheme } from '../theme/useTheme'
 
 /**
- * 设计系统陈列页（开发环境 `?dev=design`）：每个原语与组合件的全部变体各摆一次，
+ * 设计系统陈列页（开发服务器上的 /design.html）：每个原语与组合件的全部变体各摆一次，
  * 新增或改动组件后在这里浅色深色各看一眼。文案是陈列用的，不进语料。
  */
 export default function DesignGallery() {
-  const theme = useSyncExternalStore(subscribeTheme, getTheme)
+  const { theme, setChoice } = useTheme()
   return (
     <div className="h-dvh overflow-y-auto bg-background text-foreground">
       <PageHeader title="幕芽设计系统">
@@ -42,7 +42,7 @@ export default function DesignGallery() {
           <span className="text-body-sm text-muted-foreground">深色</span>
           <Switch
             checked={theme === 'dark'}
-            onChange={(dark) => setThemeChoice(dark ? 'dark' : 'light')}
+            onChange={(dark) => setChoice(dark ? 'dark' : 'light')}
             aria-label="切换深色"
           />
         </div>
@@ -152,7 +152,7 @@ function Buttons() {
       {VARIANTS.map((variant) => (
         <Row key={variant} label={variant}>
           {TEXT_SIZES.map((size) => (
-            <Button key={size} variant={variant} size={size as ButtonProps['size']}>
+            <Button key={size} variant={variant} size={size}>
               <Icon name="sparkles" />
               {size}
             </Button>
@@ -179,7 +179,7 @@ function Icons() {
   const names = Object.keys(ICONS) as IconName[]
   return (
     <Section title="Icon">
-      {(Object.keys(ICON_SIZE_PX) as Array<keyof typeof ICON_SIZE_PX>).map((size) => (
+      {(Object.keys(ICON_SIZE_PX) as IconSize[]).map((size) => (
         <Row key={size} label={`${size} ${ICON_SIZE_PX[size]}`}>
           {names.map((name) => (
             <Hint key={name} tooltip={name}>
@@ -305,7 +305,7 @@ function Floating() {
           </SheetContent>
         </Sheet>
         <Button variant="outline" onClick={() => setDialog(true)}>
-          Overlay 对话框
+          Dialog 对话框
         </Button>
         <Button
           variant="outline"
@@ -323,31 +323,22 @@ function Floating() {
         </Hint>
       </div>
       {dialog && (
-        <Overlay onClose={() => setDialog(false)} label="对话框">
-          <div className="flex w-full max-w-md flex-col rounded-3xl bg-card shadow-dialog ring-1 ring-hairline">
-            <div className="flex items-center justify-between px-6 pb-2 pt-5">
-              <h2 className="text-xl font-semibold">对话框标题</h2>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="关闭"
-                className="text-muted-foreground"
-                onClick={() => setDialog(false)}
-              >
-                <Icon name="close" />
-              </Button>
-            </div>
-            <p className="px-6 pb-6 text-sm text-muted-foreground">内容区：可滚动，内边距 24px。</p>
-            <div className="flex justify-end gap-2 border-t border-border px-6 py-3">
+        <Dialog
+          title="对话框标题"
+          onClose={() => setDialog(false)}
+          footer={
+            <>
               <Button variant="outline" size="sm" onClick={() => setDialog(false)}>
                 取消
               </Button>
               <Button size="sm" onClick={() => setDialog(false)}>
                 确认
               </Button>
-            </div>
-          </div>
-        </Overlay>
+            </>
+          }
+        >
+          <p className="text-sm text-muted-foreground">正文可滚动，左右内边距 24px。</p>
+        </Dialog>
       )}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>

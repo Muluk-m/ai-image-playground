@@ -28,7 +28,7 @@ const TIER_CLASS = {
   artifact: 'z-[1200]',
 } as const
 
-type OverlayTier = keyof typeof TIER_CLASS
+export type OverlayTier = keyof typeof TIER_CLASS
 
 /**
  * 所有打开中的 Overlay 的滚动边界。嵌套浮层时，子浮层是 body 下的兄弟 portal，不在父浮层的

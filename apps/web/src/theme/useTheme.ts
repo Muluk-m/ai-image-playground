@@ -16,7 +16,7 @@ export interface ThemeControls {
   setChoice: (next: ThemeChoice) => void
 }
 
-/** 主题下拉的状态。只在头像菜单里，由 `DisplaySettingsFields` 渲染。 */
+/** 主题的当前值与切换：头像菜单的主题下拉（`DisplaySettingsFields`）与设计系统陈列页在用。 */
 export function useTheme(): ThemeControls {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'dark' as const)
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice, () => 'dark' as const)

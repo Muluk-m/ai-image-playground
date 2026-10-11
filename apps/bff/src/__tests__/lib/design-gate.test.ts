@@ -113,11 +113,14 @@ describe('scanSource', () => {
       "import { useStore } from '../../store'",
       "import { openCanvas } from '../../features/canvas/lib/activeProject'",
       "import TaskCard from '../TaskCard'",
+      "import { useStore } from '@/store'",
+      "import { cn } from '@/lib/utils'",
     ].join('\n')
     expect(scanSource('apps/web/src/components/patterns/Example.tsx', source)).toEqual([
       { rule: 'layer-import', line: 4 },
       { rule: 'layer-import', line: 5 },
       { rule: 'layer-import', line: 6 },
+      { rule: 'layer-import', line: 7 },
     ])
     expect(
       rulesIn('apps/web/src/components/ui/example.tsx', "import Overlay from '../patterns/Overlay'"),

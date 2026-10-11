@@ -6,7 +6,7 @@
 | 文档 | 内容 |
 |---|---|
 | [components.md](./components.md) | `components/ui/` 原语：Button、Input、Select、Popover… 的变体、尺寸与禁忌 |
-| [patterns.md](./patterns.md) | `components/patterns/` 组合件，以及页面骨架、表单、浮层、反馈、空态的配方 |
+| [patterns.md](./patterns.md) | `components/patterns/` 组合件，以及页面骨架、对话框、表单、反馈、空态的配方 |
 | [icons.md](./icons.md) | `<Icon>` 的用法、现有语义名、新增图标与自绘图标的流程 |
 
 ## 三层
@@ -21,12 +21,8 @@ apps/web/src/components/
 features/        各业务自己的组件
 ```
 
-依赖只能自上而下：业务 → patterns → ui。`pnpm lint` 的设计门禁会拦：
-
-- `ui/`、`patterns/` 引用 store、`features/` 或 `components/` 根目录的业务组件（`layer-import`）；
-- 业务代码写原生 `<button>` / `<input>` / `<select>` / `<textarea>` / `<dialog>`（`native-control`），
-  直接 import `lucide-react`（`lucide-import`）或写内联 `<svg>`（`inline-svg`）；
-- 任意字号 / 间距 / 圆角 / 颜色、调色板类、字阶外字号等（见 DESIGN.md「门禁」）。
+依赖只能自上而下：业务 → patterns → ui，`ui/` 也不依赖 `patterns/`。`pnpm lint` 的设计门禁会拦下越层
+依赖、业务代码里的原生控件与直接引图标库等写法，完整规则与例外写法见 DESIGN.md「门禁」。
 
 ## 我要做 X → 用哪个
 
@@ -47,7 +43,8 @@ features/        各业务自己的组件
 | 一行设置（图标 + 标签 + 控件） | `SettingRow` | patterns |
 | 小标签（状态、计数、角标） | `Badge` + `tone` | patterns |
 | 空态 | `EmptyState` | patterns |
-| 模态对话框 / 全屏查看器 | `Overlay` 外壳 + 自己的面板 | patterns |
+| 对话框（标题 + 正文 + 底栏） | `Dialog` | patterns |
+| 全屏查看器等自定义模态 | `Overlay` 外壳 + 自己的面板 | patterns |
 | 从侧边滑出的面板 | `Sheet` | ui/sheet |
 | 贴着触发点弹出的卡片 | `Popover` | ui/popover |
 | 右键 / 长按菜单 | `ContextMenu` + `ContextMenuItem` | patterns |
@@ -66,4 +63,4 @@ features/        各业务自己的组件
    - 只有一个业务用 → 放在那个 feature 里。
 2. 样式只用 DESIGN.md 的 token 与档位；控件高度只有 28 / 32 / 36 / 40。
 3. 在本目录对应文档里加一节：何时用、变体、示例、禁忌。
-4. 在 `/dev/design` 陈列页加上它（开发环境打开 `?dev=design`），浅色深色各看一眼。
+4. 在陈列页（开发服务器上的 `/design.html`，源码 `src/dev/DesignGallery.tsx`）加上它，浅色深色各看一眼。

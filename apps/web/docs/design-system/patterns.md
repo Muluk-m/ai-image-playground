@@ -1,7 +1,7 @@
 # 组合件与页面配方（components/patterns）
 
-组合件只由 `ui/` 原语与通用工具（`lib/utils`、hooks、i18n）组成，不碰 store 与业务。它们是新控件
-类型唯一允许直接写原生元素的地方（门禁对 `ui/` 与 `patterns/` 放行 `native-control`）。
+组合件只由 `ui/` 原语与通用工具（`lib/utils`、hooks、i18n）组成，不碰 store 与业务。新的控件类型
+（开关、分段页签这类）在这里用原生元素搭，业务代码再用它们。
 
 ## 组合件
 
@@ -73,6 +73,26 @@
 />
 ```
 
+### Dialog
+
+标准对话框：标题（20px）+ 右上角关闭 + 可滚动正文 + 可选底栏，面板 `rounded-3xl`、`shadow-dialog`。
+宽度用 `className` 的 `max-w-*` 给（默认 `max-w-md`）。
+
+```tsx
+<Dialog
+  title={t('import.title')}
+  onClose={close}
+  footer={
+    <>
+      <Button variant="outline" size="sm" onClick={close}>{t('common:action.cancel')}</Button>
+      <Button size="sm" onClick={submit}>{t('common:action.confirm')}</Button>
+    </>
+  }
+>
+  …
+</Dialog>
+```
+
 ### Overlay
 
 **所有模态浮层的唯一外壳**：portal、滚动锁、ESC 只关最顶层、点背景关闭（防划词误关）、焦点困在
@@ -109,14 +129,8 @@ PageHeader（56px，标题 + 页签 + 搜索 + 主操作）
 
 ### 对话框
 
-`Overlay` 外壳 + 一块面板：`bg-card`、`rounded-3xl`、`shadow-dialog`、`ring-1 ring-hairline`。
-
-```text
-面板
-├─ 头部：标题（text-xl font-semibold）+ 右上角关闭（Button ghost icon-sm）
-├─ 内容：可滚动，内边距 20–24px
-└─ 底栏：border-t，左侧次要操作（ghost），右侧「取消」(outline) +「确认」(default)
-```
+用 `Dialog`（见上）：底栏左侧放次要操作（ghost），右侧「取消」(outline) +「确认」(default)。
+全屏查看器这类自带布局的模态才直接用 `Overlay`。
 
 确认类对话框（删除、清空）不要自己写，用 `setConfirmDialog`：它走 `alert` 层；`tone: 'danger'`（或标题里有「删除」「清空」）
 时确认按钮是红色的「确认删除」，`tone: 'warning'` 是黄色，其余是「确认」。

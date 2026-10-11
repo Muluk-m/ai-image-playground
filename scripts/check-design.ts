@@ -24,7 +24,8 @@ export type DesignRule = {
 
 const outsideUi = (path: string) => !path.includes('/components/ui/')
 // 原生控件与 focus: 的写法只许出现在设计系统内部（ui 原语与 patterns 组合件）。
-const outsideDesignSystem = (path: string) => !/\/components\/(ui|patterns)\//.test(path)
+const DESIGN_LAYERS = /\/components\/(ui|patterns)\//
+const outsideDesignSystem = (path: string) => !DESIGN_LAYERS.test(path)
 // 品牌 Logo 是唯一允许手写 svg 的地方；icons.tsx 与 *Icons.tsx 是待迁走的旧图标模块。
 const isLogoModule = (path: string) => /\/logos\.tsx$/.test(path)
 const palette =
@@ -88,24 +89,26 @@ function isRuntimeLucideImport(statement: ts.Statement): boolean {
 }
 
 // 设计系统分层：ui（原语）← patterns（通用组合件）← 业务。下层只能依赖更下层与通用工具，
-// assistant-ui/elements 是外部 UI 套件的改写，算 UI 层。
-const DESIGN_LAYERS = /\/components\/(ui|patterns)\//
+// assistant-ui/elements 是外部 UI 套件的改写，算 UI 层。没放进 biome 的 noRestrictedImports：
+// 那边按目录的覆盖会整组替换禁令列表，相对路径也得逐层写 glob。
 function layerViolations(file: ts.SourceFile): number[] {
   const layer = DESIGN_LAYERS.exec(file.fileName)?.[1]
   if (!layer) return []
-  const dir = file.fileName.slice(0, file.fileName.lastIndexOf('/'))
-  const srcRoot = file.fileName.slice(0, file.fileName.indexOf('/components/'))
+  const dir = resolve(file.fileName, '..')
+  const srcRoot = resolve(file.fileName.slice(0, file.fileName.indexOf('/components/')))
   return file.statements.flatMap((statement) => {
     if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) return []
     const specifier = statement.moduleSpecifier
     if (!specifier || !ts.isStringLiteral(specifier)) return []
-    const target = specifier.text.startsWith('@/')
-      ? `${srcRoot}/${specifier.text.slice(2)}`
-      : specifier.text.startsWith('.')
-        ? resolve(dir, specifier.text)
+    const { text } = specifier
+    // `@/` 对应 apps/web/tsconfig.json 的 "@/*": ["./src/*"]。
+    const target = text.startsWith('@/')
+      ? resolve(srcRoot, text.slice(2))
+      : text.startsWith('.')
+        ? resolve(dir, text)
         : null
     if (!target) return []
-    const inside = target.slice(resolve(srcRoot).length)
+    const inside = target.slice(srcRoot.length)
     const allowed =
       inside.startsWith('/components/ui/') ||
       (layer === 'patterns' && inside.startsWith('/components/patterns/')) ||
