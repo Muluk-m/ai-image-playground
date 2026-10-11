@@ -314,7 +314,8 @@ function Flow({
       onInit={(flow) => {
         const bounds = contentBounds(snapshot)
         const box = container.current
-        if (!bounds || !box) return
+        // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
+        if (!bounds || !box?.clientWidth || !box.clientHeight) return
         // 与旧画布一致：打开时最多按 100% 显示。
         flow.setViewport(
           getViewportForBounds(bounds, box.clientWidth, box.clientHeight, 0.05, 1, 0.1),
