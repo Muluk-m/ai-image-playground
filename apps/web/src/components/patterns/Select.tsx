@@ -502,7 +502,7 @@ export default function Select({
                     style={{ touchAction: 'none' }}
                     title={t('select.dragToReorder')}
                   >
-                    <Icon name="dragHandle" size="xs" />
+                    <Icon name="drag" size="xs" />
                   </div>
                 )}
                 {option.icon && (
@@ -577,7 +577,7 @@ export default function Select({
             }}
           >
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
-              <Icon name="dragHandle" size="xs" className="text-muted-foreground" />
+              <Icon name="drag" size="xs" className="text-muted-foreground" />
               <span className="min-w-0 truncate">{touchDragPreview.label}</span>
             </div>
           </div>,

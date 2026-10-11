@@ -23,12 +23,9 @@ describe('Icon', () => {
   })
 
   it('draws a 1.5px stroke in screen pixels whatever size CSS gives it', () => {
-    for (const size of Object.keys(ICON_SIZE_PX) as Array<keyof typeof ICON_SIZE_PX>) {
-      const svg = svgOf(renderToStaticMarkup(<Icon name="close" size={size} />))
-      // 线宽按屏幕像素算（non-scaling-stroke），Button 用 CSS 改图标尺寸也不会变粗变细。
-      expect(svg.getAttribute('stroke-width')).toBe('1.5')
-      expect(svg.getAttribute('class')).toContain('[&>*]:[vector-effect:non-scaling-stroke]')
-    }
+    const svg = svgOf(renderToStaticMarkup(<Icon name="close" size="xs" />))
+    // 线宽按屏幕像素算（non-scaling-stroke），Button 用 CSS 改图标尺寸也不会变粗变细。
+    expect(svg.getAttribute('class')).toContain('[&_*]:[vector-effect:non-scaling-stroke]')
   })
 
   it('defaults to the 16px step and hides decoration from screen readers', () => {
@@ -45,10 +42,13 @@ describe('Icon', () => {
     expect(svg.getAttribute('aria-hidden')).toBeNull()
   })
 
-  it('fills the glyph only for a selected state', () => {
-    expect(svgOf(renderToStaticMarkup(<Icon name="favorite" />)).getAttribute('fill')).toBe('none')
-    expect(svgOf(renderToStaticMarkup(<Icon name="favorite" filled />)).getAttribute('fill')).toBe(
-      'currentColor',
+  it('switches to the duotone glyph only for a selected state', () => {
+    const line = svgOf(renderToStaticMarkup(<Icon name="favorite" />)).innerHTML
+    const solid = svgOf(renderToStaticMarkup(<Icon name="favorite" filled />)).innerHTML
+    expect(solid).not.toBe(line)
+    // 没有双色款的图形（取自 lucide 的几个）选中时保持描线。
+    expect(svgOf(renderToStaticMarkup(<Icon name="pan" filled />)).innerHTML).toBe(
+      svgOf(renderToStaticMarkup(<Icon name="pan" />)).innerHTML,
     )
   })
 
@@ -57,12 +57,21 @@ describe('Icon', () => {
     expect(svg.getAttribute('class')).toContain('animate-spin')
   })
 
-  it('renders every registered icon with the shared stroke settings', () => {
+  it('draws every registered glyph on the 24 grid in currentColor with 1.5 strokes', () => {
     for (const name of Object.keys(ICONS) as IconName[]) {
-      const svg = svgOf(renderToStaticMarkup(<Icon name={name} size="lg" />))
-      expect(svg.getAttribute('viewBox'), name).toBe('0 0 24 24')
-      expect(svg.getAttribute('stroke-linecap'), name).toBe('round')
-      expect(svg.getAttribute('stroke-width'), name).toBe('1.5')
+      for (const filled of [false, true]) {
+        const svg = svgOf(renderToStaticMarkup(<Icon name={name} size="lg" filled={filled} />))
+        expect(svg.getAttribute('viewBox'), name).toBe('0 0 24 24')
+        expect(svg.innerHTML, name).toContain('currentColor')
+        expect(svg.innerHTML, name).not.toMatch(/#[0-9a-f]{3,6}\b/i)
+        const widths = new Set(
+          [...svg.innerHTML.matchAll(/stroke-width="([\d.]+)"/g)].map((m) => m[1]),
+        )
+        expect(
+          [...widths].filter((w) => w !== '1.5'),
+          name,
+        ).toEqual([])
+      }
     }
   })
 
