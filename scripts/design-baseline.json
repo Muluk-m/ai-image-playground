@@ -80,12 +80,6 @@
   "apps/web/src/components/SetHistoryCard.tsx": {
     "native-control": 1
   },
-  "apps/web/src/components/Sidebar.tsx": {
-    "arbitrary-font": 2,
-    "lucide-import": 1,
-    "native-control": 10,
-    "opacity-text": 1
-  },
   "apps/web/src/components/SlotValuePopover.tsx": {
     "native-control": 1
   },
