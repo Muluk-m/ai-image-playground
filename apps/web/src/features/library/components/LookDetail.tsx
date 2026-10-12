@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { CloseIcon, EditIcon, TrashIcon } from '../../../components/icons'
 import Badge from '../../../components/patterns/Badge'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { formatDateTime } from '../../../i18n/format'
 import { useStore } from '../../../store'
@@ -10,9 +12,6 @@ import { splitLookBody } from '../lib/lookBody'
 import type { LookItem } from '../lib/looks'
 import { useLibraryStore } from '../store'
 import LookImage from './LookImage'
-
-const ACTION =
-  'inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-body-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50'
 
 export default function LookDetail({
   look,
@@ -78,16 +77,17 @@ export default function LookDetail({
           {images.length > 1 && (
             <div className="flex gap-2 overflow-x-auto px-3 pb-3 md:px-6 md:pb-4">
               {images.map((image, i) => (
-                <button
+                <Button
                   key={key(image.source)}
                   type="button"
+                  variant="ghost"
                   onClick={() => setIndex(i)}
                   aria-label={image.label}
                   aria-pressed={i === index}
-                  className={`h-16 w-12 shrink-0 overflow-hidden rounded-lg border-2 ${i === index ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                  className={`h-16 w-12 shrink-0 overflow-hidden rounded-lg border-2 p-0 hover:bg-transparent ${i === index ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
                 >
                   <LookImage source={image.source} alt="" />
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -102,7 +102,7 @@ export default function LookDetail({
                     {look.name}
                   </h3>
                 ) : (
-                  <input
+                  <Input
                     autoFocus
                     value={draftName}
                     onChange={(e) => setDraftName(e.target.value)}
@@ -112,7 +112,7 @@ export default function LookDetail({
                       if (e.key === 'Escape') setDraftName(null)
                     }}
                     maxLength={40}
-                    className="min-w-0 flex-1 rounded-lg border border-primary bg-card px-2 py-1 text-base font-semibold text-foreground focus:outline-none"
+                    className="min-w-0 flex-1 rounded-lg border-primary bg-card px-2 text-base font-semibold"
                   />
                 )}
                 <Badge tone="primary">{t(`look.purpose.${look.purpose}`)}</Badge>
@@ -131,17 +131,21 @@ export default function LookDetail({
             </div>
             {record && (
               <>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() => setDraftName(look.name)}
                   aria-label={t('action.rename')}
                   title={t('action.rename')}
-                  className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
-                  <EditIcon className="h-4 w-4" />
-                </button>
-                <button
+                  <Icon name="edit" />
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() =>
                     setConfirmDialog({
                       title: t('look.deleteTitle'),
@@ -154,20 +158,22 @@ export default function LookDetail({
                   }
                   aria-label={t('common:action.delete')}
                   title={t('common:action.delete')}
-                  className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 >
-                  <TrashIcon className="h-4 w-4" />
-                </button>
+                  <Icon name="delete" />
+                </Button>
               </>
             )}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={onClose}
               aria-label={t('common:action.close')}
-              className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground"
             >
-              <CloseIcon className="h-4 w-4" />
-            </button>
+              <Icon name="close" />
+            </Button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -207,22 +213,25 @@ export default function LookDetail({
           </div>
 
           <div className="flex gap-2 border-t border-border px-5 py-4">
-            <button
+            <Button
               type="button"
+              size="lg"
               disabled={needsRetune || !canGenerate}
               onClick={() => onGenerate(look)}
-              className={`${ACTION} bg-primary text-primary-foreground hover:opacity-90`}
+              className="flex-1 rounded-xl px-3"
             >
               {t('look.generate')}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
+              size="lg"
               disabled={!canGenerate}
               onClick={() => onTune(look)}
-              className={`${ACTION} border border-border text-foreground hover:bg-muted`}
+              className="flex-1 rounded-xl border-border px-3 font-normal text-foreground hover:bg-muted"
             >
               {look.origin === 'user' ? t('look.tune') : t('look.fork')}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
