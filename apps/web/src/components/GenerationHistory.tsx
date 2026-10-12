@@ -42,7 +42,12 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
           )}
         </SectionHeader>
       )}
-      <TaskGrid hero={hero} limit={hero && !showAll ? 3 : undefined} />
+      <TaskGrid
+        hero={hero}
+        limit={hero && !showAll ? 3 : undefined}
+        hasMore={cloud.hasMore}
+        onExpand={hero && !showAll ? () => setShowAll(true) : undefined}
+      />
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">
