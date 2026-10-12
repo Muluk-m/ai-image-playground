@@ -1070,12 +1070,19 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 
 /* The docked agent uses a compact composer instead of the homepage input proportions. */
 .studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-composer { --creation-space: 12px; border-radius: 16px; }
-.studio-layout[data-node-canvas="true"] .creation-body { flex-direction: column; gap: 8px; }
+.studio-layout[data-node-canvas="true"] .creation-body { flex-direction: row; align-items: flex-start; gap: 12px; }
 .studio-layout[data-node-canvas="true"] .creation-references { flex: 0 0 auto; width: auto; height: auto; }
+.studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] { width: 32px; height: 32px; }
 .studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] .creation-add { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
 .studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] .creation-add > span { display: none; }
 .studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-prompt { font-size: theme('fontSize.sm'); line-height: 1.5; min-height: 72px; max-height: 160px; }
-.studio-layout[data-node-canvas="true"] .creation-mode-trigger { height: 28px; min-height: 28px; padding: 0 8px; font-size: theme('fontSize.xs'); }
-.studio-layout[data-node-canvas="true"] .creation-toolbar { align-items: flex-end; gap: 8px; }
+.studio-layout[data-node-canvas="true"] .creation-mode-trigger { grid-column: 1; grid-row: 1; height: 32px; min-height: 32px; padding: 0 8px; font-size: theme('fontSize.xs'); }
+.studio-layout[data-node-canvas="true"] .creation-mode-trigger > span > span { gap: 6px; }
+.studio-layout[data-node-canvas="true"] .creation-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.studio-layout[data-node-canvas="true"] .creation-toolbar .creation-tools { display: contents; }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button { height: 32px; min-height: 32px; min-width: 0; padding: 0 8px; font-size: theme('fontSize.xs'); }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button[role="combobox"] { grid-column: 2; grid-row: 1; width: 100%; max-width: 100%; }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) { grid-column: 1 / -1; grid-row: 2; justify-self: start; max-width: calc(100% - 44px); }
+.studio-layout[data-node-canvas="true"] .creation-toolbar > :last-child { grid-column: 2; grid-row: 2; justify-self: end; }
 .studio-layout[data-node-canvas="true"] .creation-tool-divider { display: none; }
 .studio-layout[data-node-canvas="true"] .creation-send { width: 32px; height: 32px; min-width: 32px; min-height: 32px; border-radius: 9999px; }
