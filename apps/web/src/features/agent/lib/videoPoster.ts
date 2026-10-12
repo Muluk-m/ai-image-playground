@@ -45,10 +45,16 @@ export function captureVideoPoster(url: string): Promise<string | null> {
     video.addEventListener(
       'loadeddata',
       () => {
-        if (!settled) settle(captureVideoFrame(video))
+        if (!settled)
+          video.currentTime = Number.isFinite(video.duration)
+            ? Math.min(0.1, video.duration / 2)
+            : 0.1
       },
       { signal: listeners.signal },
     )
+    video.addEventListener('seeked', () => settle(captureVideoFrame(video)), {
+      signal: listeners.signal,
+    })
     video.addEventListener('error', () => settle(null), { signal: listeners.signal })
     video.src = url
     video.load()
