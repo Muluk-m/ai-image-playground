@@ -116,9 +116,9 @@ export const viewImage = defineAgentTool({
   modes: ['image', 'video'],
   label: '看图',
   description:
-    '把指定 id 的图片内容取进上下文看一眼。只有你必须看清图里有什么才能往下做时才调（比如要照它描述细节、要判断它和用户说的是不是一回事）。id 也可以是 fetchImage 取回的网图。默认给缩略图，够认出画面里有什么；要照着写清小字或纹理，用 region 只取那一块，比 detail=full 拉回整张原图划算得多。改图不需要先看图：editImage 拿着图片 id 就能改，先白看一次只是多花一次钱。',
+    '把指定 id 的图片内容取进上下文看一眼。只有你必须看清图里有什么才能往下做时才调（比如要照它描述细节、要判断它和用户说的是不是一回事）。id 也可以是 fetchImage 取回的网图。默认给缩略图，够认出画面里有什么；要照着写清小字或纹理，用 region 只取那一块，比 detail=full 拉回整张原图划算得多。改图不需要先看图：editImage 拿着图片 id 就能改，先白看一次只是多花一次钱。成片不是图片，视频 id 交给 viewVideo，不要把封面当视频看。',
   guidance:
-    '需要看清某张图的内容才能往下做时，用看图工具按图片 id 取它的内容；改图不必先看，editImage 拿着 id 就能改。',
+    '需要看清某张图的内容才能往下做时，用看图工具按图片 id 取它的内容；改图不必先看，editImage 拿着 id 就能改。成片不是图片，看画面用 viewVideo，不要把封面 id 交给看图。',
   parameters,
   onError: 'continue',
   // 看图不落画布，也没有送进上游的提示词，所以起跑时只有一行标题。

@@ -1,6 +1,7 @@
-import { ChevronRight, ListChecks } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -67,10 +68,11 @@ function InboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: 
   const outcome = useOutcomeText(message)
   return (
     <li className="flex items-center gap-2">
-      <button
+      <Button
         type="button"
+        variant="ghost"
         title={t('job.inbox.locate')}
-        className={`${LIST_ROW} min-w-0 flex-1 flex-col !items-start !gap-0.5`}
+        className={`${LIST_ROW} h-auto min-w-0 flex-1 flex-col items-start gap-0.5 font-normal`}
         onClick={() => {
           locate(message)
           onLocate()
@@ -78,7 +80,7 @@ function InboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: 
       >
         <span className={`w-full truncate ${INK}`}>{message.title}</span>
         <span className={`${CARD_NOTE} tabular-nums`}>{outcome}</span>
-      </button>
+      </Button>
       <AgentJobCancel message={message} />
     </li>
   )
@@ -97,21 +99,22 @@ function InboxGroup({
   const [open, setOpen] = useState(true)
   return (
     <div className="pt-0.5">
-      <button
+      <Button
         type="button"
+        variant="ghost"
         aria-expanded={open}
         disabled={messages.length === 0}
         onClick={() => setOpen((value) => !value)}
-        className={`flex w-full items-center gap-1 rounded-lg px-1.5 py-1 text-label-sm transition-colors ${INK_3} enabled:hover:bg-muted disabled:opacity-50`}
+        className={`h-auto w-full justify-start gap-1 rounded-lg px-1.5 py-1 text-label-sm font-normal ${INK_3} enabled:hover:bg-muted`}
       >
-        <ChevronRight
-          className={`h-3 w-3 transition-transform ${open && messages.length > 0 ? 'rotate-90' : ''}`}
-          aria-hidden="true"
+        <Icon
+          name="chevronRight"
+          className={`transition-transform ${open && messages.length > 0 ? 'rotate-90' : ''}`}
         />
         <span>
           {label}（{messages.length}）
         </span>
-      </button>
+      </Button>
       {open && messages.length > 0 && (
         <ul className="flex flex-col gap-0.5">
           {messages.map((message) => (
@@ -178,8 +181,9 @@ export default function AgentJobInbox() {
   const shown = tab === 'running' ? inbox.running.length : finished.length
   return (
     <div ref={host} className="pointer-events-auto relative flex flex-col items-end">
-      <button
+      <Button
         type="button"
+        variant="ghost"
         aria-expanded={open}
         aria-label={label}
         title={label}
@@ -187,9 +191,9 @@ export default function AgentJobInbox() {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
         }}
-        className={`flex items-center gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-label-sm shadow-lg backdrop-blur transition-colors ${INK} hover:border-foreground/40`}
+        className={`h-auto w-auto gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-label-sm font-normal shadow-lg backdrop-blur ${INK} hover:border-foreground/40 hover:bg-sidebar`}
       >
-        <ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <Icon name="list" />
         <span>{t('job.inbox.title')}</span>
         {inbox.running.length > 0 && (
           <span
@@ -198,7 +202,7 @@ export default function AgentJobInbox() {
           />
         )}
         <span className={`tabular-nums ${INK_3}`}>{count}</span>
-      </button>
+      </Button>
       {open && (
         <div className="absolute right-0 top-full z-10 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-xl">
           <p className={`text-xs font-semibold ${INK}`}>{t('job.inbox.title')}</p>
@@ -213,20 +217,21 @@ export default function AgentJobInbox() {
           </div>
           <div role="tablist" className="mt-2 flex gap-1 rounded-lg bg-muted p-0.5">
             {(['running', 'finished'] as const).map((one) => (
-              <button
+              <Button
                 key={one}
                 type="button"
+                variant="ghost"
                 role="tab"
                 aria-selected={tab === one}
                 onClick={() => setTab(one)}
-                className={`flex-1 rounded-md px-2 py-1 text-label-sm transition-colors ${
-                  tab === one ? `bg-sidebar font-semibold ${INK} shadow-sm` : INK_3
+                className={`h-auto flex-1 rounded-md px-2 py-1 text-label-sm font-normal ${
+                  tab === one ? `bg-sidebar font-semibold ${INK} shadow-sm hover:bg-sidebar` : INK_3
                 }`}
               >
                 {one === 'running'
                   ? `${t('job.inbox.tabRunning')}（${inbox.running.length}）`
                   : `${t('job.inbox.tabFinished')}（${finished.length}）`}
-              </button>
+              </Button>
             ))}
           </div>
           <div className="mt-1 max-h-64 overflow-y-auto">

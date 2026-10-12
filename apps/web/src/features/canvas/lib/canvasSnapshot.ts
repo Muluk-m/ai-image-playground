@@ -1,5 +1,5 @@
 import type { AgentCanvasLiveElement, AgentCanvasSnapshot } from '@image-playground/shared'
-import { AGENT_CANVAS_SNAPSHOT_MAX } from '@image-playground/shared'
+import { AGENT_CANVAS_SNAPSHOT_MAX, projectArtifactId } from '@image-playground/shared'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import type { CanvasDoc, CanvasEl, ImageEl } from './canvasDoc'
 import { elementBounds } from './editor'
@@ -40,7 +40,12 @@ function imageOf(
     ...(prompt ? { prompt } : {}),
     ...(section ? { section } : {}),
     ...(mediaId ? { mediaId } : {}),
-    ...(element.video ? { video: true } : {}),
+    ...(element.video
+      ? {
+          video: true as const,
+          videoId: projectArtifactId(element.video.taskId, element.video.outputIndex),
+        }
+      : {}),
     ...(derived ? { derivedFrom: derived } : {}),
   }
 }

@@ -209,12 +209,6 @@
   "apps/web/src/features/agent/agentStyles.ts": {
     "focus-not-visible": 3
   },
-  "apps/web/src/features/agent/components/AgentActivityTrail.tsx": {
-    "arbitrary-spacing": 2,
-    "lucide-import": 1,
-    "native-control": 1,
-    "opacity-text": 1
-  },
   "apps/web/src/features/agent/components/AgentArtifactEditDialog.tsx": {
     "lucide-import": 1,
     "native-control": 1
@@ -256,26 +250,8 @@
   "apps/web/src/features/agent/components/AgentCreationsGallery.tsx": {
     "lucide-import": 1
   },
-  "apps/web/src/features/agent/components/AgentHistoryStatus.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/agent/components/AgentJobInbox.tsx": {
-    "lucide-import": 1,
-    "native-control": 4
-  },
-  "apps/web/src/features/agent/components/AgentJobProgress.tsx": {
-    "lucide-import": 1
-  },
   "apps/web/src/features/agent/components/AgentMarkdown.tsx": {
     "palette-class": 1
-  },
-  "apps/web/src/features/agent/components/AgentMessageQueue.tsx": {
-    "lucide-import": 1,
-    "native-control": 2
-  },
-  "apps/web/src/features/agent/components/AgentPanel.tsx": {
-    "lucide-import": 1,
-    "native-control": 6
   },
   "apps/web/src/features/agent/components/AgentParamsChip.tsx": {
     "lucide-import": 1
@@ -287,9 +263,6 @@
     "lucide-import": 1,
     "native-control": 1
   },
-  "apps/web/src/features/agent/components/AgentResultShelf.tsx": {
-    "native-control": 3
-  },
   "apps/web/src/features/agent/components/AgentSaveCard.tsx": {
     "lucide-import": 1,
     "native-control": 1
@@ -297,14 +270,6 @@
   "apps/web/src/features/agent/components/AgentToolCard.tsx": {
     "lucide-import": 1,
     "native-control": 15
-  },
-  "apps/web/src/features/agent/components/AgentTurnCost.tsx": {
-    "lucide-import": 1,
-    "native-control": 2
-  },
-  "apps/web/src/features/agent/components/AgentUserMessage.tsx": {
-    "lucide-import": 1,
-    "native-control": 3
   },
   "apps/web/src/features/agent/components/AgentVideoDetails.tsx": {
     "lucide-import": 1

@@ -70,8 +70,9 @@ RUN pnpm --filter @image-playground/admin build
 FROM oven/bun:1 AS runtime
 WORKDIR /app
 
+# ffmpeg extracts a few scaled stills for viewVideo. It does not re-encode films (ADR 0010).
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends nginx \
+  && apt-get install --yes --no-install-recommends nginx ffmpeg \
   && rm -rf /var/lib/apt/lists/* /usr/share/nginx/html/* \
   && rm -f /etc/nginx/sites-enabled/default
 

@@ -55,6 +55,12 @@ function preview(text: string): string {
   return flat.length > TEXT_PREVIEW_CHARS ? `${flat.slice(0, TEXT_PREVIEW_CHARS)}…` : flat
 }
 
+function videoPhrase(videoId: string | undefined, coverId: string | undefined): string {
+  const cover = coverId ? `封面图片 id ${coverId} 只是第一帧` : ''
+  if (!videoId) return ['目录里没有视频 id，看不了成片画面', cover].filter(Boolean).join('，')
+  return [`视频 id ${videoId}`, '用 viewVideo 看画面', cover].filter(Boolean).join('，')
+}
+
 /**
  * 分组用的目录，不看像素。提示词只给开头：整段能到一万字，塞进目录就和逐张看图一样贵。
  * 用户原话优先于落在图上的那份生成提示词，两边都有时原话更接近他要的分类。
@@ -74,8 +80,8 @@ function catalog(element: Extract<ProjectElement, { type: 'image' }>): string {
  * 每一行都要把「元素 id」和「图片 id」分开说。
  *
  * 画布上每个元素都有自己的 id，而能交给 editImage / viewImage 的只有图片 id：生成位是
- * `agent_<任务>_<下标>`，用户自己放的图是那串 media id。两者长得都像 id，不写明模型就会
- * 拿元素 id 去改图，换回一个「找不到这张图」。
+ * `agent_<任务>_<下标>`，用户自己放的图是那串 media id。视频元素另给视频 id，封面只是第一帧。
+ * 两者长得都像 id，不写明模型就会拿元素 id 去改图，换回一个「找不到这张图」。
  */
 function describeElement(element: ProjectElement): string {
   const head = `元素 ${element.id}`
@@ -87,8 +93,11 @@ function describeElement(element: ProjectElement): string {
     }
     case 'image': {
       const name = element.name ? `「${element.name}」` : '未命名'
-      const kind = element.video ? '视频（这里给的是封面）' : '图片'
-      return `${head}：${kind}${name}，图片 id ${element.mediaId}，${box(element)}${catalog(element)}`
+      if (element.video) {
+        const videoId = projectArtifactId(element.video.taskId, element.video.outputIndex)
+        return `${head}：视频${name}，${videoPhrase(videoId, element.mediaId)}，${box(element)}${catalog(element)}`
+      }
+      return `${head}：图片${name}，图片 id ${element.mediaId}，${box(element)}${catalog(element)}`
     }
     case 'text':
       return `${head}：文字「${preview(element.text)}」，位置 (${Math.round(element.x)}, ${Math.round(element.y)})`
@@ -119,10 +128,11 @@ function describeLiveElement(element: AgentCanvasLiveElement): string {
   }
   if (element.type !== 'image') return `${head}：图形，${where}`
   const image = element
-  const kind = image.video ? '视频（这里给的是封面）' : '图片'
   const name = image.name ? `「${image.name}」` : '（未命名）'
-  const parts = [`${kind}${name}`]
-  if (image.mediaId) parts.push(`图片 id ${image.mediaId}`)
+  const parts =
+    image.video || image.videoId
+      ? [`视频${name}`, videoPhrase(image.videoId, image.mediaId)]
+      : [`图片${name}`, ...(image.mediaId ? [`图片 id ${image.mediaId}`] : [])]
   parts.push(where)
   if (image.groupId) parts.push(`同批 ${image.groupId}`)
   if (image.createdAt !== undefined) parts.push(`时间 ${image.createdAt}`)

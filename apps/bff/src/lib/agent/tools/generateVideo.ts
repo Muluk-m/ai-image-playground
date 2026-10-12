@@ -374,7 +374,7 @@ const GUIDANCE_BASE =
 function videoGuidance(): string {
   const support = videoModel()?.support
   if (!support) return GUIDANCE_BASE
-  return `${GUIDANCE_BASE}默认视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}工具 model 参数列出可用模型及能力；用户指定模型就原样填 ID，不指定时可根据首尾帧和参考图需求选择支持的模型。尾帧填 lastFrameId。用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。预设声音按提示词里 <AUDIO_0> 的顺序填 voiceIds，片中时刻填 keyframes（落在成片内部，不能当首尾）。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档，按回执说明限制。不要声称看过生成视频的运动或音频内容；图片查看工具只能看封面。`
+  return `${GUIDANCE_BASE}默认视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}工具 model 参数列出可用模型及能力；用户指定模型就原样填 ID，不指定时可根据首尾帧和参考图需求选择支持的模型。尾帧填 lastFrameId。用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。预设声音按提示词里 <AUDIO_0> 的顺序填 voiceIds，片中时刻填 keyframes（落在成片内部，不能当首尾）。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档，按回执说明限制。要核对成片画面，用 viewVideo 按视频 id 抽静帧；那不是整段运动，也听不到音轨，不要声称看过动作或对白。`
 }
 
 const FIELD_PARAMS: Record<VideoPresetConflict['field'], string> = {
