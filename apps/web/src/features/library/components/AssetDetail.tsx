@@ -1,7 +1,8 @@
 import { useRef } from 'react'
-import { CloseIcon, PlusIcon } from '../../../components/icons'
 import Badge from '../../../components/patterns/Badge'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { storeImageFromFile, useStore } from '../../../store'
@@ -63,35 +64,40 @@ export default function AssetDetail({
               {t(`asset.background.${asset.background}`)}
             </Badge>
           )}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => {
               void attachAsset(asset.id)
               onClose()
             }}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20"
+            className="h-auto bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary hover:bg-primary/20 hover:text-primary"
           >
             {t('asset.addAsReference')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
             aria-label={t('common:action.close')}
-            className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            <CloseIcon className="h-4 w-4" />
-          </button>
+            <Icon name="close" />
+          </Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {asset.views.map((view, index) => (
               <li key={view.imageId} className="flex flex-col gap-1">
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={() => setLightboxImageId(view.imageId)}
                   aria-label={t('asset.zoom')}
-                  className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="group relative aspect-square h-auto w-full overflow-hidden rounded-xl border border-border bg-muted p-0 hover:bg-muted"
                 >
                   <AssetThumb imageId={view.imageId} alt={asset.name} />
                   {view.imageId === assetCoverImageId(asset) && index === 0 && (
@@ -99,7 +105,7 @@ export default function AssetDetail({
                       {t('asset.cover')}
                     </Badge>
                   )}
-                </button>
+                </Button>
                 <span className="flex items-center justify-between text-label-sm text-muted-foreground">
                   <span>{t(`asset.view.${view.label}`)}</span>
                   <span>{t(`asset.source.${view.source}`)}</span>
@@ -107,14 +113,15 @@ export default function AssetDetail({
               </li>
             ))}
             <li>
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border text-xs text-muted-foreground transition hover:border-primary hover:text-foreground"
+                className="aspect-square h-auto w-full flex-col gap-1 whitespace-normal rounded-xl border-dashed border-border text-xs font-normal text-muted-foreground hover:border-primary hover:bg-transparent hover:text-foreground"
               >
-                <PlusIcon className="h-5 w-5" />
+                <Icon name="add" size="md" />
                 {t('asset.addView')}
-              </button>
+              </Button>
               <input
                 ref={fileInputRef}
                 type="file"

@@ -385,46 +385,15 @@
     "lucide-import": 1,
     "native-control": 4
   },
-  "apps/web/src/features/library/components/AssetCard.tsx": {
-    "native-control": 7
-  },
-  "apps/web/src/features/library/components/AssetDetail.tsx": {
-    "native-control": 4
-  },
-  "apps/web/src/features/library/components/AssetHint.tsx": {
-    "native-control": 1
-  },
   "apps/web/src/features/library/components/CreateRecordDialog.tsx": {
-    "focus-not-visible": 6,
-    "native-control": 11,
     "offscale-font": 1
   },
-  "apps/web/src/features/library/components/LibraryEmpty.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/library/components/LookCard.tsx": {
-    "native-control": 2
-  },
   "apps/web/src/features/library/components/LookDetail.tsx": {
-    "arbitrary-font": 1,
-    "native-control": 7
-  },
-  "apps/web/src/features/library/components/NamingDialog.tsx": {
-    "native-control": 3
-  },
-  "apps/web/src/features/library/components/NewAssetButton.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/library/components/NewTile.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/library/components/TemplateCard.tsx": {
-    "native-control": 1
+    "arbitrary-font": 1
   },
   "apps/web/src/features/library/components/TemplateDetail.tsx": {
-    "font-weight": 2,
-    "native-control": 5,
-    "offscale-font": 2
+    "font-weight": 1,
+    "offscale-font": 1
   },
   "apps/web/src/features/production/components/ProductionAssetGenerations.tsx": {
     "native-control": 2

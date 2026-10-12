@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { CloseIcon, LibraryIcon } from '../../../components/icons'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 
@@ -19,16 +20,18 @@ export default function AssetHint() {
 
   return (
     <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-primary/[0.08] px-2 py-1 text-xs text-primary">
-      <LibraryIcon className="h-3.5 w-3.5 shrink-0" />
+      <Icon name="assets" size="xs" className="shrink-0" />
       <span className="flex-1">{t('hint.rightClickToSave')}</span>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={() => setVisible(false)}
         aria-label={t('hint.close')}
-        className="shrink-0 rounded p-0.5 transition hover:bg-primary/15"
+        className="shrink-0 text-primary hover:bg-primary/15 hover:text-primary"
       >
-        <CloseIcon className="h-3.5 w-3.5" />
-      </button>
+        <Icon name="close" size="xs" />
+      </Button>
     </div>
   )
 }
