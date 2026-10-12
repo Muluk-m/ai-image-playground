@@ -299,6 +299,10 @@ it('closes a socket whose pending frames exceed the queue budget', async () => {
   const id = await create()
   const doc = new Y.Doc()
   const ws = await connect(id, doc)
+  let closeCode = 0
+  ws.addEventListener('close', (event) => {
+    closeCode = event.code
+  })
   let unlock!: () => void
   let locked!: () => void
   const held = new Promise<void>((resolve) => {
@@ -317,6 +321,7 @@ it('closes a socket whose pending frames exceed the queue budget', async () => {
     const frame = canvasSyncStep1(doc)
     for (let i = 0; i < 40; i++) ws.send(frame)
     await waitUntil(() => ws.readyState === WebSocket.CLOSED)
+    expect(closeCode).toBe(1013)
   } finally {
     unlock()
     await blocker

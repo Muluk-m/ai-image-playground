@@ -51,6 +51,7 @@ export class CloudNodeProjectSession {
   private retries = 0
   private serverVector: Uint8Array | undefined
   private preparing: Promise<void> = Promise.resolve()
+  private localRenaming: Promise<void> = Promise.resolve()
   private renaming: Promise<void> = Promise.resolve()
   private applying = false
   private identity: ProjectDocument
@@ -507,7 +508,7 @@ export class CloudNodeProjectSession {
     custom = true,
     expectedName?: Parameters<typeof projectRepository.update>[2],
   ) {
-    this.renaming = this.renaming
+    this.localRenaming = this.localRenaming
       .catch(() => {})
       .then(async () => {
         this.current()
@@ -517,9 +518,8 @@ export class CloudNodeProjectSession {
           expectedName,
         )
         this.publish(this.project)
-        await this.persistName()
       })
-    return this.renaming
+    return this.localRenaming.then(() => this.flushName())
   }
   private flushName() {
     this.renaming = this.renaming.catch(() => {}).then(() => this.persistName())
@@ -535,16 +535,22 @@ export class CloudNodeProjectSession {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name }),
-        signal: this.controller.signal,
+        signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(10_000)]),
       },
     )
     if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_rename_failed')
     this.current()
-    if (this.project.name !== name) return
-    this.project = await projectRepository.update(this.project.id, {
-      cloud: { ...this.project.cloud!, nameDirty: false },
-    })
-    this.publish(this.project)
+    this.localRenaming = this.localRenaming
+      .catch(() => {})
+      .then(async () => {
+        this.current()
+        if (this.project.name !== name) return
+        this.project = await projectRepository.update(this.project.id, {
+          cloud: { ...this.project.cloud!, nameDirty: false },
+        })
+        this.publish(this.project)
+      })
+    await this.localRenaming
   }
   async resolveConflict(_choice: 'cloud' | 'copy'): Promise<CanvasProject | undefined> {
     // Keep the complete CRDT graph in an independent local project when a cloud project is deleted.
