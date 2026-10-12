@@ -76,6 +76,7 @@ import { Icon } from '@/components/ui/icon'
 | `removeBg` | 抠图 | scissors |
 | `brush` | 遮罩、局部重绘 | paint-brush |
 | `crop` | 裁剪 | crop |
+| `outpaint` | 扩图 | maximize-square-2 |
 | `variant` | 变体 | shuffle |
 | `template` | 存为模板 | bookmark |
 | `favorite` | 收藏 | star |
