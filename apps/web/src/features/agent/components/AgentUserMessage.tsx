@@ -1,10 +1,11 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ChevronDown, ImageIcon, LoaderCircle, SquarePen } from 'lucide-react'
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { createMaskPreviewDataUrl } from '../../../lib/canvasImage'
@@ -89,9 +90,14 @@ function ReferencePreview({
       <Overlay onClose={onClose} tier="raised">
         <div className="rounded-xl bg-card p-6 text-foreground" role="alert">
           {t('reference.unavailable')}
-          <button type="button" className="ml-4 min-h-11 underline" onClick={onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="ml-4 h-auto min-h-11 px-0 py-0 text-base font-normal text-foreground underline hover:bg-transparent hover:text-foreground"
+            onClick={onClose}
+          >
             {t('common:action.close')}
-          </button>
+          </Button>
         </div>
       </Overlay>
     )
@@ -99,7 +105,7 @@ function ReferencePreview({
   return (
     <Overlay onClose={onClose} tier="raised">
       <div role="status" aria-label={t('reference.loading')}>
-        <LoaderCircle className="h-8 w-8 animate-spin text-primary" aria-hidden />
+        <Icon name="loading" className="size-8 animate-spin text-primary" />
       </div>
     </Overlay>
   )
@@ -210,9 +216,10 @@ function ReferenceThumbnail({
     Boolean(local && mask && markedPreview?.identity === identity && !markedPreview.source)
   return (
     <>
-      <button
+      <Button
         type="button"
-        className="mention-tag agent-image-mention !cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        variant="ghost"
+        className="mention-tag agent-image-mention h-auto w-auto cursor-zoom-in px-0 font-normal hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring"
         title={
           failed
             ? `${label} · ${t('creations.previewUnavailable')}`
@@ -232,10 +239,10 @@ function ReferenceThumbnail({
             className="h-6 w-6 shrink-0 rounded object-cover"
           />
         ) : (
-          <ImageIcon className="h-6 w-6 shrink-0 p-1" aria-hidden="true" />
+          <Icon name="image" className="size-6 shrink-0 p-1" />
         )}
         <span className="max-w-36 truncate">{name ? `@${name}` : label}</span>
-      </button>
+      </Button>
       {openIdentity === identity && (
         <ReferencePreview
           local={localPreview}
@@ -355,9 +362,10 @@ function ReferenceStrip({
         />
       ))}
       {folded && (
-        <button
+        <Button
           type="button"
-          className="mention-tag agent-reference-fold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          variant="ghost"
+          className="mention-tag agent-reference-fold h-auto w-auto px-0 font-normal hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
@@ -366,11 +374,8 @@ function ReferenceStrip({
             : fitted === 0
               ? t('reference.folded', { count: attached.length })
               : t('reference.more', { count: attached.length - fitted })}
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0${expanded ? ' rotate-180' : ''}`}
-            aria-hidden="true"
-          />
-        </button>
+          <Icon name="chevronDown" className={`size-3.5${expanded ? ' rotate-180' : ''}`} />
+        </Button>
       )}
     </div>
   )
@@ -456,7 +461,7 @@ export default memo(function AgentUserMessage({
         tooltip={t('userMessage.reedit')}
         onClick={() => fillAgentComposer({ text: editableText, replace: true })}
       >
-        <SquarePen aria-hidden="true" />
+        <Icon name="edit" />
       </TooltipIconButton>
     </div>
   )

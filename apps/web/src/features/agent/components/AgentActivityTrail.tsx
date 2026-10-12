@@ -1,6 +1,7 @@
-import { ChevronRightIcon } from 'lucide-react'
 import { useId, useLayoutEffect, useState } from 'react'
 import { stepRow } from '../../../components/assistant-ui/elements/surfaces'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { cn } from '../../../lib/utils'
 import type { AgentToolMessage } from '../types'
@@ -60,23 +61,24 @@ export default function AgentActivityTrail({
   const expanded = open
   return (
     <div className="flex shrink-0 flex-col gap-0.5">
-      <button
+      <Button
         type="button"
+        variant="ghost"
         aria-expanded={expanded}
         aria-controls={id}
         onClick={() => setOpen(!open)}
-        className={cn(stepRow, 'w-fit text-muted-foreground/80')}
+        className={cn(stepRow, 'h-auto w-fit px-0 font-normal text-muted-foreground')}
       >
         {t('activity.done')}
-        <ChevronRightIcon
-          aria-hidden
+        <Icon
+          name="chevronRight"
           className={cn(
-            'size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none',
+            'size-3.5 opacity-60 transition-transform motion-reduce:transition-none',
             expanded && 'rotate-90',
           )}
         />
-      </button>
-      <div id={id} hidden={!expanded} className="ml-[6px] border-l border-border pl-[10px]">
+      </Button>
+      <div id={id} hidden={!expanded} className="ml-1.5 border-l border-border pl-2.5">
         {expanded && <Steps steps={steps} />}
       </div>
     </div>
