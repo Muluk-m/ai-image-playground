@@ -17,7 +17,7 @@ import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { ACTIVE_TAB, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import { ACTIVE_TAB, CARD, CARD_TITLE, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -70,9 +70,26 @@ function renderMessage(
   onPreviewProduction?: (pane?: ProductionPane) => void,
   cached = false,
 ) {
+  if (cached && message.kind === 'tool')
+    return (
+      <section className={CARD} aria-label={message.title}>
+        <h3 className={CARD_TITLE}>{message.title}</h3>
+        {message.prompt && <p className="whitespace-pre-wrap text-xs">{message.prompt}</p>}
+        {message.message && <p className="whitespace-pre-wrap text-xs">{message.message}</p>}
+      </section>
+    )
+  if (cached && message.kind === 'clarification')
+    return (
+      <section className={CARD} aria-label={message.question}>
+        <h3 className={CARD_TITLE}>{message.question}</h3>
+        <ul className="list-inside list-disc text-xs">
+          {message.options.map((option, index) => (
+            <li key={index}>{option}</li>
+          ))}
+        </ul>
+      </section>
+    )
   if (message.kind === 'tool') {
-    if (cached && message.batchId)
-      return <div className="rounded-lg border border-border p-3 text-sm">{message.title}</div>
     if (
       (message.toolName === 'writeProduction' || message.toolName === 'proposeStoryboard') &&
       message.status === 'succeeded' &&
@@ -446,7 +463,6 @@ export default function AgentPanel({
                     <div
                       key={`${message.id}:${historyCached}`}
                       className="studio-agent-message-block"
-                      inert={historyCached && message.kind !== 'text'}
                     >
                       <div className="studio-agent-fetched-strip">
                         {fetchedRun.map((image) => (
@@ -455,12 +471,14 @@ export default function AgentPanel({
                             data-agent-message-id={image.id}
                             className="studio-agent-fetched-strip-item"
                           >
-                            <AgentToolCard
-                              message={image}
-                              onViewCanvas={onViewCanvas}
-                              onPreviewResult={onPreviewResult}
-                              compactFetched
-                            />
+                            <fieldset disabled={historyCached} className="contents">
+                              <AgentToolCard
+                                message={image}
+                                onViewCanvas={onViewCanvas}
+                                onPreviewResult={onPreviewResult}
+                                compactFetched
+                              />
+                            </fieldset>
                           </div>
                         ))}
                       </div>
@@ -489,7 +507,6 @@ export default function AgentPanel({
                     key={message.kind === 'text' ? message.id : `${message.id}:${historyCached}`}
                     data-agent-message-id={message.id}
                     className="studio-agent-message-block"
-                    inert={historyCached && message.kind !== 'text'}
                   >
                     {trail && (
                       <AgentActivityTrail

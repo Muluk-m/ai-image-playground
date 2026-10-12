@@ -1822,6 +1822,13 @@ it('shows cached messages while syncing without mounting batch recovery effects'
         batchId: 'batch-cache-test',
         title: '本地批次记录',
       },
+      {
+        kind: 'clarification',
+        id: 'cached-question',
+        turnId: 'old',
+        question: '可阅读的本地问题',
+        options: ['保留原图', '修改角度'],
+      },
     ],
   })
   render()
@@ -1830,7 +1837,10 @@ it('shows cached messages while syncing without mounting batch recovery effects'
   expect(host.textContent).toContain('正在同步对话')
   expect(host.textContent).toContain('本地批次记录')
   expect(request.mock.calls.some(([url]) => String(url).includes('/batches/'))).toBe(false)
-  expect(host.querySelector('[data-agent-message-id="cached-batch"]')?.hasAttribute('inert')).toBe(
-    true,
-  )
+  expect(host.querySelector('[inert]')).toBeNull()
+  const question = host.querySelector('[data-agent-message-id="cached-question"]')!
+  expect(question.textContent).toContain('可阅读的本地问题')
+  expect(question.textContent).toContain('保留原图')
+  expect(question.querySelector('button')).toBeNull()
+  expect(question.querySelector('[aria-hidden="true"]')).toBeNull()
 })
