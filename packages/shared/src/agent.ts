@@ -11,6 +11,7 @@ import type {
   LOOK_PURPOSES,
 } from './sync-protocol'
 import type { VideoGenerationRecord } from './video-generation'
+import type { VideoAspectRatio, VideoResolution } from './video-presets'
 
 /**
  * 匿名设备标识的传输位置。它是纯 bearer——知道就等于持有，所以只走请求头或请求体：
@@ -290,6 +291,14 @@ export type AgentStoredMediaReference = AgentMediaReference
 export type AgentThinkingDepth = 'fast' | 'medium' | 'deep'
 
 export interface AgentTurnParams {
+  /** Explicit video controls selected by the user; frozen with the turn and its confirmation. */
+  readonly video?: {
+    readonly model: string
+    readonly durationSeconds: number
+    readonly aspectRatio: VideoAspectRatio
+    readonly resolution: VideoResolution
+    readonly voiceIds?: readonly string[]
+  }
   /** 本轮进入制作文档流程，生成仍必须确认。 */
   readonly productionMode?: true
   readonly production?: import('./production').ProductionContext

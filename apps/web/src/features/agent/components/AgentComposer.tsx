@@ -15,14 +15,15 @@ import {
 } from '../../../components/assistant-ui/elements/attachment'
 import {
   Composer,
-  ComposerActions,
-  ComposerAttachButton,
   ComposerAttachments,
-  ComposerBar,
   ComposerSend,
-  ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
-import LookChips from '../../../components/LookChips'
+import {
+  CreationBody,
+  CreationFrame,
+  CreationModePicker,
+  CreationToolbar,
+} from '../../../components/creation/CreationFrame'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
 import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
@@ -70,6 +71,7 @@ import {
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
+import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
@@ -136,12 +138,9 @@ import {
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
-import AgentParamsChip from './AgentParamsChip'
+import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
 import { useAssetSlots } from './useAssetSlots'
-
-const EDITOR_CLASS =
-  'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
 
 const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 
@@ -277,7 +276,6 @@ export default function AgentComposer({
   doc,
   editor,
   welcome = false,
-  showLooks = true,
   showCanvasReferences = true,
   productionMode = false,
 }: {
@@ -289,7 +287,7 @@ export default function AgentComposer({
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
 }) {
-  const { t, i18n } = useTranslation(['agent', 'errors'])
+  const { t, i18n } = useTranslation(['agent', 'errors', 'composer'])
   const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
@@ -512,11 +510,22 @@ export default function AgentComposer({
   // 做不了视频的部署里视频轮不该出现，存下来的旧草稿也按图片算——
   // 服务端在那种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
   const videoAvailable = isVideoModeAvailable()
-  // 创作类型跟着项目走：项目建出来是图片画布还是视频画布，这里就一直是哪一轮，中途换不了。
   const projectKind = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId)?.kind === 'video' ? 'video' : 'image',
   )
-  const mode = productionMode ? 'video' : videoAvailable ? projectKind : 'image'
+  const createTarget = useStore((state) => state.createTarget)
+  const creationMode =
+    createTarget === 'video' ? 'video' : createTarget === 'generate' ? 'image' : 'agent'
+  useEffect(() => {
+    const store = useStore.getState()
+    const saved = store.projectCreationTargets[session.key]
+    store.setCreateTarget(
+      saved === 'video' && !videoAvailable
+        ? 'chat'
+        : (saved ?? (projectKind === 'video' && videoAvailable ? 'video' : 'chat')),
+    )
+  }, [session.key, projectKind, videoAvailable])
+  const mode = productionMode || (videoAvailable && creationMode === 'video') ? 'video' : 'image'
   // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
   const setSessionMode = useAgentStore((state) => state.setMode)
   useEffect(() => {
@@ -980,7 +989,7 @@ export default function AgentComposer({
           </Button>
         </div>
       )}
-      <ComposerBar dragActive={dragging}>
+      <CreationFrame className={dragging ? 'ring-2 ring-primary' : ''}>
         {productionMode && (
           <ProductionQuoteChip
             conversationId={conversationId}
@@ -988,223 +997,187 @@ export default function AgentComposer({
             onRemove={() => setDraft((current) => ({ ...current, submission: undefined }))}
           />
         )}
-        {draft.references.length > 0 && (
-          <ComposerAttachments className="max-h-[min(12rem,25dvh)] overflow-y-auto overscroll-contain pr-1">
-            {selectionSummary.length > 0 && (
-              <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
-                <div className="flex -space-x-3">
-                  {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
-                    <ComposerAttachmentThumb
-                      key={one.id}
-                      src={one.dataUrl}
-                      className={`${STRIP_THUMB} ring-2 ring-muted`}
-                    />
-                  ))}
-                </div>
-                <span className="whitespace-nowrap text-xs text-foreground">
-                  {t('composer.selectionSummary', { count: selectionSummary.length })}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={t('composer.clearSelectionAria')}
-                  className={`${ICON_BUTTON} size-auto shrink-0`}
-                  onClick={() => setDraft(removeSelectionReferences(draft))}
-                >
-                  <Icon name="close" />
-                </Button>
-              </div>
-            )}
-            {draft.references.map((reference, index) => {
-              if (
-                selectionSummary.length > 0 &&
-                reference.origin === 'selection' &&
-                !attachmentUploadState(uploadReference(reference))
-              )
-                return null
-              const label = referenceNames[index] ?? getImageMentionLabel(index)
-              const masked = Boolean(reference.maskDataUrl)
-              const uploadState = attachmentUploadState(uploadReference(reference))
-              const uploadError = attachmentUploadError(uploadReference(reference))
-              const isUploading = ['queued', 'uploading', 'verifying'].includes(uploadState ?? '')
-              return (
-                <div key={reference.id} className="group flex max-w-full items-start gap-2">
-                  <AttachmentTile
-                    name={label}
-                    title={label}
-                    failed={uploadState === 'failed'}
-                    className="size-24"
-                  >
-                    <ComposerAttachmentThumb
-                      src={reference.dataUrl}
-                      uploading={isUploading}
-                      failed={uploadState === 'failed'}
-                      frameClassName="h-full w-full"
-                      className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
-                      alt={label}
-                      retryPreview
-                    />
-                    {masked && (
-                      <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
-                        MASK
+        <CreationBody
+          references={
+            <>
+              <Button
+                variant="ghost"
+                className="creation-add"
+                aria-label={t('composer.attachAria')}
+                title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                aria-haspopup="menu"
+                aria-expanded={attachMenu !== null}
+                disabled={loading}
+                onClick={(event) => {
+                  const bounds = event.currentTarget.getBoundingClientRect()
+                  setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
+                }}
+              >
+                <Icon name="add" />
+                <span>{t('composer:studio.reference')}</span>
+              </Button>
+              {draft.references.length > 0 && (
+                <ComposerAttachments className="max-h-[min(12rem,25dvh)] overflow-y-auto overscroll-contain pr-1">
+                  {selectionSummary.length > 0 && (
+                    <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
+                      <div className="flex -space-x-3">
+                        {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
+                          <ComposerAttachmentThumb
+                            key={one.id}
+                            src={one.dataUrl}
+                            className={`${STRIP_THUMB} ring-2 ring-muted`}
+                          />
+                        ))}
+                      </div>
+                      <span className="whitespace-nowrap text-xs text-foreground">
+                        {t('composer.selectionSummary', { count: selectionSummary.length })}
                       </span>
-                    )}
-                    {uploadState === 'failed' && (
-                      <span
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={t('composer.clearSelectionAria')}
+                        className={`${ICON_BUTTON} size-auto shrink-0`}
+                        onClick={() => setDraft(removeSelectionReferences(draft))}
                       >
-                        <Icon name="error" size="lg" />
-                      </span>
-                    )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={
-                        masked
-                          ? t('composer.editMaskAria', { label })
-                          : t('composer.drawMaskAria', { label })
-                      }
-                      className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                      onClick={() => editMask(reference)}
-                    >
-                      <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                        <Icon name="brush" />
-                      </span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t('composer.removeReferenceAria', { label })}
-                      className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                      onClick={() => setDraft(removeReference(draft, index))}
-                    >
-                      <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
                         <Icon name="close" />
-                      </span>
-                    </Button>
-                  </AttachmentTile>
-                  {uploadState && (
-                    <span
-                      role={uploadState === 'failed' ? 'alert' : 'status'}
-                      className={
-                        uploadState === 'failed'
-                          ? 'max-w-56 self-center text-xs text-destructive'
-                          : 'sr-only'
-                      }
-                    >
-                      {uploadState === 'failed'
-                        ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
-                        : t(`composer.upload.${uploadState}`)}
-                    </span>
+                      </Button>
+                    </div>
                   )}
-                  {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className={`${GHOST_LINK} h-auto px-0 py-0 font-normal hover:bg-transparent`}
-                      aria-label={t('composer.retryUploadAria', { label })}
-                      onClick={() => retryUpload(reference)}
-                    >
-                      {t('composer.retryUpload')}
-                    </Button>
-                  )}
-                </div>
-              )
-            })}
-          </ComposerAttachments>
-        )}
-
-        <div className="relative">
-          {menu.visible && (
-            <SuggestionMenu
-              groups={groups}
-              activeIndex={menu.activeIndex}
-              offsetLeft={0}
-              onActiveIndexChange={menu.setActiveIndex}
-              onSelect={menu.select}
-            />
-          )}
-          <PromptEditor
-            editor={promptEditor}
-            role="textbox"
-            tabIndex={0}
-            aria-label={t('composer.editorAria')}
-            disabled={loading}
-            aria-busy={loading}
-            placeholder={t(
-              showCanvasReferences ? 'composer.placeholder' : 'composer.chatPlaceholder',
+                  {draft.references.map((reference, index) => {
+                    if (
+                      selectionSummary.length > 0 &&
+                      reference.origin === 'selection' &&
+                      !attachmentUploadState(uploadReference(reference))
+                    )
+                      return null
+                    const label = referenceNames[index] ?? getImageMentionLabel(index)
+                    const masked = Boolean(reference.maskDataUrl)
+                    const uploadState = attachmentUploadState(uploadReference(reference))
+                    const uploadError = attachmentUploadError(uploadReference(reference))
+                    const isUploading = ['queued', 'uploading', 'verifying'].includes(
+                      uploadState ?? '',
+                    )
+                    return (
+                      <div key={reference.id} className="group flex max-w-full items-start gap-2">
+                        <AttachmentTile
+                          name={label}
+                          title={label}
+                          failed={uploadState === 'failed'}
+                          className="size-[72px]"
+                        >
+                          <ComposerAttachmentThumb
+                            src={reference.dataUrl}
+                            uploading={isUploading}
+                            failed={uploadState === 'failed'}
+                            frameClassName="h-full w-full"
+                            className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                            alt={label}
+                            retryPreview
+                          />
+                          {masked && (
+                            <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
+                              MASK
+                            </span>
+                          )}
+                          {uploadState === 'failed' && (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                            >
+                              <Icon name="error" size="lg" />
+                            </span>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={
+                              masked
+                                ? t('composer.editMaskAria', { label })
+                                : t('composer.drawMaskAria', { label })
+                            }
+                            className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                            onClick={() => editMask(reference)}
+                          >
+                            <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                              <Icon name="brush" />
+                            </span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t('composer.removeReferenceAria', { label })}
+                            className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                            onClick={() => setDraft(removeReference(draft, index))}
+                          >
+                            <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                              <Icon name="close" />
+                            </span>
+                          </Button>
+                        </AttachmentTile>
+                        {uploadState && (
+                          <span
+                            role={uploadState === 'failed' ? 'alert' : 'status'}
+                            className={
+                              uploadState === 'failed'
+                                ? 'max-w-56 self-center text-xs text-destructive'
+                                : 'sr-only'
+                            }
+                          >
+                            {uploadState === 'failed'
+                              ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
+                              : t(`composer.upload.${uploadState}`)}
+                          </span>
+                        )}
+                        {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className={`${GHOST_LINK} h-auto px-0 py-0 font-normal hover:bg-transparent`}
+                            aria-label={t('composer.retryUploadAria', { label })}
+                            onClick={() => retryUpload(reference)}
+                          >
+                            {t('composer.retryUpload')}
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </ComposerAttachments>
+              )}
+            </>
+          }
+        >
+          <div className="relative">
+            {menu.visible && (
+              <SuggestionMenu
+                groups={groups}
+                activeIndex={menu.activeIndex}
+                offsetLeft={0}
+                onActiveIndexChange={menu.setActiveIndex}
+                onSelect={menu.select}
+              />
             )}
-            className={EDITOR_CLASS}
-          />
-        </div>
-
-        <ComposerToolbar className="gap-2">
-          <div className="flex min-w-0 items-center gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              aria-label={t('composer.fileInputAria')}
-              onChange={(event) => {
-                attachFiles([...(event.currentTarget.files ?? [])])
-                event.currentTarget.value = ''
-              }}
-            />
-            <input
-              ref={folderInputRef}
-              type="file"
-              // 文件夹选择器没有 React 的 prop 名，只能按 DOM 属性名直接摊上去。
-              {...{ webkitdirectory: '' }}
-              multiple
-              className="hidden"
-              aria-label={t('composer.folderInputAria')}
-              onChange={(event) => {
-                const { files } = filesFromFolderInput(event.currentTarget.files)
-                event.currentTarget.value = ''
-                attachFiles(files)
-              }}
-            />
-            <ComposerAttachButton
-              aria-label={t('composer.attachAria')}
-              title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-              aria-haspopup="menu"
-              aria-expanded={attachMenu !== null}
+            <PromptEditor
+              editor={promptEditor}
+              role="textbox"
+              tabIndex={0}
+              aria-label={t('composer.editorAria')}
               disabled={loading}
-              onClick={(event) => {
-                const bounds = event.currentTarget.getBoundingClientRect()
-                setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
-              }}
+              aria-busy={loading}
+              placeholder={t(
+                `composer:studio.placeholders.${productionMode ? 'video' : creationMode}`,
+              )}
+              className="creation-prompt"
             />
-            {attachMenu && (
-              <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
-                <ContextMenuItem
-                  icon={<Icon name="images" />}
-                  label={t('composer.attachImages')}
-                  onClick={() => {
-                    setAttachMenu(null)
-                    fileInputRef.current?.click()
-                  }}
-                />
-                <ContextMenuItem
-                  icon={<Icon name="folder" />}
-                  label={t('composer.attachFolder')}
-                  onClick={() => {
-                    setAttachMenu(null)
-                    folderInputRef.current?.click()
-                  }}
-                />
-              </ContextMenu>
-            )}
           </div>
-          <ComposerActions className="min-w-0">
-            <AgentParamsChip generationControls={!productionMode} />
+        </CreationBody>
+        <CreationToolbar
+          action={
             <ComposerSend
+              className="creation-send"
               streaming={stopMode}
               idle={
                 !historyBlocked &&
@@ -1242,12 +1215,84 @@ export default function AgentComposer({
               }
               onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
             />
-          </ComposerActions>
-        </ComposerToolbar>
-      </ComposerBar>
-      {showLooks && mode === 'image' && (
-        <LookChips onPick={(look) => selectSkill(look.skillName)} />
-      )}
+          }
+        >
+          <CreationModePicker
+            value={productionMode ? 'video' : creationMode}
+            modes={
+              productionMode
+                ? ['video']
+                : ['agent', 'image', ...(videoAvailable ? ['video' as const] : [])]
+            }
+            onChange={(next) => {
+              const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
+              useStore.setState((state) => ({
+                projectCreationTargets: { ...state.projectCreationTargets, [session.key]: target },
+              }))
+              useStore.getState().setCreateTarget(target)
+            }}
+          />
+          <span className="creation-tool-divider" aria-hidden="true" />
+          <div className="creation-tools creation-live-controls">
+            {mode === 'video' && !productionMode ? (
+              <CanvasVideoParams hasFirstFrame={false}>
+                <AgentExecutionSettings />
+              </CanvasVideoParams>
+            ) : (
+              <AgentParamsChip
+                generationControls={!productionMode}
+                thinkingControls={creationMode !== 'image'}
+              />
+            )}
+          </div>
+        </CreationToolbar>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          aria-label={t('composer.fileInputAria')}
+          onChange={(event) => {
+            attachFiles([...(event.currentTarget.files ?? [])])
+            event.currentTarget.value = ''
+          }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          // 文件夹选择器没有 React 的 prop 名，只能按 DOM 属性名直接摊上去。
+          {...{ webkitdirectory: '' }}
+          multiple
+          className="hidden"
+          aria-label={t('composer.folderInputAria')}
+          onChange={(event) => {
+            const { files } = filesFromFolderInput(event.currentTarget.files)
+            event.currentTarget.value = ''
+            attachFiles(files)
+          }}
+        />
+        {attachMenu && (
+          <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
+            <ContextMenuItem
+              icon={<Icon name="images" />}
+              label={t('composer.attachImages')}
+              onClick={() => {
+                setAttachMenu(null)
+                fileInputRef.current?.click()
+              }}
+            />
+            <ContextMenuItem
+              icon={<Icon name="folder" />}
+              label={t('composer.attachFolder')}
+              onClick={() => {
+                setAttachMenu(null)
+                folderInputRef.current?.click()
+              }}
+            />
+          </ContextMenu>
+        )}{' '}
+      </CreationFrame>
     </Composer>
   )
 }

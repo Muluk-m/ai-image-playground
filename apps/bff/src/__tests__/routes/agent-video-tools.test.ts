@@ -134,6 +134,7 @@ async function runTurn(
   text: string,
   references: unknown[] = [],
   mode = 'video',
+  params?: import('@image-playground/shared').AgentTurnParams,
 ) {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
@@ -143,7 +144,7 @@ async function runTurn(
         cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
       },
       // 默认覆盖视频画布；Chat 用例显式传 image，验证跨创作类型工具装配。
-      body: JSON.stringify({ deviceId: DEVICE, text, references, mode }),
+      body: JSON.stringify({ deviceId: DEVICE, text, references, mode, params }),
     }),
   )
   return parseFrames(await response.text())
@@ -265,6 +266,35 @@ afterAll(async () => {
 })
 
 describe('智能体生视频工具', () => {
+  it('freezes the composer model and parameters instead of model-suggested defaults', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '海浪',
+      durationSeconds: 10,
+      aspectRatio: '16:9',
+      resolution: '720p',
+    })
+    const id = await startConversation('chat')
+    const video = {
+      model: GROK,
+      durationSeconds: 5,
+      aspectRatio: '9:16' as const,
+      resolution: '1080p' as const,
+    }
+    const frames = await runTurn(id, '生成海浪视频', [], 'video', { video })
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      video: { model: GROK, duration: 5, aspectRatio: '9:16', resolution: '1080p' },
+      snapshot: { params: { video }, target: { model: GROK } },
+    })
+    await confirmDrafts(id)
+    expect(await videoTask()).toMatchObject({
+      model: GROK,
+      request_payload: {
+        video: { duration_seconds: 5, aspect_ratio: '9:16', resolution: '1080p' },
+      },
+    })
+  })
+
   it('generates video from an image-kind chat, confirms once and restores playable results', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '海浪', durationSeconds: 8, aspectRatio: '9:16' })
