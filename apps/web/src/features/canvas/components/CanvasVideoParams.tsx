@@ -1,5 +1,5 @@
 import { VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
-import { useEffect } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import {
   type ComposerControlSize,
   composerModelChipClass,
@@ -25,9 +25,11 @@ import { useVideoStore } from '../../video/store'
 export default function CanvasVideoParams({
   hasFirstFrame,
   size = 'md',
+  children,
 }: {
   hasFirstFrame: boolean
   size?: ComposerControlSize
+  children?: ReactNode
 }) {
   const { t } = useTranslation('video')
   const draft = useVideoStore((state) => state.draft)
@@ -72,11 +74,14 @@ export default function CanvasVideoParams({
         }
       >
         {() => (
-          <VideoPresetRows
-            support={option.support}
-            draft={draft}
-            aspectFollowsFirstFrame={hasFirstFrame}
-          />
+          <>
+            <VideoPresetRows
+              support={option.support}
+              draft={draft}
+              aspectFollowsFirstFrame={hasFirstFrame}
+            />
+            {children}
+          </>
         )}
       </SettingsPopover>
     </>

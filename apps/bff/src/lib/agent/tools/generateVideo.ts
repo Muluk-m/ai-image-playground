@@ -477,8 +477,9 @@ export const generateVideo = defineAgentTool({
   // 视频是这里最贵的一件事，失败让模型接着重试等于再扣一次费；停下来交给用户定夺。
   onError: 'abort',
   available: () => isCapabilityEnabled('generation:video') && videoModel() !== null,
-  target: (_params, args) =>
-    videoModel(typeof args.model === 'string' ? args.model : undefined)?.target,
+  target: (params, args) =>
+    videoModel(params?.video?.model ?? (typeof args.model === 'string' ? args.model : undefined))
+      ?.target,
   call({
     prompt,
     imageId,
@@ -534,7 +535,10 @@ export const generateVideo = defineAgentTool({
     }
   },
   execute(context) {
-    return async (toolCallId, params, signal) => {
+    return async (toolCallId, suggested, signal) => {
+      // User controls take precedence over model-suggested defaults; confirmation freezes this result.
+      const { voiceIds, ...selected } = context.params?.video ?? {}
+      const params = { ...suggested, ...selected, ...(voiceIds ? { voiceIds: [...voiceIds] } : {}) }
       if (!isCapabilityEnabled('generation:video'))
         throw new AgentToolError('model_unavailable', noModelMessage('video'))
       const resolved = videoModel(params.model)

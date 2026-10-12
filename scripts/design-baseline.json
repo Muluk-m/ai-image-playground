@@ -179,33 +179,6 @@
   "apps/web/src/components/panelStyles.ts": {
     "focus-not-visible": 4
   },
-  "apps/web/src/components/settings/ApiTab.tsx": {
-    "inline-svg": 2,
-    "native-control": 10
-  },
-  "apps/web/src/components/settings/CustomProviderDialog.tsx": {
-    "font-weight": 1,
-    "inline-svg": 2,
-    "native-control": 6
-  },
-  "apps/web/src/components/settings/DataTab.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/settings/GeneralTab.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/settings/ImportUrlDialog.tsx": {
-    "arbitrary-font": 3,
-    "font-weight": 2,
-    "native-control": 3,
-    "palette-class": 1
-  },
-  "apps/web/src/components/settings/SettingsModal.tsx": {
-    "font-weight": 1,
-    "lucide-import": 1,
-    "native-control": 2,
-    "offscale-font": 1
-  },
   "apps/web/src/features/agent/agentStyles.ts": {
     "focus-not-visible": 3
   },

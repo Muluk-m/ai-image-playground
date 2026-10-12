@@ -656,8 +656,12 @@ interface AppState {
    * 首屏输入框把这句话交给谁：`generate` 直接出图；`canvas` 新建一个画布项目、打开它，
    * 把这句话和参考图作为第一轮发给智能体。只是首屏的一个开关，不落盘。
    */
-  createTarget: 'generate' | 'chat' | 'canvas'
-  setCreateTarget: (target: 'generate' | 'chat' | 'canvas') => void
+  projectCreationTargets: Record<string, 'generate' | 'chat' | 'video'>
+  creationSelections: Partial<
+    Record<'generate' | 'chat', { params: TaskParams; profileId: string; model: string }>
+  >
+  createTarget: 'generate' | 'chat' | 'canvas' | 'video'
+  setCreateTarget: (target: 'generate' | 'chat' | 'canvas' | 'video') => void
   /**
    * 侧栏此刻摊开还是收起。`null` 表示按入口默认：首页与对话摊开，画布收起。
    * 用户按折叠键就写成明确的开或关，换入口时回到默认。
@@ -900,7 +904,54 @@ export const useStore = create<AppState>()(
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
       createTarget: 'generate',
-      setCreateTarget: (createTarget) => set({ createTarget }),
+      creationSelections: {},
+      projectCreationTargets: {},
+      setCreateTarget: (createTarget) => {
+        const state = get()
+        if (createTarget === state.createTarget) return
+        const key = state.createTarget === 'generate' ? 'generate' : 'chat'
+        const nextKey = createTarget === 'generate' ? 'generate' : 'chat'
+        const profile = getActiveApiProfile(state.settings)
+        // Text/references are shared. Only model selection and parameters belong to a mode.
+        // Video parameters live in useVideoStore and never overwrite either image selection.
+        const selections =
+          state.createTarget === 'video'
+            ? { ...state.creationSelections }
+            : {
+                ...state.creationSelections,
+                [key]: {
+                  params: state.params,
+                  profileId: profile.id,
+                  model: clientProfileToApiProfile(profile).model,
+                },
+              }
+        const candidate = createTarget === 'video' ? undefined : selections[nextKey]
+        const savedProfile =
+          candidate && state.settings.profiles.find((p) => p.id === candidate.profileId)
+        const saved =
+          savedProfile && clientProfileToApiProfile(savedProfile).models?.includes(candidate!.model)
+            ? candidate
+            : undefined
+        if (candidate && !saved) delete selections[nextKey]
+        set({
+          createTarget,
+          creationSelections: selections,
+          ...(saved ? { params: saved.params } : {}),
+          ...(saved
+            ? {
+                settings: {
+                  ...state.settings,
+                  activeProfileId: saved.profileId,
+                  profiles: state.settings.profiles.map((p) =>
+                    p.id === saved.profileId
+                      ? updateSelectedModel(p, saved.model, getPublicChannels())
+                      : p,
+                  ),
+                },
+              }
+            : {}),
+        })
+      },
       sidebarExpanded: null,
       toggleSidebar: () =>
         set((s) => ({
