@@ -1,3 +1,5 @@
+import { openReferenceStack } from '../../helpers/radix'
+
 // @vitest-environment jsdom
 
 vi.mock('../../../lib/imagePreprocessing', async () => ({
@@ -766,9 +768,9 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     const send = host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
     expect(send.disabled).toBe(true)
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
-    const retry = [...host.querySelectorAll<HTMLButtonElement>('button')].filter(
-      (button) => button.textContent === '重试',
-    )
+    const retry = [
+      ...openReferenceStack(host).querySelectorAll<HTMLButtonElement>('button'),
+    ].filter((button) => button.textContent === '重试')
     expect(retry).toHaveLength(1)
     await act(async () => {
       retry[0]!.click()
@@ -879,8 +881,9 @@ it('keeps an oversized attachment in the selected scope until the user explicitl
     const send = host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
     expect(send.disabled).toBe(true)
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    const panel = openReferenceStack(host)
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 photo-3"]')!.click()
+      panel.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 photo-3"]')!.click()
       await vi.waitFor(() => expect(send.disabled).toBe(false))
       send.click()
       await vi.waitFor(() =>
@@ -1189,8 +1192,9 @@ it('keeps every selected position when one original cannot be stored and restore
     const restored = new DraftSession(session.key)
     await restored.ready
     expect(restored.getSnapshot().draft.references).toEqual(selected)
+    const panel = openReferenceStack(host)
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 stored-2"]')!.click()
+      panel.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 stored-2"]')!.click()
       await vi.waitFor(() =>
         expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
           false,
