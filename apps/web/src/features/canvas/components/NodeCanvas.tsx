@@ -1119,6 +1119,7 @@ function Flow({
                 onSelectionChange={({ nodes: selected }) => {
                   const ids = selected.filter((n) => n.data.node).map((n) => n.id)
                   selectedIds.current = ids
+                  if (ids.length) setSelectedEdges((current) => (current.length ? [] : current))
                   setSelectedCount(ids.length)
                   const id = ids.length === 1 ? ids[0]! : null
                   selectedRef.current = id
@@ -1340,7 +1341,11 @@ function Flow({
                     />
                     <NodeTool
                       icon="download"
-                      label={t('nodes.download')}
+                      label={
+                        composerNode.type === 'video'
+                          ? common('action.download')
+                          : t('nodes.download')
+                      }
                       onClick={() => {
                         const source =
                           composerNode.type === 'video'
@@ -1354,9 +1359,15 @@ function Flow({
                             .then(async (response) => {
                               if (!response.ok) throw new Error('download failed')
                               const blob = await response.blob()
+                              const extension =
+                                blob.type.split('/')[1]?.split(';')[0] ||
+                                (composerNode.type === 'video' ? 'mp4' : 'png')
+                              const name = composerNode.data.name || 'muvloom'
                               downloadBlob(
                                 blob,
-                                `${composerNode.data.name || 'muvloom'}.${composerNode.type === 'video' ? 'mp4' : 'png'}`,
+                                /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
+                                  ? name
+                                  : `${name}.${extension}`,
                               )
                             })
                             .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
