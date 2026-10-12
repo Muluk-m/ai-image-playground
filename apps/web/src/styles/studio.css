@@ -948,17 +948,39 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   display: grid; width: 28px; height: 28px; place-items: center; z-index: 4;
   border: 1px solid hsl(var(--border)); border-radius: 999px;
   background: hsl(var(--card)); color: hsl(var(--foreground));
-  pointer-events: all; cursor: pointer;
+  opacity: 0; pointer-events: none; cursor: pointer;
+  transition: opacity 140ms ease-out, transform 180ms ease-out, background-color 140ms ease-out;
+}
+/* 加号和卡片之间有空隙。这块垫在空隙上，鼠标移过去时悬停不会断。 */
+.studio-node-canvas .react-flow__handle.studio-node-handle::before {
+  content: ""; position: absolute; top: -10px; bottom: -10px; width: 22px;
+}
+.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left::before { left: 100%; }
+.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right::before { right: 100%; }
+.studio-node-canvas .react-flow__node:hover > .react-flow__handle.studio-node-handle,
+.studio-node-canvas .react-flow__handle.studio-node-handle.connectingfrom,
+.studio-node-canvas .react-flow__handle.studio-node-handle:focus-visible {
+  opacity: 1; pointer-events: all;
 }
 .studio-node-canvas .react-flow__handle.studio-node-handle:hover {
   background: hsl(var(--muted));
 }
 /* 加号在卡片外面，垂直居中。组件的内联 transform 会盖过类，所以这里要压过它。 */
 .studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left {
-  transform: translate(calc(-100% - 14px), -50%) !important;
+  transform: translate(calc(-100% - 4px), -50%) scale(.84) !important;
 }
 .studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right {
-  transform: translate(calc(100% + 14px), -50%) !important;
+  transform: translate(calc(100% + 4px), -50%) scale(.84) !important;
+}
+.studio-node-canvas .react-flow__node:hover > .react-flow__handle.studio-node-handle.react-flow__handle-left,
+.studio-node-canvas .react-flow__handle.studio-node-handle.connectingfrom.react-flow__handle-left,
+.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left:focus-visible {
+  transform: translate(calc(-100% - 14px), -50%) scale(1) !important;
+}
+.studio-node-canvas .react-flow__node:hover > .react-flow__handle.studio-node-handle.react-flow__handle-right,
+.studio-node-canvas .react-flow__handle.studio-node-handle.connectingfrom.react-flow__handle-right,
+.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right:focus-visible {
+  transform: translate(calc(100% + 14px), -50%) scale(1) !important;
 }
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
