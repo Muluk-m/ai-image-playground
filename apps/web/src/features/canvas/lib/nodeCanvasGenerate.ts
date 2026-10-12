@@ -1,6 +1,8 @@
 import {
   type CanvasOrigin,
   canvasOrigin,
+  connectCanvasNodes,
+  insertCanvasNode,
   type PendingGeneration,
   readCanvasDocument,
   updateCanvasNode,
@@ -21,6 +23,7 @@ import type { CallApiResult } from '../../../lib/imageApiShared'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '../../../store'
 import type { TaskParams } from '../../../types'
+import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 
@@ -54,6 +57,33 @@ interface NodeGenerationMeta {
 function imageNode(doc: Y.Doc, id: string) {
   const node = readCanvasDocument(doc).nodes.find((one) => one.id === id)
   return node?.type === 'image' ? node : undefined
+}
+
+/** 左右加号探出卡片，张数大于 1 时下一张要隔开这段，避免加号叠在一起。 */
+const SIBLING_GAP = 88
+
+/** 同一条生成的第 index 张，放在原卡右边，并接上同样的上游。 */
+function siblingImageNode(doc: Y.Doc, primaryId: string, index: number): string {
+  const primary = imageNode(doc, primaryId)
+  if (!primary || index <= 0) return primaryId
+  const id = newElementId()
+  const incoming = readCanvasDocument(doc).edges.filter((edge) => edge.target === primaryId)
+  insertCanvasNode(
+    doc,
+    {
+      id,
+      type: 'image',
+      x: primary.x + (primary.width + SIBLING_GAP) * index,
+      y: primary.y,
+      width: primary.width,
+      height: primary.height,
+      data: {},
+    },
+    generationOrigin,
+  )
+  for (const edge of incoming)
+    connectCanvasNodes(doc, { source: edge.source, target: id }, generationOrigin)
+  return id
 }
 
 function loading(pending: PendingGeneration | undefined): boolean {
@@ -130,7 +160,7 @@ async function putBitmapOnNode(
 function nodeGenerationSink(
   editor: CanvasEditor,
   doc: Y.Doc,
-  nodeId: string,
+  primaryId: string,
 ): GenerationSink<NodeJobHandle, NodeJobContext> {
   const fail = (id: string, text: string) => {
     const node = imageNode(doc, id)
@@ -141,6 +171,7 @@ function nodeGenerationSink(
   return {
     open(unit: GenerationUnit<NodeJobContext>): NodeJobHandle {
       const profile = getActiveApiProfile(useStore.getState().settings)
+      const nodeId = unit.index > 0 ? siblingImageNode(doc, primaryId, unit.index) : primaryId
       writePending(doc, nodeId, {
         type: 'placeholder',
         status: 'loading',
@@ -173,17 +204,22 @@ function nodeGenerationSink(
     },
     progress() {},
     async delivered(handle: NodeJobHandle, result: CallApiResult) {
-      const dataUrl = result.images[0]
-      if (!dataUrl) {
+      const images = result.images.filter((item): item is string => Boolean(item))
+      if (images.length === 0) {
         fail(handle.nodeId, i18next.t('placeholder.failed', { ns: 'canvas' }))
         return
       }
-      const placed = await putBitmapOnNode(editor, doc, handle.nodeId, dataUrl)
-      if (!placed) return
+      let placedAny = false
+      for (let index = 0; index < images.length; index++) {
+        const id = index === 0 ? handle.nodeId : siblingImageNode(doc, handle.nodeId, index)
+        const placed = await putBitmapOnNode(editor, doc, id, images[index]!)
+        placedAny = placedAny || placed
+      }
+      if (!placedAny) return
       void addCompletedCanvasTask({
         prompt: handle.prompt,
         params: handle.params,
-        images: [dataUrl],
+        images,
         ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
         ...(handle.profileView ? { profile: handle.profileView } : {}),
       })
@@ -217,7 +253,7 @@ export function submitNodeImage(
   const settings = useStore.getState().settings
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const params = { ...useStore.getState().params, n: 1 }
+  const params = { ...useStore.getState().params }
   const handles = startGeneration<NodeJobHandle, NodeJobContext>(
     {
       settings,
