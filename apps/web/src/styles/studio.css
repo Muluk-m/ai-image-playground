@@ -965,22 +965,12 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-canvas .react-flow__handle.studio-node-handle:hover {
   background: hsl(var(--muted));
 }
-/* 加号在卡片外面，垂直居中。组件的内联 transform 会盖过类，所以这里要压过它。 */
+/* 连接点保持固定几何，悬停只改变可见性，避免 React Flow 缓存的线端点漂移。 */
 .studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left {
-  transform: translate(calc(-100% - 4px), -50%) scale(.84) !important;
+  left: 0; transform: translate(-50%, -50%);
 }
 .studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right {
-  transform: translate(calc(100% + 4px), -50%) scale(.84) !important;
-}
-.studio-node-canvas .react-flow__node:hover > .react-flow__handle.studio-node-handle.react-flow__handle-left,
-.studio-node-canvas .react-flow__handle.studio-node-handle.connectingfrom.react-flow__handle-left,
-.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left:focus-visible {
-  transform: translate(calc(-100% - 14px), -50%) scale(1) !important;
-}
-.studio-node-canvas .react-flow__node:hover > .react-flow__handle.studio-node-handle.react-flow__handle-right,
-.studio-node-canvas .react-flow__handle.studio-node-handle.connectingfrom.react-flow__handle-right,
-.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right:focus-visible {
-  transform: translate(calc(100% + 14px), -50%) scale(1) !important;
+  right: 0; transform: translate(50%, -50%);
 }
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
@@ -1006,3 +996,40 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   margin: 12px 0 0 12px; background: transparent; pointer-events: none;
 }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column .studio-canvas-topbar { pointer-events: auto; }
+
+/* Node workspace: controls stay at screen scale, media owns the canvas. */
+.studio-node-tools, .studio-node-navigation, .studio-node-history, .studio-node-selection-bar {
+  position: absolute; z-index: 25; display: flex; align-items: center; gap: 4px;
+  padding: 6px; border: 1px solid hsl(var(--border) / .7); border-radius: 16px;
+  background: hsl(var(--card) / .94); box-shadow: 0 6px 24px hsl(var(--scrim) / .07); backdrop-filter: blur(16px);
+}
+.studio-node-tools { left: 16px; top: 50%; transform: translateY(-50%); flex-direction: column; padding: 8px; }
+.studio-node-navigation { bottom: 18px; left: 16px; }
+.studio-node-history { top: 18px; right: 18px; }
+.studio-node-selection-bar { top: 18px; left: 50%; transform: translateX(-50%); padding-left: 14px; }
+.studio-node-tool-divider { width: 1px; height: 22px; background: hsl(var(--border)); margin: 0 3px; }
+.studio-node-tools .studio-node-tool-divider { height: 1px; width: 26px; margin: 5px 0; }
+.studio-node-chat { position: absolute; right: 18px; bottom: 18px; z-index: 26; padding: 12px 20px; height: 48px; box-shadow: 0 6px 24px hsl(var(--scrim) / .1); }
+.studio-node-caption { width: 100%; pointer-events: auto; height: 24px; top: -30px; }
+.studio-node-upload { top: auto; bottom: 24px; z-index: 2; }
+.studio-node-empty { border: none; background: hsl(var(--muted) / .45); }
+.studio-node-empty > svg { width: 40px; height: 40px; opacity: .4; }
+.studio-node--text { border-radius: 12px; background: hsl(var(--card)); }
+.studio-node-empty-hint { position: absolute; left: 50%; top: 45%; transform: translate(-50%,-50%); color: hsl(var(--muted-foreground)); pointer-events: none; }
+.studio-node-canvas .react-flow__minimap { bottom: 76px; border-radius: 12px; overflow: hidden; border: 1px solid hsl(var(--border)); }
+.studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { opacity: 1; }
+.studio-node-canvas .react-flow__edge.selected .react-flow__edge-path { stroke: hsl(var(--primary)); stroke-width: 2; }
+.studio-node-references { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
+.studio-node-reference { display: flex; align-items: center; gap: 5px; padding: 4px; border: 1px solid hsl(var(--border)); border-radius: 8px; }
+.studio-node-reference > img { width: 28px; height: 28px; border-radius: 4px; object-fit: cover; }
+.studio-node-composer .studio-direct-card { border-radius: 16px; box-shadow: 0 12px 40px hsl(var(--scrim) / .13); }
+@media (max-width: 640px) {
+ .studio-node-tools { left: 8px; padding: 4px; }
+ .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
+ .studio-node-navigation button { width: 32px; height: 36px; }
+ .studio-node-chat { right: 8px; bottom: 66px; }
+ .studio-node-composer { z-index: 28; }
+}
+.studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; }
+.studio-node-media-actions { position: absolute; z-index: 24; display: flex; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
+.studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { pointer-events: all; }

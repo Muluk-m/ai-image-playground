@@ -95,6 +95,38 @@ describe('submitNodeImage', () => {
     ).toBe(true)
   })
 
+  it('preserves an existing image and places regeneration in a connected sibling', () => {
+    const doc = new Y.Doc()
+    insertCanvasNode(
+      doc,
+      {
+        id: 'original',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 360,
+        height: 240,
+        data: { fileId: 'source', meta: { nodePrompt: 'edit' } },
+      },
+      canvasOrigin('system', 'fixture'),
+    )
+    expect(
+      submitNodeImage(new CanvasEditor(new CanvasDoc()), doc, 'original', 'edit', [
+        'data:image/png;base64,source',
+      ]),
+    ).toBe(true)
+    const snapshot = readCanvasDocument(doc)
+    expect(snapshot.nodes.find((n) => n.id === 'original')?.data).toEqual({
+      fileId: 'source',
+      meta: { nodePrompt: 'edit' },
+    })
+    expect(snapshot.nodes).toHaveLength(2)
+    expect(snapshot.edges).toContainEqual(
+      expect.objectContaining({ source: 'original', target: snapshot.nodes[1]!.id }),
+    )
+    expect(snapshot.nodes[1]!.data).toMatchObject({ pending: { status: 'loading' } })
+  })
+
   it('does not start when there is nothing to say and nothing to reference', () => {
     const ydoc = new Y.Doc()
     insertCanvasNode(

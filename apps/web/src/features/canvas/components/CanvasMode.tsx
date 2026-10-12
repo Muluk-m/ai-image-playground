@@ -199,6 +199,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
   /** 手机上 Agent 项目的画布视图：对话列不占位，要靠底部抽屉才能继续写和发送。 */
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
+  const [nodeChatOpen, setNodeChatOpen] = useState(false)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
@@ -226,6 +227,12 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     })
   }
   const hasAgent = agentPanelPresent()
+  useEffect(() => {
+    if (nodeCanvas) {
+      setOpen(false)
+      setNodeChatOpen(false)
+    }
+  }, [nodeCanvas, setOpen, workspace])
   const mobileChatSheet = mobile && hasAgent && projectView === 'canvas'
   useEffect(() => {
     setMobileChatOpen(false)
@@ -469,7 +476,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               style={projectView === 'canvas' && !mobile ? { width: panelWidth + 12 } : undefined}
             >
               <ProjectNavigation leading={sidebarOpen ? undefined : homeMark} />
-              {projectView === 'canvas' && !open && !mobile && (
+              {projectView === 'canvas' && !nodeCanvas && !open && !mobile && (
                 <Button
                   type="button"
                   variant="outline"
@@ -570,7 +577,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               </div>
             )}
             {/* 直接画布仍沿用原来的项目顶行；Agent 项目共用上方的双视图导航。 */}
-            {open || mobile || (hasAgent && projectView === 'chat') ? (
+            {nodeCanvas && !hasAgent && (
+              <div className="studio-node-project-title">
+                <ProjectNavigation leading={homeMark} />
+              </div>
+            )}
+            {(
+              nodeCanvas && projectView === 'canvas'
+                ? nodeChatOpen && open
+                : open || mobile || (hasAgent && projectView === 'chat')
+            ) ? (
               <div
                 className={`studio-chat-column ${hasAgent && projectView === 'chat' ? 'studio-chat-column--page' : ''}`}
                 inert={!hasAgent && (loading || loadFailed)}
@@ -585,7 +601,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     <ChevronDown size={18} aria-hidden="true" />
                   </button>
                 )}
-                {!hasAgent && (
+                {!hasAgent && !nodeCanvas && (
                   <div className="studio-canvas-topbar">
                     {!sidebarOpen && sidebarToggle}
                     <ProjectNavigation leading={homeMark} />
@@ -721,7 +737,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             ) : (
               /* 收起后只留一颗胶囊：窄栏会压住左侧画布工具条，也没给用户任何信息。
                  Agent 项目的展开按钮在上方项目栏里，这里只给没有项目栏的直接画布。 */
-              !hasAgent && (
+              !hasAgent &&
+              !nodeCanvas && (
                 <button
                   type="button"
                   className="studio-open-chat"
@@ -734,7 +751,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </button>
               )
             )}
-            {mobileChatSheet && !mobileChatOpen && (
+            {!nodeCanvas && mobileChatSheet && !mobileChatOpen && (
               <button
                 type="button"
                 className="studio-open-chat studio-mobile-open-chat"
@@ -789,6 +806,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   <Suspense fallback={null}>
                     <NodeCanvas
                       workspace={workspace}
+                      onChat={
+                        hasAgent
+                          ? () => {
+                              setNodeChatOpen(!(nodeChatOpen && open))
+                              setOpen(!(nodeChatOpen && open))
+                              if (mobileChatSheet) setMobileChatOpen(true)
+                            }
+                          : undefined
+                      }
                       active={projectView === 'canvas' || (!hasAgent && !mobile)}
                     />
                   </Suspense>

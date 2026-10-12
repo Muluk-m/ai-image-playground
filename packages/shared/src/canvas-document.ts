@@ -41,6 +41,7 @@ export interface VideoNodeData extends ImageNodeData {
 }
 
 export interface TextNodeData {
+  name?: string
   text: string
   fontSize: number
   fill: string
@@ -159,7 +160,12 @@ export function insertCanvasNode(
   if (nodesOf(doc).has(node.id)) return
   const z = nextZ(doc)
   // `Omit` 把可区分联合收成一个对象，展开后要再认回节点。
-  doc.transact(() => writeNode(doc, { ...node, z } as CanvasNode), origin)
+  // Undoing a user-created node must not let the legacy bitmap archive resurrect it.
+  if (origin.startsWith('user:')) doc.getMap('managedNodes').set(node.id, true)
+  doc.transact(() => {
+    doc.getMap('deletedNodes').delete(node.id)
+    writeNode(doc, { ...node, z } as CanvasNode)
+  }, origin)
 }
 
 /** 改一个节点的几何或整份 `data`。没变的字段不动。 */
@@ -184,6 +190,7 @@ export function deleteCanvasNode(doc: Y.Doc, id: string, origin: CanvasOrigin): 
   if (!nodes.has(id)) return
   doc.transact(() => {
     nodes.delete(id)
+    doc.getMap('deletedNodes').set(id, true)
     dropEdgesTouching(edgesOf(doc), [id])
   }, origin)
 }
@@ -305,6 +312,11 @@ export function synchronizeLegacyElements(
     }
     dropEdgesTouching(edgesOf(doc), removed)
     for (const [id, item] of after) {
+      if (
+        doc.getMap('deletedNodes').has(id) ||
+        (doc.getMap('managedNodes').has(id) && !nodes.has(id))
+      )
+        continue
       const old = before.get(id)
       if (old && sameField(old, item)) continue
       if ('points' in item) {
@@ -355,6 +367,11 @@ export function reconcileLegacyElements(
   doc.transact(() => {
     current.forEach((element, z) => {
       const item = toNode(element, z)
+      if (
+        doc.getMap('deletedNodes').has(item.id) ||
+        (doc.getMap('managedNodes').has(item.id) && !nodes.has(item.id))
+      )
+        return
       if (!nodes.has(item.id) && !annotations.has(item.id)) {
         if ('points' in item) annotations.set(item.id, item)
         else writeNode(doc, item)
@@ -397,8 +414,11 @@ export function moveCanvasNodes(
 
 /** 只撤销 `origin` 自己的改动；一次调用是一步，连续拖动在合并窗口内也算一步。 */
 export function createCanvasUndoManager(doc: Y.Doc, origin: CanvasOrigin): Y.UndoManager {
-  return new Y.UndoManager([nodesOf(doc), annotationsOf(doc), edgesOf(doc)], {
-    trackedOrigins: new Set([origin]),
-    captureTimeout: 300,
-  })
+  return new Y.UndoManager(
+    [nodesOf(doc), annotationsOf(doc), edgesOf(doc), doc.getMap('deletedNodes')],
+    {
+      trackedOrigins: new Set([origin]),
+      captureTimeout: 300,
+    },
+  )
 }
