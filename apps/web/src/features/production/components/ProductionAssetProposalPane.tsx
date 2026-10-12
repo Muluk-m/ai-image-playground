@@ -1,5 +1,6 @@
 import type { ProductionAssetProposal } from '@image-playground/shared'
-import { Sparkles, X } from 'lucide-react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import ProductionReferencePreview from './ProductionReferencePreview'
 export default function ProductionAssetProposalPane({
@@ -24,25 +25,38 @@ export default function ProductionAssetProposalPane({
     <section className="production-document" aria-label={t('asset.proposal')}>
       <header className="production-pane-header">
         <span>
-          <Sparkles size={17} />
+          <Icon name="generate" />
           {t('asset.proposal')}
         </span>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={18} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <div className="production-document-tools">
-        <button
+        <Button
+          variant="default"
+          size="sm"
           type="button"
-          className="production-primary"
           disabled={busy || proposal.status !== 'pending'}
           onClick={onAdopt}
         >
           {t('asset.adopt')}
-        </button>
-        <button type="button" disabled={busy || proposal.status !== 'pending'} onClick={onDiscard}>
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          disabled={busy || proposal.status !== 'pending'}
+          onClick={onDiscard}
+        >
           {t('asset.dismiss')}
-        </button>
+        </Button>
         <span>{t('revision', { revision: proposal.baseRevision })}</span>
       </div>
       {failed && (

@@ -3,8 +3,9 @@ import type {
   ProductionDocument,
   ProductionGenerationView,
 } from '@image-playground/shared'
-import { X } from 'lucide-react'
 import { useEffect } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import type { ProductionResponse } from '../lib/productionClient'
 import { type ProductionPane, setProductionPanelContext } from '../lib/productionContext'
@@ -66,9 +67,15 @@ export default function ProductionGenerationPane({
             ? [character?.name, entity?.name].filter(Boolean).join(' · ')
             : t('generation.reviewDraft')}
         </strong>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={18} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <div className="production-document-scroll">
         {valid ? (

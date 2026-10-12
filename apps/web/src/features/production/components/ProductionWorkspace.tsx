@@ -4,17 +4,9 @@ import {
   type ProductionGenerationView,
   productionClipVideo,
 } from '@image-playground/shared'
-import {
-  Clapperboard,
-  FileText,
-  Film,
-  PackageOpen,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightOpen,
-  Sparkles,
-} from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import {
   activateProduction,
@@ -120,7 +112,9 @@ export default function ProductionWorkspace({
       data-assets-open={Boolean(doc && assetsOpen)}
     >
       {doc && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           type="button"
           className="production-assets-trigger"
           ref={assetsTrigger}
@@ -128,8 +122,8 @@ export default function ProductionWorkspace({
           aria-label={t('openAssets')}
           onClick={openAssets}
         >
-          <PanelLeftOpen size={17} />
-        </button>
+          <Icon name="sidebar" />
+        </Button>
       )}
       {doc && (
         <aside
@@ -152,7 +146,9 @@ export default function ProductionWorkspace({
         >
           <header>
             <strong>{t('assets')}</strong>
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               type="button"
               aria-label={t('closeAssets')}
               onClick={() => {
@@ -160,10 +156,12 @@ export default function ProductionWorkspace({
                 setAssetsDrawerOpen(false)
               }}
             >
-              <PanelLeftClose size={16} />
-            </button>
+              <Icon name="sidebar" />
+            </Button>
           </header>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             className="production-document-link"
             aria-label={t('openScript')}
@@ -179,10 +177,12 @@ export default function ProductionWorkspace({
               setAssetsDrawerOpen(false)
             }}
           >
-            <FileText size={16} />
+            <Icon name="script" />
             <span>{doc.content.title || t('untitled')}</span>
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             className="production-document-link"
             aria-label={t('storyboard.title')}
@@ -198,10 +198,12 @@ export default function ProductionWorkspace({
               setAssetsDrawerOpen(false)
             }}
           >
-            <Clapperboard size={16} />
+            <Icon name="storyboard" />
             <span>{t('storyboard.title')}</span>
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             className="production-document-link"
             aria-label={t('clip.title')}
@@ -217,9 +219,9 @@ export default function ProductionWorkspace({
               setAssetsDrawerOpen(false)
             }}
           >
-            <Film size={16} />
+            <Icon name="clip" />
             <span>{t('clip.title')}</span>
-          </button>
+          </Button>
           <ProductionAssets
             document={doc}
             onSelect={(target) => {
@@ -237,7 +239,9 @@ export default function ProductionWorkspace({
           {assets.proposals
             .filter((one) => one.status === 'pending')
             .map((one) => (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 className="production-document-link"
                 key={one.id}
@@ -252,11 +256,13 @@ export default function ProductionWorkspace({
                   setAssetsDrawerOpen(false)
                 }}
               >
-                <Sparkles size={14} />
+                <Icon name="generate" />
                 {t('asset.proposal')}
-              </button>
+              </Button>
             ))}
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             className="production-document-link"
             aria-label={t('export.title')}
@@ -270,9 +276,9 @@ export default function ProductionWorkspace({
               setAssetTarget(null)
             }}
           >
-            <PackageOpen size={16} />
+            <Icon name="exportPackage" />
             <span>{t('export.title')}</span>
-          </button>
+          </Button>
           <div className="production-assets-footer">
             <span>{t('continuous')}</span>
             <span>{t('sceneCount', { count: doc.content.scenes.length })}</span>
@@ -282,32 +288,40 @@ export default function ProductionWorkspace({
       <section className="production-conversation" aria-label={t('assistant')}>
         <header className="production-chat-header">
           <span>
-            <Sparkles size={17} />
+            <Icon name="generate" />
             {t('assistant')}
           </span>
           <div>
             {doc && !assetsOpen && (
-              <button type="button" aria-label={t('openAssets')} onClick={openAssets}>
-                <PanelLeftOpen size={17} />
-              </button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                type="button"
+                aria-label={t('openAssets')}
+                onClick={openAssets}
+              >
+                <Icon name="sidebar" />
+              </Button>
             )}
             {doc && !contentOpen && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 type="button"
                 aria-label={t('openScript')}
                 onClick={() => setContentOpen(true)}
               >
-                <PanelRightOpen size={17} />
-              </button>
+                <Icon name="script" />
+              </Button>
             )}
           </div>
         </header>
         {production.failed && (
           <div className="production-error" role="alert">
             {t('loadFailed')}
-            <button type="button" onClick={production.reload}>
+            <Button variant="ghost" size="sm" type="button" onClick={production.reload}>
               {t('retry')}
-            </button>
+            </Button>
           </div>
         )}
         {children}
