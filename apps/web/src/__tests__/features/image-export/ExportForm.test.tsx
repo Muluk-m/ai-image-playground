@@ -88,14 +88,30 @@ describe('image resize editing', () => {
     expect(TOOLS.filter((tool) => tool.id === 'export')).toHaveLength(1)
     expect(TOOLS.some((tool) => String(tool.id) === 'resize')).toBe(false)
   })
-  it('clears an invisible empty draft when switching from one image to a batch', async () => {
+  it('clears an empty draft when switching from one image to a batch', async () => {
     await act(async () => root.render(<ExportForm sources={sources} />))
     await fill(host.querySelector<HTMLInputElement>('#export-width')!, '')
     expect(exportButton().disabled).toBe(true)
     await act(async () =>
       root.render(<ExportForm sources={[...sources, { ...sources[0], id: 'two' }]} />),
     )
-    expect(host.querySelector('#export-width')).toBeNull()
+    expect(host.querySelector<HTMLInputElement>('#export-width')!.value).toBe('')
+    expect(host.querySelector('[aria-label="export.size"]')).toBeNull()
+    expect(exportButton().disabled).toBe(false)
+  })
+  it('shows one shared original size in the width and height fields', async () => {
+    const batch = [
+      { ...sources[0], width: 1440, height: 1440 },
+      { ...sources[0], id: 'two', width: 1440, height: 1440 },
+    ]
+    await act(async () => root.render(<ExportForm sources={batch} />))
+    const width = host.querySelector<HTMLInputElement>('#export-width')!
+    const height = host.querySelector<HTMLInputElement>('#export-height')!
+    expect(host.querySelector('[aria-label="export.size"]')).toBeNull()
+    expect(width.value).toBe('1440')
+    expect(height.value).toBe('1440')
+    await fill(width, '720')
+    expect(height.value).toBe('720')
     expect(exportButton().disabled).toBe(false)
   })
 })

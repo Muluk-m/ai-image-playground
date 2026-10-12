@@ -755,7 +755,8 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     })
     await act(async () => {
       await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(100))
-      // 100 durable writes. A busy CI runner passes 25s still short of 100; a stalled pipeline never arrives.
+      // CI can take over 25 seconds for 100 durable writes plus composer renders.
+      // Keep the full intake assertion without treating runner throughput as a failure.
       await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 60_000 })
     })
     expect(session.getSnapshot().draft.references.map((reference) => reference.name)).toEqual(
@@ -802,7 +803,7 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     setClientStorageScope(null)
     await bootstrapClientCapabilities(false, '')
   }
-}, 30_000)
+}, 75_000)
 
 it('keeps an oversized attachment in the selected scope until the user explicitly removes it', async () => {
   vi.stubGlobal('crypto', webcrypto)
