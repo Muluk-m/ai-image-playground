@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react'
 import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
+import { CreationReferenceStack } from '../components/creation/CreationReferenceStack'
 import Badge from '../components/patterns/Badge'
 import { Checkbox } from '../components/patterns/Checkbox'
 import ContextMenu, { ContextMenuItem } from '../components/patterns/ContextMenu'
@@ -53,6 +54,7 @@ export default function DesignGallery() {
         <Icons />
         <Forms />
         <Patterns />
+        <ReferenceStacks />
         <Floating />
       </main>
     </div>
@@ -355,6 +357,41 @@ function Floating() {
           />
         </ContextMenu>
       )}
+    </Section>
+  )
+}
+
+function ReferenceStacks() {
+  return (
+    <Section title="参考素材堆叠">
+      <div className="flex gap-12 p-6">
+        {[0, 1, 3, 100].map((count) => (
+          <CreationReferenceStack
+            key={count}
+            count={count}
+            previews={Array.from({ length: Math.min(count, 3) }, (_, index) => (
+              <span
+                key={index}
+                className="grid h-full w-full place-items-center bg-accent text-primary"
+              >
+                <Icon name="image" />
+              </span>
+            ))}
+            add={
+              <Button variant="ghost" className="creation-add" aria-label="添加参考素材">
+                <Icon name="add" />
+                <span>参考</span>
+              </Button>
+            }
+          >
+            {Array.from({ length: count }, (_, index) => (
+              <Button key={index} variant="secondary">
+                参考 {index + 1}
+              </Button>
+            ))}
+          </CreationReferenceStack>
+        ))}
+      </div>
     </Section>
   )
 }
