@@ -448,6 +448,7 @@
     "loadFailed": "节点画布打不开，请刷新重试",
     "addTitle": "添加节点",
     "addText": "文本",
+    "textPlaceholder": "双击开始编辑…",
     "addImage": "图片",
     "addResources": "添加资源",
     "addUpload": "上传",
