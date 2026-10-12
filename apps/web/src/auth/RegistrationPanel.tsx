@@ -6,6 +6,10 @@ import {
   PASSWORD_MIN_LENGTH,
 } from '@image-playground/shared'
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import { Button } from '../components/ui/button'
+import { Icon } from '../components/ui/icon'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { useTranslation } from '../i18n'
 
 type ValidationErrorKey =
@@ -34,16 +38,6 @@ interface RegistrationPanelProps {
   onRegister: (credentials: RegistrationCredentials) => void
   children?: ReactNode
   invitationField?: ReactNode
-}
-
-function EyeIcon({ crossed = false }: { crossed?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" />
-      <circle cx="12" cy="12" r="2.5" />
-      {crossed ? <path d="m4 4 16 16" /> : null}
-    </svg>
-  )
 }
 
 export function RegistrationPanel({
@@ -132,21 +126,23 @@ export function RegistrationPanel({
 
   return (
     <div className="auth-form-view auth-registration">
-      <button
+      <Button
         type="button"
-        className="auth-back"
+        variant="ghost"
+        size="sm"
+        className="mb-6 text-muted-foreground"
         onClick={challenge ? returnToDetails : onBack}
         disabled={pending}
       >
-        <span aria-hidden>←</span>
+        <Icon name="back" />
         {challenge ? t('registration.verification.changeEmail') : t('registration.back')}
-      </button>
+      </Button>
 
-      <div className="auth-form-heading">
-        <h1 tabIndex={-1}>
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
           {challenge ? t('registration.verification.title') : t('registration.title')}
         </h1>
-        <p>
+        <p className="mt-2 text-body-sm text-muted-foreground">
           {challenge
             ? t('registration.verification.subtitle', { email: email.trim() })
             : t('registration.subtitle')}
@@ -156,9 +152,9 @@ export function RegistrationPanel({
 
       <form onSubmit={submit} className="auth-form" noValidate>
         {challenge ? (
-          <label className="auth-field" htmlFor="registration-verification-code">
+          <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-verification-code">
             <span>{t('registration.verification.codeLabel')}</span>
-            <input
+            <Input
               id="registration-verification-code"
               name="verificationCode"
               type="text"
@@ -176,12 +172,12 @@ export function RegistrationPanel({
               autoFocus
               required
             />
-          </label>
+          </Label>
         ) : (
           <>
-            <label className="auth-field" htmlFor="registration-email">
+            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-email">
               <span>{t('registration.emailLabel')}</span>
-              <input
+              <Input
                 id="registration-email"
                 name="username"
                 type="email"
@@ -195,15 +191,16 @@ export function RegistrationPanel({
                 spellCheck={false}
                 required
               />
-            </label>
+            </Label>
 
-            <label className="auth-field" htmlFor="registration-password">
+            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-password">
               <span>{t('registration.passwordLabel')}</span>
-              <div className="auth-password">
-                <input
+              <div className="relative">
+                <Input
                   id="registration-password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
+                  className="pr-10"
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
                   maxLength={PASSWORD_MAX_LENGTH}
@@ -216,24 +213,28 @@ export function RegistrationPanel({
                   disabled={pending}
                   required
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute right-0.5 top-0.5 text-muted-foreground"
                   onClick={() => setShowPassword((value) => !value)}
                   disabled={pending}
                   aria-label={showPassword ? t('password.hide') : t('password.show')}
                 >
-                  <EyeIcon crossed={showPassword} />
-                </button>
+                  <Icon name={showPassword ? 'hidden' : 'visible'} />
+                </Button>
               </div>
-            </label>
+            </Label>
 
-            <label className="auth-field" htmlFor="registration-confirm-password">
+            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-confirm-password">
               <span>{t('registration.confirmationLabel')}</span>
-              <div className="auth-password">
-                <input
+              <div className="relative">
+                <Input
                   id="registration-confirm-password"
                   name="confirmPassword"
                   type={showConfirmation ? 'text' : 'password'}
+                  className="pr-10"
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
                   maxLength={PASSWORD_MAX_LENGTH}
@@ -243,8 +244,11 @@ export function RegistrationPanel({
                   disabled={pending}
                   required
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute right-0.5 top-0.5 text-muted-foreground"
                   onClick={() => setShowConfirmation((value) => !value)}
                   disabled={pending}
                   aria-label={
@@ -253,10 +257,10 @@ export function RegistrationPanel({
                       : t('password.showConfirmation')
                   }
                 >
-                  <EyeIcon crossed={showConfirmation} />
-                </button>
+                  <Icon name={showConfirmation ? 'hidden' : 'visible'} />
+                </Button>
               </div>
-            </label>
+            </Label>
 
             {invitationField}
           </>
@@ -270,10 +274,10 @@ export function RegistrationPanel({
           ) : null}
         </div>
 
-        <button type="submit" className="auth-submit" disabled={pending}>
+        <Button type="submit" className="w-full" disabled={pending}>
           {pending ? (
             <>
-              <i className="auth-spinner" aria-hidden />
+              <Icon name="loading" className="animate-spin" />
               {challenge
                 ? t('registration.verification.verifying')
                 : verificationEnabled
@@ -287,28 +291,30 @@ export function RegistrationPanel({
           ) : (
             t('registration.submit')
           )}
-        </button>
+        </Button>
       </form>
 
       {challenge ? (
-        <p className="auth-switch">
+        <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
           {t('registration.verification.notReceived')}
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="xs"
             onClick={() => void requestCode(email.trim())}
             disabled={pending || resendSeconds > 0}
           >
             {resendSeconds > 0
               ? t('registration.verification.resendCountdown', { seconds: resendSeconds })
               : t('registration.verification.resend')}
-          </button>
+          </Button>
         </p>
       ) : (
-        <p className="auth-switch">
+        <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
           {t('registration.haveAccount')}
-          <button type="button" onClick={onBack} disabled={pending}>
+          <Button type="button" variant="link" size="xs" onClick={onBack} disabled={pending}>
             {t('registration.back')}
-          </button>
+          </Button>
         </p>
       )}
       <p className="auth-terms">{t('registration.terms')}</p>
