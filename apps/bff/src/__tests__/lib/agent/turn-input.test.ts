@@ -284,6 +284,7 @@ describe('tool declarations in the estimate', () => {
       'generateImage',
       'editImage',
       'viewImage',
+      'viewVideo',
       'readLibrary',
       'readCanvas',
       'editCanvasObject',

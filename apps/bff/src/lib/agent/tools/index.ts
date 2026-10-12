@@ -48,6 +48,7 @@ import type {
   AgentToolSpec,
 } from './types'
 import { viewImage } from './viewImage'
+import { viewVideo } from './viewVideo'
 import { webFetch } from './webFetch'
 import { webSearch } from './webSearch'
 
@@ -76,6 +77,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   generateImage,
   editImage,
   viewImage,
+  viewVideo,
   readConversationImages,
   readLibrary,
   readCanvas,

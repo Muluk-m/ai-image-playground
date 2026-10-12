@@ -45,7 +45,7 @@ export function wakeTurnSetup(jobs: readonly WakeJob[]): {
   }
 }
 
-/** 要复核的图片产物：只有成功的才有，视频取不出可看的位图。 */
+/** 要复核的图片产物。视频不在这里附画面，唤醒说明会指到 viewVideo。 */
 export function wakeReviewImageIds(jobs: readonly WakeJob[]): string[] {
   return jobs.flatMap((job) =>
     job.block.status === 'succeeded'
@@ -79,6 +79,17 @@ const REVIEW_LINE =
  */
 const DEFERRED_LINE = '首次改图时预先列明的后续编辑（deferredEdits）可以用这些产物继续执行。'
 
+const VIDEO_LINE =
+  '成功的视频没有把画面附在这条通知里。要用 viewVideo 按结果里的视频 id 看画面；它抽出的是带时间的静帧，不是整段运动，也听不到声音。'
+
+function isVideoOnly(job: WakeJob): boolean {
+  const artifacts = job.block.artifacts ?? []
+  return (
+    artifacts.some((artifact) => artifact.media === 'video') &&
+    !artifacts.some((artifact) => artifact.media === 'image')
+  )
+}
+
 export function wakeTurnPrompt(jobs: readonly WakeJob[]): string {
   return wakeResultLines(jobs, { continuePlan: true }).join('\n')
 }
@@ -89,6 +100,10 @@ function wakeResultLines(
 ): string[] {
   const failed = jobs.filter((job) => job.block.status === 'failed')
   const reviewed = jobs.filter((job) => job.block.status === 'succeeded')
+  const pictured = reviewed.filter((job) => !isVideoOnly(job))
+  const filmed = reviewed.filter((job) =>
+    (job.block.artifacts ?? []).some((artifact) => artifact.media === 'video'),
+  )
   const lines = [
     '（系统通知，不是用户说的话）你之前提交的后台任务有结果了：',
     ...jobs.map((job) => `- ${agentToolResultSummary(job.block)}`),
@@ -104,7 +119,8 @@ function wakeResultLines(
         '主动提出由你改写提示词——说清你打算怎么改（换掉哪些说法、保留哪些画面意图），' +
         '等用户点头再提交，不要擅自重提。',
     )
-  if (reviewed.length > 0) lines.push(continuePlan ? `${REVIEW_LINE}${DEFERRED_LINE}` : REVIEW_LINE)
+  if (pictured.length > 0) lines.push(continuePlan ? `${REVIEW_LINE}${DEFERRED_LINE}` : REVIEW_LINE)
+  if (filmed.length > 0) lines.push(VIDEO_LINE)
   if (reviewed.length > 0) lines.push('成功产物已显示在对应的对话产物卡片中。')
   return lines
 }

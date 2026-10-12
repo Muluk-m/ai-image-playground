@@ -117,6 +117,7 @@ describe('a deployment that cannot make video', () => {
       'generateImage',
       'readLibrary',
       'viewImage',
+      'viewVideo',
       'webFetch',
       'webSearch',
     ])
