@@ -158,7 +158,8 @@ export function insertCanvasNode(
 ): void {
   if (nodesOf(doc).has(node.id)) return
   const z = nextZ(doc)
-  doc.transact(() => writeNode(doc, { ...node, z }), origin)
+  // `Omit` 把可区分联合收成一个对象，展开后要再认回节点。
+  doc.transact(() => writeNode(doc, { ...node, z } as CanvasNode), origin)
 }
 
 /** 改一个节点的几何或整份 `data`。没变的字段不动。 */
