@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import SectionHeader from '../../../components/patterns/SectionHeader'
+import { Button } from '../../../components/ui/button'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
@@ -56,12 +57,13 @@ export default function CreationInspiration() {
           ))}
         {items.map((item) => (
           <li key={item.id}>
-            <button
+            <Button
               type="button"
+              variant="ghost"
               data-prompt={item.prompt}
               title={item.title}
               onClick={() => fillAgentComposer(item.prompt)}
-              className="group flex w-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="group h-auto w-full flex-col gap-0 overflow-hidden whitespace-normal rounded-2xl border border-border/60 bg-card/40 p-0 text-left font-normal hover:-translate-y-0.5 hover:border-primary hover:bg-transparent hover:shadow-lg"
             >
               <span className="relative block aspect-[3/4] overflow-hidden bg-muted">
                 <img
@@ -82,7 +84,7 @@ export default function CreationInspiration() {
               <span className="line-clamp-2 px-3 py-2.5 text-sm font-medium leading-snug text-foreground transition group-hover:text-primary">
                 {item.title}
               </span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

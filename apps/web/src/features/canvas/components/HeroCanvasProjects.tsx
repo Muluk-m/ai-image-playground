@@ -1,3 +1,5 @@
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useLibraryStore } from '../../library/store'
 import ProjectGrid from './ProjectGrid'
@@ -12,13 +14,16 @@ export default function HeroCanvasProjects({ experience }: { experience: 'chat' 
         <h2 className="text-title font-semibold">
           {t(experience === 'chat' ? 'shell:nav.chats' : 'shell:nav.canvases')}
         </h2>
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="sm"
           onClick={openProjects}
-          className="ml-auto text-body-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="ml-auto h-auto gap-1 p-0 text-body-sm font-normal text-muted-foreground"
         >
-          {t('shell:nav.allCanvases')} →
-        </button>
+          {t('shell:nav.allCanvases')}
+          <Icon name="arrowRight" />
+        </Button>
       </div>
       <ProjectGrid recent experience={experience} />
     </>

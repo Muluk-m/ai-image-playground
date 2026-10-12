@@ -7,6 +7,7 @@ import TimelineEditorHost from '../../../../features/canvas/components/TimelineE
 import { CanvasDoc, type TimelineEl } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useTimelineEditor } from '../../../../features/canvas/timelineEditorStore'
+import { stubPointerApis } from '../../../helpers/radix'
 
 vi.mock('../../../../lib/cloudMedia', () => ({
   resolveMediaSource: async (source: string) => source,
@@ -17,6 +18,7 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+stubPointerApis()
 
 let host: HTMLDivElement
 let root: Root

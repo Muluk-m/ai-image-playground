@@ -1,4 +1,5 @@
-import { ArrowRight } from 'lucide-react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
@@ -93,11 +94,12 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
             <ul aria-label={t('agent:suggestions.aria')} className="grid gap-2 sm:grid-cols-2">
               {examples.map((example) => (
                 <li key={example.id}>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
                     data-prompt={example.prompt}
                     onClick={() => fillAgentComposer(example.prompt)}
-                    className="w-full overflow-hidden rounded-xl border border-border bg-background/60 text-left transition-colors hover:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-auto w-full flex-col gap-0 overflow-hidden whitespace-normal rounded-xl border border-border bg-background/60 p-0 text-left font-normal hover:border-ring/60 hover:bg-transparent"
                   >
                     <span className="relative block">
                       {/* 封面是 poster，悬停 / 聚焦才拉样片：首屏不为四条 720p 片子付流量。 */}
@@ -129,7 +131,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
                         {example.prompt}
                       </span>
                     </span>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -141,17 +143,16 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
       <section className="mx-auto max-w-6xl" aria-label={t('welcome.recent')}>
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{t('welcome.recent')}</h2>
-          <button
+          <Button
             type="button"
-            className="group inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            variant="link"
+            size="sm"
+            className="group h-auto gap-1 p-0 text-sm font-normal text-muted-foreground"
             onClick={() => useLibraryStore.getState().openProjects()}
           >
             {t('welcome.allProjects')}
-            <ArrowRight
-              className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
-              aria-hidden="true"
-            />
-          </button>
+            <Icon name="arrowRight" className="transition-transform group-hover:translate-x-0.5" />
+          </Button>
         </div>
         <ProjectGrid recent />
       </section>

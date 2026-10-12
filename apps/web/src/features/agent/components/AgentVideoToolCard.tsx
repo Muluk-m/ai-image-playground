@@ -2,12 +2,12 @@ import type { AgentToolArtifact } from '@image-playground/shared'
 import {
   ArrowUpRight,
   Download,
-  FileText,
   Images,
   LogIn,
   Maximize2,
   RotateCw,
   Square,
+  TextSearch,
   VideoIcon,
   Wallet,
 } from 'lucide-react'
@@ -389,11 +389,11 @@ export default function AgentVideoToolCard({
                 aria-label={t('tool.viewPrompt')}
                 onClick={() => setPromptOpen(true)}
               >
-                <FileText className="size-4" aria-hidden="true" />
+                <TextSearch className="size-4" aria-hidden="true" />
               </Button>
             ) : (
               <AgentIconButton
-                icon={FileText}
+                icon={TextSearch}
                 label={t('tool.viewPrompt')}
                 onClick={() => setPromptOpen(true)}
               />

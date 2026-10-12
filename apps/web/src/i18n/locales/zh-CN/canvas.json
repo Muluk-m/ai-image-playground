@@ -446,6 +446,12 @@
     "timeline_other": "时间线 · {{count}} 段",
     "mediaMissing": "素材缺失",
     "loadFailed": "节点画布打不开，请刷新重试",
-    "generateUnavailable": "节点画布暂不支持生成，生成功能会随节点输入框一起上线。"
+    "generateUnavailable": "节点画布暂不支持生成，生成功能会随节点输入框一起上线。",
+    "addTitle": "添加节点",
+    "addText": "文本",
+    "addImage": "图片",
+    "addResources": "添加资源",
+    "addUpload": "上传",
+    "textPlaceholder": "输入文字"
   }
 }

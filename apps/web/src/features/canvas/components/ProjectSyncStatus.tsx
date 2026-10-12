@@ -1,6 +1,6 @@
-import { LoaderCircle } from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import type { CloudProjectSession, ProjectSyncStatus } from '../lib/cloudProjects'
 
@@ -63,10 +63,7 @@ export default function ProjectSyncStatus({
     >
       <p className="inline-flex items-center gap-1.5">
         {['loading', 'pending', 'syncing'].includes(state.status) && (
-          <LoaderCircle
-            aria-hidden="true"
-            className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
-          />
+          <Icon name="loading" size="xs" className="animate-spin motion-reduce:animate-none" />
         )}
         {t(LABEL_KEY[state.status])}
       </p>

@@ -1,15 +1,11 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import {
-  FIELD,
-  LABEL,
-  PANEL_SECTION,
-  PANEL_TITLE,
-  PRIMARY_BUTTON,
-} from '../../../components/panelStyles'
+import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
+import { Checkbox } from '../../../components/patterns/Checkbox'
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
 import {
   Select,
   SelectContent,
@@ -17,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -113,23 +110,21 @@ export default function RegenerateVideoPopover({
           <p className="mb-2 text-xs text-warning">{t('videoToolbar.framesGoneTextOnly')}</p>
         )}
         {inputs.present.length > 0 && (
-          <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={keepFrames}
-              onChange={(event) => setKeepFrames(event.target.checked)}
-            />
-            {t('videoToolbar.keepsFrames', { count: inputs.present.length })}
-          </label>
+          <Checkbox
+            className="mb-2 text-xs text-muted-foreground"
+            checked={keepFrames}
+            onChange={setKeepFrames}
+            label={t('videoToolbar.keepsFrames', { count: inputs.present.length })}
+          />
         )}
 
         <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
-        <textarea
+        <Textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           rows={4}
           aria-label={t('video:field.description')}
-          className={`${FIELD} resize-none`}
+          className="resize-none"
         />
 
         <div className="mt-3 flex flex-col gap-2">
@@ -171,14 +166,15 @@ export default function RegenerateVideoPopover({
             blockedAction={guard.blockedAction}
             className="mb-1.5 text-label-sm"
           />
-          <button
+          <Button
             type="button"
+            size="sm"
+            className="w-full"
             disabled={
               guard.blocked || !prompt.trim() || !option || Boolean(inputRefusal) || submitting
             }
             title={guard.disabledReason}
             onClick={() => void submit()}
-            className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
           >
             {guard.estimatedCredits === undefined ? (
               t('videoToolbar.regenerate')
@@ -187,7 +183,7 @@ export default function RegenerateVideoPopover({
                 {t('videoToolbar.regenerate')} · <Credits credits={guard.estimatedCredits} />
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>
