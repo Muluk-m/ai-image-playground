@@ -1,3 +1,4 @@
+import { clearConversationCache } from '../features/agent/lib/conversationCache'
 import { SCOPED_LOCAL_STORAGE_KEYS, safeLocalStorage, scopedStorageName } from './authScope'
 import { BASE_DB_NAME, DB_STORE_NAMES, dbTransaction } from './db'
 
@@ -12,9 +13,10 @@ export async function clearScopedClientStorage(): Promise<void> {
   if (typeof indexedDB === 'undefined') return
 
   // 清表而不是 deleteDatabase：dbTransaction 每次开一条连接且不关，删库会一直卡在 blocked。
-  await Promise.all(
-    DB_STORE_NAMES.map((storeName) =>
+  await Promise.all([
+    clearConversationCache(),
+    ...DB_STORE_NAMES.map((storeName) =>
       dbTransaction(storeName, 'readwrite', (store) => store.clear()),
     ),
-  )
+  ])
 }

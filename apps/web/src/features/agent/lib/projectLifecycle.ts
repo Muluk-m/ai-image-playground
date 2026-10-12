@@ -20,6 +20,7 @@ import {
   fetchMessages,
   removeConversation,
 } from './agentClient'
+import { conversationCache } from './conversationCache'
 import { agentDraft, type DraftSession, removeProjectDraft } from './drafts'
 
 /**
@@ -111,6 +112,7 @@ export async function deleteProject(
   const project = projects.projects.find((one) => one.id === projectId)
   if (!project) return { ok: false, reason: 'not_found' }
   if (project.cloud && !cloudProjectsEnabled()) return { ok: false, reason: 'cloud_project' }
+  const cached = project.conversationId ? conversationCache(project.conversationId) : null
   const isCurrent = accountScope()
   // 正在跑的那一轮还在往这张画布上落东西，连它一起删等于半路抽走目标
   //（ADR-0005 决策「运行中禁止切换、新建或删除当前会话」）。
@@ -131,6 +133,7 @@ export async function deleteProject(
       if (!isCurrent()) return { ok: false, reason: 'failed' }
       forgetCanvasWorkspace(project.sceneKey)
       panel.forgetConversation(project.conversationId)
+      await cached?.remove()
       return { ok: true }
     }
     if (project.conversationId && !(await removeIdleConversation(project.conversationId)))
@@ -141,6 +144,7 @@ export async function deleteProject(
     await projects.remove(projectId)
     forgetCanvasWorkspace(project.sceneKey)
     panel.forgetConversation(project.conversationId)
+    await cached?.remove()
     return { ok: true }
   } catch (error) {
     return { ok: false, reason: failureReason(error) }
