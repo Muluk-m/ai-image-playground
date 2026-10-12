@@ -78,7 +78,7 @@ export class CanvasSyncRooms {
         const peers = [...room.peers]
         // Limit DB concurrency without making a room wait on every peer serially.
         let next = 0
-        await Promise.all(
+        const results = await Promise.allSettled(
           Array.from({ length: Math.min(4, peers.length) }, async () => {
             while (next < peers.length) {
               const peer = peers[next++]!
@@ -89,6 +89,8 @@ export class CanvasSyncRooms {
             }
           }),
         )
+        const failed = results.find((result) => result.status === 'rejected')
+        if (failed?.status === 'rejected') throw failed.reason
         if (this.rooms.get(id) !== room) return
         const state = await accessCanvasDocument(room.userId, id)
         if (this.rooms.get(id) !== room) return

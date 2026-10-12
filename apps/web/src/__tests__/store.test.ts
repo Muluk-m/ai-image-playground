@@ -1078,6 +1078,21 @@ describe('getPersistedState builtin profile stripping', () => {
 })
 
 describe('addCompletedCanvasTask', () => {
+  it('preserves favorites and original completion metadata on repeated delivery', async () => {
+    const task = {
+      id: 'canvas:favorite-job',
+      prompt: 'original',
+      params: DEFAULT_PARAMS,
+      images: [],
+      elapsed: 123,
+    }
+    await addCompletedCanvasTask(task)
+    const original = { ...useStore.getState().tasks[0]!, isFavorite: true }
+    useStore.getState().setTasks([original])
+    await addCompletedCanvasTask({ ...task, prompt: 'late recovery', elapsed: 999 })
+    expect(useStore.getState().tasks).toEqual([original])
+  })
+
   it('upserts a recovered completion by its stable task identity', async () => {
     useStore.getState().setTasks([])
     const task = {
