@@ -957,6 +957,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       )}
       <CanvasImageMenu menu={imageMenu} doc={doc} onClose={() => setImageMenu(null)} />
       {editingText && (
+        // design-allow native-control: 贴在文字元素上的编辑层，字号和位置必须跟画布元素一致
         <textarea
           autoFocus
           defaultValue={editingText.text}

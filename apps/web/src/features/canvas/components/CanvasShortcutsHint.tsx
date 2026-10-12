@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 
 /** macOS 显示 ⌘ 符号，其余平台显示 Ctrl。 */
@@ -61,26 +63,22 @@ export default function CanvasShortcutsHint() {
           ))}
         </div>
       )}
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="icon-xs"
         onClick={toggle}
-        className={`pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border shadow-lg backdrop-blur transition-colors ${
-          open
-            ? 'border-primary/40 bg-primary/15 text-primary'
-            : 'border-border bg-sidebar text-muted-foreground hover:text-foreground'
-        }`}
+        aria-pressed={open}
         title={open ? t('shortcuts.collapse') : t('shortcuts.expand')}
         aria-label={t('shortcuts.title')}
+        className={
+          open
+            ? 'pointer-events-auto border-primary/40 bg-primary/15 text-primary shadow-lg'
+            : 'pointer-events-auto bg-sidebar text-muted-foreground shadow-lg'
+        }
       >
-        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 7a1 1 0 011-1h14a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V7z M7 10h.01M11 10h.01M15 10h.01M7 14h10"
-          />
-        </svg>
-      </button>
+        <Icon name="info" />
+      </Button>
     </div>
   )
 }

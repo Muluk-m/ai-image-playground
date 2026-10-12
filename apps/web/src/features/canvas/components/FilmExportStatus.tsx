@@ -1,5 +1,5 @@
-import { X } from 'lucide-react'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useFilmExport } from '../filmExportStore'
 
@@ -40,7 +40,7 @@ export default function FilmExportStatus() {
         className="h-7 gap-1 px-2"
         onClick={() => useFilmExport.getState().cancel()}
       >
-        <X />
+        <Icon name="close" />
         {t('film.cancel')}
       </Button>
     </div>

@@ -324,113 +324,26 @@
   "apps/web/src/features/agent/lib/agentSkillIcons.tsx": {
     "lucide-import": 1
   },
-  "apps/web/src/features/canvas/components/CanvasBatchBar.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/canvas/components/CanvasBatchConfirmDialog.tsx": {
-    "native-control": 2
-  },
-  "apps/web/src/features/canvas/components/CanvasBatchEditDialog.tsx": {
-    "native-control": 2
-  },
-  "apps/web/src/features/canvas/components/CanvasEditPromptDialog.tsx": {
-    "native-control": 2
-  },
-  "apps/web/src/features/canvas/components/CanvasGenerateBar.tsx": {
-    "native-control": 3
-  },
-  "apps/web/src/features/canvas/components/CanvasImageMenu.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/CanvasImageToolbar.tsx": {
-    "lucide-import": 1,
-    "native-control": 5
-  },
   "apps/web/src/features/canvas/components/CanvasMode.tsx": {
     "lucide-import": 1,
     "native-control": 17
   },
   "apps/web/src/features/canvas/components/CanvasShortcutsHint.tsx": {
-    "arbitrary-spacing": 1,
-    "inline-svg": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/CanvasToolbar.tsx": {
-    "inline-svg": 10,
-    "lucide-import": 1,
-    "native-control": 2
-  },
-  "apps/web/src/features/canvas/components/CanvasVideoOverlay.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/CanvasVideoToolbar.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/canvas/components/CreationInspiration.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/FilmExportStatus.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/canvas/components/HeroCanvasProjects.tsx": {
-    "native-control": 1
+    "arbitrary-spacing": 1
   },
   "apps/web/src/features/canvas/components/InpaintMaskLayer.tsx": {
-    "arbitrary-color": 2,
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/InpaintPanel.tsx": {
-    "arbitrary-color": 4,
-    "lucide-import": 1,
-    "native-control": 7
-  },
-  "apps/web/src/features/canvas/components/KonvaCanvas.tsx": {
-    "native-control": 1
+    "arbitrary-color": 2
   },
   "apps/web/src/features/canvas/components/PlaceholderOverlay.tsx": {
-    "arbitrary-font": 1,
-    "native-control": 4
-  },
-  "apps/web/src/features/canvas/components/ProjectCover.tsx": {
-    "lucide-import": 1,
-    "opacity-text": 1
+    "arbitrary-font": 1
   },
   "apps/web/src/features/canvas/components/ProjectGrid.tsx": {
-    "arbitrary-spacing": 1,
-    "lucide-import": 1,
-    "native-control": 5,
     "palette-class": 6
-  },
-  "apps/web/src/features/canvas/components/ProjectSyncStatus.tsx": {
-    "lucide-import": 1
   },
   "apps/web/src/features/canvas/components/ProjectWelcome.tsx": {
     "arbitrary-radius": 2,
     "arbitrary-spacing": 1,
-    "lucide-import": 1,
-    "native-control": 2,
     "offscale-font": 2
-  },
-  "apps/web/src/features/canvas/components/ProjectsTab.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/ReferenceVideoPopover.tsx": {
-    "lucide-import": 1,
-    "native-control": 3
-  },
-  "apps/web/src/features/canvas/components/RegenerateVideoPopover.tsx": {
-    "native-control": 3
-  },
-  "apps/web/src/features/canvas/components/SelectionInfo.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/canvas/components/StylePanel.tsx": {
-    "native-control": 2
-  },
-  "apps/web/src/features/canvas/components/TimelineEditor.tsx": {
-    "lucide-import": 1,
-    "native-control": 2
   },
   "apps/web/src/features/canvas/components/canvasPanelStyles.ts": {
     "focus-not-visible": 1

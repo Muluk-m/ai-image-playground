@@ -1,12 +1,10 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
-import { ChipIcons } from '../../../components/chipIcons'
-import {
-  composerChipClass,
-  composerIconButtonClass,
-} from '../../../components/composer/SettingsPanel'
+import { composerChipClass } from '../../../components/composer/SettingsPanel'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import {
   Select,
   SelectContent,
@@ -14,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
@@ -285,7 +284,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             )}
           </div>
         )}
-        <textarea
+        <Textarea
           ref={textareaRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -302,21 +301,22 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           placeholder={video ? t('video.promptPlaceholder') : t('generate.promptPlaceholder')}
           aria-label={t('generate.promptAria')}
           rows={3}
-          className="max-h-40 min-h-[4.5rem] w-full resize-none text-sm outline-none"
+          className="max-h-40 min-h-[4.5rem] w-full resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
         />
         {/* 附件 + 参数 chip + 发送同属这张卡：参数跟着输入走，不散在卡外面。
             参数与工作台共用同一份全局 params/settings，数量 n>1 时 fan-out 成 n 个并行任务。 */}
         <div className="flex items-end gap-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="icon-sm"
               onClick={() => fileInputRef.current?.click()}
               title={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
               aria-label={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-              className={composerIconButtonClass('sm')}
             >
-              {ChipIcons.imageAttach}
-            </button>
+              <Icon name="imageAdd" />
+            </Button>
             {isVideoModeAvailable() && (
               <Select
                 value={mode}
@@ -347,16 +347,17 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               <ParamControls showCount size="sm" />
             )}
           </div>
-          <button
+          <Button
             type="button"
+            size="icon"
             onClick={() => void run()}
             disabled={!canSubmit}
             title={submissionGuard.disabledReason ?? t('common:action.generate')}
             aria-label={t('common:action.generate')}
-            className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+            className="flex-shrink-0 rounded-full disabled:bg-muted disabled:opacity-100 disabled:text-muted-foreground"
           >
-            {ChipIcons.sparkles}
-          </button>
+            <Icon name="generate" />
+          </Button>
         </div>
         <input
           ref={fileInputRef}

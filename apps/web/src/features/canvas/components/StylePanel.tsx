@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import type { ArrowEl, CanvasDoc, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { measureText } from '../lib/konvaShapes'
@@ -43,15 +44,15 @@ function SizeChip({
   onClick: () => void
 }) {
   return (
-    <button
+    <Button
       type="button"
+      size="sm"
+      variant={active ? 'default' : 'ghost'}
       onClick={onClick}
-      className={`h-8 flex-1 rounded-lg text-xs font-medium transition-colors ${
-        active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
-      }`}
+      className="flex-1"
     >
       {label}
-    </button>
+    </Button>
   )
 }
 
@@ -115,13 +116,15 @@ export default function StylePanel({ doc }: { doc: CanvasDoc }) {
       <div className="pointer-events-auto w-40 rounded-2xl border border-border bg-sidebar p-2.5 shadow-lg backdrop-blur">
         <div className="grid grid-cols-4 gap-1.5">
           {COLORS.map((color) => (
-            <button
+            <Button
               key={color}
               type="button"
+              variant="ghost"
+              size="icon-xs"
               title={t('style.color', { color })}
               aria-label={t('style.color', { color })}
               onClick={() => applyColor(color)}
-              className={`mx-auto h-6 w-6 rounded-full border-2 transition-transform ${
+              className={`mx-auto rounded-full border-2 p-0 ${
                 doc.penColor === color ? 'scale-110 border-foreground' : 'border-transparent'
               }`}
               style={{ background: color }}

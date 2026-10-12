@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import Credits from '../../../components/Credits'
-import { OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { PANEL_TITLE } from '../../../components/panelStyles'
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -74,23 +75,24 @@ export default function CanvasBatchConfirmDialog({
           className="mt-2 text-label-sm"
         />
         <div className="mt-4 flex justify-end gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             autoFocus
             disabled={submitting}
             onClick={onClose}
-            className={`${OUTLINE_BUTTON} disabled:cursor-not-allowed`}
           >
             {t('batch.confirmCancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             disabled={guard.blocked || submitting}
             onClick={() => void confirm()}
-            className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
           >
             {t('batch.confirmSubmit', { count })}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>
