@@ -1,5 +1,4 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { CircleAlert, FolderOpen, Images, RotateCw, Undo2, X } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -23,7 +22,6 @@ import {
   ComposerSend,
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
-import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import LookChips from '../../../components/LookChips'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
@@ -33,6 +31,7 @@ import SuggestionMenu, {
   useSuggestionMenu,
 } from '../../../components/SuggestionMenu'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import {
   Select,
   SelectContent,
@@ -230,8 +229,8 @@ function ComposerAttachmentThumb({
               aria-label={t('tool.previewUnavailable')}
               className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-background/90 pb-8 text-destructive"
             >
-              <CircleAlert className="h-4 w-4" />
-              <span className="text-[10px]">{t('tool.previewUnavailable')}</span>
+              <Icon name="error" />
+              <span className="text-label-sm">{t('tool.previewUnavailable')}</span>
             </span>
             <Button
               type="button"
@@ -242,7 +241,7 @@ function ComposerAttachmentThumb({
               className="absolute bottom-0 right-0 z-10 h-11 w-11 text-destructive"
               onClick={() => void reloadPreview()}
             >
-              <RotateCw className="h-4 w-4" />
+              <Icon name="refresh" />
             </Button>
           </>
         ) : (
@@ -252,7 +251,7 @@ function ComposerAttachmentThumb({
             title={t('tool.previewUnavailable')}
             className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
           >
-            <CircleAlert className="h-4 w-4" />
+            <Icon name="error" />
           </span>
         ))}
     </span>
@@ -926,16 +925,18 @@ export default function AgentComposer({
             {recoveryBlocked ? t('draft.recoveryBlocked') : draftError}
           </span>
           {recoveryBlocked && (
-            <button
+            <Button
               type="button"
-              className={`${ICON_BUTTON} shrink-0`}
+              variant="ghost"
+              size="icon-xs"
+              className={`${ICON_BUTTON} size-auto shrink-0`}
               aria-label={t('draft.retryRestore')}
               title={t('draft.retryRestore')}
               disabled={readingDraft}
               onClick={() => void session.retryRecovery()}
             >
-              <RotateCw className="size-3.5" aria-hidden />
-            </button>
+              <Icon name="refresh" />
+            </Button>
           )}
         </div>
       )}
@@ -953,26 +954,30 @@ export default function AgentComposer({
               {t('queue.references', { count: unsent.references.length })}
             </span>
           )}
-          <button
+          <Button
             type="button"
-            className={`${ICON_BUTTON} shrink-0`}
+            variant="ghost"
+            size="icon-xs"
+            className={`${ICON_BUTTON} size-auto shrink-0`}
             aria-label={t('draft.restore')}
             title={t('draft.restore')}
             disabled={loading}
             onClick={session.restoreUnsent}
           >
-            <Undo2 className="size-3.5" aria-hidden />
-          </button>
-          <button
+            <Icon name="undo" />
+          </Button>
+          <Button
             type="button"
-            className={`${ICON_BUTTON} shrink-0`}
+            variant="ghost"
+            size="icon-xs"
+            className={`${ICON_BUTTON} size-auto shrink-0`}
             aria-label={t('draft.discard')}
             title={t('draft.discard')}
             disabled={loading}
             onClick={session.discardUnsent}
           >
-            <X className="size-3.5" aria-hidden />
-          </button>
+            <Icon name="close" />
+          </Button>
         </div>
       )}
       <ComposerBar dragActive={dragging}>
@@ -999,14 +1004,16 @@ export default function AgentComposer({
                 <span className="whitespace-nowrap text-xs text-foreground">
                   {t('composer.selectionSummary', { count: selectionSummary.length })}
                 </span>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   aria-label={t('composer.clearSelectionAria')}
-                  className={`shrink-0 ${ICON_BUTTON}`}
+                  className={`${ICON_BUTTON} size-auto shrink-0`}
                   onClick={() => setDraft(removeSelectionReferences(draft))}
                 >
-                  <CloseIcon className="h-3 w-3" />
-                </button>
+                  <Icon name="close" />
+                </Button>
               </div>
             )}
             {draft.references.map((reference, index) => {
@@ -1039,7 +1046,7 @@ export default function AgentComposer({
                       retryPreview
                     />
                     {masked && (
-                      <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
+                      <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
                         MASK
                       </span>
                     )}
@@ -1048,7 +1055,7 @@ export default function AgentComposer({
                         aria-hidden="true"
                         className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
                       >
-                        <CircleAlert className="h-6 w-6" />
+                        <Icon name="error" size="lg" />
                       </span>
                     )}
                     <Button
@@ -1064,7 +1071,7 @@ export default function AgentComposer({
                       onClick={() => editMask(reference)}
                     >
                       <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                        <MaskBrushIcon className="h-3.5 w-3.5" />
+                        <Icon name="brush" />
                       </span>
                     </Button>
                     <Button
@@ -1076,7 +1083,7 @@ export default function AgentComposer({
                       onClick={() => setDraft(removeReference(draft, index))}
                     >
                       <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                        <CloseIcon className="h-3.5 w-3.5" />
+                        <Icon name="close" />
                       </span>
                     </Button>
                   </AttachmentTile>
@@ -1095,14 +1102,15 @@ export default function AgentComposer({
                     </span>
                   )}
                   {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
-                    <button
+                    <Button
                       type="button"
-                      className={GHOST_LINK}
+                      variant="ghost"
+                      className={`${GHOST_LINK} h-auto px-0 py-0 font-normal hover:bg-transparent`}
                       aria-label={t('composer.retryUploadAria', { label })}
                       onClick={() => retryUpload(reference)}
                     >
                       {t('composer.retryUpload')}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )
@@ -1176,7 +1184,7 @@ export default function AgentComposer({
             {attachMenu && (
               <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
                 <ContextMenuItem
-                  icon={<Images className="h-4 w-4" aria-hidden="true" />}
+                  icon={<Icon name="images" />}
                   label={t('composer.attachImages')}
                   onClick={() => {
                     setAttachMenu(null)
@@ -1184,7 +1192,7 @@ export default function AgentComposer({
                   }}
                 />
                 <ContextMenuItem
-                  icon={<FolderOpen className="h-4 w-4" aria-hidden="true" />}
+                  icon={<Icon name="folder" />}
                   label={t('composer.attachFolder')}
                   onClick={() => {
                     setAttachMenu(null)
