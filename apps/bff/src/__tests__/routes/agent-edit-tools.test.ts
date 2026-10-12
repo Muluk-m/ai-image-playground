@@ -1561,6 +1561,96 @@ describe('new products reusing a previous scene', () => {
     return conversationId
   }
 
+  it('persists a combination question even after an ordinary question in the same response', async () => {
+    const conversationId = await originalEdit()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion(
+              {
+                id: 'ordinary-question',
+                name: 'askClarification',
+                args: { question: '选哪种水色？', options: ['浅青色', '原图颜色'] },
+              },
+              {
+                id: 'merged-after-question',
+                name: 'editImage',
+                args: { prompt: '合并两张新产品图', imageIds: ['scene', 'new-a', 'new-b'] },
+              },
+            ),
+        ],
+      ),
+    )
+    const frames = await runTurn(conversationId, '这些也套用原场景', {
+      references: [
+        { imageId: 'new-a', dataUrl: TEST_IMAGE.pngDataUrl },
+        { imageId: 'new-b', dataUrl: OTHER_IMAGE.pngDataUrl },
+      ],
+      params: { thinkingDepth: 'medium', autoSubmit: true },
+    })
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(2)
+    const rows = await db
+      .select()
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.conversation_id, conversationId))
+    const questions = rows
+      .flatMap((row) => row.content)
+      .filter((block) => block.type === 'clarification')
+    expect(
+      questions.find((block) => block.imageCombination)?.imageCombination?.referenceImageIds,
+    ).toEqual(['new-a', 'new-b'])
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  })
+
+  it('checks new references delivered by a running-turn interjection', async () => {
+    const conversationId = await originalEdit()
+    const calls: AgentCall[] = []
+    const reply = controlledCompletion()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => reply.responseFor(),
+        () =>
+          toolCallCompletion({
+            id: 'merged-interjection',
+            name: 'editImage',
+            args: { prompt: '把新图一起套用', imageIds: ['scene', 'new-a', 'new-b'] },
+          }),
+      ]),
+    )
+    const running = runTurn(conversationId, '先看看这次会话的图片', {
+      params: { thinkingDepth: 'medium', autoSubmit: true },
+    })
+    await waitFor(() => calls.length === 1, 3_000)
+    const turnId = await runningTurnId(conversationId)
+    const response = await post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+      {
+        deviceId: DEVICE,
+        text: '这些也套用刚才场景',
+        references: [
+          { imageId: 'new-a', dataUrl: TEST_IMAGE.pngDataUrl },
+          { imageId: 'new-b', dataUrl: OTHER_IMAGE.pngDataUrl },
+        ],
+      },
+    )
+    expect(response.status).toBe(200)
+    reply.pushToolCall(0, {
+      id: 'list-before-interjection',
+      name: 'readConversationImages',
+      args: {},
+    })
+    reply.finish()
+    const frames = await running
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(1)
+    expect(calls).toHaveLength(2)
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(
+      (await toolCards(conversationId)).filter((card) => card.status === 'awaiting_confirmation'),
+    ).toHaveLength(0)
+  })
+
   it('does not turn a water-color clarification into approval to merge two new products', async () => {
     const conversationId = await originalEdit()
     const answer = '沿用之前海景场景的水色和天空，两张新图只用于还原我的浴缸'

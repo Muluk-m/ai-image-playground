@@ -193,6 +193,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     ...(prepared.wake?.plan ? { carried: prepared.wake.plan.authorization } : {}),
   })
   let clarified = false
+  let combinationClarified = false
   /** 这一轮已经拟出待确认的稿：接下来该说话的是用户，再问一次模型只是白花钱。 */
   let drafted = false
   const maskedEditPlan = createMaskedEditPlan(
@@ -204,6 +205,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const visualWorkset = createVisualWorkset()
   const toolFailures = createToolFailureLog()
   const initialState = turnInitialStateOf(input)
+  const imageCombinations = createImageCombinationGuard({
+    history: history.messages,
+    references: requestAgentReferences(input),
+    text: input.text,
+    hasNewReferences: input.references.length > 0,
+  })
   const turnTools = agentTurnTools(
     {
       mode,
@@ -214,12 +221,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       deviceId: prepared.deviceId,
       images,
       visualWorkset,
-      imageCombinations: createImageCombinationGuard({
-        history: history.messages,
-        references: requestAgentReferences(input),
-        text: input.text,
-        hasNewReferences: input.references.length > 0,
-      }),
+      imageCombinations,
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
@@ -486,6 +488,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (steering) {
         maskedEditPlan.interjected()
         images.attach(steering.references)
+        imageCombinations.interjected(steering.references)
+        combinationClarified = false
         if (images.masked) maskedEditPlan.protect()
         authorization.amend(steering.text, steering.active, steering.references.length > 0)
       }
@@ -605,11 +609,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       await storeBlock(block, pending.messageId)
       if (block.status === 'awaiting_confirmation') drafted = true
       const combinationQuestion = event.isError ? null : clarificationFromResult(event.result)
-      if (combinationQuestion && !clarified) {
+      if (combinationQuestion && !combinationClarified) {
         const messageId = crypto.randomUUID()
         events.emit({ ...combinationQuestion, messageId })
         await storeBlock(combinationQuestion, messageId)
         clarified = true
+        combinationClarified = true
       }
       if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'

@@ -887,6 +887,8 @@ export interface AgentClarificationBlock {
   readonly imageCombination?: {
     readonly targetImageId: string
     readonly referenceImageIds: readonly string[]
+    /** 原调用的有序输入，保留每组都需要的固定参考；旧记录可由 target/reference 还原。 */
+    readonly inputImageIds?: readonly string[]
   }
 }
 
