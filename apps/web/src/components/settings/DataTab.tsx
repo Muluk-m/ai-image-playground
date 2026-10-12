@@ -1,16 +1,14 @@
-import { LoaderCircle, LogOut, UserRound } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { useTranslation } from '../../i18n'
 import { clearData, exportData, importData, useStore } from '../../store'
-import { ExportIcon, ImportIcon, TrashIcon } from '../icons'
 import LogoutDialog from '../LogoutDialog'
 import { Checkbox } from '../patterns/Checkbox'
 import SyncStatusPanel from '../SyncStatusPanel'
 import { Button } from '../ui/button'
+import { Icon } from '../ui/icon'
 import SettingsSection from './SettingsSection'
 
-const SECTION_ICON = 'h-3.5 w-3.5'
 const CARD = 'space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm'
 const DANGER_CARD =
   'space-y-4 rounded-2xl border border-destructive/40 bg-destructive/5 p-4 shadow-sm'
@@ -49,7 +47,7 @@ export default function DataTab() {
       {auth.user ? (
         <SettingsSection
           title={t('section.account')}
-          icon={<UserRound className={SECTION_ICON} />}
+          icon={<Icon name="user" size="xs" />}
           className={CARD}
         >
           <div className="flex items-center gap-3">
@@ -63,7 +61,7 @@ export default function DataTab() {
               disabled={loggingOut}
               onClick={() => setLogoutOpen(true)}
             >
-              <LogOut />
+              <Icon name="logout" />
               {loggingOut ? t('shell:header.loggingOut') : t('shell:logout.title')}
             </Button>
           </div>
@@ -74,7 +72,7 @@ export default function DataTab() {
 
       <SettingsSection
         title={t('data.exportTitle')}
-        icon={<ExportIcon className={SECTION_ICON} />}
+        icon={<Icon name="download" size="xs" />}
         className={CARD}
       >
         <div className="flex flex-wrap gap-x-6 gap-y-3">
@@ -102,7 +100,7 @@ export default function DataTab() {
 
       <SettingsSection
         title={t('data.importTitle')}
-        icon={<ImportIcon className={SECTION_ICON} />}
+        icon={<Icon name="upload" size="xs" />}
         className={CARD}
       >
         <div className="flex flex-wrap gap-x-6 gap-y-3">
@@ -124,7 +122,7 @@ export default function DataTab() {
           disabled={(!importConfig && !importTasks) || isImportingData}
           onClick={() => importInputRef.current?.click()}
         >
-          {isImportingData ? <LoaderCircle className="animate-spin" /> : null}
+          {isImportingData ? <Icon name="loading" className="animate-spin" /> : null}
           {isImportingData ? t('data.importing') : t('data.importFromZip')}
         </Button>
         <input
@@ -138,7 +136,7 @@ export default function DataTab() {
 
       <SettingsSection
         title={t('data.clearTitle')}
-        icon={<TrashIcon className={SECTION_ICON} />}
+        icon={<Icon name="delete" size="xs" />}
         className={DANGER_CARD}
       >
         <div className="flex flex-wrap gap-x-6 gap-y-3">

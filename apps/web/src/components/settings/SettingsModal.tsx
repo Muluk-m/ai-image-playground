@@ -1,10 +1,10 @@
-import { Database, KeyRound, type LucideIcon, SlidersHorizontal } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { isByokGenerationEnabled } from '../../lib/clientCapabilities'
 import { useStore } from '../../store'
-import { CloseIcon, SettingsIcon } from '../icons'
 import Overlay from '../patterns/Overlay'
+import { Button } from '../ui/button'
+import { Icon, type IconName } from '../ui/icon'
 import ApiTab from './ApiTab'
 import DataTab from './DataTab'
 import GeneralTab from './GeneralTab'
@@ -28,10 +28,10 @@ export default function SettingsModal() {
   if (!showSettings) return null
 
   const byokEnabled = isByokGenerationEnabled()
-  const tabs: Array<{ id: SettingsTab; label: string; Icon: LucideIcon }> = [
-    { id: 'general', label: t('tab.general'), Icon: SlidersHorizontal },
-    { id: 'data', label: t('tab.data'), Icon: Database },
-    ...(byokEnabled ? [{ id: 'api' as const, label: t('tab.api'), Icon: KeyRound }] : []),
+  const tabs: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
+    { id: 'general', label: t('tab.general'), icon: 'settingsAdjust' },
+    { id: 'data', label: t('tab.data'), icon: 'database' },
+    ...(byokEnabled ? [{ id: 'api' as const, label: t('tab.api'), icon: 'key' as const }] : []),
   ]
 
   const handleClose = () => {
@@ -43,22 +43,24 @@ export default function SettingsModal() {
     <Overlay onClose={handleClose} tier="modal" label={t('modal.title')}>
       <div className="relative z-10 flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card/95 shadow-2xl ring-1 ring-hairline animate-modal-in sm:h-[600px]">
         <div className="flex shrink-0 items-center justify-between border-b border-border p-5">
-          <h3 className="flex items-center gap-2 text-lg font-bold text-foreground">
-            <SettingsIcon className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h3 className="flex items-center gap-2 text-xl font-semibold text-foreground">
+            <Icon name="settings" size="md" className="text-primary" />
             {t('modal.title')}
           </h3>
           <div className="flex items-center gap-3">
             <span className="select-none font-mono text-sm text-muted-foreground">
               v{__APP_VERSION__}
             </span>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={handleClose}
-              className="rounded-full p-1 text-muted-foreground transition hover:bg-accent"
+              className="text-muted-foreground"
               aria-label={tCommon('action.close')}
             >
-              <CloseIcon className="h-5 w-5" />
-            </button>
+              <Icon name="close" />
+            </Button>
           </div>
         </div>
 
@@ -67,21 +69,23 @@ export default function SettingsModal() {
             aria-label={t('modal.title')}
             className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-card/50 p-3 custom-scrollbar sm:w-48 sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r"
           >
-            {tabs.map(({ id, label, Icon }) => (
-              <button
+            {tabs.map(({ id, label, icon }) => (
+              <Button
                 key={id}
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => setActiveTab(id)}
                 aria-current={activeTab === id ? 'page' : undefined}
-                className={`flex flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm transition-colors ${
+                className={`shrink-0 justify-start sm:w-full ${
                   activeTab === id
-                    ? 'bg-accent font-medium text-primary shadow-sm'
-                    : 'text-muted-foreground hover:bg-accent'
+                    ? 'bg-accent text-primary shadow-sm hover:bg-accent hover:text-primary'
+                    : 'text-muted-foreground'
                 }`}
               >
-                <Icon className="h-4 w-4" aria-hidden="true" />
+                <Icon name={icon} />
                 {label}
-              </button>
+              </Button>
             ))}
           </nav>
 
