@@ -558,3 +558,37 @@ describe('这一轮的观众', () => {
     expect(withLook).toBeGreaterThan(estimateTurnInputTokens(input([], '出一张')))
   })
 })
+
+describe('clarification visual continuity', () => {
+  it('keeps pending request images visible and reserved when the answer has no attachments', () => {
+    const history = [
+      userMessage('products', [
+        {
+          type: 'text',
+          text: '这些也是',
+          references: [
+            { imageId: 'product-a', mediaId: 'media-a' },
+            { imageId: 'product-b', mediaId: 'media-b' },
+          ],
+        },
+      ]),
+      assistantMessage('question', [
+        { type: 'clarification', question: '水色用哪张？', options: ['原场景', '新产品'] },
+      ]),
+    ]
+    history.push(
+      assistantMessage('blocked-call', [
+        {
+          type: 'toolResult',
+          toolName: 'editImage',
+          toolCallId: 'blocked',
+          title: '等待确认图片组合',
+          status: 'succeeded',
+        },
+      ]),
+    )
+    const pending = input(history, '原场景', [], { selectionHistoryStart: 0 })
+    expect(imageBlocks(estimatedTurnInput(pending).at(-1)!)).toBe(2)
+    expect(turnPromptBody(pending)).not.toContain('不代表本轮意图')
+  })
+})

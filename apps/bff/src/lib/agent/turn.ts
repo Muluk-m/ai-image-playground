@@ -28,6 +28,7 @@ import {
 } from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
+import { createImageCombinationGuard } from './image-combinations'
 import {
   type AgentImageReference,
   archiveAgentReferences,
@@ -68,6 +69,7 @@ import { agentTurnFailure } from './turn-failure'
 import {
   type AgentTurnInput,
   expandSkillInvocation,
+  requestAgentReferences,
   turnInitialStateOf,
   turnModelPrompt,
   turnPromptBody,
@@ -187,7 +189,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     history: history.messages,
     prompt: prepared.wake?.authorizationPrompt ?? input.text,
     references: images.references,
-    attached: input.references.length > 0,
+    attached: requestAgentReferences(input).length > 0,
     ...(prepared.wake?.plan ? { carried: prepared.wake.plan.authorization } : {}),
   })
   let clarified = false
@@ -212,6 +214,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       deviceId: prepared.deviceId,
       images,
       visualWorkset,
+      imageCombinations: createImageCombinationGuard({
+        history: history.messages,
+        references: requestAgentReferences(input),
+        text: input.text,
+        hasNewReferences: input.references.length > 0,
+      }),
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
@@ -596,6 +604,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
       if (block.status === 'awaiting_confirmation') drafted = true
+      const combinationQuestion = event.isError ? null : clarificationFromResult(event.result)
+      if (combinationQuestion && !clarified) {
+        const messageId = crypto.randomUUID()
+        events.emit({ ...combinationQuestion, messageId })
+        await storeBlock(combinationQuestion, messageId)
+        clarified = true
+      }
       if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'
         failure = agentTurnFailure(error, block.message, model.id)
@@ -741,9 +756,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   }
   const unregister = registerRunningTurn(turn)
 
-  // 视觉证据只带本轮真的附上的那几张：沿用下来的引用、以及张数多到只上清单的那批都不发字节，
-  // 模型要看内容自己调 viewImage（规则见 `shownTurnReferences`）。
-  void requireAgentImages(images, shownImageRequests(input.references))
+  // 未完成澄清链仍是同一请求；实发与预扣共享附图范围及张数限制。
+  void requireAgentImages(images, shownImageRequests(requestAgentReferences(input)))
     .then(async (references) => {
       if (aborted) return
       // Stop before reading the rest of an oversized review batch; missing evidence cannot count as reviewed.
