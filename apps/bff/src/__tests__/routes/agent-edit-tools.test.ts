@@ -101,7 +101,7 @@ async function startConversation(cookie?: string): Promise<string> {
 interface TurnOptions {
   readonly references?: unknown[]
   readonly cookie?: string
-  readonly params?: { thinkingDepth: 'fast' | 'medium' | 'deep' }
+  readonly params?: { thinkingDepth: 'fast' | 'medium' | 'deep'; autoSubmit?: boolean }
 }
 
 async function runTurn(conversationId: string, text: string, options: TurnOptions = {}) {
@@ -1529,4 +1529,241 @@ it('does not unlock paid generation when an interjection replaces the active ref
   const request = await hydrateInputImages(tasks[0]!.request_payload)
   expect(request.input_images).toEqual([PIXEL])
   expect(request.mask).toBe(MASK)
+})
+
+describe('new products reusing a previous scene', () => {
+  async function originalEdit() {
+    const conversationId = await startConversation()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'original-edit',
+              name: 'editImage',
+              args: {
+                prompt: '把图1中的浴缸替换为图2中的浴缸',
+                imageIds: ['scene', 'original-product'],
+                n: 1,
+              },
+            }),
+        ],
+      ),
+    )
+    await runTurn(conversationId, '把我的浴缸换进去，放置一样的角度，还不变形', {
+      references: [
+        { imageId: 'scene', dataUrl: PIXEL },
+        { imageId: 'original-product', dataUrl: TEST_IMAGE.pngDataUrl },
+      ],
+    })
+    await confirmDrafts(conversationId)
+    return conversationId
+  }
+
+  it('persists a combination question even after an ordinary question in the same response', async () => {
+    const conversationId = await originalEdit()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion(
+              {
+                id: 'ordinary-question',
+                name: 'askClarification',
+                args: { question: '选哪种水色？', options: ['浅青色', '原图颜色'] },
+              },
+              {
+                id: 'merged-after-question',
+                name: 'editImage',
+                args: { prompt: '合并两张新产品图', imageIds: ['scene', 'new-a', 'new-b'] },
+              },
+            ),
+        ],
+      ),
+    )
+    const frames = await runTurn(conversationId, '这些也套用原场景', {
+      references: [
+        { imageId: 'new-a', dataUrl: TEST_IMAGE.pngDataUrl },
+        { imageId: 'new-b', dataUrl: OTHER_IMAGE.pngDataUrl },
+      ],
+      params: { thinkingDepth: 'medium', autoSubmit: true },
+    })
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(2)
+    const rows = await db
+      .select()
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.conversation_id, conversationId))
+    const questions = rows
+      .flatMap((row) => row.content)
+      .filter((block) => block.type === 'clarification')
+    expect(
+      questions.find((block) => block.imageCombination)?.imageCombination?.referenceImageIds,
+    ).toEqual(['new-a', 'new-b'])
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  })
+
+  it('checks new references delivered by a running-turn interjection', async () => {
+    const conversationId = await originalEdit()
+    const calls: AgentCall[] = []
+    const reply = controlledCompletion()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => reply.responseFor(),
+        () =>
+          toolCallCompletion({
+            id: 'merged-interjection',
+            name: 'editImage',
+            args: { prompt: '把新图一起套用', imageIds: ['scene', 'new-a', 'new-b'] },
+          }),
+      ]),
+    )
+    const running = runTurn(conversationId, '先看看这次会话的图片', {
+      params: { thinkingDepth: 'medium', autoSubmit: true },
+    })
+    await waitFor(() => calls.length === 1, 3_000)
+    const turnId = await runningTurnId(conversationId)
+    const response = await post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+      {
+        deviceId: DEVICE,
+        text: '这些也套用刚才场景',
+        references: [
+          { imageId: 'new-a', dataUrl: TEST_IMAGE.pngDataUrl },
+          { imageId: 'new-b', dataUrl: OTHER_IMAGE.pngDataUrl },
+        ],
+      },
+    )
+    expect(response.status).toBe(200)
+    reply.pushToolCall(0, {
+      id: 'list-before-interjection',
+      name: 'readConversationImages',
+      args: {},
+    })
+    reply.finish()
+    const frames = await running
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(1)
+    expect(calls).toHaveLength(2)
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(
+      (await toolCards(conversationId)).filter((card) => card.status === 'awaiting_confirmation'),
+    ).toHaveLength(0)
+  })
+
+  it('does not turn a water-color clarification into approval to merge two new products', async () => {
+    const conversationId = await originalEdit()
+    const answer = '沿用之前海景场景的水色和天空，两张新图只用于还原我的浴缸'
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'water-question',
+              name: 'askClarification',
+              args: {
+                question: '水色和天空要以哪张为准？',
+                options: [answer, '水色按这次图2，天空沿用之前的海景场景'],
+              },
+            }),
+        ],
+      ),
+    )
+    await runTurn(conversationId, '浴缸里水的颜色和天空背景，都用他一样的，这些也是', {
+      references: [
+        { imageId: 'new-product-a', dataUrl: TEST_IMAGE.pngDataUrl },
+        { imageId: 'new-product-b', dataUrl: OTHER_IMAGE.pngDataUrl },
+      ],
+    })
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion(
+            {
+              id: 'merged-products',
+              name: 'editImage',
+              args: {
+                prompt: '图2和图3还原同一浴缸',
+                imageIds: ['scene', 'new-product-a', 'new-product-b'],
+                n: 1,
+              },
+            },
+            {
+              id: 'merged-products-again',
+              name: 'editImage',
+              args: {
+                prompt: '重复的合并调用也必须停住',
+                imageIds: ['scene', 'new-product-a', 'new-product-b'],
+                n: 1,
+              },
+            },
+          ),
+      ]),
+    )
+    const beforeTasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+    const events = await runTurn(conversationId, answer, {
+      params: { thinkingDepth: 'medium', autoSubmit: true },
+    })
+    const questions = eventsOfType(events, 'clarification')
+    expect(questions).toHaveLength(1)
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toHaveLength(
+      beforeTasks.length,
+    )
+    expect(questions[0]!.options[0]).toContain('分别')
+    expect(questions[0]!.options[0]).toContain('2张')
+    expect(
+      (await toolCards(conversationId)).filter((card) => card.status === 'awaiting_confirmation'),
+    ).toHaveLength(0)
+    const latest = calls[0]!.messages.at(-1)!.content
+    expect(Array.isArray(latest) && latest.filter((part) => part.type === 'image_url').length).toBe(
+      2,
+    )
+
+    // Choosing the explicit two-output mapping must produce independent queue inputs.
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion(
+              {
+                id: 'pair-a',
+                name: 'editImage',
+                args: {
+                  prompt: '用输入图2替换输入图1浴缸，保留水色和天空',
+                  imageIds: ['scene', 'new-product-a'],
+                  n: 1,
+                },
+              },
+              {
+                id: 'pair-b',
+                name: 'editImage',
+                args: {
+                  prompt: '用输入图2替换输入图1浴缸，保留水色和天空',
+                  imageIds: ['scene', 'new-product-b'],
+                  n: 1,
+                },
+              },
+            ),
+        ],
+      ),
+    )
+    await runTurn(conversationId, questions[0]!.options[0]!)
+    const jobs = await confirmDrafts(conversationId)
+    expect(jobs).toHaveLength(2)
+    for (const [i, id] of ['pair-a', 'pair-b'].entries()) {
+      const job = jobs.find((one) => one.toolCallId === id)!
+      const [task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, job.job!.taskId))
+      expect((await hydrateInputImages(task!.request_payload)).input_images).toEqual([
+        PIXEL,
+        i === 0 ? TEST_IMAGE.pngDataUrl : OTHER_IMAGE.pngDataUrl,
+      ])
+      expect(task!.request_payload.n).toBe(1)
+    }
+  })
 })
