@@ -96,6 +96,56 @@ describe('cloud canvas migration and protocol', () => {
     doc.getMap('secrets').set('payload', true)
     expect(() => validateCloudCanvas(doc, legacy)).toThrow()
   })
+  it('preserves interleaved node and annotation layers', () => {
+    const document: ProjectDocument = {
+      version: 1,
+      elements: [
+        { id: 'ink', type: 'freedraw', points: [1, 2, 3, 4], stroke: '#fff', strokeWidth: 2 },
+        ...legacy.elements,
+        { id: 'arrow', type: 'arrow', points: [1, 2, 3, 4], stroke: '#fff', strokeWidth: 2 },
+      ],
+    }
+    const doc = new Y.Doc()
+    importLegacyElements(doc, document.elements, origin)
+    expect(canvasProjectDocument(doc, document)).toEqual(document)
+    validateCloudCanvas(doc, document)
+  })
+  it('rejects malformed empty-node data and annotations before clients see them', () => {
+    for (const patch of [
+      { type: 'text', data: { text: '', fontSize: 16, fill: '#fff', name: {} } },
+      { type: 'video', data: {} },
+      { type: 'image', data: { pending: { type: 'placeholder' } } },
+      {
+        type: 'image',
+        data: { pending: { type: 'placeholder', status: 'loading', message: '', meta: null } },
+      },
+      {
+        type: 'image',
+        data: {
+          pending: {
+            type: 'placeholder',
+            status: 'loading',
+            message: '',
+            meta: {},
+            id: 'override',
+          },
+        },
+      },
+      { type: 'image', data: { pending: { type: 'generation' } } },
+    ]) {
+      const doc = new Y.Doc()
+      importLegacyElements(doc, legacy.elements, origin)
+      const node = doc.getMap<Y.Map<unknown>>('nodes').get('text')!
+      for (const [key, value] of Object.entries(patch)) node.set(key, value)
+      expect(() => validateCloudCanvas(doc, legacy)).toThrow()
+      doc.destroy()
+    }
+    const doc = new Y.Doc()
+    importLegacyElements(doc, legacy.elements, origin)
+    doc.getMap('annotations').set('fake', { ...legacy.elements[0], id: 'fake', z: 1 })
+    expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_annotation')
+    doc.destroy()
+  })
   it('rejects malformed and trailing wire data', () => {
     expect(() => readCanvasSyncMessage(new Uint8Array([9]))).toThrow()
     const bytes = canvasSyncStep1(new Y.Doc())

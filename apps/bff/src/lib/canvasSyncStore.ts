@@ -97,11 +97,25 @@ export async function syncLegacyCanvasWrite(
   }
 }
 
+function referencedTasks(doc: Y.Doc): Set<string> {
+  const tasks = new Set<string>()
+  for (const node of readCanvasDocument(doc).nodes) {
+    if ('video' in node.data) tasks.add(node.data.video.taskId)
+    if ('pending' in node.data && node.data.pending?.type === 'placeholder') {
+      const meta = node.data.pending.meta
+      if ('bffRequestId' in meta && typeof meta.bffRequestId === 'string')
+        tasks.add(meta.bffRequestId)
+    }
+  }
+  return tasks
+}
+
 async function validateOwnership(
   tx: BffTransaction,
   userId: string,
   projectId: string,
   doc: Y.Doc,
+  acceptedTasks: ReadonlySet<string>,
 ) {
   const { nodes } = readCanvasDocument(doc)
   const mediaIds = [
@@ -136,6 +150,8 @@ async function validateOwnership(
       }
     }
   }
+  // Accepted references outlive the queue retention window. Only new references need a live task.
+  for (const taskId of acceptedTasks) tasks.delete(taskId)
   if (tasks.size) {
     const owned = await tx
       .select({ id: schema.tasks.id })
@@ -212,13 +228,14 @@ export async function accessCanvasDocument(
       if (update) {
         const vector = Y.encodeStateVector(doc)
         const before = Y.encodeStateAsUpdate(doc)
+        const acceptedTasks = referencedTasks(doc)
         try {
           Y.applyUpdate(doc, update)
           validateCloudCanvas(doc, project.document)
         } catch {
           throw new CanvasSyncError(400, 'invalid_canvas_document')
         }
-        await validateOwnership(tx, userId, projectId, doc)
+        await validateOwnership(tx, userId, projectId, doc, acceptedTasks)
         const after = Y.encodeStateAsUpdate(doc)
         if (!Buffer.from(before).equals(Buffer.from(after))) {
           await persist(tx, projectId, loaded, Y.encodeStateAsUpdate(doc, vector))
