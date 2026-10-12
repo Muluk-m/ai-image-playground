@@ -960,7 +960,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right {
   transform: translate(calc(100% + 14px), -50%) !important;
 }
-.studio-node-canvas .react-flow__edge-path { stroke: hsl(var(--muted-foreground)); }
+.studio-node-canvas .react-flow__edge-path,
+.studio-node-canvas .react-flow__connection-path {
+  stroke: hsl(var(--foreground) / .72);
+  stroke-width: 2;
+}
 .studio-node-composer {
   position: absolute; z-index: 30; width: min(560px, calc(100% - 24px));
   transform: translateX(-50%);
