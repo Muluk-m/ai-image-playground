@@ -1,5 +1,6 @@
 import type { ProductionDocument } from '@image-playground/shared'
-import { MapPin, Plus, UserRound } from 'lucide-react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import type { ProductionAssetTarget } from './ProductionAssetPane'
 import ProductionReferencePreview from './ProductionReferencePreview'
@@ -26,21 +27,25 @@ export default function ProductionAssets({
                 {t(kind === 'character' ? 'asset.characters' : 'asset.locations')}{' '}
                 <small>{items.length}</small>
               </span>
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 type="button"
                 aria-label={t(kind === 'character' ? 'asset.addCharacter' : 'asset.addLocation')}
                 onClick={() => onSelect({ kind, id: null })}
               >
-                <Plus size={15} />
-              </button>
+                <Icon name="add" />
+              </Button>
             </header>
             <div className="production-asset-grid">
               {items.map((item) => {
                 const reference = 'looks' in item ? item.looks[0]?.reference : item.reference
                 return (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
-                    className="production-asset-card"
+                    className="production-asset-card h-auto whitespace-normal p-0"
                     key={item.id}
                     onClick={() => onSelect({ kind, id: item.id })}
                   >
@@ -52,14 +57,14 @@ export default function ProductionAssets({
                           name={item.name}
                         />
                       ) : kind === 'character' ? (
-                        <UserRound size={24} />
+                        <Icon name="character" />
                       ) : (
-                        <MapPin size={24} />
+                        <Icon name="location" />
                       )}
                     </div>
                     <strong>{item.name}</strong>
                     {'looks' in item && <small>{item.looks[0]?.name}</small>}
-                  </button>
+                  </Button>
                 )
               })}
             </div>
