@@ -1,3 +1,5 @@
+import { openReferenceStack } from '../../../helpers/radix'
+
 // @vitest-environment jsdom
 
 vi.mock('../../../../lib/imagePreprocessing', async () => ({
@@ -83,8 +85,9 @@ function pick(label: string): void {
 }
 
 function click(label: string): void {
+  if (/^(移除参考图|给参考图|修改参考图)/.test(label)) openReferenceStack(host)
   const button =
-    host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ??
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ??
     [...host.querySelectorAll('button')].find((one) => one.textContent === label)!
   act(() => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -92,6 +95,7 @@ function click(label: string): void {
 }
 
 async function openMask(label: string): Promise<void> {
+  openReferenceStack(host)
   const previous = useStore.getState().maskEditorSession
   await act(async () => {
     click(label)
@@ -265,7 +269,9 @@ describe('智能体输入框', () => {
 
     await act(async () => {
       dialog.action()
-      await vi.waitFor(() => expect(host.querySelectorAll('img')).toHaveLength(4))
+      await vi.waitFor(() =>
+        expect(host.querySelector('.creation-stack-count')?.textContent).toBe('4'),
+      )
     })
   })
 
@@ -338,7 +344,7 @@ describe('智能体输入框', () => {
     render()
     expect(host.querySelector('img')?.getAttribute('src')).toBe(PREPARED)
     expect(editor().querySelector('img')?.getAttribute('src')).toBe(PREPARED)
-    expect(host.textContent).toContain('MASK')
+    expect(openReferenceStack(host).textContent).toContain('MASK')
     click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('把[image 1]', [
       { imageId: 'canvas-1', dataUrl: PREPARED, maskDataUrl: MASK },

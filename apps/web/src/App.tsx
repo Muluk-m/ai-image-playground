@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import ConfirmDialog from './components/ConfirmDialog'
+import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
 import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
@@ -155,6 +156,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 </div>
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
                 <div className="pt-6">
+                  <CreateTargetSwitch />
                   <div className="pt-4">
                     <InputBar inline />
                   </div>

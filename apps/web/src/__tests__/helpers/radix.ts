@@ -58,3 +58,13 @@ export function chooseOption(triggerLabel: string, optionText: string): void {
 export function triggerText(label: string): string {
   return document.querySelector<HTMLElement>(`[aria-label="${label}"]`)?.textContent?.trim() ?? ''
 }
+
+export function openReferenceStack(host: ParentNode = document): HTMLElement {
+  stubPointerApis()
+  const trigger = host.querySelector<HTMLButtonElement>('.creation-stack-trigger')
+  if (!trigger) throw new Error('no reference stack')
+  if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
+  const panel = document.querySelector<HTMLElement>('.creation-reference-panel')
+  if (!panel) throw new Error('no reference panel')
+  return panel
+}
