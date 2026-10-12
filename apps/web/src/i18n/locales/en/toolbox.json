@@ -156,6 +156,14 @@
     "undecodable": "Unsupported image format",
     "select": "Select",
     "downloadOriginal": "Download original",
-    "export": "Export"
+    "export": "Export",
+    "ratioUnlock": "Unlock aspect ratio",
+    "ratioLocked": "Aspect ratio locked",
+    "ratioUnlocked": "Unlocked · Independent dimensions",
+    "multipleValues": "Mixed",
+    "preview": "Output preview",
+    "invalidSize": "Enter a whole number greater than 0",
+    "pendingSize": "Awaiting size",
+    "unknownSize": "Calculated on export"
   }
 }

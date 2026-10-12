@@ -16,6 +16,8 @@ export interface ExportSettings {
   mode: SizeMode
   value: number
   quality: number
+  /** Independent dimensions override the proportional base without changing the other axis. */
+  stretch?: Partial<{ width: number; height: number }>
   rows: { id: string; scale: number; format: Exclude<OutputFormat, 'keep'> }[]
 }
 export function exportSize(
@@ -24,9 +26,12 @@ export function exportSize(
   mode: SizeMode,
   value: number,
   scale: number,
+  stretch?: ExportSettings['stretch'],
 ) {
   if (![width, height, value, scale].every((n) => Number.isFinite(n) && n > 0))
     throw new Error('Invalid output size')
+  if (stretch && Object.values(stretch).some((n) => !Number.isInteger(n) || n <= 0))
+    throw new Error('Invalid independent size')
   const ratio =
     mode === 'width'
       ? value / width
@@ -36,8 +41,8 @@ export function exportSize(
           ? value / 100
           : 1
   return {
-    width: Math.max(1, Math.round(width * ratio * scale)),
-    height: Math.max(1, Math.round(height * ratio * scale)),
+    width: Math.max(1, Math.round((stretch?.width ?? width * ratio) * scale)),
+    height: Math.max(1, Math.round((stretch?.height ?? height * ratio) * scale)),
   }
 }
 
@@ -66,6 +71,7 @@ export async function prepareExports(
             settings.mode,
             settings.value,
             row.scale,
+            settings.stretch,
           )
           const { canvas, ctx } = createOutputCanvas(size.width, size.height, row.format)
           try {
