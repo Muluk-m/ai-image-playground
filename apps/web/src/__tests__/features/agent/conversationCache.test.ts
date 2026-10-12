@@ -5,6 +5,7 @@ import {
   clearConversationCache,
   conversationCache,
 } from '../../../features/agent/lib/conversationCache'
+import { cachedPanel } from '../../../features/agent/lib/conversationCachePanel'
 import type { AgentPanelState } from '../../../features/agent/lib/panelMessages'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -22,6 +23,62 @@ const panel: AgentPanelState = {
   ],
   turns: {},
 }
+
+it.each([
+  { messages: [null], turns: {} },
+  { messages: [{ kind: 'text', id: 'one', turnId: 'turn', role: 'assistant' }], turns: {} },
+  {
+    messages: [
+      { kind: 'clarification', id: 'one', turnId: 'turn', question: 'Question', options: [{}] },
+    ],
+    turns: {},
+  },
+  { messages: [{ ...panel.messages[0], references: [null] }], turns: {} },
+  { ...panel, turns: { turn: null } },
+  { ...panel, turns: [] },
+])('rejects malformed cached messages and turn containers: %j', (value) => {
+  expect(cachedPanel(value)).toBeNull()
+})
+
+it('projects only safe display fields from nested cached data', () => {
+  expect(
+    cachedPanel({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'tool',
+          turnId: 'turn',
+          toolCallId: 'call',
+          title: '可读摘要',
+          status: 'succeeded',
+          prompt: '保留提示词',
+          saveCard: { views: null },
+          artifacts: [null],
+          job: { media: {} },
+        },
+        {
+          ...panel.messages[0],
+          references: [{ imageId: 'ref', mediaId: 'media', name: '原图', regions: [null] }],
+        },
+      ],
+      turns: { turn: { turnId: 'turn', durationMs: 1234, cost: { chat: {}, image: 2, video: 0 } } },
+    }),
+  ).toEqual({
+    messages: [
+      {
+        kind: 'tool',
+        id: 'tool',
+        turnId: 'turn',
+        toolCallId: 'call',
+        title: '可读摘要',
+        status: 'succeeded',
+        prompt: '保留提示词',
+      },
+      { ...panel.messages[0], references: [{ imageId: 'ref', mediaId: 'media', name: '原图' }] },
+    ],
+    turns: { turn: { turnId: 'turn', durationMs: 1234 } },
+  })
+})
 beforeEach(() => {
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://one.test' } })
@@ -32,6 +89,32 @@ it('persists a conversation across cache handles and removes deleted history', a
   expect(await conversationCache('one').read()).toEqual(panel)
   await conversationCache('one').remove()
   expect(await conversationCache('one').read()).toBeNull()
+})
+
+it('retains the displayed final cost without restoring executable job state', async () => {
+  await conversationCache('cost').write({
+    messages: [
+      {
+        kind: 'tool',
+        id: 'tool',
+        turnId: 'turn',
+        toolCallId: 'call',
+        title: '结果',
+        status: 'succeeded',
+        job: { taskId: 'task', media: 'image', chargedCredits: 100 },
+      },
+    ],
+    turns: {
+      turn: {
+        turnId: 'turn',
+        stopReason: 'completed',
+        cost: { chat: 0, image: 0, video: 0, chatWaived: 20, includedTaskIds: [] },
+      },
+    },
+  })
+  const cached = await conversationCache('cost').read()
+  expect(cached?.turns.turn?.cost).toEqual({ chat: 0, image: 100, video: 0, chatWaived: 20 })
+  expect(cached?.messages[0]).not.toHaveProperty('job')
 })
 
 it('isolates accounts and API backends, including callbacks after a scope change', async () => {

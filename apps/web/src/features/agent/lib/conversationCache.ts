@@ -1,6 +1,9 @@
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { getRuntimeConfig } from '../../../lib/runtimeConfig'
+import type { AgentToolMessage } from '../types'
+import { cachedPanel } from './conversationCachePanel'
 import type { AgentPanelState } from './panelMessages'
+import { turnCostWithJobs } from './turnCost'
 
 const DATABASE = 'image-playground-agent-history'
 const STORE = 'conversations'
@@ -39,34 +42,55 @@ export function conversationCache(conversationId: string) {
     async read(): Promise<AgentPanelState | null> {
       try {
         const db = await openDatabase()
-        const record = await new Promise<{ version: number; panel: AgentPanelState } | undefined>(
-          (resolve, reject) => {
-            const request = db.transaction(STORE).objectStore(STORE).get(key)
-            request.onsuccess = () => resolve(request.result)
-            request.onerror = () => reject(request.error)
-          },
-        )
+        const record = await new Promise<unknown>((resolve, reject) => {
+          const request = db.transaction(STORE).objectStore(STORE).get(key)
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+        })
         if (
           !isCurrent() ||
-          record?.version !== 1 ||
-          !Array.isArray(record.panel?.messages) ||
-          !record.panel.turns ||
-          typeof record.panel.turns !== 'object'
+          !record ||
+          typeof record !== 'object' ||
+          !('version' in record) ||
+          record.version !== 1 ||
+          !('panel' in record)
         )
           return null
-        return record.panel
+        return cachedPanel(record.panel)
       } catch {
         return null
       }
     },
     async write(panel: AgentPanelState): Promise<void> {
       try {
+        const turns = Object.fromEntries(
+          Object.entries(panel.turns).map(([id, footer]) => [
+            id,
+            {
+              ...footer,
+              ...(footer.cost
+                ? {
+                    cost: turnCostWithJobs(
+                      footer.cost,
+                      panel.messages.filter(
+                        (message): message is AgentToolMessage =>
+                          message.kind === 'tool' && message.turnId === footer.turnId,
+                      ),
+                    ),
+                  }
+                : {}),
+            },
+          ]),
+        )
         const db = await openDatabase()
         if (!isCurrent()) return
         await new Promise<void>((resolve, reject) => {
           const tx = db.transaction(STORE, 'readwrite')
           const store = tx.objectStore(STORE)
-          store.put({ version: 1, savedAt: Date.now(), panel }, key)
+          store.put(
+            { version: 1, savedAt: Date.now(), panel: { messages: panel.messages, turns } },
+            key,
+          )
           const count = store.count()
           count.onsuccess = () => {
             let excess = count.result - LIMIT
