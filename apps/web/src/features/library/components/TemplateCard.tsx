@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import {
   getTemplateAssetRefs,
@@ -78,13 +79,15 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
             .map((entry) => `${entry.label} ${entry.value}`)
             .join(' · ')}
         </span>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => void applyTemplate(template.id)}
-          className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20"
+          className="h-auto shrink-0 bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary hover:bg-primary/20 hover:text-primary"
         >
           {t('template.apply')}
-        </button>
+        </Button>
       </div>
     </div>
   )
