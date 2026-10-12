@@ -110,4 +110,35 @@ describe('image combination execution scope', () => {
     scope.submitted(['scene', 'a', 'b'])
     expect(() => scope.inspect(['scene', 'a', 'b'])).toThrow('不可重复生成')
   })
+  it('retains fixed references and their order in both separate and joint combinations', () => {
+    const ids = ['scene', 'a', 'old-product', 'b']
+    const asked = guard().inspect(ids)!
+    for (const separate of [true, false]) {
+      const scope = createImageCombinationGuard({
+        history: [original, assistant([asked])],
+        references: [{ imageId: 'a' }, { imageId: 'b' }],
+        text: asked.options[separate ? 0 : 1]!,
+        hasNewReferences: false,
+      })
+      const expected = separate
+        ? [
+            ['scene', 'a', 'old-product'],
+            ['scene', 'old-product', 'b'],
+          ]
+        : [ids]
+      for (const combination of expected) expect(scope.inspect(combination)).toBeUndefined()
+      expect(() => scope.inspect(['scene', 'a', 'b'])).toThrow()
+    }
+  })
+  it('updates references when an interjection is accepted and revokes the old approval', () => {
+    const scope = chosen(true)
+    scope.interjected([{ imageId: 'c' }, { imageId: 'd' }])
+    expect(scope.inspect(['scene', 'c', 'd'])?.imageCombination?.referenceImageIds).toEqual([
+      'c',
+      'd',
+    ])
+    const changed = chosen(true)
+    changed.interjected([])
+    expect(changed.inspect(['scene', 'a', 'b'])?.imageCombination).toBeDefined()
+  })
 })

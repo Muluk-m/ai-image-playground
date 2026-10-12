@@ -63,18 +63,27 @@ export function createImageCombinationGuard(input: {
       if (pending) return pending
       if (approved) {
         const { referenceImageIds } = approved.combination
-        const allowed = new Set(referenceImageIds)
-        const matches = ids.slice(1).filter((id) => allowed.has(id))
-        const valid = approved.separate
-          ? ids.length === 2 && matches.length === 1
-          : ids.length === referenceImageIds.length + 1 &&
-            ids.slice(1).every((id, index) => id === referenceImageIds[index])
-        if (!valid || ids[0] !== approved.combination.targetImageId)
+        const original = approved.combination.inputImageIds ?? [
+          approved.combination.targetImageId,
+          ...referenceImageIds,
+        ]
+        const variants = new Set(referenceImageIds)
+        const combinations = approved.separate
+          ? referenceImageIds.map((reference) =>
+              original.filter((id) => !variants.has(id) || id === reference),
+            )
+          : [original]
+        const valid = combinations.some(
+          (combination) =>
+            ids.length === combination.length &&
+            ids.every((id, index) => id === combination[index]),
+        )
+        if (!valid)
           throw new AgentToolError(
             'invalid_params',
             approved.separate
-              ? `用户已选择分别生成。每次只传 [${approved.combination.targetImageId}, 一张新图]，分别处理这些图片：${referenceImageIds.join('、')}。不可合并或省略。`
-              : `用户已选择共同参考。请按顺序传入：${[approved.combination.targetImageId, ...referenceImageIds].join('、')}。`,
+              ? `用户已选择分别生成。逐组传入这些有序图片组合：${JSON.stringify(combinations)}。不可合并或省略固定参考。`
+              : `用户已选择共同参考。请按顺序传入：${original.join('、')}。`,
           )
         if (n !== 1)
           throw new AgentToolError('invalid_params', '本次确认每个组合只生成1张，不可增加版本数。')
@@ -87,11 +96,24 @@ export function createImageCombinationGuard(input: {
         ...new Set(ids.slice(1).filter((id) => attached.has(id) && !previous?.includes(id))),
       ]
       if (!previous || previous.length !== 2 || fresh.length < 2) return undefined
-      pending = question({ targetImageId: ids[0]!, referenceImageIds: fresh })
+      pending = question({
+        targetImageId: ids[0]!,
+        referenceImageIds: fresh,
+        inputImageIds: [...ids],
+      })
       return pending
     },
     submitted(ids: readonly string[]) {
       if (approved) completed.add(JSON.stringify(ids))
+    },
+    interjected(references: readonly { readonly imageId: string }[]) {
+      // 新请求不继承旧组合批准；无新附图时仍沿用当前请求的材料范围。
+      approved = undefined
+      pending = undefined
+      if (references.length) {
+        attached.clear()
+        for (const reference of references) attached.add(reference.imageId)
+      }
     },
   }
 }
