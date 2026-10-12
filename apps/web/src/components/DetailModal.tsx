@@ -5,8 +5,8 @@ import { useImagePreview } from '../hooks/useImagePreview'
 import { describeError, useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
-import { modelLabel } from '../lib/channels/publicChannels'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { modelLabel } from '../lib/channels/publicChannels'
 import {
   copyBlobToClipboard,
   copyTextToClipboard,
