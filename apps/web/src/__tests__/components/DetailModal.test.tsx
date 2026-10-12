@@ -168,4 +168,8 @@ it('来源里的模型写渠道 label，不写模型 id', async () => {
   const text = document.body.textContent ?? ''
   expect(text).toContain('OpenAI · OpenAI · GPT Image 2.5 Flare')
   expect(text).not.toContain('gpt-image-2.5-flare')
+  const sourceLabel = Array.from(document.querySelectorAll('span')).find(
+    (el) => el.textContent === '来源',
+  )
+  expect(sourceLabel?.parentElement?.querySelector('svg')).not.toBeNull()
 })
