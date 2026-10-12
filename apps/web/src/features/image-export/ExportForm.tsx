@@ -1,8 +1,9 @@
-import { Download, Images, LoaderCircle, Lock, Minus, Plus } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { TooltipIconButton } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../components/ui/button'
+import { Icon } from '../../components/ui/icon'
 import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
 import {
   Select,
   SelectContent,
@@ -16,23 +17,9 @@ import { cn } from '../../lib/utils'
 import { CanvasLimitError } from '../toolbox/lib/canvasLimits'
 import { downloadImages } from '../toolbox/lib/deliver'
 import { formatLabel } from '../toolbox/lib/encode'
-import {
-  type ExportSettings,
-  type ExportSource,
-  exportSize,
-  prepareExports,
-  type SizeMode,
-} from './export'
+import { type ExportSettings, type ExportSource, exportSize, prepareExports } from './export'
 
-function sharedOriginalSize(sources: readonly ExportSource[]) {
-  const images = sources.filter((source) => source.media === 'image')
-  const first = images[0]
-  if (!first?.width || !first.height) return null
-  if (images.length < 2) return null
-  return images.every((source) => source.width === first.width && source.height === first.height)
-    ? { width: first.width, height: first.height }
-    : null
-}
+type Axis = 'width' | 'height'
 
 const formats = ['image/png', 'image/jpeg', 'image/webp', 'image/avif'] as const
 const FIELD = 'h-9 rounded-lg border-transparent bg-muted shadow-none'
@@ -61,7 +48,8 @@ export default function ExportForm({
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [done, setDone] = useState(0)
-  const [sizeDraft, setSizeDraft] = useState<{ field: SizeMode; text: string } | null>(null)
+  const [sizeDraft, setSizeDraft] = useState<Partial<Record<Axis, string>>>({})
+  const lastAxis = useRef<Axis>('width')
   const abort = useRef<AbortController | null>(null)
   // 单张时读尺寸已经拿到原图，导出直接复用，不再下载第二遍。
   const firstBlob = useRef<Blob | null>(null)
@@ -77,7 +65,7 @@ export default function ExportForm({
     setPreview(null)
     setError('')
     setDone(0)
-    setSizeDraft(null)
+    setSizeDraft({})
     setLoading(false)
     if (!single || !first) return
     setLoading(true)
@@ -112,46 +100,74 @@ export default function ExportForm({
   const images = sources.filter((one) => one.media === 'image').length
   const count = images * settings.rows.length + sources.length - images
   const busy = progress !== null
-  // 多张且尺寸一致时，直接用导入时读到的原像素，不必为了展示再解码一遍。
-  const knownSize = single ? dimensions : sharedOriginalSize(sources)
-  const outputSize = (scale: number) =>
-    knownSize
-      ? exportSize(
-          knownSize.width,
-          knownSize.height,
-          settings.mode,
-          settings.value > 0 ? settings.value : 1,
-          scale,
-        )
-      : null
-  const size = outputSize(1)
-  const changeMode = (mode: SizeMode) => {
-    setSizeDraft(null)
-    setSettings((prev) => ({
-      ...prev,
-      mode,
-      value: mode === 'percent' || mode === 'original' ? 100 : (dimensions?.[mode] ?? 1440),
-    }))
+  const locked = settings.stretch === undefined
+  const imageSources = sources.filter((source) => source.media === 'image')
+  const originals = imageSources.map((source) =>
+    single
+      ? dimensions
+      : source.width && source.height
+        ? { width: source.width, height: source.height }
+        : null,
+  )
+  const outputSizes = (scale: number) =>
+    originals.map((original) =>
+      original
+        ? exportSize(
+            original.width,
+            original.height,
+            settings.mode,
+            settings.value,
+            scale,
+            settings.stretch,
+          )
+        : null,
+    )
+  const sizes = outputSizes(1)
+  const sharedAxis = (axis: Axis, outputs = sizes) => {
+    const value = outputs[0]?.[axis]
+    return value !== undefined && outputs.every((output) => output?.[axis] === value) ? value : null
   }
-  const validSize = (mode: SizeMode, text: string) => {
-    const value = Number(text)
-    return (
-      text.trim() !== '' &&
-      Number.isFinite(value) &&
-      value > 0 &&
-      (mode === 'percent' || Number.isInteger(value))
+  const fieldValue = (axis: Axis) =>
+    sizeDraft[axis] ??
+    settings.stretch?.[axis] ??
+    (settings.mode === axis ? settings.value : sharedAxis(axis)) ??
+    ''
+  const validSize = (text: string) =>
+    text.trim() !== '' && Number.isInteger(Number(text)) && Number(text) > 0
+  const invalid = Object.values(sizeDraft).some((text) => !validSize(text))
+  const changeSize = (axis: Axis, text: string) => {
+    setSizeDraft((prev) => (locked ? { [axis]: text } : { ...prev, [axis]: text }))
+    setDone(0)
+    if (!validSize(text)) return
+    lastAxis.current = axis
+    setSettings((prev) =>
+      locked
+        ? { ...prev, mode: axis, value: Number(text) }
+        : { ...prev, stretch: { ...prev.stretch, [axis]: Number(text) } },
     )
   }
-  const changeSize = (field: SizeMode, text: string) => {
-    setSizeDraft({ field, text })
-    if (validSize(field, text))
-      setSettings((prev) => ({ ...prev, mode: field, value: Number(text) }))
+  const toggleLock = () => {
+    if (invalid) return
+    const axis = lastAxis.current
+    const value = Number(fieldValue(axis))
+    setSizeDraft({})
+    setDone(0)
+    setSettings((prev) =>
+      locked
+        ? { ...prev, stretch: {} }
+        : { ...prev, stretch: undefined, ...(value > 0 ? { mode: axis, value } : {}) },
+    )
   }
-  const invalid =
-    (sizeDraft !== null && !validSize(sizeDraft.field, sizeDraft.text)) ||
-    !Number.isFinite(settings.value) ||
-    settings.value <= 0 ||
-    ((settings.mode === 'width' || settings.mode === 'height') && !Number.isInteger(settings.value))
+  const resetSize = () => {
+    setSizeDraft({})
+    setDone(0)
+    setSettings((prev) => ({
+      ...prev,
+      mode: 'original',
+      value: 100,
+      stretch: locked ? undefined : {},
+    }))
+  }
   const updateRow = (id: string, patch: Partial<ExportSettings['rows'][number]>) =>
     setSettings((prev) => ({
       ...prev,
@@ -189,7 +205,7 @@ export default function ExportForm({
             {single && preview ? (
               <img src={preview} alt="" className="size-full object-cover" />
             ) : (
-              <Images className="size-5" aria-hidden="true" />
+              <Icon name="images" size="md" />
             )}
           </div>
           <div className="min-w-0">
@@ -201,42 +217,114 @@ export default function ExportForm({
                 ? t('export.loading')
                 : dimensions
                   ? `${dimensions.width} × ${dimensions.height}`
-                  : !single && t('export.batchHint')}
+                  : !single && t(locked ? 'export.batchHint' : 'export.ratioUnlocked')}
             </p>
           </div>
         </div>
         {images > 0 && (
           <fieldset disabled={busy} className="space-y-6">
-            <Section title={t('export.size')}>
-              <div className="flex gap-2">
+            <Section
+              title={t('export.size')}
+              action={
+                <Button variant="ghost" size="xs" onClick={resetSize}>
+                  {t('export.reset')}
+                </Button>
+              }
+            >
+              <div className="flex items-end gap-2">
                 {(['width', 'height'] as const).map((axis) => (
-                  <Affix key={axis} before={axis === 'width' ? 'W' : 'H'}>
+                  <div key={axis} className="min-w-0 flex-1 space-y-2">
+                    <Label htmlFor={`export-${axis}`} className="text-xs text-muted-foreground">
+                      {axisLabels[axis]} <span className="font-normal">px</span>
+                    </Label>
                     <Input
                       id={`export-${axis}`}
                       type="number"
                       min={1}
                       step={1}
-                      className={cn(FIELD, 'pl-8 tabular-nums')}
+                      className="tabular-nums"
                       aria-label={axisLabels[axis]}
-                      value={sizeDraft?.field === axis ? sizeDraft.text : (size?.[axis] ?? '')}
-                      disabled={single && !size}
+                      placeholder={t('export.multipleValues')}
+                      value={fieldValue(axis)}
+                      disabled={single && !dimensions}
                       onChange={(event) => changeSize(axis, event.target.value)}
-                      aria-invalid={sizeDraft?.field === axis && invalid}
+                      aria-invalid={sizeDraft[axis] !== undefined && !validSize(sizeDraft[axis])}
                     />
-                  </Affix>
+                  </div>
                 ))}
                 <TooltipIconButton
-                  className={ICON_BUTTON}
-                  tooltip={
-                    settings.mode === 'original' && !sizeDraft
-                      ? t('export.ratioLock')
-                      : t('export.reset')
-                  }
-                  aria-pressed={settings.mode === 'original' && !sizeDraft}
-                  onClick={() => changeMode('original')}
+                  className={cn('size-9', locked && 'text-primary bg-accent')}
+                  tooltip={t(locked ? 'export.ratioUnlock' : 'export.ratioLock')}
+                  aria-pressed={locked}
+                  disabled={invalid || (single && !dimensions)}
+                  onClick={toggleLock}
                 >
-                  <Lock />
+                  <Icon name={locked ? 'lock' : 'unlock'} />
                 </TooltipIconButton>
+              </div>
+              <p
+                className={cn('text-xs', invalid ? 'text-destructive' : 'text-muted-foreground')}
+                role={invalid ? 'alert' : undefined}
+              >
+                {t(
+                  invalid
+                    ? 'export.invalidSize'
+                    : locked
+                      ? 'export.ratioLocked'
+                      : 'export.ratioUnlocked',
+                )}
+              </p>
+            </Section>
+            <Section title={t('export.preview')}>
+              <div className="max-h-48 divide-y divide-border overflow-y-auto" aria-live="polite">
+                {imageSources.map((source, index) => (
+                  <div key={source.id} className="flex items-center gap-3 py-3">
+                    {source.preview && (
+                      <img
+                        src={source.preview}
+                        alt=""
+                        className="size-9 shrink-0 rounded-md object-contain bg-muted"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs" title={source.name}>
+                        {source.name}
+                      </p>
+                      {originals[index] && (
+                        <p className="text-label-sm text-muted-foreground tabular-nums">
+                          {originals[index].width} × {originals[index].height} px
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right text-xs tabular-nums">
+                      {settings.rows.map((row) => {
+                        const original = originals[index]
+                        const output =
+                          original &&
+                          exportSize(
+                            original.width,
+                            original.height,
+                            settings.mode,
+                            settings.value,
+                            row.scale,
+                            settings.stretch,
+                          )
+                        return (
+                          <p key={row.id} className="text-primary">
+                            {invalid
+                              ? t('export.pendingSize')
+                              : output
+                                ? `${output.width} × ${output.height}`
+                                : t('export.unknownSize')}
+                            <span className="ml-2 text-label-sm text-muted-foreground">
+                              {row.scale}x {formatLabel(row.format)}
+                            </span>
+                          </p>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </Section>
             <Section
@@ -256,12 +344,15 @@ export default function ExportForm({
                     }))
                   }
                 >
-                  <Plus />
+                  <Icon name="add" />
                 </TooltipIconButton>
               }
             >
               {settings.rows.map((row, index) => {
-                const output = outputSize(row.scale)
+                const outputs = outputSizes(row.scale)
+                const width = sharedAxis('width', outputs)
+                const height = sharedAxis('height', outputs)
+                const output = width && height ? { width, height } : null
                 return (
                   <div key={row.id} className="flex items-center gap-2">
                     <Select
@@ -320,7 +411,7 @@ export default function ExportForm({
                         }))
                       }
                     >
-                      <Minus />
+                      <Icon name="close" />
                     </TooltipIconButton>
                   </div>
                 )
@@ -373,12 +464,12 @@ export default function ExportForm({
         >
           {busy ? (
             <>
-              <LoaderCircle className="animate-spin" />
+              <Icon name="loading" className="animate-spin" />
               {t('export.progress', { done: progress, total: sources.length })}
             </>
           ) : (
             <>
-              <Download />
+              <Icon name="download" />
               {t('export.action', { count })}
             </>
           )}
@@ -408,31 +499,5 @@ function Section({
       </div>
       {children}
     </section>
-  )
-}
-
-function Affix({
-  before,
-  after,
-  children,
-}: {
-  before?: string
-  after?: string
-  children: ReactNode
-}) {
-  return (
-    <div className="relative min-w-0 flex-1">
-      {before && (
-        <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-xs text-muted-foreground">
-          {before}
-        </span>
-      )}
-      {children}
-      {after && (
-        <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-muted-foreground">
-          {after}
-        </span>
-      )}
-    </div>
   )
 }
