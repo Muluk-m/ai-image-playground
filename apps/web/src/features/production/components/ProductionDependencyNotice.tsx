@@ -1,6 +1,7 @@
 import type { ProductionDocument } from '@image-playground/shared'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import {
   fetchProduction,
@@ -74,7 +75,7 @@ export default function ProductionDependencyNotice({
   return (
     <aside className="production-dependency-notice" aria-label={t('dependencies.title')}>
       <div>
-        <AlertTriangle size={16} />
+        <Icon name="warning" />
         <strong>{t(kept ? 'dependencies.retained' : 'dependencies.title')}</strong>
       </div>
       {!kept && state?.outdated && (
@@ -89,25 +90,33 @@ export default function ProductionDependencyNotice({
             ))}
           </ul>
           <div className="production-dependency-actions">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               disabled={busy}
               data-action="refresh-production-dependencies"
               onClick={() => void refresh()}
             >
-              <RefreshCw size={14} />
+              <Icon name="refresh" />
               {t(busy ? 'saving' : 'dependencies.refresh')}
-            </button>
-            <button type="button" disabled={busy} onClick={() => setKept(true)}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={busy}
+              onClick={() => setKept(true)}
+            >
               {t('dependencies.keep')}
-            </button>
+            </Button>
           </div>
         </>
       )}
       {kept && (
-        <button type="button" onClick={() => setKept(false)}>
+        <Button variant="ghost" size="sm" type="button" onClick={() => setKept(false)}>
           {t('dependencies.show')}
-        </button>
+        </Button>
       )}
       {error && <p role="alert">{t(error)}</p>}
     </aside>
