@@ -3,18 +3,9 @@ import type {
   ProductionDocument,
   ProductionRevision,
 } from '@image-playground/shared'
-import {
-  ChevronDown,
-  FileText,
-  History,
-  ListCollapse,
-  Pencil,
-  Plus,
-  RotateCcw,
-  Trash2,
-  X,
-} from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
@@ -140,56 +131,88 @@ export default function ProductionDocumentPane({
     <section className="production-document" aria-label={t('document')}>
       <header className="production-pane-header">
         <span>
-          <FileText size={17} />
+          <Icon name="script" />
           {document.content.title || t('untitled')}
         </span>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={18} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <nav className="production-tabs" aria-label={t('sections')}>
         {(['setting', 'outline', 'scenes'] as const).map((value) => (
-          <button
+          <Button
+            variant={tab === value ? 'secondary' : 'ghost'}
+            size="xs"
             key={value}
             type="button"
             aria-pressed={tab === value}
             onClick={() => setTab(value)}
           >
             {t(value)}
-          </button>
+          </Button>
         ))}
       </nav>
       <div className="production-document-tools">
         {edit.editing ? (
           <>
-            <button
+            <Button
+              variant="default"
+              size="sm"
               type="button"
-              className="production-primary"
               disabled={edit.saving}
               onClick={() => void edit.save()}
             >
               {t(edit.saving ? 'saving' : 'done')}
-            </button>
-            <button type="button" disabled={edit.saving} onClick={edit.keep}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={edit.saving}
+              onClick={edit.keep}
+            >
               {t('keepDraft')}
-            </button>
-            <button type="button" disabled={edit.saving} onClick={edit.discard}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={edit.saving}
+              onClick={edit.discard}
+            >
               {t('discard')}
-            </button>
+            </Button>
           </>
         ) : (
           <>
-            <button type="button" onClick={edit.start}>
-              <Pencil size={14} />
+            <Button variant="ghost" size="sm" type="button" onClick={edit.start}>
+              <Icon name="edit" />
               {t('edit')}
-            </button>
-            <button type="button" onClick={() => setCollapsed(!collapsed)}>
-              <ListCollapse size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+            >
+              <Icon name="collapseAll" />
               {t(collapsed ? 'expandAll' : 'collapseAll')}
-            </button>
-            <button type="button" aria-label={t('history')} onClick={() => void showHistory()}>
-              <History size={15} />
-            </button>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              type="button"
+              aria-label={t('history')}
+              onClick={() => void showHistory()}
+            >
+              <Icon name="history" />
+            </Button>
           </>
         )}
         <span>{t('revision', { revision: document.revision })}</span>
@@ -214,14 +237,16 @@ export default function ProductionDocumentPane({
                     {t('revision', { revision: revision.revision })} ·{' '}
                     {t(`historySource.${revision.source}`)}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     disabled={restoring || edit.editing || revision.revision === document.revision}
                     onClick={() => void restore(revision.revision)}
                   >
-                    <RotateCcw size={13} />
+                    <Icon name="undo" />
                     {t('restore')}
-                  </button>
+                  </Button>
                 </div>
               ))}
         </div>
@@ -274,14 +299,16 @@ export default function ProductionDocumentPane({
                         })
                       }
                     />
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
                       type="button"
                       aria-label={t('removeScene')}
                       disabled={edit.saving}
                       onClick={() => setRemoveSceneId(scene.id)}
                     >
-                      <Trash2 size={15} />
-                    </button>
+                      <Icon name="delete" />
+                    </Button>
                   </div>
                   {removeSceneId === scene.id && (
                     <div className="production-scene-delete" role="alert">
@@ -290,7 +317,9 @@ export default function ProductionDocumentPane({
                         target={{ kind: 'scene', id: scene.id }}
                       />
                       <div className="production-reference-actions">
-                        <button
+                        <Button
+                          variant="destructive"
+                          size="sm"
                           type="button"
                           disabled={edit.saving}
                           onClick={() => {
@@ -302,14 +331,16 @@ export default function ProductionDocumentPane({
                           }}
                         >
                           {t('asset.deleteConfirm')}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           type="button"
                           disabled={edit.saving}
                           onClick={() => setRemoveSceneId(null)}
                         >
                           {t('cancel')}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -344,7 +375,7 @@ export default function ProductionDocumentPane({
                   className="production-scene"
                 >
                   <summary>
-                    <ChevronDown size={14} />
+                    <Icon name="chevronDown" />
                     <span className="production-scene-number">
                       {String(index + 1).padStart(2, '0')}
                     </span>
@@ -360,7 +391,9 @@ export default function ProductionDocumentPane({
               ),
             )}
             {edit.editing && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 className="production-add-scene"
                 disabled={edit.saving}
@@ -371,9 +404,9 @@ export default function ProductionDocumentPane({
                   })
                 }
               >
-                <Plus size={15} />
+                <Icon name="add" />
                 {t('addScene')}
-              </button>
+              </Button>
             )}
           </>
         ) : edit.editing ? (

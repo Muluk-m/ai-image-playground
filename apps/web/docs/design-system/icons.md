@@ -86,6 +86,24 @@ import { Icon } from '@/components/ui/icon'
 | `prompt` | 提示词 | document-text |
 | `sendToCanvas` | 送入画布 | gallery-send |
 
+**生产面板**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `script` | 剧本 | document-text |
+| `storyboard` | 分镜 | clapperboard |
+| `clip` | 片段 | video-frame |
+| `character` | 角色 | user-rounded |
+| `location` | 场景地点 | map-point |
+| `exportPackage` | 导出素材包 | box |
+| `quote` | 引用原文 | chat-square-call |
+| `compare` | 对照修改 | transfer-horizontal |
+| `history` | 修订历史 | history |
+| `collapseAll` | 折叠章节 | list-up |
+| `moveUp` | 上移排序 | arrow-up |
+| `moveDown` | 下移排序 | arrow-down |
+| `imageUnavailable` | 图片不可用 | gallery-remove |
+
 **画布工具**
 
 | 名字 | 含义 | 图形 |

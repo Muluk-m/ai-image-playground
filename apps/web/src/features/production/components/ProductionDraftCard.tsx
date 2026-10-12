@@ -1,6 +1,6 @@
-import { FileImage } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { useAgentStore } from '../../agent/store'
@@ -51,7 +51,7 @@ export default function ProductionDraftCard({
   return (
     <div className="rounded-xl border border-border p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <FileImage size={16} />
+        <Icon name="image" />
         <strong className="text-sm">{message.title}</strong>
       </div>
       <Button
