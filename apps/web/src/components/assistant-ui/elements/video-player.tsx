@@ -49,6 +49,8 @@ export function VideoPlayer({
   const [nearViewport, setNearViewport] = useState(false)
   const [playingSource, setPlayingSource] = useState<string | null>(null)
   const position = useRef({ src, time: 0 })
+  const capturedSource = useRef<string | null>(null)
+  const posterSeek = useRef<string | null>(null)
   const loadMedia = nearViewport || playingSource === src
   let preload: 'none' | 'metadata' | 'auto' = 'none'
   if (playingSource === src) preload = 'auto'
@@ -136,7 +138,26 @@ export function VideoPlayer({
             !event.currentTarget.paused &&
               event.currentTarget.readyState < HTMLMediaElement.HAVE_FUTURE_DATA,
           )
-          if (event.currentTarget.currentTime === 0) onFrameReady?.(event.currentTarget)
+          // A loadeddata event can precede the decoder's painted frame. Seek once
+          // while paused, then capture the decoded frame instead of caching black.
+          if (
+            onFrameReady &&
+            capturedSource.current !== src &&
+            posterSeek.current !== src &&
+            event.currentTarget.paused
+          ) {
+            posterSeek.current = src
+            event.currentTarget.currentTime = Number.isFinite(event.currentTarget.duration)
+              ? Math.min(0.1, event.currentTarget.duration / 2)
+              : 0.1
+          }
+        }}
+        onSeeked={(event) => {
+          if (posterSeek.current === src) {
+            posterSeek.current = null
+            capturedSource.current = src
+            onFrameReady?.(event.currentTarget)
+          }
         }}
         onWaiting={(event) => setWaiting(!event.currentTarget.paused)}
         onPlay={(event) => {
