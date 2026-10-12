@@ -260,24 +260,48 @@ function NodePorts({ nodeId }: { nodeId: string }) {
         position={Position.Left}
         className="studio-node-handle"
         aria-label={t('nodes.connectIn')}
+        title={t('nodes.connectIn')}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            event.stopPropagation()
+            spawn(nodeId, 'left')
+          }
+        }}
         onPointerDownCapture={(event) => {
           pointer.current = { x: event.clientX, y: event.clientY }
         }}
         onClick={activate('left')}
       >
-        <Icon name="add" size="xs" className="pointer-events-none" />
+        <span className="studio-node-port-button">
+          <Icon name="add" size="xs" className="pointer-events-none" />
+        </span>
       </Handle>
       <Handle
         type="source"
         position={Position.Right}
         className="studio-node-handle"
         aria-label={t('nodes.connectOut')}
+        title={t('nodes.connectOut')}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            event.stopPropagation()
+            spawn(nodeId, 'right')
+          }
+        }}
         onPointerDownCapture={(event) => {
           pointer.current = { x: event.clientX, y: event.clientY }
         }}
         onClick={activate('right')}
       >
-        <Icon name="add" size="xs" className="pointer-events-none" />
+        <span className="studio-node-port-button">
+          <Icon name="add" size="xs" className="pointer-events-none" />
+        </span>
       </Handle>
     </>
   )
@@ -652,6 +676,7 @@ function Flow({
     anchorIds?: string[]
     side?: 'left' | 'right'
     nodeId?: string
+    beside?: boolean
   } | null>(null)
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
@@ -699,6 +724,22 @@ function Flow({
     observer.observe(el)
     return () => observer.disconnect()
   }, [container])
+  const revealNode = (target: CanvasNode) => {
+    if (frame.width && frame.height) {
+      const left = target.x * frame.zoom + frame.x
+      const top = target.y * frame.zoom + frame.y
+      const right = left + target.width * frame.zoom
+      const bottom = top + target.height * frame.zoom
+      // Reveal only the clipped part; adding a sibling should not recenter the whole canvas.
+      const dx = left < 80 ? 80 - left : Math.min(0, frame.width - 48 - right)
+      const dy =
+        top < 64
+          ? 64 - top
+          : Math.min(0, frame.height - (target.type === 'text' ? 72 : 264) - bottom)
+      if (dx || dy)
+        flowRef.current?.setViewport({ zoom: frame.zoom, x: frame.x + dx, y: frame.y + dy })
+    }
+  }
   const selectNode = (next: string | null) => {
     selectedRef.current = next
     selectedIds.current = next ? [next] : []
@@ -706,20 +747,7 @@ function Flow({
     setSelectedId(next)
     setSelectedEdges([])
     const target = next ? readCanvasDocument(canvas.doc).nodes.find((n) => n.id === next) : null
-    if (
-      target &&
-      frame.width &&
-      (target.x * frame.zoom + frame.x < 80 ||
-        (target.x + target.width) * frame.zoom + frame.x > frame.width - 80 ||
-        target.y * frame.zoom + frame.y < 60 ||
-        (target.y + target.height) * frame.zoom + frame.y > frame.height - 260)
-    ) {
-      flowRef.current?.setViewport({
-        zoom: frame.zoom,
-        x: frame.width / 2 - (target.x + target.width / 2) * frame.zoom,
-        y: Math.max(100, (frame.height - 240) / 2) - (target.y + target.height / 2) * frame.zoom,
-      })
-    }
+    if (target) revealNode(target)
     setNodes((current) => {
       const updated = current.map((n) => ({ ...n, selected: n.id === next }))
       const added =
@@ -757,7 +785,14 @@ function Flow({
     closeMenu()
   }
   const addNode = (kind: CreateNodeKind, at = placeAt.current) => {
-    const id = createNode(canvas, kind, at, textFill)
+    const anchors = menu?.beside ? snapshot.nodes.filter((n) => menu.anchorIds?.includes(n.id)) : []
+    const id = createNode(
+      canvas,
+      kind,
+      at,
+      textFill,
+      anchors.length ? { nodes: anchors, side: menu?.side ?? 'right' } : undefined,
+    )
     for (const anchor of menu?.anchorIds ?? [])
       connectCanvasNodes(
         canvas.doc,
@@ -1024,11 +1059,11 @@ function Flow({
     if (!node) return
     const ids = selectedIds.current.includes(nodeId) ? selectedIds.current : [nodeId]
     placeAt.current = {
-      x: node.x + (side === 'right' ? node.width + 240 : -240),
+      x: node.x + (side === 'right' ? node.width + 32 : -32),
       y: node.y + node.height / 2,
     }
     const screen = flowRef.current?.flowToScreenPosition?.(placeAt.current) ?? { x: 200, y: 200 }
-    setMenu({ ...screen, anchorIds: ids, side })
+    setMenu({ ...screen, anchorIds: ids, side, beside: true })
   }
   const editNode = (
     id: string,
@@ -1131,6 +1166,9 @@ function Flow({
                     flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ??
                     center()
                   setMenu({ x: event.clientX, y: event.clientY })
+                }}
+                onNodeClick={(event, node) => {
+                  if (!event.shiftKey && node.data.node) revealNode(node.data.node)
                 }}
                 onNodeContextMenu={(event, node) => {
                   event.preventDefault()
@@ -1528,7 +1566,7 @@ function composerAnchor(
   const limit = Math.max(panel / 2 + 12, frame.width - panel / 2 - 12)
   return {
     left: Math.min(Math.max(center, panel / 2 + 12), limit),
-    top: Math.max(72, Math.min(top, frame.height - 240)),
+    top,
   }
 }
 

@@ -112,8 +112,10 @@ export default function NodeCanvasToolbar({
       </div>
       {onChat && (
         <Button className="studio-node-chat rounded-full" variant="secondary" onClick={onChat}>
-          <Icon name="chat" />
-          {t('nodes.chat')}
+          <span className="studio-node-chat-mark" aria-hidden="true">
+            <img src="/brand/muvloom-mark.svg" alt="" />
+          </span>
+          <span>{t('nodes.chat')}</span>
         </Button>
       )}
     </>

@@ -168,6 +168,7 @@ export default function AgentPanel({
   onViewCanvas,
   onPreviewResult,
   presentation = 'side',
+  dock = 'left',
   searchOpen = false,
   onCloseSearch,
   onPreviewProduction,
@@ -179,6 +180,7 @@ export default function AgentPanel({
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
   presentation?: 'page' | 'side'
+  dock?: 'left' | 'right'
   searchOpen?: boolean
   onCloseSearch?: () => void
   onPreviewProduction?: (pane?: ProductionPane) => void
@@ -294,7 +296,8 @@ export default function AgentPanel({
     const originX = event.clientX
     const originWidth = panelWidth
     handle.setPointerCapture(event.pointerId)
-    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + move.clientX - originX)
+    const onMove = (move: PointerEvent) =>
+      setPanelWidth(originWidth + (move.clientX - originX) * (dock === 'right' ? -1 : 1))
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
@@ -327,6 +330,7 @@ export default function AgentPanel({
   return (
     <div
       aria-label={t('panel.aria')}
+      data-dock={dock}
       style={presentation === 'side' ? { width: panelWidth } : undefined}
       className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
     >
@@ -337,12 +341,15 @@ export default function AgentPanel({
           aria-label={t('panel.resizeAria')}
           title={t('panel.resizeTitle')}
           onPointerDown={startResize}
-          className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
+          className={`absolute ${dock === 'right' ? '-left-1.5' : '-right-1.5'} top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60`}
         />
       )}
       {presentation === 'side' && (
         <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
           <div className="flex items-center gap-1.5">
+            {dock === 'right' && (
+              <img src="/brand/muvloom-mark.svg" alt="" className="h-6 w-6 mr-1" />
+            )}
             {TABS.map((one) => (
               <Button
                 key={one.id}
@@ -361,10 +368,10 @@ export default function AgentPanel({
             size="icon"
             aria-label={t('panel.collapseAria')}
             title={t('panel.collapseAria')}
-            className="hidden h-7 w-7 shrink-0 rounded-lg text-muted-foreground md:inline-flex"
+            className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
             onClick={() => setOpen(false)}
           >
-            <Icon name="sidebar" />
+            <Icon name={dock === 'right' ? 'chevronRight' : 'sidebar'} />
           </Button>
         </div>
       )}

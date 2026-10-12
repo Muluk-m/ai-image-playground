@@ -33,6 +33,36 @@ function setup(): NodeCanvasDocument {
   }
 }
 describe('node canvas editing transactions', () => {
+  it('aligns different-sized siblings on either side and avoids occupied slots without moving existing nodes', () => {
+    const canvas = setup()
+    const parentId = createNode(canvas, 'image', { x: 0, y: 0 }, '#fff')
+    const parent = readCanvasDocument(canvas.doc).nodes[0]!
+    const rightId = createNode(canvas, 'text', { x: 0, y: 0 }, '#fff', {
+      nodes: [parent],
+      side: 'right',
+    })
+    const leftId = createNode(canvas, 'video', { x: 0, y: 0 }, '#fff', {
+      nodes: [parent],
+      side: 'left',
+    })
+    const branchId = createNode(canvas, 'image', { x: 0, y: 0 }, '#fff', {
+      nodes: [parent],
+      side: 'right',
+    })
+    const nodes = readCanvasDocument(canvas.doc).nodes
+    const right = nodes.find((n) => n.id === rightId)!
+    const left = nodes.find((n) => n.id === leftId)!
+    const branch = nodes.find((n) => n.id === branchId)!
+    expect(right.x - (parent.x + parent.width)).toBe(96)
+    expect(parent.x - (left.x + left.width)).toBe(96)
+    expect(right.y).toBe(parent.y)
+    expect(left.y).toBe(parent.y)
+    expect(branch.x).toBe(right.x)
+    expect(branch.y).toBe(right.y + right.height + 96)
+    expect(nodes.find((n) => n.id === parentId)).toEqual(parent)
+    canvas.undo.undo()
+    expect(readCanvasDocument(canvas.doc).nodes.map((n) => n.id)).not.toContain(branchId)
+  })
   it('undoes creation and inline editing without a second editor history', () => {
     const canvas = setup()
     const id = createNode(canvas, 'text', { x: 0, y: 0 }, '#fff')

@@ -233,7 +233,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       setNodeChatOpen(false)
     }
   }, [nodeCanvas, setOpen, workspace])
-  const mobileChatSheet = mobile && hasAgent && projectView === 'canvas'
+  const mobileChatSheet = mobile && hasAgent && !nodeCanvas && projectView === 'canvas'
   useEffect(() => {
     setMobileChatOpen(false)
   }, [project?.id, projectView])
@@ -549,7 +549,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             className="studio-layout"
             data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
-            data-node-canvas={!hasAgent && nodeCanvas ? 'true' : undefined}
+            data-node-canvas={nodeCanvas && projectView === 'canvas' ? 'true' : undefined}
             data-mobile-view={projectView}
             data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
             inert={loadFailed}
@@ -698,6 +698,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       editor={editor}
                       mobile={mobile}
                       presentation={projectView === 'chat' ? 'page' : 'side'}
+                      dock={nodeCanvas ? 'right' : 'left'}
                       searchOpen={searchOpen && projectView === 'chat'}
                       onCloseSearch={() => setSearchOpen(false)}
                       onViewCanvas={projectView === 'chat' ? undefined : openCanvas}
@@ -807,7 +808,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     <NodeCanvas
                       workspace={workspace}
                       onChat={
-                        hasAgent
+                        hasAgent && !(nodeChatOpen && open)
                           ? () => {
                               setNodeChatOpen(!(nodeChatOpen && open))
                               setOpen(!(nodeChatOpen && open))

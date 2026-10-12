@@ -945,33 +945,27 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-text-input { width: 100%; height: 100%; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; resize: none; outline: none; }
 .studio-node-empty { display: grid; width: 100%; height: 100%; place-items: center; border: 1px dashed hsl(var(--border)); border-radius: 12px; color: hsl(var(--muted-foreground)); }
 .studio-node-canvas .react-flow__handle.studio-node-handle {
-  display: grid; width: 28px; height: 28px; place-items: center; z-index: 4;
-  border: 1px solid hsl(var(--border)); border-radius: 999px;
-  background: hsl(var(--card)); color: hsl(var(--foreground));
-  opacity: 0; pointer-events: none; cursor: pointer;
-  transition: opacity 140ms ease-out, transform 180ms ease-out, background-color 140ms ease-out;
+  width: 6px; height: 6px; z-index: 4; border: 0; background: transparent;
 }
-/* 加号和卡片之间有空隙。这块垫在空隙上，鼠标移过去时悬停不会断。 */
-.studio-node-canvas .react-flow__handle.studio-node-handle::before {
-  content: ""; position: absolute; top: -10px; bottom: -10px; width: 22px;
+/* Connection geometry stays on the card; the visible action floats outside it. */
+.studio-node-canvas .studio-node-handle.react-flow__handle-left { left: 0; }
+.studio-node-canvas .studio-node-handle.react-flow__handle-right { right: 0; }
+.studio-node-port-button {
+  position: absolute; top: 50%; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 9999px; border: 1px solid hsl(var(--border));
+  background: hsl(var(--card)); color: hsl(var(--muted-foreground));
+  opacity: 0; pointer-events: none; cursor: crosshair; transform: translateY(-50%);
+  transition: opacity 140ms ease-out, background-color 140ms ease-out, color 140ms ease-out;
 }
-.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left::before { left: 100%; }
-.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right::before { right: 100%; }
-.studio-node-canvas .react-flow__node:hover > .react-flow__handle.studio-node-handle,
-.studio-node-canvas .react-flow__handle.studio-node-handle.connectingfrom,
-.studio-node-canvas .react-flow__handle.studio-node-handle:focus-visible {
-  opacity: 1; pointer-events: all;
-}
-.studio-node-canvas .react-flow__handle.studio-node-handle:hover {
-  background: hsl(var(--muted));
-}
-/* 连接点保持固定几何，悬停只改变可见性，避免 React Flow 缓存的线端点漂移。 */
-.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-left {
-  left: 0; transform: translate(-50%, -50%);
-}
-.studio-node-canvas .react-flow__handle.studio-node-handle.react-flow__handle-right {
-  right: 0; transform: translate(50%, -50%);
-}
+.studio-node-handle.react-flow__handle-left .studio-node-port-button { right: 20px; }
+.studio-node-handle.react-flow__handle-right .studio-node-port-button { left: 20px; }
+.studio-node-port-button::before { content: ""; position: absolute; inset: -8px -20px; }
+.studio-node-canvas .react-flow__node:hover .studio-node-port-button,
+.studio-node-canvas .react-flow__node.selected .studio-node-port-button,
+.studio-node-handle:focus-visible .studio-node-port-button,
+.studio-node-handle.connectingfrom .studio-node-port-button { opacity: 1; pointer-events: auto; }
+.studio-node-port-button:hover { background: hsl(var(--muted)); color: hsl(var(--primary)); border-color: hsl(var(--primary) / .5); }
+.studio-node-handle:focus-visible .studio-node-port-button { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
   stroke: hsl(var(--foreground) / .72);
@@ -989,13 +983,25 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   position: absolute; z-index: 30; width: min(560px, calc(100% - 24px));
   transform: translateX(-50%);
 }
-/* 节点画布没有侧栏。项目名浮在画布上，列不再占掉左边一整条。 */
+/* Node canvas keeps the conversation at the right edge, including narrow desktop windows. */
 .studio-layout[data-node-canvas="true"] > .studio-chat-column {
-  position: absolute; z-index: 20; width: auto; min-width: 0;
-  max-width: min(420px, calc(100% - 24px));
-  margin: 12px 0 0 12px; background: transparent; pointer-events: none;
+  display: flex; position: relative; order: 3; flex: 0 0 auto; min-width: 0;
+  width: auto; max-width: min(480px, 42%); margin: 0 12px 12px 0; padding: 0;
+  z-index: 35; transform-origin: right top;
 }
-.studio-layout[data-node-canvas="true"] > .studio-chat-column .studio-canvas-topbar { pointer-events: auto; }
+.studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar {
+  max-width: 100%; height: 100%; border: 1px solid hsl(var(--border)); border-radius: 16px;
+  background: hsl(var(--card));
+}
+.studio-layout[data-node-canvas="true"] .studio-agent-tabs { padding: 12px; border-bottom: 1px solid hsl(var(--border)); }
+.studio-layout[data-node-canvas="true"] > .studio-canvas { order: 1; }
+@media (max-width: 900px) {
+  .studio-layout[data-node-canvas="true"] > .studio-chat-column {
+    position: absolute; inset: 64px 8px 8px auto; width: min(380px, calc(100% - 64px));
+    max-width: none; height: auto; margin: 0; box-shadow: var(--shadow-dialog);
+  }
+  .studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar { width: 100% !important; }
+}
 
 /* Node workspace: controls stay at screen scale, media owns the canvas. */
 .studio-node-tools, .studio-node-navigation, .studio-node-history, .studio-node-selection-bar {
@@ -1009,7 +1015,31 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-selection-bar { top: 18px; left: 50%; transform: translateX(-50%); padding-left: 14px; }
 .studio-node-tool-divider { width: 1px; height: 22px; background: hsl(var(--border)); margin: 0 3px; }
 .studio-node-tools .studio-node-tool-divider { height: 1px; width: 26px; margin: 5px 0; }
-.studio-node-chat { position: absolute; right: 18px; bottom: 18px; z-index: 26; padding: 12px 20px; height: 48px; box-shadow: 0 6px 24px hsl(var(--scrim) / .1); }
+.studio-node-chat {
+  position: absolute; right: 16px; bottom: 16px; z-index: 26; isolation: isolate; overflow: hidden;
+  height: 40px; gap: 8px; padding: 0 16px 0 8px; border: 1px solid hsl(var(--primary) / .22);
+  color: hsl(var(--foreground)); font-size: theme('fontSize.sm'); font-weight: 500;
+  background: linear-gradient(175deg, hsl(var(--muted)), hsl(var(--card)) 55%, hsl(var(--primary) / .13));
+  box-shadow: inset 0 1px 0 hsl(var(--foreground) / .1), 0 4px 16px hsl(var(--scrim) / .2);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+.studio-node-chat::after {
+  content: ""; position: absolute; bottom: 0; left: 24px; right: 24px; height: 1px;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary) / .6), transparent);
+}
+.studio-node-chat-mark {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px;
+  background: radial-gradient(circle at 40% 30%, hsl(var(--primary) / .2), hsl(var(--primary) / .04) 70%);
+}
+.studio-node-chat-mark img { width: 24px; height: 24px; transition: transform 220ms ease; }
+:root:not(.dark) .studio-node-chat-mark img,
+:root:not(.dark) .studio-sidebar[data-dock="right"] .studio-agent-tabs img { filter: brightness(.48) saturate(.85); }
+.studio-node-chat:hover { transform: translateY(-2px); border-color: hsl(var(--primary) / .5); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .15), 0 6px 24px hsl(var(--scrim) / .25); }
+.studio-node-chat:hover .studio-node-chat-mark img { transform: rotate(-8deg) scale(1.08); }
+.studio-node-chat:active { transform: translateY(0) scale(.97); }
+@media (prefers-reduced-motion: reduce) {
+  .studio-node-chat, .studio-node-chat-mark img { transition: none; }
+}
 .studio-node-caption { width: 100%; pointer-events: auto; height: 24px; top: -30px; }
 .studio-node-upload { top: auto; bottom: 24px; z-index: 2; }
 .studio-node-empty { border: none; background: hsl(var(--muted) / .45); }
@@ -1020,9 +1050,13 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { opacity: 1; }
 .studio-node-canvas .react-flow__edge.selected .react-flow__edge-path { stroke: hsl(var(--primary)); stroke-width: 2; }
 .studio-node-references { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
-.studio-node-reference { display: flex; align-items: center; gap: 5px; padding: 4px; border: 1px solid hsl(var(--border)); border-radius: 8px; }
+.studio-node-reference { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 6px; min-height: 32px; border: 1px solid hsl(var(--border) / .6); border-radius: 8px; background: hsl(var(--muted) / .4); }
+.studio-node-reference-add { height: 32px; padding: 0 8px; color: hsl(var(--muted-foreground)); border: 1px dashed hsl(var(--border)); border-radius: 8px; }
+.studio-node-reference-picker { z-index: 600; }
 .studio-node-reference > img { width: 28px; height: 28px; border-radius: 4px; object-fit: cover; }
-.studio-node-composer .studio-direct-card { border-radius: 16px; box-shadow: 0 12px 40px hsl(var(--scrim) / .13); }
+.studio-node-composer .studio-direct-card { gap: 12px; padding: 12px; border-radius: 16px; border-color: hsl(var(--border)); box-shadow: var(--shadow-popover); }
+.studio-node-composer .studio-direct-card:focus-within { border-color: hsl(var(--border)); }
+.studio-node-composer .studio-direct-card textarea { font-size: theme('fontSize.sm'); line-height: 1.5; padding: 0; }
 @media (max-width: 640px) {
  .studio-node-tools { left: 8px; padding: 4px; }
  .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
@@ -1033,3 +1067,15 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; }
 .studio-node-media-actions { position: absolute; z-index: 24; display: flex; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { pointer-events: all; }
+
+/* The docked agent uses a compact composer instead of the homepage input proportions. */
+.studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-composer { --creation-space: 12px; border-radius: 16px; }
+.studio-layout[data-node-canvas="true"] .creation-body { flex-direction: column; gap: 8px; }
+.studio-layout[data-node-canvas="true"] .creation-references { flex: 0 0 auto; width: auto; height: auto; }
+.studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] .creation-add { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
+.studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] .creation-add > span { display: none; }
+.studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-prompt { font-size: theme('fontSize.sm'); line-height: 1.5; min-height: 72px; max-height: 160px; }
+.studio-layout[data-node-canvas="true"] .creation-mode-trigger { height: 28px; min-height: 28px; padding: 0 8px; font-size: theme('fontSize.xs'); }
+.studio-layout[data-node-canvas="true"] .creation-toolbar { align-items: flex-end; gap: 8px; }
+.studio-layout[data-node-canvas="true"] .creation-tool-divider { display: none; }
+.studio-layout[data-node-canvas="true"] .creation-send { width: 32px; height: 32px; min-width: 32px; min-height: 32px; border-radius: 9999px; }
