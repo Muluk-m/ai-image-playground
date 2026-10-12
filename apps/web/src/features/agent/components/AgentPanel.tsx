@@ -68,8 +68,11 @@ function renderMessage(
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void,
   onPreviewProduction?: (pane?: ProductionPane) => void,
+  cached = false,
 ) {
   if (message.kind === 'tool') {
+    if (cached && message.batchId)
+      return <div className="rounded-lg border border-border p-3 text-sm">{message.title}</div>
     if (
       (message.toolName === 'writeProduction' || message.toolName === 'proposeStoryboard') &&
       message.status === 'succeeded' &&
@@ -183,6 +186,7 @@ export default function AgentPanel({
     if (presentation === 'page' && tab === 'layers') setTab('chat')
   }, [presentation, tab, setTab])
   const historyLoading = useAgentStore((state) => state.historyLoading)
+  const historyCached = useAgentStore((state) => state.historyCached)
   const historyFailed = useAgentStore((state) => state.historyFailed)
   const logRef = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
@@ -439,7 +443,11 @@ export default function AgentPanel({
                   const footer =
                     lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
                   return (
-                    <div key={message.id} className="studio-agent-message-block">
+                    <div
+                      key={`${message.id}:${historyCached}`}
+                      className="studio-agent-message-block"
+                      inert={historyCached && message.kind !== 'text'}
+                    >
                       <div className="studio-agent-fetched-strip">
                         {fetchedRun.map((image) => (
                           <div
@@ -478,9 +486,10 @@ export default function AgentPanel({
                   return null
                 return (
                   <div
-                    key={message.id}
+                    key={message.kind === 'text' ? message.id : `${message.id}:${historyCached}`}
                     data-agent-message-id={message.id}
                     className="studio-agent-message-block"
+                    inert={historyCached && message.kind !== 'text'}
                   >
                     {trail && (
                       <AgentActivityTrail
@@ -498,6 +507,7 @@ export default function AgentPanel({
                         onViewCanvas,
                         onPreviewResult,
                         onPreviewProduction,
+                        historyCached,
                       )}
                     {footer && (
                       <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
