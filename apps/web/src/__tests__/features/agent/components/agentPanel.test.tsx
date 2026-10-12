@@ -130,6 +130,7 @@ beforeEach(async () => {
     reconnecting: false,
     error: null,
     loaded: true,
+    historyCached: false,
     historyLoading: false,
     historyFailed: false,
   })
@@ -1797,4 +1798,39 @@ describe('AgentPanel', () => {
       expect(host.querySelector('button[aria-label^="现在插话"]')).toBeNull()
     })
   })
+})
+
+it('shows cached messages while syncing without mounting batch recovery effects', async () => {
+  const request = vi.fn(async (_input: unknown) => Response.json({ skills: [] }))
+  vi.stubGlobal('fetch', request)
+  useAgentStore.setState({
+    conversationId: 'cached-conversation',
+    historyCached: true,
+    historyLoading: true,
+    messages: [
+      {
+        kind: 'text',
+        id: 'cached-text',
+        turnId: 'old',
+        role: 'assistant',
+        text: '无需等待网络的回复',
+        streaming: false,
+      },
+      {
+        ...toolMessage('placed'),
+        id: 'cached-batch',
+        batchId: 'batch-cache-test',
+        title: '本地批次记录',
+      },
+    ],
+  })
+  render()
+  await settle()
+  expect(host.textContent).toContain('无需等待网络的回复')
+  expect(host.textContent).toContain('正在同步对话')
+  expect(host.textContent).toContain('本地批次记录')
+  expect(request.mock.calls.some(([url]) => String(url).includes('/batches/'))).toBe(false)
+  expect(host.querySelector('[data-agent-message-id="cached-batch"]')?.hasAttribute('inert')).toBe(
+    true,
+  )
 })

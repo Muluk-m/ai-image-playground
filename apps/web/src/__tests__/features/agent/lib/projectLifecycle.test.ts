@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { conversationCache } from '../../../../features/agent/lib/conversationCache'
 import { DraftSession } from '../../../../features/agent/lib/drafts'
 import {
   currentProjectDraft,
@@ -376,7 +377,9 @@ const conversationDeleted = (conversationId: string) =>
       String(url).endsWith(`/conversations/${conversationId}`) && init?.method === 'DELETE',
   )
 
-it('删除绑了会话的项目：会话一起删掉，面板的列表也摘掉它', async () => {
+it('删除绑了会话的项目：会话、缓存一起删掉，面板的列表也摘掉它', async () => {
+  const cache = conversationCache('conversation-42')
+  await cache.write({ messages: [], turns: {} })
   const target = await projectWithContent('绑了会话的草稿', 51)
   await useCanvasProjectStore.getState().update(target.id, { conversationId: 'conversation-42' })
   await projectWithContent('当前项目的草稿', 8)
@@ -388,6 +391,7 @@ it('删除绑了会话的项目：会话一起删掉，面板的列表也摘掉�
   expect(await deleteProject(target.id, panel)).toEqual({ ok: true })
 
   expect(conversationDeleted('conversation-42')).toBe(true)
+  expect(await cache.read()).toBeNull()
   expect(seen).toEqual(['forgetConversation:conversation-42'])
   expect((await projectRepository.list()).map((one) => one.id)).not.toContain(target.id)
 })
