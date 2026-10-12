@@ -1,16 +1,11 @@
 import { snapVideoKeyframeTimestamp, videoRateMultiplier } from '@image-playground/shared'
-import { ArrowUp, GripVertical } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import {
-  FIELD,
-  LABEL,
-  PANEL_SECTION,
-  PANEL_TITLE,
-  PRIMARY_BUTTON,
-} from '../../../components/panelStyles'
+import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import {
   Select,
@@ -19,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
@@ -140,21 +136,23 @@ export default function ReferenceVideoPopover({
               onDragEnd={() => setDragging(null)}
               className={`flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 ${dragging === index ? 'opacity-50' : ''}`}
             >
-              <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground" />
+              <Icon name="drag" className="shrink-0 cursor-grab text-muted-foreground" />
               <span className="w-12 shrink-0 text-xs text-muted-foreground">
                 {inputLabel(items, index)}
               </span>
               <InputThumb editor={editor} imageId={item.entry.imageId} />
               {/* 拖动之外给键盘一条路：往前挪一位。 */}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 aria-label={t('referenceVideo.moveUp', { no: index + 1 })}
                 disabled={index === 0}
                 onClick={() => setItems((current) => moveInputItem(current, index, index - 1))}
-                className="ml-auto grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-50"
+                className="ml-auto text-muted-foreground"
               >
-                <ArrowUp className="h-3.5 w-3.5" />
-              </button>
+                <Icon name="chevronUp" />
+              </Button>
               <Select
                 value={item.role}
                 onValueChange={(role) =>
@@ -213,13 +211,13 @@ export default function ReferenceVideoPopover({
         </ol>
 
         <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
-        <textarea
+        <Textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           rows={4}
           aria-label={t('video:field.description')}
           placeholder={t('referenceVideo.placeholder')}
-          className={`${FIELD} resize-none`}
+          className="resize-none"
         />
 
         <div className="mt-3 flex flex-col gap-2">
@@ -267,12 +265,13 @@ export default function ReferenceVideoPopover({
             blockedAction={guard.blockedAction}
             className="mb-1.5 text-label-sm"
           />
-          <button
+          <Button
             type="button"
+            size="sm"
+            className="w-full"
             disabled={guard.blocked || !prompt.trim() || Boolean(refusal) || submitting}
             title={guard.disabledReason}
             onClick={() => void submit()}
-            className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
           >
             {guard.estimatedCredits === undefined ? (
               t('referenceVideo.submit')
@@ -281,7 +280,7 @@ export default function ReferenceVideoPopover({
                 {t('referenceVideo.submit')} · <Credits credits={guard.estimatedCredits} />
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>

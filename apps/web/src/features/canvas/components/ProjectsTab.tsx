@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectGrid from './ProjectGrid'
@@ -23,9 +24,11 @@ export default function ProjectsTab({ search }: { search: string }) {
       {projectError ? (
         <div role="alert" className="py-10 text-sm text-muted-foreground">
           {projectError}
-          <button
+          <Button
             type="button"
-            className="ml-3 text-primary underline"
+            variant="link"
+            size="sm"
+            className="ml-3 h-auto p-0"
             onClick={() =>
               void useCanvasProjectStore
                 .getState()
@@ -34,7 +37,7 @@ export default function ProjectsTab({ search }: { search: string }) {
             }
           >
             {t('panel.reloadProjects')}
-          </button>
+          </Button>
         </div>
       ) : (
         <ProjectGrid search={search} />

@@ -1,4 +1,4 @@
-import { Copy, FileText, X } from 'lucide-react'
+import { Bug, Copy, X } from 'lucide-react'
 import { useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
@@ -88,7 +88,7 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
           aria-label={t('diagnostic.title')}
           title={t('diagnostic.title')}
         >
-          <FileText className="h-3 w-3" aria-hidden="true" />
+          <Bug className="size-4" aria-hidden="true" />
           <span className="sr-only">{t('diagnostic.title')}</span>
         </Button>
       </PopoverTrigger>
