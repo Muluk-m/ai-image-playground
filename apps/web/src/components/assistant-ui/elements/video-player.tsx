@@ -56,6 +56,7 @@ export function VideoPlayer({
   const [attempt, setAttempt] = useState(0)
   const [dimensions, setDimensions] = useState<{ src: string; ratio: string }>()
   const displayRatio = dimensions?.src === src ? dimensions.ratio : aspectRatio
+  const frameStyle = playerFrameStyle(displayRatio)
   const loading = loadMedia && failure !== src && (ready !== src || waiting)
   useEffect(() => {
     if (!loading) return
@@ -108,7 +109,7 @@ export function VideoPlayer({
           ? 'relative w-full overflow-hidden bg-black'
           : 'relative max-w-full self-start overflow-hidden rounded-xl bg-black'
       }
-      style={playerFrameStyle(displayRatio)}
+      style={{ ...frameStyle, width: fill ? '100%' : frameStyle.width }}
     >
       <video
         ref={media}

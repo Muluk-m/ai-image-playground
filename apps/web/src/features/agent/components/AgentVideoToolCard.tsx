@@ -224,7 +224,10 @@ export default function AgentVideoToolCard({
         'flex min-w-0 max-w-full flex-col rounded-2xl border border-border bg-card',
         hasMedia ? 'self-start overflow-hidden' : 'gap-3 p-3 sm:p-4',
       )}
-      style={{ width: hasMedia ? `min(28rem, ${playerFrameStyle(cardRatio).width})` : '100%' }}
+      style={{
+        width: hasMedia ? `min(28rem, ${playerFrameStyle(cardRatio).width})` : '100%',
+        minWidth: hasMedia ? 'min(20rem, 100%)' : undefined,
+      }}
     >
       {hasMedia && (
         <div className="flex flex-col items-start gap-px bg-border">

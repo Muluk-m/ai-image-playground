@@ -1,7 +1,10 @@
 import { ASSET_KINDS, LOOK_PURPOSES } from '@image-playground/shared'
 import { useRef, useState } from 'react'
-import { CloseIcon, FolderIcon, PlusIcon, SparkleIcon } from '../../../components/icons'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Input } from '../../../components/ui/input'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import {
@@ -14,10 +17,8 @@ import type { AssetKind, LookPurpose } from '../types'
 
 const NAME_MAX = 20
 
-const FIELD =
-  'w-full rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring'
-const CHOICE =
-  'h-10 flex-1 rounded-xl border text-sm transition focus:outline-none focus:ring-2 focus:ring-ring'
+const CHOICE_ON = 'border-primary bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary'
+const CHOICE_OFF = 'border-border text-muted-foreground hover:bg-muted hover:text-muted-foreground'
 
 /** 「用智能体创建」：跳到创作页、目标切成画布、命令放进输入框，等用户自己点发送。 */
 export function handoffToAgent(command: string): void {
@@ -104,23 +105,27 @@ export default function CreateRecordDialog(props: Props) {
         <div className="mb-5 flex items-center gap-2">
           <h3 className="text-lg font-semibold text-foreground">{t(`${ns}.title`)}</h3>
           {props.agentReady && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => handoffToAgent(command)}
-              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 text-body-sm font-medium text-primary transition hover:bg-primary/15"
+              className="ml-auto h-9 gap-1.5 border-primary/50 bg-primary/10 px-3 text-body-sm font-medium text-primary hover:bg-primary/15 hover:text-primary"
             >
-              <SparkleIcon className="h-4 w-4" />
+              <Icon name="generate" />
               {isAsset ? t('asset.createWithAgent') : t('look.createWithAgent')}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={props.onClose}
             aria-label={t('common:action.close')}
-            className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            <CloseIcon className="h-5 w-5" />
-          </button>
+            <Icon name="close" />
+          </Button>
         </div>
 
         <span className="mb-1.5 block text-body-sm font-medium text-foreground">
@@ -153,14 +158,16 @@ export default function CreateRecordDialog(props: Props) {
                     alt=""
                     className="h-20 w-20 rounded-lg border border-border object-cover"
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
                     aria-label={t('common:action.delete')}
-                    className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 p-0.5 text-white"
+                    className="absolute -right-1.5 -top-1.5 size-5 rounded-full bg-black/70 p-0 text-white hover:bg-black/80 hover:text-white"
                   >
-                    <CloseIcon className="h-3 w-3" />
-                  </button>
+                    <Icon name="close" size="xs" />
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -168,23 +175,27 @@ export default function CreateRecordDialog(props: Props) {
             <p className="text-sm text-muted-foreground">{t(`${ns}.dropHint`)}</p>
           )}
           <div className="flex flex-wrap justify-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-body-sm text-foreground transition hover:bg-muted"
+              className="h-9 border-border bg-card px-4 font-normal text-foreground hover:bg-muted"
             >
-              <PlusIcon className="h-4 w-4" />
+              <Icon name="add" />
               {t(`${ns}.fromLocal`)}
-            </button>
+            </Button>
             {isAsset && (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => folderInputRef.current?.click()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-body-sm text-foreground transition hover:bg-muted"
+                className="h-9 border-border bg-card px-4 font-normal text-foreground hover:bg-muted"
               >
-                <FolderIcon className="h-4 w-4" />
+                <Icon name="folder" />
                 {t('createAsset.fromFolder')}
-              </button>
+              </Button>
             )}
           </div>
           <input
@@ -221,12 +232,12 @@ export default function CreateRecordDialog(props: Props) {
               {t(`${ns}.name`)} <span className="text-destructive">*</span>
             </span>
             <span className="relative block">
-              <input
+              <Input
                 value={name}
                 onChange={(e) => setName(e.target.value.slice(0, NAME_MAX))}
                 placeholder={t(`${ns}.namePlaceholder`)}
                 maxLength={NAME_MAX}
-                className={`${FIELD} pr-14`}
+                className="rounded-xl border-border bg-muted/60 pr-14 shadow-none"
               />
               <span className="pointer-events-none absolute right-3 top-3 text-label-sm text-muted-foreground">
                 {name.length}/{NAME_MAX}
@@ -240,28 +251,30 @@ export default function CreateRecordDialog(props: Props) {
             <div className="flex gap-1.5" role="radiogroup">
               {isAsset
                 ? ASSET_KINDS.map((one) => (
-                    <button
+                    <Button
                       key={one}
                       type="button"
+                      variant="outline"
                       role="radio"
                       aria-checked={assetKind === one}
                       onClick={() => setAssetKind(one)}
-                      className={`${CHOICE} ${assetKind === one ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
+                      className={`h-10 flex-1 rounded-xl font-normal ${assetKind === one ? CHOICE_ON : CHOICE_OFF}`}
                     >
                       {t(`asset.kind.${one}`)}
-                    </button>
+                    </Button>
                   ))
                 : LOOK_PURPOSES.map((one) => (
-                    <button
+                    <Button
                       key={one}
                       type="button"
+                      variant="outline"
                       role="radio"
                       aria-checked={purpose === one}
                       onClick={() => setPurpose(one)}
-                      className={`${CHOICE} ${purpose === one ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
+                      className={`h-10 flex-1 rounded-xl font-normal ${purpose === one ? CHOICE_ON : CHOICE_OFF}`}
                     >
                       {t(`look.purpose.${one}`)}
-                    </button>
+                    </Button>
                   ))}
             </div>
           </div>
@@ -272,31 +285,28 @@ export default function CreateRecordDialog(props: Props) {
             <span className="mb-1.5 block text-body-sm font-medium text-foreground">
               {t('createLook.description')}
             </span>
-            <textarea
+            <Textarea
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('createLook.descriptionPlaceholder')}
-              className={`${FIELD} resize-none`}
+              className="min-h-0 resize-none rounded-xl border-border bg-muted/60 shadow-none"
             />
           </label>
         )}
 
         <div className="mt-5 flex items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={props.onClose}
-            className="rounded-xl px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
+            className="text-muted-foreground"
           >
             {t('common:action.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={!canSave}
-            className="rounded-xl bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-          >
+          </Button>
+          <Button type="submit" disabled={!canSave}>
             {t(`${ns}.save`)}
-          </button>
+          </Button>
         </div>
       </form>
     </Overlay>
