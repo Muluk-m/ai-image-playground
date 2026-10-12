@@ -77,9 +77,17 @@ export interface CanvasAnnotation {
   strokeWidth: number
 }
 
+/** 一条有向连线。下游只把直接上游当作上下文，不沿祖先链展开。 */
+export interface CanvasEdge {
+  id: string
+  source: string
+  target: string
+}
+
 export interface CanvasSnapshot {
   nodes: CanvasNode[]
   annotations: CanvasAnnotation[]
+  edges: CanvasEdge[]
 }
 
 interface LegacyPlaceholder {
@@ -115,11 +123,96 @@ function annotationsOf(doc: Y.Doc): Y.Map<CanvasAnnotation> {
   return doc.getMap('annotations')
 }
 
+function edgesOf(doc: Y.Doc): Y.Map<CanvasEdge> {
+  return doc.getMap('edges')
+}
+
 /** 节点按写入顺序给出；叠放看 `z`。标注按 `z` 排好，绘制层直接按序画。 */
 export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
   const nodes = [...nodesOf(doc).values()].map((map) => map.toJSON() as CanvasNode)
   const annotations = [...annotationsOf(doc).values()].sort((a, b) => a.z - b.z)
-  return { nodes, annotations }
+  const edges = [...edgesOf(doc).values()]
+  return { nodes, annotations, edges }
+}
+
+function nextZ(doc: Y.Doc): number {
+  let z = -1
+  for (const node of nodesOf(doc).values()) z = Math.max(z, Number(node.get('z')) || 0)
+  for (const annotation of annotationsOf(doc).values()) z = Math.max(z, annotation.z || 0)
+  return z + 1
+}
+
+function dropEdgesTouching(edges: Y.Map<CanvasEdge>, ids: readonly string[]): void {
+  if (ids.length === 0) return
+  const gone = new Set(ids)
+  for (const [id, edge] of [...edges.entries()]) {
+    if (gone.has(edge.source) || gone.has(edge.target)) edges.delete(id)
+  }
+}
+
+/** 放一个还没有旧元素的节点（空图片卡）。几何与 `data` 整份写入。 */
+export function insertCanvasNode(
+  doc: Y.Doc,
+  node: Omit<CanvasNode, 'z'>,
+  origin: CanvasOrigin,
+): void {
+  if (nodesOf(doc).has(node.id)) return
+  const z = nextZ(doc)
+  doc.transact(() => writeNode(doc, { ...node, z }), origin)
+}
+
+/** 改一个节点的几何或整份 `data`。没变的字段不动。 */
+export function updateCanvasNode(
+  doc: Y.Doc,
+  id: string,
+  patch: Partial<Pick<CanvasNode, 'x' | 'y' | 'width' | 'height'>> & { data?: CanvasNode['data'] },
+  origin: CanvasOrigin,
+): void {
+  const node = nodesOf(doc).get(id)
+  if (!node) return
+  doc.transact(() => {
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined && !sameField(node.get(key), value)) node.set(key, value)
+    }
+  }, origin)
+}
+
+/** 删掉节点，并拆掉一头已经悬空的线。 */
+export function deleteCanvasNode(doc: Y.Doc, id: string, origin: CanvasOrigin): void {
+  const nodes = nodesOf(doc)
+  if (!nodes.has(id)) return
+  doc.transact(() => {
+    nodes.delete(id)
+    dropEdgesTouching(edgesOf(doc), [id])
+  }, origin)
+}
+
+/**
+ * 接一条 `source → target`。自己连自己、缺节点、重复的同一对都丢掉。
+ * 同一对的 id 固定，撤销和去重都认它。
+ */
+export function connectCanvasNodes(
+  doc: Y.Doc,
+  link: { source: string; target: string },
+  origin: CanvasOrigin,
+): boolean {
+  const { source, target } = link
+  if (!source || !target || source === target) return false
+  const nodes = nodesOf(doc)
+  const edges = edgesOf(doc)
+  const id = `${source}:${target}`
+  if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return false
+  doc.transact(() => {
+    if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return
+    edges.set(id, { id, source, target })
+  }, origin)
+  return edges.has(id)
+}
+
+export function disconnectCanvasNodes(doc: Y.Doc, id: string, origin: CanvasOrigin): void {
+  const edges = edgesOf(doc)
+  if (!edges.has(id)) return
+  doc.transact(() => edges.delete(id), origin)
 }
 
 // 几何是逐字段可合并的；`data` 先整块存，按节点能力逐步换成细粒度的 Yjs 类型。
@@ -202,11 +295,14 @@ export function synchronizeLegacyElements(
   const nodes = nodesOf(doc)
   const annotations = annotationsOf(doc)
   doc.transact(() => {
+    const removed: string[] = []
     for (const id of before.keys()) {
       if (after.has(id)) continue
+      if (nodes.has(id)) removed.push(id)
       nodes.delete(id)
       annotations.delete(id)
     }
+    dropEdgesTouching(edgesOf(doc), removed)
     for (const [id, item] of after) {
       const old = before.get(id)
       if (old && sameField(old, item)) continue
@@ -300,7 +396,7 @@ export function moveCanvasNodes(
 
 /** 只撤销 `origin` 自己的改动；一次调用是一步，连续拖动在合并窗口内也算一步。 */
 export function createCanvasUndoManager(doc: Y.Doc, origin: CanvasOrigin): Y.UndoManager {
-  return new Y.UndoManager([nodesOf(doc), annotationsOf(doc)], {
+  return new Y.UndoManager([nodesOf(doc), annotationsOf(doc), edgesOf(doc)], {
     trackedOrigins: new Set([origin]),
     captureTimeout: 300,
   })
