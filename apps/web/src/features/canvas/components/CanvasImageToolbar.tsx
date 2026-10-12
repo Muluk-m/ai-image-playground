@@ -1,16 +1,8 @@
-import {
-  Crop,
-  Eraser,
-  Expand,
-  MoreHorizontal,
-  Pencil,
-  Ratio,
-  Scissors,
-  Wand2,
-  X,
-} from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { SettingsSegmented } from '../../../components/composer/SettingsPanel'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { loadImage } from '../../../lib/canvasImage'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
@@ -27,7 +19,6 @@ import { inpaintRefusal } from '../lib/submitInpaint'
 import { useRectEdit } from '../rectEditStore'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
-import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 import InpaintPanel from './InpaintPanel'
 
 type EditAction = 'inpaint' | 'erase' | 'cutout' | 'edit' | 'crop' | 'outpaint' | 'resize'
@@ -306,7 +297,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         >
           <CanvasToolbarButton
             compact
-            icon={<Wand2 />}
+            icon={<Icon name="wand" />}
             label={t('inpaint.action')}
             reason={paintReason}
             disabled={pending}
@@ -314,7 +305,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Eraser />}
+            icon={<Icon name="erase" />}
             label={t('erase.action')}
             reason={paintReason}
             disabled={pending}
@@ -322,7 +313,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Scissors />}
+            icon={<Icon name="removeBg" />}
             label={t('cutout.action')}
             reason={sourceMissing}
             disabled={pending}
@@ -330,7 +321,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Pencil />}
+            icon={<Icon name="edit" />}
             label={t('imageEdit.singleAction')}
             reason={sourceMissing}
             disabled={pending}
@@ -338,7 +329,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Crop />}
+            icon={<Icon name="crop" />}
             label={t('crop.action')}
             reason={sourceMissing}
             disabled={pending}
@@ -346,7 +337,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Expand />}
+            icon={<Icon name="fullscreen" />}
             label={t('outpaint.action')}
             reason={outpaintReason}
             disabled={pending}
@@ -354,7 +345,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Ratio />}
+            icon={<Icon name="ratio" />}
             label={t('resize.action')}
             reason={sourceMissing}
             disabled={pending}
@@ -362,7 +353,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<MoreHorizontal />}
+            icon={<Icon name="more" />}
             label={t('imageToolbar.more')}
             disabled={pending}
             onClick={(button) => {
@@ -371,15 +362,17 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             }}
           />
           {expanded && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               aria-label={t('common:action.close')}
-              className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+              className="ml-auto text-muted-foreground"
               disabled={pending}
               onClick={close}
             >
-              <X className="h-4 w-4" />
-            </button>
+              <Icon name="close" />
+            </Button>
           )}
         </div>
         {painting && (
@@ -396,35 +389,23 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           <div className="space-y-3 p-3">
             <h3 className="text-sm font-semibold">{actionTitle[expanded]}</h3>
             {expanded === 'resize' && (
-              <div className="flex flex-wrap gap-1.5" aria-label={t('resize.action')}>
-                {RATIOS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={ratio === value}
-                    className={
-                      'rounded-lg border px-2.5 py-1 text-xs ' +
-                      (ratio === value
-                        ? 'border-primary text-primary'
-                        : 'border-border text-muted-foreground')
-                    }
-                    onClick={() => setRatio(value)}
-                  >
-                    {value}
-                  </button>
-                ))}
-              </div>
+              <SettingsSegmented
+                label={t('resize.action')}
+                value={ratio}
+                onChange={setRatio}
+                options={RATIOS.map((value) => ({ value, label: value }))}
+              />
             )}
             {framing && (
               <p className="text-xs text-muted-foreground">{t('imageToolbar.dragFrame')}</p>
             )}
-            <textarea
+            <Textarea
               autoFocus
               rows={3}
               value={prompt}
               aria-label={t('inpaint.promptAria')}
               placeholder={t('imageToolbar.promptPlaceholder')}
-              className={CANVAS_PANEL_FIELD + ' w-full resize-none'}
+              className="resize-none"
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -434,19 +415,19 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
               }}
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className={OUTLINE_BUTTON} disabled={pending} onClick={close}>
+              <Button type="button" variant="outline" size="sm" disabled={pending} onClick={close}>
                 {t('common:action.cancel')}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                size="sm"
                 disabled={
                   pending || (expanded === 'edit' && !prompt.trim()) || (framing && !frameChanged)
                 }
-                className={PRIMARY_BUTTON}
                 onClick={() => void send()}
               >
                 {t('imageToolbar.sendToAgent')}
-              </button>
+              </Button>
             </div>
           </div>
         )}

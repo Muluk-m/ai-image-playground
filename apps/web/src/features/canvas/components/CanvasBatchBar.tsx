@@ -1,5 +1,5 @@
-import { Download, Ratio, Scissors, Trash2, Wand2, X } from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -92,21 +92,21 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
         </span>
         <CanvasToolbarButton
           compact
-          icon={<Scissors />}
+          icon={<Icon name="removeBg" />}
           label={t('cutout.action')}
           reason={batchRefusal((image) => cutoutRefusal(image, settings))}
           onClick={() => setPending({ kind: 'cutout' })}
         />
         <CanvasToolbarButton
           compact
-          icon={<Wand2 />}
+          icon={<Icon name="wand" />}
           label={t('imageEdit.action')}
           reason={batchRefusal((image) => imageEditRefusal(image, settings))}
           onClick={() => setEditing(true)}
         />
         <CanvasToolbarButton
           compact
-          icon={<Ratio />}
+          icon={<Icon name="ratio" />}
           label={t('resize.action')}
           reason={batchRefusal((image) => resizeRefusal(image, settings))}
           onClick={(button) => {
@@ -117,7 +117,7 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
         <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
         <CanvasToolbarButton
           compact
-          icon={<Download />}
+          icon={<Icon name="download" />}
           label={
             exportable.length > 0
               ? t('batch.export', { count: exportable.length })
@@ -129,13 +129,13 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
         <CanvasToolbarButton
           compact
           destructive
-          icon={<Trash2 />}
+          icon={<Icon name="delete" />}
           label={t('toolbar.deleteSelected')}
           onClick={() => doc.deleteSelection()}
         />
         <CanvasToolbarButton
           compact
-          icon={<X />}
+          icon={<Icon name="close" />}
           label={t('batch.clear')}
           onClick={() => doc.setSelection([])}
         />

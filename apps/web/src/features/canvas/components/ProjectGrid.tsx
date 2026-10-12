@@ -1,8 +1,8 @@
-import { MessageCircle, MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
-import { CanvasIcon, PlusIcon, TrashIcon, VideoIcon } from '../../../components/icons'
+import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
+import { Icon, type IconName } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
@@ -24,22 +24,26 @@ import { useCanvasProjectStore } from '../projectStore'
 import ProjectCover from './ProjectCover'
 import ProjectTrash from './ProjectTrash'
 
-function projectBadge(project: CanvasProject) {
+function projectBadge(project: CanvasProject): {
+  icon: IconName
+  label: 'grid.chat' | 'project.kindVideo' | 'grid.canvas'
+  tone: string
+} {
   if (projectExperience(project) === 'chat') {
     return {
-      Icon: MessageCircle,
+      icon: 'chat',
       label: 'grid.chat',
       tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-    } as const
+    }
   }
   if (project.kind === 'video') {
     return {
-      Icon: VideoIcon,
+      icon: 'video',
       label: 'project.kindVideo',
       tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-    } as const
+    }
   }
-  return { Icon: CanvasIcon, label: 'grid.canvas', tone: 'bg-primary/15 text-primary' } as const
+  return { icon: 'canvas', label: 'grid.canvas', tone: 'bg-primary/15 text-primary' }
 }
 
 type ExperienceFilter = 'all' | 'chat' | 'canvas'
@@ -114,34 +118,25 @@ export default function ProjectGrid({
     }
   }
   if (trash) return <ProjectTrash onBack={() => setTrash(false)} onOpen={enter} />
-  const toolbarButton =
-    'inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground disabled:opacity-50'
   return (
     <>
       {showFilter && (
         <div className="mb-5 flex flex-wrap items-center gap-2">
-          <div
-            role="radiogroup"
-            aria-label={t('grid.filterAria')}
-            className="mr-auto inline-flex rounded-xl bg-muted p-[3px]"
-          >
-            {FILTERS.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={filter === value}
-                onClick={() => setFilter(value)}
-                className={`inline-flex h-7 items-center gap-1 rounded-lg px-3 text-xs transition-colors ${
-                  filter === value
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {t(label)}
-                <span className="tabular-nums opacity-60">{counts[value]}</span>
-              </button>
-            ))}
+          <div className="mr-auto">
+            <SegmentedTabs
+              label={t('grid.filterAria')}
+              value={filter}
+              onChange={setFilter}
+              tabs={FILTERS.map(({ value, label }) => ({
+                value,
+                label: (
+                  <span className="inline-flex items-center gap-1">
+                    {t(label)}
+                    <span className="tabular-nums text-muted-foreground">{counts[value]}</span>
+                  </span>
+                ),
+              }))}
+            />
           </div>
           {cloudProjectsEnabled() && (
             <>
@@ -150,23 +145,24 @@ export default function ProjectGrid({
                   {cloudError}
                 </span>
               )}
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={cloudLoading}
                 onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
-                className={toolbarButton}
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${cloudLoading ? 'animate-spin' : ''}`} />
+                <Icon name="refresh" className={cloudLoading ? 'animate-spin' : undefined} />
                 {cloudLoading
                   ? t('grid.loadingCloud')
                   : cloudError
                     ? t('grid.retryCloud')
                     : t('grid.refreshCloud')}
-              </button>
-              <button type="button" onClick={() => setTrash(true)} className={toolbarButton}>
-                <TrashIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setTrash(true)}>
+                <Icon name="delete" />
                 {t('trash.title')}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -174,7 +170,7 @@ export default function ProjectGrid({
       <div className="grid grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {!search && !recent && (
           <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border text-muted-foreground">
-            <PlusIcon className="h-7 w-7" />
+            <Icon name="add" size="lg" />
             <span className="text-sm font-medium">{t('grid.newProject')}</span>
             {/* 画布类型建后不可改，所以在这里问一次，而不是进去再切。 */}
             <div className="flex flex-wrap justify-center gap-2">
@@ -203,18 +199,19 @@ export default function ProjectGrid({
           </div>
         )}
         {visible.map((project) => {
-          const { Icon: TypeIcon, label, tone } = projectBadge(project)
+          const { icon, label, tone } = projectBadge(project)
           const typeLabel = t(label)
           const isCurrent = project.id === selectedId
           const statusLabel = [typeLabel, ...(isCurrent ? [t('grid.current')] : [])].join(' · ')
           return (
             <article key={project.id} className="group relative">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 disabled={busy}
                 aria-label={`${t('grid.openAria', { name: projectEntryName(project) })} · ${statusLabel}`}
                 onClick={() => void enter(project)}
-                className="block w-full rounded-2xl text-left disabled:opacity-50"
+                className="block h-auto w-full whitespace-normal rounded-2xl p-0 text-left font-normal hover:bg-transparent disabled:opacity-50"
               >
                 <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted transition-colors group-hover:border-primary/50">
                   <ProjectCover
@@ -231,7 +228,7 @@ export default function ProjectGrid({
                   <span
                     className={`inline-flex h-[22px] flex-none items-center gap-1 rounded-md px-1.5 text-xs font-medium ${tone}`}
                   >
-                    <TypeIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                    <Icon name={icon} size="xs" />
                     {typeLabel}
                   </span>
                   {isCurrent && (
@@ -249,7 +246,7 @@ export default function ProjectGrid({
                     {projectEntryName(project)}
                   </h3>
                 </div>
-              </button>
+              </Button>
               <time
                 className="mt-1 block truncate px-0.5 text-xs text-muted-foreground"
                 dateTime={new Date(project.updatedAt).toISOString()}
@@ -266,7 +263,7 @@ export default function ProjectGrid({
                     aria-label={t('grid.actionsAria', { name: projectEntryName(project) })}
                     tooltip={t('grid.actions')}
                   >
-                    <MoreHorizontal />
+                    <Icon name="more" />
                   </TooltipIconButton>
                 </PopoverTrigger>
                 <PopoverContent
@@ -282,7 +279,7 @@ export default function ProjectGrid({
                       setRenaming(project)
                     }}
                   >
-                    <Pencil /> {t('grid.rename')}
+                    <Icon name="edit" /> {t('grid.rename')}
                   </Button>
                   {!recent && (!project.cloud || project.cloud.revision > 0) && (
                     <Button
@@ -301,7 +298,7 @@ export default function ProjectGrid({
                         })
                       }}
                     >
-                      <TrashIcon className="h-4 w-4" /> {t('grid.deleteTitle')}
+                      <Icon name="delete" /> {t('grid.deleteTitle')}
                     </Button>
                   )}
                 </PopoverContent>
@@ -312,14 +309,15 @@ export default function ProjectGrid({
       </div>
       {showFilter && cloudProjectsEnabled() && cloudCursor && (
         <div className="mt-8 flex justify-center">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={cloudLoading}
             onClick={() => void useCanvasProjectStore.getState().refreshCloud(true)}
-            className={toolbarButton}
           >
             {t('grid.loadMore')}
-          </button>
+          </Button>
         </div>
       )}
       {search && !visible.length && (

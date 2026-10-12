@@ -6,6 +6,9 @@ import CanvasImageToolbar from '../../../../features/canvas/components/CanvasIma
 import { useInpaintSession } from '../../../../features/canvas/inpaintStore'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { stubPointerApis } from '../../../helpers/radix'
+
+stubPointerApis()
 
 vi.mock('../../../../lib/canvasImage', () => ({
   loadImage: async () => ({ naturalWidth: 1024, naturalHeight: 1024 }),
