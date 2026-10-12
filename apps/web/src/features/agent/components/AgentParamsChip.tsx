@@ -32,8 +32,10 @@ const DEPTHS = ['fast', 'medium', 'deep'] as const
  */
 export default function AgentParamsChip({
   generationControls = true,
+  thinkingControls = true,
 }: {
   generationControls?: boolean
+  thinkingControls?: boolean
 }) {
   const { t } = useTranslation(['agent', 'composer'])
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
@@ -81,14 +83,16 @@ export default function AgentParamsChip({
         size="sm"
         unsupported={UNSUPPORTED}
         extra={{
-          dirty: depth !== 'medium',
-          reset: () => setDepth('medium'),
+          dirty: thinkingControls && depth !== 'medium',
+          reset: () => {
+            if (thinkingControls) setDepth('medium')
+          },
           badge: autoSubmit ? (
             <Zap aria-label={t('params.autoSubmitLabel')} className="h-3.5 w-3.5 text-primary" />
           ) : undefined,
           section: (
             <>
-              {thinking}
+              {thinkingControls && thinking}
               <SettingsToggle
                 label={t('params.autoSubmitLabel')}
                 description={t('params.autoSubmitHint')}

@@ -54,6 +54,7 @@ import {
   useCanvasProjectStore,
 } from '../canvas/projectStore'
 import { productionTurnContext } from '../production/lib/productionContext'
+import { useVideoStore } from '../video/store'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import { abortRecoveries, type PendingAbortRecovery } from './lib/abortRecovery'
 import {
@@ -1199,12 +1200,23 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   }
 
   /** 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。 */
-  const currentTurnParams = () => {
+  const currentTurnParams = (mode: AgentMode) => {
     const { params, settings } = useStore.getState()
     const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
     return {
       ...toAgentTurnParams(params, model, get().autoSubmit),
       thinkingDepth: get().thinkingDepth,
+      ...(mode === 'video' && useVideoStore.getState().draft.model
+        ? {
+            video: {
+              model: useVideoStore.getState().draft.model,
+              durationSeconds: useVideoStore.getState().draft.duration,
+              aspectRatio: useVideoStore.getState().draft.aspectRatio,
+              resolution: useVideoStore.getState().draft.resolution,
+              voiceIds: useVideoStore.getState().draft.voices,
+            },
+          }
+        : {}),
     }
   }
 
@@ -1741,7 +1753,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     ) {
       const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
-        ...currentTurnParams(),
+        ...currentTurnParams(mode),
         ...productionTurnContext(get().conversationId),
         ...(modelOverride ? { model: modelOverride } : {}),
       }

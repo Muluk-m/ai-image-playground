@@ -15,6 +15,7 @@ import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
+import { CreationBody, CreationFrame } from './CreationFrame'
 import type {
   CreationCatalog,
   CreationDraft,
@@ -22,7 +23,6 @@ import type {
   CreationMode,
   DraftAction,
 } from './draft'
-import './creation.css'
 
 export const creationModeIcons = { agent: 'chat', image: 'imageAdd', video: 'video' } as const
 export function CreationComposer({
@@ -237,7 +237,7 @@ export function CreationComposer({
     </div>
   )
   return (
-    <section
+    <CreationFrame
       className={`creation-composer creation-layout-${layout}`}
       aria-label={t('studio.composer')}
     >
@@ -270,8 +270,7 @@ export function CreationComposer({
           })}
         </div>
       )}
-      <div className="creation-body">
-        {references}
+      <CreationBody references={references}>
         <PromptEditor
           editor={editor}
           role="textbox"
@@ -280,7 +279,7 @@ export function CreationComposer({
           placeholder={placeholders[draft.mode]}
           className="creation-prompt"
         />
-      </div>
+      </CreationBody>
       <div className="creation-toolbar">
         <div className="creation-tools">
           {layout === 'A' && (
@@ -328,6 +327,6 @@ export function CreationComposer({
           {parameters}
         </aside>
       )}
-    </section>
+    </CreationFrame>
   )
 }

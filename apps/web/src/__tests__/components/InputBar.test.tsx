@@ -135,20 +135,20 @@ describe('首屏的生成设置', () => {
     expect(group('格式')).not.toBeNull()
   })
 
-  it('交给智能体时只留画幅：张数、质量、格式都由它自己定', () => {
+  it('交给智能体时保留模型参数，张数由它自己定', () => {
     remount('canvas')
     expect(settingsChip().getAttribute('aria-label')).not.toContain('张')
     const group = openSettings()
     expect(group('比例')).not.toBeNull()
     expect(group('数量')).toBeNull()
-    expect(group('质量')).toBeNull()
-    expect(group('格式')).toBeNull()
+    expect(group('质量')).not.toBeNull()
+    expect(group('格式')).not.toBeNull()
   })
 
   it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
     remount('chat')
     expect(openSettings()('数量')).toBeNull()
-    expect(editor().getAttribute('data-placeholder')).toContain('讨论思路')
+    expect(editor().getAttribute('data-placeholder')).toContain('梳理思路')
     expect(useStore.getState().createTarget).toBe('chat')
   })
 
@@ -239,7 +239,7 @@ describe('首屏的生成设置', () => {
     const group = openSettings()
     expect(group('比例')).not.toBeNull()
     expect(group('分辨率')).not.toBeNull()
-    expect(group('思考')).toBeNull()
+    expect(group('思考')).not.toBeNull()
     expect(group('数量')).toBeNull()
   })
 })
@@ -372,7 +372,7 @@ describe('开头的 /技能 命令', () => {
     })
     remount('generate')
     const submit = () =>
-      [...host.querySelectorAll('button')].find((one) => one.textContent?.trim() === '生成')
+      [...host.querySelectorAll('button')].find((one) => one.getAttribute('aria-label') === '生成')
 
     setPrompt('做个模板')
     expect(submit()?.disabled).toBe(false)
@@ -421,13 +421,13 @@ it('template preparation turns the send button into a click-only stop, even with
       send!.click()
     })
     expect(useLookSubmission.getState().submitting).toBe(true)
-    expect(send!.textContent).toContain('取消')
+    expect(send!.getAttribute('aria-label')).toBe('取消')
     expect(send!.textContent).not.toContain('■')
     expect(send!.querySelector('svg')).not.toBeNull()
     type('new draft')
     // 输入框有字也照样能停。
     expect(send!.disabled).toBe(false)
-    expect(send!.textContent).toContain('取消')
+    expect(send!.getAttribute('aria-label')).toBe('取消')
     // 回车既不取消也不另发一条。
     for (const enterSubmit of [true, false]) {
       act(() => useStore.getState().setSettings({ enterSubmit }))
@@ -455,4 +455,26 @@ it('template preparation turns the send button into a click-only stop, even with
     })
     fetcher.mockRestore()
   }
+})
+
+it('shares text and references across creation modes while restoring each image parameter selection', () => {
+  const references = [{ id: 'shared-reference', dataUrl: 'data:image/png;base64,AA' }]
+  act(() => {
+    useStore.setState({
+      createTarget: 'generate',
+      creationSelections: {},
+      prompt: 'shared prompt',
+      inputImages: references,
+    })
+    useStore.getState().setParams({ size: '1280x720', n: 2 })
+    useStore.getState().setCreateTarget('chat')
+    useStore.getState().setParams({ size: '1024x1024', n: 1 })
+    useStore.getState().setCreateTarget('video')
+    useStore.getState().setCreateTarget('generate')
+  })
+  expect(useStore.getState().params).toMatchObject({ size: '1280x720', n: 2 })
+  act(() => useStore.getState().setCreateTarget('chat'))
+  expect(useStore.getState().params).toMatchObject({ size: '1024x1024', n: 1 })
+  expect(useStore.getState().prompt).toBe('shared prompt')
+  expect(useStore.getState().inputImages).toBe(references)
 })

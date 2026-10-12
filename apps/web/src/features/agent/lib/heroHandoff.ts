@@ -24,6 +24,7 @@ async function fillWhenMounted(text: string): Promise<boolean> {
 export async function startCanvasFromComposer(
   savedDraft?: AgentDraft,
   experience: 'chat' | 'canvas' = 'canvas',
+  mode: 'image' | 'video' = 'image',
 ): Promise<boolean> {
   const { prompt, inputImages } = useStore.getState()
   const draft: AgentDraft = savedDraft ?? {
@@ -34,13 +35,13 @@ export async function startCanvasFromComposer(
   if (!submission.text) return false
   // Do not create and navigate to an empty project before asking the visitor to log in.
   if (agentPanelPresent() && isClientCapabilityEnabled('billing:credits') && accountRequired()) {
-    await queuePendingSubmission({ kind: 'heroCanvas', draft, experience })
+    await queuePendingSubmission({ kind: 'heroCanvas', draft, experience, mode })
     requireAccount()
     return false
   }
   const agent = useAgentStore.getState()
   // 空壳项目会被复用，不会为每一句话堆一个空项目；有内容的就新建。
-  if (!(await agent.createProject(undefined, false, experience))) return false
+  if (!(await agent.createProject(mode, false, experience))) return false
   useStore.getState().setAppMode('canvas')
   if (!agentPanelPresent()) {
     // 没有智能体的部署：画布只有直出生成栏，这句话填进去由用户按下生成；参考图走画布选区，不带。
@@ -48,12 +49,18 @@ export async function startCanvasFromComposer(
     if (useStore.getState().prompt === draft.prompt) useStore.getState().setPrompt('')
     return true
   }
-  const result = await useAgentStore.getState().send(submission.text, submission.references, () => {
-    const store = useStore.getState()
-    if (store.prompt === draft.prompt) {
-      store.setPrompt('')
-      store.clearInputImages()
-    }
-  })
+  useAgentStore.getState().setMode(mode)
+  const result = await useAgentStore.getState().send(
+    submission.text,
+    submission.references,
+    () => {
+      const store = useStore.getState()
+      if (store.prompt === draft.prompt) {
+        store.setPrompt('')
+        store.clearInputImages()
+      }
+    },
+    mode,
+  )
   return result !== 'cancelled'
 }
