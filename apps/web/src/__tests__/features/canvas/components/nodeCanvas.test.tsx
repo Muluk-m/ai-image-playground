@@ -281,7 +281,7 @@ it('opens an add menu on a double-click of the empty canvas', async () => {
   expect(document.body.querySelector('[role="menu"]')).toBeNull()
 })
 
-it('puts a composer under a new image node and drops the empty card when dismissed', async () => {
+it('puts the workspace image controls under a new image card and keeps the card', async () => {
   await render()
   const surface = host.querySelector('.studio-node-canvas')!
   act(() => {
@@ -294,12 +294,40 @@ it('puts a composer under a new image node and drops the empty card when dismiss
   expect(document.body.querySelector('[role="menu"]')).toBeNull()
   const composer = host.querySelector('.studio-node-composer')
   expect(composer?.getAttribute('aria-label')).toBe('描述你想生成的图片')
+  expect(composer?.querySelector('.studio-direct-card')).not.toBeNull()
+  expect(composer?.querySelector('[aria-label^="生成设置"]')).not.toBeNull()
+  expect(host.querySelector('.studio-node-upload')?.textContent).toContain('上传')
   expect(host.querySelectorAll('.react-flow__handle')).toHaveLength(4)
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
   expect(added).toMatchObject({ type: 'image', data: {} })
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
   expect(host.querySelector('.studio-node-composer')).toBeNull()
-  expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image'])
+  expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image', added!.id])
+})
+
+it('places a text card that stays large enough for the side handles', async () => {
+  await render()
+  const surface = host.querySelector('.studio-node-canvas')!
+  act(() => {
+    surface.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 80, clientY: 90 }))
+  })
+  const item = [...document.body.querySelectorAll('[role="menuitem"]')].find((el) =>
+    el.textContent?.includes('文本'),
+  )
+  act(() => (item as HTMLButtonElement).click())
+  const card = host.querySelector('.studio-node--text')
+  expect(card?.textContent).toContain('双击开始编辑…')
+  expect(card?.textContent).toContain('文本')
+  const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
+  expect(added).toMatchObject({ width: 300, height: 210 })
+  const bounds = JSON.parse(
+    host.querySelector(`[data-node-id="${added!.id}"]`)!.getAttribute('data-bounds')!,
+  )
+  expect(bounds.width).toBe(300)
+  expect(bounds.height).toBe(210)
+  const composer = host.querySelector('.studio-node-composer')
+  expect(composer?.getAttribute('aria-label')).toBe('写下这段文字')
+  expect(composer?.querySelector('[aria-label^="生成设置"]')).toBeNull()
 })
 
 it('places a dropped image where the pointer is', async () => {
