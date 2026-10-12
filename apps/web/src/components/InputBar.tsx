@@ -1,6 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import AgentParamsChip from '../features/agent/components/AgentParamsChip'
+import AgentParamsChip, {
+  AgentExecutionSettings,
+} from '../features/agent/components/AgentParamsChip'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
@@ -724,7 +726,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
     // 卡片内除 textarea 外的固定占用（图片 thumbs + 参数行 + padding 等），用于把
     // textarea 上限限制到「视口 40% 减开销」。
-    const imagesHeight = imagesRef.current?.offsetHeight ?? 0
+    const stacked = el.closest('.creation-body')?.getBoundingClientRect().width
+      ? getComputedStyle(el.closest('.creation-body')!).flexDirection === 'column'
+      : false
+    const imagesHeight = stacked ? (imagesRef.current?.offsetHeight ?? 0) : 0
     const fixedOverhead = imagesHeight + 140
 
     // 1. 关闭过渡动画，设高度为 0 以获取真实的文本内容高度
@@ -1114,7 +1119,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   const renderImageThumbs = () => {
     return (
-      <div ref={imagesRef} className="contents">
+      <div className="contents">
         <div className="contents">
           {inputImages.map((img, idx) => renderImageThumb(img, idx))}
           {renderClearAllButton()}
@@ -1215,6 +1220,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       >
         <CreationFrame ref={cardRef} className={isDragging ? 'ring-2 ring-primary' : ''}>
           <CreationBody
+            referencesRef={imagesRef}
             references={
               <>
                 <Button
@@ -1273,6 +1279,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 editor={promptEditor}
                 placeholder={t(`studio.placeholders.${creationMode}`)}
                 className="creation-prompt"
+                style={{ maxHeight: 'none' }}
                 role="textbox"
                 aria-label={t('studio.prompt')}
                 onClick={(e) => {
@@ -1365,7 +1372,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             )}
             <div className="creation-tools creation-live-controls">
               {creationMode === 'video' ? (
-                <CanvasVideoParams hasFirstFrame={false} />
+                <CanvasVideoParams hasFirstFrame={false}>
+                  <AgentExecutionSettings />
+                </CanvasVideoParams>
               ) : creationMode === 'agent' ? (
                 <AgentParamsChip />
               ) : (

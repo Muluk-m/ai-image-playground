@@ -478,3 +478,25 @@ it('shares text and references across creation modes while restoring each image 
   expect(useStore.getState().prompt).toBe('shared prompt')
   expect(useStore.getState().inputImages).toBe(references)
 })
+
+it('does not resurrect a model removed while another creation mode is selected', () => {
+  const profile = createDefaultOpenAIByokProfile()
+  profile.models = ['kept', 'removed']
+  profile.selectedModelId = 'removed'
+  act(() => {
+    useStore.setState({
+      createTarget: 'generate',
+      creationSelections: {},
+      settings: { ...INITIAL_SETTINGS, profiles: [profile], activeProfileId: profile.id },
+    })
+    useStore.getState().setCreateTarget('chat')
+    useStore
+      .getState()
+      .setSettings({ profiles: [{ ...profile, models: ['kept'], selectedModelId: 'kept' }] })
+    useStore.getState().setCreateTarget('generate')
+  })
+  expect(useStore.getState().settings.profiles[0]).toMatchObject({
+    models: ['kept'],
+    selectedModelId: 'kept',
+  })
+})

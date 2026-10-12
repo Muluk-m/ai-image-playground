@@ -99,6 +99,7 @@ export function VideoPlayer({
       setWaiting(false)
     }
     return () => {
+      posterSeek.current = null
       if (!video) return
       video.pause()
       video.removeAttribute('src')
@@ -128,6 +129,7 @@ export function VideoPlayer({
         aria-label={label}
         className="absolute inset-0 h-full w-full bg-black object-contain"
         onError={() => {
+          posterSeek.current = null
           setFailure(src)
           setWaiting(false)
         }}
@@ -165,6 +167,11 @@ export function VideoPlayer({
           setWaiting(event.currentTarget.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
         }}
         onPlaying={() => {
+          if (onFrameReady && capturedSource.current !== src && media.current) {
+            capturedSource.current = src
+            posterSeek.current = null
+            onFrameReady(media.current)
+          }
           setPlayingSource(src)
           setReady(src)
           setFailure(null)

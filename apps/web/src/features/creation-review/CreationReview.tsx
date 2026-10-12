@@ -88,8 +88,13 @@ export default function CreationReview() {
     chooseLayout((['A', 'B', 'C'] as const)[(['A', 'B', 'C'].indexOf(layout) + direction + 3) % 3])
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       const target = e.target as HTMLElement
-      if (target.closest('input, textarea, [contenteditable], [role="dialog"], [role="listbox"]'))
+      if (
+        target.closest(
+          'input, textarea, video, audio, button, a, select, [contenteditable], [role="dialog"], [role="listbox"]',
+        )
+      )
         return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()

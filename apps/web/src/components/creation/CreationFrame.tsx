@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react'
+import type { ComponentProps, ReactNode, Ref } from 'react'
 import { useTranslation } from '../../i18n'
 import { Icon } from '../ui/icon'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -11,14 +11,18 @@ export function CreationFrame({ className = '', ...props }: ComponentProps<'div'
 
 export function CreationBody({
   references,
+  referencesRef,
   children,
 }: {
+  referencesRef?: Ref<HTMLDivElement>
   references: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="creation-body">
-      <div className="creation-references">{references}</div>
+      <div ref={referencesRef} className="creation-references">
+        {references}
+      </div>
       <div className="creation-editor">{children}</div>
     </div>
   )

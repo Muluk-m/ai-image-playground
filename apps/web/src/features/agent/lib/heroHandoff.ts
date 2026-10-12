@@ -2,6 +2,8 @@ import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { queuePendingSubmission } from '../../../auth/pendingSubmission'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { useStore } from '../../../store'
+import { useVideoStore } from '../../video/store'
+import type { VideoDraft } from '../../video/types'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import { fillAgentComposer } from './composerFill'
@@ -25,6 +27,9 @@ export async function startCanvasFromComposer(
   savedDraft?: AgentDraft,
   experience: 'chat' | 'canvas' = 'canvas',
   mode: 'image' | 'video' = 'image',
+  videoDraft: VideoDraft | undefined = mode === 'video'
+    ? structuredClone(useVideoStore.getState().draft)
+    : undefined,
 ): Promise<boolean> {
   const { prompt, inputImages } = useStore.getState()
   const draft: AgentDraft = savedDraft ?? {
@@ -35,10 +40,11 @@ export async function startCanvasFromComposer(
   if (!submission.text) return false
   // Do not create and navigate to an empty project before asking the visitor to log in.
   if (agentPanelPresent() && isClientCapabilityEnabled('billing:credits') && accountRequired()) {
-    await queuePendingSubmission({ kind: 'heroCanvas', draft, experience, mode })
+    await queuePendingSubmission({ kind: 'heroCanvas', draft, experience, mode, videoDraft })
     requireAccount()
     return false
   }
+  if (videoDraft) useVideoStore.setState({ draft: videoDraft })
   const agent = useAgentStore.getState()
   // 空壳项目会被复用，不会为每一句话堆一个空项目；有内容的就新建。
   if (!(await agent.createProject(mode, false, experience))) return false
