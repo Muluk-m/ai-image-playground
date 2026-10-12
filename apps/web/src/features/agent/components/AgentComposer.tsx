@@ -218,8 +218,11 @@ function ComposerAttachmentThumb({
         onResolveError={onResolveError}
         className={[className, hide ? 'opacity-0' : ''].filter(Boolean).join(' ')}
       />
-      {(pending || (uploading && here?.ok !== true)) && (
-        <AttachmentLoading label={uploading ? t('composer.upload.uploading') : undefined} />
+      {(pending || uploading) && (
+        <AttachmentLoading
+          uploading={uploading}
+          label={uploading ? t('composer.upload.uploading') : undefined}
+        />
       )}
       {previewFailed &&
         (retryPreview ? (
@@ -351,13 +354,21 @@ export default function AgentComposer({
   const failedReference = draft.references.find(
     (reference) => attachmentUploadState(uploadReference(reference)) === 'failed',
   )
+  const uploadingCount = draft.references.filter((reference) =>
+    ['queued', 'uploading', 'verifying'].includes(
+      attachmentUploadState(uploadReference(reference)) ?? '',
+    ),
+  ).length
   const referenceStatus = failedReference
     ? attachmentUploadErrorMessage(
         attachmentUploadError(uploadReference(failedReference)),
         getAttachmentLimits(),
       )
-    : uploadsBlocked
-      ? t('composer.upload.uploading')
+    : uploadingCount > 0
+      ? t('composer:studio.uploadProgress', {
+          ready: draft.references.length - uploadingCount,
+          total: draft.references.length,
+        })
       : undefined
 
   const retryUpload = (reference: AgentReference) => {
@@ -1015,6 +1026,7 @@ export default function AgentComposer({
             <CreationReferenceStack
               count={draft.references.length}
               failed={Boolean(failedReference)}
+              uploading={uploadingCount > 0}
               status={referenceStatus}
               previews={draft.references
                 .slice(-3)
@@ -1206,45 +1218,57 @@ export default function AgentComposer({
         </CreationBody>
         <CreationToolbar
           action={
-            <ComposerSend
-              className="creation-send"
-              streaming={stopMode}
-              idle={
-                !historyBlocked &&
-                !loading &&
-                !submitting &&
-                !uploadsBlocked &&
-                Boolean(draft.prompt.trim())
-              }
-              aria-label={
-                stopMode
-                  ? t('composer.abort')
-                  : submitting
-                    ? t('composer.sending')
-                    : running
-                      ? t('composer.queue')
-                      : t('composer.sendAndCreate')
-              }
-              title={
-                stopMode
-                  ? t('composer.abortTitle')
-                  : uploadsBlocked
-                    ? t('composer.uploadsPending')
-                    : running
-                      ? t('composer.queue')
-                      : t('composer.sendAndCreateTitle')
-              }
-              disabled={
-                stopMode
-                  ? false
-                  : historyBlocked ||
-                    loading ||
-                    submitting ||
-                    uploadsBlocked ||
-                    !draft.prompt.trim()
-              }
-              onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
-            />
+            <div className="flex items-center gap-3">
+              {referenceStatus && (
+                <span
+                  className={`max-w-40 text-label-sm ${failedReference ? 'text-destructive' : 'text-muted-foreground'}`}
+                >
+                  {referenceStatus}
+                </span>
+              )}
+              <ComposerSend
+                className="creation-send"
+                busy={!stopMode && (uploadingCount > 0 || submitting)}
+                streaming={stopMode}
+                idle={
+                  !historyBlocked &&
+                  !loading &&
+                  !submitting &&
+                  !uploadsBlocked &&
+                  Boolean(draft.prompt.trim())
+                }
+                aria-label={
+                  stopMode
+                    ? t('composer.abort')
+                    : submitting
+                      ? t('composer.sending')
+                      : uploadsBlocked
+                        ? referenceStatus
+                        : running
+                          ? t('composer.queue')
+                          : t('composer.sendAndCreate')
+                }
+                title={
+                  stopMode
+                    ? t('composer.abortTitle')
+                    : uploadsBlocked
+                      ? referenceStatus
+                      : running
+                        ? t('composer.queue')
+                        : t('composer.sendAndCreateTitle')
+                }
+                disabled={
+                  stopMode
+                    ? false
+                    : historyBlocked ||
+                      loading ||
+                      submitting ||
+                      uploadsBlocked ||
+                      !draft.prompt.trim()
+                }
+                onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
+              />
+            </div>
           }
         >
           <CreationModePicker

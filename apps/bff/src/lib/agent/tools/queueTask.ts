@@ -135,6 +135,20 @@ export async function draftQueueTask(
   input: QueueTaskInput,
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+  const clarification =
+    input.media === 'image'
+      ? context.imageCombinations?.inspect(input.referenceIds ?? [], input.n ?? 1)
+      : undefined
+  if (clarification)
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '图片组合尚未确认，已请用户选择分别生成还是共同参考。没有创建任务或计费，等待用户作答。',
+        },
+      ],
+      details: { clarification },
+    }
   const words = WORDS[input.media]
   const review = input.review === true
   const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
@@ -228,6 +242,7 @@ export async function draftQueueTask(
     })
     if (submitted.kind === 'created') {
       context.maskedEditPlan?.submitted(submission)
+      if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
       return {
         content: [{ type: 'text', text: submittedText(words, count) }],
         details: {
@@ -254,6 +269,7 @@ export async function draftQueueTask(
   })
   // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
   context.maskedEditPlan?.submitted(submission)
+  if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
   return {
     content: [{ type: 'text', text: draftText(words, count) }],
     details: {
