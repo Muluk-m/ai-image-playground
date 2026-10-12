@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { Button } from '../ui/button'
+import { Icon } from '../ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import './creation.css'
 
@@ -12,6 +13,7 @@ export function CreationReferenceStack({
   children,
   status,
   failed = false,
+  uploading = false,
 }: {
   add: ReactNode
   previews: ReactNode[]
@@ -19,9 +21,32 @@ export function CreationReferenceStack({
   children: ReactNode
   status?: string
   failed?: boolean
+  uploading?: boolean
 }) {
   const { t } = useTranslation('composer')
   const [open, setOpen] = useState(false)
+  const hoverOpened = useRef(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const panel = useRef<HTMLDivElement>(null)
+  const cancelClose = () => clearTimeout(closeTimer.current)
+  const leave = () => {
+    cancelClose()
+    if (!hoverOpened.current) return
+    const closeWhenIdle = () => {
+      if (!hoverOpened.current) return
+      if (
+        panel.current?.contains(document.activeElement) ||
+        document.querySelector('[role="menu"]')
+      ) {
+        // A portaled menu may close without another pointerleave on this panel.
+        closeTimer.current = setTimeout(closeWhenIdle, 250)
+        return
+      }
+      setOpen(false)
+    }
+    closeTimer.current = setTimeout(closeWhenIdle, 250)
+  }
+  useEffect(() => () => clearTimeout(closeTimer.current), [])
   useEffect(() => {
     if (count === 0) setOpen(false)
   }, [count])
@@ -39,6 +64,20 @@ export function CreationReferenceStack({
               className="creation-stack-trigger"
               aria-label={[t('studio.references', { count }), status].filter(Boolean).join('，')}
               title={status}
+              aria-busy={uploading || undefined}
+              onPointerEnter={(event) => {
+                cancelClose()
+                if (event.pointerType !== 'mouse' || open) return
+                hoverOpened.current = true
+                setOpen(true)
+              }}
+              onPointerLeave={leave}
+              onClick={(event) => {
+                // Clicking an already hover-open stack pins it instead of closing it.
+                if (open && hoverOpened.current) event.preventDefault()
+                hoverOpened.current = false
+                cancelClose()
+              }}
             >
               <span className="creation-stack-cards" aria-hidden="true">
                 {previews.slice(-3).map((preview, index) => (
@@ -48,20 +87,42 @@ export function CreationReferenceStack({
                 ))}
               </span>
               <span className="creation-stack-count">{failed ? '!' : count}</span>
+              {uploading && (
+                <span className="creation-stack-upload">
+                  <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+                </span>
+              )}
             </Button>
           </PopoverTrigger>
           <PopoverContent
+            ref={panel}
             side="top"
             align="start"
             sideOffset={16}
             className="creation-reference-panel"
             aria-label={t('studio.references', { count })}
+            onPointerEnter={cancelClose}
+            onPointerLeave={leave}
+            onOpenAutoFocus={(event) => {
+              if (hoverOpened.current) event.preventDefault()
+            }}
+            onCloseAutoFocus={(event) => {
+              if (hoverOpened.current) event.preventDefault()
+            }}
             onInteractOutside={(event) => {
               // The existing per-image context menu portals outside this popover.
               if (event.target instanceof Element && event.target.closest('[role="menu"]'))
                 event.preventDefault()
             }}
           >
+            {status && (
+              <div className="creation-reference-status" data-failed={failed || undefined}>
+                {uploading && (
+                  <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+                )}
+                {status}
+              </div>
+            )}
             <div className="creation-reference-list">{children}</div>
           </PopoverContent>
         </Popover>

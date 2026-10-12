@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { CreationReferenceStack } from '../../components/creation/CreationReferenceStack'
 import { Button } from '../../components/ui/button'
-import { stubPointerApis } from '../helpers/radix'
+import { pointer, stubPointerApis } from '../helpers/radix'
 
 it('keeps bulk references behind one stack and preserves individual removal and adding', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -40,6 +40,71 @@ it('keeps bulk references behind one stack and preserves individual removal and 
   } finally {
     act(() => root.unmount())
     host.remove()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('opens on mouse hover without stealing focus, bridges the gap, and keeps clicks available', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  stubPointerApis()
+  vi.useFakeTimers()
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    act(() =>
+      root.render(
+        <>
+          <input aria-label="prompt" />
+          <CreationReferenceStack count={8} previews={[]} add={<Button>添加</Button>}>
+            <Button>一张参考图</Button>
+          </CreationReferenceStack>
+        </>,
+      ),
+    )
+    const prompt = host.querySelector('input')!
+    prompt.focus()
+    const trigger = host.querySelector<HTMLButtonElement>('.creation-stack-trigger')!
+    act(() => trigger.dispatchEvent(pointer('pointerover')))
+    const panel = document.querySelector<HTMLElement>('.creation-reference-panel')!
+    expect(panel).not.toBeNull()
+    expect(document.activeElement).toBe(prompt)
+    act(() => trigger.dispatchEvent(pointer('pointerout')))
+    act(() => vi.advanceTimersByTime(100))
+    act(() => panel.dispatchEvent(pointer('pointerover')))
+    act(() => vi.advanceTimersByTime(300))
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    act(() => panel.dispatchEvent(pointer('pointerout')))
+    act(() => vi.advanceTimersByTime(300))
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(prompt)
+    act(() => trigger.dispatchEvent(pointer('pointerover')))
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    document.body.append(menu)
+    act(() => trigger.dispatchEvent(pointer('pointerout')))
+    act(() => vi.advanceTimersByTime(300))
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    menu.remove()
+    act(() => vi.advanceTimersByTime(300))
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    act(() => trigger.dispatchEvent(pointer('pointerover')))
+    act(() => trigger.click())
+    act(() => trigger.dispatchEvent(pointer('pointerout')))
+    act(() => vi.advanceTimersByTime(300))
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    act(() => trigger.click())
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    const touch = new MouseEvent('pointerover', { bubbles: true })
+    Object.defineProperty(touch, 'pointerType', { value: 'touch' })
+    act(() => trigger.dispatchEvent(touch))
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    act(() => trigger.click())
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   }
 })
