@@ -1,20 +1,9 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  Brush,
-  Copy,
-  Crop,
-  Download,
-  Eraser,
-  Expand,
-  ImagePlus,
-  Images,
-  Scan,
-} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImagePreview } from '../../../components/Lightbox'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -61,6 +50,23 @@ async function sourceOrCanvas(
   const canvas = agentCanvasSink()
   return canvas?.has(id) ? canvas.thumbnail(id, 3).catch(() => null) : null
 }
+
+/** 返回和翻页的固定尺寸由 Button 档位给出；样式表里的同权重单类会被工具类盖住。 */
+const BACK_BUTTON = 'hover:bg-muted hover:text-foreground'
+/** 翻页钮是圆的。默认 rounded-md 会把它们变成方钮。 */
+const PAGER_BUTTON = 'rounded-full bg-muted/70 hover:bg-muted/70 hover:text-foreground'
+/** 大图本身就是按钮。固定高度和内边距会压扁图片；inline-flex 会盖住 grid，宽图就撑出查看器。 */
+const IMAGE_BUTTON = 'grid h-auto w-auto max-h-full max-w-full p-0 font-normal hover:bg-transparent'
+/** 加载失败的重试是一行字。颜色由 .studio-artifact-pane-loading button 决定。 */
+const RETRY_LINK = 'h-auto px-0 py-0 text-xs font-normal hover:bg-transparent hover:text-primary'
+/** 字号、字重和悬停色由 .studio-artifact-pane-primary button 决定。 */
+const PRIMARY_ACTION = 'h-auto bg-transparent px-0 py-0 hover:bg-transparent'
+/** 30px 热区由 .studio-artifact-pane-prompt > div button 决定。 */
+const COPY_BUTTON = 'p-0'
+/** 高度、内边距和悬停由 .studio-artifact-pane-actions button 决定。 */
+const TOOL_ACTION = 'h-auto'
+/** 缩略图原为 58px。Button 的 h-9 和样式表单类同一权重，后写的工具类会赢，所以用相邻的 56px 档。 */
+const THUMB_BUTTON = 'h-14 w-14 basis-14 shrink-0 p-0 hover:bg-muted'
 
 export default function AgentArtifactPane({
   message,
@@ -258,20 +264,24 @@ export default function AgentArtifactPane({
       aria-modal={presentation === 'panel' ? undefined : true}
       aria-label={t('tool.previewTitle')}
     >
-      <button
+      <Button
         type="button"
-        className="studio-artifact-pane-back"
+        variant="ghost"
+        size="icon-lg"
+        className={`studio-artifact-pane-back ${BACK_BUTTON}`}
         onClick={onClose}
         aria-label={t('tool.backToChat')}
         title={t('tool.backToChat')}
       >
-        <ArrowLeft size={21} aria-hidden="true" />
-      </button>
+        <Icon name="chevronLeft" />
+      </Button>
       <div className="studio-artifact-pane-viewer">
         {items.length > 1 && (
-          <button
+          <Button
             type="button"
-            className="studio-artifact-pane-prev"
+            variant="ghost"
+            size="icon-lg"
+            className={`studio-artifact-pane-prev ${PAGER_BUTTON}`}
             aria-label={t('tool.previousResult')}
             onClick={() =>
               onSelect(
@@ -282,8 +292,8 @@ export default function AgentArtifactPane({
               )
             }
           >
-            <ArrowLeft size={22} />
-          </button>
+            <Icon name="chevronLeft" />
+          </Button>
         )}
         {active.media === 'video' && active.videoUrl ? (
           <video
@@ -294,14 +304,15 @@ export default function AgentArtifactPane({
             src={active.videoUrl}
           />
         ) : displaySource ? (
-          <button
+          <Button
             type="button"
-            className="studio-artifact-pane-image"
+            variant="ghost"
+            className={`studio-artifact-pane-image ${IMAGE_BUTTON}`}
             onClick={() => setZoomed(true)}
             aria-label={t('tool.zoomResult')}
           >
             <img src={displaySource} alt={message.title} />
-          </button>
+          </Button>
         ) : (
           <div className="studio-artifact-pane-loading" role="status">
             {loading ? (
@@ -309,17 +320,24 @@ export default function AgentArtifactPane({
             ) : (
               <>
                 <span>{t('tool.previewUnavailable')}</span>
-                <button type="button" onClick={() => setRetry((value) => value + 1)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={RETRY_LINK}
+                  onClick={() => setRetry((value) => value + 1)}
+                >
                   {t('tool.retryPreview')}
-                </button>
+                </Button>
               </>
             )}
           </div>
         )}
         {items.length > 1 && (
-          <button
+          <Button
             type="button"
-            className="studio-artifact-pane-next"
+            variant="ghost"
+            size="icon-lg"
+            className={`studio-artifact-pane-next ${PAGER_BUTTON}`}
             aria-label={t('tool.nextResult')}
             onClick={() =>
               onSelect(
@@ -327,8 +345,8 @@ export default function AgentArtifactPane({
               )
             }
           >
-            <ArrowRight size={22} />
-          </button>
+            <Icon name="chevronRight" />
+          </Button>
         )}
       </div>
       {items.length > 1 && (
@@ -347,14 +365,25 @@ export default function AgentArtifactPane({
       )}
       <div className="studio-artifact-pane-foot">
         <div className="studio-artifact-pane-primary">
-          <button type="button" onClick={download} disabled={!source && !active.videoUrl}>
-            <Download size={18} aria-hidden="true" />
+          <Button
+            type="button"
+            variant="ghost"
+            className={PRIMARY_ACTION}
+            onClick={download}
+            disabled={!source && !active.videoUrl}
+          >
+            <Icon name="download" />
             {t('tool.downloadResult')}
-          </button>
+          </Button>
           {!loading && !source && displaySource && (
-            <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className={PRIMARY_ACTION}
+              onClick={() => setRetry((value) => value + 1)}
+            >
               {t('tool.retryPreview')}
-            </button>
+            </Button>
           )}
           {items.length > 1 && (
             <span>
@@ -371,14 +400,17 @@ export default function AgentArtifactPane({
               <span>
                 {active.media === 'video' ? tv('landing.promptAria') : t('tool.imagePrompt')}
               </span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={COPY_BUTTON}
                 onClick={() => void navigator.clipboard.writeText(message.prompt ?? '')}
                 aria-label={t('tool.copyPrompt')}
                 title={t('tool.copyPrompt')}
               >
-                <Copy size={15} />
-              </button>
+                <Icon name="copy" />
+              </Button>
             </div>
             <p className="studio-artifact-pane-prompt-text" tabIndex={0}>
               {message.prompt}
@@ -388,47 +420,82 @@ export default function AgentArtifactPane({
         <div className="studio-artifact-pane-actions">
           {active.media === 'image' && source && (
             <div className="studio-artifact-pane-quick">
-              <button type="button" onClick={() => setZoomed(true)}>
-                <Expand size={15} aria-hidden="true" />
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                onClick={() => setZoomed(true)}
+              >
+                <Icon name="zoomIn" />
                 {t('tool.zoomResult')}
-              </button>
-              <button type="button" onClick={() => void useAsReference()}>
-                <ImagePlus size={15} aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                onClick={() => void useAsReference()}
+              >
+                <Icon name="imageAdd" />
                 {t('tool.useAsReference')}
-              </button>
+              </Button>
             </div>
           )}
           {active.media === 'image' && onViewCanvas && (
             <div className="studio-artifact-pane-canvas-action">
-              <button
+              <Button
                 type="button"
-                className="studio-artifact-pane-edit"
+                variant="ghost"
+                className={`studio-artifact-pane-edit ${TOOL_ACTION}`}
                 onClick={() => onViewCanvas([active.id])}
               >
-                <Images size={15} aria-hidden="true" />
+                <Icon name="images" />
                 {t('tool.editOnCanvas')}
-                <ArrowRight size={14} aria-hidden="true" />
-              </button>
+                <Icon name="arrowRight" />
+              </Button>
             </div>
           )}
           {active.media === 'image' && (
             <div className="studio-artifact-pane-tools">
-              <button type="button" onClick={() => startEdit('inpaint')} disabled={!source}>
-                <Brush size={15} />
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                onClick={() => startEdit('inpaint')}
+                disabled={!source}
+              >
+                <Icon name="brush" />
                 {t('tool.inpaint')}
-              </button>
-              <button type="button" onClick={() => startEdit('erase')} disabled={!source}>
-                <Eraser size={15} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                onClick={() => startEdit('erase')}
+                disabled={!source}
+              >
+                <Icon name="erase" />
                 {t('tool.erase')}
-              </button>
-              <button type="button" onClick={() => startEdit('crop')} disabled={!source}>
-                <Crop size={15} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                onClick={() => startEdit('crop')}
+                disabled={!source}
+              >
+                <Icon name="crop" />
                 {t('tool.crop')}
-              </button>
-              <button type="button" onClick={() => startEdit('outpaint')} disabled={!source}>
-                <Scan size={15} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                onClick={() => startEdit('outpaint')}
+                disabled={!source}
+              >
+                <Icon name="outpaint" />
                 {t('tool.outpaint')}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -482,15 +549,16 @@ function PaneThumbnail({
     }
   }, [item.id, delivery])
   return (
-    <button
+    <Button
       type="button"
-      className="studio-artifact-pane-thumb"
+      variant="ghost"
+      className={`studio-artifact-pane-thumb ${THUMB_BUTTON}`}
       aria-label={`${index + 1}`}
       aria-pressed={selected}
       onClick={() => onSelect(item.id)}
     >
       {source && <img src={source} alt="" />}
       <span>{index + 1}</span>
-    </button>
+    </Button>
   )
 }
