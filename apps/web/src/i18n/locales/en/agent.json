@@ -415,7 +415,9 @@
   "history": {
     "loading": "Loading the conversation…",
     "failed": "Could not load the conversation. Your project and draft are kept.",
-    "retry": "Reload"
+    "retry": "Reload",
+    "syncing": "Syncing conversation…",
+    "syncFailed": "Sync failed. Showing saved history."
   },
   "navigation": {
     "switchAria": "Switch project, current: {{name}}",

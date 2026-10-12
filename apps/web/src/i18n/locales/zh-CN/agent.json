@@ -391,7 +391,9 @@
   "history": {
     "loading": "正在加载对话…",
     "failed": "对话暂时未能加载，项目和草稿已保留。",
-    "retry": "重新加载"
+    "retry": "重新加载",
+    "syncing": "正在同步对话…",
+    "syncFailed": "同步失败，正在显示本地记录。"
   },
   "navigation": {
     "switchAria": "切换项目，当前：{{name}}",
