@@ -2,7 +2,11 @@ import type { DiscoveredChannel } from '@image-playground/shared'
 import { afterEach, describe, expect, it } from 'vitest'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { getProfileModelOptions } from '../../../lib/channels/profileSelectors'
-import { getPublicChannel, getPublicChannels } from '../../../lib/channels/publicChannels'
+import {
+  getPublicChannel,
+  getPublicChannels,
+  modelLabel,
+} from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
 import { GROK_CHANNEL, IMAGE_CHANNEL } from '../../features/video/fixtures'
 
@@ -54,6 +58,38 @@ describe('getPublicChannels', () => {
 
     setChannels([IMAGE_CHANNEL])
     expect(getPublicChannels()).not.toBe(first)
+  })
+
+  it('uses the channel label for a known model and keeps an unknown id', () => {
+    setChannels([
+      {
+        id: 'other',
+        kind: 'openai-queue',
+        label: 'Other',
+        models: [{ id: 'shared-model', label: 'Other name', capabilities: ['generate'] }],
+        defaults: {},
+      },
+      {
+        id: 'openai-images',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [
+          {
+            id: 'gpt-image-2.5-flare',
+            label: 'GPT Image 2.5 Flare',
+            capabilities: ['generate'],
+          },
+          { id: 'shared-model', label: 'Preferred name', capabilities: ['generate'] },
+        ],
+        defaults: {},
+      },
+    ])
+
+    expect(modelLabel('gpt-image-2.5-flare')).toBe('GPT Image 2.5 Flare')
+    expect(modelLabel('shared-model')).toBe('Other name')
+    expect(modelLabel('shared-model', 'openai-images')).toBe('Preferred name')
+    expect(modelLabel('my-byok-model')).toBe('my-byok-model')
+    expect(modelLabel('')).toBe('')
   })
 
   it('keeps video models out of the image model picker options', () => {
