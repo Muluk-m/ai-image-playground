@@ -656,6 +656,7 @@ interface AppState {
    * 首屏输入框把这句话交给谁：`generate` 直接出图；`canvas` 新建一个画布项目、打开它，
    * 把这句话和参考图作为第一轮发给智能体。只是首屏的一个开关，不落盘。
    */
+  projectCreationTargets: Record<string, 'generate' | 'chat' | 'video'>
   creationSelections: Partial<
     Record<'generate' | 'chat', { params: TaskParams; profileId: string; model: string }>
   >
@@ -904,6 +905,7 @@ export const useStore = create<AppState>()(
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
       createTarget: 'generate',
       creationSelections: {},
+      projectCreationTargets: {},
       setCreateTarget: (createTarget) => {
         const state = get()
         if (createTarget === state.createTarget) return
@@ -914,7 +916,7 @@ export const useStore = create<AppState>()(
         // Video parameters live in useVideoStore and never overwrite either image selection.
         const selections =
           state.createTarget === 'video'
-            ? state.creationSelections
+            ? { ...state.creationSelections }
             : {
                 ...state.creationSelections,
                 [key]: {
@@ -923,13 +925,19 @@ export const useStore = create<AppState>()(
                   model: clientProfileToApiProfile(profile).model,
                 },
               }
-        const saved = createTarget === 'video' ? undefined : selections[nextKey]
-        const exists = saved && state.settings.profiles.some((p) => p.id === saved.profileId)
+        const candidate = createTarget === 'video' ? undefined : selections[nextKey]
+        const savedProfile =
+          candidate && state.settings.profiles.find((p) => p.id === candidate.profileId)
+        const saved =
+          savedProfile && clientProfileToApiProfile(savedProfile).models?.includes(candidate!.model)
+            ? candidate
+            : undefined
+        if (candidate && !saved) delete selections[nextKey]
         set({
           createTarget,
           creationSelections: selections,
           ...(saved ? { params: saved.params } : {}),
-          ...(saved && exists
+          ...(saved
             ? {
                 settings: {
                   ...state.settings,

@@ -102,3 +102,5 @@
 .creation-live-controls > button[aria-haspopup=dialog] { color: hsl(var(--muted-foreground)); }
 .creation-references [data-input-image-index] { width: 72px; height: 72px; }
 .creation-references [data-input-image-index] img { object-fit: cover; }
+
+@media (hover: none) { .creation-project-menu, .creation-asset-select { opacity: 1; } }

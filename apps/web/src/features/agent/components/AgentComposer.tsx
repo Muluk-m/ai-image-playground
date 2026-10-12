@@ -138,7 +138,7 @@ import {
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
-import AgentParamsChip from './AgentParamsChip'
+import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
 import { useAssetSlots } from './useAssetSlots'
 
@@ -517,9 +517,13 @@ export default function AgentComposer({
   const creationMode =
     createTarget === 'video' ? 'video' : createTarget === 'generate' ? 'image' : 'agent'
   useEffect(() => {
-    useStore
-      .getState()
-      .setCreateTarget(projectKind === 'video' && videoAvailable ? 'video' : 'chat')
+    const store = useStore.getState()
+    const saved = store.projectCreationTargets[session.key]
+    store.setCreateTarget(
+      saved === 'video' && !videoAvailable
+        ? 'chat'
+        : (saved ?? (projectKind === 'video' && videoAvailable ? 'video' : 'chat')),
+    )
   }, [session.key, projectKind, videoAvailable])
   const mode = productionMode || (videoAvailable && creationMode === 'video') ? 'video' : 'image'
   // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
@@ -1221,17 +1225,19 @@ export default function AgentComposer({
                 : ['agent', 'image', ...(videoAvailable ? ['video' as const] : [])]
             }
             onChange={(next) => {
-              useStore
-                .getState()
-                .setCreateTarget(
-                  next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate',
-                )
+              const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
+              useStore.setState((state) => ({
+                projectCreationTargets: { ...state.projectCreationTargets, [session.key]: target },
+              }))
+              useStore.getState().setCreateTarget(target)
             }}
           />
           <span className="creation-tool-divider" aria-hidden="true" />
           <div className="creation-tools creation-live-controls">
             {mode === 'video' && !productionMode ? (
-              <CanvasVideoParams hasFirstFrame={false} />
+              <CanvasVideoParams hasFirstFrame={false}>
+                <AgentExecutionSettings />
+              </CanvasVideoParams>
             ) : (
               <AgentParamsChip
                 generationControls={!productionMode}

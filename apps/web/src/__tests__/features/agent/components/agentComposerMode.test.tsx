@@ -61,6 +61,7 @@ import type { CanvasProject } from '../../../../features/canvas/lib/projectRepos
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../../features/library/store'
 import { getContentEditableSelection } from '../../../../lib/promptEditorDom'
+import { useStore } from '../../../../store'
 import { stubPointerApis } from '../../../helpers/radix'
 
 declare global {
@@ -136,6 +137,7 @@ async function settle(): Promise<void> {
 
 beforeEach(async () => {
   videoAvailable.value = true
+  useStore.setState({ projectCreationTargets: {} })
   stubPointerApis()
   const session = agentDraft(null, PROJECT_ID)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
@@ -456,4 +458,19 @@ it('视频制作入口在图片项目里重新挂载后仍发送视频轮，不�
   click('发送并拟提示词')
   expect(send).toHaveBeenCalledWith('继续修改剧本', [], 'video')
   expect(useCanvasProjectStore.getState().projects[0]?.kind).toBe('image')
+})
+
+it('restores the selected project mode when the composer remounts', async () => {
+  render()
+  await settle()
+  const session = agentDraft(null, PROJECT_ID)
+  act(() => {
+    useStore.setState({ projectCreationTargets: { [session.key]: 'video' } })
+    useStore.getState().setCreateTarget('video')
+    root.render(null)
+  })
+  render()
+  await settle()
+  expect(host.querySelector('[aria-label="创作类型"]')?.textContent).toContain('视频')
+  expect(useAgentStore.getState().mode).toBe('video')
 })

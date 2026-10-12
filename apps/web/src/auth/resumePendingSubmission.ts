@@ -69,7 +69,12 @@ export async function resumePendingSubmission(): Promise<void> {
       useStore.setState({ prompt, inputImages, params, slotValues: slotValues ?? {} })
     }
   } else if (
-    !(await startCanvasFromComposer(pending.draft, pending.experience ?? 'canvas', pending.mode))
+    !(await startCanvasFromComposer(
+      pending.draft,
+      pending.experience ?? 'canvas',
+      pending.mode,
+      pending.videoDraft,
+    ))
   ) {
     if (!useStore.getState().prompt.trim()) {
       useStore.setState({

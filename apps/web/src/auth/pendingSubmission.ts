@@ -1,4 +1,5 @@
 import type { AgentDraft } from '../features/agent/lib/references'
+import type { VideoDraft } from '../features/video/types'
 import type { PreparedSubmission } from '../store'
 
 /** This tab's one interrupted send. Separate from scoped workspace storage so login adoption cannot move it. */
@@ -9,6 +10,7 @@ export type PendingSubmission = (
       draft: AgentDraft
       experience?: 'chat' | 'canvas'
       mode?: 'image' | 'video'
+      videoDraft?: VideoDraft
     }
 ) & { sourcePath?: string; ownerScope?: string }
 
