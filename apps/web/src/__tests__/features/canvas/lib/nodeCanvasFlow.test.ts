@@ -2,6 +2,7 @@ import type { CanvasEdge, CanvasNode } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import {
   composeNodePrompt,
+  flowEdgeIds,
   incomingReferences,
   linkFromDrag,
 } from '../../../../features/canvas/lib/nodeCanvasFlow'
@@ -39,6 +40,22 @@ describe('dragged wires', () => {
     })
     expect(linkFromDrag({ nodeId: 'a', handleType: 'source' }, 'a')).toBeNull()
     expect(linkFromDrag({ nodeId: 'a', handleType: 'source' }, null)).toBeNull()
+  })
+})
+
+describe('lit flow', () => {
+  const edges = [
+    { id: 'e:a', source: 'e', target: 'a' },
+    { id: 'a:b', source: 'a', target: 'b' },
+    { id: 'b:c', source: 'b', target: 'c' },
+    { id: 'b:d', source: 'b', target: 'd' },
+    { id: 'a:z', source: 'a', target: 'z' },
+    { id: 'x:y', source: 'x', target: 'y' },
+  ]
+
+  it('lights the wires before and after the hovered one', () => {
+    expect(new Set(flowEdgeIds(edges, 'a:b'))).toEqual(new Set(['e:a', 'a:b', 'b:c', 'b:d']))
+    expect(flowEdgeIds(edges, 'missing')).toEqual([])
   })
 })
 
