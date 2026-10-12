@@ -1,16 +1,4 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import {
-  ArrowUpRight,
-  Download,
-  Images,
-  LogIn,
-  Maximize2,
-  RotateCw,
-  Square,
-  TextSearch,
-  VideoIcon,
-  Wallet,
-} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
@@ -20,6 +8,7 @@ import {
   VideoPlayer,
 } from '../../../components/assistant-ui/elements/video-player'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -79,7 +68,7 @@ function VideoDownload({
   }
   return (
     <AgentIconButton
-      icon={Download}
+      icon="download"
       label={downloading ? t('video.downloading') : t('tool.downloadResult')}
       busy={downloading}
       disabled={downloading}
@@ -249,17 +238,14 @@ export default function AgentVideoToolCard({
       <div className={cn('flex min-w-0 flex-col', hasMedia ? 'gap-2 px-3 pb-2 pt-2.5' : 'gap-3')}>
         {hasMedia ? (
           <p
-            className="line-clamp-2 break-words text-[13px] font-semibold leading-normal"
+            className="line-clamp-2 break-words text-body-sm font-semibold leading-normal"
             title={message.title}
           >
             {message.title}
           </p>
         ) : message.status !== 'failed' || message.errorCode === 'cancelled' ? (
           <div className="flex items-start gap-2 text-sm font-medium">
-            <VideoIcon
-              className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
+            <Icon name="video" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="min-w-0 break-words">{message.title}</p>
           </div>
         ) : null}
@@ -314,7 +300,7 @@ export default function AgentVideoToolCard({
               aria-label={t('tool.previewResult')}
               onClick={() => onPreviewResult(message.id)}
             >
-              <Maximize2 className="size-4" aria-hidden="true" />
+              <Icon name="fullscreen" />
             </Button>
           )}
           {!!canvasIds.length && !onPreviewResult && (
@@ -328,7 +314,7 @@ export default function AgentVideoToolCard({
                 onViewCanvas ? onViewCanvas(canvasIds) : agentCanvasSink()?.focus(canvasIds)
               }
             >
-              <Images className="size-4" aria-hidden="true" />
+              <Icon name="images" />
             </Button>
           )}
           {offCanvas && (
@@ -360,7 +346,7 @@ export default function AgentVideoToolCard({
                   })
               }}
             >
-              <Images aria-hidden className="size-4" />
+              <Icon name="images" />
               <span className="sr-only">{t('tool.place')}</span>
             </Button>
           )}
@@ -378,7 +364,7 @@ export default function AgentVideoToolCard({
                 original?.focus({ preventScroll: true })
               }}
             >
-              <ArrowUpRight aria-hidden className="size-4" />
+              <Icon name="external" />
               <span className="sr-only">{t('retry.viewOriginal')}</span>
             </Button>
           )}
@@ -392,11 +378,11 @@ export default function AgentVideoToolCard({
                 aria-label={t('tool.viewPrompt')}
                 onClick={() => setPromptOpen(true)}
               >
-                <TextSearch className="size-4" aria-hidden="true" />
+                <Icon name="prompt" />
               </Button>
             ) : (
               <AgentIconButton
-                icon={TextSearch}
+                icon="prompt"
                 label={t('tool.viewPrompt')}
                 onClick={() => setPromptOpen(true)}
               />
@@ -419,7 +405,7 @@ export default function AgentVideoToolCard({
                   .finally(() => setWithdrawing(false))
               }}
             >
-              <Square aria-hidden className="size-4" />
+              <Icon name="stop" />
               <span className="sr-only">
                 {withdrawing ? t('retry.withdrawing') : t('retry.withdraw')}
               </span>
@@ -427,7 +413,7 @@ export default function AgentVideoToolCard({
           )}
           {canRetry && (
             <AgentIconButton
-              icon={RotateCw}
+              icon="refresh"
               label={retrying ? t('video.retrying') : t('video.retry')}
               busy={retrying}
               disabled={retrying}
@@ -440,7 +426,7 @@ export default function AgentVideoToolCard({
             action &&
             message.errorCode && (
               <AgentIconButton
-                icon={action === 'login' ? LogIn : action === 'recharge' ? Wallet : RotateCw}
+                icon={action === 'login' ? 'user' : action === 'recharge' ? 'credits' : 'refresh'}
                 label={agentToolFailureActionLabel(action, message.errorCode)}
                 onClick={() =>
                   runAgentToolFailureAction(action, {
