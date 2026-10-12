@@ -3,13 +3,18 @@ import * as Y from 'yjs'
 import {
   CANVAS_NODE_TYPES,
   canvasOrigin,
+  connectCanvasNodes,
   createCanvasUndoManager,
+  deleteCanvasNode,
+  disconnectCanvasNodes,
   importLegacyElements,
+  insertCanvasNode,
   type LegacyCanvasElement,
   moveCanvasNodes,
   readCanvasDocument,
   reconcileLegacyElements,
   synchronizeLegacyElements,
+  updateCanvasNode,
 } from '../canvas-document'
 
 /** 转换的反面：按叠放次序还原成旧存档的元素，核对转换没有丢东西。 */
@@ -371,6 +376,76 @@ describe('undo', () => {
     importLegacyElements(doc, legacy, canvasOrigin('system', 'import'))
     undo.undo()
     expect(exportLegacyElements(doc)).toEqual(legacy)
+  })
+})
+
+describe('edges', () => {
+  it('connects two nodes and rejects a self-link, a missing node, and a duplicate', () => {
+    const doc = imported()
+    const origin = canvasOrigin('user', 'me')
+    expect(connectCanvasNodes(doc, { source: 'img', target: 'note' }, origin)).toBe(true)
+    expect(connectCanvasNodes(doc, { source: 'img', target: 'note' }, origin)).toBe(false)
+    expect(connectCanvasNodes(doc, { source: 'img', target: 'img' }, origin)).toBe(false)
+    expect(connectCanvasNodes(doc, { source: 'img', target: 'missing' }, origin)).toBe(false)
+    expect(readCanvasDocument(doc).edges).toEqual([
+      { id: 'img:note', source: 'img', target: 'note' },
+    ])
+  })
+
+  it('undoes a connection without moving the nodes', () => {
+    const doc = imported()
+    const origin = canvasOrigin('user', 'me')
+    const undo = createCanvasUndoManager(doc, origin)
+    connectCanvasNodes(doc, { source: 'img', target: 'note' }, origin)
+    undo.stopCapturing()
+    undo.undo()
+    expect(readCanvasDocument(doc).edges).toEqual([])
+    expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'img')).toMatchObject({
+      x: 10,
+      y: 20,
+    })
+    undo.redo()
+    expect(readCanvasDocument(doc).edges).toHaveLength(1)
+  })
+
+  it('drops an edge when either node leaves the legacy scene', () => {
+    const doc = imported()
+    connectCanvasNodes(doc, { source: 'img', target: 'note' }, canvasOrigin('user', 'me'))
+    synchronizeLegacyElements(
+      doc,
+      legacy,
+      legacy.filter((element) => element.id !== 'img'),
+      canvasOrigin('system', 'legacy'),
+    )
+    const snapshot = readCanvasDocument(doc)
+    expect(snapshot.nodes.some((node) => node.id === 'img')).toBe(false)
+    expect(snapshot.edges).toEqual([])
+  })
+
+  it('keeps an inserted node across a legacy sync and removes it with its edges', () => {
+    const doc = imported()
+    const origin = canvasOrigin('system', 'node-insert')
+    insertCanvasNode(
+      doc,
+      { id: 'empty', type: 'image', x: 4, y: 5, width: 280, height: 280, data: {} },
+      origin,
+    )
+    updateCanvasNode(
+      doc,
+      'empty',
+      { data: { pending: { type: 'placeholder', status: 'loading', message: '', meta: {} } } },
+      origin,
+    )
+    synchronizeLegacyElements(doc, legacy, legacy, canvasOrigin('system', 'legacy'))
+    expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'empty')!.data).toMatchObject({
+      pending: { status: 'loading' },
+    })
+    connectCanvasNodes(doc, { source: 'img', target: 'empty' }, canvasOrigin('user', 'me'))
+    deleteCanvasNode(doc, 'empty', canvasOrigin('user', 'me'))
+    const snapshot = readCanvasDocument(doc)
+    expect(snapshot.nodes.some((node) => node.id === 'empty')).toBe(false)
+    expect(snapshot.edges).toEqual([])
+    expect(disconnectCanvasNodes(doc, 'missing', canvasOrigin('user', 'me'))).toBeUndefined()
   })
 })
 

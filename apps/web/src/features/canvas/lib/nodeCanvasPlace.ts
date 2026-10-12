@@ -1,6 +1,12 @@
+import { canvasOrigin, insertCanvasNode } from '@image-playground/shared'
+import type * as Y from 'yjs'
 import { newElementId, type TextEl } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { measureText } from './konvaShapes'
+
+const EMPTY_IMAGE_NODE = 280
+/** 空卡片不是用户撤销栈上的一步，避免生成完再撤销把整张卡撤掉。 */
+const insertOrigin = canvasOrigin('system', 'node-insert')
 
 /** 节点上的正文，不是标注那套大红字。 */
 const NODE_TEXT_FONT_SIZE = 32
@@ -20,12 +26,30 @@ export function placeNodeText(
     text: '',
     fontSize: NODE_TEXT_FONT_SIZE,
     fill,
-    width: Math.max(box.width, 160),
-    height: box.height,
+    width: Math.max(box.width, 200),
+    height: Math.max(box.height, 72),
   }
   editor.doc.addElements([el])
-  editor.doc.setEditingText(el.id)
   return el.id
+}
+
+/** 在双击的位置放一张空图片卡，接着由节点下面的输入框生成或上传。 */
+export function placeEmptyImageNode(doc: Y.Doc, point: { x: number; y: number }): string {
+  const id = newElementId()
+  insertCanvasNode(
+    doc,
+    {
+      id,
+      type: 'image',
+      x: point.x - EMPTY_IMAGE_NODE / 2,
+      y: point.y - EMPTY_IMAGE_NODE / 2,
+      width: EMPTY_IMAGE_NODE,
+      height: EMPTY_IMAGE_NODE,
+      data: {},
+    },
+    insertOrigin,
+  )
+  return id
 }
 
 /** 空文本当作取消；有内容才写回，并记进撤销。 */
