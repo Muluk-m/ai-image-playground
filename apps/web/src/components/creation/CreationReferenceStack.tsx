@@ -32,14 +32,19 @@ export function CreationReferenceStack({
   const leave = () => {
     cancelClose()
     if (!hoverOpened.current) return
-    closeTimer.current = setTimeout(() => {
+    const closeWhenIdle = () => {
+      if (!hoverOpened.current) return
       if (
         panel.current?.contains(document.activeElement) ||
         document.querySelector('[role="menu"]')
-      )
+      ) {
+        // A portaled menu may close without another pointerleave on this panel.
+        closeTimer.current = setTimeout(closeWhenIdle, 250)
         return
+      }
       setOpen(false)
-    }, 250)
+    }
+    closeTimer.current = setTimeout(closeWhenIdle, 250)
   }
   useEffect(() => () => clearTimeout(closeTimer.current), [])
   useEffect(() => {
