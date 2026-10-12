@@ -1,7 +1,7 @@
 import { useTranslation } from '../../i18n'
-import { CloseIcon, CopyIcon } from '../icons'
 import { Checkbox } from '../patterns/Checkbox'
-import Overlay from '../patterns/Overlay'
+import Dialog from '../patterns/Dialog'
+import { Button } from '../ui/button'
 
 const COPY_IMPORT_URL_OPTIONS_STORAGE_KEY = 'image-playground.copy-import-url-options'
 
@@ -69,90 +69,80 @@ export default function ImportUrlDialog({
   onClose,
 }: ImportUrlDialogProps) {
   const { t } = useTranslation('settings')
-  const { t: tCommon } = useTranslation('common')
 
   return (
-    <Overlay onClose={onClose} tier="raised">
-      <div className="relative bg-card/90 backdrop-blur-xl border border-border rounded-3xl shadow-dialog max-w-sm w-full p-6 z-10 ring-1 ring-hairline animate-confirm-in">
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-4 top-4 shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
-          aria-label={tCommon('action.close')}
-        >
-          <CloseIcon className="h-5 w-5" />
-        </button>
-
-        <h3 className="mb-3 pr-8 flex items-start gap-2.5 text-base font-bold text-foreground leading-snug">
-          <CopyIcon className="h-5 w-5 shrink-0 text-primary mt-0.5" />
-          <span>{t('profile.copyImportUrlFor', { name: profileName })}</span>
-        </h3>
-        <div className="text-body-sm text-muted-foreground mb-5 leading-relaxed">
-          {t('importUrl.question')}
-        </div>
-
-        {!options.includeApiKey && (
-          <div className="mb-6 rounded-2xl bg-card/80 p-4 ring-1 ring-hairline">
-            <div className="text-body-sm font-bold text-foreground mb-3.5">
-              {t('importUrl.newApiVars')}
-            </div>
-            <div className="space-y-3">
-              <Checkbox
-                checked={options.useNewApiAddress}
-                onChange={(checked) => onOptionsChange({ useNewApiAddress: checked })}
-                label={
-                  <>
-                    {t('importUrl.use')}{' '}
-                    <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
-                      {'{address}'}
-                    </code>{' '}
-                    {t('importUrl.addressSuffix')}
-                  </>
-                }
-              />
-              <Checkbox
-                checked={options.useNewApiKey}
-                onChange={(checked) => onOptionsChange({ useNewApiKey: checked })}
-                label={
-                  <>
-                    {t('importUrl.use')}{' '}
-                    <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
-                      {'{key}'}
-                    </code>
-                  </>
-                }
-              />
-              <Checkbox
-                checked={options.useNewApiModel}
-                onChange={(checked) => onOptionsChange({ useNewApiModel: checked })}
-                label={
-                  <>
-                    {t('importUrl.use')}{' '}
-                    <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
-                      {'{model}'}
-                    </code>
-                  </>
-                }
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <button
+    <Dialog
+      title={t('profile.copyImportUrlFor', { name: profileName })}
+      onClose={onClose}
+      tier="raised"
+      className="max-w-sm"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="flex-1"
             onClick={() => onCopy(false)}
-            className="flex-1 py-2 rounded-xl border border-border border-border text-sm text-muted-foreground hover:bg-card hover:bg-accent transition"
           >
             {t('importUrl.exclude')}
-          </button>
-          <button
-            onClick={() => onCopy(true)}
-            className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition shadow-sm shadow-blue-500/20"
-          >
+          </Button>
+          <Button type="button" size="sm" className="flex-1" onClick={() => onCopy(true)}>
             {t('importUrl.include')}
-          </button>
-        </div>
+          </Button>
+        </>
+      }
+    >
+      <div className="text-body-sm text-muted-foreground leading-relaxed">
+        {t('importUrl.question')}
       </div>
-    </Overlay>
+
+      {!options.includeApiKey && (
+        <div className="mt-5 rounded-2xl bg-muted/40 p-4 ring-1 ring-hairline">
+          <div className="mb-3.5 text-body-sm font-semibold text-foreground">
+            {t('importUrl.newApiVars')}
+          </div>
+          <div className="space-y-3">
+            <Checkbox
+              checked={options.useNewApiAddress}
+              onChange={(checked) => onOptionsChange({ useNewApiAddress: checked })}
+              label={
+                <>
+                  {t('importUrl.use')}{' '}
+                  <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {'{address}'}
+                  </code>{' '}
+                  {t('importUrl.addressSuffix')}
+                </>
+              }
+            />
+            <Checkbox
+              checked={options.useNewApiKey}
+              onChange={(checked) => onOptionsChange({ useNewApiKey: checked })}
+              label={
+                <>
+                  {t('importUrl.use')}{' '}
+                  <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {'{key}'}
+                  </code>
+                </>
+              }
+            />
+            <Checkbox
+              checked={options.useNewApiModel}
+              onChange={(checked) => onOptionsChange({ useNewApiModel: checked })}
+              label={
+                <>
+                  {t('importUrl.use')}{' '}
+                  <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {'{model}'}
+                  </code>
+                </>
+              }
+            />
+          </div>
+        </div>
+      )}
+    </Dialog>
   )
 }

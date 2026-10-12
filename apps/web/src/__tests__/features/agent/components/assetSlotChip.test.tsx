@@ -512,7 +512,7 @@ describe('首页对话输入框里的素材位', () => {
 
   function startCreating(): void {
     const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-      (one) => one.textContent?.includes('开始创作') && !one.disabled,
+      (one) => one.getAttribute('aria-label') === '开始创作' && !one.disabled,
     )
     if (!button) throw new Error('no start button')
     click(button)

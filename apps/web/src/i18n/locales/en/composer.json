@@ -20,17 +20,9 @@
     "export": "Export selected"
   },
   "bar": {
-    "expand": "Expand input",
-    "expandHint": "Click to expand input",
-    "emptyPromptHint": "Click to expand and write a new prompt...",
-    "collapse": "Collapse the input box",
-    "library": "Assets and templates",
-    "saveTemplate": "Save as template"
+    "collapse": "Collapse the input box"
   },
   "editor": {
-    "placeholder": "Describe the image, @ to pick a reference image, {slot} to batch generate...",
-    "chatPlaceholder": "Tell the assistant what you want to create, or discuss an idea first…",
-    "canvasPlaceholder": "Describe what to create on the canvas, @ mention an asset…",
     "clearPrompt": "Clear prompt"
   },
   "image": {
@@ -56,11 +48,7 @@
     "addFailed": "Could not add the image: {{reason}}",
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "attachImages": "Add images",
-    "attachFolder": "Add a folder",
-    "summaryWithMask_one": "1 mask image · {{count}} reference image",
-    "summaryWithMask_other": "1 mask image · {{count}} reference images",
-    "summary_one": "{{count}} reference image",
-    "summary_other": "{{count}} reference images"
+    "attachFolder": "Add a folder"
   },
   "slot": {
     "heading": "Slot {{slot}}",
@@ -70,7 +58,6 @@
   "submit": {
     "generateCount_one": "Generate {{count}} image",
     "generateCount_other": "Generate {{count}} images",
-    "generateImage": "Generate image",
     "maskEdit": "Edit mask",
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
     "generateShortcut": "Generate (Ctrl+Enter)",
@@ -174,5 +161,35 @@
       "medium": "Medium",
       "high": "High"
     }
+  },
+  "studio": {
+    "type": "Creation type",
+    "modes": {
+      "agent": "Agent",
+      "image": "Image",
+      "video": "Video"
+    },
+    "model": "Choose model",
+    "parameters": "Parameters",
+    "reference": "Reference",
+    "addReference": "Add reference",
+    "upload": "Upload images",
+    "library": "Add from assets",
+    "canvas": "Select from canvas",
+    "mention": "Mention reference",
+    "remove": "Remove",
+    "composer": "Creation composer",
+    "prompt": "Describe your idea",
+    "placeholders": {
+      "agent": "Tell me what you want to create, or share a script or reference image. I’ll help shape the idea and plan the next steps.",
+      "image": "Describe the subject, setting and visual style. Add reference images to guide the composition, colors or details.",
+      "video": "Describe the action, camera movement and changing atmosphere. Add a reference image to give your video a starting point."
+    },
+    "send": "Generate",
+    "preview": "Preview",
+    "select": "Select",
+    "projectActions": "Project actions",
+    "start": "Start creating",
+    "newProject": "New project"
   }
 }

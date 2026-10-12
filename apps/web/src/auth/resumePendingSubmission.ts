@@ -68,10 +68,17 @@ export async function resumePendingSubmission(): Promise<void> {
       const { prompt, inputImages, params, slotValues } = pending.input
       useStore.setState({ prompt, inputImages, params, slotValues: slotValues ?? {} })
     }
-  } else if (!(await startCanvasFromComposer(pending.draft, pending.experience ?? 'canvas'))) {
+  } else if (
+    !(await startCanvasFromComposer(
+      pending.draft,
+      pending.experience ?? 'canvas',
+      pending.mode,
+      pending.videoDraft,
+    ))
+  ) {
     if (!useStore.getState().prompt.trim()) {
       useStore.setState({
-        createTarget: pending.experience ?? 'canvas',
+        createTarget: pending.mode === 'video' ? 'video' : (pending.experience ?? 'canvas'),
         prompt: pending.draft.prompt,
         inputImages: pending.draft.references.map(({ id, dataUrl }) => ({ id, dataUrl })),
       })

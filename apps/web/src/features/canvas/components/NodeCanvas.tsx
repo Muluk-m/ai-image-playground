@@ -53,7 +53,12 @@ import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { type NodeCanvasDocument, openNodeCanvasDocument } from '../lib/nodeCanvasDocument'
-import { composeNodePrompt, incomingReferences, referenceFileIds } from '../lib/nodeCanvasFlow'
+import {
+  composeNodePrompt,
+  incomingReferences,
+  linkFromDrag,
+  referenceFileIds,
+} from '../lib/nodeCanvasFlow'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
 import {
   commitNodeText,
@@ -131,6 +136,15 @@ function toFlowNode(node: CanvasNode, selected: boolean): FlowNode {
     selected,
     data: { node },
   }
+}
+
+/** 拖线时连线盖在卡片上，取指针下真正的节点。 */
+function nodeIdAtPoint(x: number, y: number): string | null {
+  for (const hit of document.elementsFromPoint(x, y)) {
+    const id = hit.closest('.react-flow__node')?.getAttribute('data-id')
+    if (id) return id
+  }
+  return null
 }
 
 /** 左右两个加号。点一下就在这一侧新建节点；按住拖动仍是连到已有节点。 */
@@ -691,6 +705,23 @@ function Flow({
     const id = placeNodeBeside(editor, canvas.doc, nodeId, side, textFill)
     if (id) selectNode(id)
   }
+  const connectDrop = (
+    event: MouseEvent | TouchEvent,
+    state: {
+      fromNode: { id: string } | null
+      fromHandle: { type: 'source' | 'target' } | null
+    },
+  ) => {
+    const from = state.fromNode
+    if (!from) return
+    const point = 'changedTouches' in event ? event.changedTouches[0] : event
+    if (!point) return
+    const link = linkFromDrag(
+      { nodeId: from.id, handleType: state.fromHandle?.type ?? null },
+      nodeIdAtPoint(point.clientX, point.clientY),
+    )
+    if (link) connectCanvasNodes(canvas.doc, link, canvas.origin)
+  }
   return (
     <CommitTextContext.Provider value={commitText}>
       <FillImageContext.Provider value={uploadInto}>
@@ -721,6 +752,7 @@ function Flow({
                 canvas.origin,
               )
             }}
+            onConnectEnd={connectDrop}
             isValidConnection={(connection) =>
               Boolean(
                 connection.source && connection.target && connection.source !== connection.target,

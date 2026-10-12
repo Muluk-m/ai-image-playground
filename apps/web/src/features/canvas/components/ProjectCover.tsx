@@ -7,10 +7,12 @@ export default function ProjectCover({
   source,
   chat,
   pending = false,
+  fit = 'contain',
 }: {
   source?: string
   chat: boolean
   pending?: boolean
+  fit?: 'contain' | 'cover'
 }) {
   const { t } = useTranslation('canvas')
   const [settled, setSettled] = useState<{ source: string; failed: boolean }>()
@@ -23,13 +25,15 @@ export default function ProjectCover({
     <>
       {source && (
         <>
-          <MediaImage
-            src={source}
-            alt=""
-            loading="lazy"
-            aria-hidden="true"
-            className={`absolute inset-0 h-full w-full scale-125 object-cover blur-2xl saturate-150 ${failed ? 'opacity-0' : 'opacity-50'}`}
-          />
+          {fit === 'contain' && (
+            <MediaImage
+              src={source}
+              alt=""
+              loading="lazy"
+              aria-hidden="true"
+              className={`absolute inset-0 h-full w-full scale-125 object-cover blur-2xl saturate-150 ${failed ? 'opacity-0' : 'opacity-50'}`}
+            />
+          )}
           <MediaImage
             src={source}
             alt=""
@@ -37,7 +41,7 @@ export default function ProjectCover({
             onLoad={() => setSettled({ source, failed: false })}
             onError={() => setSettled({ source, failed: true })}
             onResolveError={fail}
-            className={`relative h-full w-full object-contain ${loading || failed ? 'opacity-0' : ''}`}
+            className={`relative h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${loading || failed ? 'opacity-0' : ''}`}
           />
         </>
       )}
@@ -54,15 +58,9 @@ export default function ProjectCover({
           />
         </span>
       ) : (
-        (!source || failed) &&
-        (chat ? (
-          <Icon name="chat" size="lg" className="text-muted-foreground" />
-        ) : (
-          <span
-            aria-hidden="true"
-            className="absolute inset-0 bg-[radial-gradient(hsl(var(--muted-foreground)/0.28)_1px,transparent_1px)] [background-size:14px_14px]"
-          />
-        ))
+        (!source || failed) && (
+          <Icon name={chat ? 'chat' : 'image'} size="lg" className="text-muted-foreground" />
+        )
       )}
     </>
   )

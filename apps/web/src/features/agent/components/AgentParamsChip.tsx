@@ -21,6 +21,39 @@ const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRe
 
 const DEPTHS = ['fast', 'medium', 'deep'] as const
 
+/** Execution controls remain visible for video turns as well as image turns. */
+export function AgentExecutionSettings() {
+  const { t } = useTranslation('agent')
+  const depth = useAgentStore((state) => state.thinkingDepth)
+  const autoSubmit = useAgentStore((state) => state.autoSubmit)
+  const labels = {
+    fast: t('params.thinkingFast'),
+    medium: t('params.thinkingMedium'),
+    deep: t('params.thinkingDeep'),
+  }
+  return (
+    <>
+      <SettingsSection title={t('params.thinkingLegend')}>
+        <ReasoningEffort
+          label={t('params.thinkingLegend')}
+          levels={DEPTHS.map((key) => ({ key, label: labels[key] }))}
+          selectedKey={depth}
+          onSelect={(key) => {
+            if (key === 'fast' || key === 'medium' || key === 'deep')
+              useAgentStore.getState().setThinkingDepth(key)
+          }}
+        />
+      </SettingsSection>
+      <SettingsToggle
+        label={t('params.autoSubmitLabel')}
+        description={t('params.autoSubmitHint')}
+        checked={autoSubmit}
+        onChange={(value) => useAgentStore.getState().setAutoSubmit(value)}
+      />
+    </>
+  )
+}
+
 /**
  * 模型独立快选；画幅、思考深度与出图模式收进参数卡片，摘要只写画幅。
  * 张数由智能体按需求决定，所以没有数量。
@@ -32,8 +65,10 @@ const DEPTHS = ['fast', 'medium', 'deep'] as const
  */
 export default function AgentParamsChip({
   generationControls = true,
+  thinkingControls = true,
 }: {
   generationControls?: boolean
+  thinkingControls?: boolean
 }) {
   const { t } = useTranslation(['agent', 'composer'])
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
@@ -81,14 +116,16 @@ export default function AgentParamsChip({
         size="sm"
         unsupported={UNSUPPORTED}
         extra={{
-          dirty: depth !== 'medium',
-          reset: () => setDepth('medium'),
+          dirty: thinkingControls && depth !== 'medium',
+          reset: () => {
+            if (thinkingControls) setDepth('medium')
+          },
           badge: autoSubmit ? (
             <Zap aria-label={t('params.autoSubmitLabel')} className="h-3.5 w-3.5 text-primary" />
           ) : undefined,
           section: (
             <>
-              {thinking}
+              {thinkingControls && thinking}
               <SettingsToggle
                 label={t('params.autoSubmitLabel')}
                 description={t('params.autoSubmitHint')}

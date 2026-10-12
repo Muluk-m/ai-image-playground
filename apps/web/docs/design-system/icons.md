@@ -70,6 +70,8 @@ import { Icon } from '@/components/ui/icon'
 | `imageAdd` | 添加参考图 | gallery-add |
 | `attach` | 添加附件 | paperclip |
 | `send` | 发送 | arrow-up |
+| `shortcut` | 快捷键 | keyboard |
+| `clear` | 清空输入 | text-cross |
 | `stop` | 停止生成 | stop |
 | `refresh` | 重试、重新生成 | refresh |
 | `upscale` | 高清放大 | maximize-square |
@@ -120,6 +122,7 @@ import { Icon } from '@/components/ui/icon'
 | `link` | 链接、插入引用 | link |
 | `copy` | 复制到剪贴板 | copy |
 | `folder` | 文件夹、从文件夹导入 | folder-open |
+| `database` | 数据 | database |
 | `delete` | 删除 | trash-bin-2 |
 | `edit` | 编辑 | pen-2 |
 | `code` | 查看原始数据 | code |
@@ -156,7 +159,9 @@ import { Icon } from '@/components/ui/icon'
 | `info` | 提示 | info-circle |
 | `blocked` | 不可用、已达上限 | forbidden-circle |
 | `lock` | 锁定、会员可用 | lock |
+| `key` | API 密钥 | key |
 | `visible` | 显示 | eye |
+| `hidden` | 隐藏 | eye-closed |
 | `notify` | 通知 | bell |
 | `credits` | 积分 | bolt |
 | `clock` | 耗时、时间 | clock-circle |

@@ -135,7 +135,13 @@ beforeEach(async () => {
       accepted?.()
     },
   })
-  useStore.setState({ maskEditorImageId: null, maskEditorSession: null, confirmDialog: null })
+  useStore.setState({
+    maskEditorImageId: null,
+    maskEditorSession: null,
+    confirmDialog: null,
+    createTarget: 'generate',
+    creationSelections: {},
+  })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -197,6 +203,18 @@ function folderFile(path: string): File {
   Object.defineProperty(file, 'webkitRelativePath', { value: path })
   return file
 }
+
+it('initializes the project composer mode before remembering per-mode parameters', () => {
+  render()
+  expect(useStore.getState().createTarget).toBe('chat')
+  act(() => useStore.getState().setParams({ size: '1024x1536' }))
+  act(() => useStore.getState().setCreateTarget('generate'))
+  act(() => useStore.getState().setParams({ size: '1536x1024' }))
+  act(() => useStore.getState().setCreateTarget('chat'))
+  expect(useStore.getState().params.size).toBe('1024x1536')
+  act(() => useStore.getState().setCreateTarget('generate'))
+  expect(useStore.getState().params.size).toBe('1536x1024')
+})
 
 describe('智能体输入框', () => {
   it('图片文件拖进输入框就成为参考图，名字用文件名', async () => {
@@ -387,7 +405,7 @@ describe('智能体输入框', () => {
 
   it('纯对话输入框不列出画布图，也不自动带入画布选区', () => {
     act(() => root.render(<AgentComposer doc={doc} showCanvasReferences={false} />))
-    expect(editor().getAttribute('data-placeholder')).toContain('引用素材')
+    expect(editor().getAttribute('data-placeholder')).toContain('参考图')
     type('把@')
     expect(options().map((one) => one.textContent)).not.toContain('画布图1')
     expect(editor().querySelector('img')).toBeNull()
