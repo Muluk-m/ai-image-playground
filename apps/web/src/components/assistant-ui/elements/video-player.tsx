@@ -29,6 +29,7 @@ export function VideoPlayer({
   onAspectRatioChange,
   aspectRatio = '16 / 9',
   fill = false,
+  crossOrigin = 'use-credentials',
 }: {
   src: string
   poster?: string
@@ -40,12 +41,16 @@ export function VideoPlayer({
   onAspectRatioChange?: (aspectRatio: string) => void
   aspectRatio?: string
   fill?: boolean
+  /** Public media without CORS support can opt out; authenticated media keeps credentials. */
+  crossOrigin?: 'anonymous' | 'use-credentials' | null
 }) {
   const frame = useRef<HTMLDivElement>(null)
   const media = useRef<HTMLVideoElement>(null)
   const [nearViewport, setNearViewport] = useState(false)
   const [playingSource, setPlayingSource] = useState<string | null>(null)
   const position = useRef({ src, time: 0 })
+  const capturedSource = useRef<string | null>(null)
+  const posterSeek = useRef<string | null>(null)
   const loadMedia = nearViewport || playingSource === src
   let preload: 'none' | 'metadata' | 'auto' = 'none'
   if (playingSource === src) preload = 'auto'
@@ -94,6 +99,7 @@ export function VideoPlayer({
       setWaiting(false)
     }
     return () => {
+      posterSeek.current = null
       if (!video) return
       video.pause()
       video.removeAttribute('src')
@@ -118,11 +124,12 @@ export function VideoPlayer({
         poster={poster}
         controls
         playsInline
-        crossOrigin="use-credentials"
+        crossOrigin={crossOrigin ?? undefined}
         preload={preload}
         aria-label={label}
         className="absolute inset-0 h-full w-full bg-black object-contain"
         onError={() => {
+          posterSeek.current = null
           setFailure(src)
           setWaiting(false)
         }}
@@ -133,7 +140,26 @@ export function VideoPlayer({
             !event.currentTarget.paused &&
               event.currentTarget.readyState < HTMLMediaElement.HAVE_FUTURE_DATA,
           )
-          if (event.currentTarget.currentTime === 0) onFrameReady?.(event.currentTarget)
+          // A loadeddata event can precede the decoder's painted frame. Seek once
+          // while paused, then capture the decoded frame instead of caching black.
+          if (
+            onFrameReady &&
+            capturedSource.current !== src &&
+            posterSeek.current !== src &&
+            event.currentTarget.paused
+          ) {
+            posterSeek.current = src
+            event.currentTarget.currentTime = Number.isFinite(event.currentTarget.duration)
+              ? Math.min(0.1, event.currentTarget.duration / 2)
+              : 0.1
+          }
+        }}
+        onSeeked={(event) => {
+          if (posterSeek.current === src) {
+            posterSeek.current = null
+            capturedSource.current = src
+            onFrameReady?.(event.currentTarget)
+          }
         }}
         onWaiting={(event) => setWaiting(!event.currentTarget.paused)}
         onPlay={(event) => {
@@ -141,6 +167,11 @@ export function VideoPlayer({
           setWaiting(event.currentTarget.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
         }}
         onPlaying={() => {
+          if (onFrameReady && capturedSource.current !== src && media.current) {
+            capturedSource.current = src
+            posterSeek.current = null
+            onFrameReady(media.current)
+          }
           setPlayingSource(src)
           setReady(src)
           setFailure(null)

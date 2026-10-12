@@ -44,3 +44,24 @@ it('cancellation during the atomic read prevents a late resume', async () => {
   await discardPendingSubmission('old')
   expect(await taking).toBeUndefined()
 })
+
+it('keeps video settings with the interrupted login intent', async () => {
+  const videoDraft = {
+    model: 'grok-imagine-video-1.5-lite',
+    duration: 10 as const,
+    aspectRatio: '9:16' as const,
+    resolution: '480p' as const,
+  }
+  const pending = { ...draft, mode: 'video' as const, videoDraft }
+  await queuePendingSubmission(pending)
+  videoDraft.model = 'changed-after-send'
+  expect(await takePendingSubmission()).toMatchObject({
+    mode: 'video',
+    videoDraft: {
+      model: 'grok-imagine-video-1.5-lite',
+      duration: 10,
+      aspectRatio: '9:16',
+      resolution: '480p',
+    },
+  })
+})

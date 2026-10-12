@@ -1,10 +1,17 @@
 import type { AgentDraft } from '../features/agent/lib/references'
+import type { VideoDraft } from '../features/video/types'
 import type { PreparedSubmission } from '../store'
 
 /** This tab's one interrupted send. Separate from scoped workspace storage so login adoption cannot move it. */
 export type PendingSubmission = (
   | { kind: 'image'; input: PreparedSubmission; template?: true }
-  | { kind: 'heroCanvas'; draft: AgentDraft; experience?: 'chat' | 'canvas' }
+  | {
+      kind: 'heroCanvas'
+      draft: AgentDraft
+      experience?: 'chat' | 'canvas'
+      mode?: 'image' | 'video'
+      videoDraft?: VideoDraft
+    }
 ) & { sourcePath?: string; ownerScope?: string }
 
 const DATABASE = 'image-playground:pending-send'

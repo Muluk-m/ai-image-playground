@@ -434,6 +434,9 @@ it('preloads only nearby video results, then shares the first decoded frame with
   await act(async () => intersect([{ isIntersecting: true }]))
   expect(video.getAttribute('src')).toContain('/video-task/output/0')
   await act(async () => video.dispatchEvent(new Event('loadeddata')))
+  expect(video.currentTime).toBe(0.1)
+  expect(rememberVideoOutputFrame).not.toHaveBeenCalled()
+  await act(async () => video.dispatchEvent(new Event('seeked')))
   expect(host.querySelector('[role="status"]')).toBeNull()
   expect(rememberVideoOutputFrame).toHaveBeenCalledWith(
     expect.objectContaining({ taskId: 'video-task', outputIndex: 0 }),
@@ -557,6 +560,7 @@ it('bounds recovered portrait results by their decoded dimensions without a seco
   expect(player.style.aspectRatio).toBe('768 / 1168')
   expect(card.style.width).toContain(String(768 / 1168))
   await act(async () => video.dispatchEvent(new Event('loadeddata')))
+  await act(async () => video.dispatchEvent(new Event('seeked')))
   await act(async () => video.dispatchEvent(new Event('waiting')))
   expect(host.querySelector('[role="status"]')).toBeNull()
 })
@@ -618,6 +622,7 @@ it('keeps metadata-only previews playable while still timing out an actual playb
     await act(async () => vi.advanceTimersByTime(10_000))
     Object.defineProperty(video, 'readyState', { configurable: true, value: 2 })
     await act(async () => video.dispatchEvent(new Event('loadeddata')))
+    await act(async () => video.dispatchEvent(new Event('seeked')))
     expect(host.querySelector('[role="status"]')).not.toBeNull()
     await act(async () => vi.advanceTimersByTime(35_000))
     expect(host.textContent).toContain('视频暂时无法播放')
