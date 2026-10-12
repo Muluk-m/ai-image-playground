@@ -556,6 +556,7 @@ describe('智能体生视频工具', () => {
       'readConversationImages',
       'readLibrary',
       'viewImage',
+      'viewVideo',
       'webFetch',
       'webSearch',
     ])
