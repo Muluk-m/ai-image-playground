@@ -88,6 +88,14 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       .where(and(eq(table.id, id), eq(table.user_id, userId)))
     if (existing?.deleted_at != null)
       return { ok: false as const, status: 410 as const, error: 'project_deleted' }
+    const [migrated] = existing
+      ? await tx
+          .select({ id: schema.canvas_documents.project_id })
+          .from(schema.canvas_documents)
+          .where(eq(schema.canvas_documents.project_id, id))
+      : []
+    if (migrated)
+      return { ok: false as const, status: 409 as const, error: 'project_canvas_upgrade_required' }
     const receipt = existing?.receipts.find((one) => one.requestId === input.requestId)
     if (receipt)
       return receipt.digest === digest

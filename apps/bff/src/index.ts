@@ -3,6 +3,7 @@ import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
+import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeOldClientErrors } from './lib/client-errors'
@@ -232,6 +233,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
   clearInterval(apiMinutesTimer)
 
   try {
+    // Close idle canvas sockets after task drain so HTTP shutdown can finish.
+    await canvasSyncRooms.close()
     await server.stop()
   } catch (err) {
     log.error(

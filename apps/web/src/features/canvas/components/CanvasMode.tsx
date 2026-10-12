@@ -64,6 +64,7 @@ import FilmExportStatus from './FilmExportStatus'
 import InpaintMaskLayer from './InpaintMaskLayer'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
+import ProjectSyncStatus from './ProjectSyncStatus'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
 import TimelineEditorHost from './TimelineEditor'
@@ -805,6 +806,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 !loading &&
                 !loadFailed && (
                   <Suspense fallback={null}>
+                    {workspace.cloud && (
+                      <div className="pointer-events-none absolute left-4 top-16 z-30 rounded-xl border border-border bg-background/95 px-3 py-2 empty:hidden">
+                        <ProjectSyncStatus session={workspace.cloud} quiet />
+                      </div>
+                    )}
                     <NodeCanvas
                       workspace={workspace}
                       onChat={

@@ -11,6 +11,7 @@ import {
 } from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
 import type { NodeReference } from '../lib/nodeCanvasFlow'
+import NodeMediaImage from './NodeMediaImage'
 
 export default function NodeReferenceEditor({
   references,
@@ -38,7 +39,7 @@ export default function NodeReferenceEditor({
       {references.map((ref, index) => (
         <div className="studio-node-reference" key={ref.id}>
           {ref.fileId && files[ref.fileId] ? (
-            <img src={files[ref.fileId]} alt="" />
+            <NodeMediaImage src={files[ref.fileId]} alt="" />
           ) : (
             <Icon name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'} />
           )}
@@ -114,7 +115,7 @@ export default function NodeReferenceEditor({
                   }}
                 >
                   {ref.fileId && files[ref.fileId] ? (
-                    <img
+                    <NodeMediaImage
                       src={files[ref.fileId]}
                       alt=""
                       className="h-7 w-7 rounded-sm object-cover"

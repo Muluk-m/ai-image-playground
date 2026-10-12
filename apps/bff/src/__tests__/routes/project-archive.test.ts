@@ -556,3 +556,66 @@ it('要接替的位置不是失败占位时照常另找位置', async () => {
     { generationId: retried.taskId },
   ])
 })
+
+it('migrated cloud canvas receives Agent reservations and results without overwriting user edits', async () => {
+  const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+  const Y = await import('yjs')
+  const { canvasOrigin, insertCanvasNode, moveCanvasNodes, readCanvasDocument } = await import(
+    '@image-playground/shared'
+  )
+  const original = await project()
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('archive-owner', original.id))
+  const submitted = await createQueueTask({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: '云画布产品图', device_id: 'archive-device' },
+    userId: 'archive-owner',
+    agent: { conversationId: original.conversationId, turnId: crypto.randomUUID() },
+  })
+  if (submitted.kind !== 'created') throw new Error(submitted.kind)
+  Y.applyUpdate(doc, await accessCanvasDocument('archive-owner', original.id))
+  const reserved = readCanvasDocument(doc).nodes[0]!
+  expect(reserved.data).toMatchObject({
+    pending: { type: 'generation', generationId: submitted.taskId },
+  })
+  const vector = Y.encodeStateVector(doc)
+  const origin = canvasOrigin('user', 'archive-test')
+  moveCanvasNodes(doc, [{ id: reserved.id, x: 800, y: 200 }], origin)
+  insertCanvasNode(
+    doc,
+    {
+      id: 'retained-note',
+      type: 'text',
+      x: 10,
+      y: 20,
+      width: 300,
+      height: 100,
+      data: { text: '同步期间保留的编辑', fontSize: 16, fill: '#fff' },
+    },
+    origin,
+  )
+  await accessCanvasDocument('archive-owner', original.id, Y.encodeStateAsUpdate(doc, vector))
+  const bytes = await sharp({
+    create: { width: 32, height: 32, channels: 4, background: '#ccee99' },
+  })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting(async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] }),
+  )
+  await runTask(submitted.taskId)
+  Y.applyUpdate(doc, await accessCanvasDocument('archive-owner', original.id))
+  const nodes = readCanvasDocument(doc).nodes
+  expect(nodes).toHaveLength(2)
+  expect(nodes.find((n) => n.id === reserved.id)).toMatchObject({
+    x: 800,
+    y: 200,
+    data: { mediaId: expect.any(String) },
+  })
+  expect(nodes.find((n) => n.id === reserved.id)?.data).not.toHaveProperty('pending')
+  expect(nodes.find((n) => n.id === 'retained-note')?.data).toMatchObject({
+    text: '同步期间保留的编辑',
+  })
+  doc.destroy()
+})

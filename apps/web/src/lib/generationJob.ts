@@ -9,6 +9,7 @@ import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
 import { isClientCapabilityEnabled } from './clientCapabilities'
+import { resolveMediaSource } from './cloudMedia'
 import type { CallApiResult } from './imageApiShared'
 import {
   getPrivateSubmissionGuard,
@@ -285,7 +286,9 @@ async function runUnit<H>(
       settings,
       prompt: unit.prompt,
       params: unit.params,
-      inputImageDataUrls: unit.inputImageDataUrls,
+      inputImageDataUrls: await Promise.all(
+        unit.inputImageDataUrls.map((source) => resolveMediaSource(source, 'original', true)),
+      ),
       ...(unit.maskDataUrl ? { maskDataUrl: unit.maskDataUrl } : {}),
       clientRequestId: unit.clientRequestId,
       onQueueSubmitted: (requestId) => {
