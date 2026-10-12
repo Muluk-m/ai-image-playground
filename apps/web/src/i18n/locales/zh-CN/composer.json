@@ -188,11 +188,7 @@
       "image": "上传参考图，输入文字或 @ 素材，描述你想生成的图片。",
       "video": "添加参考素材，描述镜头、动作与氛围，让创意动起来。"
     },
-    "expand": "展开输入框",
-    "collapse": "收起输入框",
-    "noReferences": "添加素材后即可引用",
     "send": "生成",
-    "moreTemplates": "更多模板",
     "preview": "预览",
     "select": "选择",
     "projectActions": "项目操作",
