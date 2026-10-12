@@ -464,6 +464,12 @@
     "timeline_other": "Timeline · {{count}} clips",
     "mediaMissing": "Media missing",
     "loadFailed": "The node canvas couldn't open. Refresh to try again.",
-    "generateUnavailable": "Generating isn't available on the node canvas yet. It arrives with the node prompt box."
+    "generateUnavailable": "Generating isn't available on the node canvas yet. It arrives with the node prompt box.",
+    "addTitle": "Add node",
+    "addText": "Text",
+    "addImage": "Image",
+    "addResources": "Add resource",
+    "addUpload": "Upload",
+    "textPlaceholder": "Type something"
   }
 }

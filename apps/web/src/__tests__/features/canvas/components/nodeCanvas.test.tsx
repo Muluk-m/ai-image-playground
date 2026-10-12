@@ -6,7 +6,7 @@ import {
   moveCanvasNodes,
   readCanvasDocument,
 } from '@image-playground/shared'
-import { act, createElement, type ElementType, type ReactNode } from 'react'
+import { act, createElement, type ElementType, type ReactNode, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -15,9 +15,12 @@ import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasD
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 
-const mocks = vi.hoisted(() => ({ open: vi.fn() }))
+const mocks = vi.hoisted(() => ({ open: vi.fn(), importImages: vi.fn(async () => 1) }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
   openNodeCanvasDocument: mocks.open,
+}))
+vi.mock('../../../../features/canvas/lib/importImages', () => ({
+  importImageFiles: mocks.importImages,
 }))
 vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
   ARROW_POINTER: { length: 12, width: 10 },
@@ -37,6 +40,7 @@ vi.mock('@xyflow/react', () => ({
     nodes,
     nodeTypes,
     children,
+    onInit,
   }: {
     nodes: {
       id: string
@@ -49,8 +53,18 @@ vi.mock('@xyflow/react', () => ({
     }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
-  }) =>
-    createElement(
+    onInit?: (flow: {
+      screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
+      setViewport: (viewport: { x: number; y: number; zoom: number }) => void
+    }) => void
+  }) => {
+    useEffect(() => {
+      onInit?.({
+        screenToFlowPosition: (point) => point,
+        setViewport: () => {},
+      })
+    }, [onInit])
+    return createElement(
       'div',
       { className: 'react-flow' },
       ...nodes.map((node) =>
@@ -58,6 +72,7 @@ vi.mock('@xyflow/react', () => ({
           'div',
           {
             key: node.id,
+            className: 'react-flow__node',
             'data-node-id': node.id,
             'data-bounds': JSON.stringify({
               ...node.position,
@@ -70,7 +85,8 @@ vi.mock('@xyflow/react', () => ({
         ),
       ),
       children,
-    ),
+    )
+  },
 }))
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -108,7 +124,11 @@ beforeEach(() => {
   old.elements = [image('image')]
   old.files = { file: 'data:image/png;base64,AA==' }
   canvas = createCanvas()
-  workspace = { doc: old, record: { key: 'fixture' } } as unknown as CanvasWorkspace
+  workspace = {
+    doc: old,
+    record: { key: 'fixture' },
+    editor: { doc: old },
+  } as unknown as CanvasWorkspace
   mocks.open.mockResolvedValue(canvas)
   host = document.createElement('div')
   document.body.append(host)
@@ -229,4 +249,39 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   const video = host.querySelector('video')!
   expect(video.parentElement!.style.transform).toBe('rotate(30deg)')
   expect(video.closest('[data-rotated]')).not.toBeNull()
+})
+
+it('opens an add menu on a double-click of the empty canvas', async () => {
+  await render()
+  const surface = host.querySelector('.studio-node-canvas')!
+  act(() => {
+    surface.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 48, clientY: 64 }))
+  })
+  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('文本')
+  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('图片')
+  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('上传')
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  })
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
+})
+
+it('places a dropped image where the pointer is', async () => {
+  mocks.importImages.mockClear()
+  await render()
+  const surface = host.querySelector('.studio-node-canvas')!
+  const file = new File(['png'], 'shot.png', { type: 'image/png' })
+  const event = new MouseEvent('drop', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 30,
+    clientY: 40,
+  })
+  Object.defineProperty(event, 'dataTransfer', {
+    value: { types: ['Files'], files: [file], items: [] },
+  })
+  await act(async () => {
+    surface.dispatchEvent(event)
+  })
+  expect(mocks.importImages).toHaveBeenCalledWith(workspace.editor, [file], { x: 30, y: 40 })
 })
