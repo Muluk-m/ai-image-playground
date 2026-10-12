@@ -1,4 +1,9 @@
-import { canvasOrigin, insertCanvasNode, readCanvasDocument } from '@image-playground/shared'
+import {
+  canvasOrigin,
+  insertCanvasNode,
+  readCanvasDocument,
+  updateCanvasNode,
+} from '@image-playground/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -126,4 +131,33 @@ describe('node video submission', () => {
     expect(mocks.job).not.toHaveBeenCalled()
     expect(readCanvasDocument(doc).nodes[0]!.data).toMatchObject({ pending: { status: 'stale' } })
   })
+})
+
+it('resumes a newly confirmed cloud video once after an earlier unconfirmed scan', () => {
+  const { doc, editor } = fixture()
+  submitNodeVideo(editor, doc, 'video', 'move', [], {}, {})
+  mocks.job.mockClear()
+  resumeNodeVideos(editor, doc, false)
+  expect(mocks.job).not.toHaveBeenCalled()
+  const node = readCanvasDocument(doc).nodes[0]!
+  if (!('pending' in node.data) || node.data.pending?.type !== 'placeholder')
+    throw new Error('missing job')
+  updateCanvasNode(
+    doc,
+    node.id,
+    {
+      data: {
+        ...node.data,
+        pending: {
+          ...node.data.pending,
+          meta: { ...node.data.pending.meta, bffRequestId: 'late-confirmation' },
+        },
+      },
+    },
+    canvasOrigin('system', 'remote'),
+  )
+  resumeNodeVideos(editor, doc, false)
+  resumeNodeVideos(editor, doc, false)
+  expect(mocks.job).toHaveBeenCalledTimes(1)
+  doc.destroy()
 })

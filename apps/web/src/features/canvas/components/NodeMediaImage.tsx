@@ -6,14 +6,29 @@ export function useNodeMedia(source: string | undefined): string | undefined {
   useEffect(() => {
     if (!source || !mediaIdentity(source)) return
     let alive = true
-    void resolveMediaSource(source, 'preview').then(
-      (value) => {
-        if (alive) setResolved({ source, value })
-      },
-      () => {},
-    )
+    let attempts = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const load = () => {
+      clearTimeout(timer)
+      void resolveMediaSource(source, 'preview').then(
+        (value) => {
+          if (alive) setResolved({ source, value })
+        },
+        () => {
+          if (alive && attempts++ < 3) timer = setTimeout(load, 1000 * 2 ** (attempts - 1))
+        },
+      )
+    }
+    const online = () => {
+      attempts = 0
+      load()
+    }
+    window.addEventListener('online', online)
+    load()
     return () => {
       alive = false
+      clearTimeout(timer)
+      window.removeEventListener('online', online)
     }
   }, [source])
   return source && mediaIdentity(source)

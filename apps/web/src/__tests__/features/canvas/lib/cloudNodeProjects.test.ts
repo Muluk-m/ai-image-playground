@@ -14,6 +14,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
+import { getCloudProject, ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
@@ -28,7 +29,14 @@ vi.mock('../../../../features/canvas/lib/projectClient', () => ({
     document: { version: 1, elements: [] },
   })),
   putCloudProject: vi.fn(),
-  ProjectRequestError: class extends Error {},
+  ProjectRequestError: class extends Error {
+    constructor(
+      readonly status: number,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: vi.fn() }))
 vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://localhost' }))
@@ -100,7 +108,7 @@ async function fixture() {
   await vi.waitFor(() =>
     expect(socket.sent.some((bytes) => readCanvasSyncMessage(bytes).kind === 'update')).toBe(true),
   )
-  return { session, record, socket, server }
+  return { session, record, socket, server, project }
 }
 it('uses the server migration and does not start a second JSON cloud writer', async () => {
   const { session, record, socket, server } = await fixture()
@@ -151,5 +159,98 @@ it('merges remote edits without echoing legacy projections and normalizes upload
   expect(record.editor.doc.files['cloud-11111111-1111-4111-8111-111111111111']).toBe(
     'aip-media:11111111-1111-4111-8111-111111111111',
   )
+  record.dispose()
+})
+
+it('refresh waits for the fetched document to reach the legacy editor', async () => {
+  const { session, record, server } = await fixture()
+  moveCanvasNodes(server, [{ id: 'text', x: 909, y: 808 }], origin)
+  await session.refresh()
+  expect(record.editor.doc.elements[0]).toMatchObject({ x: 909, y: 808 })
+  record.dispose()
+})
+it('preserves local failure placeholders through the legacy adapter', async () => {
+  const { session, record } = await fixture()
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'failed',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: {
+        pending: {
+          type: 'placeholder',
+          status: 'error',
+          message: 'Try again',
+          meta: { nodeGeneration: true },
+        },
+      },
+    },
+    session.canvas!.origin,
+  )
+  expect(record.editor.doc.elements.find((el) => el.id === 'failed')).toMatchObject({
+    type: 'placeholder',
+    status: 'error',
+    message: 'Try again',
+    meta: { nodeGeneration: true },
+  })
+  record.dispose()
+})
+it('returns known Agent media without waiting for unrelated missing uploads', async () => {
+  const { session, record } = await fixture()
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'missing',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: { fileId: 'not-available' },
+    },
+    session.canvas!.origin,
+  )
+  const source = 'aip-media:11111111-1111-4111-8111-111111111111'
+  expect(await session.mediaIdsFor([source])).toEqual(new Map([[source, source.slice(10)]]))
+  record.dispose()
+})
+it('serializes overlapping renames so the latest name remains saved', async () => {
+  const { session, record } = await fixture()
+  const names: string[] = []
+  let finish!: () => void
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (_url, init) => {
+    names.push(JSON.parse(String(init?.body)).name)
+    if (names.length === 1)
+      await new Promise<void>((resolve) => {
+        finish = resolve
+      })
+    return new Response('{}')
+  })
+  const first = session.rename('First')
+  await vi.waitFor(() => expect(names).toEqual(['First']))
+  const second = session.rename('Second')
+  expect(names).toEqual(['First'])
+  finish()
+  await Promise.all([first, second])
+  expect(names).toEqual(['First', 'Second'])
+  record.dispose()
+})
+
+it.each([
+  503, 403,
+])('allows cached editing on a %i only when permission is still recoverable', async (status) => {
+  const { session, record, project } = await fixture()
+  session.dispose()
+  vi.mocked(getCloudProject).mockRejectedValueOnce(new ProjectRequestError(status, 'unavailable'))
+  const reopened = new CloudNodeProjectSession(project, record, () => {})
+  sessions.push(reopened)
+  if (status === 503) {
+    await reopened.load()
+    expect(readCanvasDocument(reopened.canvas!.doc).nodes[0]).toMatchObject({ id: 'text' })
+  } else await expect(reopened.load()).rejects.toThrow('unavailable')
   record.dispose()
 })

@@ -4,19 +4,23 @@ import {
   importLegacyElements,
   insertCanvasNode,
   readCanvasDocument,
+  updateCanvasNode,
 } from '@image-playground/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { submitNodeImage } from '../../../../features/canvas/lib/nodeCanvasGenerate'
+import {
+  resumeNodeGenerations,
+  submitNodeImage,
+} from '../../../../features/canvas/lib/nodeCanvasGenerate'
 import { useStore } from '../../../../store'
 
-const mocks = vi.hoisted(() => ({ start: vi.fn() }))
+const mocks = vi.hoisted(() => ({ start: vi.fn(), resume: vi.fn() }))
 
 vi.mock('../../../../lib/generationJob', () => ({
   startGeneration: mocks.start,
-  resumeGeneration: vi.fn(),
+  resumeGeneration: mocks.resume,
 }))
 
 describe('submitNodeImage', () => {
@@ -138,4 +142,30 @@ describe('submitNodeImage', () => {
     expect(submitNodeImage(editor, ydoc, 'card', '   ', [])).toBe(false)
     expect(mocks.start).not.toHaveBeenCalled()
   })
+})
+
+it('resumes a cloud image job when its request id arrives after initial loading', () => {
+  mocks.resume.mockClear()
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'resume')
+  const meta = { nodeGeneration: true, prompt: 'test', source: 'builtin-edge' }
+  const pending = { type: 'placeholder' as const, status: 'loading', message: '', meta }
+  insertCanvasNode(
+    doc,
+    { id: 'late', type: 'image', x: 0, y: 0, width: 100, height: 100, data: { pending } },
+    origin,
+  )
+  const editor = new CanvasEditor(new CanvasDoc())
+  resumeNodeGenerations(editor, doc, false)
+  expect(mocks.resume).not.toHaveBeenCalled()
+  updateCanvasNode(
+    doc,
+    'late',
+    { data: { pending: { ...pending, meta: { ...meta, bffRequestId: 'confirmed' } } } },
+    origin,
+  )
+  resumeNodeGenerations(editor, doc, false)
+  resumeNodeGenerations(editor, doc, false)
+  expect(mocks.resume).toHaveBeenCalledTimes(1)
+  doc.destroy()
 })

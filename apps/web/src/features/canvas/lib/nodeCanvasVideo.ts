@@ -27,7 +27,18 @@ import { generationInputIds, inputIndices } from './videoInputs'
 import { videoOptionRejection } from './videoRejection'
 
 const origin = canvasOrigin('system', 'node-video')
-const resumed = new WeakSet<Y.Doc>()
+const resumed = new WeakMap<Y.Doc, Set<string>>()
+function claimResume(doc: Y.Doc, nodeId: string, requestId: string): boolean {
+  let keys = resumed.get(doc)
+  if (!keys) {
+    keys = new Set()
+    resumed.set(doc, keys)
+  }
+  const key = `${nodeId}:${requestId}`
+  if (keys.has(key)) return false
+  keys.add(key)
+  return true
+}
 function mediaNode(doc: Y.Doc, id: string) {
   const node = readCanvasDocument(doc).nodes.find((n) => n.id === id)
   return node && (node.type === 'image' || node.type === 'video') ? node : undefined
@@ -190,6 +201,7 @@ export function submitNodeVideo(
         ),
         clientRequestId: meta.clientRequestId,
       })
+      claimResume(doc, outputId, requestId)
       pending(doc, outputId, 'loading', '', { ...meta, bffRequestId: requestId })
       notifyPrivateSubmissionAccepted()
       await settle(editor, doc, outputId, requestId, generation)
@@ -198,8 +210,6 @@ export function submitNodeVideo(
   return true
 }
 export function resumeNodeVideos(editor: CanvasEditor, doc: Y.Doc, markUnrecoverable = true): void {
-  if (resumed.has(doc)) return
-  resumed.add(doc)
   for (const node of readCanvasDocument(doc).nodes) {
     if (node.type !== 'image' && node.type !== 'video') continue
     const job = node.data.pending
@@ -215,6 +225,7 @@ export function resumeNodeVideos(editor: CanvasEditor, doc: Y.Doc, markUnrecover
       pending(doc, node.id, 'stale', i18next.t('placeholder.unconfirmed', { ns: 'canvas' }), meta)
       continue
     }
+    if (!claimResume(doc, node.id, meta.bffRequestId)) continue
     const requestId = meta.bffRequestId,
       generation = meta.generation
     void superviseGeneration(
