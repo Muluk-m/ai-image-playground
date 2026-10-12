@@ -1,13 +1,9 @@
 import { useState } from 'react'
-import {
-  FIELD,
-  LABEL,
-  PANEL_SECTION,
-  PANEL_TITLE,
-  PRIMARY_BUTTON,
-} from '../../../components/panelStyles'
+import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -55,7 +51,7 @@ export default function CanvasBatchEditDialog({
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
         <h3 className={`${PANEL_TITLE} mb-3`}>{t('batch.editTitle', { count: images.length })}</h3>
         <div className={`${LABEL} mb-1.5`}>{t('imageEdit.promptLabel')}</div>
-        <textarea
+        <Textarea
           autoFocus
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
@@ -68,7 +64,7 @@ export default function CanvasBatchEditDialog({
           rows={4}
           placeholder={t('imageEdit.placeholder')}
           aria-label={t('imageEdit.promptLabel')}
-          className={`${FIELD} resize-none`}
+          className="resize-none"
         />
         <div className={`${PANEL_SECTION} mt-4`}>
           {guard.blocked && guard.disabledReason && (
@@ -78,14 +74,15 @@ export default function CanvasBatchEditDialog({
             blockedAction={guard.blockedAction}
             className="mb-1.5 text-label-sm"
           />
-          <button
+          <Button
             type="button"
+            size="sm"
+            className="w-full"
             disabled={guard.blocked || submitting || !prompt.trim()}
             onClick={() => void submit()}
-            className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
           >
             {t('batch.editSubmit', { count: images.length })}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>

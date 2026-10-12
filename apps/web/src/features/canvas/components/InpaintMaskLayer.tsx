@@ -189,6 +189,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
                   boxShadow: end && selectedStroke === index ? '0 0 0 2px #d5f3ff80' : undefined,
                 }}
               >
+                {/* design-allow native-control: 遮罩笔画上的序号手柄，位置跟着笔画坐标走 */}
                 <button
                   type="button"
                   aria-label={t('inpaint.regionName', { no: strokeIds[index] })}

@@ -1,17 +1,6 @@
 import type { VideoDeriveMode } from '@image-playground/shared'
-import {
-  ArrowLeftToLine,
-  ArrowRightToLine,
-  Download,
-  FastForward,
-  Film,
-  FolderDown,
-  Images,
-  Pencil,
-  RotateCcw,
-  WandSparkles,
-} from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
@@ -184,7 +173,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
             onKeyDown={(event) => event.stopPropagation()}
           >
             <CanvasToolbarButton
-              icon={<Pencil />}
+              icon={<Icon name="edit" />}
               label={t('timeline.edit')}
               onClick={() => useTimelineEditor.getState().open(lone.id)}
             />
@@ -224,7 +213,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           onKeyDown={(event) => event.stopPropagation()}
         >
           <CanvasToolbarButton
-            icon={<Images />}
+            icon={<Icon name="images" />}
             label={t('referenceVideo.open', { count: images.length })}
             onClick={() => setReferencing(images)}
           />
@@ -257,7 +246,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           onKeyDown={(event) => event.stopPropagation()}
         >
           <CanvasToolbarButton
-            icon={<Film />}
+            icon={<Icon name="video" />}
             label={
               timelines.length
                 ? t('timeline.appendCount', { count: videos.length })
@@ -298,13 +287,13 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
         onKeyDown={(event) => event.stopPropagation()}
       >
         <CanvasToolbarButton
-          icon={<Download />}
+          icon={<Icon name="download" />}
           label={t('videoToolbar.download')}
           disabled={busyHere}
           onClick={() => void run('download', node)}
         />
         <CanvasToolbarButton
-          icon={<RotateCcw />}
+          icon={<Icon name="refresh" />}
           label={t('videoToolbar.regenerate')}
           reason={regenerateRefusal ?? undefined}
           onClick={() => regenerate(node)}
@@ -314,22 +303,26 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           return (
             <CanvasToolbarButton
               key={mode}
-              icon={mode === 'extend' ? <FastForward /> : <WandSparkles />}
+              icon={mode === 'extend' ? <Icon name="arrowRight" /> : <Icon name="wand" />}
               label={videoDeriveLabel(mode)}
               reason={check.ok ? undefined : check.reason}
               onClick={() => openDerive(node, mode)}
             />
           )
         })}
-        <CanvasToolbarButton icon={<Film />} label={t('timeline.add')} onClick={addToTimeline} />
         <CanvasToolbarButton
-          icon={<ArrowLeftToLine />}
+          icon={<Icon name="video" />}
+          label={t('timeline.add')}
+          onClick={addToTimeline}
+        />
+        <CanvasToolbarButton
+          icon={<Icon name="chevronLeft" />}
           label={t('videoToolbar.firstFrame')}
           disabled={busyHere}
           onClick={() => void run('first', node)}
         />
         <CanvasToolbarButton
-          icon={<ArrowRightToLine />}
+          icon={<Icon name="chevronRight" />}
           label={t('videoToolbar.lastFrame')}
           disabled={busyHere}
           onClick={() => void run('last', node)}
@@ -386,13 +379,13 @@ function FilmExportButtons({ editor, timelineId }: { editor: CanvasEditor; timel
     return (
       <>
         <CanvasToolbarButton
-          icon={<Download />}
+          icon={<Icon name="download" />}
           label={t('film.export')}
           reason={t('film.unsupported')}
           onClick={() => {}}
         />
         <CanvasToolbarButton
-          icon={<FolderDown />}
+          icon={<Icon name="folder" />}
           label={exporting ? t('film.zipping') : t('film.downloadClips')}
           disabled={busy}
           reason={zipPlan.ok ? undefined : refusalText(zipPlan.refusal)}
@@ -405,7 +398,7 @@ function FilmExportButtons({ editor, timelineId }: { editor: CanvasEditor; timel
   }
   return (
     <CanvasToolbarButton
-      icon={<Download />}
+      icon={<Icon name="download" />}
       label={exporting ? t('film.progress', { percent }) : t('film.export')}
       disabled={busy || supported === undefined}
       reason={plan.ok ? undefined : refusalText(plan.refusal)}
