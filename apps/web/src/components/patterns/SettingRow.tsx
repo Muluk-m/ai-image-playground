@@ -19,7 +19,7 @@ export function SettingRow({ icon, label, hint, control, className }: SettingRow
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-sm text-foreground">{label}</div>
+        <div className="truncate text-sm text-foreground">{label}</div>
         {hint ? <div className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</div> : null}
       </div>
       <div className="shrink-0">{control}</div>
