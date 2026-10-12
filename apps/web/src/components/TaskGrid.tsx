@@ -433,7 +433,12 @@ export default function TaskGrid({
       </div>
       {limit !== undefined && onExpand && (rows.length > limit || hasMore) && (
         <div className="flex justify-center pb-8">
-          <Button size="lg" onClick={onExpand} aria-expanded={false}>
+          <Button
+            variant="ghost"
+            className="h-10 gap-1 px-3 text-body-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg]:size-3.5"
+            onClick={onExpand}
+            aria-expanded={false}
+          >
             {t('grid.expandMore')}
             <Icon name="chevronDown" />
           </Button>
