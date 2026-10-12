@@ -213,10 +213,6 @@
     "lucide-import": 1,
     "native-control": 1
   },
-  "apps/web/src/features/agent/components/AgentArtifactPane.tsx": {
-    "lucide-import": 1,
-    "native-control": 16
-  },
   "apps/web/src/features/agent/components/AgentAssetDrawer.tsx": {
     "arbitrary-radius": 1,
     "lucide-import": 1
