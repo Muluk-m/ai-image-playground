@@ -58,6 +58,7 @@ import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/no
 import {
   commitNodeText,
   placeEmptyImageNode,
+  placeNodeBeside,
   placeNodeText,
   TEXT_CARD_HEIGHT,
   TEXT_CARD_WIDTH,
@@ -75,6 +76,7 @@ const legacyOrigin = canvasOrigin('system', 'legacy-update')
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
 const CommitTextContext = createContext<(id: string, text: string) => void>(() => {})
 const FillImageContext = createContext<(id: string, file: File) => void>(() => {})
+const SpawnContext = createContext<(nodeId: string, side: 'left' | 'right') => void>(() => {})
 
 /** 内容没变的项沿用上一份的对象，下游的 `memo` 才认得出「没变」。 */
 function keepUnchanged<T extends { id: string }>(previous: readonly T[], next: T[]): T[] {
@@ -131,9 +133,23 @@ function toFlowNode(node: CanvasNode, selected: boolean): FlowNode {
   }
 }
 
-/** 左右两个加号：左边接上游，右边拉到下一个节点。 */
-function NodePorts() {
+/** 左右两个加号。点一下就在这一侧新建节点；按住拖动仍是连到已有节点。 */
+function NodePorts({ nodeId }: { nodeId: string }) {
   const { t } = useTranslation('canvas')
+  const spawn = useContext(SpawnContext)
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+  const activate =
+    (side: 'left' | 'right') =>
+    (event: { clientX: number; clientY: number; stopPropagation: () => void }) => {
+      const origin = pointer.current
+      if (origin) {
+        const dx = event.clientX - origin.x
+        const dy = event.clientY - origin.y
+        if (dx * dx + dy * dy > 16) return
+      }
+      event.stopPropagation()
+      spawn(nodeId, side)
+    }
   return (
     <>
       <Handle
@@ -141,6 +157,10 @@ function NodePorts() {
         position={Position.Left}
         className="studio-node-handle"
         aria-label={t('nodes.connectIn')}
+        onPointerDownCapture={(event) => {
+          pointer.current = { x: event.clientX, y: event.clientY }
+        }}
+        onClick={activate('left')}
       >
         <Icon name="add" size="xs" className="pointer-events-none" />
       </Handle>
@@ -149,6 +169,10 @@ function NodePorts() {
         position={Position.Right}
         className="studio-node-handle"
         aria-label={t('nodes.connectOut')}
+        onPointerDownCapture={(event) => {
+          pointer.current = { x: event.clientX, y: event.clientY }
+        }}
+        onClick={activate('right')}
       >
         <Icon name="add" size="xs" className="pointer-events-none" />
       </Handle>
@@ -199,7 +223,7 @@ const ImageNode = memo(function ImageNode({ data: { node } }: NodeProps<FlowNode
   const empty = !pending && !fileId
   return (
     <>
-      <NodePorts />
+      <NodePorts nodeId={node.id} />
       {empty && (
         <div className="studio-node-upload nodrag nopan">
           <Button
@@ -251,7 +275,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
   if (playing)
     return (
       <>
-        <NodePorts />
+        <NodePorts nodeId={node.id} />
         <div
           className="studio-node studio-node--video nodrag nopan"
           data-rotated={rotation ? true : undefined}
@@ -273,7 +297,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
     )
   return (
     <>
-      <NodePorts />
+      <NodePorts nodeId={node.id} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         <Picture fileId={fileId} rotation={rotation} />
         <Button
@@ -300,7 +324,7 @@ const TextNode = memo(function TextNode({ data: { node } }: NodeProps<FlowNode>)
   const text = node.data.text
   return (
     <>
-      <NodePorts />
+      <NodePorts nodeId={node.id} />
       <div
         className="studio-node studio-node--text"
         onDoubleClick={(event) => {
@@ -663,159 +687,165 @@ function Flow({
       useStore.getState().showToast(t('import.failed'), 'error'),
     )
   }
+  const spawnBeside = (nodeId: string, side: 'left' | 'right') => {
+    const id = placeNodeBeside(editor, canvas.doc, nodeId, side, textFill)
+    if (id) selectNode(id)
+  }
   return (
     <CommitTextContext.Provider value={commitText}>
       <FillImageContext.Provider value={uploadInto}>
-        <ReactFlow<FlowNode>
-          nodes={nodes}
-          edges={snapshot.edges.map((edge) => ({
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
-          }))}
-          nodeTypes={nodeTypes}
-          zoomOnDoubleClick={false}
-          elevateNodesOnSelect={false}
-          onNodesChange={(changes: NodeChange<FlowNode>[]) =>
-            setNodes((current) => applyNodeChanges(changes, current))
-          }
-          onNodeClick={(_event, node) => {
-            if (node.data.node && (node.type === 'image' || node.type === 'text'))
-              selectNode(node.id)
-          }}
-          onPaneClick={() => selectNode(null)}
-          onConnect={(connection) => {
-            if (!connection.source || !connection.target) return
-            connectCanvasNodes(
-              canvas.doc,
-              { source: connection.source, target: connection.target },
-              canvas.origin,
-            )
-          }}
-          isValidConnection={(connection) =>
-            Boolean(
-              connection.source && connection.target && connection.source !== connection.target,
-            )
-          }
-          onNodeDragStop={(_event, _node, dragged) =>
-            moveCanvasNodes(
-              canvas.doc,
-              dragged
-                .filter((one) => one.data.node)
-                .map((one) => ({ id: one.id, x: one.position.x, y: one.position.y })),
-              canvas.origin,
-            )
-          }
-          onMove={(_event, viewport) => remember(viewport)}
-          colorMode={theme}
-          minZoom={0.05}
-          maxZoom={8}
-          onInit={(flow) => {
-            flowRef.current = flow
-            const bounds = contentBounds(snapshot)
-            const box = container.current
-            // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
-            if (bounds && box?.clientWidth && box.clientHeight) {
-              // 与旧画布一致：打开时最多按 100% 显示。
-              flow.setViewport(
-                getViewportForBounds(bounds, box.clientWidth, box.clientHeight, 0.05, 1, 0.1),
+        <SpawnContext.Provider value={spawnBeside}>
+          <ReactFlow<FlowNode>
+            nodes={nodes}
+            edges={snapshot.edges.map((edge) => ({
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+            }))}
+            nodeTypes={nodeTypes}
+            zoomOnDoubleClick={false}
+            elevateNodesOnSelect={false}
+            onNodesChange={(changes: NodeChange<FlowNode>[]) =>
+              setNodes((current) => applyNodeChanges(changes, current))
+            }
+            onNodeClick={(_event, node) => {
+              if (node.data.node && (node.type === 'image' || node.type === 'text'))
+                selectNode(node.id)
+            }}
+            onPaneClick={() => selectNode(null)}
+            onConnect={(connection) => {
+              if (!connection.source || !connection.target) return
+              connectCanvasNodes(
+                canvas.doc,
+                { source: connection.source, target: connection.target },
+                canvas.origin,
+              )
+            }}
+            isValidConnection={(connection) =>
+              Boolean(
+                connection.source && connection.target && connection.source !== connection.target,
               )
             }
-            remember(flow.getViewport())
-          }}
-          deleteKeyCode={null}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
-          <MiniMap pannable zoomable />
-          <Controls showInteractive={false} />
-        </ReactFlow>
-        {fileOver && (
-          <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
-            <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
-              {t('drop.hint')}
-            </span>
-          </div>
-        )}
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/*"
-          multiple
-          className="sr-only"
-          aria-hidden="true"
-          tabIndex={-1}
-          onChange={(event) => {
-            const files = [...(event.target.files ?? [])]
-            event.target.value = ''
-            placeFiles(files)
-          }}
-        />
-        {menu && (
-          <NodeAddMenu
-            x={menu.x}
-            y={menu.y}
-            onClose={closeMenu}
-            onText={() => {
-              const id = placeNodeText(editor, placeAt.current, textFill)
-              closeMenu()
-              selectNode(id)
-            }}
-            onImage={() => {
-              const id = placeEmptyImageNode(canvas.doc, placeAt.current)
-              closeMenu()
-              selectNode(id)
-            }}
-            onUpload={() => {
-              closeMenu()
-              fileInput.current?.click()
-            }}
-          />
-        )}
-        {composerNode?.type === 'image' && composerAt && (
-          <ImageNodeComposer
-            references={references}
-            files={files}
-            value={draftValue}
-            busy={busy}
-            position={composerAt}
-            onChange={(value) => {
-              drafts.current.set(composerNode.id, value)
-              setDraftVersion((version) => version + 1)
-            }}
-            onSubmit={() => {
-              const value = drafts.current.get(composerNode.id) ?? ''
-              const urls = referenceFileIds(references).flatMap((id) => {
-                const source = files[id]
-                return source ? [source] : []
-              })
-              submitNodeImage(
-                editor,
+            onNodeDragStop={(_event, _node, dragged) =>
+              moveCanvasNodes(
                 canvas.doc,
-                composerNode.id,
-                composeNodePrompt(value, references),
-                urls,
+                dragged
+                  .filter((one) => one.data.node)
+                  .map((one) => ({ id: one.id, x: one.position.x, y: one.position.y })),
+                canvas.origin,
               )
+            }
+            onMove={(_event, viewport) => remember(viewport)}
+            colorMode={theme}
+            minZoom={0.05}
+            maxZoom={8}
+            onInit={(flow) => {
+              flowRef.current = flow
+              const bounds = contentBounds(snapshot)
+              const box = container.current
+              // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
+              if (bounds && box?.clientWidth && box.clientHeight) {
+                // 与旧画布一致：打开时最多按 100% 显示。
+                flow.setViewport(
+                  getViewportForBounds(bounds, box.clientWidth, box.clientHeight, 0.05, 1, 0.1),
+                )
+              }
+              remember(flow.getViewport())
             }}
-            onUploadFile={(file) => uploadInto(composerNode.id, file)}
+            deleteKeyCode={null}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
+            <MiniMap pannable zoomable />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+          {fileOver && (
+            <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
+              <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
+                {t('drop.hint')}
+              </span>
+            </div>
+          )}
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            multiple
+            className="sr-only"
+            aria-hidden="true"
+            tabIndex={-1}
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])]
+              event.target.value = ''
+              placeFiles(files)
+            }}
           />
-        )}
-        {composerNode?.type === 'text' && composerAt && (
-          <TextNodeComposer
-            references={references}
-            files={files}
-            value={draftValue}
-            position={composerAt}
-            onChange={(value) => {
-              drafts.current.set(composerNode.id, value)
-              setDraftVersion((version) => version + 1)
-            }}
-            onSubmit={() => {
-              const value = drafts.current.get(composerNode.id) ?? ''
-              commitText(composerNode.id, value)
-            }}
-          />
-        )}
+          {menu && (
+            <NodeAddMenu
+              x={menu.x}
+              y={menu.y}
+              onClose={closeMenu}
+              onText={() => {
+                const id = placeNodeText(editor, placeAt.current, textFill)
+                closeMenu()
+                selectNode(id)
+              }}
+              onImage={() => {
+                const id = placeEmptyImageNode(canvas.doc, placeAt.current)
+                closeMenu()
+                selectNode(id)
+              }}
+              onUpload={() => {
+                closeMenu()
+                fileInput.current?.click()
+              }}
+            />
+          )}
+          {composerNode?.type === 'image' && composerAt && (
+            <ImageNodeComposer
+              references={references}
+              files={files}
+              value={draftValue}
+              busy={busy}
+              position={composerAt}
+              onChange={(value) => {
+                drafts.current.set(composerNode.id, value)
+                setDraftVersion((version) => version + 1)
+              }}
+              onSubmit={() => {
+                const value = drafts.current.get(composerNode.id) ?? ''
+                const urls = referenceFileIds(references).flatMap((id) => {
+                  const source = files[id]
+                  return source ? [source] : []
+                })
+                submitNodeImage(
+                  editor,
+                  canvas.doc,
+                  composerNode.id,
+                  composeNodePrompt(value, references),
+                  urls,
+                )
+              }}
+              onUploadFile={(file) => uploadInto(composerNode.id, file)}
+            />
+          )}
+          {composerNode?.type === 'text' && composerAt && (
+            <TextNodeComposer
+              references={references}
+              files={files}
+              value={draftValue}
+              position={composerAt}
+              onChange={(value) => {
+                drafts.current.set(composerNode.id, value)
+                setDraftVersion((version) => version + 1)
+              }}
+              onSubmit={() => {
+                const value = drafts.current.get(composerNode.id) ?? ''
+                commitText(composerNode.id, value)
+              }}
+            />
+          )}
+        </SpawnContext.Provider>
       </FillImageContext.Provider>
     </CommitTextContext.Provider>
   )

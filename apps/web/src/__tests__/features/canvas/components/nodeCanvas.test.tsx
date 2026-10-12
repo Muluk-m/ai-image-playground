@@ -35,8 +35,27 @@ vi.mock('@xyflow/react', () => ({
   Controls: () => null,
   MiniMap: () => null,
   getViewportForBounds: () => ({ x: 0, y: 0, zoom: 1 }),
-  Handle: ({ className, children }: { className?: string; children?: ReactNode }) =>
-    createElement('span', { className: `react-flow__handle ${className ?? ''}` }, children),
+  Handle: ({
+    className,
+    children,
+    onClick,
+    'aria-label': label,
+  }: {
+    className?: string
+    children?: ReactNode
+    onClick?: () => void
+    'aria-label'?: string
+  }) =>
+    createElement(
+      'button',
+      {
+        type: 'button',
+        className: `react-flow__handle ${className ?? ''}`,
+        'aria-label': label,
+        onClick,
+      },
+      children,
+    ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
@@ -328,6 +347,33 @@ it('places a text card that stays large enough for the side handles', async () =
   const composer = host.querySelector('.studio-node-composer')
   expect(composer?.getAttribute('aria-label')).toBe('写下这段文字')
   expect(composer?.querySelector('[aria-label^="生成设置"]')).toBeNull()
+})
+
+it('creates a connected node from a side handle click', async () => {
+  await render()
+  const handle = (id: string, label: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-node-id="${id}"] [aria-label="${label}"]`)!
+  act(() => handle('image', '接到下一个节点').click())
+  const afterRight = readCanvasDocument(canvas.doc)
+  const imageNode = afterRight.nodes.find((node) => node.id !== 'image')
+  expect(imageNode).toMatchObject({ type: 'image', x: 278, y: -70, width: 280, height: 280 })
+  expect(afterRight.edges).toEqual([
+    expect.objectContaining({ source: 'image', target: imageNode!.id }),
+  ])
+  expect(host.querySelector('.studio-node-composer')?.getAttribute('aria-label')).toBe(
+    '描述你想生成的图片',
+  )
+  act(() => handle('image', '接到下一个节点').click())
+  const second = readCanvasDocument(canvas.doc).nodes.find(
+    (node) => node.type === 'image' && node.id !== 'image' && node.id !== imageNode!.id,
+  )
+  expect(second!.x).toBeGreaterThanOrEqual(imageNode!.x + imageNode!.width)
+  act(() => handle('image', '接入上文').click())
+  const text = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
+  expect(text).toMatchObject({ x: -458, y: -35, width: 300, height: 210 })
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(
+    expect.arrayContaining([expect.objectContaining({ source: text!.id, target: 'image' })]),
+  )
 })
 
 it('places a dropped image where the pointer is', async () => {

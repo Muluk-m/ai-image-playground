@@ -1,4 +1,10 @@
-import { canvasOrigin, insertCanvasNode } from '@image-playground/shared'
+import {
+  type CanvasNode,
+  canvasOrigin,
+  connectCanvasNodes,
+  insertCanvasNode,
+  readCanvasDocument,
+} from '@image-playground/shared'
 import type * as Y from 'yjs'
 import { newElementId, type TextEl } from './canvasDoc'
 import type { CanvasEditor } from './editor'
@@ -50,6 +56,66 @@ export function placeEmptyImageNode(doc: Y.Doc, point: { x: number; y: number })
     },
     insertOrigin,
   )
+  return id
+}
+
+/** 两张卡之间留出两侧加号（各 42px）再加一段能看见的连线。 */
+const SPAWN_GAP = 168
+
+function cardSize(node: CanvasNode): { width: number; height: number } {
+  if (node.type !== 'text') return { width: node.width, height: node.height }
+  return {
+    width: Math.max(node.width, TEXT_CARD_WIDTH),
+    height: Math.max(node.height, TEXT_CARD_HEIGHT),
+  }
+}
+
+function overlaps(
+  box: { x: number; y: number; width: number; height: number },
+  other: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    box.x < other.x + other.width &&
+    box.x + box.width > other.x &&
+    box.y < other.y + other.height &&
+    box.y + box.height > other.y
+  )
+}
+
+/**
+ * 点节点一侧的加号：右边新建图片卡，当前节点成为它的上文；
+ * 左边新建文本卡，接到当前节点前面。同一侧再点就往外排，不叠在上一张上。
+ */
+export function placeNodeBeside(
+  editor: CanvasEditor,
+  doc: Y.Doc,
+  anchorId: string,
+  side: 'left' | 'right',
+  textFill: string,
+): string | null {
+  const snapshot = readCanvasDocument(doc)
+  const anchor = snapshot.nodes.find((node) => node.id === anchorId)
+  if (!anchor || anchor.type === 'timeline') return null
+  const from = cardSize(anchor)
+  const kind = side === 'right' ? 'image' : 'text'
+  const next =
+    kind === 'text'
+      ? { width: TEXT_CARD_WIDTH, height: TEXT_CARD_HEIGHT }
+      : { width: EMPTY_IMAGE_NODE, height: EMPTY_IMAGE_NODE }
+  let x = side === 'right' ? anchor.x + from.width + SPAWN_GAP : anchor.x - SPAWN_GAP - next.width
+  const y = anchor.y + (from.height - next.height) / 2
+  const occupied = snapshot.nodes.map((node) => ({ x: node.x, y: node.y, ...cardSize(node) }))
+  for (let step = 0; step < 12; step += 1) {
+    const box = { x, y, width: next.width, height: next.height }
+    if (!occupied.some((one) => overlaps(box, one))) break
+    x += side === 'right' ? next.width + SPAWN_GAP : -(next.width + SPAWN_GAP)
+  }
+  const center = { x: x + next.width / 2, y: y + next.height / 2 }
+  const id =
+    kind === 'text' ? placeNodeText(editor, center, textFill) : placeEmptyImageNode(doc, center)
+  const link =
+    side === 'right' ? { source: anchorId, target: id } : { source: id, target: anchorId }
+  connectCanvasNodes(doc, link, insertOrigin)
   return id
 }
 
