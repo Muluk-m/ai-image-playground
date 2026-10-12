@@ -986,6 +986,14 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-canvas .react-flow__connection-path {
   stroke: hsl(var(--foreground) / .72);
   stroke-width: 2;
+  transition: stroke 140ms ease-out, stroke-width 140ms ease-out;
+}
+.studio-node-canvas:has(.studio-edge-lit) .react-flow__edge:not(.studio-edge-lit) .react-flow__edge-path {
+  stroke: hsl(var(--foreground) / .22);
+}
+.studio-node-canvas .react-flow__edge.studio-edge-lit .react-flow__edge-path {
+  stroke: hsl(var(--primary));
+  stroke-width: 2.5;
 }
 .studio-node-composer {
   position: absolute; z-index: 30; width: min(560px, calc(100% - 24px));

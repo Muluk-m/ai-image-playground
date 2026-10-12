@@ -1,3 +1,5 @@
+import { openReferenceStack } from '../../../helpers/radix'
+
 // @vitest-environment jsdom
 
 vi.mock('../../../../lib/imagePreprocessing', async () => ({
@@ -126,8 +128,9 @@ it('restores ready and failed local attachments after restart without uploading 
     const send = restored.host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
     expect(send.disabled).toBe(true)
     retryAllowed = true
+    const panel = openReferenceStack(restored.host)
     await act(async () => {
-      const retry = [...restored.host.querySelectorAll<HTMLButtonElement>('button')].find(
+      const retry = [...panel.querySelectorAll<HTMLButtonElement>('button')].find(
         (button) => button.textContent === '重试',
       )!
       retry.click()
