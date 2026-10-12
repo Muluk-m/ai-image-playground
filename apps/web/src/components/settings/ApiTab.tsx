@@ -27,10 +27,13 @@ import { getProviderModelOptions } from '../../lib/providerModels'
 import { useStore } from '../../store'
 import type { AppSettings, CustomProviderDefinition } from '../../types'
 import { TooltipIconButton } from '../assistant-ui/elements/tooltip-icon-button'
-import { ChevronDownIcon, CopyIcon, LinkIcon, PlusIcon, TrashIcon } from '../icons'
 import ModelCombobox from '../ModelCombobox'
 import Select from '../patterns/Select'
 import { Switch } from '../patterns/Switch'
+import { Button } from '../ui/button'
+import { Icon } from '../ui/icon'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
 import {
   createDefaultOpenAIProfile,
   DEFAULT_BYOK_BASEURL,
@@ -608,7 +611,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
               tooltip={t('profile.copyImportUrl')}
               onClick={() => confirmCopyProfileImportUrl(activeProfile)}
             >
-              <LinkIcon />
+              <Icon name="link" />
             </TooltipIconButton>
             {!activeIsBuiltin && (
               <TooltipIconButton
@@ -618,19 +621,20 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                 tooltip={t('profile.duplicate')}
                 onClick={duplicateActiveProfile}
               >
-                <CopyIcon />
+                <Icon name="duplicate" />
               </TooltipIconButton>
             )}
           </div>
           <div ref={profileMenuRef} className="relative">
-            <button
+            <Button
               ref={profileMenuTriggerRef}
               type="button"
+              variant="outline"
               onClick={() => {
                 if (!showProfileMenu) updateProfileMenuMaxHeight()
                 setShowProfileMenu(!showProfileMenu)
               }}
-              className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground outline-none transition hover:bg-card border-border"
+              className="w-full min-w-0 justify-between px-3 font-normal"
               title={activeProfile.name}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -639,10 +643,11 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                   {getApiProviderLabel(draft, activeProfile.provider)}
                 </span>
               </span>
-              <ChevronDownIcon
-                className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground dark:text-muted-foreground transition-transform duration-200 ${showProfileMenu ? 'rotate-180' : ''}`}
+              <Icon
+                name="chevronDown"
+                className={`text-muted-foreground transition-transform duration-200 ${showProfileMenu ? 'rotate-180' : ''}`}
               />
-            </button>
+            </Button>
 
             {showProfileMenu && (
               <>
@@ -650,19 +655,19 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                   className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card/95 py-1 shadow-popover ring-1 ring-hairline backdrop-blur-xl animate-dropdown-down border-border custom-scrollbar"
                   style={{ maxHeight: profileMenuMaxHeight }}
                 >
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
                     onClick={(e) => {
                       e.preventDefault()
                       createNewProfile()
                     }}
-                    className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                    className="w-full justify-between px-3 text-primary hover:bg-primary/10 hover:text-primary"
                   >
-                    <span className="truncate font-semibold">{t('profile.create')}</span>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                      <PlusIcon className="h-4 w-4" />
-                    </span>
-                  </button>
+                    <span className="truncate">{t('profile.create')}</span>
+                    <Icon name="add" />
+                  </Button>
                   <div>
                     {draft.profiles.map((profile) => (
                       <div
@@ -690,25 +695,29 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
 
                         <div className="flex shrink-0 items-center gap-1">
                           {!isBuiltinDraftProfile(profile) && (
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon-xs"
                               onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
                                 confirmCopyProfileImportUrl(profile)
                               }}
-                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-60 transition-all hover:bg-muted hover:text-muted-foreground hover:opacity-100 hover:bg-accent"
+                              className="text-muted-foreground"
                               aria-label={t('profile.copyImportUrlFor', {
                                 name: profile.name,
                               })}
                               title={t('profile.copyImportUrl')}
                             >
-                              <LinkIcon className="h-3.5 w-3.5" />
-                            </button>
+                              <Icon name="link" />
+                            </Button>
                           )}
                           {draft.profiles.length > 1 && !isBuiltinDraftProfile(profile) && (
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon-xs"
                               onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
@@ -720,11 +729,11 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                                   action: () => deleteProfile(profile.id),
                                 })
                               }}
-                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-60 transition-all hover:bg-destructive/10 hover:text-destructive hover:opacity-100 dark:hover:bg-destructive/10"
+                              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                               aria-label={t('profile.delete')}
                             >
-                              <TrashIcon className="h-3.5 w-3.5" />
-                            </button>
+                              <Icon name="delete" />
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -742,19 +751,19 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
           </div>
         ) : (
           <>
-            <label className="block">
+            <Label className="block font-normal leading-normal">
               <span className="mb-1.5 block text-sm text-muted-foreground">
                 {t('profile.name')}
               </span>
-              <input
+              <Input
                 value={activeProfile.name}
                 onChange={(e) => updateActiveProfile({ name: e.target.value })}
                 onBlur={(e) => commitActiveProfilePatch({ name: e.target.value })}
                 type="text"
                 readOnly={activeIsBuiltin}
-                className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'cursor-not-allowed opacity-60' : ''}`}
+                className={activeIsBuiltin ? 'cursor-not-allowed opacity-60' : undefined}
               />
-            </label>
+            </Label>
 
             <div className="block">
               <span className="mb-1.5 block text-sm text-muted-foreground">
@@ -770,11 +779,11 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
             </div>
 
             {activeProviderUsesApiUrl && (
-              <label className="block">
+              <Label className="block font-normal leading-normal">
                 <div className="mb-1.5 flex items-center justify-between">
                   <span className="block text-sm text-muted-foreground">API URL</span>
                 </div>
-                <input
+                <Input
                   value={activeProfile.baseUrl}
                   onChange={(e) => updateActiveProfile({ baseUrl: e.target.value })}
                   onBlur={(e) => commitActiveProfilePatch({ baseUrl: e.target.value })}
@@ -782,7 +791,9 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                   disabled={apiProxyEnabled}
                   readOnly={activeIsBuiltin}
                   placeholder={DEFAULT_BYOK_BASEURL}
-                  className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${apiProxyEnabled || activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={
+                    apiProxyEnabled || activeIsBuiltin ? 'cursor-not-allowed opacity-50' : undefined
+                  }
                 />
                 <div
                   data-selectable-text
@@ -799,7 +810,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                     </span>
                   )}
                 </div>
-              </label>
+              </Label>
             )}
 
             {activeProfile.provider === 'openai' && (
@@ -837,54 +848,34 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
             )}
 
             <div className="block">
-              <span className="mb-1.5 block text-sm text-muted-foreground">API Key</span>
+              <Label
+                htmlFor="settings-api-key"
+                className="mb-1.5 block font-normal text-sm text-muted-foreground"
+              >
+                API Key
+              </Label>
               <div className="relative">
-                <input
+                <Input
+                  id="settings-api-key"
                   value={activeProfile.apiKey}
                   onChange={(e) => updateActiveProfile({ apiKey: e.target.value })}
                   onBlur={(e) => commitActiveProfilePatch({ apiKey: e.target.value })}
                   type={showApiKey ? 'text' : 'password'}
                   readOnly={activeIsBuiltin}
                   placeholder="sk-..."
-                  className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 pr-10 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={activeIsBuiltin ? 'cursor-not-allowed pr-10 opacity-50' : 'pr-10'}
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   onClick={() => setShowApiKey((v) => !v)}
                   aria-label={tCommon(showApiKey ? 'action.hide' : 'action.show')}
                   aria-pressed={showApiKey}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
                 >
-                  {showApiKey ? (
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  ) : (
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-                      <line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
-                  )}
-                </button>
+                  <Icon name={showApiKey ? 'visible' : 'hidden'} />
+                </Button>
               </div>
               <div data-selectable-text className="mt-1.5 text-xs text-muted-foreground">
                 {t('hint.queryOverride')}
@@ -964,15 +955,16 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                           )}
                         />
                       </div>
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
                         onClick={handleRefresh}
                         disabled={refreshingModels}
-                        className="shrink-0 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed border-border"
+                        className="shrink-0"
                         title={t('model.fetchTitle')}
                       >
                         {refreshingModels ? t('model.fetching') : t('model.fetch')}
-                      </button>
+                      </Button>
                     </div>
                     {cached.length > 0 && (
                       <div className="mt-1 text-xs text-muted-foreground">
@@ -1037,20 +1029,19 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
             )}
 
             {activeProviderIsOpenAICompatible && (
-              <label className="block">
+              <Label className="block font-normal leading-normal">
                 <span className="mb-1.5 block text-sm text-muted-foreground">
                   {t('timeout.label')}
                 </span>
-                <input
+                <Input
                   value={timeoutInput}
                   onChange={(e) => setTimeoutInput(e.target.value)}
                   onBlur={commitTimeout}
                   type="number"
                   min={10}
                   max={600}
-                  className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                 />
-              </label>
+              </Label>
             )}
           </>
         )}
