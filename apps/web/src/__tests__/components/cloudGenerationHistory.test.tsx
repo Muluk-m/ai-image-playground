@@ -133,6 +133,51 @@ const waitCards = async (count: number) => {
   })
 }
 
+it('首页底部展开更多作品，并与顶部收起入口联动', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      page(Array.from({ length: 4 }, (_, index) => ({ ...item, id: `creation-${index}` }))),
+    ),
+  )
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(3)
+  await click('展开更多作品')
+  await waitCards(4)
+  expect(findButton('展开更多作品')).toBe(false)
+  await click('收起历史')
+  await waitCards(3)
+  expect(findButton('展开更多作品')).toBe(true)
+})
+
+it('只有三条作品且没有下一页时，不展示底部更多入口', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      page(Array.from({ length: 3 }, (_, index) => ({ ...item, id: `creation-${index}` }))),
+    ),
+  )
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(3)
+  expect(findButton('展开更多作品')).toBe(false)
+})
+
+it('本页只有三条但云端还有下一页时，展开后保留加载更多入口', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      page(
+        Array.from({ length: 3 }, (_, index) => ({ ...item, id: `creation-${index}` })),
+        'next-page',
+      ),
+    ),
+  )
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(3)
+  await click('展开更多作品')
+  expect(findButton('加载更多')).toBe(true)
+})
+
 it('平台记录和本机生成用同一张卡：提示词、参数和动作都在上面', async () => {
   const fetcher = vi.fn(async (url: string, _init?: RequestInit) =>
     url.startsWith('/api/generations') ? page([item]) : Response.json({}),
