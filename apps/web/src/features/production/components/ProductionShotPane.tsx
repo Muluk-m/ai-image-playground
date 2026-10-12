@@ -419,10 +419,13 @@ export default function ProductionShotPane({
                 <Label>
                   {t('storyboard.scriptScene')}
                   <Select
-                    value={shot.scriptSceneId ?? '__unset__'}
+                    value={shot.scriptSceneId ? `id:${shot.scriptSceneId}` : '__unset__'}
                     disabled={edit.saving}
                     onValueChange={(value) =>
-                      update({ ...shot, scriptSceneId: value === '__unset__' ? undefined : value })
+                      update({
+                        ...shot,
+                        scriptSceneId: value === '__unset__' ? undefined : value.slice(3),
+                      })
                     }
                   >
                     <SelectTrigger aria-label={t('storyboard.scriptScene')}>
@@ -432,12 +435,12 @@ export default function ProductionShotPane({
                       <SelectItem value="__unset__">{t('storyboard.unset')}</SelectItem>
                       {shot.scriptSceneId &&
                         !edit.content.scenes.some((scene) => scene.id === shot.scriptSceneId) && (
-                          <SelectItem value={shot.scriptSceneId}>
+                          <SelectItem value={`id:${shot.scriptSceneId}`}>
                             {t('storyboard.missing')}
                           </SelectItem>
                         )}
                       {edit.content.scenes.map((scene) => (
-                        <SelectItem key={scene.id} value={scene.id}>
+                        <SelectItem key={scene.id} value={`id:${scene.id}`}>
                           {scene.title}
                         </SelectItem>
                       ))}
@@ -447,10 +450,13 @@ export default function ProductionShotPane({
                 <Label>
                   {t('storyboard.location')}
                   <Select
-                    value={shot.locationId ?? '__unset__'}
+                    value={shot.locationId ? `id:${shot.locationId}` : '__unset__'}
                     disabled={edit.saving}
                     onValueChange={(value) =>
-                      update({ ...shot, locationId: value === '__unset__' ? undefined : value })
+                      update({
+                        ...shot,
+                        locationId: value === '__unset__' ? undefined : value.slice(3),
+                      })
                     }
                   >
                     <SelectTrigger aria-label={t('storyboard.location')}>
@@ -462,10 +468,12 @@ export default function ProductionShotPane({
                         !edit.content.locations?.some(
                           (location) => location.id === shot.locationId,
                         ) && (
-                          <SelectItem value={shot.locationId}>{t('storyboard.missing')}</SelectItem>
+                          <SelectItem value={`id:${shot.locationId}`}>
+                            {t('storyboard.missing')}
+                          </SelectItem>
                         )}
                       {edit.content.locations?.map((location) => (
-                        <SelectItem key={location.id} value={location.id}>
+                        <SelectItem key={location.id} value={`id:${location.id}`}>
                           {location.name}
                         </SelectItem>
                       ))}
