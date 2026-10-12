@@ -63,6 +63,95 @@ it.skipIf(!canSample)('extracts distinct jpeg stills from a short clip', async (
   }
 })
 
+function box(type: string, payload = new Uint8Array()): Uint8Array {
+  const bytes = new Uint8Array(8 + payload.byteLength)
+  new DataView(bytes.buffer).setUint32(0, bytes.byteLength)
+  bytes.set(Buffer.from(type), 4)
+  bytes.set(payload, 8)
+  return bytes
+}
+
+function largesizeBox(type: string, payload = new Uint8Array()): Uint8Array {
+  const bytes = new Uint8Array(16 + payload.byteLength)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(0, 1)
+  bytes.set(Buffer.from(type), 4)
+  view.setUint32(8, 0)
+  view.setUint32(12, bytes.byteLength)
+  bytes.set(payload, 16)
+  return bytes
+}
+
+function concat(parts: readonly Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0))
+  let offset = 0
+  for (const part of parts) {
+    bytes.set(part, offset)
+    offset += part.byteLength
+  }
+  return bytes
+}
+
+it.skipIf(!canSample)('extracts stills when free and skip boxes sit in front of ftyp', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'aip-video-frames-preamble-'))
+  const file = join(directory, 'clip.mp4')
+  try {
+    const child = Bun.spawn(
+      [
+        'ffmpeg',
+        '-y',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc=size=160x120:rate=10:duration=2',
+        '-pix_fmt',
+        'yuv420p',
+        '-c:v',
+        'mpeg4',
+        file,
+      ],
+      { stdout: 'ignore', stderr: 'pipe' },
+    )
+    const stderr = await new Response(child.stderr).text()
+    expect(await child.exited, stderr).toBe(0)
+    const padded = concat([
+      largesizeBox('free', new Uint8Array(4)),
+      box('skip', new Uint8Array(8)),
+      await readFile(file),
+    ])
+    const sampled = await sampleVideo(padded, 0.4)
+    expect(sampled.durationSeconds).toBeGreaterThan(1.5)
+    expect(sampled.frames[0]?.timeSeconds).toBe(0)
+    expect(sampled.frames[0]?.jpeg[0]).toBe(0xff)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('rejects a free box whose size runs past the file', async () => {
+  const bytes = new Uint8Array(16)
+  new DataView(bytes.buffer).setUint32(0, 64)
+  bytes.set(Buffer.from('free'), 4)
+  bytes.set(Buffer.from('ftyp'), 8)
+  const failed = await sampleVideo(bytes).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  expect(failed).toBeInstanceOf(VideoUnreadable)
+})
+
+it('rejects ftyp that follows a box other than free or skip', async () => {
+  const bytes = concat([box('mdat'), box('ftyp', Buffer.from('isom'))])
+  const failed = await sampleVideo(bytes).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  expect(failed).toBeInstanceOf(VideoUnreadable)
+})
+
 it.skipIf(!canSample)('rejects a playlist instead of opening anything it names', async () => {
   const playlist = new TextEncoder().encode(
     'ffconcat version 1.0\nfile http://127.0.0.1:9/secret\n',

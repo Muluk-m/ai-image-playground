@@ -7,7 +7,7 @@ import { resolveImageBytesRef } from '../extractImages'
 import { fetchSourceImage, SourceImageFetchError } from '../imageArchive'
 import { log } from '../logger'
 import { objectStore, readObjectWithinLimit } from '../objectStore'
-import { asQueueProvider } from '../queueProvider'
+import { asQueueProvider, isAbortError } from '../queueProvider'
 import { SafeFetchError } from '../safeFetch'
 import { taskAccessWhere } from '../task-access'
 import type { AgentToolContext } from './tools/types'
@@ -32,7 +32,11 @@ export type VideoClip =
     }
   | { readonly ok: false; readonly message: string }
 
-type VideoClipReader = (context: AgentToolContext, videoId: string) => Promise<VideoClip>
+type VideoClipReader = (
+  context: AgentToolContext,
+  videoId: string,
+  signal?: AbortSignal,
+) => Promise<VideoClip>
 
 function videoByteCap(): number | undefined {
   const limit = config.operator.quotas['sync:asset-image-bytes']
@@ -75,11 +79,16 @@ function readFailure(error: unknown, videoId: string): VideoClip {
  * 只读本会话已完成的视频产物。封面 uuid 与别人的任务都在进字节之前挡住；
  * 找不到和不是这个会话的，对模型说同一句话。
  */
-async function readStoredVideo(context: AgentToolContext, rawId: string): Promise<VideoClip> {
+async function readStoredVideo(
+  context: AgentToolContext,
+  rawId: string,
+  signal?: AbortSignal,
+): Promise<VideoClip> {
   const videoId = rawId.trim()
   if (POSTER_ID.test(videoId)) return { ok: false, message: POSTER }
   const parsed = parseProjectArtifactId(videoId)
   if (!parsed) return { ok: false, message: NOT_ID }
+  signal?.throwIfAborted()
   const [task] = await db
     .select({
       status: schema.tasks.status,
@@ -102,8 +111,9 @@ async function readStoredVideo(context: AgentToolContext, rawId: string): Promis
   if (!ref.mime.startsWith('video/')) return { ok: false, message: NOT_VIDEO }
   const cap = videoByteCap()
   if (cap === undefined) return { ok: false, message: UNREADABLE }
+  signal?.throwIfAborted()
   try {
-    const bytes = await videoBytes(ref, cap)
+    const bytes = await videoBytes(ref, cap, signal)
     if (bytes.byteLength === 0) return { ok: false, message: UNREADABLE }
     const durationSeconds = durationAt(task.result_payload, parsed.position)
     return {
@@ -114,6 +124,10 @@ async function readStoredVideo(context: AgentToolContext, rawId: string): Promis
       ...(durationSeconds !== undefined ? { durationSeconds } : {}),
     }
   } catch (error) {
+    // 取消要冒出去，准备槽的 finally 才能马上放开。下载层会把中止包成别的错误，
+    // 这里认的是调用方的信号，不把「读不到」交回模型。
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : error
+    if (isAbortError(error)) throw error
     return readFailure(error, videoId)
   }
 }
@@ -121,7 +135,9 @@ async function readStoredVideo(context: AgentToolContext, rawId: string): Promis
 async function videoBytes(
   ref: NonNullable<ReturnType<typeof resolveImageBytesRef>>,
   cap: number,
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
+  signal?.throwIfAborted()
   if (ref.kind === 'b64') {
     if (Math.ceil((ref.data.length * 3) / 4) > cap) throw new SafeFetchError('too_large', TOO_LARGE)
     const bytes = Buffer.from(ref.data, 'base64')
@@ -133,9 +149,10 @@ async function videoBytes(
       ref.store === 'durable' ? durableMediaStore() : objectStore(),
       ref.data,
       cap,
+      signal,
     )
   }
-  return (await fetchSourceImage(ref.data, { maxBytes: cap })).bytes
+  return (await fetchSourceImage(ref.data, { maxBytes: cap, signal })).bytes
 }
 
 let reader: VideoClipReader = readStoredVideo
@@ -145,6 +162,10 @@ export function setVideoClipReaderForTesting(next: VideoClipReader | null): void
   reader = next ?? readStoredVideo
 }
 
-export function readVideoClip(context: AgentToolContext, videoId: string): Promise<VideoClip> {
-  return reader(context, videoId)
+export function readVideoClip(
+  context: AgentToolContext,
+  videoId: string,
+  signal?: AbortSignal,
+): Promise<VideoClip> {
+  return reader(context, videoId, signal)
 }
