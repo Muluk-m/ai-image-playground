@@ -357,6 +357,9 @@ function toAnnotationNode(annotation: CanvasAnnotation): FlowNode {
     draggable: false,
     selectable: false,
     focusable: false,
+    // 标注只是叠在上面的笔迹。onNodeClick 会让 React Flow 打开指针事件，
+    // 箭头的包围盒比笔画像素大，会挡住下面图片的拖动。
+    style: { pointerEvents: 'none' },
     data: { annotation },
   }
 }
