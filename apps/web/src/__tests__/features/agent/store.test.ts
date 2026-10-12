@@ -8,6 +8,8 @@ import type {
 import { AGENT_TURN_MAX_INLINE_REFERENCES, encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
+import * as historyCache from '../../../features/agent/lib/conversationCache'
+import { conversationCache } from '../../../features/agent/lib/conversationCache'
 import {
   agentActivityPhase,
   answerableClarificationId,
@@ -56,7 +58,7 @@ function turnStream(...events: AgentTurnEvent[]): Response {
 }
 
 let turnResponse: () => Response | Promise<Response>
-let messagesResponse: () => Response
+let messagesResponse: () => Response | Promise<Response>
 let conversationsResponse: () => Response
 let deleteResponse: () => Response
 let withdrawalResponse: () => Response
@@ -112,6 +114,7 @@ beforeEach(() => {
     loaded: false,
     returnedMessagesPending: false,
     returnedMessagesError: null,
+    historyCached: false,
     historyLoading: false,
     historyFailed: false,
   })
@@ -1003,5 +1006,214 @@ describe('历史读取重试', () => {
     expect(state().error).toBeNull()
     expect(state().conversationId).toBe(CONVERSATION)
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+})
+
+describe('本地对话缓存', () => {
+  const cached = {
+    messages: [
+      {
+        kind: 'text' as const,
+        id: 'cached',
+        turnId: 'old',
+        role: 'assistant' as const,
+        text: '已缓存的回复',
+        streaming: false,
+      },
+    ],
+    turns: {},
+  }
+  const remote = () =>
+    Response.json({
+      messages: [
+        {
+          id: 'latest',
+          turnId: 'new',
+          role: 'assistant',
+          content: [{ type: 'text', text: '服务器最新回复' }],
+        },
+      ],
+      activeTurn: null,
+      turns: [],
+    })
+
+  it('opens local history before a delayed server response, then replaces it without duplicates', async () => {
+    await conversationCache(CONVERSATION).write(cached)
+    let finish!: (response: Response) => void
+    messagesResponse = () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    const opening = state().selectConversation(CONVERSATION)
+    await vi.waitFor(() => expect(state().messages).toEqual(cached.messages))
+    expect(state().historyCached).toBe(true)
+    expect(state().historyLoading).toBe(true)
+    const calls = fetchMock.mock.calls.length
+    await state().send('不要在同步之前发送')
+    await state().confirmPrompt('cached', '不要生成')
+    expect(await state().retry('cached')).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(calls)
+    finish(remote())
+    await opening
+    expect(state().historyCached).toBe(false)
+    expect(state().historyLoading).toBe(false)
+    expect(state().messages).toHaveLength(1)
+    expect(state().messages[0]).toMatchObject({ text: '服务器最新回复' })
+    await vi.waitFor(async () =>
+      expect((await conversationCache(CONVERSATION).read())?.messages).toEqual(state().messages),
+    )
+  })
+
+  it('keeps cached history readable on network failure and refreshes it on retry', async () => {
+    await conversationCache(CONVERSATION).write(cached)
+    messagesResponse = () => Promise.reject(new TypeError('offline'))
+    await state().selectConversation(CONVERSATION)
+    await vi.waitFor(() => expect(state().messages).toEqual(cached.messages))
+    expect(state().historyFailed).toBe(true)
+    expect(state().historyCached).toBe(true)
+    messagesResponse = remote
+    await state().retryHistory()
+    expect(state().historyFailed).toBe(false)
+    expect(state().historyCached).toBe(false)
+    expect(state().messages[0]).toMatchObject({ text: '服务器最新回复' })
+  })
+
+  it.each([
+    403, 404,
+  ])('removes a cached conversation when the server returns %s', async (status) => {
+    await conversationCache(CONVERSATION).write(cached)
+    messagesResponse = () => new Response('{}', { status })
+    await state().selectConversation(CONVERSATION)
+    await vi.waitFor(async () => expect(await conversationCache(CONVERSATION).read()).toBeNull())
+    expect(state().messages).toEqual([])
+    expect(state().historyCached).toBe(false)
+  })
+
+  it('ignores a delayed reply from a conversation that has been switched away', async () => {
+    await conversationCache(CONVERSATION).write(cached)
+    let finish!: (response: Response) => void
+    messagesResponse = () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    const opening = state().selectConversation(CONVERSATION)
+    await vi.waitFor(() => expect(state().historyCached).toBe(true))
+    messagesResponse = remote
+    await state().selectConversation('second')
+    finish(Response.json({ messages: [], turns: [], activeTurn: null }))
+    await opening
+    expect(state().conversationId).toBe('second')
+    expect(state().messages[0]).toMatchObject({ text: '服务器最新回复' })
+  })
+
+  it('does not restore history into another account while the request is pending', async () => {
+    let finish!: (response: Response) => void
+    messagesResponse = () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    const opening = state().selectConversation(CONVERSATION)
+    setClientStorageScope('new-account')
+    finish(remote())
+    await opening
+    expect(state().messages).toEqual([])
+    expect(await conversationCache(CONVERSATION).read()).toBeNull()
+  })
+
+  it('never lets a late disk read overwrite a faster network response', async () => {
+    const owner = conversationCache(CONVERSATION)
+    let read!: (value: typeof cached) => void
+    vi.spyOn(historyCache, 'conversationCache').mockReturnValue({
+      ...owner,
+      read: () =>
+        new Promise((resolve) => {
+          read = resolve
+        }),
+    })
+    messagesResponse = remote
+    await state().selectConversation(CONVERSATION)
+    read(cached)
+    await Promise.resolve()
+    expect(state().historyCached).toBe(false)
+    expect(state().messages[0]).toMatchObject({ text: '服务器最新回复' })
+  })
+
+  it('does not wait for an unresponsive local database before showing server history', async () => {
+    const owner = conversationCache(CONVERSATION)
+    vi.spyOn(historyCache, 'conversationCache').mockReturnValue({
+      ...owner,
+      read: () => new Promise(() => {}),
+    })
+    messagesResponse = remote
+    await state().selectConversation(CONVERSATION)
+    expect(state().historyLoading).toBe(false)
+    expect(state().messages[0]).toMatchObject({ text: '服务器最新回复' })
+  })
+
+  it('uses server tool state instead of preserving a cached confirmation or delivery state', async () => {
+    await conversationCache(CONVERSATION).write({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'tool',
+          turnId: 'old',
+          toolCallId: 'call',
+          title: '旧结果',
+          status: 'succeeded',
+          delivery: 'placed',
+          artifacts: [],
+        },
+      ],
+      turns: {},
+    })
+    let finish!: (response: Response) => void
+    messagesResponse = () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    const opening = state().selectConversation(CONVERSATION)
+    await vi.waitFor(() => expect(state().historyCached).toBe(true))
+    finish(
+      Response.json({
+        messages: [
+          {
+            id: 'tool',
+            turnId: 'old',
+            role: 'tool',
+            content: [
+              {
+                type: 'toolResult',
+                toolCallId: 'call',
+                title: '当前草稿',
+                status: 'awaiting_confirmation',
+                prompt: '最新提示词',
+              },
+            ],
+          },
+        ],
+        turns: [],
+        activeTurn: null,
+      }),
+    )
+    await opening
+    expect(state().messages[0]).toMatchObject({
+      title: '当前草稿',
+      status: 'awaiting_confirmation',
+    })
+    expect(state().messages[0]).not.toHaveProperty('delivery', 'placed')
+  })
+
+  it('saves replies received over the live stream for the next visit', async () => {
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        ASSISTANT_START,
+        { type: 'textDelta', messageId: 'assistant-1', delta: '实时回复也要保存' },
+        TURN_END,
+      )
+    await state().send('你好')
+    await vi.waitFor(async () =>
+      expect((await conversationCache(CONVERSATION).read())?.messages).toEqual(state().messages),
+    )
   })
 })
