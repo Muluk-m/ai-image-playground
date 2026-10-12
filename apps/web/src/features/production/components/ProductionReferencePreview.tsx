@@ -1,6 +1,6 @@
 import type { ProductionMediaReference } from '@image-playground/shared'
-import { ImageOff } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
@@ -69,7 +69,7 @@ export default function ProductionReferencePreview({
           <img src={value.url} alt={name} />
         ) : (
           <span className="production-reference-missing">
-            <ImageOff size={22} />
+            <Icon name="imageUnavailable" />
             {t('asset.referenceMissing', { name })}
           </span>
         )

@@ -4,9 +4,19 @@ import type {
   ProductionShot,
   ProductionStoryboardProposal,
 } from '@image-playground/shared'
-import { ArrowDown, ArrowUp, Clapperboard, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Checkbox } from '../../../components/ui/checkbox'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
+import { Label } from '../../../components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import type { ProductionResponse } from '../lib/productionClient'
@@ -123,26 +133,35 @@ export default function ProductionShotPane({
     >
       <header className="production-pane-header">
         <span>
-          <Clapperboard size={17} />
+          <Icon name="storyboard" />
           {t('storyboard.title')}
         </span>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={18} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <div className="production-document-tools">
         {edit.editing ? (
           <>
-            <button
+            <Button
+              variant="default"
+              size="sm"
               type="button"
-              className="production-primary"
               data-action="save-shots"
               disabled={edit.saving}
               onClick={() => void edit.save()}
             >
               {t(edit.saving ? 'saving' : 'done')}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               disabled={edit.saving}
               onClick={() => {
@@ -151,8 +170,10 @@ export default function ProductionShotPane({
               }}
             >
               {t('keepDraft')}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               disabled={edit.saving}
               onClick={() => {
@@ -161,13 +182,19 @@ export default function ProductionShotPane({
               }}
             >
               {t('discard')}
-            </button>
+            </Button>
           </>
         ) : (
-          <button type="button" aria-label={t('storyboard.edit')} onClick={edit.start}>
-            <Pencil size={14} />
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label={t('storyboard.edit')}
+            onClick={edit.start}
+          >
+            <Icon name="edit" />
             {t('edit')}
-          </button>
+          </Button>
         )}
         <span>{t('revision', { revision: document.revision })}</span>
       </div>
@@ -218,17 +245,24 @@ export default function ProductionShotPane({
                 <p className="production-error">{t('storyboard.stale')}</p>
               )}
               <footer>
-                <button
+                <Button
+                  variant="default"
+                  size="sm"
                   type="button"
-                  className="production-primary"
                   disabled={busy || edit.editing || proposal.baseRevision !== document.revision}
                   onClick={() => void resolve(proposal, true)}
                 >
                   {t('storyboard.adopt')}
-                </button>
-                <button type="button" disabled={busy} onClick={() => void resolve(proposal, false)}>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void resolve(proposal, false)}
+                >
                   {t('storyboard.discard')}
-                </button>
+                </Button>
               </footer>
             </section>
           ))}
@@ -245,7 +279,9 @@ export default function ProductionShotPane({
             data-selected={selected === shot.id}
           >
             <header>
-              <button
+              <Button
+                variant={selected === shot.id ? 'secondary' : 'ghost'}
+                size="xs"
                 type="button"
                 aria-pressed={selected === shot.id}
                 onClick={() => {
@@ -268,33 +304,39 @@ export default function ProductionShotPane({
                   {String(index + 1).padStart(2, '0')}
                 </span>
                 {t('storyboard.shot', { number: index + 1 })}
-              </button>
+              </Button>
               {edit.editing && (
                 <div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     type="button"
                     aria-label={t('storyboard.moveUp', { number: index + 1 })}
                     disabled={edit.saving || index === 0}
                     onClick={() => move(index, -1)}
                   >
-                    <ArrowUp size={15} />
-                  </button>
-                  <button
+                    <Icon name="moveUp" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     type="button"
                     aria-label={t('storyboard.moveDown', { number: index + 1 })}
                     disabled={edit.saving || index === shots.length - 1}
                     onClick={() => move(index, 1)}
                   >
-                    <ArrowDown size={15} />
-                  </button>
-                  <button
+                    <Icon name="moveDown" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     type="button"
                     aria-label={t('storyboard.remove', { number: index + 1 })}
                     disabled={edit.saving}
                     onClick={() => setRemoveId(shot.id)}
                   >
-                    <Trash2 size={15} />
-                  </button>
+                    <Icon name="delete" />
+                  </Button>
                 </div>
               )}
             </header>
@@ -304,7 +346,9 @@ export default function ProductionShotPane({
                   content={edit.content}
                   target={{ kind: 'shot', id: shot.id }}
                 />
-                <button
+                <Button
+                  variant="destructive"
+                  size="sm"
                   type="button"
                   onClick={() => {
                     edit.update({
@@ -316,23 +360,23 @@ export default function ProductionShotPane({
                   }}
                 >
                   {t('storyboard.confirmDelete')}
-                </button>
-                <button type="button" onClick={() => setRemoveId(null)}>
+                </Button>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setRemoveId(null)}>
                   {t('cancel')}
-                </button>
+                </Button>
               </div>
             )}
             {edit.editing ? (
               <div className="production-shot-editor">
-                <label>
+                <Label>
                   {t('storyboard.description')}
                   <Textarea
                     value={shot.description}
                     disabled={edit.saving}
                     onChange={(event) => update({ ...shot, description: event.target.value })}
                   />
-                </label>
-                <label>
+                </Label>
+                <Label>
                   {t('storyboard.dialogue')}
                   <Textarea
                     value={shot.dialogue ?? ''}
@@ -341,9 +385,9 @@ export default function ProductionShotPane({
                       update({ ...shot, dialogue: event.target.value || undefined })
                     }
                   />
-                </label>
+                </Label>
                 <div className="production-shot-fields">
-                  <label>
+                  <Label>
                     {t('storyboard.camera')}
                     <Input
                       value={shot.camera ?? ''}
@@ -352,8 +396,8 @@ export default function ProductionShotPane({
                         update({ ...shot, camera: event.target.value || undefined })
                       }
                     />
-                  </label>
-                  <label>
+                  </Label>
+                  <Label>
                     {t('storyboard.duration')}
                     <Input
                       type="number"
@@ -370,84 +414,105 @@ export default function ProductionShotPane({
                         })
                       }
                     />
-                  </label>
+                  </Label>
                 </div>
-                <label>
+                <Label>
                   {t('storyboard.scriptScene')}
-                  <select
-                    value={shot.scriptSceneId ?? ''}
+                  <Select
+                    value={shot.scriptSceneId ? `id:${shot.scriptSceneId}` : '__unset__'}
                     disabled={edit.saving}
-                    onChange={(event) =>
-                      update({ ...shot, scriptSceneId: event.target.value || undefined })
+                    onValueChange={(value) =>
+                      update({
+                        ...shot,
+                        scriptSceneId: value === '__unset__' ? undefined : value.slice(3),
+                      })
                     }
                   >
-                    <option value="">{t('storyboard.unset')}</option>
-                    {shot.scriptSceneId &&
-                      !edit.content.scenes.some((scene) => scene.id === shot.scriptSceneId) && (
-                        <option value={shot.scriptSceneId}>{t('storyboard.missing')}</option>
-                      )}
-                    {edit.content.scenes.map((scene) => (
-                      <option key={scene.id} value={scene.id}>
-                        {scene.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
+                    <SelectTrigger aria-label={t('storyboard.scriptScene')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unset__">{t('storyboard.unset')}</SelectItem>
+                      {shot.scriptSceneId &&
+                        !edit.content.scenes.some((scene) => scene.id === shot.scriptSceneId) && (
+                          <SelectItem value={`id:${shot.scriptSceneId}`}>
+                            {t('storyboard.missing')}
+                          </SelectItem>
+                        )}
+                      {edit.content.scenes.map((scene) => (
+                        <SelectItem key={scene.id} value={`id:${scene.id}`}>
+                          {scene.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
+                <Label>
                   {t('storyboard.location')}
-                  <select
-                    value={shot.locationId ?? ''}
+                  <Select
+                    value={shot.locationId ? `id:${shot.locationId}` : '__unset__'}
                     disabled={edit.saving}
-                    onChange={(event) =>
-                      update({ ...shot, locationId: event.target.value || undefined })
+                    onValueChange={(value) =>
+                      update({
+                        ...shot,
+                        locationId: value === '__unset__' ? undefined : value.slice(3),
+                      })
                     }
                   >
-                    <option value="">{t('storyboard.unset')}</option>
-                    {shot.locationId &&
-                      !edit.content.locations?.some(
-                        (location) => location.id === shot.locationId,
-                      ) && <option value={shot.locationId}>{t('storyboard.missing')}</option>}
-                    {edit.content.locations?.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {location.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <SelectTrigger aria-label={t('storyboard.location')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unset__">{t('storyboard.unset')}</SelectItem>
+                      {shot.locationId &&
+                        !edit.content.locations?.some(
+                          (location) => location.id === shot.locationId,
+                        ) && (
+                          <SelectItem value={`id:${shot.locationId}`}>
+                            {t('storyboard.missing')}
+                          </SelectItem>
+                        )}
+                      {edit.content.locations?.map((location) => (
+                        <SelectItem key={location.id} value={`id:${location.id}`}>
+                          {location.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
                 <fieldset>
                   <legend>{t('storyboard.looks')}</legend>
                   {looks.map((look) => (
-                    <label key={look.id}>
-                      <input
-                        type="checkbox"
+                    <Label key={look.id}>
+                      <Checkbox
                         checked={shot.lookIds.includes(look.id)}
                         disabled={edit.saving}
-                        onChange={(event) =>
+                        onCheckedChange={(checked) =>
                           update({
                             ...shot,
-                            lookIds: event.target.checked
-                              ? [...shot.lookIds, look.id]
-                              : shot.lookIds.filter((id) => id !== look.id),
+                            lookIds:
+                              checked === true
+                                ? [...shot.lookIds, look.id]
+                                : shot.lookIds.filter((id) => id !== look.id),
                           })
                         }
                       />
                       {look.label}
-                    </label>
+                    </Label>
                   ))}
                   {shot.lookIds
                     .filter((id) => !looks.some((look) => look.id === id))
                     .map((id) => (
-                      <label key={id}>
-                        <input
-                          type="checkbox"
+                      <Label key={id}>
+                        <Checkbox
                           checked
                           disabled={edit.saving}
-                          onChange={() =>
+                          onCheckedChange={() =>
                             update({ ...shot, lookIds: shot.lookIds.filter((one) => one !== id) })
                           }
                         />
                         {t('storyboard.missing')} · {id}
-                      </label>
+                      </Label>
                     ))}
                 </fieldset>
                 <ProductionReferenceEditor
@@ -475,7 +540,9 @@ export default function ProductionShotPane({
           </article>
         ))}
         {edit.editing && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             className="production-add-scene"
             disabled={edit.saving || shots.length >= 200}
@@ -486,9 +553,9 @@ export default function ProductionShotPane({
               })
             }
           >
-            <Plus size={15} />
+            <Icon name="add" />
             {t('storyboard.add')}
-          </button>
+          </Button>
         )}
       </div>
     </section>

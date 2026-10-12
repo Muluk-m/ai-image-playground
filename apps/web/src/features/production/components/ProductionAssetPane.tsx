@@ -5,9 +5,11 @@ import type {
   ProductionGenerationView,
   ProductionLocation,
 } from '@image-playground/shared'
-import { MapPin, Plus, UserRound, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
+import { Label } from '../../../components/ui/label'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { type ProductionResponse, saveProduction } from '../lib/productionClient'
@@ -118,22 +120,29 @@ export default function ProductionAssetPane({
     <section className="production-document" aria-label={t(`asset.${target.kind}`)}>
       <header className="production-pane-header">
         <span>
-          {target.kind === 'character' ? <UserRound size={17} /> : <MapPin size={17} />}{' '}
+          {target.kind === 'character' ? <Icon name="character" /> : <Icon name="location" />}{' '}
           {asset?.name}
         </span>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={18} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <div className="production-document-tools">
-        <button
+        <Button
+          variant="default"
+          size="sm"
           type="button"
-          className="production-primary"
           disabled={edit.saving || !asset || !edit.draft}
           onClick={() => void edit.save()}
         >
           {t(edit.saving ? 'saving' : 'asset.save')}
-        </button>
+        </Button>
         <span>{t('revision', { revision: document.revision })}</span>
       </div>
       {edit.error && (
@@ -148,7 +157,7 @@ export default function ProductionAssetPane({
       )}
       {asset && (
         <div className="production-document-scroll production-asset-form">
-          <label>
+          <Label>
             {t('asset.assetName')}
             <Input
               aria-label={t('asset.assetName')}
@@ -156,8 +165,8 @@ export default function ProductionAssetPane({
               disabled={edit.saving}
               onChange={(event) => update({ ...asset, name: event.target.value })}
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             {t('asset.description')}
             <Textarea
               aria-label={t('asset.description')}
@@ -165,7 +174,7 @@ export default function ProductionAssetPane({
               disabled={edit.saving}
               onChange={(event) => update({ ...asset, description: event.target.value })}
             />
-          </label>
+          </Label>
           {!character && (
             <ProductionReferenceEditor
               conversationId={document.conversationId}
@@ -179,16 +188,20 @@ export default function ProductionAssetPane({
             <>
               <div className="production-look-tabs">
                 {character.looks.map((one) => (
-                  <button
+                  <Button
+                    variant={one.id === look?.id ? 'secondary' : 'ghost'}
+                    size="xs"
                     type="button"
                     key={one.id}
                     aria-pressed={one.id === look?.id}
                     onClick={() => setLookId(one.id)}
                   >
                     {one.name}
-                  </button>
+                  </Button>
                 ))}
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   onClick={() => {
                     const next = {
@@ -200,9 +213,9 @@ export default function ProductionAssetPane({
                     setLookId(next.id)
                   }}
                 >
-                  <Plus size={14} />
+                  <Icon name="add" />
                   {t('asset.addLook')}
-                </button>
+                </Button>
               </div>
               {look && (
                 <>
@@ -221,7 +234,7 @@ export default function ProductionAssetPane({
                       })
                     }
                   />
-                  <label>
+                  <Label>
                     {t('asset.lookName')}
                     <Input
                       aria-label={t('asset.lookName')}
@@ -236,8 +249,8 @@ export default function ProductionAssetPane({
                         })
                       }
                     />
-                  </label>
-                  <label>
+                  </Label>
+                  <Label>
                     {t('asset.lookDescription')}
                     <Textarea
                       aria-label={t('asset.lookDescription')}
@@ -252,18 +265,30 @@ export default function ProductionAssetPane({
                         })
                       }
                     />
-                  </label>
+                  </Label>
                 </>
               )}
             </>
           )}
           <div className="production-reference-actions">
-            <button type="button" disabled={edit.saving || removing} onClick={() => move(-1)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={edit.saving || removing}
+              onClick={() => move(-1)}
+            >
               {t('asset.up')}
-            </button>
-            <button type="button" disabled={edit.saving || removing} onClick={() => move(1)}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={edit.saving || removing}
+              onClick={() => move(1)}
+            >
               {t('asset.down')}
-            </button>
+            </Button>
           </div>
           {(target.kind === 'location' || look) && (
             <ProductionAssetGenerations
@@ -290,23 +315,47 @@ export default function ProductionAssetPane({
                   }
                 />
                 <div className="production-reference-actions">
-                  <button type="button" disabled={removing} onClick={() => void remove()}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    type="button"
+                    disabled={removing}
+                    onClick={() => void remove()}
+                  >
                     {t('asset.deleteConfirm')}
-                  </button>
-                  <button type="button" disabled={removing} onClick={() => setDeleting(null)}>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={removing}
+                    onClick={() => setDeleting(null)}
+                  >
                     {t('cancel')}
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
               <>
-                <button type="button" disabled={edit.saving} onClick={() => setDeleting('asset')}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  disabled={edit.saving}
+                  onClick={() => setDeleting('asset')}
+                >
                   {t('asset.delete')}
-                </button>
+                </Button>
                 {look && (
-                  <button type="button" disabled={edit.saving} onClick={() => setDeleting('look')}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={edit.saving}
+                    onClick={() => setDeleting('look')}
+                  >
                     {t('asset.deleteLook')}
-                  </button>
+                  </Button>
                 )}
               </>
             )}

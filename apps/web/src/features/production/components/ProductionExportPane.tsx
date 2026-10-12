@@ -3,9 +3,11 @@ import type {
   ProductionDocument,
   ProductionGenerationView,
 } from '@image-playground/shared'
-import { Download, PackageOpen, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
+import { Icon } from '../../../components/ui/icon'
+import { Label } from '../../../components/ui/label'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { downloadBlob } from '../../../lib/downloadImages'
@@ -142,12 +144,18 @@ export default function ProductionExportPane({
     <aside className="production-document" aria-label={t('export.title')}>
       <header className="production-pane-header">
         <span>
-          <PackageOpen size={17} />
+          <Icon name="exportPackage" />
           {t('export.title')}
         </span>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={17} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <div className="production-document-scroll production-export">
         <h1>{document.content.title}</h1>
@@ -161,7 +169,7 @@ export default function ProductionExportPane({
         <fieldset disabled={busy}>
           <legend>{t('export.originals')}</legend>
           {snapshot.resources.map((one) => (
-            <label key={one.key}>
+            <Label key={one.key}>
               <Checkbox
                 checked={!selected || selected.has(one.key)}
                 onCheckedChange={(checked) => {
@@ -173,7 +181,7 @@ export default function ProductionExportPane({
                 }}
               />
               <span>{one.name}</span>
-            </label>
+            </Label>
           ))}
         </fieldset>
         {candidates.length > 0 && (
@@ -181,7 +189,7 @@ export default function ProductionExportPane({
             <summary>{t('export.extraCandidates')}</summary>
             <fieldset disabled={busy}>
               {candidates.map((one) => (
-                <label key={one.artifactId}>
+                <Label key={one.artifactId}>
                   <Checkbox
                     checked={extras.has(one.artifactId)}
                     onCheckedChange={(checked) => {
@@ -197,20 +205,21 @@ export default function ProductionExportPane({
                     {one.media === 'video' ? t('clip.title') : t('asset.reference')} ·{' '}
                     {one.artifactId}
                   </span>
-                </label>
+                </Label>
               ))}
             </fieldset>
           </details>
         )}
         {!plan && (
-          <button
+          <Button
+            variant="default"
+            size="sm"
             type="button"
-            className="production-export-primary"
             disabled={busy}
             onClick={() => void inspect()}
           >
             {t('export.inspect')}
-          </button>
+          </Button>
         )}
         {plan && (
           <section className="production-export-preview">
@@ -247,40 +256,60 @@ export default function ProductionExportPane({
             ))}
             {tooLarge && <p role="alert">{t('export.tooLarge')}</p>}
             {unknown && <p role="alert">{t('export.unknownSize')}</p>}
-            <button
+            <Button
+              variant="default"
+              size="sm"
               type="button"
-              className="production-export-primary"
               disabled={busy || tooLarge || unknown || missing.length > 0}
               onClick={() => void pack(false)}
             >
-              <Download size={15} />
+              <Icon name="download" />
               {t('export.download')}
-            </button>
+            </Button>
             {missing.length > 0 && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 disabled={busy || tooLarge || unknown}
                 onClick={() => void pack(true)}
               >
                 {t('export.partialFiles', { count: missing.length })}
-              </button>
+              </Button>
             )}
-            <button type="button" disabled={busy} onClick={() => void inspect()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={busy}
+              onClick={() => void inspect()}
+            >
               {t('export.retry')}
-            </button>
+            </Button>
           </section>
         )}
-        <button type="button" disabled={busy} onClick={() => void pack(false, true)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          disabled={busy}
+          onClick={() => void pack(false, true)}
+        >
           {t('export.textOnly')}
-        </button>
+        </Button>
         {busy && (
           <div role="status">
             <p>
               {phase === 'inspecting' ? t('export.inspecting') : t('export.progress', progress)}
             </p>
-            <button type="button" onClick={() => controller.current?.abort()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => controller.current?.abort()}
+            >
               {t('cancel')}
-            </button>
+            </Button>
           </div>
         )}
         {(phase === 'complete' || phase === 'partial' || phase === 'cancelled') && (
@@ -300,9 +329,15 @@ export default function ProductionExportPane({
               )}
             </p>
             {plan && error === 'production_export_missing' && (
-              <button type="button" disabled={busy} onClick={() => void pack(true)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                disabled={busy}
+                onClick={() => void pack(true)}
+              >
                 {t('export.acceptPartial')}
-              </button>
+              </Button>
             )}
           </div>
         )}
