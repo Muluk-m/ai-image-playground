@@ -13,6 +13,8 @@ import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } 
 import type { TaskRecord } from '../types'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 /** 套的名字要落在它自己的记录上；记录还没加载时至少不能把分镜说成商品图。 */
 function setFallbackName(task: TaskRecord | undefined): string {
@@ -28,7 +30,17 @@ function setFallbackName(task: TaskRecord | undefined): string {
  * 给了 `limit` 就是生图入口的「最近生成」：只摆最近几条，且不受作品入口留下的搜索与筛选影响——
  * 那一页没有清除它们的入口。
  */
-export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boolean } = {}) {
+export default function TaskGrid({
+  limit,
+  hero,
+  hasMore = false,
+  onExpand,
+}: {
+  limit?: number
+  hero?: boolean
+  hasMore?: boolean
+  onExpand?: () => void
+} = {}) {
   const { t } = useTranslation('task')
   const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
@@ -419,6 +431,14 @@ export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boole
       <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
         {visibleRows.flatMap((row) => row.nodes)}
       </div>
+      {limit !== undefined && onExpand && (rows.length > limit || hasMore) && (
+        <div className="flex justify-center pb-8">
+          <Button size="lg" onClick={onExpand} aria-expanded={false}>
+            {t('grid.expandMore')}
+            <Icon name="chevronDown" />
+          </Button>
+        </div>
+      )}
       {selectionBox && (
         <div
           className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"
