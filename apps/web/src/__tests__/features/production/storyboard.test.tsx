@@ -122,7 +122,10 @@ it('opens storyboard results after a closed workspace mounts and keeps the conve
   }
 })
 
-it('saves changed and cleared scene, location and look references through the shared controls', async () => {
+it.each([
+  'linked-id',
+  '__unset__',
+])('saves and clears references without confusing business ID %s with the unset option', async (referenceId) => {
   stubPointerApis()
   const doc: ProductionDocument = {
     id: 'doc',
@@ -134,8 +137,8 @@ it('saves changed and cleared scene, location and look references through the sh
       title: 'References',
       setting: '',
       outline: '',
-      scenes: [{ id: 'scene', title: '车站入口', body: '' }],
-      locations: [{ id: 'location', name: '车站', description: '' }],
+      scenes: [{ id: referenceId, title: '车站入口', body: '' }],
+      locations: [{ id: referenceId, name: '车站', description: '' }],
       characters: [
         {
           id: 'character',
@@ -180,8 +183,8 @@ it('saves changed and cleared scene, location and look references through the sh
     )
     const writes = () => request.mock.calls.filter(([, init]) => init?.method === 'PUT')
     expect(JSON.parse(writes()[0]![1].body).content.shots[0]).toMatchObject({
-      scriptSceneId: 'scene',
-      locationId: 'location',
+      scriptSceneId: referenceId,
+      locationId: referenceId,
       lookIds: ['look'],
     })
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="编辑分镜"]')!.click())
