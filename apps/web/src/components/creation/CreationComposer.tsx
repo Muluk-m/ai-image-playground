@@ -16,6 +16,7 @@ import { Icon } from '../ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { CreationBody, CreationFrame } from './CreationFrame'
+import { CreationReferenceStack } from './CreationReferenceStack'
 import type {
   CreationCatalog,
   CreationDraft,
@@ -158,47 +159,54 @@ export function CreationComposer({
     </div>
   )
   const references = (
-    <div className="creation-references">
-      <Popover open={addOpen} onOpenChange={setAddOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" className="creation-add" aria-label={t('studio.addReference')}>
-            <Icon name="add" />
-            <span>{t('studio.reference')}</span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent side="top" className="creation-popover w-60">
-          {[
-            {
-              icon: 'upload' as const,
-              label: t('studio.upload'),
-              action: () => fileInput.current?.click(),
-            },
-            {
-              icon: 'folder' as const,
-              label: t('studio.library'),
-              action: () => onAssets('library'),
-            },
-            {
-              icon: 'canvas' as const,
-              label: t('studio.canvas'),
-              action: () => onAssets('canvas'),
-            },
-          ].map(({ icon: ItemIcon, label, action }) => (
-            <Button
-              key={label}
-              variant="ghost"
-              className="creation-menu-item"
-              onClick={() => {
-                setAddOpen(false)
-                action()
-              }}
-            >
-              <Icon name={ItemIcon} />
-              {label}
+    <CreationReferenceStack
+      count={draft.references.length}
+      previews={draft.references
+        .slice(-3)
+        .map((reference) => <MediaImage key={reference.id} src={reference.src} alt="" />)}
+      add={
+        <Popover open={addOpen} onOpenChange={setAddOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" className="creation-add" aria-label={t('studio.addReference')}>
+              <Icon name="add" />
+              <span>{t('studio.reference')}</span>
             </Button>
-          ))}
-        </PopoverContent>
-      </Popover>
+          </PopoverTrigger>
+          <PopoverContent side="top" className="creation-popover w-60">
+            {[
+              {
+                icon: 'upload' as const,
+                label: t('studio.upload'),
+                action: () => fileInput.current?.click(),
+              },
+              {
+                icon: 'folder' as const,
+                label: t('studio.library'),
+                action: () => onAssets('library'),
+              },
+              {
+                icon: 'canvas' as const,
+                label: t('studio.canvas'),
+                action: () => onAssets('canvas'),
+              },
+            ].map(({ icon: ItemIcon, label, action }) => (
+              <Button
+                key={label}
+                variant="ghost"
+                className="creation-menu-item"
+                onClick={() => {
+                  setAddOpen(false)
+                  action()
+                }}
+              >
+                <Icon name={ItemIcon} />
+                {label}
+              </Button>
+            ))}
+          </PopoverContent>
+        </Popover>
+      }
+    >
       {draft.references.map((reference, index) => (
         <div className="creation-reference" key={reference.id}>
           <Button
@@ -234,7 +242,7 @@ export function CreationComposer({
           </Button>
         </div>
       ))}
-    </div>
+    </CreationReferenceStack>
   )
   return (
     <CreationFrame
