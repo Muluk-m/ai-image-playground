@@ -133,12 +133,6 @@
     "height": "Height",
     "reset": "Reset to original size",
     "ratioLock": "Lock aspect ratio",
-    "by": {
-      "original": "Original size",
-      "width": "By width",
-      "height": "By height",
-      "percent": "By percentage"
-    },
     "outputs": "Export specs",
     "addRow": "Add spec",
     "removeRow": "Remove spec",
