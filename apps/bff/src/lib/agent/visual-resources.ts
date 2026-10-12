@@ -17,6 +17,11 @@ export function withVisualSignal<T>(
   return signals.run(signal, work)
 }
 
+/** 当前工具调用的取消信号。抽帧这类不走图片解码的准备也要听它。 */
+export function currentVisualSignal(): AbortSignal | undefined {
+  return signals.getStore()
+}
+
 async function acquire(limit: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   if (active < limit) {
