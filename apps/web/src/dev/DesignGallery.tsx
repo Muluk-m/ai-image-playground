@@ -369,6 +369,8 @@ function ReferenceStacks() {
           <CreationReferenceStack
             key={count}
             count={count}
+            uploading={count === 3}
+            status={count === 3 ? '上传中 1/3' : undefined}
             previews={Array.from({ length: Math.min(count, 3) }, (_, index) => (
               <span
                 key={index}

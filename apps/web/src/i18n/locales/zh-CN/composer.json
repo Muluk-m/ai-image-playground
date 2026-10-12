@@ -176,6 +176,7 @@
     "projectActions": "项目操作",
     "start": "开始创作",
     "newProject": "新建项目",
-    "references": "参考素材（{{count}}）"
+    "references": "参考素材（{{count}}）",
+    "uploadProgress": "上传中 {{ready}}/{{total}}"
   }
 }

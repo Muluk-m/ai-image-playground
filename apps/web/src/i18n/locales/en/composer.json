@@ -182,6 +182,7 @@
     "projectActions": "Project actions",
     "start": "Start creating",
     "newProject": "New project",
-    "references": "References ({{count}})"
+    "references": "References ({{count}})",
+    "uploadProgress": "Uploading {{ready}}/{{total}}"
   }
 }
