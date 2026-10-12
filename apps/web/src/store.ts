@@ -2422,6 +2422,9 @@ export async function addCompletedCanvasTask(args: {
   profile?: CanvasProfileSnapshot
 }): Promise<void> {
   try {
+    const completed = (tasks: TaskRecord[]) =>
+      args.id && tasks.some((task) => task.id === args.id && task.status === 'done')
+    if (completed(useStore.getState().tasks) || (args.id && completed(await getAllTasks()))) return
     const profile =
       args.profile ??
       (() => {
@@ -2434,6 +2437,7 @@ export async function addCompletedCanvasTask(args: {
         }
       })()
     const { outputIds } = await storeGeneratedImages(args.images)
+    if (completed(useStore.getState().tasks)) return
     const finishedAt = Date.now()
     const elapsed = args.elapsed ?? null
     const newTask: TaskRecord = {

@@ -80,7 +80,7 @@ function siblingImageNode(doc: Y.Doc, primaryId: string, index: number, resultId
   const primary = imageNode(doc, primaryId)
   if (!primary || index <= 0) return primaryId
   const id = resultId ?? newElementId()
-  if (imageNode(doc, id)) return id
+  if (imageNode(doc, id) || (resultId && doc.getMap('deletedNodes').has(id))) return id
   const snapshot = readCanvasDocument(doc)
   const incoming = snapshot.edges.filter((edge) => edge.target === primaryId)
   const x = primary.x + (primary.width + SIBLING_GAP) * index
@@ -140,6 +140,7 @@ async function putBitmapOnNode(
   nodeId: string,
   dataUrl: string,
   name?: string,
+  onlyIfEmpty = false,
 ): Promise<boolean> {
   const node = imageNode(doc, nodeId)
   if (!node) return false
@@ -157,6 +158,8 @@ async function putBitmapOnNode(
   } catch {
     // 量不出尺寸就维持卡片现在的大小。
   }
+  const current = imageNode(doc, nodeId)
+  if (!current || (onlyIfEmpty && (current.data.fileId || current.data.mediaId))) return false
   const patch = {
     width,
     height,
@@ -267,7 +270,7 @@ function nodeGenerationSink(
                 index,
                 taskId ? `result:${taskId}:${index}` : undefined,
               )
-        const placed = await putBitmapOnNode(editor, doc, id, images[index]!)
+        const placed = await putBitmapOnNode(editor, doc, id, images[index]!, undefined, true)
         placedAny = placedAny || placed
       }
       if (!placedAny) return

@@ -1,6 +1,7 @@
 import {
   canvasOrigin,
   connectCanvasNodes,
+  deleteCanvasNode,
   importLegacyElements,
   insertCanvasNode,
   readCanvasDocument,
@@ -229,4 +230,75 @@ it('merges multi-image results from two recovering devices into the same output 
   for (const [record] of mocks.completed.mock.calls) expect(record.id).toBe('canvas:shared-task')
   first.destroy()
   second.destroy()
+})
+
+it.each([
+  false,
+  true,
+])('does not overwrite or resurrect a settled output on late delivery (deleted=%s)', async (deleted) => {
+  mocks.resume.mockReset()
+  const doc = new Y.Doc(),
+    editor = new CanvasEditor(new CanvasDoc())
+  const origin = canvasOrigin('user', 'fixture')
+  insertCanvasNode(
+    doc,
+    {
+      id: 'card',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: {
+        pending: {
+          type: 'placeholder',
+          status: 'loading',
+          message: '',
+          meta: {
+            nodeGeneration: true,
+            prompt: 'two',
+            source: 'builtin-edge',
+            bffRequestId: 'late-task',
+          },
+        },
+      },
+    },
+    origin,
+  )
+  resumeNodeGenerations(editor, doc, false)
+  const [, handle, sink] = mocks.resume.mock.calls[0]!
+  updateCanvasNode(doc, 'card', { data: { fileId: 'settled-primary' } }, origin)
+  const resultId = 'result:late-task:1'
+  insertCanvasNode(
+    doc,
+    {
+      id: resultId,
+      type: 'image',
+      x: 200,
+      y: 60,
+      width: 150,
+      height: 200,
+      data: { fileId: 'user-replacement' },
+    },
+    origin,
+  )
+  if (deleted) deleteCanvasNode(doc, resultId, origin)
+  const place = vi.spyOn(editor, 'placeImages')
+  await sink.delivered(handle, {
+    images: ['data:image/png;base64,one', 'data:image/png;base64,two'],
+  })
+  expect(place).not.toHaveBeenCalled()
+  const output = readCanvasDocument(doc).nodes.find((node) => node.id === resultId)
+  if (deleted) {
+    expect(output).toBeUndefined()
+    expect(doc.getMap('deletedNodes').has(resultId)).toBe(true)
+  } else
+    expect(output).toMatchObject({
+      x: 200,
+      y: 60,
+      width: 150,
+      height: 200,
+      data: { fileId: 'user-replacement' },
+    })
+  doc.destroy()
 })
