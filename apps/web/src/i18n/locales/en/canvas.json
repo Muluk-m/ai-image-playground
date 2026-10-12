@@ -470,6 +470,14 @@
     "addImage": "Image",
     "addResources": "Add resource",
     "addUpload": "Upload",
-    "textPlaceholder": "Type something"
+    "textPlaceholder": "Type something",
+    "composerImage": "Describe the image to generate",
+    "composerText": "Write this text",
+    "composerSend": "Generate",
+    "composerWrite": "Write",
+    "contextLabel": "Context",
+    "connectIn": "Use as incoming context",
+    "connectOut": "Connect to the next node",
+    "uploadInto": "Upload into this node"
   }
 }

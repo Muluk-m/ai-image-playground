@@ -6,7 +6,7 @@ import {
   moveCanvasNodes,
   readCanvasDocument,
 } from '@image-playground/shared'
-import { act, createElement, type ElementType, type ReactNode, useEffect } from 'react'
+import { act, createElement, type ElementType, type ReactNode, useEffect, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -35,12 +35,16 @@ vi.mock('@xyflow/react', () => ({
   Controls: () => null,
   MiniMap: () => null,
   getViewportForBounds: () => ({ x: 0, y: 0, zoom: 1 }),
+  Handle: ({ className, children }: { className?: string; children?: ReactNode }) =>
+    createElement('span', { className: `react-flow__handle ${className ?? ''}` }, children),
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
     nodeTypes,
     children,
     onInit,
+    onPaneClick,
   }: {
     nodes: {
       id: string
@@ -50,20 +54,26 @@ vi.mock('@xyflow/react', () => ({
       position: { x: number; y: number }
       width: number
       height: number
+      selected?: boolean
     }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
+    onPaneClick?: () => void
     onInit?: (flow: {
       screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
       setViewport: (viewport: { x: number; y: number; zoom: number }) => void
+      getViewport: () => { x: number; y: number; zoom: number }
     }) => void
   }) => {
+    const init = useRef(onInit)
+    init.current = onInit
     useEffect(() => {
-      onInit?.({
+      init.current?.({
         screenToFlowPosition: (point) => point,
         setViewport: () => {},
+        getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
       })
-    }, [onInit])
+    }, [])
     return createElement(
       'div',
       { className: 'react-flow' },
@@ -72,7 +82,7 @@ vi.mock('@xyflow/react', () => ({
           'div',
           {
             key: node.id,
-            className: 'react-flow__node',
+            className: `react-flow__node${node.selected ? ' selected' : ''}`,
             'data-node-id': node.id,
             'data-bounds': JSON.stringify({
               ...node.position,
@@ -85,6 +95,11 @@ vi.mock('@xyflow/react', () => ({
         ),
       ),
       children,
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'pane',
+        onClick: () => onPaneClick?.(),
+      }),
     )
   },
 }))
@@ -264,6 +279,27 @@ it('opens an add menu on a double-click of the empty canvas', async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   })
   expect(document.body.querySelector('[role="menu"]')).toBeNull()
+})
+
+it('puts a composer under a new image node and drops the empty card when dismissed', async () => {
+  await render()
+  const surface = host.querySelector('.studio-node-canvas')!
+  act(() => {
+    surface.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 48, clientY: 64 }))
+  })
+  const item = [...document.body.querySelectorAll('[role="menuitem"]')].find((el) =>
+    el.textContent?.includes('图片'),
+  )
+  act(() => (item as HTMLButtonElement).click())
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
+  const composer = host.querySelector('.studio-node-composer')
+  expect(composer?.getAttribute('aria-label')).toBe('描述你想生成的图片')
+  expect(host.querySelectorAll('.react-flow__handle')).toHaveLength(4)
+  const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
+  expect(added).toMatchObject({ type: 'image', data: {} })
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
+  expect(host.querySelector('.studio-node-composer')).toBeNull()
+  expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image'])
 })
 
 it('places a dropped image where the pointer is', async () => {
