@@ -71,6 +71,7 @@ import {
   CreationModePicker,
   CreationToolbar,
 } from './creation/CreationFrame'
+import { CreationReferenceStack } from './creation/CreationReferenceStack'
 import { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
@@ -98,14 +99,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
   const removeInputImage = useStore((s) => s.removeInputImage)
-  const clearInputImages = useStore((s) => s.clearInputImages)
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
-  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setAppMode = useStore((s) => s.setAppMode)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
   const assets = useLibraryStore((s) => s.assets)
@@ -274,9 +273,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
-  const referenceImages = maskTargetImage
-    ? inputImages.filter((img) => img.id !== maskTargetImage.id)
-    : inputImages
   // 序号胶囊的显示标签随界面语言变；编辑器 HTML 与光标换算都按这份解析器缓存，语言也是入参。
   const mentionLabels = useMemo(
     () => createMentionLabels(inputImages, getAssetNamesByImageId(assets)),
@@ -1074,56 +1070,28 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               </Button>
             )}
           </div>
-          {!isMaskTarget && (
-            <Button
-              type="button"
-              variant="destructive"
-              size="icon-xs"
-              aria-label={t('common:action.remove')}
-              className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-              onClick={(e) => {
-                e.stopPropagation()
-                removeInputImage(idx)
-              }}
-            >
-              <Icon name="close" size="xs" />
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="destructive"
+            size="icon-xs"
+            aria-label={t('common:action.remove')}
+            className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              removeInputImage(idx)
+            }}
+          >
+            <Icon name="close" size="xs" />
+          </Button>
         </div>
       </Hint>
     )
   }
 
-  const renderClearAllButton = () => (
-    <Button
-      type="button"
-      variant="ghost"
-      onClick={() =>
-        setConfirmDialog({
-          title: maskTargetImage ? t('image.clearAllTitle') : t('image.clearReferencesTitle'),
-          message: maskTargetImage
-            ? t('image.clearWithMaskMessage', { count: referenceImages.length })
-            : t('image.clearReferencesMessage', { count: inputImages.length }),
-          action: () => clearInputImages(),
-        })
-      }
-      className="h-[72px] w-[72px] shrink-0 flex-col gap-0.5 rounded-xl border border-dashed border-border p-0 text-muted-foreground hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
-      title={maskTargetImage ? t('image.clearAllTooltip') : t('image.clearReferencesTooltip')}
-    >
-      <Icon name="delete" />
-      <span className="text-label-sm leading-none">
-        {maskTargetImage ? t('image.clearAllLabel') : t('common:action.clear')}
-      </span>
-    </Button>
-  )
-
   const renderImageThumbs = () => {
     return (
       <div className="contents">
-        <div className="contents">
-          {inputImages.map((img, idx) => renderImageThumb(img, idx))}
-          {renderClearAllButton()}
-        </div>
+        <div className="contents">{inputImages.map((img, idx) => renderImageThumb(img, idx))}</div>
         {touchDragPreview?.src &&
           createPortal(
             <div
@@ -1222,20 +1190,27 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           <CreationBody
             referencesRef={imagesRef}
             references={
-              <>
-                <Button
-                  variant="ghost"
-                  className="creation-add"
-                  aria-label={t('studio.addReference')}
-                  aria-disabled={attachDisabled || undefined}
-                  title={attachDisabled ? attachDisabledReason : t('studio.addReference')}
-                  onClick={(event) => !attachDisabled && openAttachMenu(event)}
-                >
-                  <Icon name="add" />
-                  <span>{t('studio.reference')}</span>
-                </Button>
-                {inputImages.length > 0 && renderImageThumbs()}
-              </>
+              <CreationReferenceStack
+                count={inputImages.length}
+                previews={inputImages
+                  .slice(-3)
+                  .map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}
+                add={
+                  <Button
+                    variant="ghost"
+                    className="creation-add"
+                    aria-label={t('studio.addReference')}
+                    aria-disabled={attachDisabled || undefined}
+                    title={attachDisabled ? attachDisabledReason : t('studio.addReference')}
+                    onClick={(event) => !attachDisabled && openAttachMenu(event)}
+                  >
+                    <Icon name="add" />
+                    <span>{t('studio.reference')}</span>
+                  </Button>
+                }
+              >
+                {renderImageThumbs()}
+              </CreationReferenceStack>
             }
           >
             {/* 输入框 */}

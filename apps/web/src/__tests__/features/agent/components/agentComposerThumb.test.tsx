@@ -1,3 +1,4 @@
+import { openReferenceStack } from '../../../helpers/radix'
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
@@ -117,17 +118,18 @@ it.each([
   const root = createRoot(host)
   try {
     await act(async () => root.render(<AgentComposer doc={new CanvasDoc()} />))
+    const panel = openReferenceStack(host)
     if (scenario === 'cached preview') {
       await act(async () => {
         await vi.waitFor(() =>
-          expect(host.querySelector('img')?.getAttribute('src')).toBe(
+          expect(panel.querySelector('img')?.getAttribute('src')).toBe(
             `data:image/webp;base64,${previewBase64}`,
           ),
         )
-        host.querySelector('img')!.dispatchEvent(new Event('load'))
+        panel.querySelector('img')!.dispatchEvent(new Event('load'))
       })
-      expect(host.querySelector('img')?.className).not.toContain('opacity-0')
-      expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
+      expect(panel.querySelector('img')?.className).not.toContain('opacity-0')
+      expect(panel.querySelector('[data-slot="attachment-loading"]')).toBeNull()
       expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
         true,
       )
@@ -140,12 +142,12 @@ it.each([
         expect(send().disabled).toBe(false)
       })
     })
-    const thumb = () => host.querySelector('img')!
+    const thumb = () => panel.querySelector('img')!
     // Upload is ready, but the preview bytes are still withheld. An empty src paints the broken icon.
     if (scenario !== 'cached preview') {
       expect(thumb().getAttribute('src')).toBeNull()
       expect(thumb().className).toContain('opacity-0')
-      expect(host.querySelector('[data-slot="attachment-loading"]')).not.toBeNull()
+      expect(panel.querySelector('[data-slot="attachment-loading"]')).not.toBeNull()
     }
 
     if (scenario === 'cached preview') {
@@ -156,12 +158,12 @@ it.each([
       return
     }
     releasePreview()
-    const retry = () => host.querySelector<HTMLButtonElement>('button[aria-label*="重试载入"]')!
+    const retry = () => panel.querySelector<HTMLButtonElement>('button[aria-label*="重试载入"]')!
     if (scenario === 'resolve failure') {
       await act(async () => {
         await vi.waitFor(() => expect(retry()).not.toBeNull())
       })
-      expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
+      expect(panel.querySelector('[data-slot="attachment-loading"]')).toBeNull()
       expect(thumb().getAttribute('src')).toBeNull()
       await act(async () => retry().click())
     }
@@ -188,7 +190,7 @@ it.each([
       })
       await act(async () => thumb().dispatchEvent(new Event('error')))
       expect(retry()).not.toBeNull()
-      expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
+      expect(panel.querySelector('[data-slot="attachment-loading"]')).toBeNull()
       if (scenario === 'cache deletion failure')
         vi.spyOn(mediaDb, 'dbTransaction').mockRejectedValueOnce(new Error('storage unavailable'))
       await act(async () => retry().click())
@@ -203,7 +205,7 @@ it.each([
       thumb().dispatchEvent(new Event('load'))
     })
     expect(thumb().className).not.toContain('opacity-0')
-    expect(host.querySelector('[data-slot="attachment-loading"]')).toBeNull()
+    expect(panel.querySelector('[data-slot="attachment-loading"]')).toBeNull()
     expect(retry()).toBeNull()
     expect(uploads).toBe(1)
     expect(previews).toBe(['success', 'cached preview'].includes(scenario) ? 1 : 2)

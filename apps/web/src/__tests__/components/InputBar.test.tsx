@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { openReferenceStack } from '../helpers/radix'
 
 vi.mock('../../features/agent/lib/useAgentSkills', () => ({
   useAgentSkills: () => [
@@ -499,4 +500,19 @@ it('does not resurrect a model removed while another creation mode is selected',
     models: ['kept'],
     selectedModelId: 'kept',
   })
+})
+
+it('removes a masked reference from the stack without a clear-all tile', () => {
+  act(() =>
+    useStore.setState({
+      inputImages: [{ id: 'masked', dataUrl: 'data:image/png;base64,AA' }],
+      maskDraft: { targetImageId: 'masked', maskDataUrl: 'data:image/png;base64,AA', updatedAt: 1 },
+    }),
+  )
+  const panel = openReferenceStack(host)
+  expect(panel.textContent).not.toContain('清空')
+  act(() => panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!.click())
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().maskDraft).toBeNull()
+  expect(host.querySelector('.creation-stack-trigger')).toBeNull()
 })
