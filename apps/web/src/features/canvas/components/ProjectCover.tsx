@@ -1,6 +1,6 @@
-import { LoaderCircle, MessageCircle } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import MediaImage from '../../../components/MediaImage'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 
 export default function ProjectCover({
@@ -47,15 +47,16 @@ export default function ProjectCover({
           aria-label={t('sync.loading')}
           className="absolute inset-0 flex items-center justify-center"
         >
-          <LoaderCircle
-            aria-hidden="true"
-            className="h-8 w-8 animate-spin text-muted-foreground motion-reduce:animate-none"
+          <Icon
+            name="loading"
+            size="lg"
+            className="animate-spin text-muted-foreground motion-reduce:animate-none"
           />
         </span>
       ) : (
         (!source || failed) &&
         (chat ? (
-          <MessageCircle aria-hidden="true" className="h-10 w-10 text-muted-foreground/30" />
+          <Icon name="chat" size="lg" className="text-muted-foreground" />
         ) : (
           <span
             aria-hidden="true"

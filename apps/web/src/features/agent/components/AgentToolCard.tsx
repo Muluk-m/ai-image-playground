@@ -3,12 +3,12 @@ import {
   ArrowUpRight,
   Download,
   Ellipsis,
-  FileText,
   Images,
   LogIn,
   Maximize2,
   RotateCw,
   Square,
+  TextSearch,
   Wallet,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -599,7 +599,7 @@ function StandardAgentToolCard({
         {message.prompt && (
           <AgentIconButton
             label={t('tool.viewPrompt')}
-            icon={FileText}
+            icon={TextSearch}
             onClick={() => setPromptOpen(true)}
           />
         )}
@@ -693,7 +693,7 @@ function StandardAgentToolCard({
             {message.prompt && (
               <AgentIconButton
                 label={t('tool.viewPrompt')}
-                icon={FileText}
+                icon={TextSearch}
                 onClick={() => setPromptOpen(true)}
               />
             )}

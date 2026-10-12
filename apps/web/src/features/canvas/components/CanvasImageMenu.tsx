@@ -1,9 +1,9 @@
-import { Eye, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { CopyIcon, DownloadIcon } from '../../../components/icons'
 import { ImagePreview } from '../../../components/Lightbox'
 import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { canvasExportSources } from '../../image-export/sources'
@@ -76,9 +76,15 @@ export default function CanvasImageMenu({
       <Overlay onClose={onClose}>
         <div className="rounded-xl bg-card p-6 text-foreground" role="status">
           {previewFailed ? t('imageMenu.previewFailed') : t('imageMenu.loading')}
-          <button type="button" className="ml-4 min-h-11 underline" onClick={onClose}>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="ml-4 h-auto min-h-11 p-0"
+            onClick={onClose}
+          >
             {t('common:action.close')}
-          </button>
+          </Button>
         </div>
       </Overlay>
     )
@@ -86,22 +92,18 @@ export default function CanvasImageMenu({
   return (
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
       <ContextMenuItem
-        icon={<Eye className="h-4 w-4" aria-hidden="true" />}
+        icon={<Icon name="visible" />}
         label={t(coarsePointer ? 'imageMenu.previewTouch' : 'imageMenu.preview')}
         onClick={() => setPreview(true)}
       />
+      <ContextMenuItem icon={<Icon name="copy" />} label={t('imageMenu.copy')} onClick={copy} />
       <ContextMenuItem
-        icon={<CopyIcon className="h-4 w-4" />}
-        label={t('imageMenu.copy')}
-        onClick={copy}
-      />
-      <ContextMenuItem
-        icon={<DownloadIcon className="h-4 w-4" />}
+        icon={<Icon name="download" />}
         label={t('imageMenu.download')}
         onClick={download}
       />
       <ContextMenuItem
-        icon={<Trash2 className="h-4 w-4" />}
+        icon={<Icon name="delete" />}
         label={t('imageMenu.delete')}
         onClick={() => {
           onClose()

@@ -1,4 +1,3 @@
-import { Pause, Play, Trash2, X } from 'lucide-react'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -10,6 +9,8 @@ import {
 } from 'react'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
@@ -273,7 +274,7 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
             onClick={close}
             aria-label={t('timeline.done')}
           >
-            <X />
+            <Icon name="close" />
             {t('timeline.done')}
           </Button>
         </header>
@@ -314,21 +315,22 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
             disabled={clips.length === 0}
             aria-label={playing ? t('timeline.pause') : t('timeline.play')}
           >
-            {playing ? <Pause /> : <Play />}
+            {playing ? <Icon name="pause" /> : <Icon name="play" />}
           </Button>
           <span className="w-24 text-xs tabular-nums text-muted-foreground">
             {clock(time)} / {clock(total)}
           </span>
-          <input
-            type="range"
+          <Slider
             className="flex-1"
             min={0}
             max={Math.max(total, 0.1)}
             step={0.1}
-            value={time}
+            value={[time]}
             aria-label={t('timeline.playhead')}
             aria-valuetext={clock(time)}
-            onChange={(event) => seek(Number(event.target.value))}
+            onValueChange={([value]) => {
+              if (value !== undefined) seek(value)
+            }}
           />
         </div>
 
@@ -576,9 +578,10 @@ function ClipCard({
         onDrop()
       }}
     >
-      <button
+      <Button
         type="button"
-        className="block h-20 w-full bg-black text-left"
+        variant="ghost"
+        className="block h-20 w-full rounded-none bg-black p-0 text-left hover:bg-black"
         onClick={onSelect}
         aria-label={t('timeline.clipLabel', { index: index + 1, seconds: duration.toFixed(1) })}
         aria-pressed={selected}
@@ -590,18 +593,17 @@ function ClipCard({
             {missing ? t('timeline.missing') : ''}
           </span>
         )}
-      </button>
+      </Button>
       <div className="flex items-center justify-between gap-1 px-1 py-0.5 text-label-sm tabular-nums">
         <span>{clock(duration)}</span>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className="h-6 px-1"
+          size="icon-xs"
           aria-label={t('timeline.removeClip', { index: index + 1 })}
           onClick={onRemove}
         >
-          <Trash2 />
+          <Icon name="delete" />
         </Button>
       </div>
       {!missing && handle('in')}

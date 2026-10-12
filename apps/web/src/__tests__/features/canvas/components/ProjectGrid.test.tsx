@@ -67,11 +67,11 @@ it('filters the full grid by chat or canvas and labels each card with its type',
   try {
     await act(async () => root.render(<ProjectGrid />))
     expect(cards()).toHaveLength(2)
-    const chatFilter = [...host.querySelectorAll('[role="radio"]')].find((radio) =>
-      radio.textContent?.startsWith('对话'),
+    const chatFilter = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('对话'),
     ) as HTMLButtonElement
     await act(async () => chatFilter.click())
-    expect(chatFilter.getAttribute('aria-checked')).toBe('true')
+    expect(chatFilter.getAttribute('aria-pressed')).toBe('true')
     expect(cards()).toEqual([expect.stringContaining('未命名对话 · 对话')])
   } finally {
     await act(async () => root.unmount())

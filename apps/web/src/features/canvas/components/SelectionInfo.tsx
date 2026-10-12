@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../lib/canvasDoc'
 import { elementBounds } from '../lib/editor'
@@ -56,14 +57,16 @@ export default function SelectionInfo({ doc }: { doc: CanvasDoc }) {
       )}
       {/* 图片的动作入口已经整体搬到 CanvasImageToolbar（触屏同样可点），这里只留文字的编辑。 */}
       {element.type === 'text' && (
-        <button
+        <Button
           type="button"
-          className="pointer-events-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-primary hover:bg-muted"
+          variant="ghost"
+          size="sm"
+          className="pointer-events-auto min-h-11 min-w-11 shrink-0 text-primary"
           aria-label={t('touch.editText')}
           onClick={() => doc.setEditingText(element.id)}
         >
           {t('touch.edit')}
-        </button>
+        </Button>
       )}
     </div>
   )

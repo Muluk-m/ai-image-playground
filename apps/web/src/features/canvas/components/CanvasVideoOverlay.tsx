@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import PlayBadge from '../../video/components/PlayBadge'
 import type { CanvasEditor } from '../lib/editor'
@@ -88,15 +89,17 @@ export default function CanvasVideoOverlay({
               onEnded={() => setPlayingId(null)}
             />
           ) : (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               aria-label={t('videoOverlay.play')}
-              className="pointer-events-auto"
+              className="pointer-events-auto h-auto w-auto p-0 hover:bg-transparent"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => setPlayingId(video.id)}
             >
               <PlayBadge />
-            </button>
+            </Button>
           )}
         </div>
       ))}
