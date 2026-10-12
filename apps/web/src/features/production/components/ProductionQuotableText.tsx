@@ -1,6 +1,7 @@
 import type { ProductionContext, ProductionDocument } from '@image-playground/shared'
-import { Quote } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { setProductionSelection } from '../lib/productionContext'
 
@@ -87,7 +88,9 @@ export default function ProductionQuotableText({
         {text || t('emptySection')}
       </p>
       {selection && (
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           type="button"
           className="production-quote-floating"
           style={{ left: selection.x, top: selection.y }}
@@ -100,9 +103,9 @@ export default function ProductionQuotableText({
             document.querySelector<HTMLElement>('.studio-agent-composer [contenteditable]')?.focus()
           }}
         >
-          <Quote size={14} />
+          <Icon name="quote" />
           {t('quote')}
-        </button>
+        </Button>
       )}
     </>
   )

@@ -4,6 +4,7 @@ import type {
   ProductionGenerationView,
 } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
 import type { ProductionResponse } from '../lib/productionClient'
@@ -55,12 +56,24 @@ export default function ProductionAssetGenerations({
       {target.kind === 'look' && (
         <div className="production-look-tabs">
           <span>{t('asset.nextGeneration')}</span>
-          <button type="button" aria-pressed={!threeViews} onClick={() => setThreeViews(false)}>
+          <Button
+            variant={!threeViews ? 'secondary' : 'ghost'}
+            size="xs"
+            type="button"
+            aria-pressed={!threeViews}
+            onClick={() => setThreeViews(false)}
+          >
             {t('asset.reference')}
-          </button>
-          <button type="button" aria-pressed={threeViews} onClick={() => setThreeViews(true)}>
+          </Button>
+          <Button
+            variant={threeViews ? 'secondary' : 'ghost'}
+            size="xs"
+            type="button"
+            aria-pressed={threeViews}
+            onClick={() => setThreeViews(true)}
+          >
             {t('asset.threeViews')}
-          </button>
+          </Button>
         </div>
       )}
       <ProductionGenerations

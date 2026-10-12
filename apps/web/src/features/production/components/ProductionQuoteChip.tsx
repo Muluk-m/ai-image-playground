@@ -1,5 +1,6 @@
 import type { ProductionContext } from '@image-playground/shared'
-import { Quote, X } from 'lucide-react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import {
   locateProductionSelection,
@@ -32,21 +33,26 @@ export default function ProductionQuoteChip({
             : t('document')
   return (
     <div className="production-quote-chip" aria-label={t('quotedSource')}>
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
+        className="h-auto"
         title={selection.quote?.text}
         aria-label={t('locateQuote')}
         onClick={() => locateProductionSelection(conversationId, selection)}
       >
-        <Quote size={14} />
+        <Icon name="quote" />
         <span>
           <strong>
             {label} · V{selection.revision}
           </strong>
           <span>{selection.quote?.text ?? label}</span>
         </span>
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         type="button"
         aria-label={t('removeQuote')}
         onClick={() => {
@@ -54,8 +60,8 @@ export default function ProductionQuoteChip({
           onRemove?.()
         }}
       >
-        <X size={14} />
-      </button>
+        <Icon name="close" />
+      </Button>
     </div>
   )
 }
