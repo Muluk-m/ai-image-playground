@@ -389,8 +389,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         data-rotated={rotation ? true : undefined}
         onDoubleClick={(e) => {
           e.stopPropagation()
-          if (fileId && files[fileId])
-            void resolveMediaSource(files[fileId], 'original', true).then(preview)
+          if (fileId && files[fileId]) preview(files[fileId])
         }}
       >
         {pending ? (
@@ -688,6 +687,11 @@ function Flow({
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [minimap, setMinimap] = useState(false)
   const [preview, setPreview] = useState<string | null>(null)
+  const showPreview = (source: string) => {
+    void resolveMediaSource(source, 'original', true)
+      .then(setPreview)
+      .catch(() => useStore.getState().showToast(t('nodes.mediaMissing'), 'error'))
+  }
   const [videoPreview, setVideoPreview] = useState<string | null>(null)
   const [history, setHistory] = useState({ undo: false, redo: false })
   const copied = useRef<CanvasSnapshot | null>(null)
@@ -1121,7 +1125,7 @@ function Flow({
     }
   }
   return (
-    <PreviewContext.Provider value={setPreview}>
+    <PreviewContext.Provider value={showPreview}>
       <EditNodeContext.Provider value={editNode}>
         <CommitTextContext.Provider value={commitText}>
           <FillImageContext.Provider value={uploadInto}>
@@ -1379,8 +1383,7 @@ function Flow({
                           )
                         } else {
                           const source = files[composerNode.data.fileId!]
-                          if (source)
-                            void resolveMediaSource(source, 'original', true).then(setPreview)
+                          if (source) showPreview(source)
                         }
                       }}
                     />
@@ -1597,11 +1600,27 @@ export default function NodeCanvas({
   useEffect(() => {
     if (workspace.cloud && 'canvas' in workspace.cloud && workspace.cloud.canvas) {
       // Another device may still be submitting a task; only resume confirmed server jobs.
-      resumeNodeGenerations(workspace.editor, workspace.cloud.canvas.doc, false)
-      resumeNodeVideos(workspace.editor, workspace.cloud.canvas.doc, false)
+      const document = workspace.cloud.canvas.doc
+      let alive = true
+      let queued = false
+      const recover = () => {
+        if (queued) return
+        queued = true
+        queueMicrotask(() => {
+          queued = false
+          if (!alive) return
+          resumeNodeGenerations(workspace.editor, document, false)
+          resumeNodeVideos(workspace.editor, document, false)
+        })
+      }
+      document.on('update', recover)
+      recover()
       setCanvas(workspace.cloud.canvas)
       setFailed(false)
-      return
+      return () => {
+        alive = false
+        document.off('update', recover)
+      }
     }
     let alive = true
     let opened: NodeCanvasDocument | undefined

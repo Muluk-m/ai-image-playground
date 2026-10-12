@@ -30,7 +30,18 @@ import { fileToDataUrl } from './importImages'
 /** 与拖进画布的图同一上限：卡片不要铺得比导入的图还大。 */
 const MAX_SIDE = 720
 const generationOrigin: CanvasOrigin = canvasOrigin('system', 'node-generation')
-const resumedDocs = new WeakSet<Y.Doc>()
+const resumedDocs = new WeakMap<Y.Doc, Set<string>>()
+function claimResume(doc: Y.Doc, nodeId: string, requestId: string): boolean {
+  let keys = resumedDocs.get(doc)
+  if (!keys) {
+    keys = new Set()
+    resumedDocs.set(doc, keys)
+  }
+  const key = `${nodeId}:${requestId}`
+  if (keys.has(key)) return false
+  keys.add(key)
+  return true
+}
 
 interface NodeJobContext {
   prompt: string
@@ -223,6 +234,7 @@ function nodeGenerationSink(
     },
     accepted(handle: NodeJobHandle, reference: GenerationReference): void {
       if (reference.kind !== 'queue') return
+      claimResume(doc, handle.nodeId, reference.requestId)
       const node = imageNode(doc, handle.nodeId)
       const pending = node?.data.pending
       if (!node || !pending || pending.type !== 'placeholder') return
@@ -329,14 +341,13 @@ export function resumeNodeGenerations(
   doc: Y.Doc,
   markUnrecoverable = true,
 ): void {
-  if (resumedDocs.has(doc)) return
-  resumedDocs.add(doc)
   for (const node of readCanvasDocument(doc).nodes) {
     if (node.type !== 'image' || !loading(node.data.pending)) continue
     const meta = generationMeta(node.data.pending)
     if (!meta) continue
     const params = meta.params ?? { ...useStore.getState().params, n: 1 }
     if (meta.source === 'builtin-edge' && meta.bffRequestId) {
+      if (!claimResume(doc, node.id, meta.bffRequestId)) continue
       void resumeGeneration(
         {
           settings: useStore.getState().settings,

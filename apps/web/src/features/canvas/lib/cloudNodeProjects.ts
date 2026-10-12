@@ -51,6 +51,7 @@ export class CloudNodeProjectSession {
   private retries = 0
   private serverVector: Uint8Array | undefined
   private preparing: Promise<void> = Promise.resolve()
+  private renaming: Promise<void> = Promise.resolve()
   private applying = false
   private identity: ProjectDocument
   private bindings = new Map<string, string>()
@@ -190,7 +191,10 @@ export class CloudNodeProjectSession {
         this.publish(this.project)
       } catch (error) {
         // Network loss can use a previously opened Y.Doc; permission failures cannot.
-        if (error instanceof ProjectRequestError || !doc.getMap('meta').get('legacyImported'))
+        if (
+          (error instanceof ProjectRequestError && error.status < 500 && error.status !== 429) ||
+          !doc.getMap('meta').get('legacyImported')
+        )
           throw error
         this.status('offline')
       }
@@ -249,6 +253,38 @@ export class CloudNodeProjectSession {
     )
     const nodes = readCanvasDocument(this.canvas.doc).nodes
     for (const node of nodes) {
+      if (
+        (node.type === 'image' || node.type === 'video') &&
+        !node.data.fileId &&
+        !node.data.mediaId &&
+        node.data.pending?.type === 'placeholder'
+      ) {
+        const meta = node.data.pending.meta
+        scene.elements.push({
+          ...node.data.pending,
+          meta: {
+            ...meta,
+            taskId: 'taskId' in meta && typeof meta.taskId === 'string' ? meta.taskId : node.id,
+            clientRequestId:
+              'clientRequestId' in meta && typeof meta.clientRequestId === 'string'
+                ? meta.clientRequestId
+                : '',
+            source: 'source' in meta && meta.source === 'user-byok' ? 'user-byok' : 'builtin-edge',
+            prompt: 'prompt' in meta && typeof meta.prompt === 'string' ? meta.prompt : '',
+          },
+          status:
+            node.data.pending.status === 'loading'
+              ? 'loading'
+              : node.data.pending.status === 'stale'
+                ? 'stale'
+                : 'error',
+          id: node.id,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+        })
+      }
       if (
         (node.type === 'image' || node.type === 'video') &&
         node.data.fileId &&
@@ -394,8 +430,7 @@ export class CloudNodeProjectSession {
       .then(async () => {
         this.current()
         await this.prepareMedia()
-        if (this.project.cloud?.nameDirty)
-          await this.rename(this.project.name, this.project.customName)
+        if (this.project.cloud?.nameDirty) await this.flushName()
         if (!this.canvas || this.socket?.readyState !== WebSocket.OPEN || !this.serverVector) {
           this.connect()
           return
@@ -440,15 +475,26 @@ export class CloudNodeProjectSession {
     return this.load()
   }
   refresh = async (_force = false) => {
-    this.connect()
-    if (this.socket?.readyState === WebSocket.OPEN && this.canvas)
-      this.socket.send(canvasSyncStep1(this.canvas.doc))
+    await this.load()
+    this.current()
+    const response = await authenticatedBffFetch(
+      `${bffBaseUrl()}/api/projects/${this.project.id}/canvas`,
+      {
+        cache: 'no-store',
+        signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(15_000)]),
+      },
+    )
+    if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_load_failed')
+    const update = new Uint8Array(await response.arrayBuffer())
+    this.current()
+    if (this.canvas) Y.applyUpdate(this.canvas.doc, update, remoteOrigin)
+    this.projectToEditor()
   }
   knownMediaId(_fileId: string, source: string | undefined) {
     return source ? (mediaIdentity(source) ?? this.bindings.get(source)) : undefined
   }
   async mediaIdsFor(sources: readonly string[]) {
-    await this.prepareMedia()
+    // Agent attachments can fall back to inline data; unrelated canvas uploads must not block them.
     return new Map(
       sources.flatMap((s) => {
         const id = this.knownMediaId('', s)
@@ -456,27 +502,45 @@ export class CloudNodeProjectSession {
       }),
     )
   }
-  async rename(
+  rename(
     name: string,
     custom = true,
     expectedName?: Parameters<typeof projectRepository.update>[2],
   ) {
-    this.project = await projectRepository.update(
-      this.project.id,
-      { name, customName: custom, cloud: { ...this.project.cloud!, nameDirty: true } },
-      expectedName,
-    )
-    this.publish(this.project)
+    this.renaming = this.renaming
+      .catch(() => {})
+      .then(async () => {
+        this.current()
+        this.project = await projectRepository.update(
+          this.project.id,
+          { name, customName: custom, cloud: { ...this.project.cloud!, nameDirty: true } },
+          expectedName,
+        )
+        this.publish(this.project)
+        await this.persistName()
+      })
+    return this.renaming
+  }
+  private flushName() {
+    this.renaming = this.renaming.catch(() => {}).then(() => this.persistName())
+    return this.renaming
+  }
+  private async persistName() {
+    this.current()
+    if (!this.project.cloud?.nameDirty) return
+    const name = this.project.name
     const response = await authenticatedBffFetch(
       `${bffBaseUrl()}/api/projects/${this.project.id}/canvas/name`,
       {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: this.project.name }),
+        body: JSON.stringify({ name }),
         signal: this.controller.signal,
       },
     )
     if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_rename_failed')
+    this.current()
+    if (this.project.name !== name) return
     this.project = await projectRepository.update(this.project.id, {
       cloud: { ...this.project.cloud!, nameDirty: false },
     })
