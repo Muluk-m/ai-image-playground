@@ -8,7 +8,10 @@ import {
   PASSWORD_MIN_LENGTH,
 } from '@image-playground/shared'
 import { type FormEvent, useEffect, useState } from 'react'
-import Overlay from '../components/patterns/Overlay'
+import Dialog from '../components/patterns/Dialog'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
@@ -69,9 +72,6 @@ function unlinkErrorKey(error: unknown): PanelErrorKey {
 type PanelNoticeKey = 'methods.passwordUpdated' | 'methods.passwordSet' | 'methods.unlinked'
 
 type PanelNotice = { readonly key: PanelNoticeKey } | { readonly linkedProvider: string }
-
-const FIELD_CLASS =
-  'w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary disabled:opacity-50'
 
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation(['auth', 'errors'])
@@ -173,56 +173,42 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Overlay onClose={onClose} tier="raised" role="none">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="login-methods-title"
-        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border bg-card/95 p-5 shadow-2xl ring-1 ring-hairline animate-modal-in custom-scrollbar border-border"
-      >
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <h3 id="login-methods-title" className="text-base font-semibold text-foreground">
-            {t('methods.title')}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            {t('methods.close')}
-          </button>
-        </div>
+    <Dialog onClose={onClose} tier="raised" title={t('methods.title')}>
+      {notice ? (
+        <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-body-sm text-success dark:bg-success/10 dark:text-success">
+          {noticeText(notice)}
+        </p>
+      ) : null}
+      {errorText ? (
+        <p
+          role="alert"
+          className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-body-sm text-destructive dark:bg-destructive/10 dark:text-destructive"
+        >
+          {errorText}
+        </p>
+      ) : null}
 
-        {notice ? (
-          <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-body-sm text-success dark:bg-success/10 dark:text-success">
-            {noticeText(notice)}
-          </p>
-        ) : null}
-        {errorText ? (
-          <p
-            role="alert"
-            className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-body-sm text-destructive dark:bg-destructive/10 dark:text-destructive"
-          >
-            {errorText}
-          </p>
-        ) : null}
-
-        {loadFailed ? (
-          <p className="text-body-sm text-muted-foreground">{t('methods.loadFailed')}</p>
-        ) : !methods ? (
-          <p className="text-body-sm text-muted-foreground">{t('methods.loading')}</p>
-        ) : (
-          <>
-            <section className="mb-6">
-              <h4 className="mb-1 text-sm font-medium text-foreground">
-                {methods.password ? t('methods.changePassword') : t('methods.setPassword')}
-              </h4>
-              <p className="mb-3 text-[12px] text-muted-foreground">
-                {methods.password ? t('methods.changePasswordHint') : t('methods.setPasswordHint')}
-              </p>
-              <form className="space-y-2" onSubmit={(event) => void submitPassword(event)}>
-                {methods.password ? (
-                  <input
+      {loadFailed ? (
+        <p className="text-body-sm text-muted-foreground">{t('methods.loadFailed')}</p>
+      ) : !methods ? (
+        <p className="text-body-sm text-muted-foreground">{t('methods.loading')}</p>
+      ) : (
+        <>
+          <section className="mb-6">
+            <h4 className="mb-1 text-sm font-medium text-foreground">
+              {methods.password ? t('methods.changePassword') : t('methods.setPassword')}
+            </h4>
+            <p className="mb-3 text-xs text-muted-foreground">
+              {methods.password ? t('methods.changePasswordHint') : t('methods.setPasswordHint')}
+            </p>
+            <form className="space-y-4" onSubmit={(event) => void submitPassword(event)}>
+              {methods.password ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="login-methods-current-password">
+                    {t('methods.currentPassword')}
+                  </Label>
+                  <Input
+                    id="login-methods-current-password"
                     name="current-password"
                     type="password"
                     autoComplete="current-password"
@@ -232,10 +218,13 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                     value={currentPassword}
                     onChange={(event) => setCurrentPassword(event.currentTarget.value)}
                     disabled={pending}
-                    className={FIELD_CLASS}
                   />
-                ) : null}
-                <input
+                </div>
+              ) : null}
+              <div className="grid gap-2">
+                <Label htmlFor="login-methods-new-password">{t('methods.newPassword')}</Label>
+                <Input
+                  id="login-methods-new-password"
                   name="new-password"
                   type="password"
                   autoComplete="new-password"
@@ -245,9 +234,14 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.currentTarget.value)}
                   disabled={pending}
-                  className={FIELD_CLASS}
                 />
-                <input
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="login-methods-confirm-password">
+                  {t('methods.confirmNewPassword')}
+                </Label>
+                <Input
+                  id="login-methods-confirm-password"
                   name="confirm-password"
                   type="password"
                   autoComplete="new-password"
@@ -257,71 +251,70 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.currentTarget.value)}
                   disabled={pending}
-                  className={FIELD_CLASS}
                 />
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="w-full rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
-                >
-                  {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
-                </button>
-              </form>
-            </section>
+              </div>
+              <Button type="submit" disabled={pending} className="w-full">
+                {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
+              </Button>
+            </form>
+          </section>
 
-            {providers.length > 0 ? (
-              <section>
-                <h4 className="mb-3 text-sm font-medium text-foreground">
-                  {t('methods.providersTitle')}
-                </h4>
-                <ul className="space-y-2">
-                  {providers.map((provider) => {
-                    const identity = methods.identities.find(
-                      (linked) => linked.provider === provider.id,
-                    )
-                    return (
-                      <li
-                        key={provider.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"
-                      >
-                        <span className="min-w-0">
-                          <span className="block text-sm text-foreground">{provider.label}</span>
-                          <span className="block truncate text-[12px] text-muted-foreground">
-                            {identity
-                              ? (identity.email ?? t('methods.linked'))
-                              : t('methods.notLinked')}
-                          </span>
+          {providers.length > 0 ? (
+            <section>
+              <h4 className="mb-3 text-sm font-medium text-foreground">
+                {t('methods.providersTitle')}
+              </h4>
+              <ul className="space-y-4">
+                {providers.map((provider) => {
+                  const identity = methods.identities.find(
+                    (linked) => linked.provider === provider.id,
+                  )
+                  return (
+                    <li
+                      key={provider.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm text-foreground">{provider.label}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {identity
+                            ? (identity.email ?? t('methods.linked'))
+                            : t('methods.notLinked')}
                         </span>
-                        {identity ? (
-                          <button
-                            type="button"
-                            disabled={pending}
-                            onClick={() => void unlink(provider.id)}
-                            className="shrink-0 rounded-lg px-3 py-1.5 text-body-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
-                          >
-                            {t('methods.unlink')}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={pending}
-                            onClick={() => {
-                              window.location.href = oauthLinkUrl(provider.id)
-                            }}
-                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-body-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
-                          >
-                            {t('methods.link')}
-                          </button>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              </section>
-            ) : null}
-          </>
-        )}
-      </div>
-    </Overlay>
+                      </span>
+                      {identity ? (
+                        <Button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => void unlink(provider.id)}
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 text-muted-foreground"
+                        >
+                          {t('methods.unlink')}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            window.location.href = oauthLinkUrl(provider.id)
+                          }}
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                        >
+                          {t('methods.link')}
+                        </Button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ) : null}
+        </>
+      )}
+    </Dialog>
   )
 }
