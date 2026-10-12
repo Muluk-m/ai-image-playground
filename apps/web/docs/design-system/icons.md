@@ -159,6 +159,7 @@ import { Icon } from '@/components/ui/icon'
 | `info` | 提示 | info-circle |
 | `blocked` | 不可用、已达上限 | forbidden-circle |
 | `lock` | 锁定、会员可用 | lock |
+| `unlock` | 解锁比例、独立调整 | lock-unlocked |
 | `key` | API 密钥 | key |
 | `visible` | 显示 | eye |
 | `hidden` | 隐藏 | eye-closed |

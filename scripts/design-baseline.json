@@ -279,9 +279,6 @@
     "lucide-import": 1,
     "opacity-text": 7
   },
-  "apps/web/src/features/image-export/ExportForm.tsx": {
-    "lucide-import": 1
-  },
   "apps/web/src/features/image-export/ExportTool.tsx": {
     "lucide-import": 1
   },
