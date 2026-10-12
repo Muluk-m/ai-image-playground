@@ -3,16 +3,17 @@
  * 都引用它，两边各写一份就会出现「按钮上写 A 积分、账单扣 B 积分」。
  */
 
-export const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 15] as const
+export const VIDEO_DURATIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number]
 
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1'] as const
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number]
 
-export const VIDEO_RESOLUTIONS = ['720p', '1080p', '2k'] as const
+export const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p', '2k'] as const
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number]
 
 export const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
+  '480p': '480p',
   '720p': '720p',
   '1080p': '1080p',
   '2k': '2K',
@@ -94,6 +95,8 @@ export interface VideoModelSupport {
   readonly durationsByResolution?: Readonly<
     Partial<Record<VideoResolution, readonly VideoDuration[]>>
   >
+  /** 由低档放大得到的输出清晰度。 */
+  readonly upscaledResolutions?: readonly VideoResolution[]
   readonly firstFrame: boolean
   readonly lastFrame: boolean
   /** 从源片最后一帧续写。 */
@@ -120,6 +123,22 @@ export interface VideoModelSupport {
 }
 
 export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
+  'grok-imagine-video-1.5-lite': {
+    label: 'Grok Imagine Video 1.5 Lite',
+    durations: VIDEO_DURATIONS,
+    aspectRatios: ['16:9', '9:16', '1:1'],
+    resolutions: ['480p', '720p', '1080p'],
+    // 保留站内现有 720p / 1080p 积分档位；API 美元价不是站内售价。
+    resolutionMultipliers: { '480p': 1, '720p': 1, '1080p': 1.6 },
+    upscaledResolutions: ['1080p'],
+    // 单独的 image 是图生视频；Lite 不支持首尾帧插值和参考生视频。
+    firstFrame: true,
+    lastFrame: false,
+    extend: false,
+    edit: false,
+    typicalSeconds: 40,
+    tagline: '轻量视频',
+  },
   'grok-imagine-video': {
     label: 'Grok',
     durations: [5, 8, 10, 15],

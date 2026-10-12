@@ -174,6 +174,61 @@ afterEach(() => {
 })
 
 describe('Grok video upstream', () => {
+  it.each([false, true])('keeps Lite for text and image generation (image=%s)', async (image) => {
+    _setChannelsForTesting([
+      {
+        ...grokVideoChannel,
+        models: [{ ...grokVideoChannel.models[0]!, id: 'grok-imagine-video-1.5-lite' }],
+      },
+    ])
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_lite' })
+      if (url === `${GROK_BASE}/videos/req_lite`)
+        return json({ status: 'done', video: { duration: 1, url: '/v1/videos/req_lite/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+    await run('grok-imagine-video-1.5-lite', {
+      ...(image ? { input_images: [TINY_PNG_DATA_URL] } : {}),
+      video: video({
+        duration_seconds: 1,
+        resolution: '480p',
+        ...(image ? { first_frame_index: 0 } : {}),
+      }),
+    })
+    expect(bodyOf(`${GROK_BASE}/videos/generations`)).toEqual({
+      model: 'grok-imagine-video-1.5-lite',
+      prompt: 'a cat surfing',
+      duration: 1,
+      aspect_ratio: '16:9',
+      resolution: '480p',
+      ...(image ? { image: { url: TINY_PNG_DATA_URL } } : {}),
+    })
+  })
+
+  it('resumes a retired Grok task through the Lite-only channel without resubmitting', async () => {
+    _setChannelsForTesting([
+      {
+        ...grokVideoChannel,
+        models: [{ ...grokVideoChannel.models[0]!, id: 'grok-imagine-video-1.5-lite' }],
+      },
+    ])
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/req_old`)
+        return json({ status: 'done', video: { duration: 5, url: '/v1/videos/req_old/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-video',
+      request: { prompt: 'a cat surfing', video: video() },
+      resume: { taskIds: ['req_old'], invocationCount: 1, submittedAt: Date.now() },
+    })
+    expect(calls.map((call) => call.url)).toEqual([
+      `${GROK_BASE}/videos/req_old`,
+      `${GROK_BASE}/videos/req_old/content`,
+    ])
+  })
+
   it('creates the task, polls to done and fetches the content bytes', async () => {
     let polls = 0
     handler = (url) => {
