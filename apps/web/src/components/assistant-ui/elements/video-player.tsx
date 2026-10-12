@@ -29,6 +29,7 @@ export function VideoPlayer({
   onAspectRatioChange,
   aspectRatio = '16 / 9',
   fill = false,
+  crossOrigin = 'use-credentials',
 }: {
   src: string
   poster?: string
@@ -40,6 +41,8 @@ export function VideoPlayer({
   onAspectRatioChange?: (aspectRatio: string) => void
   aspectRatio?: string
   fill?: boolean
+  /** Public media without CORS support can opt out; authenticated media keeps credentials. */
+  crossOrigin?: 'anonymous' | 'use-credentials' | null
 }) {
   const frame = useRef<HTMLDivElement>(null)
   const media = useRef<HTMLVideoElement>(null)
@@ -118,7 +121,7 @@ export function VideoPlayer({
         poster={poster}
         controls
         playsInline
-        crossOrigin="use-credentials"
+        crossOrigin={crossOrigin ?? undefined}
         preload={preload}
         aria-label={label}
         className="absolute inset-0 h-full w-full bg-black object-contain"
