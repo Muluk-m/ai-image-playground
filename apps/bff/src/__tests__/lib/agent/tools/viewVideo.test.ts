@@ -92,6 +92,41 @@ it('tells the model a cover id is not a video, without reading the database', as
   })
 })
 
+it('lets a cancelled read leave the tool and free the preparation slot', async () => {
+  const controller = new AbortController()
+  let entered: (signal?: AbortSignal) => void = () => {}
+  const started = new Promise<AbortSignal | undefined>((resolve) => {
+    entered = resolve
+  })
+  setVideoClipReaderForTesting((_context, _videoId, signal) => {
+    entered(signal)
+    return new Promise((_resolve, reject) => {
+      if (!signal) {
+        reject(new Error('missing signal'))
+        return
+      }
+      if (signal.aborted) {
+        reject(signal.reason)
+        return
+      }
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    })
+  })
+
+  const pending = viewVideo
+    .create(context())
+    .execute('call-1', { videoId: 'agent_task-1_0' }, controller.signal, undefined)
+  expect(await started).toBe(controller.signal)
+  controller.abort()
+  await expect(pending).rejects.toBeInstanceOf(DOMException)
+
+  setVideoClipReaderForTesting(async () => ({ ok: false, message: '找不到这段视频。' }))
+  const next = await viewVideo
+    .create(context())
+    .execute('call-2', { videoId: 'agent_task-1_0' }, undefined, undefined)
+  expect(next.content).toEqual([{ type: 'text', text: '找不到这段视频。' }])
+})
+
 it('says the stills are unavailable when sampling fails', async () => {
   setVideoClipReaderForTesting(async () => ({
     ok: true,

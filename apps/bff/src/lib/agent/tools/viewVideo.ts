@@ -32,7 +32,7 @@ function stillsText(frameCount: number, times: readonly number[], intervalSecond
 
 async function look(context: AgentToolContext, videoId: string) {
   return withVisualPreparation(async () => {
-    const clip = await readVideoClip(context, videoId)
+    const clip = await readVideoClip(context, videoId, currentVisualSignal())
     if (!clip.ok) return { text: clip.message, images: [] }
     try {
       const sampled = await sampleVideo(clip.bytes, clip.durationSeconds, currentVisualSignal())

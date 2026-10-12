@@ -76,17 +76,71 @@ type VideoSampler = (
 
 type ContainerFormat = 'mp4' | 'matroska' | 'avi'
 
+const PADDING_BOX = new Set(['free', 'skip'])
+/** 前置填充通常只有一两层。再多就不是我们要认的成片，也避免一长串 8 字节盒子空转。 */
+const MAX_PREAMBLE_BOXES = 8
+
+function u32(bytes: Uint8Array, offset: number): number {
+  return (
+    (((bytes[offset] ?? 0) << 24) |
+      ((bytes[offset + 1] ?? 0) << 16) |
+      ((bytes[offset + 2] ?? 0) << 8) |
+      (bytes[offset + 3] ?? 0)) >>>
+    0
+  )
+}
+
+function fourcc(bytes: Uint8Array, offset: number): string {
+  return String.fromCharCode(
+    bytes[offset] ?? 0,
+    bytes[offset + 1] ?? 0,
+    bytes[offset + 2] ?? 0,
+    bytes[offset + 3] ?? 0,
+  )
+}
+
+/**
+ * 顶层盒子的总长度，含头部。size 越界、小于头部、或 64 位长度装不进这个缓冲，都算无效。
+ * size 0 表示一直延伸到文件末尾。
+ */
+function boxSize(bytes: Uint8Array, offset: number): number | undefined {
+  if (offset < 0 || offset + 8 > bytes.length) return undefined
+  const size = u32(bytes, offset)
+  const room = bytes.length - offset
+  if (size === 1) {
+    if (room < 16) return undefined
+    const high = u32(bytes, offset + 8)
+    const low = u32(bytes, offset + 12)
+    if (high !== 0 || low < 16 || low > room) return undefined
+    return low
+  }
+  if (size === 0) return room >= 8 ? room : undefined
+  if (size < 8 || size > room) return undefined
+  return size
+}
+
+/**
+ * 有的成片在 ftyp 前面放合法的 free / skip。只跳过这两种填充，并且每一步都核对盒子边界；
+ * 长度对不上、或先碰到别的盒子，就不当成 mp4。
+ */
+function hasTopLevelFtyp(bytes: Uint8Array): boolean {
+  let offset = 0
+  for (let seen = 0; seen < MAX_PREAMBLE_BOXES && offset + 8 <= bytes.length; seen += 1) {
+    const size = boxSize(bytes, offset)
+    if (size === undefined) return false
+    const type = fourcc(bytes, offset + 4)
+    if (type === 'ftyp') {
+      const header = u32(bytes, offset) === 1 ? 16 : 8
+      return size >= header + 8
+    }
+    if (!PADDING_BOX.has(type) || u32(bytes, offset) === 0) return false
+    offset += size
+  }
+  return false
+}
+
 /** 只认自包含的成片容器。播放列表和裸文本不会交给 ffmpeg。 */
 function containerFormat(bytes: Uint8Array): ContainerFormat | undefined {
-  if (
-    bytes.length >= 12 &&
-    bytes[4] === 0x66 &&
-    bytes[5] === 0x74 &&
-    bytes[6] === 0x79 &&
-    bytes[7] === 0x70
-  ) {
-    return 'mp4'
-  }
   if (
     bytes.length >= 4 &&
     bytes[0] === 0x1a &&
@@ -109,6 +163,7 @@ function containerFormat(bytes: Uint8Array): ContainerFormat | undefined {
   ) {
     return 'avi'
   }
+  if (hasTopLevelFtyp(bytes)) return 'mp4'
   return undefined
 }
 
