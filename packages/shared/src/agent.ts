@@ -883,6 +883,11 @@ export interface AgentClarificationBlock {
   readonly type: 'clarification'
   readonly question: string
   readonly options: readonly string[]
+  /** 服务端核对图片组合的选项；普通模型澄清不能签发这份映射。 */
+  readonly imageCombination?: {
+    readonly targetImageId: string
+    readonly referenceImageIds: readonly string[]
+  }
 }
 
 export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock | AgentClarificationBlock
