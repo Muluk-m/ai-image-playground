@@ -7,10 +7,12 @@ export default function ProjectCover({
   source,
   chat,
   pending = false,
+  fit = 'contain',
 }: {
   source?: string
   chat: boolean
   pending?: boolean
+  fit?: 'contain' | 'cover'
 }) {
   const { t } = useTranslation('canvas')
   const [settled, setSettled] = useState<{ source: string; failed: boolean }>()
@@ -23,13 +25,15 @@ export default function ProjectCover({
     <>
       {source && (
         <>
-          <MediaImage
-            src={source}
-            alt=""
-            loading="lazy"
-            aria-hidden="true"
-            className={`absolute inset-0 h-full w-full scale-125 object-cover blur-2xl saturate-150 ${failed ? 'opacity-0' : 'opacity-50'}`}
-          />
+          {fit === 'contain' && (
+            <MediaImage
+              src={source}
+              alt=""
+              loading="lazy"
+              aria-hidden="true"
+              className={`absolute inset-0 h-full w-full scale-125 object-cover blur-2xl saturate-150 ${failed ? 'opacity-0' : 'opacity-50'}`}
+            />
+          )}
           <MediaImage
             src={source}
             alt=""
@@ -37,7 +41,7 @@ export default function ProjectCover({
             onLoad={() => setSettled({ source, failed: false })}
             onError={() => setSettled({ source, failed: true })}
             onResolveError={fail}
-            className={`relative h-full w-full object-contain ${loading || failed ? 'opacity-0' : ''}`}
+            className={`relative h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${loading || failed ? 'opacity-0' : ''}`}
           />
         </>
       )}

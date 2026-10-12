@@ -164,5 +164,39 @@
       "medium": "中",
       "high": "高"
     }
+  },
+  "studio": {
+    "type": "创作类型",
+    "modes": {
+      "agent": "Agent 模式",
+      "image": "图片生成",
+      "video": "视频生成"
+    },
+    "model": "选择模型",
+    "parameters": "生成参数",
+    "reference": "参考",
+    "addReference": "添加参考素材",
+    "upload": "上传图片",
+    "library": "从资产库添加",
+    "canvas": "从画布选择",
+    "mention": "引用素材",
+    "remove": "移除",
+    "composer": "创作输入框",
+    "prompt": "描述你的创意",
+    "placeholders": {
+      "agent": "说说你的想法，让 Agent 和你一起完成创作。",
+      "image": "上传参考图，输入文字或 @ 素材，描述你想生成的图片。",
+      "video": "添加参考素材，描述镜头、动作与氛围，让创意动起来。"
+    },
+    "expand": "展开输入框",
+    "collapse": "收起输入框",
+    "noReferences": "添加素材后即可引用",
+    "send": "生成",
+    "moreTemplates": "更多模板",
+    "preview": "预览",
+    "select": "选择",
+    "projectActions": "项目操作",
+    "start": "开始创作",
+    "newProject": "新建项目"
   }
 }

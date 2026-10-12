@@ -22,11 +22,6 @@ installMobileViewportGuards()
  * 冷启动整屏黑 3.8s。这里把不依赖配置的两件事（首帧分片、语料）在第一行就发出去，
  * 与配置请求并行；闪屏由 index.html 负责，挂载时摘掉。
  */
-const gateModules = Promise.all([
-  import('./auth/AuthGate'),
-  import('./lib/channels/bootstrapChannels'),
-  import('./lib/clientCapabilities'),
-])
 const localeReady = bootstrapLocale()
 
 /** Any screen React commits (gate, login, problem, workspace) owns loading and errors from here on. */
@@ -39,6 +34,28 @@ function BootReady({ children }: { children: ReactNode }) {
 
 // 不用顶层 await：旧内核（国产浏览器常见的 Chromium 80 多版本）解析不了，整页会停在启动失败。
 async function start(): Promise<void> {
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(location.search).get('prototype') === 'creation-review'
+  ) {
+    initTheme()
+    await localeReady
+    const { default: CreationReview } = await import('./features/creation-review/CreationReview')
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <BootReady>
+          <CreationReview />
+        </BootReady>
+      </StrictMode>,
+    )
+    return
+  }
+  const gateModules = Promise.all([
+    import('./auth/AuthGate'),
+    import('./lib/channels/bootstrapChannels'),
+    import('./lib/clientCapabilities'),
+  ])
+
   // Capabilities and channel discovery share one startup round trip. The channel request can return
   // 401 before login; AuthGate retries it after establishing an authenticated session.
   const runtime = await loadRuntimeConfig()
