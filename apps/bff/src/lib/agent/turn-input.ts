@@ -177,15 +177,25 @@ export function systemPrompt(
 export function clarificationChainStart(history: readonly AgentMessageView[]): number {
   let start = history.length
   while (start > 0) {
-    const tail = history.slice(0, start)
-    const last = tail[tail.length - 1]!
-    if (!last.content.some((block) => block.type === 'clarification')) break
-    let userIndex = tail.length - 2
-    while (userIndex >= 0 && tail[userIndex]!.role !== 'user') userIndex--
+    let userIndex = start - 1
+    while (userIndex >= 0 && history[userIndex]!.role !== 'user') userIndex--
     if (userIndex < 0) break
+    const replies = history.slice(userIndex + 1, start)
+    if (!replies.some((message) => message.content.some((block) => block.type === 'clarification')))
+      break
     start = userIndex
   }
   return start
+}
+
+/** 澄清作答仍属于原请求；只有普通历史引用才退回纯文字清单。 */
+export function requestAgentReferences(
+  input: Pick<AgentTurnInput, 'references' | 'history'>,
+): readonly AgentImageReference[] {
+  if (input.references.length) return input.references
+  const history = input.history.messages
+  const start = clarificationChainStart(history)
+  return start < history.length ? activeAgentReferences([], history.slice(start), 0) : []
 }
 
 /** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
@@ -410,7 +420,7 @@ export function turnPromptBody(
   const asked = turnPromptText(
     expandSkillInvocation(input.text, input.mode, input.audience),
     references,
-    input.references.length > 0,
+    requestAgentReferences(input).length > 0,
   )
   const dated = `当前时间（UTC）：${input.currentTime}。按此理解“今年”“最近”等相对时间；用户明确给出的日期优先。\n\n${asked}`
   const context = input.productionMode
@@ -427,7 +437,7 @@ export function turnPromptBody(
  * 形状与实发同源，只是图片块与清单里的选区值是占位——预扣定额要在起轮之前算完，读不起字节。
  * 不进这里的只有工具清单：它不是消息，单独由 `estimateToolDeclarationTokens` 折算。
  *
- * 视觉证据只数**本轮真的附上的**那几张：沿用下来的引用只上文字清单，按 id 附的图一多也只上
+ * 视觉证据包含本轮附图与未完成澄清请求的附图；普通历史引用只上文字清单，按 id 附的图一多也只上
  * 清单，两处都由 `shownTurnReferences` 说了算，实发路径读的是同一句规则。
  */
 export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
@@ -437,7 +447,7 @@ export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
     input.history.messages,
     input.selectionHistoryStart,
   )
-  const shown = shownTurnReferences(input.references)
+  const shown = shownTurnReferences(requestAgentReferences(input))
   const state = turnInitialStateOf(input)
   return [
     { role: 'user', content: [{ type: 'text', text: state.systemPrompt }], timestamp: now },
