@@ -1,3 +1,4 @@
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useAgentStore } from '../store'
 
@@ -20,9 +21,14 @@ export default function AgentHistoryStatus() {
       )}
       <span>{loading ? t('history.loading') : t('history.failed')}</span>
       {failed && (
-        <button type="button" onClick={() => void useAgentStore.getState().retryHistory()}>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-auto text-xs"
+          onClick={() => void useAgentStore.getState().retryHistory()}
+        >
           {t('history.retry')}
-        </button>
+        </Button>
       )}
     </div>
   )

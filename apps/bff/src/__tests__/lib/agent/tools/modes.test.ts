@@ -116,6 +116,7 @@ describe('tools filtered by creation mode', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'viewVideo',
       // 联网里只有这两个对匿名轮在场：取网图与抓商品图要写用户媒体，得先登录。
       'webFetch',
       'webSearch',
@@ -134,6 +135,7 @@ describe('tools filtered by creation mode', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'viewVideo',
       'webFetch',
       'webSearch',
     ])
@@ -244,6 +246,7 @@ describe('chat tools are isolated from canvas tools', () => {
       const audience = { userId: null, looks: [], experience: 'chat' as const }
       const names = toolNames(mode, 'chat')
       expect(names).toContain('viewImage')
+      expect(names).toContain('viewVideo')
       expect(names).toContain('editImage')
       expect(names).toContain('generateImage')
       expect(names).toContain('generateVideo')

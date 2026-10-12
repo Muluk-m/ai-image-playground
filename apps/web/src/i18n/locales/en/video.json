@@ -124,5 +124,8 @@
   },
   "settings": {
     "title": "Video settings"
+  },
+  "resolution": {
+    "upscaled": "{{target}} upscaled from {{source}}"
   }
 }

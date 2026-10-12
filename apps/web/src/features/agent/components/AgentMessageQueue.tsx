@@ -1,5 +1,6 @@
-import { CornerDownRight, X } from 'lucide-react'
 import { useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { ICON_BUTTON, INK, INK_3 } from '../agentStyles'
 import { hasWaitingMessages } from '../lib/messageQueue'
@@ -61,20 +62,24 @@ export default function AgentMessageQueue() {
               </span>
             )}
             {running && message.failure === undefined && (
-              <button
+              <Button
                 type="button"
-                className={`${ICON_BUTTON} shrink-0`}
+                variant="ghost"
+                size="icon-xs"
+                className={`${ICON_BUTTON} size-auto shrink-0`}
                 aria-label={t('queue.interjectAria', { text: message.text })}
                 title={t('queue.interject')}
                 disabled={withdrawing.has(message.id)}
                 onClick={() => void settle(message.id, useAgentStore.getState().interjectQueued)}
               >
-                <CornerDownRight className="size-3.5" aria-hidden />
-              </button>
+                <Icon name="send" />
+              </Button>
             )}
-            <button
+            <Button
               type="button"
-              className={`${ICON_BUTTON} shrink-0`}
+              variant="ghost"
+              size="icon-xs"
+              className={`${ICON_BUTTON} size-auto shrink-0`}
               aria-label={t(message.failure ? 'queue.dismissAria' : 'queue.withdrawAria', {
                 text: message.text,
               })}
@@ -82,8 +87,8 @@ export default function AgentMessageQueue() {
               disabled={withdrawing.has(message.id)}
               onClick={() => void settle(message.id, useAgentStore.getState().withdrawQueued)}
             >
-              <X className="size-3.5" aria-hidden />
-            </button>
+              <Icon name="close" />
+            </Button>
           </li>
         ))}
       </ol>

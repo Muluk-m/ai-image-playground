@@ -484,6 +484,7 @@ describe('智能体生图工具', () => {
       'loadSkill',
       'readLibrary',
       'viewImage',
+      'viewVideo',
       'webFetch',
       'webSearch',
     ])

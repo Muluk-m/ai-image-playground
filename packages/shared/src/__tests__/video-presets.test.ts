@@ -709,3 +709,40 @@ describe('model ids that name Object.prototype members', () => {
     }
   })
 })
+
+describe('Grok Imagine Video 1.5 Lite', () => {
+  const model = 'grok-imagine-video-1.5-lite'
+  it('accepts every integer duration from 1 to 15 at each supported resolution', () => {
+    for (const resolution of ['480p', '720p', '1080p'] as const) {
+      for (let duration_seconds = 1; duration_seconds <= 15; duration_seconds++)
+        expect(validateVideoRequest(model, request({ duration_seconds, resolution }), 0)).toEqual({
+          ok: true,
+        })
+    }
+    for (const duration_seconds of [0, 1.5, 16])
+      expect(validateVideoRequest(model, request({ duration_seconds }), 0).ok).toBe(false)
+  })
+  it('accepts a single image but rejects advanced guidance and deriving', () => {
+    expect(validateVideoRequest(model, request({ first_frame_index: 0 }), 1)).toEqual({ ok: true })
+    for (const guidance of [
+      { last_frame_index: 0 },
+      { reference_image_indices: [0] },
+      { keyframes: [{ image_index: 0, timestamp_seconds: 1 }] },
+      { voices: ['eva'] },
+    ])
+      expect(validateVideoRequest(model, request(guidance), 1).ok).toBe(false)
+    for (const mode of ['extend', 'edit'] as const)
+      expect(
+        validateVideoRequest(
+          model,
+          request({ mode, source_task_id: 'src', source_output_index: 0 }),
+          0,
+        ).ok,
+      ).toBe(false)
+  })
+  it('retains existing credit multipliers and declares upscaled 1080p', () => {
+    expect(videoRateMultiplier(model, '720p')).toBe(videoRateMultiplier(GROK, '720p'))
+    expect(videoRateMultiplier(model, '1080p')).toBe(videoRateMultiplier(GROK, '1080p'))
+    expect(VIDEO_MODEL_SUPPORT[model]!.upscaledResolutions).toEqual(['1080p'])
+  })
+})

@@ -1,6 +1,7 @@
-import { LoaderCircle, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
+import { Icon } from '../../../components/ui/icon'
 import { i18next, useTranslation } from '../../../i18n'
 import { CARD_NOTE } from '../agentStyles'
 import {
@@ -11,7 +12,6 @@ import {
 } from '../lib/jobProgress'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
-import AgentIconButton from './AgentIconButton'
 
 /** 这张卡此刻的进度，取自面板 store：结果卡与画布占位都走这一个入口。 */
 export function useAgentToolProgress(message: AgentToolMessage | null): AgentToolProgress | null {
@@ -75,10 +75,8 @@ export function AgentJobCancel({
   if (message.status !== 'submitted' || !message.job) return null
   return (
     <span className="inline-flex items-center gap-2 self-start">
-      <AgentIconButton
-        label={state === 'cancelling' ? t('job.cancelling') : t('job.cancel')}
-        icon={state === 'cancelling' ? LoaderCircle : Square}
-        busy={state === 'cancelling'}
+      <TooltipIconButton
+        tooltip={state === 'cancelling' ? t('job.cancelling') : t('job.cancel')}
         disabled={state === 'cancelling'}
         className={className}
         onClick={() => {
@@ -91,7 +89,12 @@ export function AgentJobCancel({
               () => setState('failed'),
             )
         }}
-      />
+      >
+        <Icon
+          name={state === 'cancelling' ? 'loading' : 'stop'}
+          className={state === 'cancelling' ? 'animate-spin motion-reduce:animate-none' : undefined}
+        />
+      </TooltipIconButton>
       {state === 'failed' && <span className={CARD_NOTE}>{t('job.cancelFailed')}</span>}
     </span>
   )

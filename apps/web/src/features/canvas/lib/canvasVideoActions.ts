@@ -161,12 +161,18 @@ export function canvasRegenerateRefusal(): string | null {
 
 /**
  * 把一段视频的生成记录载进视频草稿（模型、档位），弹窗与生成栏读的都是这份草稿。
- * 原模型在当前部署不可用就不动草稿：换个模型档位矩阵就不一样了，硬套只会被夹成另一套参数。
+ * Grok 升到 Lite 时沿用旧档位；其他不可用模型不动草稿。
  */
 export function loadGenerationIntoDraft(generation: VideoGenerationRecord): boolean {
-  if (!videoModelOptions().some((one) => one.modelId === generation.model)) return false
+  const options = videoModelOptions()
+  const option =
+    options.find((one) => one.modelId === generation.model) ??
+    (generation.model === 'grok-imagine-video'
+      ? options.find((one) => one.modelId === 'grok-imagine-video-1.5-lite')
+      : undefined)
+  if (!option || (option.modelId !== generation.model && generation.voices?.length)) return false
   const video = useVideoStore.getState()
-  video.setModel(generation.model)
+  video.setModel(option.modelId)
   video.setResolution(generation.resolution)
   if ((VIDEO_DURATIONS as readonly number[]).includes(generation.duration))
     video.setDuration(generation.duration as VideoDuration)

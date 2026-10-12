@@ -57,6 +57,11 @@ export default function VideoPresetRows({
       />
       <SettingsChoice
         label={t('field.resolution')}
+        note={
+          support.upscaledResolutions?.includes(draft.resolution)
+            ? t('resolution.upscaled', { source: '720p', target: draft.resolution })
+            : undefined
+        }
         options={support.resolutions}
         value={draft.resolution}
         render={(resolution) => {
