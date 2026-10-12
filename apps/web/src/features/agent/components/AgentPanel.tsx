@@ -289,15 +289,21 @@ export default function AgentPanel({
     setUnseen(false)
   }
 
-  /** 右缘拖宽：按下即捕获指针，宽度跟手，松开时的值已经在 store 里记住了。 */
+  /** 从实际显示宽度开始拖动，避免布局限宽后反向拖动出现空行程。 */
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
     const handle = event.currentTarget
     const originX = event.clientX
-    const originWidth = panelWidth
+    const originWidth = handle.parentElement?.getBoundingClientRect().width || panelWidth
+    const maxWidth =
+      dock === 'right'
+        ? Math.min(480, (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) * 0.42)
+        : Number.POSITIVE_INFINITY
     handle.setPointerCapture(event.pointerId)
     const onMove = (move: PointerEvent) =>
-      setPanelWidth(originWidth + (move.clientX - originX) * (dock === 'right' ? -1 : 1))
+      setPanelWidth(
+        Math.min(maxWidth, originWidth + (move.clientX - originX) * (dock === 'right' ? -1 : 1)),
+      )
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
