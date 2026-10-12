@@ -10,12 +10,14 @@ export default function NodeAddMenu({
   y,
   onText,
   onImage,
+  onUpload,
   onClose,
 }: {
   x: number
   y: number
   onText: () => void
   onImage: () => void
+  onUpload: () => void
   onClose: () => void
 }) {
   const { t } = useTranslation('canvas')
@@ -50,7 +52,7 @@ export default function NodeAddMenu({
       <MenuItem icon="text" label={t('nodes.addText')} onClick={onText} />
       <MenuItem icon="image" label={t('nodes.addImage')} onClick={onImage} />
       <p className="studio-node-menu-section text-xs">{t('nodes.addResources')}</p>
-      <MenuItem icon="upload" label={t('nodes.addUpload')} onClick={onImage} />
+      <MenuItem icon="upload" label={t('nodes.addUpload')} onClick={onUpload} />
     </div>,
     document.body,
   )
@@ -71,7 +73,10 @@ function MenuItem({
       variant="ghost"
       className="studio-node-menu-item h-auto w-full justify-start font-normal"
       role="menuitem"
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
     >
       <span className="studio-node-menu-icon">
         <Icon name={icon} />
