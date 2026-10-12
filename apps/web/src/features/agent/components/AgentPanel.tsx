@@ -1,5 +1,4 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ArrowDown, PanelLeftClose, Search, X } from 'lucide-react'
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -10,6 +9,8 @@ import {
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Input } from '../../../components/ui/input'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -49,9 +50,14 @@ const TABS = [
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   const { t } = useTranslation('agent')
   return (
-    <button type="button" onClick={onOpen} className="studio-open-chat">
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onOpen}
+      className="studio-open-chat h-12 w-auto gap-2.5 rounded-full border border-border bg-card pl-2 pr-4 text-sm font-medium text-foreground hover:bg-muted"
+    >
       {t('panel.expand')}
-    </button>
+    </Button>
   )
 }
 
@@ -317,14 +323,15 @@ export default function AgentPanel({
         <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
           <div className="flex items-center gap-1.5">
             {TABS.map((one) => (
-              <button
+              <Button
                 key={one.id}
                 type="button"
+                variant="ghost"
                 onClick={() => setTab(one.id)}
-                className={`${TAB} ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
+                className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
               >
                 {t(one.labelKey)}
-              </button>
+              </Button>
             ))}
           </div>
           <Button
@@ -336,7 +343,7 @@ export default function AgentPanel({
             className="hidden h-7 w-7 shrink-0 rounded-lg text-muted-foreground md:inline-flex"
             onClick={() => setOpen(false)}
           >
-            <PanelLeftClose aria-hidden="true" />
+            <Icon name="sidebar" />
           </Button>
         </div>
       )}
@@ -346,28 +353,41 @@ export default function AgentPanel({
       {presentation === 'page' && searchOpen && (
         <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
           <label>
-            <Search size={17} aria-hidden="true" />
-            <input
+            <Icon name="search" />
+            <Input
               autoFocus
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t('panel.search')}
+              className="h-auto rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
             />
           </label>
-          <button type="button" onClick={onCloseSearch} aria-label={t('panel.closeSearch')}>
-            <X size={17} />
-          </button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onCloseSearch}
+            aria-label={t('panel.closeSearch')}
+          >
+            <Icon name="close" />
+          </Button>
           {search.trim() && (
             <div className="studio-conversation-search-results" aria-live="polite">
               {searchResults.length ? (
                 searchResults.map((message) => (
-                  <button key={message.id} type="button" onClick={() => locateMessage(message.id)}>
+                  <Button
+                    key={message.id}
+                    type="button"
+                    variant="ghost"
+                    onClick={() => locateMessage(message.id)}
+                    className="h-auto w-full justify-start truncate rounded-md px-2 py-2 text-left text-xs font-normal hover:bg-muted"
+                  >
                     {message.kind === 'text'
                       ? message.text
                       : message.kind === 'tool'
                         ? message.title
                         : message.question}
-                  </button>
+                  </Button>
                 ))
               ) : (
                 <p>{t('panel.noSearchResults')}</p>
@@ -521,10 +541,15 @@ export default function AgentPanel({
             </div>
           </div>
           {unseen && (
-            <button type="button" onClick={jumpToLatest} className={JUMP_TO_LATEST}>
-              <ArrowDown className="h-3 w-3" aria-hidden="true" />
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={jumpToLatest}
+              className={`${JUMP_TO_LATEST} h-auto font-normal`}
+            >
+              <Icon name="chevronDown" />
               {t('panel.jumpToLatest')}
-            </button>
+            </Button>
           )}
         </div>
       )}
