@@ -1,3 +1,4 @@
+import { openReferenceStack } from '../../../helpers/radix'
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
@@ -92,8 +93,9 @@ it('shows only a cloud thumbnail and reads the original and mask only when openi
     })
     expect(JSON.stringify(session.getSnapshot().draft)).not.toContain('base64,')
     expect(useStore.getState().maskEditorSession).toBeNull()
+    const panel = openReferenceStack(host)
     await act(async () => {
-      host
+      panel
         .querySelector<HTMLButtonElement>('button[aria-label="修改参考图 局部图 的遮罩"]')!
         .click()
       await vi.waitFor(() =>

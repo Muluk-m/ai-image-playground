@@ -1,3 +1,4 @@
+import { openReferenceStack } from '../../../helpers/radix'
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
@@ -71,8 +72,8 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     // Looks disabled too, and says why, instead of a ready-colored button with a not-allowed cursor.
     expect(button.className).toContain('bg-muted')
     expect(button.title).toBe('参考图还在上传，传完就能发送')
-    const retry = [...host.querySelectorAll<HTMLButtonElement>('button')].find((element) =>
-      element.textContent?.includes('重试'),
+    const retry = [...openReferenceStack(host).querySelectorAll<HTMLButtonElement>('button')].find(
+      (element) => element.textContent?.includes('重试'),
     )
     expect(retry).toBeDefined()
     fail = false
@@ -156,15 +157,16 @@ it.each([
     await act(async () => {
       root.render(<AgentComposer doc={new CanvasDoc()} />)
     })
+    const panel = openReferenceStack(host)
     await vi.waitFor(() =>
-      expect(host.querySelector('[role="alert"]')?.textContent).toContain(message),
+      expect(panel.querySelector('[role="alert"]')?.textContent).toContain(message),
     )
-    expect(host.querySelector('[role="alert"]')?.className).toContain('text-destructive')
+    expect(panel.querySelector('[role="alert"]')?.className).toContain('text-destructive')
     expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')?.disabled).toBe(
       true,
     )
     expect(
-      [...host.querySelectorAll('button')].some((button) => button.textContent?.includes('重试')),
+      [...panel.querySelectorAll('button')].some((button) => button.textContent?.includes('重试')),
     ).toBe(retryable)
     expect(send).not.toHaveBeenCalled()
   } finally {

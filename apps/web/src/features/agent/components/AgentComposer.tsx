@@ -24,6 +24,7 @@ import {
   CreationModePicker,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
+import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
 import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
@@ -347,6 +348,18 @@ export default function AgentComposer({
     const state = attachmentUploadState(uploadReference(reference))
     return state !== undefined && state !== 'ready'
   })
+  const failedReference = draft.references.find(
+    (reference) => attachmentUploadState(uploadReference(reference)) === 'failed',
+  )
+  const referenceStatus = failedReference
+    ? attachmentUploadErrorMessage(
+        attachmentUploadError(uploadReference(failedReference)),
+        getAttachmentLimits(),
+      )
+    : uploadsBlocked
+      ? t('composer.upload.uploading')
+      : undefined
+
   const retryUpload = (reference: AgentReference) => {
     void retryAttachmentUploads(uploadReference(reference)).catch(() => {})
   }
@@ -999,25 +1012,42 @@ export default function AgentComposer({
         )}
         <CreationBody
           references={
-            <>
-              <Button
-                variant="ghost"
-                className="creation-add"
-                aria-label={t('composer.attachAria')}
-                title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-                aria-haspopup="menu"
-                aria-expanded={attachMenu !== null}
-                disabled={loading}
-                onClick={(event) => {
-                  const bounds = event.currentTarget.getBoundingClientRect()
-                  setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
-                }}
-              >
-                <Icon name="add" />
-                <span>{t('composer:studio.reference')}</span>
-              </Button>
+            <CreationReferenceStack
+              count={draft.references.length}
+              failed={Boolean(failedReference)}
+              status={referenceStatus}
+              previews={draft.references
+                .slice(-3)
+                .map((reference) => (
+                  <ComposerAttachmentThumb
+                    key={reference.id}
+                    src={reference.dataUrl}
+                    className="h-full w-full object-cover"
+                    frameClassName="h-full w-full"
+                    alt={reference.name ?? ''}
+                  />
+                ))}
+              add={
+                <Button
+                  variant="ghost"
+                  className="creation-add"
+                  aria-label={t('composer.attachAria')}
+                  title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                  aria-haspopup="menu"
+                  aria-expanded={attachMenu !== null}
+                  disabled={loading}
+                  onClick={(event) => {
+                    const bounds = event.currentTarget.getBoundingClientRect()
+                    setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
+                  }}
+                >
+                  <Icon name="add" />
+                  <span>{t('composer:studio.reference')}</span>
+                </Button>
+              }
+            >
               {draft.references.length > 0 && (
-                <ComposerAttachments className="max-h-[min(12rem,25dvh)] overflow-y-auto overscroll-contain pr-1">
+                <ComposerAttachments className="w-full">
                   {selectionSummary.length > 0 && (
                     <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
                       <div className="flex -space-x-3">
@@ -1147,7 +1177,7 @@ export default function AgentComposer({
                   })}
                 </ComposerAttachments>
               )}
-            </>
+            </CreationReferenceStack>
           }
         >
           <div className="relative">
