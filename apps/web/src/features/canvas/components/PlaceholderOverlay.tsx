@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useState, useSyncExternalStore } from 'r
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { ShimmerLabel } from '../../../components/assistant-ui/elements/surfaces'
 import Credits from '../../../components/Credits'
+import { Button } from '../../../components/ui/button'
 import { i18next, useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -65,8 +66,9 @@ function AgentRetryButton({
   const guard = usePrivateSubmissionGuard(agentRetryPricing(origin))
   const [pending, setPending] = useState(false)
   return (
-    <button
+    <Button
       type="button"
+      size="sm"
       disabled={pending}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={async () => {
@@ -93,7 +95,7 @@ function AgentRetryButton({
           <Credits credits={guard.estimatedCredits} />
         </>
       )}
-    </button>
+    </Button>
   )
 }
 
@@ -283,14 +285,16 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                     <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{note}</span>
                   )}
                   {rawFailure && (
-                    <button
+                    <Button
                       type="button"
+                      variant="link"
+                      size="sm"
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => void copyFailureReport(p)}
-                      className="pointer-events-auto text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                      className="pointer-events-auto h-auto p-0 text-xs text-muted-foreground"
                     >
                       {t('placeholder.copyError')}
-                    </button>
+                    </Button>
                   )}
                   {queuedRetry && (
                     <>
@@ -312,8 +316,9 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                     />
                   )}
                   {agentCode && agentAction && (
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() =>
                         runAgentToolFailureAction(agentAction, {
@@ -327,18 +332,19 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       style={actionStyle(accent)}
                     >
                       {agentToolFailureActionLabel(agentAction, agentCode)}
-                    </button>
+                    </Button>
                   )}
                   {/* 智能体占的位没有可重发的画布任务：它的出路按错误码给，不在这里原样重发。 */}
                   {!p.meta.agent && (
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => retryCanvasTask(editor, p)}
                       style={actionStyle(accent)}
                     >
                       {t('common:action.retry')}
-                    </button>
+                    </Button>
                   )}
                 </>
               )}
