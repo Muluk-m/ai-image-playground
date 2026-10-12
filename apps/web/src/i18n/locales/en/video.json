@@ -34,7 +34,8 @@
     "followsFirstFrame": "Follows first frame"
   },
   "composer": {
-    "durationLabel": "Duration"
+    "durationLabel": "Duration",
+    "otherDuration": "Other"
   },
   "derive": {
     "titleExtend": "Extend · continue from the last frame",
