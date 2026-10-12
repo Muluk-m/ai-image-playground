@@ -83,11 +83,12 @@ it('shows only a cloud thumbnail and reads the original and mask only when openi
   const root = createRoot(host)
   try {
     await act(async () => root.render(<AgentComposer doc={new CanvasDoc()} />))
-    await act(async () => {
-      await vi.waitFor(() => expect(viewed).toEqual(['https://storage.test/preview.png']))
-      await vi.waitFor(() =>
-        expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/),
-      )
+    await vi.waitFor(async () => {
+      // Flush the thumbnail's async state update before reading the rendered image.
+      // Waiting for its DOM inside a still-open act scope can hold that update back.
+      await act(async () => {})
+      expect(viewed).toEqual(['https://storage.test/preview.png'])
+      expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
     })
     expect(JSON.stringify(session.getSnapshot().draft)).not.toContain('base64,')
     expect(useStore.getState().maskEditorSession).toBeNull()
