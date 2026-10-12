@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../features/video/store'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import {
@@ -103,5 +104,35 @@ describe('视频可用性', () => {
   it('纯静态部署没有视频频道时不可用', () => {
     setChannels([IMAGE_CHANNEL])
     expect(isVideoModeAvailable()).toBe(false)
+  })
+})
+
+describe('Lite replacement', () => {
+  it('moves the old draft to Lite and clears unsupported voices while retaining the preset', () => {
+    const model = GROK_CHANNEL.models[0]!
+    setChannels([{ ...GROK_CHANNEL, models: [{ ...model, id: 'grok-imagine-video-1.5-lite' }] }])
+    useVideoStore.setState({
+      draft: {
+        ...INITIAL_VIDEO_DRAFT,
+        model: 'grok-imagine-video',
+        duration: 10,
+        resolution: '1080p',
+        voices: ['eva'],
+      },
+    })
+    useVideoStore.getState().syncModelOptions()
+    expect(useVideoStore.getState().draft).toMatchObject({
+      model: 'grok-imagine-video-1.5-lite',
+      duration: 10,
+      resolution: '1080p',
+      voices: undefined,
+    })
+    const support = videoModelOptions()[0]!.support
+    expect(support.firstFrame).toBe(true)
+    expect(support.lastFrame).toBe(false)
+    expect(support.referenceImages).toBeUndefined()
+    expect(support.voices).toBeUndefined()
+    expect(support.keyframes).toBeUndefined()
+    useVideoStore.setState({ draft: INITIAL_VIDEO_DRAFT })
   })
 })
