@@ -32,7 +32,7 @@ export const readCanvas = defineAgentTool({
   modes: ['image', 'video'],
   label: '看画布',
   description:
-    '看用户发话时屏幕上的画布：每个元素的类型、位置、尺寸，图片还给同批 id、创建时间和提示词摘要。还没同步到服务端的图也在里面，张数以「共 N 个元素」为准。超过一页时用 offset 继续读。元素 id 与图片 id 不同，只有图片 id 能交给 viewImage 或 editImage。',
+    '看用户发话时屏幕上的画布：每个元素的类型、位置、尺寸，图片还给同批 id、创建时间和提示词摘要。还没同步到服务端的图也在里面，张数以「共 N 个元素」为准。超过一页时用 offset 继续读。元素 id 与图片 id 不同，只有图片 id 能交给 viewImage 或 editImage。视频元素另有视频 id，交给 viewVideo 看画面；封面图片 id 只是第一帧。',
   guidance:
     '用户指着画布上的东西说话，或要整理画布时，先看画布；提示还有未展开元素时按 offset 继续，直到读完。目录注明有元素没带上时不要声称看全或整理全画布。同批 id、提示词和位置用于分组；无法识别的一组看一张缩略图。',
   parameters,

@@ -53,6 +53,33 @@ describe('唤醒说明', () => {
     expect(merged).not.toContain('deferredEdits')
   })
 
+  it('points a finished video at viewVideo and does not claim the frames are attached', () => {
+    const video = job('succeeded')
+    const prompt = wakeTurnPrompt([
+      {
+        ...video,
+        block: {
+          ...video.block,
+          toolName: 'generateVideo',
+          artifacts: [
+            {
+              artifactId: 'agent_task-1_0',
+              media: 'video',
+              taskId: 'task-1',
+              outputIndex: 0,
+              mime: 'video/mp4',
+            },
+          ],
+          job: { taskId: 'task-1', media: 'video' },
+        },
+      },
+    ])
+    expect(prompt).toContain('viewVideo')
+    expect(prompt).toContain('对话产物卡片')
+    expect(prompt).not.toContain('产物已作为视觉证据附在下面')
+    expect(prompt).not.toContain('可以用这些产物继续执行')
+  })
+
   it('内容安全拒绝让模型主动提出改写提示词，而不是笼统的「换个说法、稍后再试」', () => {
     const blocked = job('failed')
     const prompt = wakeTurnPrompt([
