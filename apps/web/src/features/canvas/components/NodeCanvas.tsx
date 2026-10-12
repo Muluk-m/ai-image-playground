@@ -55,6 +55,7 @@ import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { type NodeCanvasDocument, openNodeCanvasDocument } from '../lib/nodeCanvasDocument'
 import {
   composeNodePrompt,
+  flowEdgeIds,
   incomingReferences,
   linkFromDrag,
   referenceFileIds,
@@ -705,6 +706,9 @@ function Flow({
     const id = placeNodeBeside(editor, canvas.doc, nodeId, side, textFill)
     if (id) selectNode(id)
   }
+  const [litEdgeIds, setLitEdgeIds] = useState<ReadonlySet<string> | null>(null)
+  const litRef = useRef(litEdgeIds)
+  litRef.current = litEdgeIds
   const connectDrop = (
     event: MouseEvent | TouchEvent,
     state: {
@@ -732,7 +736,22 @@ function Flow({
               id: edge.id,
               source: edge.source,
               target: edge.target,
+              interactionWidth: 22,
+              className: litEdgeIds?.has(edge.id) ? 'studio-edge-lit' : undefined,
+              zIndex: litEdgeIds?.has(edge.id) ? 1 : 0,
             }))}
+            onEdgeMouseEnter={(_event, edge) => {
+              setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
+            }}
+            onEdgeMouseLeave={(event) => {
+              const next = event.relatedTarget
+              const nextId =
+                next instanceof Element
+                  ? next.closest('.react-flow__edge')?.getAttribute('data-id')
+                  : null
+              if (nextId && litRef.current?.has(nextId)) return
+              setLitEdgeIds(null)
+            }}
             nodeTypes={nodeTypes}
             zoomOnDoubleClick={false}
             elevateNodesOnSelect={false}
