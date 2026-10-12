@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
+import { ProjectCardSurface } from '../../../components/creation/MediaGallery'
+import '../../../components/creation/creation.css'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
-import { Icon, type IconName } from '../../../components/ui/icon'
+import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
@@ -25,25 +27,16 @@ import ProjectCover from './ProjectCover'
 import ProjectTrash from './ProjectTrash'
 
 function projectBadge(project: CanvasProject): {
-  icon: IconName
   label: 'grid.chat' | 'project.kindVideo' | 'grid.canvas'
-  tone: string
 } {
-  if (projectExperience(project) === 'chat') {
-    return {
-      icon: 'chat',
-      label: 'grid.chat',
-      tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-    }
+  return {
+    label:
+      projectExperience(project) === 'chat'
+        ? 'grid.chat'
+        : project.kind === 'video'
+          ? 'project.kindVideo'
+          : 'grid.canvas',
   }
-  if (project.kind === 'video') {
-    return {
-      icon: 'video',
-      label: 'project.kindVideo',
-      tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-    }
-  }
-  return { icon: 'canvas', label: 'grid.canvas', tone: 'bg-primary/15 text-primary' }
 }
 
 type ExperienceFilter = 'all' | 'chat' | 'canvas'
@@ -169,7 +162,7 @@ export default function ProjectGrid({
       )}
       <div className="grid grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {!search && !recent && (
-          <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border text-muted-foreground">
+          <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl border border-border bg-muted/50 text-muted-foreground">
             <Icon name="add" size="lg" />
             <span className="text-sm font-medium">{t('grid.newProject')}</span>
             {/* 画布类型建后不可改，所以在这里问一次，而不是进去再切。 */}
@@ -199,22 +192,26 @@ export default function ProjectGrid({
           </div>
         )}
         {visible.map((project) => {
-          const { icon, label, tone } = projectBadge(project)
+          const { label } = projectBadge(project)
           const typeLabel = t(label)
           const isCurrent = project.id === selectedId
           const statusLabel = [typeLabel, ...(isCurrent ? [t('grid.current')] : [])].join(' · ')
           return (
-            <article key={project.id} className="group relative">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={busy}
-                aria-label={`${t('grid.openAria', { name: projectEntryName(project) })} · ${statusLabel}`}
-                onClick={() => void enter(project)}
-                className="block h-auto w-full whitespace-normal rounded-2xl p-0 text-left font-normal hover:bg-transparent disabled:opacity-50"
-              >
-                <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted transition-colors group-hover:border-primary/50">
+            <ProjectCardSurface
+              key={project.id}
+              name={projectEntryName(project)}
+              date={
+                <time dateTime={new Date(project.updatedAt).toISOString()}>
+                  {t('grid.updatedAt', { date: formatDate(project.updatedAt) })}
+                </time>
+              }
+              onOpen={() => void enter(project)}
+              disabled={busy}
+              label={`${t('grid.openAria', { name: projectEntryName(project) })} · ${statusLabel}`}
+              cover={
+                <>
                   <ProjectCover
+                    fit="cover"
                     source={project.cover}
                     chat={projectExperience(project) === 'chat'}
                     pending={
@@ -223,87 +220,69 @@ export default function ProjectGrid({
                         project.conversationId === runningConversationId)
                     }
                   />
-                </div>
-                <div className="mt-2.5 flex items-center gap-2 pr-1">
-                  <span
-                    className={`inline-flex h-[22px] flex-none items-center gap-1 rounded-md px-1.5 text-xs font-medium ${tone}`}
-                  >
-                    <Icon name={icon} size="xs" />
-                    {typeLabel}
-                  </span>
-                  {isCurrent && (
-                    <span
-                      role="img"
-                      aria-label={t('grid.current')}
-                      title={t('grid.current')}
-                      className="h-2 w-2 flex-none rounded-full bg-primary ring-[3px] ring-primary/25"
-                    />
+                  {project.kind === 'video' && (
+                    <span className="creation-play-badge">
+                      <Icon name="play" />
+                    </span>
                   )}
-                  <h3
-                    className="min-w-0 truncate text-sm font-medium text-foreground"
-                    title={projectEntryName(project)}
-                  >
-                    {projectEntryName(project)}
-                  </h3>
-                </div>
-              </Button>
-              <time
-                className="mt-1 block truncate px-0.5 text-xs text-muted-foreground"
-                dateTime={new Date(project.updatedAt).toISOString()}
-              >
-                {t('grid.updatedAt', { date: formatDate(project.updatedAt) })}
-              </time>
-              <Popover
-                open={menuProjectId === project.id}
-                onOpenChange={(open) => setMenuProjectId(open ? project.id : null)}
-              >
-                <PopoverTrigger asChild>
-                  <TooltipIconButton
-                    className="absolute right-2 top-2 size-9 rounded-xl bg-background/90 text-foreground opacity-0 shadow-sm transition-opacity hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
-                    aria-label={t('grid.actionsAria', { name: projectEntryName(project) })}
-                    tooltip={t('grid.actions')}
-                  >
-                    <Icon name="more" />
-                  </TooltipIconButton>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  collisionPadding={12}
-                  className="z-[600] w-56 rounded-xl p-1.5"
+                </>
+              }
+              menu={
+                <Popover
+                  open={menuProjectId === project.id}
+                  onOpenChange={(open) => setMenuProjectId(open ? project.id : null)}
                 >
-                  <Button
-                    variant="ghost"
-                    className="mt-1 w-full justify-start gap-3 px-3"
-                    onClick={() => {
-                      setMenuProjectId(null)
-                      setRenaming(project)
-                    }}
+                  <PopoverTrigger asChild>
+                    <TooltipIconButton
+                      className="creation-project-menu"
+                      aria-label={t('grid.actionsAria', { name: projectEntryName(project) })}
+                      tooltip={t('grid.actions')}
+                    >
+                      <Icon name="more" />
+                    </TooltipIconButton>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    collisionPadding={12}
+                    className="z-[600] w-56 rounded-xl p-1.5"
                   >
-                    <Icon name="edit" /> {t('grid.rename')}
-                  </Button>
-                  {!recent && (!project.cloud || project.cloud.revision > 0) && (
                     <Button
                       variant="ghost"
-                      className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      className="mt-1 w-full justify-start gap-3 px-3"
                       onClick={() => {
                         setMenuProjectId(null)
-                        useStore.getState().setConfirmDialog({
-                          title: t('grid.deleteTitle'),
-                          message: t(project.cloud ? 'trash.deleteMessage' : 'grid.deleteMessage', {
-                            name: projectEntryName(project),
-                          }),
-                          action: () => {
-                            void useAgentStore.getState().deleteProject(project.id)
-                          },
-                        })
+                        setRenaming(project)
                       }}
                     >
-                      <Icon name="delete" /> {t('grid.deleteTitle')}
+                      <Icon name="edit" /> {t('grid.rename')}
                     </Button>
-                  )}
-                </PopoverContent>
-              </Popover>
-            </article>
+                    {!recent && (!project.cloud || project.cloud.revision > 0) && (
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => {
+                          setMenuProjectId(null)
+                          useStore.getState().setConfirmDialog({
+                            title: t('grid.deleteTitle'),
+                            message: t(
+                              project.cloud ? 'trash.deleteMessage' : 'grid.deleteMessage',
+                              {
+                                name: projectEntryName(project),
+                              },
+                            ),
+                            action: () => {
+                              void useAgentStore.getState().deleteProject(project.id)
+                            },
+                          })
+                        }}
+                      >
+                        <Icon name="delete" /> {t('grid.deleteTitle')}
+                      </Button>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              }
+            />
           )
         })}
       </div>

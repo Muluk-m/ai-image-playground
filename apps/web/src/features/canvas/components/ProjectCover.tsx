@@ -58,15 +58,9 @@ export default function ProjectCover({
           />
         </span>
       ) : (
-        (!source || failed) &&
-        (chat ? (
-          <Icon name="chat" size="lg" className="text-muted-foreground" />
-        ) : (
-          <span
-            aria-hidden="true"
-            className="absolute inset-0 bg-[radial-gradient(hsl(var(--muted-foreground)/0.28)_1px,transparent_1px)] [background-size:14px_14px]"
-          />
-        ))
+        (!source || failed) && (
+          <Icon name={chat ? 'chat' : 'image'} size="lg" className="text-muted-foreground" />
+        )
       )}
     </>
   )
