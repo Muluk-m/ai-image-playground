@@ -15,6 +15,8 @@ const ONE_SECOND = 1
 const FRAME_CAP = 8
 const SAMPLE_TIMEOUT_MS = 45_000
 const PREVIEW_EDGE = 1024
+/** 只读本地临时文件。片子来自上游，不能让解复用器再去打开 http 或别的路径。 */
+const INPUT_PROTOCOLS = 'file,crypto'
 
 export const VIDEO_FRAMES_UNAVAILABLE = '这段视频暂时抽不出画面，请稍后再试。'
 
@@ -66,7 +68,49 @@ export function frameTimestamps(durationSeconds: number): readonly number[] {
   return framePlan(durationSeconds).times
 }
 
-type VideoSampler = (bytes: Uint8Array, durationHint?: number) => Promise<SampledFrames>
+type VideoSampler = (
+  bytes: Uint8Array,
+  durationHint?: number,
+  signal?: AbortSignal,
+) => Promise<SampledFrames>
+
+type ContainerFormat = 'mp4' | 'matroska' | 'avi'
+
+/** 只认自包含的成片容器。播放列表和裸文本不会交给 ffmpeg。 */
+function containerFormat(bytes: Uint8Array): ContainerFormat | undefined {
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70
+  ) {
+    return 'mp4'
+  }
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x1a &&
+    bytes[1] === 0x45 &&
+    bytes[2] === 0xdf &&
+    bytes[3] === 0xa3
+  ) {
+    return 'matroska'
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x41 &&
+    bytes[9] === 0x56 &&
+    bytes[10] === 0x49 &&
+    bytes[11] === 0x20
+  ) {
+    return 'avi'
+  }
+  return undefined
+}
 
 async function runCommand(
   bin: string,
@@ -121,6 +165,7 @@ function frameSeconds(rate: string | undefined): number {
 
 async function probeClip(
   input: string,
+  format: ContainerFormat,
   signal: AbortSignal,
 ): Promise<{ duration?: number; frameSeconds: number }> {
   const { stdout } = await runCommand(
@@ -128,13 +173,18 @@ async function probeClip(
     [
       '-v',
       'error',
+      '-protocol_whitelist',
+      INPUT_PROTOCOLS,
+      '-f',
+      format,
+      '-i',
+      input,
       '-select_streams',
       'v:0',
       '-show_entries',
       'stream=avg_frame_rate:format=duration',
       '-of',
       'json',
-      input,
     ],
     signal,
     true,
@@ -151,6 +201,7 @@ async function probeClip(
 
 async function extractJpeg(
   input: string,
+  format: ContainerFormat,
   timeSeconds: number,
   output: string,
   signal: AbortSignal,
@@ -163,6 +214,10 @@ async function extractJpeg(
       '-loglevel',
       'error',
       '-nostdin',
+      '-protocol_whitelist',
+      INPUT_PROTOCOLS,
+      '-f',
+      format,
       '-i',
       input,
       '-ss',
@@ -193,16 +248,22 @@ async function extractJpeg(
   }
 }
 
-async function sampleWithFfmpeg(bytes: Uint8Array, durationHint?: number): Promise<SampledFrames> {
+async function sampleWithFfmpeg(
+  bytes: Uint8Array,
+  durationHint?: number,
+  parent?: AbortSignal,
+): Promise<SampledFrames> {
   const directory = await mkdtemp(join(tmpdir(), 'aip-video-frames-'))
   const input = join(directory, 'clip.bin')
-  const signal = AbortSignal.timeout(SAMPLE_TIMEOUT_MS)
+  const timeout = AbortSignal.timeout(SAMPLE_TIMEOUT_MS)
+  const signal = parent ? AbortSignal.any([timeout, parent]) : timeout
   try {
+    const format = containerFormat(bytes)
+    if (!format) throw new Error('container rejected')
     await writeFile(input, bytes)
-    const probed = await probeClip(input, signal)
-    const hinted = usableDuration(durationHint)
-    const durationSeconds =
-      hinted && probed.duration ? Math.min(hinted, probed.duration) : (hinted ?? probed.duration)
+    const probed = await probeClip(input, format, signal)
+    // 结果里的时长经常是提交值，不是成片实测。探测得到就以片子为准，避免短提示切掉尾部。
+    const durationSeconds = probed.duration ?? usableDuration(durationHint)
     if (durationSeconds === undefined) throw new Error('duration missing')
     // 末帧时间戳落在最后一帧之前。固定 0.04 秒在低帧率上会指到片子结束之后，ffmpeg 退出 0 但不写文件。
     const endPad = Math.max(probed.frameSeconds, END_MARGIN_SECONDS)
@@ -210,12 +271,12 @@ async function sampleWithFfmpeg(bytes: Uint8Array, durationHint?: number): Promi
     const frames: VideoFrame[] = []
     for (const [index, timeSeconds] of plan.times.entries()) {
       const output = join(directory, `frame-${index}.jpg`)
-      const jpeg = await extractJpeg(input, timeSeconds, output, signal)
+      const jpeg = await extractJpeg(input, format, timeSeconds, output, signal)
       const fallbackTime = round3(Math.max(0, timeSeconds - endPad))
       const fallback =
         jpeg || fallbackTime === timeSeconds
           ? undefined
-          : await extractJpeg(input, fallbackTime, output, signal)
+          : await extractJpeg(input, format, fallbackTime, output, signal)
       const still = jpeg ?? fallback
       if (!still) throw new Error('frame missing')
       const used = jpeg ? timeSeconds : fallbackTime
@@ -226,6 +287,7 @@ async function sampleWithFfmpeg(bytes: Uint8Array, durationHint?: number): Promi
     if (frames.length === 0) throw new Error('no frames')
     return { durationSeconds, intervalSeconds: plan.intervalSeconds, frames }
   } catch (error) {
+    if (parent?.aborted) throw error
     const code = (error as NodeJS.ErrnoException).code
     log.warn(
       { err: error, event: 'agent.video_frames_failed', ...(code ? { code } : {}) },
@@ -244,6 +306,10 @@ export function setVideoSamplerForTesting(next: VideoSampler | null): void {
   sampler = next ?? sampleWithFfmpeg
 }
 
-export function sampleVideo(bytes: Uint8Array, durationHint?: number): Promise<SampledFrames> {
-  return sampler(bytes, durationHint)
+export function sampleVideo(
+  bytes: Uint8Array,
+  durationHint?: number,
+  signal?: AbortSignal,
+): Promise<SampledFrames> {
+  return sampler(bytes, durationHint, signal)
 }

@@ -2,6 +2,7 @@ import { Type } from 'typebox'
 import { readVideoClip } from '../video-clip'
 import { sampleVideo, VideoUnreadable } from '../video-frames'
 import { prepareVisualEvidence } from '../visual-input'
+import { currentVisualSignal, withVisualPreparation } from '../visual-resources'
 import { defineAgentTool } from './adapter'
 import type { AgentToolContext } from './types'
 
@@ -30,31 +31,33 @@ function stillsText(frameCount: number, times: readonly number[], intervalSecond
 }
 
 async function look(context: AgentToolContext, videoId: string) {
-  const clip = await readVideoClip(context, videoId)
-  if (!clip.ok) return { text: clip.message, images: [] }
-  try {
-    const sampled = await sampleVideo(clip.bytes, clip.durationSeconds)
-    const evidence = await prepareVisualEvidence(
-      sampled.frames.map((frame) => ({
-        imageId: `${clip.videoId}@${frame.timeSeconds}`,
-        dataUrl: `data:image/jpeg;base64,${Buffer.from(frame.jpeg).toString('base64')}`,
-        visualVariant: 'preview' as const,
-      })),
-      'viewVideo',
-      'preview',
-    )
-    return {
-      text: `${stillsText(
-        sampled.frames.length,
-        sampled.frames.map((frame) => frame.timeSeconds),
-        sampled.intervalSeconds,
-      )}${evidence.manifest}`,
-      images: evidence.content,
+  return withVisualPreparation(async () => {
+    const clip = await readVideoClip(context, videoId)
+    if (!clip.ok) return { text: clip.message, images: [] }
+    try {
+      const sampled = await sampleVideo(clip.bytes, clip.durationSeconds, currentVisualSignal())
+      const evidence = await prepareVisualEvidence(
+        sampled.frames.map((frame) => ({
+          imageId: `${clip.videoId}@${frame.timeSeconds}`,
+          dataUrl: `data:image/jpeg;base64,${Buffer.from(frame.jpeg).toString('base64')}`,
+          visualVariant: 'preview' as const,
+        })),
+        'viewVideo',
+        'preview',
+      )
+      return {
+        text: `${stillsText(
+          sampled.frames.length,
+          sampled.frames.map((frame) => frame.timeSeconds),
+          sampled.intervalSeconds,
+        )}${evidence.manifest}`,
+        images: evidence.content,
+      }
+    } catch (error) {
+      if (error instanceof VideoUnreadable) return { text: error.userMessage, images: [] }
+      throw error
     }
-  } catch (error) {
-    if (error instanceof VideoUnreadable) return { text: error.userMessage, images: [] }
-    throw error
-  }
+  })
 }
 
 export const viewVideo = defineAgentTool({

@@ -44,7 +44,10 @@ it.skipIf(!canSample)('extracts distinct jpeg stills from a short clip', async (
     )
     const stderr = await new Response(child.stderr).text()
     expect(await child.exited, stderr).toBe(0)
-    const sampled = await sampleVideo(await readFile(file), 2)
+    const bytes = await readFile(file)
+    // 提示时长短于成片时仍按探测到的片子取样，不把提交时长当成结尾。
+    const sampled = await sampleVideo(bytes, 0.4)
+    expect(sampled.durationSeconds).toBeGreaterThan(1.5)
     expect(sampled.frames[0]?.timeSeconds).toBe(0)
     expect(sampled.frames.at(-1)?.timeSeconds).toBeGreaterThan(1.5)
     expect(sampled.frames.length).toBeGreaterThan(1)
@@ -58,6 +61,19 @@ it.skipIf(!canSample)('extracts distinct jpeg stills from a short clip', async (
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+it.skipIf(!canSample)('rejects a playlist instead of opening anything it names', async () => {
+  const playlist = new TextEncoder().encode(
+    'ffconcat version 1.0\nfile http://127.0.0.1:9/secret\n',
+  )
+  const failed = await sampleVideo(playlist).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  expect(failed).toBeInstanceOf(VideoUnreadable)
+  expect(String(failed)).not.toContain('secret')
+  expect(String(failed)).not.toContain('127.0.0.1')
 })
 
 it.skipIf(canSample)('says the clip cannot be sampled when ffmpeg is absent', async () => {
