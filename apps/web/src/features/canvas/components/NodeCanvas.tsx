@@ -40,18 +40,32 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
+import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
+import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import PlayBadge from '../../video/components/PlayBadge'
+import type { CanvasEditor } from '../lib/editor'
+import { importImageFiles } from '../lib/importImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { type NodeCanvasDocument, openNodeCanvasDocument } from '../lib/nodeCanvasDocument'
+import { commitNodeText, placeNodeText } from '../lib/nodeCanvasPlace'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
+import NodeAddMenu from './NodeAddMenu'
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation }>
 const legacyOrigin = canvasOrigin('system', 'legacy-update')
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
+
+/** 文本节点的编辑态。节点类型表是静态的，编辑入口从这里拿。 */
+const TextEditContext = createContext<{
+  editingId: string | null
+  begin: (id: string) => void
+  commit: (id: string, text: string) => void
+} | null>(null)
 
 /** 内容没变的项沿用上一份的对象，下游的 `memo` 才认得出「没变」。 */
 function keepUnchanged<T extends { id: string }>(previous: readonly T[], next: T[]): T[] {
@@ -191,10 +205,36 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
 })
 
 const TextNode = memo(function TextNode({ data: { node } }: NodeProps<FlowNode>) {
+  const { t } = useTranslation('canvas')
+  const editing = useContext(TextEditContext)
   if (node?.type !== 'text') return null
   const { text, fontSize, fill } = node.data
+  if (editing?.editingId === node.id)
+    return (
+      <textarea
+        className="studio-node studio-node--text studio-node-text-input nodrag nopan nowheel"
+        style={{ fontSize, color: fill }}
+        defaultValue={text}
+        placeholder={t('nodes.textPlaceholder')}
+        autoFocus
+        onBlur={(event) => editing.commit(node.id, event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            editing.commit(node.id, text)
+          }
+        }}
+      />
+    )
   return (
-    <div className="studio-node studio-node--text" style={{ fontSize, color: fill }}>
+    <div
+      className="studio-node studio-node--text"
+      style={{ fontSize, color: fill }}
+      onDoubleClick={(event) => {
+        event.stopPropagation()
+        editing?.begin(node.id)
+      }}
+    >
       {text}
     </div>
   )
@@ -323,15 +363,40 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
 function Flow({
   canvas,
   container,
+  editor,
   active,
 }: {
   canvas: NodeCanvasDocument
   container: RefObject<HTMLDivElement | null>
+  editor: CanvasEditor
   active: boolean
 }) {
+  const { t } = useTranslation('canvas')
   const snapshot = useDocumentSnapshot(canvas)
   const { theme } = useTheme()
   const [nodes, setNodes] = useState<FlowNode[]>([])
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [fileOver, setFileOver] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const flowRef = useRef<{
+    screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
+    setViewport: (viewport: { x: number; y: number; zoom: number }) => void
+  } | null>(null)
+  const placeAt = useRef({ x: 0, y: 0 })
+  const fileInput = useRef<HTMLInputElement>(null)
+  const fileDepth = useRef(0)
+  const closeMenu = () => setMenu(null)
+  const textFill = theme === 'dark' ? '#f4f4f5' : '#18181b'
+  const placeFiles = (files: File[]) => {
+    const images = acceptImageFiles(files)
+    if (images.length === 0) return
+    const point = placeAt.current
+    confirmImageBatch(images.length, () => {
+      void importImageFiles(editor, images, point).catch(() =>
+        useStore.getState().showToast(t('import.failed'), 'error'),
+      )
+    })
+  }
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
@@ -362,43 +427,155 @@ function Flow({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [canvas, active])
+  useEffect(() => {
+    const el = container.current
+    if (!el) return
+    const flowPoint = (event: { clientX: number; clientY: number }) =>
+      flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    const onDoubleClick = (event: MouseEvent) => {
+      if (!active) return
+      const target = event.target instanceof Element ? event.target : null
+      if (
+        target?.closest(
+          '.react-flow__node, .react-flow__controls, .react-flow__minimap, .studio-node-menu, textarea, input',
+        )
+      )
+        return
+      const point = flowPoint(event)
+      if (!point) return
+      event.preventDefault()
+      placeAt.current = point
+      setMenu({ x: event.clientX, y: event.clientY })
+    }
+    const onDragEnter = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return
+      event.preventDefault()
+      fileDepth.current += 1
+      setFileOver(true)
+    }
+    const onDragOver = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes('Files')) event.preventDefault()
+    }
+    const onDragLeave = () => {
+      if (fileDepth.current === 0) return
+      fileDepth.current -= 1
+      if (fileDepth.current <= 0) setFileOver(false)
+    }
+    const onDrop = (event: DragEvent) => {
+      if (!event.dataTransfer) return
+      event.preventDefault()
+      fileDepth.current = 0
+      setFileOver(false)
+      const point = flowPoint(event)
+      if (!point) return
+      placeAt.current = point
+      // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
+      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files))
+    }
+    el.addEventListener('dblclick', onDoubleClick, true)
+    el.addEventListener('dragenter', onDragEnter)
+    el.addEventListener('dragover', onDragOver)
+    el.addEventListener('dragleave', onDragLeave)
+    el.addEventListener('drop', onDrop)
+    return () => {
+      el.removeEventListener('dblclick', onDoubleClick, true)
+      el.removeEventListener('dragenter', onDragEnter)
+      el.removeEventListener('dragover', onDragOver)
+      el.removeEventListener('dragleave', onDragLeave)
+      el.removeEventListener('drop', onDrop)
+    }
+  }, [active, editor, t])
+  const textEdit = useMemo(
+    () => ({
+      editingId,
+      begin: (id: string) => {
+        setEditingId(id)
+        editor.doc.setEditingText(id)
+      },
+      commit: (id: string, text: string) => {
+        setEditingId((current) => (current === id ? null : current))
+        commitNodeText(editor, id, text)
+      },
+    }),
+    [editingId, editor],
+  )
   return (
-    <ReactFlow<FlowNode>
-      nodes={nodes}
-      nodeTypes={nodeTypes}
-      elevateNodesOnSelect={false}
-      onNodesChange={(changes: NodeChange<FlowNode>[]) =>
-        setNodes((current) => applyNodeChanges(changes, current))
-      }
-      onNodeDragStop={(_event, _node, dragged) =>
-        moveCanvasNodes(
-          canvas.doc,
-          dragged
-            .filter((one) => one.data.node)
-            .map((one) => ({ id: one.id, x: one.position.x, y: one.position.y })),
-          canvas.origin,
-        )
-      }
-      colorMode={theme}
-      minZoom={0.05}
-      maxZoom={8}
-      onInit={(flow) => {
-        const bounds = contentBounds(snapshot)
-        const box = container.current
-        // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
-        if (!bounds || !box?.clientWidth || !box.clientHeight) return
-        // 与旧画布一致：打开时最多按 100% 显示。
-        flow.setViewport(
-          getViewportForBounds(bounds, box.clientWidth, box.clientHeight, 0.05, 1, 0.1),
-        )
-      }}
-      deleteKeyCode={null}
-      proOptions={{ hideAttribution: true }}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
-      <MiniMap pannable zoomable />
-      <Controls showInteractive={false} />
-    </ReactFlow>
+    <TextEditContext.Provider value={textEdit}>
+      <ReactFlow<FlowNode>
+        nodes={nodes}
+        nodeTypes={nodeTypes}
+        zoomOnDoubleClick={false}
+        elevateNodesOnSelect={false}
+        onNodesChange={(changes: NodeChange<FlowNode>[]) =>
+          setNodes((current) => applyNodeChanges(changes, current))
+        }
+        onNodeDragStop={(_event, _node, dragged) =>
+          moveCanvasNodes(
+            canvas.doc,
+            dragged
+              .filter((one) => one.data.node)
+              .map((one) => ({ id: one.id, x: one.position.x, y: one.position.y })),
+            canvas.origin,
+          )
+        }
+        colorMode={theme}
+        minZoom={0.05}
+        maxZoom={8}
+        onInit={(flow) => {
+          flowRef.current = flow
+          const bounds = contentBounds(snapshot)
+          const box = container.current
+          // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
+          if (!bounds || !box?.clientWidth || !box.clientHeight) return
+          // 与旧画布一致：打开时最多按 100% 显示。
+          flow.setViewport(
+            getViewportForBounds(bounds, box.clientWidth, box.clientHeight, 0.05, 1, 0.1),
+          )
+        }}
+        deleteKeyCode={null}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
+        <MiniMap pannable zoomable />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+      {fileOver && (
+        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
+          <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
+            {t('drop.hint')}
+          </span>
+        </div>
+      )}
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])]
+          event.target.value = ''
+          placeFiles(files)
+        }}
+      />
+      {menu && (
+        <NodeAddMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={closeMenu}
+          onText={() => {
+            setEditingId(placeNodeText(editor, placeAt.current, textFill))
+            closeMenu()
+          }}
+          onImage={() => {
+            closeMenu()
+            fileInput.current?.click()
+          }}
+        />
+      )}
+    </TextEditContext.Provider>
   )
 }
 
@@ -458,10 +635,10 @@ export default function NodeCanvas({
     () =>
       canvas && (
         <ReactFlowProvider>
-          <Flow canvas={canvas} container={container} active={active} />
+          <Flow canvas={canvas} container={container} editor={workspace.editor} active={active} />
         </ReactFlowProvider>
       ),
-    [canvas, active],
+    [canvas, active, workspace.editor],
   )
   if (failed)
     return (
