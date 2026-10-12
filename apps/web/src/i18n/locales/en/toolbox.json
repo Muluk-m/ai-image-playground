@@ -33,7 +33,7 @@
       "options": "3×3 · 2×2 · 1×3"
     },
     "export": {
-      "name": "Resize & export",
+      "name": "Resize",
       "options": "Proportional size · Scale · Format"
     }
   },
@@ -132,6 +132,7 @@
     "width": "Width",
     "height": "Height",
     "reset": "Reset to original size",
+    "ratioLock": "Lock aspect ratio",
     "by": {
       "original": "Original size",
       "width": "By width",
