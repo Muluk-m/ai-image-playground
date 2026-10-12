@@ -29,15 +29,6 @@
     "maskFirstHint": "The mask image has to be the first one",
     "onlyOneMask": "Only one mask image is allowed",
     "addMask": "Add mask",
-    "clearAllTitle": "Clear all input images",
-    "clearReferencesTitle": "Clear reference images",
-    "clearWithMaskMessage_one": "Clear the mask image, {{count}} reference image and the current mask?",
-    "clearWithMaskMessage_other": "Clear the mask image, {{count}} reference images and the current mask?",
-    "clearReferencesMessage_one": "Clear the {{count}} reference image?",
-    "clearReferencesMessage_other": "Clear all {{count}} reference images?",
-    "clearAllTooltip": "Clear the mask image, reference images and mask",
-    "clearReferencesTooltip": "Clear all reference images",
-    "clearAllLabel": "Clear all",
     "insertMention": "Insert reference",
     "saveAsAsset": "Save as asset",
     "limitReached_one": "Limit reached: {{count}} image",
@@ -190,6 +181,7 @@
     "select": "Select",
     "projectActions": "Project actions",
     "start": "Start creating",
-    "newProject": "New project"
+    "newProject": "New project",
+    "references": "References ({{count}})"
   }
 }

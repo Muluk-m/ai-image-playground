@@ -26,13 +26,6 @@
     "maskFirstHint": "遮罩图必须为第一张图",
     "onlyOneMask": "只能有一张遮罩图",
     "addMask": "添加遮罩",
-    "clearAllTitle": "清空全部输入图",
-    "clearReferencesTitle": "清空参考图",
-    "clearWithMaskMessage_other": "确定要清空遮罩主图、{{count}} 张参考图和当前遮罩吗？",
-    "clearReferencesMessage_other": "确定要清空全部 {{count}} 张参考图吗？",
-    "clearAllTooltip": "清空遮罩主图、参考图和遮罩",
-    "clearReferencesTooltip": "清空全部参考图",
-    "clearAllLabel": "清空全部",
     "insertMention": "插入引用",
     "saveAsAsset": "存为素材",
     "limitReached_other": "已达上限 {{count}} 张",
@@ -182,6 +175,7 @@
     "select": "选择",
     "projectActions": "项目操作",
     "start": "开始创作",
-    "newProject": "新建项目"
+    "newProject": "新建项目",
+    "references": "参考素材（{{count}}）"
   }
 }

@@ -1,3 +1,5 @@
+import { openReferenceStack } from '../../../helpers/radix'
+
 // @vitest-environment jsdom
 
 vi.mock('../../../../lib/imagePreprocessing', async () => ({
@@ -358,7 +360,7 @@ describe('项目输入框里的素材位', () => {
     pickStarter()
     await pickAsset('红色马克杯')
 
-    click(host.querySelector('button[aria-label="移除参考图 红色马克杯"]')!)
+    click(openReferenceStack(host).querySelector('button[aria-label="移除参考图 红色马克杯"]')!)
     expect(slotChip()?.hasAttribute('data-filled')).toBe(false)
     expect(slotChip()?.textContent).toBe('商品素材')
 
