@@ -17,6 +17,19 @@ describe('parseAgentCanvasSnapshot', () => {
     expect(parsed?.omitted).toBe(2)
   })
 
+  it('keeps a video id only when it is an artifact id', () => {
+    const base = { type: 'image', x: 0, y: 0, width: 10, height: 10 }
+    const kept = parseAgentCanvasSnapshot({
+      elements: [{ ...base, id: 'clip', videoId: 'agent_task-1_0' }],
+    })
+    expect(kept?.elements[0]).toMatchObject({ video: true, videoId: 'agent_task-1_0' })
+    const dropped = parseAgentCanvasSnapshot({
+      elements: [{ ...base, id: 'cover', video: true, videoId: 'not-a-video' }],
+    })
+    expect(dropped?.elements[0]).toMatchObject({ video: true })
+    expect(dropped?.elements[0]).not.toHaveProperty('videoId')
+  })
+
   it('keeps an empty directory and ignores a payload that is not one', () => {
     expect(parseAgentCanvasSnapshot({ elements: [] })).toEqual({ elements: [] })
     expect(parseAgentCanvasSnapshot(null)).toBeUndefined()

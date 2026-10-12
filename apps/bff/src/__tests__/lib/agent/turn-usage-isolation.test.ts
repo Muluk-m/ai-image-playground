@@ -25,7 +25,9 @@ process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 // 同日 arrangeCanvas 的声明和指引，加上 readCanvas 目录那两句，再抬约 548。
 // 下沿约 7478，按原先约 350 的带宽上沿约 7828，取中。
 // 2026-09-30 多区域编辑与具体执行说明扩大固定上下文约 400 tokens，保持摘要重建测试的余量。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '8150'
+// 2026-10-12 viewVideo 的声明和指引把固定开销抬了约 283。压缩后的请求约 6932，
+// 窗口 8483（阈值 6983）留出不到一条历史消息的空隙，压缩仍会触发。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '8483'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,

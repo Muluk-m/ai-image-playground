@@ -217,6 +217,29 @@ describe('改参数重新生成', () => {
     expect(mocks.draft.setAspectRatio).toHaveBeenCalledWith('9:16')
   })
 
+  it('loads old Grok presets into Lite after the catalog replacement', () => {
+    const modelId = 'grok-imagine-video-1.5-lite'
+    mocks.options.current = [
+      { channelId: 'grok-video', modelId, label: 'Lite', support: VIDEO_MODEL_SUPPORT[modelId] },
+    ]
+    expect(actions.loadGenerationIntoDraft({ ...GENERATED, model: GROK })).toBe(true)
+    expect(mocks.draft.setModel).toHaveBeenCalledWith(modelId)
+    expect(mocks.draft.setResolution).toHaveBeenCalledWith('1080p')
+    expect(mocks.draft.setDuration).toHaveBeenCalledWith(8)
+    expect(mocks.draft.setAspectRatio).toHaveBeenCalledWith('9:16')
+  })
+
+  it('does not silently remove preset voices when migrating an old Grok generation to Lite', () => {
+    const modelId = 'grok-imagine-video-1.5-lite'
+    mocks.options.current = [
+      { channelId: 'grok-video', modelId, label: 'Lite', support: VIDEO_MODEL_SUPPORT[modelId] },
+    ]
+    expect(actions.loadGenerationIntoDraft({ ...GENERATED, model: GROK, voices: ['eva'] })).toBe(
+      false,
+    )
+    expect(mocks.draft.setModel).not.toHaveBeenCalled()
+  })
+
   it('leaves the draft alone when the recorded model is not available here', () => {
     mocks.options.current = mocks.options.current.filter(
       (one) => (one as { modelId: string }).modelId !== SEEDANCE,

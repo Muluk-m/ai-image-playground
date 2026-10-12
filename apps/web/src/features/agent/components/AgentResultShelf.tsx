@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
@@ -88,9 +89,14 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
       <div className="studio-result-shelf-head">
         <strong>{t('resultShelf.title')}</strong>
         <span>{t('resultShelf.count', { count: groups.length })}</span>
-        <button type="button" onClick={() => setExpanded((value) => !value)}>
+        <Button
+          type="button"
+          variant="ghost"
+          className="ml-auto h-auto px-1 py-0 text-xs font-normal text-muted-foreground"
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? t('resultShelf.collapse') : t('resultShelf.expand')}
-        </button>
+        </Button>
       </div>
       {expanded && (
         <div className="studio-result-shelf-items">
@@ -98,11 +104,12 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
             const ids = resultIds(message)
             const placed = ids.every((id) => agentCanvasSink()?.has(id))
             return (
-              <button
+              <Button
                 key={message.id}
                 type="button"
+                variant="ghost"
                 onClick={() => void onSelect(message)}
-                className="studio-result-shelf-item"
+                className="studio-result-shelf-item h-auto justify-start gap-2 rounded-lg border border-border bg-card p-1 text-left text-xs font-normal hover:border-primary/60 hover:bg-card"
                 title={message.title}
               >
                 {previews[message.id] ? (
@@ -116,17 +123,18 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
                     {placed ? t('resultShelf.locate') : t('resultShelf.place')}
                   </span>
                 </span>
-              </button>
+              </Button>
             )
           })}
           {visibleCount < groups.length && (
-            <button
+            <Button
               type="button"
-              className="studio-result-shelf-more"
+              variant="ghost"
+              className="studio-result-shelf-more h-auto self-stretch rounded-lg border border-dashed border-border px-2 py-1 text-label-sm font-normal text-muted-foreground hover:border-primary/60 hover:bg-transparent hover:text-foreground"
               onClick={() => setVisibleCount((count) => count + 8)}
             >
               {t('resultShelf.more', { count: Math.min(8, groups.length - visibleCount) })}
-            </button>
+            </Button>
           )}
         </div>
       )}
