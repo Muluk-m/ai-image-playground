@@ -1,4 +1,4 @@
-import { Download, Images, LoaderCircle, Minus, Plus, RotateCcw } from 'lucide-react'
+import { Download, Images, LoaderCircle, Lock, Minus, Plus } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { TooltipIconButton } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../components/ui/button'
@@ -24,6 +24,16 @@ import {
   type SizeMode,
 } from './export'
 
+function sharedOriginalSize(sources: readonly ExportSource[]) {
+  const images = sources.filter((source) => source.media === 'image')
+  const first = images[0]
+  if (!first?.width || !first.height) return null
+  if (images.length < 2) return null
+  return images.every((source) => source.width === first.width && source.height === first.height)
+    ? { width: first.width, height: first.height }
+    : null
+}
+
 const formats = ['image/png', 'image/jpeg', 'image/webp', 'image/avif'] as const
 const FIELD = 'h-9 rounded-lg border-transparent bg-muted shadow-none'
 const ICON_BUTTON =
@@ -39,12 +49,6 @@ export default function ExportForm({
   onBusyChange?: (busy: boolean) => void
 }) {
   const { t } = useTranslation('toolbox')
-  const modeLabels = {
-    original: t('export.by.original'),
-    width: t('export.by.width'),
-    height: t('export.by.height'),
-    percent: t('export.by.percent'),
-  }
   const axisLabels = { width: t('export.width'), height: t('export.height') }
   const [settings, setSettings] = useState<ExportSettings>({
     mode: 'original',
@@ -108,11 +112,13 @@ export default function ExportForm({
   const images = sources.filter((one) => one.media === 'image').length
   const count = images * settings.rows.length + sources.length - images
   const busy = progress !== null
+  // 多张且尺寸一致时，直接用导入时读到的原像素，不必为了展示再解码一遍。
+  const knownSize = single ? dimensions : sharedOriginalSize(sources)
   const outputSize = (scale: number) =>
-    dimensions
+    knownSize
       ? exportSize(
-          dimensions.width,
-          dimensions.height,
+          knownSize.width,
+          knownSize.height,
           settings.mode,
           settings.value > 0 ? settings.value : 1,
           scale,
@@ -202,70 +208,36 @@ export default function ExportForm({
         {images > 0 && (
           <fieldset disabled={busy} className="space-y-6">
             <Section title={t('export.size')}>
-              {single ? (
-                <div className="flex gap-2">
-                  {(['width', 'height'] as const).map((axis) => (
-                    <Affix key={axis} before={axis === 'width' ? 'W' : 'H'}>
-                      <Input
-                        id={`export-${axis}`}
-                        type="number"
-                        min={1}
-                        step={1}
-                        className={cn(FIELD, 'pl-8 tabular-nums')}
-                        aria-label={axisLabels[axis]}
-                        value={sizeDraft?.field === axis ? sizeDraft.text : (size?.[axis] ?? '')}
-                        disabled={!size}
-                        onChange={(event) => changeSize(axis, event.target.value)}
-                        aria-invalid={sizeDraft?.field === axis && invalid}
-                      />
-                    </Affix>
-                  ))}
-                  <TooltipIconButton
-                    className={ICON_BUTTON}
-                    tooltip={t('export.reset')}
-                    disabled={settings.mode === 'original' && !sizeDraft}
-                    onClick={() => changeMode('original')}
-                  >
-                    <RotateCcw />
-                  </TooltipIconButton>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <Select
-                    value={settings.mode}
-                    onValueChange={(value) => changeMode(value as SizeMode)}
-                    disabled={busy}
-                  >
-                    <SelectTrigger
-                      aria-label={t('export.size')}
-                      className={cn(FIELD, 'min-w-0 flex-1')}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent data-shadcn-modal className="z-[1400]">
-                      {(['original', 'width', 'height', 'percent'] as const).map((mode) => (
-                        <SelectItem key={mode} value={mode}>
-                          {modeLabels[mode]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {settings.mode !== 'original' && (
-                    <Affix after={settings.mode === 'percent' ? '%' : 'px'}>
-                      <Input
-                        id="export-size-value"
-                        type="number"
-                        min={1}
-                        className={cn(FIELD, 'pr-9 tabular-nums')}
-                        aria-label={modeLabels[settings.mode]}
-                        value={sizeDraft?.field === settings.mode ? sizeDraft.text : settings.value}
-                        onChange={(event) => changeSize(settings.mode, event.target.value)}
-                        aria-invalid={invalid}
-                      />
-                    </Affix>
-                  )}
-                </div>
-              )}
+              <div className="flex gap-2">
+                {(['width', 'height'] as const).map((axis) => (
+                  <Affix key={axis} before={axis === 'width' ? 'W' : 'H'}>
+                    <Input
+                      id={`export-${axis}`}
+                      type="number"
+                      min={1}
+                      step={1}
+                      className={cn(FIELD, 'pl-8 tabular-nums')}
+                      aria-label={axisLabels[axis]}
+                      value={sizeDraft?.field === axis ? sizeDraft.text : (size?.[axis] ?? '')}
+                      disabled={single && !size}
+                      onChange={(event) => changeSize(axis, event.target.value)}
+                      aria-invalid={sizeDraft?.field === axis && invalid}
+                    />
+                  </Affix>
+                ))}
+                <TooltipIconButton
+                  className={ICON_BUTTON}
+                  tooltip={
+                    settings.mode === 'original' && !sizeDraft
+                      ? t('export.ratioLock')
+                      : t('export.reset')
+                  }
+                  aria-pressed={settings.mode === 'original' && !sizeDraft}
+                  onClick={() => changeMode('original')}
+                >
+                  <Lock />
+                </TooltipIconButton>
+              </div>
             </Section>
             <Section
               title={t('export.outputs')}
