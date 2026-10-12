@@ -281,7 +281,12 @@ export function RatioGrid({
   onChange: (value: string) => void
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('grid grid-cols-5 gap-0.5', GRID_TRACK)}>
+    <div
+      role="group"
+      aria-label={label}
+      className={cn('grid gap-0.5', GRID_TRACK)}
+      style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 5)}, minmax(0, 1fr))` }}
+    >
       {options.map((option) => (
         <button
           key={option.value}

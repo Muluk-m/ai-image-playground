@@ -200,6 +200,20 @@ const paramsSchema = t.Optional(
         ),
       }),
     ),
+    video: t.Optional(
+      t.Object({
+        model: t.String({ minLength: 1, maxLength: 128 }),
+        durationSeconds: t.Number({ minimum: 1, maximum: 60 }),
+        aspectRatio: t.Union([t.Literal('16:9'), t.Literal('9:16'), t.Literal('1:1')]),
+        resolution: t.Union([
+          t.Literal('480p'),
+          t.Literal('720p'),
+          t.Literal('1080p'),
+          t.Literal('2k'),
+        ]),
+        voiceIds: t.Optional(t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 16 })),
+      }),
+    ),
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
     /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */

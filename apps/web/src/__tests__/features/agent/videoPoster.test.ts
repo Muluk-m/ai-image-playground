@@ -22,7 +22,10 @@ it('waits for slow first-frame data beyond the previous eight-second cutoff', as
   const promise = captureVideoPoster('https://example.test/slow-first-frame')
   expect(video?.preload).toBe('auto')
   await vi.advanceTimersByTimeAsync(10_300)
+  Object.defineProperty(video, 'duration', { value: 15 })
   video!.dispatchEvent(new Event('loadeddata'))
+  expect(video!.currentTime).toBe(0.1)
+  video!.dispatchEvent(new Event('seeked'))
   await expect(promise).resolves.toBe('data:image/jpeg;base64,frame')
 })
 it('gives up on a first frame that never arrives', async () => {

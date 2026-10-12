@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   composeNodePrompt,
   incomingReferences,
+  linkFromDrag,
 } from '../../../../features/canvas/lib/nodeCanvasFlow'
 
 const image = (id: string, name?: string): CanvasNode => ({
@@ -24,6 +25,21 @@ const text = (id: string, value: string): CanvasNode => ({
   height: 10,
   z: 1,
   data: { text: value, fontSize: 32, fill: '#fff' },
+})
+
+describe('dragged wires', () => {
+  it('connects the node the wire is dropped on', () => {
+    expect(linkFromDrag({ nodeId: 'a', handleType: 'source' }, 'b')).toEqual({
+      source: 'a',
+      target: 'b',
+    })
+    expect(linkFromDrag({ nodeId: 'b', handleType: 'target' }, 'a')).toEqual({
+      source: 'a',
+      target: 'b',
+    })
+    expect(linkFromDrag({ nodeId: 'a', handleType: 'source' }, 'a')).toBeNull()
+    expect(linkFromDrag({ nodeId: 'a', handleType: 'source' }, null)).toBeNull()
+  })
 })
 
 describe('incoming references', () => {

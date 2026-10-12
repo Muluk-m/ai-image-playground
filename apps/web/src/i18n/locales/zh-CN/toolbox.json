@@ -33,7 +33,7 @@
       "options": "3×3 · 2×2 · 1×3"
     },
     "export": {
-      "name": "尺寸与导出",
+      "name": "尺寸调整",
       "options": "等比缩放 · 倍图 · 格式"
     }
   },
@@ -127,12 +127,7 @@
     "width": "宽度",
     "height": "高度",
     "reset": "恢复原始尺寸",
-    "by": {
-      "original": "原始尺寸",
-      "width": "按宽度",
-      "height": "按高度",
-      "percent": "按百分比"
-    },
+    "ratioLock": "锁定比例",
     "outputs": "导出规格",
     "addRow": "添加规格",
     "removeRow": "移除规格",

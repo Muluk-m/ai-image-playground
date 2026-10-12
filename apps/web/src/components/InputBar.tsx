@@ -1,13 +1,16 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import AgentParamsChip, {
+  AgentExecutionSettings,
+} from '../features/agent/components/AgentParamsChip'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
-import AssetHint from '../features/library/components/AssetHint'
-import { applyLookToComposer, useActiveLook } from '../features/library/lib/activeLook'
+import CanvasVideoParams from '../features/canvas/components/CanvasVideoParams'
+import { useActiveLook } from '../features/library/lib/activeLook'
 import {
   type AtMentionValue,
   buildAtMentionGroups,
@@ -26,6 +29,8 @@ import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import { describeError, useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { isVideoModeAvailable } from '../lib/channels/videoChannels'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
@@ -60,7 +65,13 @@ import {
 } from '../store'
 import type { InputImage } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
-import LookChips, { LookCapsule } from './LookChips'
+import {
+  CreationBody,
+  CreationFrame,
+  CreationModePicker,
+  CreationToolbar,
+} from './creation/CreationFrame'
+import { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
 import ContextMenu, { ContextMenuItem } from './patterns/ContextMenu'
@@ -69,13 +80,6 @@ import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
-
-const TEXTAREA_CLASS =
-  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 pr-9 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] text-foreground'
-
-// 输入框底栏的方形工具按钮（附图、素材库、存模板），配 icon-lg：首页输入框的控件是 40 档。
-const COMPOSER_TOOL_CLASS =
-  'h-10 w-10 shrink-0 rounded-xl border-border/80 bg-card/70 text-muted-foreground'
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -104,7 +108,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setAppMode = useStore((s) => s.setAppMode)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
-  const startNamingTemplate = useLibraryStore((s) => s.startNamingTemplate)
   const assets = useLibraryStore((s) => s.assets)
   const loadAssets = useLibraryStore((s) => s.loadAssets)
   const attachAsset = useLibraryStore((s) => s.attachAsset)
@@ -129,9 +132,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const [sizeHintVisible, setSizeHintVisible] = useState(false)
   const [qualityHintVisible, setQualityHintVisible] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
-  const [mobileCollapsed, setMobileCollapsed] = useState(false)
-  // 整张输入卡片折叠：折叠后只剩 mini bar（prompt 摘要 + 生成 + 展开按钮），让背景任务卡片露出来。
-  const [barCollapsed, setBarCollapsed] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [thumbMenu, setThumbMenu] = useState<{
     index: number
@@ -148,8 +148,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     x: number
     y: number
   } | null>(null)
-  const handleRef = useRef<HTMLDivElement>(null)
-  const dragTouchRef = useRef({ startY: 0, moved: false })
   const imageDragIndexRef = useRef<number | null>(null)
   const imageTouchDragRef = useRef({
     index: null as number | null,
@@ -211,9 +209,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
   const createTarget = useStore((s) => s.createTarget)
   const toCanvas = inline && createTarget !== 'generate'
+  const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
   // 技能只有画布里的智能体认得。生成档开头挂着 `/技能` 时不提交：否则这行命令会被当成提示词直接拿去出图。
-  const skills = useAgentSkills('image')
+  const skills = useAgentSkills(creationMode === 'video' ? 'video' : 'image')
   const leadingSkill = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
   const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
@@ -230,7 +229,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submit = () => {
     if (lookSubmitting) return
     if (toCanvas)
-      void startCanvasFromComposer(undefined, createTarget === 'chat' ? 'chat' : 'canvas')
+      void startCanvasFromComposer(
+        undefined,
+        createTarget === 'chat' ? 'chat' : 'canvas',
+        creationMode === 'video' ? 'video' : 'image',
+      )
     else if (activeLook) void submitWithLook(activeLook, lookBody)
     else submitTask()
   }
@@ -247,10 +250,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : maskDraft
         ? t('submit.maskEdit')
         : generateLabel
-  const compactSubmitLabel =
-    !lookSubmitting && !toCanvas && !maskDraft && submitImageCount <= 1
-      ? t('submit.generateImage')
-      : submitLabel
   const submitTitle =
     submissionGuard.disabledReason ??
     (toCanvas
@@ -727,7 +726,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
     // 卡片内除 textarea 外的固定占用（图片 thumbs + 参数行 + padding 等），用于把
     // textarea 上限限制到「视口 40% 减开销」。
-    const imagesHeight = imagesRef.current?.offsetHeight ?? 0
+    const stacked = el.closest('.creation-body')?.getBoundingClientRect().width
+      ? getComputedStyle(el.closest('.creation-body')!).flexDirection === 'column'
+      : false
+    const imagesHeight = stacked ? (imagesRef.current?.offsetHeight ?? 0) : 0
     const fixedOverhead = imagesHeight + 140
 
     // 1. 关闭过渡动画，设高度为 0 以获取真实的文本内容高度
@@ -774,34 +776,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     window.addEventListener('resize', adjustTextareaHeight)
     return () => window.removeEventListener('resize', adjustTextareaHeight)
   }, [adjustTextareaHeight])
-
-  // 移动端拖动条手势
-  useEffect(() => {
-    const el = handleRef.current
-    if (!el) return
-    const onTouchStart = (e: TouchEvent) => {
-      dragTouchRef.current = { startY: e.touches[0].clientY, moved: false }
-    }
-    const onTouchMove = (e: TouchEvent) => {
-      const dy = e.touches[0].clientY - dragTouchRef.current.startY
-      if (Math.abs(dy) > 10) dragTouchRef.current.moved = true
-      if (dy > 30) setMobileCollapsed(true)
-      if (dy < -30) setMobileCollapsed(false)
-    }
-    const onTouchEnd = () => {
-      if (!dragTouchRef.current.moved) {
-        setMobileCollapsed((v) => !v)
-      }
-    }
-    el.addEventListener('touchstart', onTouchStart, { passive: true })
-    el.addEventListener('touchmove', onTouchMove, { passive: true })
-    el.addEventListener('touchend', onTouchEnd)
-    return () => {
-      el.removeEventListener('touchstart', onTouchStart)
-      el.removeEventListener('touchmove', onTouchMove)
-      el.removeEventListener('touchend', onTouchEnd)
-    }
-  }, [])
 
   const getTouchDropIndex = (touch: React.Touch) => {
     const target = document
@@ -907,10 +881,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       e.dataTransfer.setData('text/plain', String(idx))
       const preview = document.createElement('div')
       preview.style.cssText =
-        'position:fixed;left:-1000px;top:-1000px;width:52px;height:52px;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.25);'
+        'position:fixed;left:-1000px;top:-1000px;width:72px;height:72px;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.25);'
       const previewImg = document.createElement('img')
       previewImg.src = displaySrc
-      previewImg.style.cssText = 'width:52px;height:52px;object-fit:cover;display:block;'
+      previewImg.style.cssText = 'width:72px;height:72px;object-fit:cover;display:block;'
       preview.appendChild(previewImg)
       document.body.appendChild(preview)
       imageDragPreviewRef.current = preview
@@ -1012,7 +986,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         <div
           key={img.id}
           data-input-image-index={idx}
-          className={`relative group inline-block h-[52px] w-[52px] shrink-0 self-start transition-opacity ${isImageDragging ? 'opacity-40' : ''}`}
+          className={`relative group inline-block h-[72px] w-[72px] shrink-0 self-start transition-opacity ${isImageDragging ? 'opacity-40' : ''}`}
           style={{ touchAction: isMaskTarget ? 'auto' : 'none' }}
           draggable={!isMobile}
           onMouseLeave={hideImageHint}
@@ -1036,7 +1010,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             <div className="absolute -right-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
           )}
           <div
-            className={`relative w-[52px] h-[52px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
+            className={`relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
               isMaskTarget ? 'border-2 border-primary' : 'border border-border'
             }`}
             role="button"
@@ -1073,12 +1047,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               </div>
             )}
             {isMaskTarget && (
-              // design-allow arbitrary-font: 52px 缩略图角标，DESIGN.md 允许 7–9px
+              // design-allow arbitrary-font: 72px 缩略图角标，DESIGN.md 允许 7–9px
               <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-semibold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                 MASK
               </span>
             )}
-            {/* design-allow arbitrary-font: 52px 缩略图上的序号角标 */}
+            {/* design-allow arbitrary-font: 72px 缩略图上的序号角标 */}
             <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
               {idx + 1}
             </span>
@@ -1133,7 +1107,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           action: () => clearInputImages(),
         })
       }
-      className="h-[52px] w-[52px] shrink-0 flex-col gap-0.5 rounded-xl border border-dashed border-border p-0 text-muted-foreground hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
+      className="h-[72px] w-[72px] shrink-0 flex-col gap-0.5 rounded-xl border border-dashed border-border p-0 text-muted-foreground hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
       title={maskTargetImage ? t('image.clearAllTooltip') : t('image.clearReferencesTooltip')}
     >
       <Icon name="delete" />
@@ -1145,16 +1119,15 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   const renderImageThumbs = () => {
     return (
-      <div ref={imagesRef}>
-        <AssetHint />
-        <div className="grid grid-cols-[repeat(auto-fill,52px)] justify-between gap-x-2 gap-y-3 mb-3">
+      <div className="contents">
+        <div className="contents">
           {inputImages.map((img, idx) => renderImageThumb(img, idx))}
           {renderClearAllButton()}
         </div>
         {touchDragPreview?.src &&
           createPortal(
             <div
-              className="fixed z-[140] h-[52px] w-[52px] overflow-hidden rounded-xl shadow-xl pointer-events-none opacity-90"
+              className="fixed z-[140] h-[72px] w-[72px] overflow-hidden rounded-xl shadow-xl pointer-events-none opacity-90"
               style={{
                 left: touchDragPreview.x,
                 top: touchDragPreview.y,
@@ -1245,405 +1218,224 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               }
         }
       >
-        <div
-          ref={cardRef}
-          className={`relative rounded-2xl border border-border bg-card text-card-foreground ring-1 ring-hairline backdrop-blur-2xl sm:rounded-3xl ${
-            inline ? 'studio-hero-composer' : 'shadow-popover'
-          } ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
-        >
-          {barCollapsed ? (
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-lg"
-                onClick={() => setBarCollapsed(false)}
-                className="shrink-0 rounded-xl text-muted-foreground"
-                title={t('bar.expand')}
-                aria-label={t('bar.expand')}
-              >
-                <Icon name="chevronUp" />
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setBarCollapsed(false)}
-                className="h-10 min-w-0 flex-1 justify-start rounded-xl px-3 font-normal text-muted-foreground"
-                title={t('bar.expandHint')}
-              >
-                <span className="min-w-0 truncate">
-                  {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
-                </span>
-              </Button>
+        <CreationFrame ref={cardRef} className={isDragging ? 'ring-2 ring-primary' : ''}>
+          <CreationBody
+            referencesRef={imagesRef}
+            references={
+              <>
+                <Button
+                  variant="ghost"
+                  className="creation-add"
+                  aria-label={t('studio.addReference')}
+                  aria-disabled={attachDisabled || undefined}
+                  title={attachDisabled ? attachDisabledReason : t('studio.addReference')}
+                  onClick={(event) => !attachDisabled && openAttachMenu(event)}
+                >
+                  <Icon name="add" />
+                  <span>{t('studio.reference')}</span>
+                </Button>
+                {inputImages.length > 0 && renderImageThumbs()}
+              </>
+            }
+          >
+            {/* 输入框 */}
+            {activeLook && !toCanvas && (
+              <LookCapsule
+                look={activeLook}
+                issue={lookCheck && !lookCheck.ok ? lookCheck : null}
+                onRemove={() => useActiveLook.getState().set(null)}
+              />
+            )}
+            <div className="relative">
+              {openSlot && (
+                <SlotValuePopover
+                  key={openSlot.name}
+                  name={openSlot.name}
+                  values={slotValues[openSlot.name] ?? []}
+                  offsetLeft={openSlot.left}
+                  onChange={(values) => setSlotValues(openSlot.name, values)}
+                  onClose={() => setOpenSlot(null)}
+                />
+              )}
+              {atImageMenu.visible && (
+                <SuggestionMenu
+                  groups={atMentionGroups}
+                  activeIndex={atImageMenu.activeIndex}
+                  offsetLeft={promptEditor.query?.left ?? 0}
+                  onActiveIndexChange={atImageMenu.setActiveIndex}
+                  onSelect={atImageMenu.select}
+                />
+              )}
+              {templateMenu.visible && (
+                <SuggestionMenu
+                  groups={templateMenuGroups}
+                  activeIndex={templateMenu.activeIndex}
+                  offsetLeft={promptEditor.query?.left ?? 0}
+                  onActiveIndexChange={templateMenu.setActiveIndex}
+                  onSelect={templateMenu.select}
+                />
+              )}
+              <PromptEditor
+                editor={promptEditor}
+                placeholder={t(`studio.placeholders.${creationMode}`)}
+                className="creation-prompt"
+                style={{ maxHeight: 'none' }}
+                role="textbox"
+                aria-label={t('studio.prompt')}
+                onClick={(e) => {
+                  const el = e.currentTarget
+                  const target = e.target as HTMLElement
+                  const slotTag = target.closest<HTMLElement>('.slot-tag')
+                  if (slotTag?.dataset.slotName) {
+                    const name = slotTag.dataset.slotName
+                    const chipRect = getSafeBoundingClientRect(slotTag)
+                    const editorRect = getSafeBoundingClientRect(el)
+                    setOpenSlot(
+                      openSlot?.name === name || !chipRect || !editorRect
+                        ? null
+                        : { name, left: chipRect.left - editorRect.left },
+                    )
+                    return
+                  }
+                  if (target.classList.contains('mention-tag')) {
+                    const sel = window.getSelection()
+                    if (sel) {
+                      const range = document.createRange()
+                      range.selectNode(target)
+                      sel.removeAllRanges()
+                      sel.addRange(range)
+                      syncMentionTagSelection(el)
+                    }
+                    return
+                  }
+
+                  syncMentionTagSelection(el)
+                }}
+              />
+              {prompt.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleClearPrompt}
+                  className="absolute right-1 top-1 text-muted-foreground"
+                  title={t('editor.clearPrompt')}
+                  aria-label={t('editor.clearPrompt')}
+                >
+                  <Icon name="close" />
+                </Button>
+              )}
+            </div>
+          </CreationBody>
+          <CreationToolbar
+            action={
               <Hint tooltip={submitBlockedTip}>
-                <div className="relative flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <SubmissionBillingAction
                     blockedAction={submissionGuard.blockedAction}
-                    className="text-label-sm"
+                    className="text-xs"
                   />
                   <Button
-                    type="button"
+                    className="creation-send"
+                    size="icon"
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
-                    className={`h-10 shrink-0 rounded-xl px-4 active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
                     title={submitTitle}
+                    aria-label={submitLabel}
                   >
-                    {lookSubmitting ? stopIcon : <Icon name="generate" />}
-                    <span>{submitLabel}</span>
+                    {lookSubmitting ? stopIcon : <Icon name="send" />}
                   </Button>
                 </div>
               </Hint>
-            </div>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setBarCollapsed(true)}
-                className="absolute right-2 top-2 z-20 bg-card/60 text-muted-foreground backdrop-blur-sm"
-                title={t('bar.collapse')}
-                aria-label={t('bar.collapse')}
-              >
-                <Icon name="chevronDown" size="xs" />
-              </Button>
-              {/* 移动端拖动条 */}
-              <div
-                ref={handleRef}
-                className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none"
-                onClick={() => setMobileCollapsed((v) => !v)}
-              >
-                <div
-                  className={`w-10 h-1 rounded-full bg-muted transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`}
-                />
-              </div>
-
-              {/* 输入图片行（移动端可折叠） */}
-              {inputImages.length > 0 &&
-                (isMobile ? (
-                  <>
-                    <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                      <div className="collapse-inner">{renderImageThumbs()}</div>
-                    </div>
-                    {mobileCollapsed && (
-                      <div className="text-xs text-muted-foreground mb-2 ml-1">
-                        {maskDraft
-                          ? t('image.summaryWithMask', { count: referenceImages.length })
-                          : t('image.summary', { count: inputImages.length })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  renderImageThumbs()
-                ))}
-
-              {/* 输入框 */}
-              {activeLook && !toCanvas && (
-                <LookCapsule
-                  look={activeLook}
-                  issue={lookCheck && !lookCheck.ok ? lookCheck : null}
-                  onRemove={() => useActiveLook.getState().set(null)}
-                />
-              )}
-              <div className="relative">
-                {openSlot && (
-                  <SlotValuePopover
-                    key={openSlot.name}
-                    name={openSlot.name}
-                    values={slotValues[openSlot.name] ?? []}
-                    offsetLeft={openSlot.left}
-                    onChange={(values) => setSlotValues(openSlot.name, values)}
-                    onClose={() => setOpenSlot(null)}
-                  />
-                )}
-                {atImageMenu.visible && (
-                  <SuggestionMenu
-                    groups={atMentionGroups}
-                    activeIndex={atImageMenu.activeIndex}
-                    offsetLeft={promptEditor.query?.left ?? 0}
-                    onActiveIndexChange={atImageMenu.setActiveIndex}
-                    onSelect={atImageMenu.select}
-                  />
-                )}
-                {templateMenu.visible && (
-                  <SuggestionMenu
-                    groups={templateMenuGroups}
-                    activeIndex={templateMenu.activeIndex}
-                    offsetLeft={promptEditor.query?.left ?? 0}
-                    onActiveIndexChange={templateMenu.setActiveIndex}
-                    onSelect={templateMenu.select}
-                  />
-                )}
-                <PromptEditor
-                  editor={promptEditor}
-                  placeholder={t(
-                    toCanvas
-                      ? createTarget === 'chat'
-                        ? 'editor.chatPlaceholder'
-                        : 'editor.canvasPlaceholder'
-                      : 'editor.placeholder',
-                  )}
-                  className={TEXTAREA_CLASS}
-                  onClick={(e) => {
-                    const el = e.currentTarget
-                    const target = e.target as HTMLElement
-                    const slotTag = target.closest<HTMLElement>('.slot-tag')
-                    if (slotTag?.dataset.slotName) {
-                      const name = slotTag.dataset.slotName
-                      const chipRect = getSafeBoundingClientRect(slotTag)
-                      const editorRect = getSafeBoundingClientRect(el)
-                      setOpenSlot(
-                        openSlot?.name === name || !chipRect || !editorRect
-                          ? null
-                          : { name, left: chipRect.left - editorRect.left },
+            }
+          >
+            {inline && (
+              <>
+                <CreationModePicker
+                  value={creationMode}
+                  modes={[
+                    ...(isClientCapabilityEnabled('agent:chat') ? ['agent' as const] : []),
+                    'image',
+                    ...(isVideoModeAvailable() ? ['video' as const] : []),
+                  ]}
+                  onChange={(mode) =>
+                    useStore
+                      .getState()
+                      .setCreateTarget(
+                        mode === 'agent' ? 'chat' : mode === 'video' ? 'video' : 'generate',
                       )
-                      return
-                    }
-                    if (target.classList.contains('mention-tag')) {
-                      const sel = window.getSelection()
-                      if (sel) {
-                        const range = document.createRange()
-                        range.selectNode(target)
-                        sel.removeAllRanges()
-                        sel.addRange(range)
-                        syncMentionTagSelection(el)
-                      }
-                      return
-                    }
-
-                    syncMentionTagSelection(el)
-                  }}
+                  }
                 />
-                {prompt.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={handleClearPrompt}
-                    className="absolute right-1 top-1 text-muted-foreground"
-                    title={t('editor.clearPrompt')}
-                    aria-label={t('editor.clearPrompt')}
-                  >
-                    <Icon name="close" />
-                  </Button>
-                )}
-              </div>
-
-              {/* 参数 + 按钮 */}
-              <div className="mt-3">
-                {/* 桌面端布局 */}
-                <div className="hidden sm:flex flex-wrap items-center gap-2">
-                  <Hint tooltip={attachDisabled ? attachDisabledReason : undefined}>
-                    <div className="relative flex-shrink-0">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-lg"
-                        onClick={(e) => !attachDisabled && openAttachMenu(e)}
-                        aria-disabled={attachDisabled || undefined}
-                        className={`${COMPOSER_TOOL_CLASS} ${attachDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
-                        title={
-                          attachDisabled
-                            ? attachDisabledReason
-                            : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
-                        }
-                      >
-                        <Icon name="attach" />
-                      </Button>
-                    </div>
-                  </Hint>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-lg"
-                    onClick={() => {
-                      useLibraryStore.getState().setTab('assets')
-                      setAppMode('library')
-                    }}
-                    className={COMPOSER_TOOL_CLASS}
-                    title={t('bar.library')}
-                    aria-label={t('bar.library')}
-                  >
-                    <Icon name="assets" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-lg"
-                    onClick={startNamingTemplate}
-                    disabled={!prompt.trim()}
-                    className={COMPOSER_TOOL_CLASS}
-                    title={t('bar.saveTemplate')}
-                    aria-label={t('bar.saveTemplate')}
-                  >
-                    <Icon name="template" />
-                  </Button>
-                  <ParamControls showCount agentManaged={toCanvas} />
-                  {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
-                  <Hint tooltip={submitBlockedTip}>
-                    <div className="relative ml-auto flex flex-shrink-0 items-center gap-2">
-                      <SubmissionBillingAction
-                        blockedAction={submissionGuard.blockedAction}
-                        className="text-xs"
-                      />
-                      <Button
-                        type="button"
-                        onClick={onSubmitClick}
-                        disabled={submitDisabled}
-                        className={`group/gen relative h-12 gap-1.5 overflow-hidden rounded-full pl-4 pr-6 font-semibold leading-none [&_svg]:size-5 transition-all duration-200 active:scale-[0.97] ${
-                          !apiReady
-                            ? 'bg-muted text-muted-foreground'
-                            : 'studio-generate-button disabled:cursor-not-allowed disabled:opacity-100 disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
-                        }`}
-                        title={submitTitle}
-                      >
-                        {apiReady && submitReady && (
-                          <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-                        )}
-                        {lookSubmitting ? (
-                          stopIcon
-                        ) : (
-                          <Icon
-                            name="generate"
-                            size="md"
-                            className="drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
-                          />
-                        )}
-                        <span>{submitLabel}</span>
-                      </Button>
-                    </div>
-                  </Hint>
-                </div>
-
-                {/* 移动端布局 */}
-                <div className="sm:hidden flex flex-col gap-2">
-                  {/* 参数 chip 列：套 collapse-section 让顶部拖动条还能上下拖收起。
-                  attach + 生成按钮保持可见，方便折叠后还能立刻发请求。 */}
-                  <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                    <div className="collapse-inner">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <ParamControls showCount agentManaged={toCanvas} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Hint tooltip={attachDisabled ? attachDisabledReason : undefined}>
-                      <div className="relative">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-lg"
-                          onClick={(e) => !attachDisabled && openAttachMenu(e)}
-                          aria-disabled={attachDisabled || undefined}
-                          className={`${COMPOSER_TOOL_CLASS} ${attachDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
-                          title={
-                            attachDisabled
-                              ? attachDisabledReason
-                              : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
-                          }
-                        >
-                          <Icon name="attach" />
-                        </Button>
-                      </div>
-                    </Hint>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-lg"
-                      onClick={() => {
-                        useLibraryStore.getState().setTab('assets')
-                        setAppMode('library')
-                      }}
-                      className={COMPOSER_TOOL_CLASS}
-                      title={t('bar.library')}
-                      aria-label={t('bar.library')}
-                    >
-                      <Icon name="assets" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-lg"
-                      onClick={startNamingTemplate}
-                      disabled={!prompt.trim()}
-                      className={COMPOSER_TOOL_CLASS}
-                      title={t('bar.saveTemplate')}
-                      aria-label={t('bar.saveTemplate')}
-                    >
-                      <Icon name="template" />
-                    </Button>
-                    <Hint tooltip={submitBlockedTip}>
-                      <div className="relative flex flex-1 items-center gap-2">
-                        <SubmissionBillingAction
-                          blockedAction={submissionGuard.blockedAction}
-                          className="text-label-sm"
-                        />
-                        <Button
-                          type="button"
-                          onClick={onSubmitClick}
-                          disabled={submitDisabled}
-                          className={`h-10 w-full rounded-xl px-3.5 text-xs active:scale-[0.97] ${!apiReady ? 'bg-muted text-muted-foreground hover:bg-muted' : 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'}`}
-                        >
-                          {lookSubmitting ? stopIcon : <Icon name="generate" />}
-                          <span>{compactSubmitLabel}</span>
-                        </Button>
-                      </div>
-                    </Hint>
-                  </div>
-                </div>
-              </div>
-
-              {!toCanvas && <LookChips onPick={applyLookToComposer} />}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                aria-label={t('image.attachImages')}
-                onChange={handleFileUpload}
-              />
-              <input
-                ref={folderInputRef}
-                type="file"
-                // React 的类型里没有这个非标准属性，但 Chrome / Edge / Safari / Firefox 都支持。
-                {...{ webkitdirectory: '' }}
-                multiple
-                className="hidden"
-                aria-label={t('image.attachFolder')}
-                onChange={(e) => {
-                  // 文件夹选出来的是数组快照，排完序再交给同一条入口，清空 input 才能重选同一个文件夹。
-                  const { files } = filesFromFolderInput(e.target.files)
-                  e.target.value = ''
-                  handleFilesRef.current(files)
+                <span className="creation-tool-divider" aria-hidden="true" />
+              </>
+            )}
+            <div className="creation-tools creation-live-controls">
+              {creationMode === 'video' ? (
+                <CanvasVideoParams hasFirstFrame={false}>
+                  <AgentExecutionSettings />
+                </CanvasVideoParams>
+              ) : creationMode === 'agent' ? (
+                <AgentParamsChip />
+              ) : (
+                <ParamControls showCount />
+              )}
+            </div>
+          </CreationToolbar>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            aria-label={t('image.attachImages')}
+            onChange={handleFileUpload}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            // React 的类型里没有这个非标准属性，但 Chrome / Edge / Safari / Firefox 都支持。
+            {...{ webkitdirectory: '' }}
+            multiple
+            className="hidden"
+            aria-label={t('image.attachFolder')}
+            onChange={(e) => {
+              // 文件夹选出来的是数组快照，排完序再交给同一条入口，清空 input 才能重选同一个文件夹。
+              const { files } = filesFromFolderInput(e.target.files)
+              e.target.value = ''
+              handleFilesRef.current(files)
+            }}
+          />
+          {attachMenu && (
+            <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
+              <ContextMenuItem
+                icon={<Icon name="images" />}
+                label={t('image.attachImages')}
+                onClick={() => {
+                  setAttachMenu(null)
+                  fileInputRef.current?.click()
                 }}
               />
-              {attachMenu && (
-                <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
-                  <ContextMenuItem
-                    icon={<Icon name="images" />}
-                    label={t('image.attachImages')}
-                    onClick={() => {
-                      setAttachMenu(null)
-                      fileInputRef.current?.click()
-                    }}
-                  />
-                  <ContextMenuItem
-                    icon={<Icon name="folder" />}
-                    label={t('image.attachFolder')}
-                    onClick={() => {
-                      setAttachMenu(null)
-                      folderInputRef.current?.click()
-                    }}
-                  />
-                </ContextMenu>
-              )}
-            </>
-          )}
-        </div>
+              <ContextMenuItem
+                icon={<Icon name="folder" />}
+                label={t('image.attachFolder')}
+                onClick={() => {
+                  setAttachMenu(null)
+                  folderInputRef.current?.click()
+                }}
+              />
+              <ContextMenuItem
+                icon={<Icon name="assets" />}
+                label={t('studio.library')}
+                onClick={() => {
+                  setAttachMenu(null)
+                  useLibraryStore.getState().setTab('assets')
+                  setAppMode('library')
+                }}
+              />
+            </ContextMenu>
+          )}{' '}
+        </CreationFrame>
       </div>
     </>
   )
