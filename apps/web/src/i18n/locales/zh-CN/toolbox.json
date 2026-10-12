@@ -128,12 +128,6 @@
     "height": "高度",
     "reset": "恢复原始尺寸",
     "ratioLock": "锁定比例",
-    "by": {
-      "original": "原始尺寸",
-      "width": "按宽度",
-      "height": "按高度",
-      "percent": "按百分比"
-    },
     "outputs": "导出规格",
     "addRow": "添加规格",
     "removeRow": "移除规格",
