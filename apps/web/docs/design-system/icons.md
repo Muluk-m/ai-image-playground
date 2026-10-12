@@ -74,6 +74,9 @@ import { Icon } from '@/components/ui/icon'
 | `clear` | 清空输入 | text-cross |
 | `stop` | 停止生成 | stop |
 | `refresh` | 重试、重新生成 | refresh |
+| `speed` | 速度 | bolt |
+| `security` | 安全保障 | shield-check |
+| `back` | 返回 | arrow-left |
 | `upscale` | 高清放大 | maximize-square |
 | `removeBg` | 抠图 | scissors |
 | `brush` | 遮罩、局部重绘 | paint-brush |

@@ -174,7 +174,7 @@ describe('connection recovery', () => {
     expect(host.textContent).toContain('正在准备工作台')
     await advanceRetryClock(1100)
     expect(host.textContent).toContain('连接暂时中断')
-    expect(host.querySelector('.auth-recovery-card')).not.toBeNull()
+    expect(host.querySelector('section[aria-live="polite"]')).not.toBeNull()
 
     channelsAvailable = true
     await advanceRetryClock(2100)
@@ -269,7 +269,7 @@ describe('anonymous startup', () => {
     })
     expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
     await act(async () => {
-      document.body.querySelector<HTMLButtonElement>('.auth-dialog-close')?.click()
+      document.body.querySelector<HTMLButtonElement>('button[aria-label="关闭登录框"]')?.click()
     })
     await vi.waitFor(async () => expect(await hasPendingSubmission()).toBe(false))
     expect(document.body.querySelector('.auth-dialog')).toBeNull()

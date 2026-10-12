@@ -1,6 +1,7 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { RefreshCw, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { Button } from '../components/ui/button'
+import { Icon } from '../components/ui/icon'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
@@ -50,17 +51,20 @@ export function ProblemScreen({
   const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen auth-status-screen--problem">
-      <section className="auth-recovery-card" aria-live="polite">
+      <section
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-left"
+        aria-live="polite"
+      >
         <div className="auth-recovery-icon" aria-hidden="true">
-          <WifiOff size={19} strokeWidth={1.8} />
+          <Icon name="error" size="md" />
         </div>
-        <h1>{title}</h1>
-        <p>{description}</p>
+        <h1 className="text-xl font-semibold">{title}</h1>
+        <p className="mt-2 text-body-sm text-muted-foreground">{description}</p>
         {retry ? (
-          <button type="button" onClick={retry}>
-            <RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
+          <Button type="button" variant="secondary" className="mt-6" onClick={retry}>
+            <Icon name="refresh" />
             {t('status.retry')}
-          </button>
+          </Button>
         ) : null}
       </section>
     </main>

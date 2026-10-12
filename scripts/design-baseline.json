@@ -2,27 +2,6 @@
   "apps/web/src/App.tsx": {
     "arbitrary-font": 1
   },
-  "apps/web/src/auth/AuthGate.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/auth/LoginDialog.tsx": {
-    "inline-svg": 5,
-    "native-control": 8
-  },
-  "apps/web/src/auth/LoginMethodsPanel.tsx": {
-    "arbitrary-font": 2,
-    "native-control": 7
-  },
-  "apps/web/src/auth/RegistrationPanel.tsx": {
-    "glyph-icon": 1,
-    "inline-svg": 1,
-    "native-control": 10
-  },
-  "apps/web/src/auth/SessionExpiredCard.tsx": {
-    "inline-svg": 1,
-    "native-control": 2
-  },
   "apps/web/src/components/ConfirmDialog.tsx": {
     "arbitrary-font": 1,
     "font-weight": 1,
