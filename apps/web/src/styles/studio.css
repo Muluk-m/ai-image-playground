@@ -1001,6 +1001,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
     max-width: none; height: auto; margin: 0; box-shadow: var(--shadow-dialog);
   }
   .studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar { width: 100% !important; }
+  .studio-layout[data-node-canvas="true"] .studio-sidebar > [role="separator"] { display: none; }
 }
 
 /* Node workspace: controls stay at screen scale, media owns the canvas. */
