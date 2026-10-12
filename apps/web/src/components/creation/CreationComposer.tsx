@@ -3,6 +3,7 @@ import { useTranslation } from '../../i18n'
 import { getSelectedImageMentionLabel } from '../../lib/promptImageMentions'
 import {
   RatioGrid,
+  RatioShape,
   SettingsPopover,
   SettingsSection,
   SettingsSegmented,
@@ -96,7 +97,11 @@ export function CreationComposer({
   const modelPicker = (
     <Popover open={modelOpen} onOpenChange={setModelOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="creation-control" aria-label={t('studio.model')}>
+        <Button
+          variant="ghost"
+          className="creation-control creation-model-trigger"
+          aria-label={t('studio.model')}
+        >
           <ModelLogo model={model.id} />
           <span>{model.name}</span>
           <Icon name="chevronDown" />
@@ -278,7 +283,12 @@ export function CreationComposer({
       </div>
       <div className="creation-toolbar">
         <div className="creation-tools">
-          {layout === 'A' && modePicker}
+          {layout === 'A' && (
+            <>
+              {modePicker}
+              <span className="creation-tool-divider" aria-hidden="true" />
+            </>
+          )}
           {modelPicker}
           {layout !== 'C' && (
             <div className="creation-parameter-summary">
@@ -288,7 +298,13 @@ export function CreationComposer({
                   .filter((p) => p.id !== 'quality')
                   .map((p) => selection.values[p.id] ?? p.initial)
                   .join(' · ')}
-                icon={<Icon name="settingsAdjust" />}
+                icon={
+                  selection.values.ratio ? (
+                    <RatioShape ratio={selection.values.ratio} />
+                  ) : (
+                    <Icon name="settingsAdjust" />
+                  )
+                }
                 onReset={() => dispatch({ type: 'model', model })}
               >
                 {() => parameters}
