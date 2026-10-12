@@ -174,5 +174,39 @@
       "medium": "Medium",
       "high": "High"
     }
+  },
+  "studio": {
+    "type": "Creation type",
+    "modes": {
+      "agent": "Agent",
+      "image": "Image",
+      "video": "Video"
+    },
+    "model": "Choose model",
+    "parameters": "Parameters",
+    "reference": "Reference",
+    "addReference": "Add reference",
+    "upload": "Upload images",
+    "library": "Add from assets",
+    "canvas": "Select from canvas",
+    "mention": "Mention reference",
+    "remove": "Remove",
+    "composer": "Creation composer",
+    "prompt": "Describe your idea",
+    "placeholders": {
+      "agent": "Share your idea and create with Agent.",
+      "image": "Add references, enter text or @ an asset to describe your image.",
+      "video": "Add references and describe the camera, motion and atmosphere."
+    },
+    "expand": "Expand composer",
+    "collapse": "Collapse composer",
+    "noReferences": "Add an asset to mention it",
+    "send": "Generate",
+    "moreTemplates": "More templates",
+    "preview": "Preview",
+    "select": "Select",
+    "projectActions": "Project actions",
+    "start": "Start creating",
+    "newProject": "New project"
   }
 }
