@@ -220,7 +220,7 @@ describe('部署做不了视频时', () => {
     await settle()
 
     // 服务端在这种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
-    expect(document.querySelector('[aria-label^="创作类型"]')).toBeNull()
+    expect(document.querySelector('[aria-label^="创作类型"]')?.textContent).toContain('Agent')
     expect(host.textContent).not.toContain('视频')
     type('画一只猫')
     click('发送并拟提示词')

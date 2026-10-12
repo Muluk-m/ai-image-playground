@@ -1,6 +1,6 @@
 # UI 改版验收 Demo
 
-状态：等待用户验收，不合并、不上线。
+状态：用户已验收 A 方案并授权上线；真实业务接入完成，发布及线上验收结果见对应 PR。
 
 ## 范围与验收
 
@@ -9,7 +9,7 @@
 | UI-001 | 模板入口冗余 | 根据首轮验收反馈移除整行模板入口，Composer 以工具栏收尾 |
 | UI-002 | Composer 布局与基础变体 | Agent、图片、视频复用 CreationComposer，类型分别提供模型与参数；支持素材、模型、参数弹层；移除展开及重复引用按钮 |
 | UI-003 | 切类型不丢内容和设置 | 输入文字、添加素材、设置图片模型和比例，切视频设置时长，再切 Agent，最后切回验证 |
-| UI-004 | 视频卡片无预览图 | Demo 视频场景使用现有 VideoPlayer、公开样片及对应 poster，检查未播放时封面、播放、刷新；生产缺失 poster 的原因未排查 |
+| UI-004 | 视频卡片无预览图 | Demo 视频场景使用现有 VideoPlayer、公开样片及对应 poster，检查未播放时封面、播放、刷新；正式播放器改为定位解码后的帧再截取，避免加载事件过早缓存黑图 |
 | UI-005 | 项目封面填充边与空态难看 | 项目列表采用 16:9 封面等比裁切，无模糊补边；名称与时间置于封面下；包含图片、视频、无封面与对话 |
 | UI-006 | 资产库缩略图拉伸 | 紧凑侧栏与缩略图网格；object-fit: cover 保比例裁切，点击预览完整原图；支持分类、搜索、选中、添加 |
 
@@ -23,7 +23,7 @@
 
 ## 实现与边界
 
-共享源码：`components/creation/CreationComposer.tsx`、`draft.ts`、`MediaGallery.tsx`、`creation.css`。
+共享源码：`components/creation/CreationFrame.tsx`、`CreationComposer.tsx`、`draft.ts`、`MediaGallery.tsx`、`creation.css`。
 现有复用：PromptEditor 与引用哨兵/胶囊、MediaImage、ModelLogo、ProjectCover、VideoPlayer、BrandAvatar、shadcn Button/Select/Popover/Input、主题 token、字体及现有 public 资源。
 
 `features/creation-review` 仅包含演示宿主、样例数据与验收工具栏。上线时业务入口使用相同共享组件与 CSS，接入实际模型能力、草稿及提交链路；不另写一份视觉近似实现。
@@ -40,7 +40,7 @@ pnpm --filter @image-playground/web dev --host 127.0.0.1 --port 5179 --strictPor
 
 打开 `http://127.0.0.1:5179/?prototype=creation-review&variant=A`（B / C 可切换）。
 
-用户验收后再接入真实业务、排查生产视频封面链路，完成 CI、发布与线上验收。
+正式入口复用 CreationFrame / CreationBody / CreationToolbar / CreationModePicker 与 ProjectCardSurface。首页和项目输入框保留各自既有上传、草稿与提交路径；首页图片直出可选张数，Agent 对话内的图片数量仍由工具决定。视频模型与参数随本轮请求冻结并传入确认草稿和任务。
 
 ## 已验证
 
