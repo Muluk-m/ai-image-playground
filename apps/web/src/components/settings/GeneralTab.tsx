@@ -1,14 +1,13 @@
-import { CornerDownLeft, Eraser, RefreshCw, RotateCcw } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useStore } from '../../store'
 import { SettingRow } from '../patterns/SettingRow'
 import { Switch } from '../patterns/Switch'
+import { Icon } from '../ui/icon'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import SettingsSection from './SettingsSection'
 
 const SUBMIT_WITH_ENTER = 'enter'
 const SUBMIT_WITH_MODIFIER = 'ctrl-enter'
-const ROW_ICON = 'h-[18px] w-[18px]'
 const SECTION_CARD =
   'divide-y divide-border/60 rounded-2xl border border-border bg-card px-4 shadow-sm'
 
@@ -24,7 +23,7 @@ export default function GeneralTab() {
         {/* 移动端没有第二种提交键可选。 */}
         <SettingRow
           className="hidden sm:flex"
-          icon={<CornerDownLeft className={ROW_ICON} />}
+          icon={<Icon name="shortcut" />}
           label={t('general.submitShortcut')}
           hint={
             settings.enterSubmit ? t('general.newlineWithShift') : t('general.newlineWithEnter')
@@ -47,7 +46,7 @@ export default function GeneralTab() {
           }
         />
         <SettingRow
-          icon={<Eraser className={ROW_ICON} />}
+          icon={<Icon name="clear" />}
           label={t('general.clearInputAfterSubmit')}
           control={
             <Switch
@@ -58,7 +57,7 @@ export default function GeneralTab() {
           }
         />
         <SettingRow
-          icon={<RotateCcw className={ROW_ICON} />}
+          icon={<Icon name="undo" />}
           label={t('general.persistInput')}
           control={
             <Switch
@@ -69,7 +68,7 @@ export default function GeneralTab() {
           }
         />
         <SettingRow
-          icon={<RefreshCw className={ROW_ICON} />}
+          icon={<Icon name="refresh" />}
           label={t('general.alwaysShowRetry')}
           control={
             <Switch

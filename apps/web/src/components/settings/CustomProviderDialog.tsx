@@ -5,8 +5,11 @@ import { profileSeedNames } from '../../lib/profileSeedNames'
 import { useStore } from '../../store'
 import type { CustomProviderDefinition } from '../../types'
 import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
-import { CloseIcon, LinkIcon } from '../icons'
 import Overlay from '../patterns/Overlay'
+import { Button } from '../ui/button'
+import { Icon } from '../ui/icon'
+import { Label } from '../ui/label'
+import { Textarea } from '../ui/textarea'
 
 export interface CustomProviderForm {
   json: string
@@ -212,37 +215,25 @@ export default function CustomProviderDialog({
     <Overlay onClose={onClose} tier="raised">
       <div className="relative z-10 w-full max-w-md rounded-3xl border bg-card/95 p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
         <div className="mb-5 flex items-center justify-between gap-4 shrink-0">
-          <h3 className="text-base font-bold text-foreground">
+          <h3 className="text-xl font-semibold text-foreground">
             {editing ? t('provider.editCustom') : t('provider.createCustom')}
           </h3>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
-              aria-label={tCommon('action.close')}
-            >
-              <CloseIcon className="h-5 w-5" />
-            </button>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            className="text-muted-foreground"
+            aria-label={tCommon('action.close')}
+          >
+            <Icon name="close" />
+          </Button>
         </div>
 
         <div className="flex-1 flex flex-col min-h-0 px-1 -mx-1 pb-2">
           <div className="mb-6 shrink-0 rounded-2xl bg-card/80 p-4 border border-border/60 border-border">
             <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
-              <svg
-                className="h-4 w-4 text-primary"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
+              <Icon name="generate" className="text-primary" />
               {t('customProvider.aiGenerate')}
             </div>
             <div
@@ -253,60 +244,42 @@ export default function CustomProviderDialog({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Hint tooltip={t('customProvider.copyPromptTooltip')} className="w-56 text-center">
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={copyCustomProviderLlmPrompt}
                   aria-label={t('customProvider.copyPromptAria')}
-                  className="relative inline-flex"
                 >
-                  <LinkIcon className="h-3.5 w-3.5" />
+                  <Icon name="copy" />
                   {t('customProvider.copyPrompt')}
-                </button>
+                </Button>
               </Hint>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={onPasteImport}
                 disabled={importing}
-                className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed border-border dark:hover:text-white"
               >
-                {importing ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    {t('data.importing')}
-                  </>
-                ) : (
-                  t('customProvider.pasteImport')
-                )}
-              </button>
+                {importing ? <Icon name="loading" className="animate-spin" /> : null}
+                {importing ? t('data.importing') : t('customProvider.pasteImport')}
+              </Button>
             </div>
           </div>
 
           <div className="flex-1 flex flex-col min-h-0">
-            <label className="flex-1 flex flex-col min-h-0">
-              <span className="mb-1 shrink-0 block text-xs text-muted-foreground">
+            <Label className="flex min-h-0 flex-1 flex-col font-normal leading-normal">
+              <span className="mb-1 block shrink-0 text-xs text-muted-foreground">
                 {t('customProvider.manualEdit')}
               </span>
-              <textarea
+              <Textarea
                 value={form.json}
                 onChange={(e) => onFormChange({ json: e.target.value })}
                 spellCheck={false}
-                className="flex-1 min-h-[150px] w-full resize-none rounded-xl border border-border/70 bg-card/60 px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none transition focus:border-primary border-border custom-scrollbar"
+                className="flex-1 resize-none font-mono text-xs leading-relaxed custom-scrollbar"
               />
-            </label>
+            </Label>
           </div>
 
           {error && (
@@ -319,20 +292,12 @@ export default function CustomProviderDialog({
           )}
         </div>
         <div className="mt-4 flex justify-end gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl bg-muted px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
             {tCommon('action.cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-          >
+          </Button>
+          <Button type="button" size="sm" onClick={onSave}>
             {editing ? t('customProvider.saveEdit') : t('customProvider.createAndUse')}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>
