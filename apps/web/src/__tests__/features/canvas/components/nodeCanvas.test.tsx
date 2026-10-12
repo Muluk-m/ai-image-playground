@@ -19,8 +19,10 @@ const mocks = vi.hoisted(() => ({ open: vi.fn(), importImages: vi.fn(async () =>
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
   openNodeCanvasDocument: mocks.open,
 }))
-vi.mock('../../../../features/canvas/lib/importImages', () => ({
-  importImageFiles: mocks.importImages,
+vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
+  fillImageNode: mocks.importImages,
+  resumeNodeGenerations: vi.fn(),
+  submitNodeImage: vi.fn(),
 }))
 vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
   ARROW_POINTER: { length: 12, width: 10 },
@@ -33,6 +35,8 @@ vi.mock('@xyflow/react', () => ({
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
   Controls: () => null,
+  NodeResizer: () => null,
+  SelectionMode: { Partial: 'partial' },
   MiniMap: () => null,
   getViewportForBounds: () => ({ x: 0, y: 0, zoom: 1 }),
   Handle: ({
@@ -110,7 +114,7 @@ vi.mock('@xyflow/react', () => ({
             }),
             style: { zIndex: node.zIndex },
           },
-          createElement(nodeTypes[node.type], { data: node.data }),
+          createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
         ),
       ),
       children,
@@ -336,43 +340,42 @@ it('places a text card that stays large enough for the side handles', async () =
   act(() => (item as HTMLButtonElement).click())
   const card = host.querySelector('.studio-node--text')
   expect(card?.textContent).toContain('双击开始编辑…')
-  expect(card?.textContent).toContain('文本')
+  expect(card?.parentElement?.textContent).toContain('文本')
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
-  expect(added).toMatchObject({ width: 300, height: 210 })
+  expect(added).toMatchObject({ width: 300, height: 220 })
   const bounds = JSON.parse(
     host.querySelector(`[data-node-id="${added!.id}"]`)!.getAttribute('data-bounds')!,
   )
   expect(bounds.width).toBe(300)
-  expect(bounds.height).toBe(210)
+  expect(bounds.height).toBe(220)
   const composer = host.querySelector('.studio-node-composer')
-  expect(composer?.getAttribute('aria-label')).toBe('写下这段文字')
-  expect(composer?.querySelector('[aria-label^="生成设置"]')).toBeNull()
+  expect(composer).toBeNull()
 })
 
-it('creates a connected node from a side handle click', async () => {
+it('offers all node types from either handle and connects the chosen node in the right direction', async () => {
   await render()
-  const handle = (id: string, label: string) =>
-    host.querySelector<HTMLButtonElement>(`[data-node-id="${id}"] [aria-label="${label}"]`)!
-  act(() => handle('image', '接到下一个节点').click())
-  const afterRight = readCanvasDocument(canvas.doc)
-  const imageNode = afterRight.nodes.find((node) => node.id !== 'image')
-  expect(imageNode).toMatchObject({ type: 'image', x: 278, y: -70, width: 280, height: 280 })
-  expect(afterRight.edges).toEqual([
-    expect.objectContaining({ source: 'image', target: imageNode!.id }),
-  ])
-  expect(host.querySelector('.studio-node-composer')?.getAttribute('aria-label')).toBe(
-    '描述你想生成的图片',
+  const handle = (label: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-node-id="image"] [aria-label="${label}"]`)!
+  const choose = (label: string) =>
+    act(() => {
+      const item = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (el) => el.textContent?.trim() === label,
+      )!
+      item.click()
+    })
+  act(() => handle('接到下一个节点').click())
+  expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(1)
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('视频')
+  choose('图片')
+  const added = readCanvasDocument(canvas.doc).nodes.find((n) => n.id !== 'image')!
+  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
+    expect.objectContaining({ source: 'image', target: added.id }),
   )
-  act(() => handle('image', '接到下一个节点').click())
-  const second = readCanvasDocument(canvas.doc).nodes.find(
-    (node) => node.type === 'image' && node.id !== 'image' && node.id !== imageNode!.id,
-  )
-  expect(second!.x).toBeGreaterThanOrEqual(imageNode!.x + imageNode!.width)
-  act(() => handle('image', '接入上文').click())
-  const text = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
-  expect(text).toMatchObject({ x: -458, y: -35, width: 300, height: 210 })
-  expect(readCanvasDocument(canvas.doc).edges).toEqual(
-    expect.arrayContaining([expect.objectContaining({ source: text!.id, target: 'image' })]),
+  act(() => handle('接入上文').click())
+  choose('文本')
+  const text = readCanvasDocument(canvas.doc).nodes.find((n) => n.type === 'text')!
+  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
+    expect.objectContaining({ source: text.id, target: 'image' }),
   )
 })
 
@@ -393,5 +396,11 @@ it('places a dropped image where the pointer is', async () => {
   await act(async () => {
     surface.dispatchEvent(event)
   })
-  expect(mocks.importImages).toHaveBeenCalledWith(workspace.editor, [file], { x: 30, y: 40 })
+  const created = readCanvasDocument(canvas.doc).nodes.find(
+    (n) => n.id !== 'image' && n.type === 'image',
+  )!
+  expect(created.x + created.width / 2).toBe(30)
+  expect(mocks.importImages).toHaveBeenCalledWith(workspace.editor, canvas.doc, created.id, file)
+  act(() => canvas.undo.undo())
+  expect(readCanvasDocument(canvas.doc).nodes.some((n) => n.id === created.id)).toBe(false)
 })

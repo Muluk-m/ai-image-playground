@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 import { useRef } from 'react'
 import ParamControls from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
@@ -10,6 +10,7 @@ import NodeComposerFrame from './NodeComposerFrame'
 
 /** 图片卡下面的生成栏：模型、画幅、张数跟工作台是同一组 ParamControls。 */
 export default function ImageNodeComposer({
+  referenceTools,
   references,
   files,
   value,
@@ -19,6 +20,7 @@ export default function ImageNodeComposer({
   onSubmit,
   onUploadFile,
 }: {
+  referenceTools?: ReactNode
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
   value: string
@@ -41,9 +43,10 @@ export default function ImageNodeComposer({
     <NodeComposerFrame
       label={t('nodes.composerImage')}
       position={position}
-      references={references}
+      references={referenceTools ? [] : references}
       files={files}
     >
+      {referenceTools}
       <Textarea
         value={value}
         placeholder={t('nodes.composerImage')}

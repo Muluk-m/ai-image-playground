@@ -28,7 +28,7 @@ export function incomingReferences(
     }
     refs.push({
       id: node.id,
-      kind: node.type,
+      kind: node.type === 'video' || node.data.meta?.nodeKind === 'video' ? 'video' : 'image',
       label: node.data.name?.trim() ?? '',
       ...(node.data.fileId ? { fileId: node.data.fileId } : {}),
     })

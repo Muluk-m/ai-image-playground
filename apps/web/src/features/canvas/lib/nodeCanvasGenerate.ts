@@ -67,17 +67,30 @@ function siblingImageNode(doc: Y.Doc, primaryId: string, index: number): string 
   const primary = imageNode(doc, primaryId)
   if (!primary || index <= 0) return primaryId
   const id = newElementId()
-  const incoming = readCanvasDocument(doc).edges.filter((edge) => edge.target === primaryId)
+  const snapshot = readCanvasDocument(doc)
+  const incoming = snapshot.edges.filter((edge) => edge.target === primaryId)
+  const x = primary.x + (primary.width + SIBLING_GAP) * index
+  let y = primary.y
+  while (
+    snapshot.nodes.some(
+      (n) =>
+        x < n.x + n.width + 24 &&
+        x + primary.width + 24 > n.x &&
+        y < n.y + n.height + 24 &&
+        y + primary.height + 24 > n.y,
+    )
+  )
+    y += primary.height + SIBLING_GAP
   insertCanvasNode(
     doc,
     {
       id,
       type: 'image',
-      x: primary.x + (primary.width + SIBLING_GAP) * index,
-      y: primary.y,
+      x,
+      y,
       width: primary.width,
       height: primary.height,
-      data: {},
+      data: { meta: primary.data.meta },
     },
     generationOrigin,
   )
@@ -153,7 +166,18 @@ async function putBitmapOnNode(
     ])
   }
   // 空卡第一次落图时，同步会保住原来的几何，这里再把显示尺寸改成图的比例。
-  updateCanvasNode(doc, nodeId, { width, height }, generationOrigin)
+  const settled = imageNode(doc, nodeId)
+  if (settled)
+    updateCanvasNode(
+      doc,
+      nodeId,
+      {
+        width,
+        height,
+        data: { ...settled.data, meta: { ...node.data.meta, ...settled.data.meta } },
+      },
+      generationOrigin,
+    )
   return true
 }
 
@@ -162,6 +186,7 @@ function nodeGenerationSink(
   doc: Y.Doc,
   primaryId: string,
 ): GenerationSink<NodeJobHandle, NodeJobContext> {
+  let resultId = primaryId
   const fail = (id: string, text: string) => {
     const node = imageNode(doc, id)
     const meta = node?.data.pending && 'meta' in node.data.pending ? node.data.pending.meta : {}
@@ -171,7 +196,11 @@ function nodeGenerationSink(
   return {
     open(unit: GenerationUnit<NodeJobContext>): NodeJobHandle {
       const profile = getActiveApiProfile(useStore.getState().settings)
-      const nodeId = unit.index > 0 ? siblingImageNode(doc, primaryId, unit.index) : primaryId
+      if (resultId === primaryId && imageNode(doc, primaryId)?.data.fileId) {
+        resultId = siblingImageNode(doc, primaryId, 1)
+        connectCanvasNodes(doc, { source: primaryId, target: resultId }, generationOrigin)
+      }
+      const nodeId = unit.index > 0 ? siblingImageNode(doc, resultId, unit.index) : resultId
       writePending(doc, nodeId, {
         type: 'placeholder',
         status: 'loading',
