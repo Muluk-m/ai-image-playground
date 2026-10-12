@@ -10,6 +10,7 @@ import {
   moveCanvasNodes,
   readCanvasDocument,
   readCanvasSyncMessage,
+  updateCanvasNode,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -321,4 +322,63 @@ it('closes a socket whose pending frames exceed the queue budget', async () => {
     await blocker
     doc.destroy()
   }
+})
+
+it('keeps accepted video references writable after queue retention, rejecting new unknown tasks', async () => {
+  const id = await create()
+  const mediaId = crypto.randomUUID()
+  const now = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: 'owner',
+    sha256: mediaId,
+    bytes: 1,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: mediaId,
+    object_key: mediaId,
+    expires_at: now + 86400000,
+    created_at: now,
+    updated_at: now,
+  })
+  await db
+    .update(schema.canvas_projects)
+    .set({
+      document: {
+        version: 1,
+        elements: [
+          ...legacy.elements,
+          {
+            id: 'old-video',
+            type: 'image',
+            mediaId,
+            x: 300,
+            y: 0,
+            width: 100,
+            height: 100,
+            rotation: 0,
+            video: { taskId: 'expired-owned-task', outputIndex: 0 },
+          },
+        ],
+      },
+    })
+    .where(eq(schema.canvas_projects.id, id))
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const vector = Y.encodeStateVector(doc)
+  moveCanvasNodes(doc, [{ id: 'title', x: 111, y: 222 }], origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, vector))
+  const video = readCanvasDocument(doc).nodes.find((node) => node.id === 'old-video')!
+  const next = Y.encodeStateVector(doc)
+  updateCanvasNode(
+    doc,
+    video.id,
+    { data: { ...video.data, video: { taskId: 'unowned-new-task', outputIndex: 0 } } },
+    origin,
+  )
+  await expect(accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, next))).rejects.toThrow(
+    'canvas_task_not_owned',
+  )
+  doc.destroy()
 })

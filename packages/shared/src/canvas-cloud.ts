@@ -7,7 +7,12 @@ import { isProjectDocument, type ProjectDocument, type ProjectElement } from './
 export function canvasProjectDocument(doc: Y.Doc, identity: ProjectDocument): ProjectDocument {
   const { nodes, annotations } = readCanvasDocument(doc)
   const elements: ProjectElement[] = []
-  for (const node of [...nodes].sort((a, b) => a.z - b.z)) {
+  for (const node of [...nodes, ...annotations].sort((a, b) => a.z - b.z)) {
+    if ('points' in node) {
+      const { z: _z, ...annotation } = node
+      elements.push(annotation as ProjectElement)
+      continue
+    }
     const { id, x, y, width, height, type, data } = node
     const box = { id, x, y, width, height }
     if (type === 'text') {
@@ -32,7 +37,6 @@ export function canvasProjectDocument(doc: Y.Doc, identity: ProjectDocument): Pr
       elements.push({ ...box, ...data.pending })
     }
   }
-  for (const { z: _z, ...annotation } of annotations) elements.push(annotation as ProjectElement)
   return { ...identity, elements }
 }
 
@@ -62,6 +66,15 @@ export function validateCloudCanvas(doc: Y.Doc, identity: ProjectDocument): void
   const { nodes, edges, annotations } = readCanvasDocument(doc)
   if (nodes.length + annotations.length > 1000 || edges.length > 4000)
     throw new Error('canvas_document_too_large')
+  for (const annotation of annotations) {
+    if (
+      !allowed(annotation, ['id', 'type', 'points', 'stroke', 'strokeWidth', 'z']) ||
+      !['arrow', 'freedraw'].includes(annotation.type) ||
+      !finite(annotation.z) ||
+      !isProjectDocument({ version: 1, elements: [(({ z: _z, ...value }) => value)(annotation)] })
+    )
+      throw new Error('invalid_canvas_annotation')
+  }
   for (const node of nodes) {
     if (
       !object(node) ||
@@ -75,6 +88,13 @@ export function validateCloudCanvas(doc: Y.Doc, identity: ProjectDocument): void
     )
       throw new Error('invalid_canvas_node')
     const data = node.data
+    if (
+      'name' in data &&
+      data.name !== undefined &&
+      (typeof data.name !== 'string' || data.name.length > 500)
+    )
+      throw new Error('invalid_canvas_node')
+    if (node.type === 'video' && !object(data.video)) throw new Error('invalid_canvas_node')
     if (node.type === 'image' || node.type === 'video') {
       if (
         !allowed(data, [
@@ -119,13 +139,37 @@ export function validateCloudCanvas(doc: Y.Doc, identity: ProjectDocument): void
         })
       )
         throw new Error('invalid_canvas_node')
-      if (
-        data.pending &&
-        (!object(data.pending) ||
-          typeof data.pending.type !== 'string' ||
-          !['placeholder', 'generation'].includes(data.pending.type))
-      )
-        throw new Error('invalid_canvas_pending')
+      if (data.pending !== undefined) {
+        const pending = data.pending
+        if (!object(pending)) throw new Error('invalid_canvas_pending')
+        if (pending.type === 'placeholder') {
+          if (
+            !allowed(pending, ['type', 'status', 'message', 'meta']) ||
+            typeof pending.status !== 'string' ||
+            !['loading', 'error', 'stale'].includes(pending.status) ||
+            typeof pending.message !== 'string' ||
+            !object(pending.meta)
+          )
+            throw new Error('invalid_canvas_pending')
+        } else if (
+          pending.type !== 'generation' ||
+          !allowed(pending, ['type', 'generationId', 'position', 'errorCode']) ||
+          !isProjectDocument({
+            version: 1,
+            elements: [
+              {
+                ...pending,
+                id: node.id,
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+              },
+            ],
+          })
+        )
+          throw new Error('invalid_canvas_pending')
+      }
     } else if (
       !allowed(data, node.type === 'text' ? ['text', 'fontSize', 'fill', 'name'] : ['clips'])
     )

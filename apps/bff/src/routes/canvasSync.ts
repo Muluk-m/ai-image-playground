@@ -5,7 +5,7 @@ import {
   canvasSyncStep2,
   readCanvasSyncMessage,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import * as Y from 'yjs'
 import { config } from '../config'
@@ -64,15 +64,18 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
         if (error instanceof CanvasSyncError) return status(error.status, { error: error.message })
         throw error
       }
-      await db
+      const renamed = await db
         .update(schema.canvas_projects)
         .set({ name: body.name.trim(), updated_at: Date.now() })
         .where(
           and(
             eq(schema.canvas_projects.id, params.id),
             eq(schema.canvas_projects.user_id, authUser!.id),
+            isNull(schema.canvas_projects.deleted_at),
           ),
         )
+        .returning({ id: schema.canvas_projects.id })
+      if (!renamed.length) return status(410, { error: 'project_deleted' })
       return { ok: true }
     },
     {
