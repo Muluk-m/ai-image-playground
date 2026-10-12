@@ -458,5 +458,12 @@
   },
   "drop": {
     "hint": "Drop images here — folders work too"
+  },
+  "nodes": {
+    "timeline_one": "Timeline · {{count}} clip",
+    "timeline_other": "Timeline · {{count}} clips",
+    "mediaMissing": "Media missing",
+    "loadFailed": "The node canvas couldn't open. Refresh to try again.",
+    "generateUnavailable": "Generating isn't available on the node canvas yet. It arrives with the node prompt box."
   }
 }
