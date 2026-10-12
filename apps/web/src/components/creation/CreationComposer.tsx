@@ -32,7 +32,6 @@ export function CreationComposer({
   onAssets,
   onUpload,
   onSubmit,
-  templates,
 }: {
   draft: CreationDraft
   dispatch: Dispatch<DraftAction>
@@ -41,7 +40,6 @@ export function CreationComposer({
   onAssets: (source: 'library' | 'canvas') => void
   onUpload: (files: FileList) => void
   onSubmit: () => void
-  templates?: readonly { id: string; name: string; image: string; prompt: string }[]
 }) {
   const { t } = useTranslation('composer')
   const modeLabels = {
@@ -54,10 +52,8 @@ export function CreationComposer({
     image: t('studio.placeholders.image'),
     video: t('studio.placeholders.video'),
   }
-  const [expanded, setExpanded] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
-  const [templateOpen, setTemplateOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const selection = draft.selections[draft.mode]
   const models = catalog[draft.mode]
@@ -82,11 +78,11 @@ export function CreationComposer({
       <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="rounded-2xl p-1.5">
+      <SelectContent side="top" align="start" sideOffset={10} className="creation-mode-menu">
         {(['agent', 'image', 'video'] as const).map((mode) => {
           const ModeIcon = creationModeIcons[mode]
           return (
-            <SelectItem key={mode} value={mode}>
+            <SelectItem key={mode} value={mode} className="creation-mode-option">
               <span className="flex items-center gap-3">
                 <Icon name={ModeIcon} />
                 {modeLabels[mode]}
@@ -136,12 +132,14 @@ export function CreationComposer({
       {model.parameters.map((param) => (
         <SettingsSection key={param.id} title={param.label}>
           {param.id === 'ratio' ? (
-            <RatioGrid
-              label={param.label}
-              options={param.options.map((value) => ({ value, label: value }))}
-              value={selection.values[param.id] ?? param.initial}
-              onChange={(value) => dispatch({ type: 'parameter', id: param.id, value })}
-            />
+            <div className="creation-ratio-options">
+              <RatioGrid
+                label={param.label}
+                options={param.options.map((value) => ({ value, label: value }))}
+                value={selection.values[param.id] ?? param.initial}
+                onChange={(value) => dispatch({ type: 'parameter', id: param.id, value })}
+              />
+            </div>
           ) : (
             <SettingsSegmented
               label={param.label}
@@ -235,7 +233,7 @@ export function CreationComposer({
   )
   return (
     <section
-      className={`creation-composer creation-layout-${layout} ${expanded ? 'creation-expanded' : ''}`}
+      className={`creation-composer creation-layout-${layout}`}
       aria-label={t('studio.composer')}
     >
       <input
@@ -277,15 +275,6 @@ export function CreationComposer({
           placeholder={placeholders[draft.mode]}
           className="creation-prompt"
         />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="creation-expand"
-          aria-label={expanded ? t('studio.collapse') : t('studio.expand')}
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? <Icon name="fit" /> : <Icon name="fullscreen" />}
-        </Button>
       </div>
       <div className="creation-toolbar">
         <div className="creation-tools">
@@ -306,30 +295,6 @@ export function CreationComposer({
               </SettingsPopover>
             </div>
           )}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label={t('studio.mention')}>
-                <Icon name="attach" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" className="creation-popover w-64">
-              {draft.references.length ? (
-                draft.references.map((r, i) => (
-                  <Button
-                    variant="ghost"
-                    key={r.id}
-                    className="creation-menu-item"
-                    onClick={() => editor.insertText(`${getSelectedImageMentionLabel(i)} `)}
-                  >
-                    <MediaImage src={r.src} alt="" className="size-7 rounded object-cover" />
-                    {r.name}
-                  </Button>
-                ))
-              ) : (
-                <p className="p-2 text-sm text-muted-foreground">{t('studio.noReferences')}</p>
-              )}
-            </PopoverContent>
-          </Popover>
         </div>
         <Button
           className="creation-send"
@@ -347,46 +312,6 @@ export function CreationComposer({
           {parameters}
         </aside>
       )}
-      {templates?.length ? (
-        <div className="creation-templates">
-          <Button
-            variant="ghost"
-            className="creation-template-chip"
-            onClick={() => dispatch({ type: 'text', text: templates[0].prompt })}
-          >
-            <MediaImage src={templates[0].image} alt="" />
-            {templates[0].name}
-          </Button>
-          <Popover open={templateOpen} onOpenChange={setTemplateOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" className="creation-more-templates">
-                {t('studio.moreTemplates')}
-                <Icon name="chevronRight" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="creation-popover w-80">
-              {templates.map((template) => (
-                <Button
-                  key={template.id}
-                  variant="ghost"
-                  className="creation-menu-item"
-                  onClick={() => {
-                    dispatch({ type: 'text', text: template.prompt })
-                    setTemplateOpen(false)
-                  }}
-                >
-                  <MediaImage
-                    src={template.image}
-                    alt=""
-                    className="size-9 rounded-lg object-cover"
-                  />
-                  {template.name}
-                </Button>
-              ))}
-            </PopoverContent>
-          </Popover>
-        </div>
-      ) : null}
     </section>
   )
 }

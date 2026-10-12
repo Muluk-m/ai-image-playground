@@ -146,25 +146,4 @@ export const reviewProjects: CreationProject[] = [
     cover: reviewAssets[4].src,
   },
 ]
-export const reviewTemplates = [
-  {
-    id: 't1',
-    name: '流光香水',
-    image: reviewAssets[0].src,
-    prompt:
-      '以参考素材中的香水为主体，柔和的粉蓝色光线折射在玻璃瓶上，镜头缓慢上移，保留清晰的产品细节。',
-  },
-  {
-    id: 't2',
-    name: '产品微距',
-    image: reviewAssets[1].src,
-    prompt: '拍摄精华液瓶的微距产品广告，湿润石面、琥珀色液体、柔和侧光，突出材质与高级感。',
-  },
-  {
-    id: 't3',
-    name: '运动光影',
-    image: reviewAssets[2].src,
-    prompt: '黑色运动鞋置于转台，聚光灯缓慢扫过鞋面，突出线条与织物纹理。',
-  },
-]
 export const reviewVideoUrl = exampleClipUrl('perfume-pedestal-up')

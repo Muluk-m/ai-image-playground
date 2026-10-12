@@ -198,11 +198,7 @@
       "image": "Add references, enter text or @ an asset to describe your image.",
       "video": "Add references and describe the camera, motion and atmosphere."
     },
-    "expand": "Expand composer",
-    "collapse": "Collapse composer",
-    "noReferences": "Add an asset to mention it",
     "send": "Generate",
-    "moreTemplates": "More templates",
     "preview": "Preview",
     "select": "Select",
     "projectActions": "Project actions",

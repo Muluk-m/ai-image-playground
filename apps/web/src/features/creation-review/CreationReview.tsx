@@ -24,13 +24,7 @@ import {
   SelectValue,
 } from '../../components/ui/select'
 import { getTheme, setThemeChoice } from '../../theme'
-import {
-  reviewAssets,
-  reviewCatalog,
-  reviewProjects,
-  reviewTemplates,
-  reviewVideoUrl,
-} from './fixtures'
+import { reviewAssets, reviewCatalog, reviewProjects, reviewVideoUrl } from './fixtures'
 import './review.css'
 
 type Scene = 'create' | 'canvas' | 'projects' | 'video'
@@ -124,7 +118,6 @@ export default function CreationReview() {
       catalog={reviewCatalog}
       layout={layout}
       onAssets={openAssets}
-      templates={reviewTemplates}
       onUpload={(files) => {
         const assets = Array.from(files)
           .filter((file) => file.type.startsWith('image/'))
@@ -535,7 +528,7 @@ export default function CreationReview() {
           <PopoverContent side="top" className="review-state">
             <strong>验收清单 · 6 项</strong>
             <p>
-              ① 模板间距　② Composer 变体
+              ① 精简输入区　② Composer 变体
               <br />③ 切换保留草稿与设置
               <br />④ 视频封面　⑤ 项目列表　⑥ 资产库
             </p>

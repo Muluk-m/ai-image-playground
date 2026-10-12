@@ -8,27 +8,25 @@
 :where(.creation-reference) img { width: 100%; height: 100%; object-fit: cover; }
 :where(.creation-reference) span { position: absolute; bottom: 4px; left: 5px; @apply text-label-sm; padding: 0 5px; background: hsl(var(--scrim) / .7); color: hsl(var(--on-media)); border-radius: 5px; }
 .creation-reference-remove { position: absolute; top: -5px; right: -5px; width: 19px; height: 19px; padding: 0; border-radius: 50%; }
-.creation-prompt { flex: 1; min-width: 0; min-height: 100px; padding: 2px 25px 12px 0; @apply text-base; line-height: 1.85; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 330px; overflow-y: auto; }
+.creation-prompt { flex: 1; min-width: 0; min-height: 100px; padding: 2px 0 12px; @apply text-base; line-height: 1.85; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 330px; overflow-y: auto; }
 .creation-prompt:empty::before { content: attr(data-placeholder); pointer-events: none; color: hsl(var(--muted-foreground) / .75); }
 .creation-mention { display: inline-flex; align-items: center; gap: 5px; background: hsl(var(--muted)); border-radius: 7px; padding: 1px 5px; @apply text-body-sm; vertical-align: middle; }
 :where(.creation-mention) img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; }
-.creation-expand { position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; color: hsl(var(--muted-foreground)); }
 .creation-toolbar { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 22px 20px; }
-.creation-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; min-width: 0; }
+.creation-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .creation-mode-trigger { width: auto; gap: 9px; border: 0; box-shadow: none; color: hsl(var(--primary)); border-radius: 9px; font-weight: 500; }
 .creation-control { gap: 8px; padding: 8px 10px; height: 36px; border-radius: 9px; @apply text-body-sm; font-weight: 400; }
 .creation-params-trigger { color: hsl(var(--muted-foreground)); }
-.creation-send { border-radius: 50%; width: 40px; height: 40px; flex-shrink: 0; box-shadow: none; }
+.creation-send { border-radius: 14px; width: 44px; height: 44px; flex-shrink: 0; box-shadow: none; background: hsl(var(--foreground)); color: hsl(var(--background)); }
+.creation-send:hover { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.creation-send:disabled { opacity: 1; background: hsl(var(--muted)); color: hsl(var(--muted-foreground) / .65); }
+.creation-send > svg { width: 20px; height: 20px; }
 .creation-popover { border-radius: 16px; padding: 8px; max-width: calc(100vw - 24px); box-shadow: var(--shadow-popover); }
 .creation-menu-label { display: block; @apply text-label-sm; color: hsl(var(--muted-foreground)); padding: 8px 10px; }
 .creation-menu-item { display: flex; gap: 12px; width: 100%; justify-content: flex-start; height: auto; min-height: 44px; font-weight: 400; border-radius: 10px; }
 .creation-model-option { height: auto; min-height: 66px; gap: 12px; width: 100%; justify-content: flex-start; padding: 12px; border-radius: 10px; }
 .creation-parameter-fields { display: grid; gap: 15px; padding: 8px; }
 .creation-parameter-field { display: grid; grid-template-columns: 80px minmax(0,1fr); align-items: center; gap: 8px; @apply text-xs; color: hsl(var(--muted-foreground)); }
-.creation-templates { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 0 26px 19px; }
-.creation-template-chip { height: 32px; gap: 7px; border: 1px solid hsl(var(--border) / .65); padding: 3px 10px 3px 4px; border-radius: 999px; @apply text-label-sm; font-weight: 400; }
-:where(.creation-template-chip) img { width: 24px; height: 24px; object-fit: cover; border-radius: 50%; }
-.creation-more-templates { height: 32px; padding: 4px 12px; gap: 5px; border-radius: 999px; @apply text-label-sm; font-weight: 400; color: hsl(var(--muted-foreground)); }
 .creation-top-tabs { display: flex; padding: 10px 20px 0; gap: 4px; }
 :where(.creation-top-tabs) button { gap: 8px; border-radius: 8px; color: hsl(var(--muted-foreground)); font-weight: 400; @apply text-body-sm; }
 :where(.creation-top-tabs) button[aria-pressed=true] { background: hsl(var(--accent)); color: hsl(var(--primary)); }
@@ -39,9 +37,8 @@
 .creation-layout-C .creation-top-tabs { grid-column: 1; }
 .creation-layout-C .creation-body { grid-column: 1; flex-direction: column; min-height: 240px; }
 .creation-layout-C .creation-references { max-width: none; }
-.creation-layout-C .creation-toolbar, .creation-layout-C .creation-templates { grid-column: 1; }
-.creation-side-parameters { grid-column: 2; grid-row: 1 / 5; padding: 18px 14px; border-left: 1px solid hsl(var(--border) / .7); }
-.creation-expanded .creation-body { min-height: 320px; }
+.creation-layout-C .creation-toolbar { grid-column: 1; }
+.creation-side-parameters { grid-column: 2; grid-row: 1 / 4; padding: 18px 14px; border-left: 1px solid hsl(var(--border) / .7); }
 .creation-project-card { position: relative; min-width: 0; border-radius: 16px; transition: background .15s; }
 .creation-project-card:hover { background: hsl(var(--muted) / .45); }
 .creation-project-open { height: auto; white-space: normal; display: block; width: 100%; text-align: left; padding: 6px; }
@@ -71,7 +68,6 @@
  .creation-toolbar { padding: 8px 12px 16px; align-items: flex-end; }
  .creation-control { @apply text-xs; }
  .creation-params-trigger { max-width: 270px; }
- .creation-templates { padding: 0 16px 16px; gap: 6px; }
  .creation-layout-C { display: flex; }
  .creation-side-parameters { border-left: 0; border-top: 1px solid hsl(var(--border)); padding: 10px; }
  .creation-side-parameters .creation-parameter-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -82,4 +78,10 @@
 
 :where(.creation-parameter-summary) > button { border: 0; background: transparent; height: 36px; font-weight: 400; }
 .creation-side-parameters .creation-parameter-fields { padding: 8px 0; }
-:where(.creation-side-parameters) [role="group"][aria-label="画面比例"] { grid-template-columns: repeat(3,minmax(0,1fr)); }
+
+.creation-mode-menu { min-width: 200px; padding: 6px; border-radius: 16px; }
+.creation-mode-option { min-height: 46px; padding: 10px 38px 10px 12px; border-radius: 10px; margin-block: 2px; }
+.creation-mode-option > span:first-child { left: auto; right: 12px; }
+
+.creation-ratio-options > [role="group"] { display: flex; flex-wrap: wrap; }
+.creation-ratio-options > [role="group"] > button { flex: 1 0 calc(33.333% - 2px); }
