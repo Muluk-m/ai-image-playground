@@ -36,6 +36,19 @@ export function incomingReferences(
   return refs
 }
 
+/**
+ * 从一侧加号拖出去，落在另一张卡上。从右边拖出，当前节点是上文；
+ * 从左边拖出，落点那张卡是上文。落到自己身上不算一条线。
+ */
+export function linkFromDrag(
+  from: { nodeId: string; handleType: 'source' | 'target' | null },
+  toId: string | null,
+): { source: string; target: string } | null {
+  if (!from.nodeId || !toId || toId === from.nodeId) return null
+  if (from.handleType === 'target') return { source: toId, target: from.nodeId }
+  return { source: from.nodeId, target: toId }
+}
+
 /** 上游文字按连线顺序放在用户这句话前面。图片不进这句话，走参考图。 */
 export function composeNodePrompt(
   userPrompt: string,
