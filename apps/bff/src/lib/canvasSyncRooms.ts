@@ -5,6 +5,7 @@ import { config } from '../config'
 import { accessCanvasDocument } from './canvasSyncStore'
 
 export interface CanvasPeer {
+  authorize(): Promise<boolean>
   send(bytes: Uint8Array): void
   close(code: number, reason: string): void
   terminate?(): void
@@ -73,6 +74,13 @@ export class CanvasSyncRooms {
     if (!room) return Promise.resolve()
     room.queue = room.queue
       .then(async () => {
+        if (this.rooms.get(id) !== room) return
+        for (const peer of [...room.peers]) {
+          if (!(await peer.authorize())) {
+            peer.close(1008, 'unauthorized')
+            this.leave(id, peer)
+          }
+        }
         if (this.rooms.get(id) !== room) return
         const state = await accessCanvasDocument(room.userId, id)
         if (this.rooms.get(id) !== room) return

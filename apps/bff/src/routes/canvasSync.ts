@@ -19,7 +19,15 @@ import { resolveUserSession, USER_SESSION_COOKIE } from '../lib/user-session'
 const id = t.Object({ id: t.String({ format: 'uuid' }) })
 const sessions = new Map<
   string,
-  { peer: CanvasPeer; queue: Promise<void>; closed: boolean; frames: number; window: number }
+  {
+    peer: CanvasPeer
+    queue: Promise<void>
+    closed: boolean
+    frames: number
+    window: number
+    pendingBytes: number
+    pendingFrames: number
+  }
 >()
 export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
   .use(resolveAuthUser)
@@ -96,6 +104,16 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
     },
     open(ws) {
       const peer: CanvasPeer = {
+        authorize: async () => {
+          const token = ws.data.cookie[USER_SESSION_COOKIE]?.value
+          const user = await resolveUserSession(typeof token === 'string' ? token : '')
+          return (
+            !!user &&
+            user.id === ws.data.authUser!.id &&
+            isCapabilityEnabled('canvas:nodes') &&
+            isCapabilityEnabled('accounts:sync')
+          )
+        },
         send: (bytes) => {
           if (ws.raw.readyState === 1) ws.raw.sendBinary(bytes)
         },
@@ -109,6 +127,8 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
         queue: Promise.resolve(),
         closed: false,
         frames: 0,
+        pendingBytes: 0,
+        pendingFrames: 0,
         window: Date.now(),
       }
       sessions.set(ws.id, session)
@@ -140,24 +160,28 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
         return
       }
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
+      // Bound retained frames while a transaction waits on the user row lock.
+      if (
+        session.pendingFrames >= 32 ||
+        session.pendingBytes + bytes.byteLength > CANVAS_STATE_MAX_BYTES * 2
+      ) {
+        session.closed = true
+        ws.close(1008, 'canvas_backpressure')
+        return
+      }
+      session.pendingFrames++
+      session.pendingBytes += bytes.byteLength
       session.queue = session.queue
         .then(async () => {
           if (session.closed) return
-          const token = ws.data.cookie[USER_SESSION_COOKIE]?.value
-          const user = await resolveUserSession(typeof token === 'string' ? token : '')
-          if (
-            !user ||
-            user.id !== ws.data.authUser!.id ||
-            !isCapabilityEnabled('canvas:nodes') ||
-            !isCapabilityEnabled('accounts:sync')
-          ) {
+          if (!(await session.peer.authorize())) {
             ws.close(1008, 'unauthorized')
             return
           }
           const message = readCanvasSyncMessage(bytes)
           if (message.kind === 'ack') throw new Error('invalid_canvas_message')
           const state = await accessCanvasDocument(
-            user.id,
+            ws.data.authUser!.id,
             ws.data.params.id,
             message.kind === 'update' ? message.value : undefined,
           )
@@ -179,6 +203,10 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
             error instanceof CanvasSyncError ? error.message : 'invalid_canvas_message',
           ),
         )
+      session.queue = session.queue.finally(() => {
+        session.pendingFrames--
+        session.pendingBytes -= bytes.byteLength
+      })
       return session.queue
     },
     close(ws) {

@@ -18,6 +18,7 @@ process.env.DATABASE_URL = await resetTestDatabase('canvas_sync')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../canvas-sync-operator-config.json')
 process.env.PORT = '0'
 const { app } = await import('../../app')
+const { startHttpServer } = await import('../../lib/httpServer')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
@@ -44,7 +45,7 @@ beforeAll(async () => {
     })
   cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('owner', tx))}`
   otherCookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('other', tx))}`
-  app.listen({ port: 0, hostname: '127.0.0.1' })
+  startHttpServer(app, { port: 0, hostname: '127.0.0.1' })
   base = `http://127.0.0.1:${app.server!.port}`
 })
 afterAll(async () => {
@@ -52,7 +53,7 @@ afterAll(async () => {
   await canvasSyncRooms.close()
   for (const ws of sockets) ws.terminate()
   await waitUntil(() => app.server!.pendingWebSockets === 0)
-  await app.stop(true)
+  await app.server!.stop(true)
   await close()
 }, 15_000)
 async function waitUntil(condition: () => boolean | Promise<boolean>) {
@@ -177,6 +178,7 @@ it('compacts atomically and another process listener catches persisted changes',
   const room = new CanvasSyncRooms()
   const observed = new Y.Doc()
   const peer = {
+    authorize: async () => true,
     send(bytes: Uint8Array) {
       const message = readCanvasSyncMessage(bytes)
       if (message.kind === 'update') Y.applyUpdate(observed, message.value)
@@ -276,4 +278,47 @@ it('revokes an already connected session before accepting another update', async
   await waitUntil(() => ws.readyState === WebSocket.CLOSED)
   cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('owner', tx))}`
   doc.destroy()
+})
+
+it('revokes an idle socket before broadcasting changes from another device', async () => {
+  const { revokeUserSession } = await import('../../lib/user-session')
+  const { canvasSyncRooms } = await import('../../lib/canvasSyncRooms')
+  const id = await create()
+  const doc = new Y.Doc()
+  const ws = await connect(id, doc)
+  const token = cookie.slice(cookie.indexOf('=') + 1)
+  await revokeUserSession(token)
+  await canvasSyncRooms.refresh(id)
+  await waitUntil(() => ws.readyState === WebSocket.CLOSED)
+  cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('owner', tx))}`
+  doc.destroy()
+})
+
+it('closes a socket whose pending frames exceed the queue budget', async () => {
+  const id = await create()
+  const doc = new Y.Doc()
+  const ws = await connect(id, doc)
+  let unlock!: () => void
+  let locked!: () => void
+  const held = new Promise<void>((resolve) => {
+    locked = resolve
+  })
+  const release = new Promise<void>((resolve) => {
+    unlock = resolve
+  })
+  const blocker = db.transaction(async (tx) => {
+    await tx.select().from(schema.users).where(eq(schema.users.id, 'owner')).for('update')
+    locked()
+    await release
+  })
+  await held
+  try {
+    const frame = canvasSyncStep1(doc)
+    for (let i = 0; i < 40; i++) ws.send(frame)
+    await waitUntil(() => ws.readyState === WebSocket.CLOSED)
+  } finally {
+    unlock()
+    await blocker
+    doc.destroy()
+  }
 })
