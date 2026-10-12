@@ -41,6 +41,7 @@ const GLYPHS = {
   removeBg: ['solar', 'scissors'],
   brush: ['solar', 'paint-brush'],
   crop: ['solar', 'crop'],
+  outpaint: ['solar', 'maximize-square-2'],
   variant: ['solar', 'shuffle'],
   template: ['solar', 'bookmark'],
   favorite: ['solar', 'star'],
