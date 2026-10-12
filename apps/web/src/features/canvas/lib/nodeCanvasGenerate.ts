@@ -324,7 +324,11 @@ export async function fillImageNode(
 /**
  * 刷新后把还在转的节点接回去。没有可续的请求就标成失效，免得永远转圈。
  */
-export function resumeNodeGenerations(editor: CanvasEditor, doc: Y.Doc): void {
+export function resumeNodeGenerations(
+  editor: CanvasEditor,
+  doc: Y.Doc,
+  markUnrecoverable = true,
+): void {
   if (resumedDocs.has(doc)) return
   resumedDocs.add(doc)
   for (const node of readCanvasDocument(doc).nodes) {
@@ -345,6 +349,7 @@ export function resumeNodeGenerations(editor: CanvasEditor, doc: Y.Doc): void {
       )
       continue
     }
+    if (!markUnrecoverable) continue
     const message =
       meta.source === 'builtin-edge'
         ? i18next.t('placeholder.unconfirmed', { ns: 'canvas' })

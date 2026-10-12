@@ -12,8 +12,8 @@ describe('shouldUseNodeCanvas', () => {
     expect(shouldUseNodeCanvas({}, on)).toBe(true)
   })
 
-  it('keeps a cloud project on the legacy canvas while sync is unfinished', () => {
-    expect(shouldUseNodeCanvas({ cloud: { revision: 1 } }, on)).toBe(false)
+  it('opens cloud projects with the node capability', () => {
+    expect(shouldUseNodeCanvas({ cloud: { revision: 1 } }, on)).toBe(true)
   })
 
   it('treats a cloud record as local when cloud projects are disabled', () => {

@@ -1,0 +1,279 @@
+import { afterAll, beforeAll, expect, it } from 'bun:test'
+import { resolve } from 'node:path'
+import { resetTestDatabase } from '@image-playground/db/testing'
+import {
+  canvasOrigin,
+  canvasSyncStep1,
+  canvasSyncStep2,
+  canvasSyncUpdate,
+  insertCanvasNode,
+  moveCanvasNodes,
+  readCanvasDocument,
+  readCanvasSyncMessage,
+} from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
+import * as Y from 'yjs'
+
+process.env.DATABASE_URL = await resetTestDatabase('canvas_sync')
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../canvas-sync-operator-config.json')
+process.env.PORT = '0'
+const { app } = await import('../../app')
+const { db, schema, close } = await import('../../db/client')
+const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+const { CanvasSyncRooms } = await import('../../lib/canvasSyncRooms')
+// Bun supports authenticated WS headers; lib.dom's constructor omits the Bun overload.
+const NativeSocket = WebSocket as unknown as {
+  new (url: string, options: Bun.WebSocketOptions): WebSocket & { terminate(): void }
+}
+let cookie: string
+let otherCookie: string
+let base: string
+const origin = canvasOrigin('user', 'test')
+const sockets: Array<WebSocket & { terminate(): void }> = []
+beforeAll(async () => {
+  const now = Date.now()
+  for (const id of ['owner', 'other'])
+    await db.insert(schema.users).values({
+      id,
+      username: id,
+      password_hash: 'unused',
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    })
+  cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('owner', tx))}`
+  otherCookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('other', tx))}`
+  app.listen({ port: 0, hostname: '127.0.0.1' })
+  base = `http://127.0.0.1:${app.server!.port}`
+})
+afterAll(async () => {
+  const { canvasSyncRooms } = await import('../../lib/canvasSyncRooms')
+  await canvasSyncRooms.close()
+  for (const ws of sockets) ws.terminate()
+  await waitUntil(() => app.server!.pendingWebSockets === 0)
+  await app.stop(true)
+  await close()
+}, 15_000)
+async function waitUntil(condition: () => boolean | Promise<boolean>) {
+  const end = Date.now() + 5000
+  while (!(await condition())) {
+    if (Date.now() > end) throw new Error('condition timeout')
+    await Bun.sleep(20)
+  }
+}
+const legacy = {
+  version: 1 as const,
+  elements: [
+    {
+      id: 'title',
+      type: 'text' as const,
+      text: '旧存档',
+      x: 10,
+      y: 20,
+      width: 300,
+      height: 100,
+      fontSize: 16,
+      fill: '#fff',
+    },
+  ],
+}
+async function create() {
+  const id = crypto.randomUUID()
+  const response = await fetch(`${base}/api/projects/${id}`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name: '同步测试',
+      document: legacy,
+    }),
+  })
+  expect(response.status).toBe(200)
+  return id
+}
+async function connect(id: string, doc: Y.Doc) {
+  const ws = new NativeSocket(`${base.replace('http', 'ws')}/api/projects/${id}/canvas/ws`, {
+    headers: { cookie, origin: base },
+  })
+  sockets.push(ws)
+  ws.binaryType = 'arraybuffer'
+  ws.onmessage = (event) => {
+    const message = readCanvasSyncMessage(new Uint8Array(event.data))
+    if (message.kind === 'vector') ws.send(canvasSyncStep2(doc, message.value))
+    if (message.kind === 'update') Y.applyUpdate(doc, message.value, 'remote')
+  }
+  await new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve()
+    ws.onerror = () => reject(new Error('socket failed'))
+  })
+  ws.send(canvasSyncStep1(doc))
+  await waitUntil(() => readCanvasDocument(doc).nodes.some((n) => n.id === 'title'))
+  return ws
+}
+it('migrates once, retains exact legacy archive, blocks stale JSON clients', async () => {
+  const id = await create()
+  const [a, b] = await Promise.all([
+    accessCanvasDocument('owner', id),
+    accessCanvasDocument('owner', id),
+  ])
+  expect(a).toEqual(b)
+  const [row] = await db
+    .select()
+    .from(schema.canvas_documents)
+    .where(eq(schema.canvas_documents.project_id, id))
+  expect(row!.legacy_document).toEqual(legacy)
+  const response = await fetch(`${base}/api/projects/${id}`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      requestId: crypto.randomUUID(),
+      baseRevision: 1,
+      name: 'old',
+      document: { version: 1, elements: [] },
+    }),
+  })
+  expect(response.status).toBe(409)
+  expect((await response.json()).error).toBe('project_canvas_upgrade_required')
+})
+it('two real sockets converge and a disconnected editor merges on reconnect', async () => {
+  const id = await create()
+  const a = new Y.Doc()
+  const b = new Y.Doc()
+  const wa = await connect(id, a)
+  const wb = await connect(id, b)
+  const va = Y.encodeStateVector(a)
+  const vb = Y.encodeStateVector(b)
+  moveCanvasNodes(a, [{ id: 'title', x: 90, y: 80 }], origin)
+  insertCanvasNode(
+    b,
+    { id: 'image', type: 'image', x: 600, y: 20, width: 300, height: 200, data: {} },
+    origin,
+  )
+  wa.send(canvasSyncUpdate(Y.encodeStateAsUpdate(a, va)))
+  wb.send(canvasSyncUpdate(Y.encodeStateAsUpdate(b, vb)))
+  await waitUntil(
+    () => readCanvasDocument(a).nodes.length === 2 && readCanvasDocument(b).nodes[0]?.x === 90,
+  )
+  wb.close(1000)
+  await waitUntil(() => wb.readyState === WebSocket.CLOSED)
+  moveCanvasNodes(b, [{ id: 'image', x: 700, y: 100 }], origin)
+  const vc = Y.encodeStateVector(a)
+  moveCanvasNodes(a, [{ id: 'title', x: 150, y: 80 }], origin)
+  wa.send(canvasSyncUpdate(Y.encodeStateAsUpdate(a, vc)))
+  await connect(id, b)
+  await waitUntil(
+    () =>
+      readCanvasDocument(a).nodes.find((n) => n.id === 'image')?.x === 700 &&
+      readCanvasDocument(b).nodes.find((n) => n.id === 'title')?.x === 150,
+  )
+  expect(readCanvasDocument(a)).toEqual(readCanvasDocument(b))
+})
+it('compacts atomically and another process listener catches persisted changes', async () => {
+  const id = await create()
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const room = new CanvasSyncRooms()
+  const observed = new Y.Doc()
+  const peer = {
+    send(bytes: Uint8Array) {
+      const message = readCanvasSyncMessage(bytes)
+      if (message.kind === 'update') Y.applyUpdate(observed, message.value)
+    },
+    close() {},
+  }
+  await room.join(id, 'owner', peer)
+  try {
+    await db
+      .update(schema.canvas_documents)
+      .set({ compacted_at: 0 })
+      .where(eq(schema.canvas_documents.project_id, id))
+    const vector = Y.encodeStateVector(doc)
+    moveCanvasNodes(doc, [{ id: 'title', x: 222, y: 333 }], origin)
+    await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, vector))
+    await waitUntil(() => readCanvasDocument(observed).nodes[0]?.x === 222)
+    const restored = new Y.Doc()
+    Y.applyUpdate(restored, await accessCanvasDocument('owner', id))
+    expect(readCanvasDocument(restored)).toEqual(readCanvasDocument(doc))
+    const log = await db
+      .select()
+      .from(schema.canvas_updates)
+      .where(eq(schema.canvas_updates.project_id, id))
+    expect(log).toHaveLength(0)
+    const [backup] = await db
+      .select()
+      .from(schema.canvas_documents)
+      .where(eq(schema.canvas_documents.project_id, id))
+    expect(backup!.legacy_document).toEqual(legacy)
+  } finally {
+    room.leave(id, peer)
+    await room.close()
+  }
+})
+it('denies anonymous, non-owner, invalid origins, deleted projects and foreign media', async () => {
+  const id = await create()
+  expect((await fetch(`${base}/api/projects/${id}/canvas`)).status).toBe(401)
+  expect(
+    (await fetch(`${base}/api/projects/${id}/canvas`, { headers: { cookie: otherCookie } })).status,
+  ).toBe(404)
+  for (const [headers, expected] of [
+    [{ cookie, origin: 'https://evil.example' }, 403],
+    [{ cookie: otherCookie, origin: base }, 404],
+    [{ origin: base }, 401],
+  ] as const) {
+    // Reject upgrades before handing the request to Bun.
+    const response = await fetch(`${base}/api/projects/${id}/canvas/ws`, {
+      headers: {
+        ...headers,
+        Connection: 'Upgrade',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Version': '13',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      },
+    })
+    expect(response.status).toBe(expected)
+    await response.text()
+  }
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const vector = Y.encodeStateVector(doc)
+  const mediaId = crypto.randomUUID()
+  insertCanvasNode(
+    doc,
+    {
+      id: 'stolen',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: { mediaId, fileId: `cloud-${mediaId}` },
+    },
+    origin,
+  )
+  await expect(
+    accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, vector)),
+  ).rejects.toThrow('canvas_media_not_owned')
+  const clean = new Y.Doc()
+  Y.applyUpdate(clean, await accessCanvasDocument('owner', id))
+  expect(readCanvasDocument(clean).nodes).toHaveLength(1)
+  await db
+    .update(schema.canvas_projects)
+    .set({ deleted_at: Date.now() })
+    .where(eq(schema.canvas_projects.id, id))
+  await expect(accessCanvasDocument('owner', id)).rejects.toThrow('project_deleted')
+})
+
+it('revokes an already connected session before accepting another update', async () => {
+  const { revokeUserSession } = await import('../../lib/user-session')
+  const id = await create()
+  const doc = new Y.Doc()
+  const ws = await connect(id, doc)
+  const token = cookie.slice(cookie.indexOf('=') + 1)
+  await revokeUserSession(token)
+  ws.send(canvasSyncStep1(doc))
+  await waitUntil(() => ws.readyState === WebSocket.CLOSED)
+  cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('owner', tx))}`
+  doc.destroy()
+})

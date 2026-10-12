@@ -30,6 +30,8 @@ import {
   type Rect,
   SelectionMode,
 } from '@xyflow/react'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import {
   createContext,
@@ -327,7 +329,7 @@ function Pending({ pending }: { pending: PendingGeneration }) {
 function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
-  const source = fileId ? files[fileId] : undefined
+  const source = useNodeMedia(fileId ? files[fileId] : undefined)
   if (!source) return <div className="studio-node-missing text-sm">{t('nodes.mediaMissing')}</div>
   return (
     <img
@@ -387,7 +389,8 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         data-rotated={rotation ? true : undefined}
         onDoubleClick={(e) => {
           e.stopPropagation()
-          if (fileId && files[fileId]) preview(files[fileId])
+          if (fileId && files[fileId])
+            void resolveMediaSource(files[fileId], 'original', true).then(preview)
         }}
       >
         {pending ? (
@@ -408,6 +411,9 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
+  const poster = useNodeMedia(
+    node && 'fileId' in node.data && node.data.fileId ? files[node.data.fileId] : undefined,
+  )
   if (!node || (node.type !== 'video' && node.type !== 'image')) return null
   const { fileId, rotation, pending } = node.data
   const video = node.type === 'video' ? node.data.video : undefined
@@ -444,7 +450,7 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
           >
             <CanvasVideoPlayer
               src={queueOutputUrl(video.taskId, video.outputIndex)}
-              poster={fileId ? files[fileId] : undefined}
+              poster={poster}
               onEnded={() => setPlaying(false)}
             />
           </div>
@@ -1373,7 +1379,8 @@ function Flow({
                           )
                         } else {
                           const source = files[composerNode.data.fileId!]
-                          if (source) setPreview(source)
+                          if (source)
+                            void resolveMediaSource(source, 'original', true).then(setPreview)
                         }
                       }}
                     />
@@ -1393,7 +1400,8 @@ function Flow({
                               )
                             : files[composerNode.data.fileId!]
                         if (source) {
-                          void fetch(source, { credentials: 'include' })
+                          void resolveMediaSource(source, 'original', true)
+                            .then((url) => fetch(url, { credentials: 'include' }))
                             .then(async (response) => {
                               if (!response.ok) throw new Error('download failed')
                               const blob = await response.blob()
@@ -1587,6 +1595,14 @@ export default function NodeCanvas({
   const key = workspace.record.key
   const container = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (workspace.cloud && 'canvas' in workspace.cloud && workspace.cloud.canvas) {
+      // Another device may still be submitting a task; only resume confirmed server jobs.
+      resumeNodeGenerations(workspace.editor, workspace.cloud.canvas.doc, false)
+      resumeNodeVideos(workspace.editor, workspace.cloud.canvas.doc, false)
+      setCanvas(workspace.cloud.canvas)
+      setFailed(false)
+      return
+    }
     let alive = true
     let opened: NodeCanvasDocument | undefined
     let previous = workspace.doc.elements as readonly LegacyCanvasElement[]

@@ -11,6 +11,7 @@ import { i18next } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../../lib/channels/queueClient'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { superviseGeneration } from '../../../lib/generationJob'
 import { notifyPrivateSubmissionAccepted } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -184,7 +185,9 @@ export function submitNodeVideo(
         model: option.modelId,
         prompt,
         video,
-        inputImageDataUrls: inputs as string[],
+        inputImageDataUrls: await Promise.all(
+          (inputs as string[]).map((source) => resolveMediaSource(source, 'original', true)),
+        ),
         clientRequestId: meta.clientRequestId,
       })
       pending(doc, outputId, 'loading', '', { ...meta, bffRequestId: requestId })
@@ -194,7 +197,7 @@ export function submitNodeVideo(
   )
   return true
 }
-export function resumeNodeVideos(editor: CanvasEditor, doc: Y.Doc): void {
+export function resumeNodeVideos(editor: CanvasEditor, doc: Y.Doc, markUnrecoverable = true): void {
   if (resumed.has(doc)) return
   resumed.add(doc)
   for (const node of readCanvasDocument(doc).nodes) {
@@ -208,6 +211,7 @@ export function resumeNodeVideos(editor: CanvasEditor, doc: Y.Doc): void {
     }
     if (!meta.nodeVideo) continue
     if (!meta.bffRequestId || !meta.generation) {
+      if (!markUnrecoverable) continue
       pending(doc, node.id, 'stale', i18next.t('placeholder.unconfirmed', { ns: 'canvas' }), meta)
       continue
     }

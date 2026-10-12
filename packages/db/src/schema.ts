@@ -405,6 +405,31 @@ export const canvas_projects = pgTable(
   ],
 )
 
+/** Increment log and compacted snapshot. Legacy document is retained independently of the read model. */
+export const canvas_documents = pgTable('canvas_documents', {
+  project_id: text('project_id')
+    .primaryKey()
+    .references(() => canvas_projects.id, { onDelete: 'cascade' }),
+  snapshot: text('snapshot').notNull(),
+  sequence: integer('sequence').notNull().default(0),
+  compacted_sequence: integer('compacted_sequence').notNull().default(0),
+  compacted_at: epochMs('compacted_at').notNull(),
+  legacy_document: bunJsonb('legacy_document').$type<ProjectDocument>().notNull(),
+  migrated_at: epochMs('migrated_at').notNull(),
+})
+export const canvas_updates = pgTable(
+  'canvas_updates',
+  {
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_documents.project_id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    update: text('update').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.project_id, t.sequence] })],
+)
+
 /**
  * 智能体会话。归属 `user_id` 或 `device_id`，由创建时的身份决定。
  * 删除以墓碑传播，`deleted_at` 非空的会话从读路径消失。

@@ -23,3 +23,30 @@
 
 - 同步层重写，BFF 新增 WebSocket 通道（Elysia 原生支持）。
 - 生成结果不进文档：节点只存生成记录的引用与主结果，避免文档膨胀拖慢同步。
+
+## Dev 实现与兼容边界（#1149）
+
+`canvas:nodes` 与 `accounts:sync` 同时开启时，云项目使用 React Flow + Y.Doc。
+`GET /api/projects/:id/canvas` 读取快照，`/canvas/ws` 使用 y-protocols 的同步帧；
+服务端另发提交确认帧，客户端收到 PostgreSQL 提交确认后才标记已保存。
+每次更新在独立候选文档上校验结构、项目归属及媒体/任务引用，失败不写入，也不广播。
+
+`canvas_documents` 保存快照和迁移时的原始 `legacy_document`；`canvas_updates` 保存增量。
+每 128 个增量或 5 分钟后的下一次写入会在同一事务中压缩快照并删除已覆盖增量。
+迁移与写入使用项目所属用户的行锁，与原有媒体/Agent 归档事务串行；通知只在提交后送出。
+每个 BFF 进程最多占用一条 PostgreSQL LISTEN 连接，普通读写继续使用既有连接池。
+发布容量核算必须把这条连接算进总计 100 条的预算，不随画布或 WebSocket 数增加。
+
+旧 `canvas_projects.document` 继续作为 Agent、项目列表与旧读取接口的投影，
+它不再接受已迁移项目的整份客户端 PUT（返回 `project_canvas_upgrade_required`）。
+Agent 预留与完成产物时同步更新同一份 Y.Doc，保留用户已经移动的位置和其他节点。
+迁移原件独立保存在 `legacy_document`，不随投影更新或快照压缩改变；本轮没有清理原件的任务，
+至少保留 30 天。浏览器原 IndexedDB 场景也保留，未同步的旧本地编辑另存为恢复副本。
+
+回滚代码时不能恢复旧客户端整份覆盖写入，否则会丢失节点与连线。
+数据库 down 文件仅用于空测试库回退；有实际数据的环境应保留新增表，先导出 Y.Doc、
+原始旧存档及媒体引用，再设计数据恢复。本轮仅 dev 验证，不开启生产能力或执行发布。
+
+WebSocket 生命周期验证使用 Bun 1.4.3，Docker 构建与运行阶段固定到同一版本。
+Bun 1.3.14 在该同步测试中关闭连接后仍保留 pendingWebSockets，导致 stop 挂起；
+同一测试在 1.4.3 正常释放。开发 BFF 也应使用 1.4.3 或更新版本。
