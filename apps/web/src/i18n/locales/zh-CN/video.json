@@ -124,5 +124,8 @@
   },
   "settings": {
     "title": "视频设置"
+  },
+  "resolution": {
+    "upscaled": "{{target}} 由 {{source}} 放大"
   }
 }
