@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { CloseIcon, EditIcon, SparkleIcon, TrashIcon } from '../../../components/icons'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { formatDateTime } from '../../../i18n/format'
 import { useStore } from '../../../store'
@@ -44,7 +46,7 @@ export default function TemplateDetail() {
               {template.name}
             </h3>
           ) : (
-            <input
+            <Input
               autoFocus
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
@@ -54,26 +56,30 @@ export default function TemplateDetail() {
                 if (e.key === 'Escape') setDraftName(null)
               }}
               maxLength={40}
-              className="min-w-0 flex-1 rounded-lg border border-primary bg-card px-2 py-1 text-lg font-bold text-foreground focus:outline-none"
+              className="min-w-0 flex-1 rounded-lg border-primary bg-card px-2"
             />
           )}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={() => setDraftName(template.name)}
             aria-label={t('action.rename')}
             title={t('action.rename')}
-            className="shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
+            className="shrink-0 text-muted-foreground hover:bg-muted hover:text-muted-foreground"
           >
-            <EditIcon className="h-4 w-4" />
-          </button>
-          <button
+            <Icon name="edit" />
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={closeTemplateDetail}
             aria-label={t('common:action.close')}
-            className="shrink-0 rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
+            className="shrink-0 text-muted-foreground hover:bg-muted hover:text-muted-foreground"
           >
-            <CloseIcon className="h-5 w-5" />
-          </button>
+            <Icon name="close" />
+          </Button>
         </div>
 
         <div className="custom-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
@@ -156,8 +162,9 @@ export default function TemplateDetail() {
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-4">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() =>
               setConfirmDialog({
                 title: t('template.deleteTitle'),
@@ -165,19 +172,15 @@ export default function TemplateDetail() {
                 action: () => void deleteTemplate(template.id),
               })
             }
-            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10"
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
-            <TrashIcon className="h-4 w-4" />
+            <Icon name="delete" />
             {t('common:action.delete')}
-          </button>
-          <button
-            type="button"
-            onClick={() => void applyTemplate(template.id)}
-            className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
-          >
-            <SparkleIcon className="h-4 w-4" />
+          </Button>
+          <Button type="button" onClick={() => void applyTemplate(template.id)}>
+            <Icon name="generate" />
             {t('template.apply')}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>
