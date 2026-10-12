@@ -1078,6 +1078,18 @@ describe('getPersistedState builtin profile stripping', () => {
 })
 
 describe('addCompletedCanvasTask', () => {
+  it('upserts a recovered completion by its stable task identity', async () => {
+    useStore.getState().setTasks([])
+    const task = {
+      id: 'canvas:same-job',
+      prompt: 'two devices',
+      params: DEFAULT_PARAMS,
+      images: [],
+    }
+    await Promise.all([addCompletedCanvasTask(task), addCompletedCanvasTask(task)])
+    expect(useStore.getState().tasks.filter((record) => record.id === task.id)).toHaveLength(1)
+  })
+
   beforeEach(() => {
     useStore.setState({ settings: { ...DEFAULT_SETTINGS }, tasks: [] })
   })

@@ -169,7 +169,7 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
         session.pendingBytes + bytes.byteLength > CANVAS_STATE_MAX_BYTES * 2
       ) {
         session.closed = true
-        ws.close(1008, 'canvas_backpressure')
+        ws.close(1013, 'canvas_backpressure')
         return
       }
       session.pendingFrames++

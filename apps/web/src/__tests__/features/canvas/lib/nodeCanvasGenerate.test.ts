@@ -16,7 +16,15 @@ import {
 } from '../../../../features/canvas/lib/nodeCanvasGenerate'
 import { useStore } from '../../../../store'
 
-const mocks = vi.hoisted(() => ({ start: vi.fn(), resume: vi.fn() }))
+const mocks = vi.hoisted(() => ({ start: vi.fn(), resume: vi.fn(), completed: vi.fn() }))
+vi.mock('../../../../store', async (original) => ({
+  ...(await original<typeof import('../../../../store')>()),
+  addCompletedCanvasTask: mocks.completed,
+}))
+vi.mock('../../../../lib/canvasImage', async (original) => ({
+  ...(await original<typeof import('../../../../lib/canvasImage')>()),
+  getImageDimensions: async () => ({ width: 100, height: 100 }),
+}))
 
 vi.mock('../../../../lib/generationJob', () => ({
   startGeneration: mocks.start,
@@ -168,4 +176,57 @@ it('resumes a cloud image job when its request id arrives after initial loading'
   resumeNodeGenerations(editor, doc, false)
   expect(mocks.resume).toHaveBeenCalledTimes(1)
   doc.destroy()
+})
+
+it('merges multi-image results from two recovering devices into the same output nodes', async () => {
+  mocks.resume.mockReset()
+  mocks.completed.mockClear()
+  mocks.resume.mockImplementation(async (_spec, handle, sink) => {
+    await sink.delivered(handle, {
+      images: ['data:image/png;base64,one', 'data:image/png;base64,two'],
+    })
+  })
+  const first = new Y.Doc(),
+    second = new Y.Doc()
+  insertCanvasNode(
+    first,
+    {
+      id: 'card',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: {
+        pending: {
+          type: 'placeholder',
+          status: 'loading',
+          message: '',
+          meta: {
+            nodeGeneration: true,
+            prompt: 'two',
+            source: 'builtin-edge',
+            bffRequestId: 'shared-task',
+          },
+        },
+      },
+    },
+    canvasOrigin('system', 'fixture'),
+  )
+  Y.applyUpdate(second, Y.encodeStateAsUpdate(first))
+  resumeNodeGenerations(new CanvasEditor(new CanvasDoc()), first, false)
+  resumeNodeGenerations(new CanvasEditor(new CanvasDoc()), second, false)
+  await Promise.all(mocks.resume.mock.results.map((result) => result.value))
+  Y.applyUpdate(first, Y.encodeStateAsUpdate(second))
+  Y.applyUpdate(second, Y.encodeStateAsUpdate(first))
+  expect(
+    readCanvasDocument(first)
+      .nodes.map((node) => node.id)
+      .sort(),
+  ).toEqual(['card', 'result:shared-task:1'])
+  expect(readCanvasDocument(second).nodes).toEqual(readCanvasDocument(first).nodes)
+  expect(mocks.completed).toHaveBeenCalledTimes(2)
+  for (const [record] of mocks.completed.mock.calls) expect(record.id).toBe('canvas:shared-task')
+  first.destroy()
+  second.destroy()
 })

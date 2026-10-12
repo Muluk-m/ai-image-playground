@@ -75,12 +75,20 @@ export class CanvasSyncRooms {
     room.queue = room.queue
       .then(async () => {
         if (this.rooms.get(id) !== room) return
-        for (const peer of [...room.peers]) {
-          if (!(await peer.authorize())) {
-            peer.close(1008, 'unauthorized')
-            this.leave(id, peer)
-          }
-        }
+        const peers = [...room.peers]
+        // Limit DB concurrency without making a room wait on every peer serially.
+        let next = 0
+        await Promise.all(
+          Array.from({ length: Math.min(4, peers.length) }, async () => {
+            while (next < peers.length) {
+              const peer = peers[next++]!
+              if (!(await peer.authorize())) {
+                peer.close(1008, 'unauthorized')
+                this.leave(id, peer)
+              }
+            }
+          }),
+        )
         if (this.rooms.get(id) !== room) return
         const state = await accessCanvasDocument(room.userId, id)
         if (this.rooms.get(id) !== room) return

@@ -49,6 +49,8 @@ interface NodeJobContext {
 }
 
 interface NodeJobHandle {
+  requestId?: string
+  clientRequestId?: string
   nodeId: string
   prompt: string
   params: TaskParams
@@ -74,10 +76,11 @@ function imageNode(doc: Y.Doc, id: string) {
 const SIBLING_GAP = 88
 
 /** 同一条生成的第 index 张，放在原卡右边，并接上同样的上游。 */
-function siblingImageNode(doc: Y.Doc, primaryId: string, index: number): string {
+function siblingImageNode(doc: Y.Doc, primaryId: string, index: number, resultId?: string): string {
   const primary = imageNode(doc, primaryId)
   if (!primary || index <= 0) return primaryId
-  const id = newElementId()
+  const id = resultId ?? newElementId()
+  if (imageNode(doc, id)) return id
   const snapshot = readCanvasDocument(doc)
   const incoming = snapshot.edges.filter((edge) => edge.target === primaryId)
   const x = primary.x + (primary.width + SIBLING_GAP) * index
@@ -226,6 +229,7 @@ function nodeGenerationSink(
       })
       return {
         nodeId,
+        clientRequestId: unit.clientRequestId,
         prompt: unit.context.prompt,
         params: unit.params,
         profileView: unit.context.profileView,
@@ -234,6 +238,7 @@ function nodeGenerationSink(
     },
     accepted(handle: NodeJobHandle, reference: GenerationReference): void {
       if (reference.kind !== 'queue') return
+      handle.requestId = reference.requestId
       claimResume(doc, handle.nodeId, reference.requestId)
       const node = imageNode(doc, handle.nodeId)
       const pending = node?.data.pending
@@ -250,14 +255,24 @@ function nodeGenerationSink(
         fail(handle.nodeId, i18next.t('placeholder.failed', { ns: 'canvas' }))
         return
       }
+      const taskId = handle.requestId ?? handle.clientRequestId
       let placedAny = false
       for (let index = 0; index < images.length; index++) {
-        const id = index === 0 ? handle.nodeId : siblingImageNode(doc, handle.nodeId, index)
+        const id =
+          index === 0
+            ? handle.nodeId
+            : siblingImageNode(
+                doc,
+                handle.nodeId,
+                index,
+                taskId ? `result:${taskId}:${index}` : undefined,
+              )
         const placed = await putBitmapOnNode(editor, doc, id, images[index]!)
         placedAny = placedAny || placed
       }
       if (!placedAny) return
       void addCompletedCanvasTask({
+        ...(taskId ? { id: `canvas:${taskId}` } : {}),
         prompt: handle.prompt,
         params: handle.params,
         images,
@@ -355,7 +370,7 @@ export function resumeNodeGenerations(
           params,
           requestId: meta.bffRequestId,
         },
-        { nodeId: node.id, prompt: meta.prompt, params },
+        { nodeId: node.id, prompt: meta.prompt, params, requestId: meta.bffRequestId },
         nodeGenerationSink(editor, doc, node.id),
       )
       continue

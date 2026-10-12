@@ -2414,6 +2414,7 @@ export type CanvasProfileSnapshot = Pick<
  * profile 身份优先用发起时快照（缺失兜底当前 active profile，如旧占位框恢复）。
  */
 export async function addCompletedCanvasTask(args: {
+  id?: string
   prompt: string
   params: TaskParams
   images: string[]
@@ -2436,7 +2437,7 @@ export async function addCompletedCanvasTask(args: {
     const finishedAt = Date.now()
     const elapsed = args.elapsed ?? null
     const newTask: TaskRecord = {
-      id: genId(),
+      id: args.id ?? genId(),
       prompt: args.prompt,
       params: args.params,
       ...profile,
@@ -2450,7 +2451,9 @@ export async function addCompletedCanvasTask(args: {
       finishedAt,
       elapsed,
     }
-    useStore.getState().setTasks([newTask, ...useStore.getState().tasks])
+    useStore
+      .getState()
+      .setTasks([newTask, ...useStore.getState().tasks.filter((task) => task.id !== newTask.id)])
     await putTask(newTask)
   } catch (err) {
     console.warn('canvas task history write failed:', err)

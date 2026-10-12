@@ -219,7 +219,7 @@ it('returns known Agent media without waiting for unrelated missing uploads', as
   record.dispose()
 })
 it('serializes overlapping renames so the latest name remains saved', async () => {
-  const { session, record } = await fixture()
+  const { session, record, project } = await fixture()
   const names: string[] = []
   let finish!: () => void
   vi.mocked(authenticatedBffFetch).mockImplementation(async (_url, init) => {
@@ -233,6 +233,9 @@ it('serializes overlapping renames so the latest name remains saved', async () =
   const first = session.rename('First')
   await vi.waitFor(() => expect(names).toEqual(['First']))
   const second = session.rename('Second')
+  await vi.waitFor(async () =>
+    expect((await projectRepository.list()).find((p) => p.id === project.id)?.name).toBe('Second'),
+  )
   expect(names).toEqual(['First'])
   finish()
   await Promise.all([first, second])
