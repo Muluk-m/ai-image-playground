@@ -102,13 +102,11 @@ export default function ExportForm({
   const busy = progress !== null
   const locked = settings.stretch === undefined
   const imageSources = sources.filter((source) => source.media === 'image')
-  const originals = imageSources.map((source) =>
-    single
-      ? dimensions
-      : source.width && source.height
-        ? { width: source.width, height: source.height }
-        : null,
-  )
+  const originals = imageSources.map((source) => {
+    if (single) return dimensions
+    if (source.width && source.height) return { width: source.width, height: source.height }
+    return null
+  })
   const outputSizes = (scale: number) =>
     originals.map((original) =>
       original
@@ -135,6 +133,9 @@ export default function ExportForm({
   const validSize = (text: string) =>
     text.trim() !== '' && Number.isInteger(Number(text)) && Number(text) > 0
   const invalid = Object.values(sizeDraft).some((text) => !validSize(text))
+  let sizeHint = t('export.ratioUnlocked')
+  if (invalid) sizeHint = t('export.invalidSize')
+  else if (locked) sizeHint = t('export.ratioLocked')
   const changeSize = (axis: Axis, text: string) => {
     setSizeDraft((prev) => (locked ? { [axis]: text } : { ...prev, [axis]: text }))
     setDone(0)
@@ -266,13 +267,7 @@ export default function ExportForm({
                 className={cn('text-xs', invalid ? 'text-destructive' : 'text-muted-foreground')}
                 role={invalid ? 'alert' : undefined}
               >
-                {t(
-                  invalid
-                    ? 'export.invalidSize'
-                    : locked
-                      ? 'export.ratioLocked'
-                      : 'export.ratioUnlocked',
-                )}
+                {sizeHint}
               </p>
             </Section>
             <Section title={t('export.preview')}>
@@ -309,13 +304,12 @@ export default function ExportForm({
                             row.scale,
                             settings.stretch,
                           )
+                        let outputLabel = t('export.unknownSize')
+                        if (invalid) outputLabel = t('export.pendingSize')
+                        else if (output) outputLabel = `${output.width} × ${output.height}`
                         return (
                           <p key={row.id} className="text-primary">
-                            {invalid
-                              ? t('export.pendingSize')
-                              : output
-                                ? `${output.width} × ${output.height}`
-                                : t('export.unknownSize')}
+                            {outputLabel}
                             <span className="ml-2 text-label-sm text-muted-foreground">
                               {row.scale}x {formatLabel(row.format)}
                             </span>
