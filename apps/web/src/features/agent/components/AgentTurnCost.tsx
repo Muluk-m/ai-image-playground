@@ -1,9 +1,9 @@
 import { agentTurnCostTotal, type AgentTurnCost as TurnCost } from '@image-playground/shared'
-import { ArrowRightIcon, ChevronDown, ImageIcon, MessageCircle, VideoIcon } from 'lucide-react'
 import { Fragment, type ReactNode, useState } from 'react'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import Credits from '../../../components/Credits'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
@@ -62,14 +62,15 @@ export default function AgentTurnCost({
   }
   if (total) {
     parts.push(
-      <button
+      <Button
         type="button"
+        variant="ghost"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+        className="inline-flex h-auto w-auto gap-1 px-0 py-0 text-label-sm font-normal hover:bg-transparent hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         {t('cost.spent')} <Credits credits={total} />
-      </button>,
+      </Button>,
     )
   }
 
@@ -117,7 +118,7 @@ export default function AgentTurnCost({
           onClick={() => void useAgentStore.getState().send(t('cost.continuePrompt'))}
         >
           {t('cost.continue')}
-          <ArrowRightIcon aria-hidden className="size-3" />
+          <Icon name="arrowRight" />
         </Button>
       }
     >
@@ -146,7 +147,7 @@ function ChatFreeReceipt({ cost, durationMs }: { cost: TurnCost; durationMs?: nu
           aria-label={t('cost.imageSpentAria', { amount: formatCount(cost.image) })}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 text-foreground"
         >
-          <ImageIcon className="h-3 w-3" aria-hidden="true" />
+          <Icon name="image" className="size-3" />
           <Credits credits={cost.image} />
         </span>
       )}
@@ -156,7 +157,7 @@ function ChatFreeReceipt({ cost, durationMs }: { cost: TurnCost; durationMs?: nu
           aria-label={t('cost.videoSpentAria', { amount: formatCount(cost.video) })}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 text-foreground"
         >
-          <VideoIcon className="h-3 w-3" aria-hidden="true" />
+          <Icon name="video" className="size-3" />
           <Credits credits={cost.video} />
         </span>
       )}
@@ -169,19 +170,24 @@ function ChatFreeReceipt({ cost, durationMs }: { cost: TurnCost; durationMs?: nu
         }
         className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-1 text-primary"
       >
-        <MessageCircle className="h-3 w-3" aria-hidden="true" />
+        <Icon name="chat" className="size-3" />
         {knownWaiver && <Credits credits={waived} struck />}
         <span className="font-semibold">{t('cost.waivedShort')}</span>
       </span>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         aria-label={t('cost.receiptToggle')}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="ml-auto rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="ml-auto size-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
       >
-        <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+        <Icon
+          name="chevronDown"
+          className={`size-3 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </Button>
       {open && (
         <div className="basis-full rounded-lg border border-border bg-muted/60 px-2.5 py-2 tabular-nums">
           {knownWaiver && <ReceiptRow label={t('cost.original')} amount={spent + waived} />}
