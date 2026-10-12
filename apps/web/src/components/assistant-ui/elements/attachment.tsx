@@ -2,6 +2,7 @@
 import { ImageIcon } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '../../../lib/utils'
+import { Icon } from '../../ui/icon'
 
 export function AttachmentTile({
   name,
@@ -26,7 +27,13 @@ export function AttachmentTile({
   )
 }
 
-export function AttachmentLoading({ label }: { label?: ReactNode }) {
+export function AttachmentLoading({
+  label,
+  uploading = false,
+}: {
+  label?: ReactNode
+  uploading?: boolean
+}) {
   return (
     <span
       data-slot="attachment-loading"
@@ -34,7 +41,11 @@ export function AttachmentLoading({ label }: { label?: ReactNode }) {
       className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 overflow-hidden rounded-[inherit] bg-muted text-muted-foreground"
     >
       <span className="absolute inset-0 animate-pulse bg-foreground/[0.04] motion-reduce:animate-none" />
-      <ImageIcon className="size-4 opacity-40" />
+      {uploading ? (
+        <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+      ) : (
+        <ImageIcon className="size-4 opacity-40" />
+      )}
       {label && <span className="text-[10px] leading-3">{label}</span>}
     </span>
   )
