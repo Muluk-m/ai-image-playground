@@ -1,5 +1,5 @@
 import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
 import { CreationReferenceStack } from '../components/creation/CreationReferenceStack'
 import { ModelLogo } from '../components/ModelIdentity'
@@ -405,12 +405,20 @@ function ReferenceStacks() {
 
 function VideoSettings() {
   const draft = useVideoStore((state) => state.draft)
-  const [model, setModel] = useState('grok-imagine-video-1.5-lite')
-  const support = VIDEO_MODEL_SUPPORT[model]!
+  useEffect(() => {
+    const previous = useVideoStore.getState().draft
+    useVideoStore.getState().setModel('grok-imagine-video-1.5-lite')
+    return () => useVideoStore.setState({ draft: previous })
+  }, [])
+  const support = VIDEO_MODEL_SUPPORT[draft.model]
+  if (!support) return null
   return (
     <Section title="视频模型与时长">
       <div className="max-w-sm space-y-4 rounded-2xl border border-border bg-card p-4">
-        <Select value={model} onValueChange={setModel}>
+        <Select
+          value={draft.model}
+          onValueChange={(model) => useVideoStore.getState().setModel(model)}
+        >
           <SelectTrigger aria-label="视频模型">
             <SelectValue />
           </SelectTrigger>
@@ -425,11 +433,7 @@ function VideoSettings() {
             ))}
           </SelectContent>
         </Select>
-        <VideoPresetRows
-          support={support}
-          draft={{ ...draft, model }}
-          aspectFollowsFirstFrame={false}
-        />
+        <VideoPresetRows support={support} draft={draft} aspectFollowsFirstFrame={false} />
       </div>
     </Section>
   )
