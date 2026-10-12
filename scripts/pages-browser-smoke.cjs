@@ -67,8 +67,12 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
     }
     page.on('pageerror', (error) => fail(error.stack || error.message))
     page.on('console', (entry) => { if (entry.type() === 'error') logs.push(entry.text()) })
-    const isRequiredAsset = (request) => ['script', 'stylesheet'].includes(request.resourceType())
-      && new URL(request.url()).origin === new URL(origin).origin
+    // `/cdn-cgi/` is the CDN's own injected code (bot challenge, analytics), not part of the build.
+    const isRequiredAsset = (request) => {
+      const url = new URL(request.url())
+      return ['script', 'stylesheet'].includes(request.resourceType())
+        && url.origin === new URL(origin).origin && !url.pathname.startsWith('/cdn-cgi/')
+    }
     page.on('requestfailed', (request) => {
       if (isRequiredAsset(request))
         fail(`Asset request failed: ${request.url()} ${request.failure()?.errorText}`)
