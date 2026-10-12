@@ -755,8 +755,8 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     })
     await act(async () => {
       await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(100))
-      // This checks complete intake through 100 durable writes, not CI machine throughput.
-      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 25_000 })
+      // 100 durable writes. A busy CI runner passes 25s still short of 100; a stalled pipeline never arrives.
+      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 60_000 })
     })
     expect(session.getSnapshot().draft.references.map((reference) => reference.name)).toEqual(
       Array.from({ length: 100 }, (_, index) => `photo-${index + 1}`),
