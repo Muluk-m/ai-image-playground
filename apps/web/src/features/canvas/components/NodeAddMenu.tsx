@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 
@@ -45,10 +46,10 @@ export default function NodeAddMenu({
       role="menu"
       aria-label={t('nodes.addTitle')}
     >
-      <p className="studio-node-menu-title">{t('nodes.addTitle')}</p>
+      <p className="studio-node-menu-title text-xs">{t('nodes.addTitle')}</p>
       <MenuItem icon="text" label={t('nodes.addText')} onClick={onText} />
       <MenuItem icon="image" label={t('nodes.addImage')} onClick={onImage} />
-      <p className="studio-node-menu-section">{t('nodes.addResources')}</p>
+      <p className="studio-node-menu-section text-xs">{t('nodes.addResources')}</p>
       <MenuItem icon="upload" label={t('nodes.addUpload')} onClick={onImage} />
     </div>,
     document.body,
@@ -65,11 +66,17 @@ function MenuItem({
   onClick: () => void
 }) {
   return (
-    <button type="button" className="studio-node-menu-item" role="menuitem" onClick={onClick}>
+    <Button
+      type="button"
+      variant="ghost"
+      className="studio-node-menu-item h-auto w-full justify-start font-normal"
+      role="menuitem"
+      onClick={onClick}
+    >
       <span className="studio-node-menu-icon">
         <Icon name={icon} />
       </span>
       {label}
-    </button>
+    </Button>
   )
 }

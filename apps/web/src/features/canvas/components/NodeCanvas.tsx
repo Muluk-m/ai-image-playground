@@ -38,6 +38,7 @@ import {
 } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
@@ -211,8 +212,8 @@ const TextNode = memo(function TextNode({ data: { node } }: NodeProps<FlowNode>)
   const { text, fontSize, fill } = node.data
   if (editing?.editingId === node.id)
     return (
-      <textarea
-        className="studio-node studio-node--text studio-node-text-input nodrag nopan nowheel"
+      <Textarea
+        className="studio-node studio-node--text studio-node-text-input nodrag nopan nowheel min-h-0 rounded-none border-0 px-0 py-0 shadow-none"
         style={{ fontSize, color: fill }}
         defaultValue={text}
         placeholder={t('nodes.textPlaceholder')}
