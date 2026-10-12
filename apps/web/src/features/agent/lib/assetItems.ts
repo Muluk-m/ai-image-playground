@@ -2,7 +2,11 @@ import type { AgentToolArtifact } from '@image-playground/shared'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import type { AgentPanelMessage, AgentTextMessage, AgentToolMessage } from '../types'
 import { fetchedCanvasId } from './artifactDelivery'
-import { artifactPreview, fetchedImagePreview } from './artifactPreview'
+import {
+  artifactPreview,
+  fetchedImagePreview,
+  INLINE_RESULT_THUMBNAIL_SCALE,
+} from './artifactPreview'
 
 /** 资产库里的一张图。来源图点开就地预览；生成结果沿用原来的结果卡。 */
 export interface AssetItem {
@@ -116,7 +120,8 @@ export function assetsFromMessages(
             id: artifact.artifactId,
             title: message.title,
             media: artifact.media === 'video' ? 'video' : 'image',
-            load: async () => (await artifactPreview(artifact)).source,
+            load: async () =>
+              (await artifactPreview(artifact, INLINE_RESULT_THUMBNAIL_SCALE)).source,
             open: { kind: 'result', message },
           }),
         ),
@@ -126,7 +131,8 @@ export function assetsFromMessages(
             id,
             title: message.title,
             media: 'image',
-            load: async () => (await fetchedImagePreview(image, id)).source,
+            load: async () =>
+              (await fetchedImagePreview(image, id, INLINE_RESULT_THUMBNAIL_SCALE)).source,
             open: { kind: 'result', message },
           }
         }),
@@ -237,7 +243,7 @@ export function assetsFromBatch(message: AgentToolMessage, page: BatchAssetPage)
         id: artifact.artifactId,
         title,
         media: artifact.media === 'video' ? 'video' : 'image',
-        load: async () => (await artifactPreview(artifact)).source,
+        load: async () => (await artifactPreview(artifact, INLINE_RESULT_THUMBNAIL_SCALE)).source,
         open: { kind: 'result', message: resultMessage(message, artifact, title) },
       })
     }

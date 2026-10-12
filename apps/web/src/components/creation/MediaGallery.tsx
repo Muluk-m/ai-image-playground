@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import ProjectCover from '../../features/canvas/components/ProjectCover'
 import { useTranslation } from '../../i18n'
 import MediaImage from '../MediaImage'
@@ -55,6 +56,43 @@ export interface CreationProject {
   kind: 'image' | 'video' | 'agent'
   cover?: string
 }
+export function ProjectCardSurface({
+  cover,
+  name,
+  date,
+  onOpen,
+  menu,
+  disabled,
+  label,
+}: {
+  cover: ReactNode
+  name: string
+  date: ReactNode
+  onOpen: () => void
+  menu: ReactNode
+  disabled?: boolean
+  label?: string
+}) {
+  return (
+    <article className="creation-project-card">
+      <Button
+        variant="ghost"
+        type="button"
+        className="creation-project-open"
+        onClick={onOpen}
+        disabled={disabled}
+        aria-label={label}
+      >
+        <div className="creation-project-cover">{cover}</div>
+        <div className="creation-project-info">
+          <h3 title={name}>{name}</h3>
+          <p>{date}</p>
+        </div>
+      </Button>
+      {menu}
+    </article>
+  )
+}
 export function ProjectCard({
   project,
   onOpen,
@@ -65,39 +103,33 @@ export function ProjectCard({
   onMenu: () => void
 }) {
   const { t } = useTranslation('composer')
-  const emptyIcon = project.kind === 'agent' ? 'chat' : 'image'
   return (
-    <article className="creation-project-card">
-      <Button variant="ghost" type="button" className="creation-project-open" onClick={onOpen}>
-        <div className="creation-project-cover">
-          {project.cover ? (
-            <ProjectCover source={project.cover} chat={project.kind === 'agent'} fit="cover" />
-          ) : (
-            <div className="creation-project-empty">
-              <Icon name={emptyIcon} size="lg" />
-            </div>
-          )}
+    <ProjectCardSurface
+      name={project.name}
+      date={project.date}
+      onOpen={onOpen}
+      cover={
+        <>
+          <ProjectCover source={project.cover} chat={project.kind === 'agent'} fit="cover" />
           {project.kind === 'video' && (
             <span className="creation-play-badge">
               <Icon name="play" />
             </span>
           )}
-        </div>
-        <div className="creation-project-info">
-          <h3>{project.name}</h3>
-          <p>{project.date}</p>
-        </div>
-      </Button>
-      <Button
-        variant="ghost"
-        className="creation-project-menu"
-        size="icon"
-        aria-label={`${t('studio.projectActions')} ${project.name}`}
-        onClick={onMenu}
-      >
-        <Icon name="more" />
-      </Button>
-    </article>
+        </>
+      }
+      menu={
+        <Button
+          variant="ghost"
+          className="creation-project-menu"
+          size="icon"
+          aria-label={`${t('studio.projectActions')} ${project.name}`}
+          onClick={onMenu}
+        >
+          <Icon name="more" />
+        </Button>
+      }
+    />
   )
 }
 export function NewProjectCard({ onCreate }: { onCreate: () => void }) {
