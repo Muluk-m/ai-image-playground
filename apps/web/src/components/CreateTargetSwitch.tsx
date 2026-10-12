@@ -38,7 +38,7 @@ export default function CreateTargetSwitch() {
       className="studio-create-target mx-auto flex w-fit max-w-full rounded-full border border-border bg-card/70 p-1 backdrop-blur"
     >
       {options.map((one) => {
-        const active = one.id === target
+        const active = one.id === target || (one.id === 'generate' && target === 'video')
         return (
           <button
             key={one.id}
