@@ -208,7 +208,6 @@
     "continuePrompt": "继续"
   },
   "composer": {
-    "uploadsPending": "参考图还在上传，传完就能发送",
     "editorAria": "对智能体说",
     "drawMaskAria": "给参考图 {{label}} 画遮罩",
     "editMaskAria": "修改参考图 {{label}} 的遮罩",

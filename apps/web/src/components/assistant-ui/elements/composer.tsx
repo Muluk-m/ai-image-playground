@@ -3,6 +3,7 @@
 // Only the standalone composition used here is vendored; colors use our shared tokens.
 import type { ComponentProps } from 'react'
 import { PaperclipIcon } from '../../icons'
+import { Icon } from '../../ui/icon'
 
 const cn = (...values: (string | false | undefined)[]) => values.filter(Boolean).join(' ')
 const paper = 'border border-input bg-card text-card-foreground shadow-sm'
@@ -89,17 +90,20 @@ export function ComposerAttachButton({
 export function ComposerSend({
   streaming,
   idle,
+  busy = false,
   className,
   ...props
 }: Omit<ComponentProps<'button'>, 'children'> & {
   streaming: boolean
   idle: boolean
+  busy?: boolean
 }) {
   return (
     <button
       type="button"
       aria-label={streaming ? 'Stop generating' : 'Send message'}
       data-slot="composer-send"
+      aria-busy={busy || undefined}
       className={cn(
         'relative grid h-8 w-8 shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:cursor-not-allowed',
         streaming || idle ? inkButton : 'bg-muted text-muted-foreground/50 transition-colors',
@@ -107,22 +111,26 @@ export function ComposerSend({
       )}
       {...props}
     >
-      <svg
-        viewBox="0 0 24 24"
-        className="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        {streaming ? (
-          <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none" />
-        ) : (
-          <path d="M12 19V5m-6 6 6-6 6 6" />
-        )}
-      </svg>
+      {busy && !streaming ? (
+        <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+      ) : (
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          {streaming ? (
+            <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none" />
+          ) : (
+            <path d="M12 19V5m-6 6 6-6 6 6" />
+          )}
+        </svg>
+      )}
     </button>
   )
 }
