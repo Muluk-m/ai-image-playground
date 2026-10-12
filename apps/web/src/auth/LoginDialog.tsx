@@ -1,6 +1,10 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../components/patterns/Overlay'
+import { Button } from '../components/ui/button'
+import { Icon } from '../components/ui/icon'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
@@ -16,51 +20,9 @@ import type { LoginPromptReason } from './loginPrompt'
 import { preservePendingSubmissionForLogin } from './pendingSubmission'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
 
-function EyeIcon({ crossed = false }: { crossed?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" />
-      <circle cx="12" cy="12" r="2.5" />
-      {crossed ? <path d="m4 4 16 16" /> : null}
-    </svg>
-  )
-}
-
 function ProviderMark({ provider }: { provider: OAuthProviderView }) {
   if (provider.id === 'google') return <span className="auth-provider-google">G</span>
   return <span className="auth-provider-generic">{provider.label.slice(0, 1)}</span>
-}
-
-function FeatureIcon({ kind }: { kind: 'model' | 'speed' | 'security' }) {
-  if (kind === 'model') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-        <path d="m12 3 1.2 4.2L17 9l-3.8 1.8L12 15l-1.2-4.2L7 9l3.8-1.8L12 3Z" />
-        <path d="m18.5 14 .6 2.1 1.9.9-1.9.9-.6 2.1-.6-2.1L16 17l1.9-.9.6-2.1Z" />
-      </svg>
-    )
-  }
-  if (kind === 'speed') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-        <path d="m13.5 2-8 11h6L10.5 22l8-12h-6l1-8Z" />
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M12 3 5 6v5c0 4.6 2.7 8.1 7 10 4.3-1.9 7-5.4 7-10V6l-7-3Z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  )
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
-      <path d="m6 6 12 12M18 6 6 18" />
-    </svg>
-  )
 }
 
 function AuthShowcase() {
@@ -112,7 +74,7 @@ function AuthShowcase() {
       <div className="auth-benefits">
         <div>
           <span className="auth-benefit-icon">
-            <FeatureIcon kind="model" />
+            <Icon name="model" size="md" />
           </span>
           <strong>{t('showcase.benefit.model.title')}</strong>
           <p>
@@ -123,7 +85,7 @@ function AuthShowcase() {
         </div>
         <div>
           <span className="auth-benefit-icon">
-            <FeatureIcon kind="speed" />
+            <Icon name="speed" size="md" />
           </span>
           <strong>{t('showcase.benefit.speed.title')}</strong>
           <p>
@@ -134,7 +96,7 @@ function AuthShowcase() {
         </div>
         <div>
           <span className="auth-benefit-icon">
-            <FeatureIcon kind="security" />
+            <Icon name="security" size="md" />
           </span>
           <strong>{t('showcase.benefit.security.title')}</strong>
           <p>
@@ -328,9 +290,9 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
 
   const invitationField = referralEnabled ? (
     <div className="auth-referral">
-      <label className="auth-field">
+      <Label className="mt-4 grid gap-2 first:mt-0">
         <span>{t('referral.label')}</span>
-        <input
+        <Input
           name="referral_code"
           value={referralCode}
           maxLength={64}
@@ -344,17 +306,18 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
           disabled={pending}
           placeholder={t('referral.placeholder')}
         />
-      </label>
+      </Label>
     </div>
   ) : null
   const providerButtons =
     providers.length > 0 ? (
       <>
-        <div className="auth-providers">
+        <div className="grid auto-cols-fr grid-flow-col gap-2" data-auth-providers>
           {providers.map((provider) => (
-            <button
+            <Button
               key={provider.id}
               type="button"
+              variant="outline"
               disabled={pending}
               onClick={() => {
                 preservePendingSubmissionForLogin()
@@ -366,7 +329,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
             >
               <ProviderMark provider={provider} />
               <span>{provider.label}</span>
-            </button>
+            </Button>
           ))}
         </div>
         <div className="auth-divider">
@@ -380,14 +343,16 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
   return (
     <Overlay onClose={onClose} tier="raised" role="none">
       <div role="dialog" aria-modal="true" aria-label={t('dialog.label')} className="auth-dialog">
-        <button
+        <Button
           type="button"
-          className="auth-dialog-close"
+          variant="ghost"
+          size="icon-sm"
+          className="absolute right-4 top-4 z-10 text-muted-foreground"
           onClick={onClose}
           aria-label={t('dialog.close')}
         >
-          <CloseIcon />
-        </button>
+          <Icon name="close" />
+        </Button>
 
         <AuthShowcase />
 
@@ -410,9 +375,11 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
               </RegistrationPanel>
             ) : (
               <div className="auth-form-view auth-login">
-                <div className="auth-form-heading">
-                  <h1 tabIndex={-1}>{t('login.title')}</h1>
-                  <p>
+                <div className="mb-6">
+                  <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
+                    {t('login.title')}
+                  </h1>
+                  <p className="mt-2 text-body-sm text-muted-foreground">
                     {reason === 'session-expired'
                       ? t('dialog.expiredSubtitle')
                       : t('dialog.gatedSubtitle')}
@@ -426,9 +393,9 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
                   onSubmit={(event) => void submit(event)}
                   aria-label={t('login.formLabel')}
                 >
-                  <label className="auth-field">
+                  <Label className="mt-4 grid gap-2 first:mt-0">
                     <span>{t('login.emailLabel')}</span>
-                    <input
+                    <Input
                       name="username"
                       type="text"
                       inputMode="email"
@@ -440,30 +407,34 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
                       disabled={pending}
                       placeholder={t('login.emailPlaceholder')}
                     />
-                  </label>
+                  </Label>
 
-                  <label className="auth-field">
+                  <Label className="mt-4 grid gap-2 first:mt-0">
                     <span>{t('login.passwordLabel')}</span>
-                    <div className="auth-password">
-                      <input
+                    <div className="relative">
+                      <Input
                         name="password"
                         type={showPassword ? 'text' : 'password'}
+                        className="pr-10"
                         value={password}
                         onChange={(event) => setPassword(event.currentTarget.value)}
                         autoComplete="current-password"
                         disabled={pending}
                         placeholder={t('login.passwordPlaceholder')}
                       />
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-0.5 top-0.5 text-muted-foreground"
                         onClick={() => setShowPassword((value) => !value)}
                         disabled={pending}
                         aria-label={showPassword ? t('password.hide') : t('password.show')}
                       >
-                        <EyeIcon crossed={showPassword} />
-                      </button>
+                        <Icon name={showPassword ? 'hidden' : 'visible'} />
+                      </Button>
                     </div>
-                  </label>
+                  </Label>
 
                   <div className="auth-message-slot" aria-live="polite">
                     {error ? (
@@ -473,34 +444,36 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
                     ) : null}
                   </div>
 
-                  <button
+                  <Button
                     type="submit"
-                    className="auth-submit"
+                    className="w-full"
                     disabled={pending || !username.trim() || !password}
                   >
                     {pending ? (
                       <>
-                        <i className="auth-spinner" aria-hidden />
+                        <Icon name="loading" className="animate-spin" />
                         {t('login.submitting')}
                       </>
                     ) : (
                       t('login.submit')
                     )}
-                  </button>
+                  </Button>
                 </form>
 
-                <p className="auth-switch">
+                <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
                   {t('login.noAccount')}
                   {registrationEnabled ? (
-                    <button
+                    <Button
                       type="button"
+                      variant="link"
+                      size="xs"
                       onClick={() => {
                         setErrorKey(null)
                         setView('registration')
                       }}
                     >
                       {t('login.registerLink')}
-                    </button>
+                    </Button>
                   ) : (
                     <span>{t('login.registrationClosed')}</span>
                   )}
