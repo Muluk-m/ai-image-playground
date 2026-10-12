@@ -8,7 +8,11 @@ import {
   videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { SettingsChoice, SettingsSection } from '../../../components/composer/SettingsPanel'
+import {
+  SettingsChoice,
+  SettingsSection,
+  SettingsSegmented,
+} from '../../../components/composer/SettingsPanel'
 import {
   Select,
   SelectContent,
@@ -36,16 +40,57 @@ export default function VideoPresetRows({
 }) {
   const { t } = useTranslation('video')
   const durations = videoDurationsForResolution(support, draft.resolution)
+  const compactDurations = support.durations.length > 5
+  const quickDurations = compactDurations
+    ? support.durations.filter((duration) => [5, 8, 10, 15].includes(duration))
+    : support.durations
   return (
     <>
-      <SettingsChoice
-        label={t('composer.durationLabel')}
-        options={support.durations}
-        value={draft.duration}
-        render={(duration) => t('shared.seconds', { seconds: duration })}
-        optionDisabled={(duration) => !durations.includes(duration)}
-        onChange={(duration) => useVideoStore.getState().setDuration(duration)}
-      />
+      <SettingsSection title={t('composer.durationLabel')}>
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <SettingsSegmented
+              label={t('composer.durationLabel')}
+              options={quickDurations.map((duration) => ({
+                value: duration,
+                label: t('shared.seconds', { seconds: duration }),
+                disabled: !durations.includes(duration),
+              }))}
+              value={draft.duration}
+              onChange={(duration) => useVideoStore.getState().setDuration(duration)}
+            />
+          </div>
+          {compactDurations && (
+            <Select
+              value={quickDurations.includes(draft.duration) ? '' : String(draft.duration)}
+              onValueChange={(value) => {
+                const duration = durations.find((one) => String(one) === value)
+                if (duration !== undefined) useVideoStore.getState().setDuration(duration)
+              }}
+            >
+              <SelectTrigger
+                aria-label={t('composer.otherDuration')}
+                className="h-8 w-auto shrink-0 gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
+              >
+                <SelectValue placeholder={t('composer.otherDuration')} />
+              </SelectTrigger>
+              <SelectContent>
+                {support.durations
+                  .filter((duration) => !quickDurations.includes(duration))
+                  .map((duration) => (
+                    <SelectItem
+                      key={duration}
+                      value={String(duration)}
+                      disabled={!durations.includes(duration)}
+                    >
+                      {t('shared.seconds', { seconds: duration })}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      </SettingsSection>
       <SettingsChoice
         label={t('field.aspectRatio')}
         options={VIDEO_ASPECT_RATIOS.filter((ratio) => support.aspectRatios.includes(ratio))}
