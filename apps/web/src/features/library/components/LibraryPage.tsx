@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { PlusIcon, SparkleIcon } from '../../../components/icons'
 import DropOverlay from '../../../components/patterns/DropOverlay'
 import PageHeader from '../../../components/patterns/PageHeader'
 import SearchField from '../../../components/patterns/SearchField'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
@@ -149,12 +149,12 @@ export default function LibraryPage() {
               }}
             />
             <Button variant="outline" onClick={() => setCreating('asset')}>
-              <PlusIcon className="h-4 w-4" />
+              <Icon name="add" />
               {t('asset.new')}
             </Button>
             {agentReady && (
               <Button onClick={() => handoffToAgent('/create-asset ')}>
-                <SparkleIcon className="h-4 w-4" />
+                <Icon name="generate" />
                 {t('asset.createWithAgent')}
               </Button>
             )}
@@ -163,12 +163,12 @@ export default function LibraryPage() {
         {tab === 'looks' && (
           <>
             <Button variant="outline" onClick={() => setCreating('look')}>
-              <PlusIcon className="h-4 w-4" />
+              <Icon name="add" />
               {t('look.new')}
             </Button>
             {agentReady && (
               <Button onClick={() => handoffToAgent('/create-look ')}>
-                <SparkleIcon className="h-4 w-4" />
+                <Icon name="generate" />
                 {t('look.createWithAgent')}
               </Button>
             )}

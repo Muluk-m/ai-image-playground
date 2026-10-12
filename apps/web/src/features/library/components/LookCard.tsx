@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react'
 import Badge from '../../../components/patterns/Badge'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import type { LookItem } from '../lib/looks'
 import LookImage from './LookImage'
@@ -60,22 +61,26 @@ export default function LookCard({
         </div>
         <span className="truncate text-label-sm text-muted-foreground">{look.size}</span>
         <div className="flex items-center gap-1.5">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             disabled={needsRetune || !canGenerate}
             onClick={() => onGenerate(look)}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-auto bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary hover:bg-primary/20 hover:text-primary"
           >
             {t('look.generate')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={!canGenerate}
             onClick={() => onTune(look)}
-            className="rounded-lg border border-border px-2.5 py-1 text-label-sm text-foreground transition hover:bg-muted"
+            className="h-auto px-2.5 py-1 text-label-sm font-normal"
           >
             {look.origin === 'user' ? t('look.tune') : t('look.fork')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

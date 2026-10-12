@@ -1,4 +1,5 @@
-import { PlusIcon } from '../../../components/icons'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 
 export default function NewAssetButton({
@@ -11,13 +12,14 @@ export default function NewAssetButton({
   const { t } = useTranslation('library')
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       onClick={onClick}
-      className={`flex items-center gap-1 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/20 ${className}`}
+      className={`h-auto gap-1 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 hover:text-primary ${className}`}
     >
-      <PlusIcon className="h-4 w-4" />
+      <Icon name="add" />
       {t('asset.new')}
-    </button>
+    </Button>
   )
 }

@@ -1,5 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 
 interface NamingDialogProps {
@@ -53,31 +55,23 @@ export default function NamingDialog({
               {preview}
             </div>
           )}
-          <input
+          <Input
             ref={inputRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={placeholder}
             maxLength={40}
-            className="min-w-0 flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
+            className="min-w-0 flex-1 rounded-xl"
           />
         </div>
 
         <div className="mt-5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-xl px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
             {t('action.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={!finalName}
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={!finalName}>
             {t('action.save')}
-          </button>
+          </Button>
         </div>
       </form>
     </Overlay>

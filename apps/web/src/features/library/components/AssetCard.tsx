@@ -1,6 +1,8 @@
 import { type KeyboardEvent, useMemo, useState } from 'react'
-import { EditIcon, LayersIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
 import Badge from '../../../components/patterns/Badge'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
@@ -11,8 +13,7 @@ import type { AssetRecord } from '../types'
 import { assetCoverImageId } from '../types'
 import AssetThumb from './AssetThumb'
 
-const ICON_BUTTON =
-  'shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground'
+const ICON_BUTTON = 'shrink-0 text-muted-foreground hover:bg-muted hover:text-muted-foreground'
 
 export default function AssetCard({
   asset,
@@ -75,26 +76,30 @@ export default function AssetCard({
 
       <div className="absolute right-1.5 top-1.5 flex gap-1">
         {asset.views.length > 1 && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => onOpen(asset)}
             aria-label={t('asset.views')}
             title={t('asset.views')}
-            className="inline-flex items-center gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-label-sm font-medium text-white transition hover:bg-black/65"
+            className="h-auto gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-label-sm font-medium text-white hover:bg-black/65 hover:text-white"
           >
-            <LayersIcon className="h-3 w-3" />
+            <Icon name="layers" size="xs" />
             {t('asset.viewCount', { count: asset.views.length })}
-          </button>
+          </Button>
         )}
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() => setLightboxImageId(coverImageId)}
           aria-label={t('asset.zoom')}
           title={t('asset.zoom')}
-          className="rounded-lg bg-black/45 p-1.5 text-white transition hover:bg-black/65"
+          className="rounded-lg bg-black/45 text-white hover:bg-black/65 hover:text-white"
         >
-          <ZoomIcon className="h-3.5 w-3.5" />
-        </button>
+          <Icon name="zoomIn" />
+        </Button>
       </div>
 
       <div className="flex items-center gap-1 px-2.5 py-2">
@@ -103,7 +108,7 @@ export default function AssetCard({
             {asset.name}
           </span>
         ) : (
-          <input
+          <Input
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onBlur={commitRename}
@@ -112,39 +117,47 @@ export default function AssetCard({
               if (e.key === 'Escape') setDraftName(null)
             }}
             maxLength={40}
-            className="min-w-0 flex-1 rounded-md border border-primary bg-card px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
+            className="h-7 min-w-0 flex-1 border-primary bg-card px-1.5 py-0.5 text-xs"
           />
         )}
 
         {videoAvailable && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => void startVideoFromImage(coverImageId)}
             aria-label={t('asset.makeVideo')}
             title={t('asset.makeVideo')}
             className={ICON_BUTTON}
           >
-            <VideoIcon className="h-3.5 w-3.5" />
-          </button>
+            <Icon name="video" />
+          </Button>
         )}
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() => onOpen(asset)}
           aria-label={t('asset.views')}
           className={ICON_BUTTON}
         >
-          <LayersIcon className="h-3.5 w-3.5" />
-        </button>
-        <button
+          <Icon name="layers" />
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() => setDraftName(asset.name)}
           aria-label={t('action.rename')}
           className={ICON_BUTTON}
         >
-          <EditIcon className="h-3.5 w-3.5" />
-        </button>
-        <button
+          <Icon name="edit" />
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() =>
             setConfirmDialog({
               title: t('asset.deleteTitle'),
@@ -153,10 +166,10 @@ export default function AssetCard({
             })
           }
           aria-label={t('common:action.delete')}
-          className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10"
+          className="shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
         >
-          <TrashIcon className="h-3.5 w-3.5" />
-        </button>
+          <Icon name="delete" />
+        </Button>
       </div>
     </div>
   )
