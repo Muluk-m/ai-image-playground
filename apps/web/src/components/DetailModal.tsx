@@ -5,6 +5,7 @@ import { useImagePreview } from '../hooks/useImagePreview'
 import { describeError, useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
+import { modelLabel } from '../lib/channels/publicChannels'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import {
   copyBlobToClipboard,
@@ -190,11 +191,12 @@ export default function DetailModal() {
     currentRevisedPrompt && currentRevisedPrompt !== task.prompt.trim(),
   )
   // 云端镜下来的卡没有本机 profile，只有 provider + model：缺的那段不写，不拿「未知」凑数。
+  // 模型这段写渠道 label。id 只在清单里认不出这个模型时才露出来。
   const taskProvider = task.apiProvider || task.cloudProvider
   const sourceParts = [
     taskProvider ? getApiProviderLabel(settings, taskProvider) : '',
     task.apiProfileName ?? '',
-    task.apiModel ?? '',
+    task.apiModel ? modelLabel(task.apiModel, task.apiProfileId) : '',
   ].filter(Boolean)
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const rawImageUrls = task.rawImageUrls ?? []
