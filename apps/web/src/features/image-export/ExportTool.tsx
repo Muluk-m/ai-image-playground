@@ -23,6 +23,8 @@ export default function ExportTool() {
           name: item.name,
           media: 'image' as const,
           preview: item.url,
+          width: item.width,
+          height: item.height,
           load: async () => {
             const source = toolSource(item)
             if (!source) throw new Error('Original unavailable')
