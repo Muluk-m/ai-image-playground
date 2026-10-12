@@ -1,16 +1,4 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import {
-  ArrowUpRight,
-  Download,
-  Ellipsis,
-  Images,
-  LogIn,
-  Maximize2,
-  RotateCw,
-  Square,
-  TextSearch,
-  Wallet,
-} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -20,6 +8,7 @@ import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -65,6 +54,13 @@ import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 const IMAGE_PREVIEW_MAX_EDGE = 240
+/** 压掉 Button 默认的高度、内边距和悬停底色。结果卡里的实际尺寸由样式表的子选择器决定。 */
+const THUMB_BUTTON = `${THUMBNAIL} p-0 font-normal hover:bg-transparent`
+/** 字号、内边距和悬停色由 .studio-agent-result-actions button 决定。 */
+const RESULT_ACTION = 'h-auto bg-transparent font-normal hover:bg-transparent'
+/** 34px 热区和悬停底色由 .studio-agent-inline-actions button 决定。 */
+const INLINE_ACTION =
+  'h-auto w-auto bg-transparent p-0 font-normal text-inherit hover:bg-transparent hover:text-inherit'
 
 function useStatusNote(
   message: AgentToolMessage,
@@ -157,10 +153,15 @@ function Thumbnail({
   const image = <img src={source} alt="" className="h-full w-full object-cover" />
   if (onPreview)
     return (
-      <button type="button" className={THUMBNAIL} onClick={() => onPreview(artifact.artifactId)}>
+      <Button
+        type="button"
+        variant="ghost"
+        className={THUMB_BUTTON}
+        onClick={() => onPreview(artifact.artifactId)}
+      >
         {image}
         {badge}
-      </button>
+      </Button>
     )
   // 不在画布上就没有可定位的对象，那张图只是看一眼，不做成按钮。
   if (!onCanvas)
@@ -171,9 +172,10 @@ function Thumbnail({
       </span>
     )
   return (
-    <button
+    <Button
       type="button"
-      className={THUMBNAIL}
+      variant="ghost"
+      className={THUMB_BUTTON}
       onClick={() =>
         onViewCanvas
           ? onViewCanvas([artifact.artifactId])
@@ -182,7 +184,7 @@ function Thumbnail({
     >
       {image}
       {badge}
-    </button>
+    </Button>
   )
 }
 
@@ -250,26 +252,28 @@ function FetchedImages({
           const bitmap = <img src={source} alt="" className="h-full w-full object-cover" />
           if (onPreview)
             return (
-              <button
+              <Button
                 key={objectId}
                 type="button"
-                className={THUMBNAIL}
+                variant="ghost"
+                className={THUMB_BUTTON}
                 onClick={() => onPreview(objectId)}
               >
                 {bitmap}
-              </button>
+              </Button>
             )
           return onCanvas ? (
-            <button
+            <Button
               key={objectId}
               type="button"
-              className={THUMBNAIL}
+              variant="ghost"
+              className={THUMB_BUTTON}
               onClick={() =>
                 onViewCanvas ? onViewCanvas([objectId]) : agentCanvasSink()?.focus([objectId])
               }
             >
               {bitmap}
-            </button>
+            </Button>
           ) : (
             <span key={objectId} className={THUMBNAIL_STATIC}>
               {bitmap}
@@ -306,7 +310,7 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
   if (!code || !action) return null
   return (
     <AgentIconButton
-      icon={action === 'login' ? LogIn : action === 'recharge' ? Wallet : RotateCw}
+      icon={action === 'login' ? 'user' : action === 'recharge' ? 'credits' : 'refresh'}
       label={agentToolFailureActionLabel(action, code)}
       onClick={() =>
         runAgentToolFailureAction(action, {
@@ -352,7 +356,7 @@ export function AgentRetryWithdraw({
   return (
     <span className="inline-flex items-center gap-2">
       <AgentIconButton
-        icon={Square}
+        icon="stop"
         label={state === 'withdrawing' ? t('retry.withdrawing') : t('retry.withdraw')}
         disabled={state === 'withdrawing'}
         className={className}
@@ -392,7 +396,7 @@ function RetryRemaining({ message }: { message: AgentToolMessage }) {
   if (remaining.length === 0) return null
   return (
     <AgentIconButton
-      icon={RotateCw}
+      icon="refresh"
       busy={pending}
       disabled={pending}
       label={t('retry.retryRemaining', { count: remaining.length })}
@@ -416,7 +420,7 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
     <div className="flex flex-wrap items-center gap-2">
       <AgentRetryWithdraw message={message} />
       <AgentIconButton
-        icon={ArrowUpRight}
+        icon="external"
         label={t('retry.viewOriginal')}
         onClick={() => {
           const card = document.getElementById(agentToolCardDomId(origin.messageId))
@@ -599,7 +603,7 @@ function StandardAgentToolCard({
         {message.prompt && (
           <AgentIconButton
             label={t('tool.viewPrompt')}
-            icon={TextSearch}
+            icon="prompt"
             onClick={() => setPromptOpen(true)}
           />
         )}
@@ -693,7 +697,7 @@ function StandardAgentToolCard({
             {message.prompt && (
               <AgentIconButton
                 label={t('tool.viewPrompt')}
-                icon={TextSearch}
+                icon="prompt"
                 onClick={() => setPromptOpen(true)}
               />
             )}
@@ -768,9 +772,10 @@ function StandardAgentToolCard({
           ...(generatedImage && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
         }}
       >
-        <button
+        <Button
           type="button"
-          className="studio-agent-inline-open"
+          variant="ghost"
+          className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
           aria-label={
             onPreviewResult
               ? t('tool.openResultNumber', { number: index + 1 })
@@ -797,10 +802,12 @@ function StandardAgentToolCard({
             <span>{t('tool.previewUnavailable')}</span>
           )}
           {tile.media === 'video' && <PlayBadge />}
-        </button>
+        </Button>
         <div className="studio-agent-inline-actions">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            className={INLINE_ACTION}
             title={onPreviewResult ? t('tool.previewResult') : t('tool.openCanvas')}
             aria-label={
               onPreviewResult
@@ -810,28 +817,32 @@ function StandardAgentToolCard({
             disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
             onClick={() => openPreviewResult(tile.id)}
           >
-            <Maximize2 size={16} />
-          </button>
+            <Icon name="fullscreen" />
+          </Button>
           {tile.media !== 'video' && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              className={INLINE_ACTION}
               title={t('tool.downloadResult')}
               aria-label={t('tool.downloadResult')}
               disabled={downloading.has(tile.id)}
               onClick={() => void downloadTile(tile)}
             >
-              <Download size={16} />
-            </button>
+              <Icon name="download" />
+            </Button>
           )}
           {tile.media !== 'video' && onViewCanvas && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              className={INLINE_ACTION}
               title={t('tool.editOnCanvas')}
               aria-label={t('tool.editOnCanvas')}
               onClick={() => onViewCanvas([tile.id])}
             >
-              <Images size={16} />
-            </button>
+              <Icon name="images" />
+            </Button>
           )}
         </div>
       </div>
@@ -914,7 +925,7 @@ function StandardAgentToolCard({
               }
             >
               {offCanvas && !onPreviewResult && (
-                <AgentIconButton icon={Images} label={t('tool.place')} onClick={placeOnCanvas} />
+                <AgentIconButton icon="images" label={t('tool.place')} onClick={placeOnCanvas} />
               )}
               {(message.prompt || onViewCanvas) && (
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
@@ -926,7 +937,7 @@ function StandardAgentToolCard({
                       className="size-8 rounded-xl"
                       aria-label={t('tool.moreActions')}
                     >
-                      <Ellipsis size={17} aria-hidden="true" />
+                      <Icon name="more" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-48 rounded-xl p-1.5">
@@ -979,10 +990,11 @@ function StandardAgentToolCard({
         <div className="studio-agent-result-media" data-multiple={previews.length > 1 || undefined}>
           {previews.map((preview) =>
             onPreviewResult ? (
-              <button
+              <Button
                 key={preview.artifact.artifactId}
                 type="button"
-                className={THUMBNAIL}
+                variant="ghost"
+                className={THUMB_BUTTON}
                 aria-label={t('tool.previewResult')}
                 onClick={() => openPreviewResult(preview.artifact.artifactId)}
               >
@@ -990,7 +1002,7 @@ function StandardAgentToolCard({
                   <img src={preview.source} alt="" className="h-full w-full object-cover" />
                 )}
                 {preview.artifact.media === 'video' && <PlayBadge />}
-              </button>
+              </Button>
             ) : (
               <Thumbnail
                 key={preview.artifact.artifactId}
@@ -1012,26 +1024,51 @@ function StandardAgentToolCard({
           <WakeSkippedNote message={message} />
           <div className="studio-agent-result-actions">
             {onPreviewResult ? (
-              <button type="button" onClick={() => openPreviewResult()}>
-                <Images className="h-3.5 w-3.5" aria-hidden="true" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RESULT_ACTION}
+                onClick={() => openPreviewResult()}
+              >
+                <Icon name="images" />
                 {t('tool.previewResult')}
-              </button>
+              </Button>
             ) : canvasIds.length > 0 ? (
-              <button type="button" title={t('tool.locateTitle')} onClick={viewCanvas}>
-                <Images className="h-3.5 w-3.5" aria-hidden="true" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RESULT_ACTION}
+                title={t('tool.locateTitle')}
+                onClick={viewCanvas}
+              >
+                <Icon name="images" />
                 {t('tool.openCanvas')}
-                <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
-              </button>
+                <Icon name="external" />
+              </Button>
             ) : null}
             {message.prompt && !onPreviewResult && (
-              <button type="button" onClick={() => setPromptOpen(true)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RESULT_ACTION}
+                onClick={() => setPromptOpen(true)}
+              >
                 {t('tool.viewPrompt')}
-              </button>
+              </Button>
             )}
             {offCanvas && !onPreviewResult && (
-              <button type="button" onClick={placeOnCanvas}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={RESULT_ACTION}
+                onClick={placeOnCanvas}
+              >
                 {t('tool.place')}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -1050,10 +1087,11 @@ function StandardAgentToolCard({
       )}
       <div className="flex items-start justify-between gap-2">
         {!message.prompt && !onPreviewResult && previews.some((preview) => preview.onCanvas) ? (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             title={t('tool.locateTitle')}
-            className={`${CARD_TITLE} min-w-0 text-left`}
+            className={`${CARD_TITLE} h-auto min-w-0 justify-start whitespace-normal px-0 py-0 text-left font-normal hover:bg-transparent hover:text-foreground`}
             onClick={() => {
               const ids = previews
                 .filter((preview) => preview.onCanvas)
@@ -1063,7 +1101,7 @@ function StandardAgentToolCard({
             }}
           >
             {message.title}
-          </button>
+          </Button>
         ) : (
           <p className={`${CARD_TITLE} min-w-0`}>{message.title}</p>
         )}
@@ -1130,9 +1168,14 @@ function StandardAgentToolCard({
         onPreview={onPreviewResult ? (id) => openPreviewResult(id) : undefined}
       />
       {offCanvas && !onPreviewResult && (
-        <button type="button" className={`self-start ${GHOST_LINK}`} onClick={placeOnCanvas}>
+        <Button
+          type="button"
+          variant="ghost"
+          className={`${GHOST_LINK} h-auto self-start px-0 py-0 font-normal hover:bg-transparent`}
+          onClick={placeOnCanvas}
+        >
           {t('tool.place')}
-        </button>
+        </Button>
       )}
     </div>
   )

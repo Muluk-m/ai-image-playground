@@ -213,10 +213,6 @@
     "lucide-import": 1,
     "native-control": 1
   },
-  "apps/web/src/features/agent/components/AgentArtifactPane.tsx": {
-    "lucide-import": 1,
-    "native-control": 16
-  },
   "apps/web/src/features/agent/components/AgentAssetDrawer.tsx": {
     "arbitrary-radius": 1,
     "lucide-import": 1
@@ -234,12 +230,6 @@
   },
   "apps/web/src/features/agent/components/AgentClarification.tsx": {
     "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentComposer.tsx": {
-    "arbitrary-font": 2,
-    "font-weight": 1,
-    "lucide-import": 1,
-    "native-control": 5
   },
   "apps/web/src/features/agent/components/AgentCopyDiagnostic.tsx": {
     "lucide-import": 1
@@ -267,15 +257,7 @@
     "lucide-import": 1,
     "native-control": 1
   },
-  "apps/web/src/features/agent/components/AgentToolCard.tsx": {
-    "lucide-import": 1,
-    "native-control": 15
-  },
   "apps/web/src/features/agent/components/AgentVideoDetails.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentVideoToolCard.tsx": {
-    "arbitrary-font": 1,
     "lucide-import": 1
   },
   "apps/web/src/features/agent/components/AssetSlotChip.tsx": {
