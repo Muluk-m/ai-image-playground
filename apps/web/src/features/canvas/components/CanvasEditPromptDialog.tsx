@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { LABEL, PANEL_SECTION, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -9,8 +11,6 @@ import { useStore } from '../../../store'
 import type { ImageEl } from '../lib/canvasDoc'
 import { submitCanvasImageEdit } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
-import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
-
 /**
  * 整图编辑：说一句要求，这一张就地改掉。没有涂抹区域——要只改一块用局部重绘。
  */
@@ -43,7 +43,7 @@ export default function CanvasEditPromptDialog({
         <p className="mb-3 text-xs text-muted-foreground">{t('imageEdit.hint')}</p>
 
         <div className={`${LABEL} mb-1.5`}>{t('imageEdit.promptLabel')}</div>
-        <textarea
+        <Textarea
           autoFocus
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
@@ -56,7 +56,7 @@ export default function CanvasEditPromptDialog({
           rows={4}
           placeholder={t('imageEdit.placeholder')}
           aria-label={t('imageEdit.promptLabel')}
-          className={`${CANVAS_PANEL_FIELD} resize-none`}
+          className="resize-none"
         />
 
         <div className={`${PANEL_SECTION} mt-3`}>
@@ -67,15 +67,16 @@ export default function CanvasEditPromptDialog({
             blockedAction={guard.blockedAction}
             className="mb-1.5 text-label-sm"
           />
-          <button
+          <Button
             type="button"
+            size="sm"
+            className="w-full"
             disabled={guard.blocked || prompt.trim().length === 0}
             title={guard.disabledReason}
             onClick={submit}
-            className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
           >
             {t('imageEdit.submit')}
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>

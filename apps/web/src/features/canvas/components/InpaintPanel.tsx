@@ -1,7 +1,9 @@
-import { Brush, Eraser, Scan, Undo2, Upload, Wand2, X } from 'lucide-react'
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { LABEL, OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { LABEL, PANEL_TITLE } from '../../../components/panelStyles'
 import RegionPromptEditor, { useRegionPrompt } from '../../../components/RegionPromptEditor'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
 import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
@@ -89,7 +91,7 @@ export default function InpaintPanel({
     <div className="p-3">
       <div className="mb-2">
         <h3 className={`${PANEL_TITLE} inline-flex items-center gap-1.5`}>
-          {!erasing && <Wand2 className="h-4 w-4 text-[#159cf6]" />}
+          {!erasing && <Icon name="wand" className="text-primary" />}
           {t(erasing ? 'erase.title' : 'inpaint.title')}
         </h3>
       </div>
@@ -97,48 +99,47 @@ export default function InpaintPanel({
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <div role="radiogroup" aria-label={t('inpaint.toolAria')} className="flex gap-1">
           {(erasing ? (['brush', 'eraser'] as const) : (['rect', 'brush'] as const)).map((tool) => (
-            <button
+            <Button
               key={tool}
               type="button"
+              size="sm"
+              variant={session.tool === tool ? 'default' : 'outline'}
               role="radio"
               aria-checked={session.tool === tool}
-              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition ${session.tool === tool && !erasing ? 'border-[#159cf6] bg-[#159cf6]/10 text-[#159cf6]' : session.tool === tool ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'}`}
               onClick={() => session.setTool(tool)}
             >
-              {tool === 'rect' ? (
-                <Scan className="h-3.5 w-3.5" />
-              ) : tool === 'brush' ? (
-                <Brush className="h-3.5 w-3.5" />
-              ) : (
-                <Eraser className="h-3.5 w-3.5" />
-              )}
+              <Icon name={tool === 'rect' ? 'shape' : tool === 'brush' ? 'brush' : 'erase'} />
               {t(`inpaint.tool.${tool}`)}
-            </button>
+            </Button>
           ))}
         </div>
         {session.tool !== 'rect' && (
           <label className="flex min-w-24 flex-1 items-center gap-2">
             <span className={`${LABEL} shrink-0 whitespace-nowrap`}>{t('inpaint.brushSize')}</span>
-            <input
-              type="range"
+            <Slider
               min={MIN_BRUSH_PX}
               max={MAX_BRUSH_PX}
-              value={session.brushPx}
-              className="w-full accent-primary"
-              onChange={(event) => session.setBrushPx(Number(event.target.value))}
+              value={[session.brushPx]}
+              aria-label={t('inpaint.brushSize')}
+              className="w-full"
+              onValueChange={([value]) => {
+                if (value !== undefined) session.setBrushPx(value)
+              }}
             />
           </label>
         )}
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           disabled={!painted}
           aria-label={t('inpaint.undo')}
           title={t('inpaint.undo')}
-          className="ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          className="ml-auto shrink-0 text-muted-foreground"
           onClick={session.undo}
         >
-          <Undo2 className="h-4 w-4" />
-        </button>
+          <Icon name="undo" />
+        </Button>
       </div>
 
       {!erasing && (
@@ -150,14 +151,16 @@ export default function InpaintPanel({
                 alt={session.reference.name}
                 className="h-16 w-16 rounded-lg object-cover"
               />
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="icon-xs"
                 aria-label={t('inpaint.removeReference')}
-                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-foreground text-background"
+                className="absolute -right-1.5 -top-1.5"
                 onClick={() => session.setReference(null)}
               >
-                <X className="h-3 w-3" />
-              </button>
+                <Icon name="close" />
+              </Button>
             </div>
           )}
           <RegionPromptEditor
@@ -180,12 +183,15 @@ export default function InpaintPanel({
         {erasing ? (
           <span />
         ) : (
-          <button type="button" className={OUTLINE_BUTTON} onClick={() => fileRef.current?.click()}>
-            <span className="inline-flex items-center gap-1.5">
-              <Upload className="h-3.5 w-3.5" />
-              {t('inpaint.uploadReference')}
-            </span>
-          </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileRef.current?.click()}
+          >
+            <Icon name="upload" />
+            {t('inpaint.uploadReference')}
+          </Button>
         )}
         <input
           ref={fileRef}
@@ -198,11 +204,12 @@ export default function InpaintPanel({
           }}
         />
         <div className="flex items-center gap-2">
-          <button type="button" className={OUTLINE_BUTTON} disabled={pending} onClick={onDone}>
+          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={onDone}>
             {t('common:action.cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             disabled={
               pending ||
               !painted ||
@@ -210,11 +217,10 @@ export default function InpaintPanel({
               regionPrompt.hasMissing ||
               (!erasing && !regionPrompt.hasProse)
             }
-            className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
           >
             {t('imageToolbar.sendToAgent')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
