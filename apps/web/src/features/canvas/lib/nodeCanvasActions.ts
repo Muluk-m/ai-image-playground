@@ -20,23 +20,30 @@ export function createNode(
   kind: CreateNodeKind,
   point: { x: number; y: number },
   fill: string,
+  beside?: { nodes: readonly CanvasNode[]; side: 'left' | 'right' },
 ): string {
   const id = newElementId()
   const width = kind === 'text' ? 300 : 360
   const height = kind === 'text' ? 220 : 240
-  const x = point.x - width / 2
-  let y = point.y - height / 2
   const occupied = readCanvasDocument(canvas.doc).nodes
-  while (
-    occupied.some(
-      (n) =>
-        x < n.x + n.width + 24 &&
-        x + width + 24 > n.x &&
-        y < n.y + n.height + 24 &&
-        y + height + 24 > n.y,
-    )
-  )
-    y += height + 64
+  const anchors = beside?.nodes ?? []
+  const gap = 96
+  const x = anchors.length
+    ? beside?.side === 'left'
+      ? Math.min(...anchors.map((n) => n.x)) - gap - width
+      : Math.max(...anchors.map((n) => n.x + n.width)) + gap
+    : point.x - width / 2
+  const preferredY = anchors.length ? Math.min(...anchors.map((n) => n.y)) : point.y - height / 2
+  const column = occupied.filter((n) => x < n.x + n.width + gap && x + width + gap > n.x)
+  // Keep siblings in one column, choosing the nearest free slot above or below the anchor.
+  const candidates = [
+    preferredY,
+    ...column.flatMap((n) => [n.y + n.height + gap, n.y - height - gap]),
+  ].sort((a, b) => Math.abs(a - preferredY) - Math.abs(b - preferredY) || b - a)
+  const y =
+    candidates.find((candidate) =>
+      column.every((n) => candidate >= n.y + n.height + gap || candidate + height + gap <= n.y),
+    ) ?? preferredY
   canvas.undo.stopCapturing()
   insertCanvasNode(
     canvas.doc,

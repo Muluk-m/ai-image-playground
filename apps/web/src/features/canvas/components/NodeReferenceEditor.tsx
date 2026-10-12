@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -30,6 +32,7 @@ export default function NodeReferenceEditor({
   onRole?: (id: string, role: string) => void
 }) {
   const { t } = useTranslation('canvas')
+  const [picking, setPicking] = useState(false)
   return (
     <div className="studio-node-references" aria-label={t('nodes.references')}>
       {references.map((ref, index) => (
@@ -85,26 +88,57 @@ export default function NodeReferenceEditor({
         </div>
       ))}
       {available.length > 0 && (
-        <Select value="" onValueChange={onAdd}>
-          <SelectTrigger className="h-8 w-auto gap-2 text-xs" aria-label={t('nodes.addReference')}>
-            <Icon name="add" size="xs" />
-            <SelectValue placeholder={t('nodes.addReference')} />
-          </SelectTrigger>
-          <SelectContent>
-            {available.map((ref) => (
-              <SelectItem key={ref.id} value={ref.id}>
-                {ref.label ||
-                  t(
-                    ref.kind === 'text'
-                      ? 'nodes.addText'
-                      : ref.kind === 'video'
-                        ? 'nodes.addVideo'
-                        : 'nodes.addImage',
+        <Popover open={picking} onOpenChange={setPicking}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="studio-node-reference-add"
+              aria-label={t('nodes.addReference')}
+            >
+              <Icon name="add" />
+              {t('nodes.addReference')}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="studio-node-reference-picker p-2" side="top" align="start">
+            <p className="px-2 py-1 text-xs text-muted-foreground">{t('nodes.addReference')}</p>
+            <div className="max-h-60 overflow-y-auto">
+              {available.map((ref) => (
+                <Button
+                  key={ref.id}
+                  variant="ghost"
+                  className="h-10 w-full justify-start gap-2 px-2"
+                  onClick={() => {
+                    onAdd(ref.id)
+                    setPicking(false)
+                  }}
+                >
+                  {ref.fileId && files[ref.fileId] ? (
+                    <img
+                      src={files[ref.fileId]}
+                      alt=""
+                      className="h-7 w-7 rounded-sm object-cover"
+                    />
+                  ) : (
+                    <Icon
+                      name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'}
+                    />
                   )}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+                  <span className="truncate text-xs">
+                    {ref.label ||
+                      t(
+                        ref.kind === 'text'
+                          ? 'nodes.addText'
+                          : ref.kind === 'video'
+                            ? 'nodes.addVideo'
+                            : 'nodes.addImage',
+                      )}
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   )
