@@ -34,7 +34,8 @@
     "followsFirstFrame": "随首帧"
   },
   "composer": {
-    "durationLabel": "时长"
+    "durationLabel": "时长",
+    "otherDuration": "其他时长"
   },
   "derive": {
     "titleExtend": "续写 · 从最后一帧往后",

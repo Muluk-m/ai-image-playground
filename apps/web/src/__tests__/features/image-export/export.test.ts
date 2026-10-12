@@ -29,6 +29,19 @@ describe('image export dimensions', () => {
     expect(exportSize(1920, 1080, 'percent', 50, 2)).toEqual({ width: 1920, height: 1080 })
     expect(exportSize(1, 1, 'original', 100, 0.5)).toEqual({ width: 1, height: 1 })
   })
+  it('overrides each axis independently before density scaling without losing the proportional base', () => {
+    expect(exportSize(1600, 900, 'width', 1200, 1, {})).toEqual({ width: 1200, height: 675 })
+    expect(exportSize(1600, 900, 'width', 1200, 1, { height: 800 })).toEqual({
+      width: 1200,
+      height: 800,
+    })
+    expect(exportSize(1440, 1440, 'original', 100, 2, { width: 1200, height: 800 })).toEqual({
+      width: 2400,
+      height: 1600,
+    })
+    expect(() => exportSize(1600, 900, 'width', 1200, 1, { height: 0 })).toThrow()
+    expect(() => exportSize(1600, 900, 'width', 1200, 1, { width: 1.5 })).toThrow()
+  })
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid size %s', (value) => {
     expect(() => exportSize(1440, 1080, 'width', value, 1)).toThrow()
   })
@@ -67,6 +80,46 @@ describe('export pipeline', () => {
     expect(close).toHaveBeenCalledOnce()
     expect(releaseCanvas.width).toBe(0)
     vi.unstubAllGlobals()
+  })
+  it('renders both mixed-ratio originals at the unlocked output dimensions', async () => {
+    const bitmaps = [
+      { width: 1440, height: 1440, close: vi.fn() },
+      { width: 1600, height: 900, close: vi.fn() },
+    ]
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn().mockResolvedValueOnce(bitmaps[0]).mockResolvedValueOnce(bitmaps[1]),
+    )
+    draw.mockClear()
+    try {
+      await prepareExports(
+        bitmaps.map((_, index) => ({
+          id: String(index),
+          name: `photo-${index}`,
+          media: 'image' as const,
+          load: async () => new Blob(['original']),
+        })),
+        {
+          mode: 'width',
+          value: 1200,
+          stretch: { height: 800 },
+          quality: 92,
+          rows: [
+            { id: 'a', scale: 1, format: 'image/png' },
+            { id: 'b', scale: 2, format: 'image/png' },
+          ],
+        },
+        new AbortController().signal,
+        vi.fn(),
+      )
+      expect(draw).toHaveBeenNthCalledWith(1, bitmaps[0], 0, 0, 1200, 800)
+      expect(draw).toHaveBeenNthCalledWith(2, bitmaps[0], 0, 0, 2400, 1600)
+      expect(draw).toHaveBeenNthCalledWith(3, bitmaps[1], 0, 0, 1200, 800)
+      expect(draw).toHaveBeenNthCalledWith(4, bitmaps[1], 0, 0, 2400, 1600)
+      for (const bitmap of bitmaps) expect(bitmap.close).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
   it('cancels an in-flight source request when the export is closed', async () => {
     const controller = new AbortController()

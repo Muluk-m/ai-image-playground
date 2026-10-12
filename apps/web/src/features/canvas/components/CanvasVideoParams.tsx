@@ -6,6 +6,7 @@ import {
   RatioShape,
   SettingsPopover,
 } from '../../../components/composer/SettingsPanel'
+import { ModelLogo } from '../../../components/ModelIdentity'
 import {
   Select,
   SelectContent,
@@ -60,7 +61,10 @@ export default function CanvasVideoParams({
         <SelectContent>
           {options.map((one) => (
             <SelectItem key={one.modelId} value={one.modelId}>
-              {one.label}
+              <span className="flex items-center gap-2">
+                <ModelLogo model={one.modelId} />
+                {one.label}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>

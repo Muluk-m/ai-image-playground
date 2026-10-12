@@ -148,6 +148,14 @@
     "undecodable": "无法解码此格式",
     "select": "选择",
     "downloadOriginal": "下载原图",
-    "export": "导出"
+    "export": "导出",
+    "ratioUnlock": "解锁比例",
+    "ratioLocked": "比例已锁定",
+    "ratioUnlocked": "比例已解锁 · 独立宽高",
+    "multipleValues": "多个值",
+    "preview": "输出预览",
+    "invalidSize": "请输入大于 0 的整数尺寸",
+    "pendingSize": "待输入",
+    "unknownSize": "导出时计算"
   }
 }

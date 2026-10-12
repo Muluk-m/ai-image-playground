@@ -117,7 +117,14 @@
 .creation-reference-stack[data-filled=true] .creation-stack-add { position: absolute; right: -4px; bottom: -4px; }
 .creation-reference-stack[data-filled=true] .creation-add { width: 28px; height: 28px; padding: 0; border-radius: 50%; background: hsl(var(--secondary)); box-shadow: 0 0 0 2px hsl(var(--card)); }
 .creation-reference-stack[data-filled=true] .creation-add > span { display: none; }
-.creation-reference-panel { width: 360px; max-width: calc(100vw - 32px); max-height: min(360px, 50dvh); overflow-y: auto; overscroll-behavior: contain; border-radius: 16px; padding: 16px; }
-.creation-reference-list { display: flex; flex-wrap: wrap; align-items: start; gap: 12px; }
+.creation-reference-panel { width: max-content; max-width: min(640px, calc(100vw - 32px)); max-height: min(360px, 50dvh); overflow-y: auto; overscroll-behavior: contain; border-radius: 16px; padding: 16px; }
+.creation-reference-list { display: flex; flex-wrap: nowrap; align-items: start; gap: 12px; overflow-x: auto; padding: 4px; }
+.creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; }
+.creation-reference-list > [data-slot="composer-attachments"] > div { flex-shrink: 0; }
 
 .creation-reference-stack[data-failed=true] .creation-stack-count { background: hsl(var(--destructive)); color: hsl(var(--on-media)); }
+
+.creation-stack-upload { position: absolute; inset: 20px; display: grid; place-items: center; border-radius: 50%; background: hsl(var(--scrim) / .72); color: hsl(var(--on-media)); }
+.creation-reference-status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: hsl(var(--muted-foreground)); @apply text-xs; }
+.creation-reference-status[data-failed=true] { color: hsl(var(--destructive)); }
+.creation-send[aria-busy=true] { color: hsl(var(--primary)); }
