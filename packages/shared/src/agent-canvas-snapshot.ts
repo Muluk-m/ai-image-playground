@@ -1,4 +1,4 @@
-import { PROJECT_ELEMENT_MAX_COUNT } from './project-protocol'
+import { PROJECT_ELEMENT_MAX_COUNT, parseProjectArtifactId } from './project-protocol'
 
 /**
  * 用户发话时浏览器里那张画布的目录。
@@ -11,6 +11,7 @@ const NAME_MAX = 200
 const TEXT_MAX = 80
 const COORD_MAX = 10_000_000
 const MEDIA_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
+const VIDEO_ID_MAX = 160
 
 export interface AgentCanvasLiveImage {
   readonly id: string
@@ -26,6 +27,8 @@ export interface AgentCanvasLiveImage {
   readonly section?: string
   readonly mediaId?: string
   readonly video?: true
+  /** 成片的产物 id。封面 mediaId 只是第一帧。 */
+  readonly videoId?: string
   readonly derivedFrom?: string
   /** 元素左上角相对外接矩形的偏移。旋转过的图，整理落点要加回这个偏移。 */
   readonly dx?: number
@@ -74,6 +77,12 @@ function boxOf(
   return { x: value.x, y: value.y, width: value.width, height: value.height }
 }
 
+function videoIdOf(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length === 0 || value.length > VIDEO_ID_MAX)
+    return undefined
+  return parseProjectArtifactId(value) ? value : undefined
+}
+
 function elementOf(value: unknown): AgentCanvasLiveElement | undefined {
   if (!value || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
@@ -85,6 +94,7 @@ function elementOf(value: unknown): AgentCanvasLiveElement | undefined {
       typeof record.createdAt === 'number' && Number.isSafeInteger(record.createdAt)
         ? record.createdAt
         : undefined
+    const videoId = videoIdOf(record.videoId)
     return {
       id,
       type: 'image',
@@ -97,7 +107,11 @@ function elementOf(value: unknown): AgentCanvasLiveElement | undefined {
       ...(typeof record.mediaId === 'string' && MEDIA_ID.test(record.mediaId)
         ? { mediaId: record.mediaId.toLowerCase() }
         : {}),
-      ...(record.video === true ? { video: true } : {}),
+      ...(videoId
+        ? { video: true as const, videoId }
+        : record.video === true
+          ? { video: true as const }
+          : {}),
       ...(idOf(record.derivedFrom) ? { derivedFrom: idOf(record.derivedFrom) } : {}),
       ...(finite(record.dx) ? { dx: record.dx } : {}),
       ...(finite(record.dy) ? { dy: record.dy } : {}),

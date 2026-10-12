@@ -182,8 +182,16 @@ export function SettingsSegmented<T extends string | number>({
   value: T | null
   onChange: (value: T) => void
 }) {
+  const grid = options.length > 10
   return (
-    <div role="group" aria-label={label} className={cn('flex gap-0.5', SEGMENT_TRACK)}>
+    <div
+      role="group"
+      aria-label={label}
+      className={cn(
+        grid ? 'grid grid-cols-5 gap-1' : 'flex gap-0.5',
+        grid ? GRID_TRACK : SEGMENT_TRACK,
+      )}
+    >
       {options.map((option) => (
         <button
           key={String(option.value)}

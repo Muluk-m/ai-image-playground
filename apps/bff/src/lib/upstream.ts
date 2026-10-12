@@ -92,7 +92,12 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
   for (const channel of getChannels()) {
     const style = CHANNEL_ROUTE_STYLES[channel.id]
     if (!style || channel.kind !== kind) continue
-    const declared = channel.models.find((m) => m.id === model)
+    // 从发现清单退役后，旧队列任务仍要在原 Grok 线路提交或续轮询。
+    const declared =
+      channel.models.find((m) => m.id === model) ??
+      (channel.id === 'grok-video' && model === 'grok-imagine-video'
+        ? channel.models.find((m) => m.id === 'grok-imagine-video-1.5-lite')
+        : undefined)
     if (!declared) continue
     return {
       baseUrl: channel.baseUrl,

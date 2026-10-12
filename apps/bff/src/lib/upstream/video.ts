@@ -238,7 +238,7 @@ function buildGrokVideoBody(
     firstFrame || lastFrame || references.length || keyframes.length || voices.length,
   )
   return {
-    model: needsImageModel ? GROK_VIDEO_IMAGE_MODEL : model,
+    model: model === 'grok-imagine-video' && needsImageModel ? GROK_VIDEO_IMAGE_MODEL : model,
     prompt: request.prompt,
     duration: video.duration_seconds,
     aspect_ratio: video.aspect_ratio,
@@ -251,7 +251,7 @@ function buildGrokVideoBody(
   }
 }
 
-const AGNES_VIDEO_SIZES: Record<VideoResolution, string> = {
+const AGNES_VIDEO_SIZES: Partial<Record<VideoResolution, string>> = {
   '720p': '720P',
   '1080p': '1080P',
   '2k': '2K',

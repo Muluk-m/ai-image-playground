@@ -52,6 +52,31 @@ describe('liveCanvasSnapshot', () => {
     expect(liveCanvasSnapshot(undefined)).toBeUndefined()
   })
 
+  it('gives a video element its artifact id and keeps the cover as media id', () => {
+    const doc = new CanvasDoc()
+    doc.restore(
+      [
+        {
+          id: 'clip',
+          type: 'image',
+          x: 0,
+          y: 0,
+          width: 90,
+          height: 160,
+          rotation: 0,
+          fileId: 'file-v',
+          video: { taskId: 'task-1', outputIndex: 0 },
+        },
+      ],
+      { 'file-v': 'aip-media:11111111-2222-4333-8444-555555555555' },
+    )
+    expect(liveCanvasSnapshot(doc)?.elements[0]).toMatchObject({
+      video: true,
+      videoId: 'agent_task-1_0',
+      mediaId: '11111111-2222-4333-8444-555555555555',
+    })
+  })
+
   it('uses a matching uploaded binding and the rotated image footprint', () => {
     const doc = new CanvasDoc()
     doc.restore(
