@@ -49,10 +49,7 @@
     "previewPending": "预览生成中…",
     "annotationHint": "文字标注 → 修改要求：{{text}}",
     "promptPlaceholder": "描述你想要的画面，或拖入参考图",
-    "promptAria": "创作描述",
-    "modeAria": "生成类型",
-    "modeImage": "图片",
-    "modeVideo": "视频"
+    "promptAria": "创作描述"
   },
   "batch": {
     "aria": "批量操作",

@@ -17,7 +17,7 @@
 :where(.creation-mention) img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; }
 .creation-toolbar { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 0 var(--creation-space) var(--creation-space); }
 .creation-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.creation-mode-trigger { width: auto; height: 40px; gap: 8px; padding: 0 12px; border: 0; box-shadow: none; color: hsl(var(--primary)); background: hsl(var(--primary) / .06); border-radius: 10px; font-weight: 500; @apply text-sm; }
+.creation-mode-trigger { width: auto; height: 40px; gap: 8px; padding: 0 12px; border: 0; box-shadow: none; color: hsl(var(--primary)); background: hsl(var(--primary) / .06); border-radius: 12px; font-weight: 500; @apply text-xs; }
 .creation-mode-trigger:hover, .creation-mode-trigger[data-state=open] { background: hsl(var(--primary) / .12); }
 .creation-mode-trigger:focus { box-shadow: none; }
 .creation-mode-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
@@ -26,7 +26,7 @@
 .creation-params-trigger { color: hsl(var(--muted-foreground)); }
 .creation-send { border-radius: 12px; width: 40px; height: 40px; border: 1px solid transparent; flex-shrink: 0; box-shadow: none; background: hsl(var(--foreground)); color: hsl(var(--background)); }
 .creation-send:hover { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
-.creation-send:disabled { opacity: 1; background: hsl(var(--secondary)); border-color: hsl(var(--border) / .7); color: hsl(var(--muted-foreground) / .65); }
+.creation-send:disabled { opacity: .5; background: hsl(var(--secondary)); border-color: hsl(var(--border) / .7); color: hsl(var(--muted-foreground)); }
 .creation-send > svg { width: 20px; height: 20px; }
 .creation-popover { border-radius: 16px; padding: 8px; max-width: calc(100vw - 24px); box-shadow: var(--shadow-popover); }
 .creation-menu-label { display: block; @apply text-label-sm; color: hsl(var(--muted-foreground)); padding: 8px 10px; }
@@ -95,7 +95,20 @@
 .creation-ratio-options > [role="group"] > button { flex: 1 0 calc(33.333% - 2px); }
 
 .creation-editor { position: relative; flex: 1; min-width: 0; }
-.creation-live-controls { gap: 4px; }
+.creation-toolbar[data-has-mode] { display: grid; grid-template-columns: auto minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
+.creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 40px; }
+.creation-toolbar-mode { min-width: 0; }
+.creation-composer .creation-toolbar button { min-height: 0; min-width: 0; }
+.creation-toolbar-action { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.creation-toolbar-status { grid-column: 1 / -1; overflow-wrap: anywhere; @apply text-label-sm; }
+.creation-toolbar-status:empty { display: none; }
+.creation-live-controls { display: flex; align-items: center; flex-wrap: nowrap; min-width: 0; gap: 8px; }
+.creation-live-controls > button[role=combobox] { flex: 0 1 auto; min-width: 0; max-width: 224px; }
+.creation-live-controls > button[aria-haspopup=dialog] { flex: 0 1 auto; min-width: 0; max-width: 60%; }
+.creation-live-controls > button[role=combobox] > span { min-width: 0; }
+.creation-live-controls > button[role=combobox] > span > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creation-live-controls > button[role=combobox] > span > span > :is(img, svg) { display: inline-block; margin-right: 4px; vertical-align: middle; }
+.creation-live-controls > button > svg { flex-shrink: 0; }
 :where(.creation-live-controls) > button { width: auto; }
 .creation-references [data-input-image-index] { width: 72px; height: 72px; }
 .creation-references [data-input-image-index] img { object-fit: cover; }
@@ -141,17 +154,25 @@
 @container creation-composer (max-width: 520px) {
  .creation-body .creation-editor { width: 100%; }
  .creation-body .creation-prompt { min-height: 72px; @apply text-sm; }
- .creation-toolbar:has(.creation-live-controls) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 0 16px 16px; }
- .creation-toolbar:has(.creation-live-controls) > .creation-tools { display: contents; }
- .creation-toolbar:has(.creation-live-controls) > :last-child { grid-column: 2; grid-row: 1; min-width: 0; }
- .creation-toolbar .creation-mode-trigger { grid-column: 1; grid-row: 1; justify-self: start; width: auto; max-width: 100%; height: 32px; padding-inline: 8px; @apply text-body-sm; }
+ .creation-toolbar[data-has-mode] { grid-template-columns: minmax(0, 1fr) 32px; gap: 8px; }
+ .creation-toolbar-mode { grid-column: 1; grid-row: 1; }
+ .creation-toolbar-action { grid-column: 2; grid-row: 1; }
+ .creation-toolbar .creation-mode-trigger { max-width: 100%; height: 32px; border-radius: 8px; padding-inline: 8px; @apply text-label-sm; }
+ .creation-toolbar .creation-send { width: 32px; height: 32px; border-radius: 8px; }
+ .creation-toolbar .creation-send > svg { width: 16px; height: 16px; }
  .creation-tool-divider { display: none; }
- .creation-live-controls { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: nowrap; width: 100%; gap: 4px; }
- :where(.creation-live-controls) > button[aria-haspopup] { flex: 1 1 0; min-width: 0; max-width: none; }
- :where(.creation-live-controls) > button[aria-haspopup=dialog] { flex: 0 1 auto; max-width: 60%; }
- :where(.creation-live-controls) > button[role=combobox] > span { min-width: 0; }
- :where(.creation-live-controls) > button[role=combobox] > span > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
- :where(.creation-live-controls) > button[role=combobox] > span > span > :is(img, svg) { display: inline-block; margin-right: 4px; vertical-align: middle; }
- :where(.creation-live-controls) > button > svg { flex-shrink: 0; }
- .creation-toolbar:not(:has(.creation-mode-trigger)) .creation-live-controls { grid-column: 1; grid-row: 1; }
+ .creation-live-controls { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+ .creation-live-controls > button[role=combobox] { flex: 1 1 0; max-width: none; }
+ .creation-toolbar[data-has-mode=false] .creation-live-controls { grid-column: 1; grid-row: 1; }
+}
+
+/* Touch targets follow the same rule in home and canvas, without sidebar overrides. */
+@media (pointer: coarse) {
+ .creation-toolbar[data-has-mode] { grid-template-columns: auto minmax(0, 1fr) 44px; }
+ .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 44px; }
+ .creation-composer .creation-toolbar button { min-height: 44px; }
+ .creation-composer .creation-toolbar .creation-send { width: 44px; height: 44px; }
+ @container creation-composer (max-width: 520px) {
+  .creation-toolbar[data-has-mode] { grid-template-columns: minmax(0, 1fr) 44px; }
+ }
 }

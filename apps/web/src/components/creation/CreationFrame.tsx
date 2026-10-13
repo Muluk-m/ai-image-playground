@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode, Ref } from 'react'
 import { useTranslation } from '../../i18n'
+import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import type { CreationMode } from './draft'
@@ -28,12 +29,52 @@ export function CreationBody({
   )
 }
 
-export function CreationToolbar({ children, action }: { children: ReactNode; action: ReactNode }) {
+/** Shared slots keep every composer on the same wide and narrow layout. */
+export function CreationToolbar({
+  mode,
+  children,
+  action,
+  status,
+}: {
+  mode?: ReactNode
+  children: ReactNode
+  action: ReactNode
+  status?: ReactNode
+}) {
   return (
-    <div className="creation-toolbar">
-      <div className="creation-tools">{children}</div>
-      {action}
+    <div className="creation-toolbar" data-has-mode={Boolean(mode)}>
+      {mode && <div className="creation-toolbar-mode">{mode}</div>}
+      <div className="creation-live-controls">{children}</div>
+      <div className="creation-toolbar-action">{action}</div>
+      {status && <div className="creation-toolbar-status">{status}</div>}
     </div>
+  )
+}
+
+export function CreationSend({
+  streaming = false,
+  busy = false,
+  ...props
+}: Omit<ComponentProps<typeof Button>, 'children' | 'className' | 'size' | 'variant'> & {
+  streaming?: boolean
+  busy?: boolean
+}) {
+  return (
+    <Button
+      type="button"
+      size="icon-lg"
+      variant={props.disabled ? 'secondary' : 'default'}
+      className="creation-send"
+      data-slot="composer-send"
+      aria-busy={busy || undefined}
+      {...props}
+    >
+      {busy && !streaming ? (
+        <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+      ) : (
+        <Icon name={streaming ? 'stop' : 'send'} filled={streaming} />
+      )}
+    </Button>
   )
 }
 
