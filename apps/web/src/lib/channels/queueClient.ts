@@ -174,6 +174,7 @@ async function submit(
   }
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
+  if (opts.outputRetention) body.output_retention = opts.outputRetention
   if (opts.maskDataUrl) body.mask = opts.maskDataUrl
   if (clientRequestId) body.client_request_id = clientRequestId
 
