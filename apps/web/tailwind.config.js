@@ -67,6 +67,7 @@ export default {
         'warning': 'hsl(var(--warning) / <alpha-value>)',
         'warning-foreground': 'hsl(var(--warning-foreground) / <alpha-value>)',
         'info': 'hsl(var(--info) / <alpha-value>)',
+        'canvas-annotation': 'hsl(var(--canvas-annotation) / <alpha-value>)',
         hairline: 'var(--hairline)',
 
       },

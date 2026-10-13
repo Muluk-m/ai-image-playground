@@ -2,7 +2,6 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import { Check, ChevronDown } from 'lucide-react'
 import { type KeyboardEvent, useId, useMemo, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -11,10 +10,10 @@ import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { isByokGenerationEnabled } from '../../lib/clientCapabilities'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
-import { field } from '../assistant-ui/elements/surfaces'
-import { ChipIcons } from '../chipIcons'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
 import SearchField from '../patterns/SearchField'
+import { Button } from '../ui/button'
+import { Icon } from '../ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { type ComposerControlSize, composerModelChipClass } from './SettingsPanel'
 
@@ -128,10 +127,7 @@ export function ModelList({
           placeholder={t('param.searchModel')}
           aria-label={t('param.searchModel')}
           aria-controls={listId}
-          className={cn(
-            field,
-            'h-8 max-w-none rounded-lg border-transparent px-2.5 focus-within:border-foreground/15 focus-within:ring-0',
-          )}
+          className="max-w-none"
         />
       )}
       <div
@@ -145,7 +141,8 @@ export function ModelList({
           const selected = option.value === value
           const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
           return (
-            <button
+            <Button
+              variant="ghost"
               key={option.value}
               type="button"
               role="option"
@@ -155,7 +152,7 @@ export function ModelList({
               aria-label={`${option.label} · ${option.description}`}
               onClick={() => onPick(option.value)}
               className={cn(
-                'flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-body-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none',
+                'w-full justify-start px-3 text-left text-body-sm focus-visible:bg-accent',
                 selected && 'bg-accent',
               )}
             >
@@ -168,8 +165,8 @@ export function ModelList({
               <span className="max-w-20 truncate text-label-sm text-muted-foreground">
                 {option.description}
               </span>
-              {selected && <Check aria-hidden="true" className="h-4 w-4 shrink-0" />}
-            </button>
+              {selected && <Icon name="check" />}
+            </Button>
           )
         })}
         {!visible.length && (
@@ -198,7 +195,9 @@ export function ModelSelector({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Button
+          variant="outline"
+          size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
           role="combobox"
           aria-expanded={open}
@@ -214,17 +213,18 @@ export function ModelSelector({
           }}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {!label && current ? <ModelLogo model={current.model} /> : ChipIcons.model}
+            {!label && current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
           </span>
           <span className="min-w-0 truncate">{shown}</span>
-          <ChevronDown
+          <Icon
+            name="chevronDown"
             aria-hidden="true"
             className={cn(
               'absolute top-1/2 h-4 w-4 -translate-y-1/2 opacity-50',
               size === 'md' ? 'right-3' : 'right-2',
             )}
           />
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         side="top"

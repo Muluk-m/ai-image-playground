@@ -2,15 +2,11 @@ import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/sha
 import { useState } from 'react'
 import Credits from '../../../components/Credits'
 import { SettingsChoice } from '../../../components/composer/SettingsPanel'
-import {
-  FIELD,
-  LABEL,
-  PANEL_SECTION,
-  PANEL_TITLE,
-  PRIMARY_BUTTON,
-} from '../../../components/panelStyles'
-import Overlay from '../../../components/patterns/Overlay'
+import { LABEL, PANEL_SECTION } from '../../../components/panelStyles'
+import Dialog from '../../../components/patterns/Dialog'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Button } from '../../../components/ui/button'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -67,66 +63,63 @@ export default function DeriveVideoPopover({
   }
 
   return (
-    <Overlay onClose={onClose} tier={tier}>
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
-        <h3 className={`${PANEL_TITLE} mb-3`}>{title}</h3>
+    <Dialog onClose={onClose} tier={tier} title={title} className="max-w-sm">
+      <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
+      <Textarea
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        rows={3}
+        aria-label={t('field.description')}
+        placeholder={placeholder}
+        className="resize-none"
+      />
 
-        <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
-        <textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={3}
-          aria-label={t('field.description')}
-          placeholder={placeholder}
-          className={`${FIELD} resize-none`}
-        />
-
-        <div className="mt-3">
-          {mode === 'extend' ? (
-            <SettingsChoice
-              label={t('derive.extendLabel')}
-              options={VIDEO_EXTEND_SECONDS}
-              value={extendSeconds}
-              render={(option) => t('shared.seconds', { seconds: option })}
-              onChange={setExtendSeconds}
-            />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {t('derive.keepDuration', {
-                seconds: sourceSeconds,
-                resolution: DERIVE_RESOLUTION,
-              })}
-            </p>
-          )}
-        </div>
-
-        <div className={`${PANEL_SECTION} mt-4`}>
-          {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-label-sm text-destructive dark:text-destructive">
-              {guard.disabledReason}
-            </p>
-          )}
-          <SubmissionBillingAction
-            blockedAction={guard.blockedAction}
-            className="mb-1.5 text-label-sm"
+      <div className="mt-3">
+        {mode === 'extend' ? (
+          <SettingsChoice
+            label={t('derive.extendLabel')}
+            options={VIDEO_EXTEND_SECONDS}
+            value={extendSeconds}
+            render={(option) => t('shared.seconds', { seconds: option })}
+            onChange={setExtendSeconds}
           />
-          <button
-            type="button"
-            disabled={guard.blocked || !prompt.trim()}
-            title={guard.disabledReason}
-            onClick={() => void submit()}
-            className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
-          >
-            {guard.estimatedCredits === undefined ? (
-              label
-            ) : (
-              <>
-                {label} · <Credits credits={guard.estimatedCredits} />
-              </>
-            )}
-          </button>
-        </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {t('derive.keepDuration', {
+              seconds: sourceSeconds,
+              resolution: DERIVE_RESOLUTION,
+            })}
+          </p>
+        )}
       </div>
-    </Overlay>
+
+      <div className={`${PANEL_SECTION} mt-4`}>
+        {guard.blocked && guard.disabledReason && (
+          <p className="mb-1.5 text-label-sm text-destructive dark:text-destructive">
+            {guard.disabledReason}
+          </p>
+        )}
+        <SubmissionBillingAction
+          blockedAction={guard.blockedAction}
+          className="mb-1.5 text-label-sm"
+        />
+        <Button
+          size="sm"
+          type="button"
+          disabled={guard.blocked || !prompt.trim()}
+          title={guard.disabledReason}
+          onClick={() => void submit()}
+          className="w-full"
+        >
+          {guard.estimatedCredits === undefined ? (
+            label
+          ) : (
+            <>
+              {label} · <Credits credits={guard.estimatedCredits} />
+            </>
+          )}
+        </Button>
+      </div>
+    </Dialog>
   )
 }

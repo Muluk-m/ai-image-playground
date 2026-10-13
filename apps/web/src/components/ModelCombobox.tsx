@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
-import { ChevronDownIcon } from './icons'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
+import { Input } from './ui/input'
 
 interface ModelComboboxProps {
   value: string
@@ -52,7 +54,7 @@ export default function ModelCombobox({
 
   return (
     <div ref={containerRef} className="relative">
-      <input
+      <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => {
@@ -73,10 +75,12 @@ export default function ModelCombobox({
         type="text"
         disabled={disabled}
         placeholder={placeholder}
-        className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 pr-10 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className ?? ''}`}
+        className={`pr-10 ${className ?? ''}`}
       />
       {options.length > 0 && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           type="button"
           onMouseDown={(e) => {
             // 用 mousedown 抢在 input 的 onBlur 之前，避免点击箭头时 commit
@@ -85,33 +89,36 @@ export default function ModelCombobox({
           }}
           disabled={disabled}
           aria-label={t('model.expandOptions')}
-          className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
+          className="absolute right-0.5 top-1/2 -translate-y-1/2 text-muted-foreground"
         >
-          <ChevronDownIcon
-            className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          <Icon
+            name="chevronDown"
+            className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
           />
-        </button>
+        </Button>
       )}
       {showDropdown && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-60 overflow-y-auto rounded-xl border border-border/80 bg-card shadow-lg border-border">
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-60 overflow-y-auto rounded-xl border border-border/80 bg-card shadow-popover">
           {options.map((option) => {
             const isSelected = option === value
             return (
-              <button
+              <Button
+                variant="ghost"
+                size="default"
                 key={option}
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault()
                   pick(option)
                 }}
-                className={`flex w-full items-center px-3 py-2 text-left text-sm font-mono transition ${
+                className={`h-auto min-h-9 w-full justify-start whitespace-normal break-all px-3 py-2 text-left font-mono ${
                   isSelected
                     ? 'bg-primary/10 text-primary'
                     : 'text-foreground hover:bg-card hover:bg-accent'
                 }`}
               >
-                {option}
-              </button>
+                <span className="min-w-0 flex-1">{option}</span>
+              </Button>
             )
           })}
         </div>

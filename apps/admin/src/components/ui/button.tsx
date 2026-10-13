@@ -26,6 +26,8 @@ const buttonVariants = cva(
         'icon-sm': 'size-8',
         'icon-xs': 'size-7 [&_svg]:size-3.5',
         'icon-lg': 'size-10 [&_svg]:size-5',
+        'chip-lg': 'h-10 rounded-xl px-3 text-xs',
+        'chip-sm': 'h-8 rounded-lg px-2.5 text-label-sm',
       },
     },
     defaultVariants: {

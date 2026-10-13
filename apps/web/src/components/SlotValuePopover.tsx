@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { parseSlotValueLines } from '../lib/promptSlots'
 import ComposerPopover from './ComposerPopover'
+import { Textarea } from './ui/textarea'
 
 interface SlotValuePopoverProps {
   name: string
@@ -38,7 +39,7 @@ export default function SlotValuePopover({
 
   return (
     <ComposerPopover ref={ref} heading={t('slot.heading', { slot })} offsetLeft={offsetLeft}>
-      <textarea
+      <Textarea
         autoFocus
         value={text}
         rows={4}
@@ -54,7 +55,7 @@ export default function SlotValuePopover({
             onClose()
           }
         }}
-        className="custom-scrollbar w-full resize-none rounded-xl bg-card px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted"
+        className="custom-scrollbar resize-none bg-card leading-relaxed"
       />
     </ComposerPopover>
   )

@@ -1,4 +1,5 @@
 import { useStore } from '../store'
+import { Icon } from './ui/icon'
 
 export default function Toast() {
   const toast = useStore((s) => s.toast)
@@ -8,40 +9,19 @@ export default function Toast() {
       case 'success':
         return (
           <div className="flex items-center justify-center w-5 h-5 rounded-full bg-success/10 dark:bg-success/50 text-success dark:text-success">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
+            <Icon name="success" size="xs" />
           </div>
         )
       case 'error':
         return (
           <div className="flex items-center justify-center w-5 h-5 rounded-full bg-destructive/10 dark:bg-destructive/50 text-destructive dark:text-destructive">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <Icon name="error" size="xs" />
           </div>
         )
       default:
         return (
           <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <Icon name="info" size="xs" />
           </div>
         )
     }

@@ -13,6 +13,8 @@ import {
   SettingsSection,
   SettingsSegmented,
 } from '../../../components/composer/SettingsPanel'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import {
   Select,
   SelectContent,
@@ -149,15 +151,18 @@ function VoiceChoices({
           const key = voiceLabelKey(id)
           const name = key ? t(key) : id
           return (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               key={id}
               type="button"
               aria-label={t('voice.remove', { name })}
               onClick={() => setVoices(selected.filter((one) => one !== id))}
-              className="h-8 rounded-full bg-muted px-2.5 text-xs"
+              className="gap-1.5"
             >
               {name}
-            </button>
+              <Icon name="close" />
+            </Button>
           )
         })}
         {selected.length < voices.max && remaining.length > 0 && (

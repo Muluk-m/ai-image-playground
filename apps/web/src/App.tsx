@@ -148,7 +148,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
               </div>
               <div className="safe-area-x relative mx-auto max-w-6xl">
                 <div className="pt-12 text-center">
-                  <h1 className="text-[30px] font-semibold leading-tight sm:text-display">
+                  <h1 className="text-headline font-semibold leading-tight sm:text-display">
                     {t('hero.titleLead')}
                     <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
                   </h1>

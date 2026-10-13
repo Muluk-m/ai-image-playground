@@ -1,3 +1,4 @@
+import { Icon } from './ui/icon'
 /**
  * 全站唯一的积分写法：闪电 + 千分位，`⚡1,234`。
  *
@@ -16,14 +17,6 @@ export function formatCredits(credits: number): string {
   return formatCount(credits)
 }
 
-function BoltIcon() {
-  return (
-    <svg viewBox="0 0 12 12" className="h-3 w-3 shrink-0" fill="currentColor" aria-hidden="true">
-      <path d="M7.1 1 2.5 7.1h2.4L4.5 11l4.6-6.1H6.7z" />
-    </svg>
-  )
-}
-
 export default function Credits({
   credits,
   className = '',
@@ -38,7 +31,7 @@ export default function Credits({
   const amount = formatCredits(credits)
   const content = (
     <>
-      <BoltIcon />
+      <Icon name="credits" size="xs" />
       <span aria-hidden="true">{amount}</span>
     </>
   )
