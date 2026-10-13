@@ -18,8 +18,14 @@ import {
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
+import { type CloudSceneCheckpoint } from '../../../../features/canvas/lib/persistence'
 import { getCloudProject, ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
-import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { projectDocument } from '../../../../features/canvas/lib/projectMedia'
+import {
+  type CanvasProject,
+  projectRepository,
+} from '../../../../features/canvas/lib/projectRepository'
+import type { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
 import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
@@ -80,7 +86,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
   Socket.instances = []
 })
-async function fixture() {
+async function fixture(
+  beforeLoad?: (project: CanvasProject, record: SceneRecord, server: Y.Doc) => Promise<void>,
+) {
   const project = await projectRepository.create('Cloud', undefined, true)
   const record = await openSceneRecord(project.sceneKey)
   const server = new Y.Doc()
@@ -105,6 +113,7 @@ async function fixture() {
     async () => new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer),
   )
   vi.stubGlobal('WebSocket', Socket)
+  await beforeLoad?.(project, record, server)
   const session = new CloudNodeProjectSession(project, record, () => {})
   sessions.push(session)
   await session.load()
@@ -122,6 +131,105 @@ it('uses the server migration and does not start a second JSON cloud writer', as
   expect(session.getSnapshot().status).toBe('syncing')
   socket.receive(canvasSyncAck(server))
   expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+it.each([
+  false,
+  true,
+])('does not fork a clean legacy video archive (kind checkpoint: %s)', async (explicitKind) => {
+  const copy = vi.spyOn(projectRepository, 'createRecoveryCopy')
+  const { session, record, project } = await fixture(async (project, record) => {
+    record.editor.doc.addElements([
+      {
+        id: 'Legacy',
+        type: 'text',
+        text: 'Legacy',
+        x: 10,
+        y: 20,
+        width: 300,
+        height: 200,
+        fontSize: 16,
+        fill: '#fff',
+      },
+    ])
+    const document = projectDocument(record.editor.doc, new Map(), 'video', project)!
+    const checkpoint: CloudSceneCheckpoint = {
+      version: 1,
+      name: project.name,
+      revision: 1,
+      ...(explicitKind ? { legacyKind: 'video' as const } : {}),
+      savedContent: JSON.stringify([project.name, document]),
+      pending: null,
+      conflict: false,
+    }
+    vi.spyOn(record, 'checkpoint', 'get').mockReturnValue(checkpoint)
+    vi.mocked(getCloudProject).mockResolvedValueOnce({
+      id: project.id,
+      revision: 1,
+      name: project.name,
+      elementCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      document,
+    })
+  })
+  expect(project.kind).toBe('image')
+  expect(copy).not.toHaveBeenCalled()
+  const recovered = await session.resolveConflict('copy')
+  expect(recovered?.kind).toBe('video')
+  record.dispose()
+})
+it('keeps the legacy video identity on an unsynced migration recovery copy', async () => {
+  const copy = vi.spyOn(projectRepository, 'createRecoveryCopy')
+  const { record } = await fixture(async (project, record) => {
+    record.editor.doc.addElements([
+      {
+        id: 'Saved',
+        type: 'text',
+        text: 'Saved',
+        x: 10,
+        y: 20,
+        width: 300,
+        height: 200,
+        fontSize: 16,
+        fill: '#fff',
+      },
+    ])
+    const document = projectDocument(record.editor.doc, new Map(), 'video', project)!
+    vi.spyOn(record, 'checkpoint', 'get').mockReturnValue({
+      version: 1,
+      name: project.name,
+      revision: 1,
+      savedContent: JSON.stringify([project.name, document]),
+      pending: null,
+      conflict: false,
+    })
+    record.editor.doc.addElements([
+      {
+        id: 'Not synced yet',
+        type: 'text',
+        text: 'Not synced yet',
+        x: 30,
+        y: 40,
+        width: 300,
+        height: 200,
+        fontSize: 16,
+        fill: '#fff',
+      },
+    ])
+    vi.mocked(getCloudProject).mockResolvedValueOnce({
+      id: project.id,
+      revision: 1,
+      name: project.name,
+      elementCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      document,
+    })
+  })
+  expect(copy).toHaveBeenCalledTimes(1)
+  expect(copy.mock.calls[0]?.[0].kind).toBe('video')
+  expect((await copy.mock.results[0]?.value)?.kind).toBe('video')
   record.dispose()
 })
 it('does not call a newer local edit saved when an earlier update is acknowledged', async () => {

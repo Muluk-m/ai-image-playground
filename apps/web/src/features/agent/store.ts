@@ -1528,7 +1528,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     // 重复点击不制造空壳；有引用、草稿、画布或正在提交的内容都必须新建。
     if (
       reuseEmpty &&
-      current?.kind === kind &&
+      current &&
       projectExperience(current) === experience &&
       !current.conversationId &&
       !current.hasContent &&

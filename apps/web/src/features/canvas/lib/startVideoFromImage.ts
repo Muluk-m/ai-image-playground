@@ -6,11 +6,7 @@ import { useCanvasComposer } from '../composerStore'
 import { currentCanvasProject } from '../projectStore'
 import { projectExperience } from './projectRepository'
 
-/**
- * 全局的「生成视频 / 用作首帧」：把图放上一张视频画布（放完即选中）。画布类型建后不可改，
- * 所以当前不是视频画布时先开一张新的，再把图带过去。入口挂在全局，不知道自己浮在哪个面上，
- * 所以三个浮层一起关。
- */
+/** 从任意画布用图片生成视频；从对话进入时才新建画布，保留原会话。 */
 export async function startVideoFromImage(imageId: string): Promise<void> {
   const main = useStore.getState()
   const dataUrl = await ensureImageCached(imageId)
@@ -20,8 +16,8 @@ export async function startVideoFromImage(imageId: string): Promise<void> {
     return
   }
   const project = currentCanvasProject()
-  if (!project || project.kind !== 'video' || projectExperience(project) !== 'canvas') {
-    if (!(await useAgentStore.getState().createProject('video', true, 'canvas'))) return
+  if (!project || projectExperience(project) !== 'canvas') {
+    if (!(await useAgentStore.getState().createProject(undefined, true, 'canvas'))) return
     main.showToast(i18next.t('toast.videoCanvasOpened', { ns: 'store' }), 'success')
   }
   main.setLightboxImageId(null)

@@ -99,7 +99,7 @@ function find(name: string): AgentToolSpec | undefined {
 }
 
 /**
- * 这一轮模型看得见的工具：先按创作类型过滤，再按部署开关与「这一轮是谁」。三道筛子都只管
+ * 这一轮模型看得见的工具：按部署开关与「这一轮是谁」过滤，旧 mode 不限制能力。筛子只管
  * 「这一轮」，历史里已有的工具结果照样认得出来（`isAgentToolName` 与 `agentToolStart/End` 不过筛）。
  */
 const CANVAS_TOOLS = new Set<AgentToolName>([
@@ -112,19 +112,12 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
     (tool) =>
-      (tool.modes.includes(mode) ||
-        (audience?.experience === 'chat' && tool.name === 'generateVideo')) &&
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
       (tool.available?.(mode, audience) ?? true),
   )
 }
 
-/**
- * 这一轮实际按什么装配。**做不了视频的部署里，视频轮就不是视频轮**：与其给模型挂一份
- * 它调不了的技能清单、再让它承诺一件做不到的事，不如整轮按图片装配——工具、技能与
- * 逐工具指引一起对齐，只有一个不变量要记：mode 是视频，当且仅当这个部署出得了视频。
- * 起轮与技能清单端点都从这里过一道，两边不会各说各的。
- */
+/** 兼容旧客户端的默认生成参数；mode 不再决定工具或技能权限。 */
 export function resolveAgentMode(mode: AgentMode): AgentMode {
   if (mode !== 'video') return mode
   return (generateVideo.available?.('video') ?? true) ? 'video' : 'image'
