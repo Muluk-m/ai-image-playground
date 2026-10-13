@@ -108,8 +108,7 @@
     "subtitle": "不需要已有套餐。1 元 {{rate}} 积分，到账后长期有效。",
     "credits": "{{n}} 积分",
     "valid": "长期有效",
-    "pay": "充值 ¥{{amount}}",
-    "selected": "已选择 ¥{{amount}}"
+    "pay": "充值 ¥{{amount}}"
   },
   "faq": {
     "title": "常见问题",
