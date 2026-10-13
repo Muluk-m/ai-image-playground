@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
+import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
@@ -40,35 +42,117 @@ export default function NodeReferenceEditor({
   const [picking, setPicking] = useState(false)
   const imageIds = referenceFileIds(references, files)
   return (
-    <div className="studio-node-references" aria-label={t('nodes.references')}>
+    <CreationReferenceStack
+      count={references.length}
+      disabled={disabled}
+      previews={references.slice(-3).map((ref) =>
+        ref.fileId && files[ref.fileId] ? (
+          <NodeMediaImage key={ref.id} src={files[ref.fileId]} alt="" />
+        ) : (
+          <span key={ref.id} className="flex h-full items-center justify-center">
+            <Icon name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'} />
+          </span>
+        ),
+      )}
+      add={
+        <Popover open={picking} onOpenChange={setPicking}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="creation-add"
+              aria-label={t('nodes.addReference')}
+              disabled={disabled}
+            >
+              <Icon name="add" />
+              <span>{t('nodes.addReference')}</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="creation-popover studio-node-reference-picker w-56"
+            side="top"
+            align="start"
+          >
+            {(
+              [
+                { icon: 'upload', label: t('nodes.addUpload'), action: onUpload },
+                { icon: 'folder', label: t('nodes.assets'), action: onAssets },
+                { icon: 'fit', label: t('nodes.pickFromCanvas'), action: onPick },
+              ] as const
+            ).map(({ icon, label, action }) => (
+              <Button
+                key={icon}
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={() => {
+                  setPicking(false)
+                  action()
+                }}
+              >
+                <Icon name={icon} />
+                {label}
+              </Button>
+            ))}
+          </PopoverContent>
+        </Popover>
+      }
+    >
       {references.map((ref, index) => (
         <div
-          className={`studio-node-reference${ref.fileId && files[ref.fileId] ? ' studio-node-reference--image' : ''}`}
+          className="relative flex w-[72px] shrink-0 flex-col gap-2"
           key={ref.id}
           title={ref.label}
         >
-          <span className="studio-node-reference-index text-xs text-muted-foreground tabular-nums">
-            {ref.kind === 'image' && imageIds.includes(ref.fileId ?? '')
-              ? imageIds.indexOf(ref.fileId ?? '') + 1
-              : null}
-          </span>
-          {ref.fileId && files[ref.fileId] ? (
-            <NodeMediaImage src={files[ref.fileId]} alt="" />
-          ) : (
-            <Icon name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'} />
-          )}
-          <span className="studio-node-reference-label truncate max-w-28 text-xs" title={ref.label}>
-            {ref.label ||
-              t(
-                ref.kind === 'text'
-                  ? 'nodes.addText'
-                  : ref.kind === 'video'
-                    ? 'nodes.addVideo'
-                    : 'nodes.addImage',
-              )}
-          </span>
+          <div className="creation-reference creation-reference-frame">
+            <Hint tooltip={ref.label || t('nodes.references')}>
+              <div
+                className="flex h-full w-full items-center justify-center overflow-hidden rounded-xl bg-secondary"
+                role="img"
+                aria-label={ref.label || t('nodes.references')}
+              >
+                {ref.fileId && files[ref.fileId] ? (
+                  <NodeMediaImage src={files[ref.fileId]} alt={ref.label} />
+                ) : (
+                  <Icon
+                    name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'}
+                  />
+                )}
+              </div>
+            </Hint>
+            <span>
+              {ref.kind === 'image' && imageIds.includes(ref.fileId ?? '')
+                ? imageIds.indexOf(ref.fileId ?? '') + 1
+                : null}
+            </span>
+            <Hint tooltip={t('nodes.removeReference')}>
+              <Button
+                className="creation-reference-remove"
+                variant="ghost"
+                size="icon-xs"
+                disabled={disabled}
+                aria-label={t('nodes.removeReference')}
+                onClick={() => onRemove(ref.id)}
+              >
+                <Icon name="close" />
+              </Button>
+            </Hint>
+            {index > 0 && onMove && (
+              <Button
+                size="icon-xs"
+                className="absolute bottom-1 right-1 bg-card/90"
+                variant="ghost"
+                aria-label={t('nodes.moveReference')}
+                title={t('nodes.moveReference')}
+                disabled={disabled}
+                onClick={() => onMove(ref.id)}
+              >
+                <Icon name="chevronLeft" size="xs" />
+              </Button>
+            )}
+          </div>
           {roles && onRole && ref.kind === 'image' && !ref.asset && (
             <Select
+              disabled={disabled}
               value={roles[ref.id] ?? 'reference'}
               onValueChange={(value) => onRole(ref.id, value)}
             >
@@ -82,24 +166,6 @@ export default function NodeReferenceEditor({
               </SelectContent>
             </Select>
           )}
-          {index > 0 && onMove && (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t('nodes.moveReference')}
-              onClick={() => onMove(ref.id)}
-            >
-              <Icon name="chevronLeft" size="xs" />
-            </Button>
-          )}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label={t('nodes.removeReference')}
-            onClick={() => onRemove(ref.id)}
-          >
-            <Icon name="close" size="xs" />
-          </Button>
         </div>
       ))}
       {references.some((ref) => ref.asset && !ref.fileId) && (
@@ -107,42 +173,6 @@ export default function NodeReferenceEditor({
           {t('nodes.assetNoImage')}
         </p>
       )}
-      <Popover open={picking} onOpenChange={setPicking}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="studio-node-reference-add"
-            aria-label={t('nodes.addReference')}
-            disabled={disabled}
-          >
-            <Icon name="add" />
-            {t('nodes.addReference')}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="studio-node-reference-picker w-56 p-2" side="top" align="start">
-          {(
-            [
-              { icon: 'upload', label: t('nodes.addUpload'), action: onUpload },
-              { icon: 'folder', label: t('nodes.assets'), action: onAssets },
-              { icon: 'fit', label: t('nodes.pickFromCanvas'), action: onPick },
-            ] as const
-          ).map(({ icon, label, action }) => (
-            <Button
-              key={icon}
-              variant="ghost"
-              className="w-full justify-start"
-              onClick={() => {
-                setPicking(false)
-                action()
-              }}
-            >
-              <Icon name={icon} />
-              {label}
-            </Button>
-          ))}
-        </PopoverContent>
-      </Popover>
-    </div>
+    </CreationReferenceStack>
   )
 }

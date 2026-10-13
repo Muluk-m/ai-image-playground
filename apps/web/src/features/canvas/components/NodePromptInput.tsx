@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useReferenceDisplay } from '../../../components/creation/referenceDisplay'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
@@ -25,6 +26,24 @@ export default function NodePromptInput({
   const { t } = useTranslation('library')
   const assets = useLibraryStore((s) => s.assets)
   const input = useRef<HTMLTextAreaElement>(null)
+  const [referencesExpanded] = useReferenceDisplay()
+  useLayoutEffect(() => {
+    const element = input.current
+    if (!element) return
+    const resize = () => {
+      element.style.height = 'auto'
+      element.style.height = `${element.scrollHeight}px`
+    }
+    resize()
+    let width = element.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth === width) return
+      width = element.clientWidth
+      resize()
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [value, referencesExpanded])
   const [cursor, setCursor] = useState(0)
   const [adding, setAdding] = useState(false)
   const mounted = useRef(true)
@@ -90,7 +109,7 @@ export default function NodePromptInput({
         aria-label={label}
         placeholder={label}
         className={className}
-        rows={3}
+        rows={1}
         value={value}
         disabled={adding}
         onChange={(event) => {
