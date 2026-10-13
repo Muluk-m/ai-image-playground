@@ -57,7 +57,7 @@ function summarizerOf(calls: SummaryRequest[]) {
 const failing = async () => null
 
 describe('compactionBudget', () => {
-  it('reserves the smaller of model max output and the configured reserve', () => {
+  it('reserves room for the full model output', () => {
     expect(compactionBudget(SETTINGS)).toEqual({ effectiveWindow: 350, threshold: 300 })
   })
 
