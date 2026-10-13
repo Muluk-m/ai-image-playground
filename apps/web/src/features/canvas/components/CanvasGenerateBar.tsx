@@ -1,6 +1,14 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import { AttachmentTile } from '../../../components/assistant-ui/elements/attachment'
 import { composerChipClass } from '../../../components/composer/SettingsPanel'
+import {
+  CreationBody,
+  CreationFrame,
+  CreationToolbar,
+} from '../../../components/creation/CreationFrame'
+import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
+import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
@@ -272,105 +280,123 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           {submissionGuard.disabledReason}
         </p>
       ) : null}
-      <div className="studio-direct-card">
-        {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}
-        {imageCount > 0 && (
-          <div className="flex flex-wrap items-center gap-2 px-1">
-            {previews.map((src, i) => (
-              <img
-                key={i}
-                src={src}
-                alt={t('generate.inputAlt', { index: i + 1 })}
-                className="h-12 w-12 rounded-md border border-border object-cover"
-              />
-            ))}
-            {previews.length === 0 && (
-              <span className="text-label-sm text-muted-foreground">
-                {t('generate.previewPending')}
-              </span>
-            )}
-            {annotationText && (
-              <span className="max-w-[50%] truncate text-label-sm text-warning dark:text-warning">
-                {t('generate.annotationHint', { text: annotationText })}
-              </span>
-            )}
-          </div>
-        )}
-        <Textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              e.preventDefault()
-              void run()
-            } else if (e.key === 'Escape') {
-              // Esc 退出输入框、焦点还给画布（恢复画布快捷键）。
-              e.preventDefault()
-              e.currentTarget.blur()
-            }
-          }}
-          placeholder={video ? t('video.promptPlaceholder') : t('generate.promptPlaceholder')}
-          aria-label={t('generate.promptAria')}
-          rows={3}
-          className="max-h-40 min-h-[4.5rem] w-full resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
-        />
-        {/* 附件 + 参数 chip + 发送同属这张卡：参数跟着输入走，不散在卡外面。
-            参数与工作台共用同一份全局 params/settings，数量 n>1 时 fan-out 成 n 个并行任务。 */}
-        <div className="flex items-end gap-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+      <CreationFrame>
+        <CreationBody
+          references={
+            <CreationReferenceStack
+              count={imageCount}
+              previews={previews.map((src) => <img key={src} src={src} alt="" />)}
+              status={
+                imageCount > 0 && previews.length === 0 ? t('generate.previewPending') : undefined
+              }
+              add={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="creation-add"
+                  onClick={() => fileInputRef.current?.click()}
+                  title={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                  aria-label={t('composer:image.attach', {
+                    count: API_MAX_IMAGES,
+                    mb: MAX_IMAGE_MB,
+                  })}
+                >
+                  <Icon name="add" />
+                </Button>
+              }
+            >
+              {previews.map((src, i) => (
+                <CreationReferencePreview
+                  key={i}
+                  src={src}
+                  label={t('generate.inputAlt', { index: i + 1 })}
+                >
+                  <AttachmentTile
+                    name={t('generate.inputAlt', { index: i + 1 })}
+                    className="size-[72px]"
+                    tabIndex={0}
+                  >
+                    <img
+                      src={src}
+                      alt={t('generate.inputAlt', { index: i + 1 })}
+                      className="h-full w-full object-cover"
+                    />
+                  </AttachmentTile>
+                </CreationReferencePreview>
+              ))}
+            </CreationReferenceStack>
+          }
+        >
+          {annotationText && (
+            <p className="mb-2 truncate text-label-sm text-warning">
+              {t('generate.annotationHint', { text: annotationText })}
+            </p>
+          )}
+          <Textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault()
+                void run()
+              } else if (e.key === 'Escape') {
+                // Esc 退出输入框、焦点还给画布（恢复画布快捷键）。
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
+            placeholder={video ? t('video.promptPlaceholder') : t('generate.promptPlaceholder')}
+            aria-label={t('generate.promptAria')}
+            rows={3}
+            className="creation-prompt w-full resize-none rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+          />
+        </CreationBody>
+        <CreationToolbar
+          action={
             <Button
               type="button"
-              variant="outline"
-              size="icon-sm"
-              onClick={() => fileInputRef.current?.click()}
-              title={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-              aria-label={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+              size="icon"
+              onClick={() => void run()}
+              disabled={!canSubmit}
+              title={submissionGuard.disabledReason ?? t('common:action.generate')}
+              aria-label={t('common:action.generate')}
+              className="flex-shrink-0 rounded-full disabled:bg-muted disabled:opacity-100 disabled:text-muted-foreground"
             >
-              <Icon name="imageAdd" />
+              <Icon name="generate" />
             </Button>
-            {isVideoModeAvailable() && (
-              <Select
-                value={mode}
-                onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
+          }
+        >
+          {isVideoModeAvailable() && (
+            <Select
+              value={mode}
+              onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
+            >
+              <SelectTrigger
+                aria-label={t('generate.modeAria')}
+                className={composerChipClass('sm')}
               >
-                <SelectTrigger
-                  aria-label={t('generate.modeAria')}
-                  className={composerChipClass('sm')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
-                  <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-            {video ? (
-              <CanvasVideoParams
-                hasFirstFrame={
-                  !referenceItems &&
-                  imageCount > 0 &&
-                  !canvasVideoSelectionRefusal(editor, videoDraft.model)
-                }
-                size="sm"
-              />
-            ) : (
-              <ParamControls showCount size="sm" />
-            )}
-          </div>
-          <Button
-            type="button"
-            size="icon"
-            onClick={() => void run()}
-            disabled={!canSubmit}
-            title={submissionGuard.disabledReason ?? t('common:action.generate')}
-            aria-label={t('common:action.generate')}
-            className="flex-shrink-0 rounded-full disabled:bg-muted disabled:opacity-100 disabled:text-muted-foreground"
-          >
-            <Icon name="generate" />
-          </Button>
-        </div>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
+                <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {video ? (
+            <CanvasVideoParams
+              hasFirstFrame={
+                !referenceItems &&
+                imageCount > 0 &&
+                !canvasVideoSelectionRefusal(editor, videoDraft.model)
+              }
+              size="sm"
+            />
+          ) : (
+            <ParamControls showCount size="sm" />
+          )}
+        </CreationToolbar>
         <input
           ref={fileInputRef}
           type="file"
@@ -384,7 +410,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             attach(files)
           }}
         />
-      </div>
+      </CreationFrame>
     </div>
   )
 }
