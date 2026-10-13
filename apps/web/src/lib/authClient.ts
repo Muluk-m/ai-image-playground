@@ -4,7 +4,7 @@ import {
   type OAuthProviderView,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
-import { isSignedIn } from '../auth/loginPrompt'
+import { accountRequired, isSignedIn } from '../auth/loginPrompt'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
@@ -194,8 +194,9 @@ export async function authenticatedBffFetch(
   input: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  // 计费账户只在登录后有意义。私有 overlay 会无条件拉它，匿名时在这里挡住，避免打出 401。
-  if (!isSignedIn() && requestPath(input) === '/api/billing/account') {
+  // 开了账号的部署里，未登录访客没有积分账户。私有 overlay 会无条件拉它，这里直接挡掉，避免打出 401。
+  // 能力清单还没打开 accounts:login 时不挡：计费 store 的单测不走登录门禁，仍要拿到 mock 的账户响应。
+  if (accountRequired() && requestPath(input) === '/api/billing/account') {
     return new Response(null, { status: 401 })
   }
   const res = await fetch(input, { ...init, credentials: 'include' })
