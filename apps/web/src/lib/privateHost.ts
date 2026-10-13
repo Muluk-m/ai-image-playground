@@ -15,8 +15,8 @@
 export { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 export { default as BrandAvatar } from '../components/BrandAvatar'
 export { default as DisplaySettingsMenuItems } from '../components/DisplaySettingsMenuItems'
-export { SettingsIcon } from '../components/icons'
 export { default as Overlay } from '../components/patterns/Overlay'
+export { SettingsIcon } from '../components/ui/icon/settings'
 export {
   BRAND_WORDMARK,
   brandNeedsWordmark,

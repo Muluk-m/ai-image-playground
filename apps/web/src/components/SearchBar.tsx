@@ -1,6 +1,9 @@
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
-import Select from './patterns/Select'
+import SearchField from './patterns/SearchField'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 /** `compact`：首屏「我的作品」那一行用的窄版，不自带上下留白。 */
 export default function SearchBar({ compact = false }: { compact?: boolean } = {}) {
@@ -18,66 +21,46 @@ export default function SearchBar({ compact = false }: { compact?: boolean } = {
       className={`flex items-center ${compact ? 'gap-4' : 'mb-4 mt-6 gap-3'}`}
     >
       <div className={`z-20 flex flex-shrink-0 ${compact ? 'gap-4' : 'gap-2'}`}>
-        <button
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
           onClick={() => setFilterFavorite(!filterFavorite)}
-          className={`p-2.5 rounded-xl border transition-all ${
+          className={`shrink-0 ${
             filterFavorite
               ? 'border-warning bg-warning/10 dark:bg-warning/10 text-warning'
               : 'border-border bg-card text-muted-foreground hover:bg-card'
           }`}
           title={filterFavorite ? t('search.favoriteOnlyOff') : t('search.favoriteOnly')}
+          aria-label={filterFavorite ? t('search.favoriteOnlyOff') : t('search.favoriteOnly')}
+          aria-pressed={filterFavorite}
         >
-          <svg
-            className="w-5 h-5"
-            fill={filterFavorite ? 'currentColor' : 'none'}
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-            />
-          </svg>
-        </button>
+          <Icon name="favorite" filled={filterFavorite} />
+        </Button>
         <div className="relative w-28">
           <Select
-            label={t('search.status')}
             value={filterStatus}
-            onChange={(val) => setFilterStatus(val as any)}
-            options={[
-              { label: t('search.statusAll'), value: 'all' },
-              { label: t('search.statusDone'), value: 'done' },
-              { label: t('common:state.generating'), value: 'running' },
-              { label: t('common:state.failed'), value: 'error' },
-            ]}
-            className="px-3 py-2.5 rounded-xl border border-border bg-card hover:bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition"
-          />
+            onValueChange={(value) => setFilterStatus(value as typeof filterStatus)}
+          >
+            <SelectTrigger aria-label={t('search.status')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('search.statusAll')}</SelectItem>
+              <SelectItem value="done">{t('search.statusDone')}</SelectItem>
+              <SelectItem value="running">{t('common:state.generating')}</SelectItem>
+              <SelectItem value="error">{t('common:state.failed')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
-      <div className="relative flex-1 z-10">
-        <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          type="text"
-          placeholder={t('search.placeholder')}
-          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition"
-        />
-      </div>
+      <SearchField
+        value={searchQuery}
+        onChange={(event) => setSearchQuery(event.target.value)}
+        placeholder={t('search.placeholder')}
+        aria-label={t('search.placeholder')}
+        className="z-10 min-w-0 max-w-none flex-1"
+      />
     </div>
   )
 }

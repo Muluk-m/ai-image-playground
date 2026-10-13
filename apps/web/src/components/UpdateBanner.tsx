@@ -1,5 +1,6 @@
 import { useUpdateAvailable } from '../hooks/useUpdateAvailable'
 import { useTranslation } from '../i18n'
+import { Button } from './ui/button'
 
 /** 提示条不进 Overlay：它不是模态浮层，不锁滚动、不吃 ESC、不挡工作区。z 压在 Toast 之下。 */
 export default function UpdateBanner() {
@@ -14,23 +15,15 @@ export default function UpdateBanner() {
       className="animate-slide-down-in fixed right-3 sm:right-4 z-[1390] max-w-[calc(100vw-1.5rem)]"
       style={{ top: 'calc(var(--safe-area-top) + var(--header-height) + 0.75rem)' }}
     >
-      <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card/95 backdrop-blur-xl px-4 py-2.5 shadow-popover ring-1 ring-hairline">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/60 bg-card/95 backdrop-blur-xl px-4 py-2.5 shadow-popover ring-1 ring-hairline">
         <span className="text-sm font-medium text-foreground">{t('update.available')}</span>
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="rounded-lg bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-          >
+          <Button size="sm" type="button" onClick={() => window.location.reload()}>
             {t('update.refresh')}
-          </button>
-          <button
-            type="button"
-            onClick={skip}
-            className="rounded-lg border border-border px-3 py-1.5 text-body-sm text-muted-foreground transition hover:bg-card"
-          >
+          </Button>
+          <Button size="sm" type="button" onClick={skip} variant="outline">
             {t('update.skip')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
