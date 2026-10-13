@@ -12,6 +12,7 @@ vi.mock('../../features/agent/lib/useAgentSkills', () => ({
 }))
 
 import InputBar from '../../components/InputBar'
+import { fillAgentComposer } from '../../features/agent/lib/composerFill'
 import { useActiveLook } from '../../features/library/lib/activeLook'
 import { cancelLookSubmission, useLookSubmission } from '../../features/library/lib/lookSubmit'
 import { useLibraryStore } from '../../features/library/store'
@@ -515,4 +516,20 @@ it('removes a masked reference from the stack without a clear-all tile', () => {
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
   expect(host.querySelector('.creation-stack-trigger')).toBeNull()
+})
+
+it('replaces a canvas prompt and clears references and masks from inspiration', () => {
+  remount('canvas')
+  act(() => {
+    useStore.setState({
+      createTarget: 'canvas',
+      prompt: '旧提示词',
+      inputImages: [{ id: 'old', dataUrl: 'data:image/png;base64,AA' }],
+      maskDraft: { targetImageId: 'old', maskDataUrl: 'data:image/png;base64,AA', updatedAt: 1 },
+    })
+  })
+  act(() => fillAgentComposer({ text: '新的灵感', replace: true, clearReferences: true }))
+  expect(useStore.getState().prompt).toBe('新的灵感')
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().maskDraft).toBeNull()
 })

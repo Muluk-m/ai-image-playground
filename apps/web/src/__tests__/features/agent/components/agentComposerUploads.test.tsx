@@ -82,7 +82,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     })
     expect(button.disabled).toBe(true)
     expect(button.getAttribute('aria-busy')).toBe('true')
-    expect(host.querySelector('.creation-stack-upload')).not.toBeNull()
+    expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).not.toBeNull()
     expect(host.textContent).toContain('上传中 0/1')
     expect(send).not.toHaveBeenCalled()
     await act(async () => {
@@ -92,7 +92,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     await vi.waitFor(() => expect(button.disabled).toBe(false))
     expect(button.className).not.toContain('bg-secondary')
     expect(button.getAttribute('aria-busy')).toBeNull()
-    expect(host.querySelector('.creation-stack-upload')).toBeNull()
+    expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).toBeNull()
     await act(async () => {
       button.click()
     })

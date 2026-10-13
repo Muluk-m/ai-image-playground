@@ -217,7 +217,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   // 直接生成栏没有智能体，也就不认技能：起手句只取句子本身。
   useComposerFillTarget({
     read: () => useCanvasComposer.getState().prompt,
-    write: ({ text }) => {
+    write: ({ text, clearReferences }) => {
+      if (clearReferences) editor.setSelectedElements([])
       setPrompt(text)
       // 光标放到句末等用户接着写：受控 textarea 这一帧还是旧值，等渲染完再挪。
       window.setTimeout(() => {
