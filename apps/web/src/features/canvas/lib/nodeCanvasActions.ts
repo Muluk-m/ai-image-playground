@@ -24,10 +24,14 @@ export function createNode(
   kind: CreateNodeKind,
   point: { x: number; y: number },
   fill: string,
-  beside?: { nodes: readonly CanvasNode[]; side: 'left' | 'right' },
+  beside?: {
+    nodes: readonly CanvasNode[]
+    side: 'left' | 'right'
+    size?: { width: number; height: number }
+  },
 ): string {
   const id = newElementId()
-  const { width, height } = canvasNodeRegistry[kind].size
+  const { width, height } = beside?.size ?? canvasNodeRegistry[kind].size
   const occupied = readCanvasDocument(canvas.doc).nodes
   const anchors = beside?.nodes ?? []
   const gap = 96
@@ -110,6 +114,9 @@ export function pasteNodes(
       if ('pending' in data) delete data.pending
       if ('meta' in data && data.meta) {
         const meta = { ...data.meta }
+        for (const key of ['frameOf', 'videoFirstFrame', 'videoLastFrame']) {
+          if (meta[key] && ids.has(meta[key])) meta[key] = ids.get(meta[key])!
+        }
         for (const key of Object.keys(meta)) {
           if (!key.startsWith('role:')) continue
           const target = ids.get(key.slice(5))

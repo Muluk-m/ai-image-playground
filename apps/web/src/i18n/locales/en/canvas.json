@@ -540,6 +540,14 @@
     "videoModeReference": "All references",
     "chooseFrame": "Choose image",
     "swapFrames": "Swap frames",
-    "tooManyVideoReferences": "This model supports up to {{max}} reference images"
+    "tooManyVideoReferences": "This model supports up to {{max}} reference images",
+    "videoTools": "Video tools",
+    "framecurrent": "Capture current frame",
+    "framefirst": "Capture first frame",
+    "framelast": "Capture last frame",
+    "trimVideo": "Trim video",
+    "trimStart": "Start (seconds)",
+    "trimEnd": "End (seconds)",
+    "trimHint": "Keeps the original video. Existing and future timeline clips use this range."
   }
 }

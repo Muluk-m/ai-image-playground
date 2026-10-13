@@ -68,6 +68,8 @@ vi.mock('@xyflow/react', () => ({
     children,
     onInit,
     onPaneClick,
+    onNodeClick,
+    onSelectionChange,
   }: {
     nodes: {
       id: string
@@ -81,6 +83,8 @@ vi.mock('@xyflow/react', () => ({
     }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
+    onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
+    onNodeClick?: (event: unknown, node: { id: string }) => void
     onPaneClick?: () => void
     onInit?: (flow: {
       screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
@@ -107,6 +111,10 @@ vi.mock('@xyflow/react', () => ({
             key: node.id,
             className: `react-flow__node${node.selected ? ' selected' : ''}`,
             'data-node-id': node.id,
+            onClick: (event: unknown) => {
+              onSelectionChange?.({ nodes: [node] })
+              onNodeClick?.(event, node)
+            },
             'data-bounds': JSON.stringify({
               ...node.position,
               width: node.width,
@@ -424,4 +432,25 @@ it('leaves selection intact when Escape closes a model listbox', async () => {
   act(() => listbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   expect(host.querySelector('.studio-node-composer')).not.toBeNull()
   listbox.remove()
+})
+
+it('offers video tools and preview when the video has no poster file', async () => {
+  const { insertCanvasNode } = await import('@image-playground/shared')
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'posterless',
+      type: 'video',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { video: { taskId: 'fixture', outputIndex: 0 } },
+    },
+    canvas.origin,
+  )
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="posterless"]')!.click())
+  expect(host.querySelector('button[aria-label="视频工具"]')).not.toBeNull()
+  expect(host.querySelector('button[aria-label="全屏查看"]')).not.toBeNull()
 })

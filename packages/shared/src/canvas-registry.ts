@@ -42,7 +42,12 @@ export function canvasKindsConnect(source: CanvasNodeType, target: CanvasNodeTyp
 }
 export function canvasConnectionAllowed(source: CanvasNode, target: CanvasNode): boolean {
   return (
-    source.id !== target.id && canvasKindsConnect(canvasNodeKind(source), canvasNodeKind(target))
+    source.id !== target.id &&
+    (canvasKindsConnect(canvasNodeKind(source), canvasNodeKind(target)) ||
+      (source.type === 'video' &&
+        target.type === 'image' &&
+        target.data.meta?.frameOf === source.id &&
+        ['first', 'last', 'current'].includes(target.data.meta?.frame ?? '')))
   )
 }
 export function canvasLinkAllowed(
