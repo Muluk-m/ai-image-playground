@@ -79,6 +79,25 @@ describe('submitNodeImage', () => {
     expect(mocks.start.mock.calls[0]![0].params.n).toBe(useStore.getState().params.n)
   })
 
+  it('uses the confirmed batch quantity even when workbench defaults have changed', () => {
+    const doc = new Y.Doc(),
+      editor = new CanvasEditor(new CanvasDoc())
+    insertCanvasNode(
+      doc,
+      { id: 'batch', type: 'image', x: 0, y: 0, width: 100, height: 100, data: {} },
+      canvasOrigin('user', 'test'),
+    )
+    const settings = structuredClone(useStore.getState().settings),
+      params = { ...useStore.getState().params, n: 3 }
+    expect(
+      submitNodeImage(editor, doc, 'batch', 'confirmed', [], undefined, undefined, {
+        settings,
+        params,
+      }),
+    ).toBe(true)
+    expect(mocks.start.mock.calls[0]![0].params.n).toBe(3)
+  })
+
   it('sends an edit mask and forces a single new candidate', () => {
     const doc = new Y.Doc()
     insertCanvasNode(

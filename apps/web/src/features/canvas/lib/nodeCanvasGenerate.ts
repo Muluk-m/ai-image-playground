@@ -17,7 +17,7 @@ import { getImageDimensions } from '../../../lib/canvasImage'
 import { type GenerationSink, resumeGeneration, startGeneration } from '../../../lib/generationJob'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '../../../store'
-import type { TaskParams } from '../../../types'
+import type { AppSettings, TaskParams } from '../../../types'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import { saveAssetNodeResult } from './nodeAssetGeneration'
@@ -41,6 +41,7 @@ function claimResume(doc: Y.Doc, nodeId: string, requestId: string): boolean {
 }
 
 interface NodeJobContext {
+  source: 'builtin-edge' | 'user-byok'
   assetViewLabel?: 'sheet'
   prompt: string
   profileView: CanvasProfileSnapshot
@@ -164,7 +165,6 @@ function nodeGenerationSink(
       adoptNodeResult(doc, primaryId)
       for (const job of canvasNodeJobs(doc, primaryId))
         if (job.status !== 'loading') finishCanvasNodeJob(doc, job.id, generationOrigin)
-      const profile = getActiveApiProfile(useStore.getState().settings)
       const inputFingerprint = canvasInputFingerprint(doc, primaryId)
       const startedAt = Date.now()
       const initialResultId = canvasMainResult(doc, primaryId)?.id
@@ -179,7 +179,7 @@ function nodeGenerationSink(
           meta: {
             nodeGeneration: true,
             prompt: unit.context.prompt,
-            source: profile.source,
+            source: unit.context.source,
             clientRequestId: unit.clientRequestId,
             params: { ...unit.params },
             inputFingerprint,
@@ -290,6 +290,7 @@ export function submitNodeImage(
   inputImageDataUrls: string[],
   edit?: { maskDataUrl?: string },
   assetViewLabel?: 'sheet',
+  configuration?: { settings: AppSettings; params: TaskParams },
 ): boolean {
   const node = imageNode(doc, nodeId)
   if (!node || loading(node.data.pending)) return false
@@ -300,10 +301,13 @@ export function submitNodeImage(
       .showToast(i18next.t('submit.tooManyInputs', { ns: 'canvas', max: API_MAX_IMAGES }), 'error')
     return false
   }
-  const settings = useStore.getState().settings
+  const settings = configuration?.settings ?? useStore.getState().settings
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const params = { ...useStore.getState().params, ...(edit ? { n: 1 } : {}) }
+  const params = {
+    ...(configuration?.params ?? useStore.getState().params),
+    ...(edit ? { n: 1 } : {}),
+  }
   const handles = startGeneration<NodeJobHandle, NodeJobContext>(
     {
       settings,
@@ -316,6 +320,7 @@ export function submitNodeImage(
           inputImageDataUrls,
           ...(edit?.maskDataUrl ? { maskDataUrl: edit.maskDataUrl } : {}),
           context: {
+            source: profile.source,
             prompt,
             assetViewLabel,
             profileView: {

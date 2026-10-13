@@ -51,3 +51,7 @@ export function useNodeReferenceDraft(document: object, nodeId: string) {
   const snapshot = useSyncExternalStore(draft.subscribe, draft.getSnapshot)
   return { ...snapshot, upload: draft.upload, remove: draft.remove }
 }
+
+export function nodeReferenceDraft(document: object, nodeId: string): ReferenceDraft {
+  return drafts.get(document)?.get(nodeId)?.getSnapshot() ?? { items: [], uploading: false }
+}

@@ -114,6 +114,7 @@ import ImageNodeComposer from './ImageNodeComposer'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
 import NodeAssetTools from './NodeAssetTools'
+import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
 import NodeComposerFrame from './NodeComposerFrame'
 import NodeFlowEdge from './NodeFlowEdge'
@@ -707,6 +708,7 @@ function Flow({
   const [history, setHistory] = useState({ undo: false, redo: false })
   const copied = useRef<CanvasSnapshot | null>(null)
   const selectedIds = useRef<string[]>([])
+  const [batchIds, setBatchIds] = useState<string[] | null>(null)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const connectStart = useRef<{ x: number; y: number } | null>(null)
@@ -1694,9 +1696,23 @@ function Flow({
                           {t('nodes.emptyHint')}
                         </div>
                       )}
+                      {batchIds && (
+                        <NodeBatchDialog
+                          canvas={canvas}
+                          editor={editor}
+                          ids={batchIds}
+                          snapshot={snapshot}
+                          onClose={() => setBatchIds(null)}
+                        />
+                      )}
                       {selected?.data.group && (
                         <div className="studio-node-selection-bar text-label-md">
                           <span>{selected.data.group.name}</span>
+                          <NodeTool
+                            icon="play"
+                            label={t('nodeBatch.run')}
+                            onClick={() => setBatchIds([...selectedIds.current])}
+                          />
                           <NodeTool icon="folder" label={t('nodes.ungroup')} onClick={ungroup} />
                           <NodeTool
                             icon="duplicate"
@@ -1708,6 +1724,11 @@ function Flow({
                       {selectedCount > 1 && (
                         <div className="studio-node-selection-bar text-label-md">
                           <span>{t('nodes.selectedCount', { count: selectedCount })}</span>
+                          <NodeTool
+                            icon="play"
+                            label={t('nodeBatch.run')}
+                            onClick={() => setBatchIds([...selectedIds.current])}
+                          />
                           <NodeTool icon="folder" label={t('nodes.group')} onClick={makeGroup} />
                           <NodeTool
                             icon="add"

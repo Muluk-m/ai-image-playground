@@ -20,6 +20,8 @@ export interface PrivateSubmissionGuard {
   blockedAction?: PrivateSubmissionBlockedAction
   /** 本次要扣的积分；overlay 缺席或没有计价目录时 undefined，界面上就不写积分。 */
   estimatedCredits?: number
+  /** 可用于本次确认的总余额；整组执行按逐任务取整后的总价检查。 */
+  availableCredits?: number
 }
 
 export interface PrivateHeaderActionsProps {
