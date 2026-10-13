@@ -1,7 +1,7 @@
 /**
  * 公开树暴露给私有 overlay 的**宿主面**。
  *
- * overlay 只许从这里（和 `privateOverlay.tsx` 的契约类型）拿公开树的东西，不许 `../../../apps/web/src/...`
+ * overlay 只许从这里、纯展示入口 `privateIcons.ts`（和 `privateOverlay.tsx` 的契约类型）拿公开树的东西，不许 `../../../apps/web/src/...`
  * 深路径乱引——否则整棵源码树都成了它的 API，任何重构都可能悄悄打断收费版
  * （`scripts/check-private-boundary.ts` 反向扫描 `private/` 强制这条）。
  *
@@ -15,8 +15,14 @@
 export { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 export { default as BrandAvatar } from '../components/BrandAvatar'
 export { default as DisplaySettingsMenuItems } from '../components/DisplaySettingsMenuItems'
+export { DialogSurface, default as Dialog } from '../components/patterns/Dialog'
 export { default as Overlay } from '../components/patterns/Overlay'
+export { default as SegmentedTabs } from '../components/patterns/SegmentedTabs'
+export { Button } from '../components/ui/button'
+export { Icon, type IconName } from '../components/ui/icon'
 export { SettingsIcon } from '../components/ui/icon/settings'
+export { Input } from '../components/ui/input'
+export { Label } from '../components/ui/label'
 export {
   BRAND_WORDMARK,
   brandNeedsWordmark,
@@ -29,3 +35,4 @@ export { authenticatedBffFetch } from './authClient'
 export { bootstrapClientCapabilities, isClientCapabilityEnabled } from './clientCapabilities'
 export { isInFloatingLayer } from './dropdown'
 export { bffBaseUrl, getRuntimeConfig } from './runtimeConfig'
+export { cn } from './utils'

@@ -85,6 +85,10 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const COLORS = [
+  ['membership-free', 'bg-membership-free'],
+  ['membership-basic', 'bg-membership-basic'],
+  ['membership-plus', 'bg-membership-plus'],
+  ['membership-max', 'bg-membership-max'],
   ['background', 'bg-background'],
   ['card', 'bg-card'],
   ['secondary', 'bg-secondary'],

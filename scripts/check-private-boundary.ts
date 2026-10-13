@@ -64,6 +64,7 @@ const hostSurfaces: Record<string, true> = {
   'apps/bff/src/lib/private-host': true,
   'apps/bff/src/lib/private-overlay': true,
   'apps/web/src/lib/privateHost': true,
+  'apps/web/src/lib/privateIcons': true,
   'apps/web/src/lib/privateOverlay': true,
 }
 const publicReference = /['"]((?:\.\.\/)+)(apps\/(?:admin|bff|web)\/[^'"]*)['"]/g
