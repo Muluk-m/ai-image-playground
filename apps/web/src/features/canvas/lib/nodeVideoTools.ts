@@ -108,16 +108,49 @@ export function trimNodeVideo(
   return true
 }
 
-/** Reflect video edits into remaining local timeline tools without making a second undo history. */
+/** Reflect the main media result into local legacy consumers without a second undo history. */
 export function projectNodeVideoEdits(editor: CanvasEditor, canvas: NodeCanvasDocument): void {
+  const additions: CanvasEl[] = []
+  const nodes = canvas.doc.getMap('nodes')
+  const managed = canvas.doc.getMap('managedNodes')
+  const deleted = canvas.doc.getMap('deletedNodes')
+  const removals = editor.doc.elements
+    .filter(
+      (element) => !nodes.has(element.id) && (managed.has(element.id) || deleted.has(element.id)),
+    )
+    .map((element) => element.id)
   const patches = readCanvasDocument(canvas.doc).nodes.flatMap<{
     id: string
     patch: Partial<CanvasEl>
   }>((node) => {
     const element = editor.doc.elements.find((element) => element.id === node.id)
-    if (node.type === 'video' && element?.type === 'image') {
+    if ((node.type === 'image' || node.type === 'video') && node.data.fileId && !element) {
+      additions.push({
+        ...node.data,
+        id: node.id,
+        type: 'image',
+        fileId: node.data.fileId,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        rotation: node.data.rotation ?? 0,
+      })
+      return []
+    }
+    if (node.type === 'image' && !node.data.fileId && element?.type === 'image') {
+      removals.push(node.id)
+      return []
+    }
+    if ((node.type === 'image' || node.type === 'video') && element?.type === 'image') {
       const patch = {
         ...node.data,
+        pending: node.data.pending,
+        video: node.type === 'video' ? node.data.video : undefined,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
         meta: node.data.meta ?? {},
         fileId: node.data.fileId ?? element.fileId,
         rotation: node.data.rotation ?? 0,
@@ -138,5 +171,7 @@ export function projectNodeVideoEdits(editor: CanvasEditor, canvas: NodeCanvasDo
       return [{ id: node.id, patch: { clips: node.data.clips } }]
     return []
   })
+  editor.doc.addElements(additions, { history: false })
+  editor.doc.deleteElements(removals, { history: false })
   editor.doc.updateElements(patches)
 }

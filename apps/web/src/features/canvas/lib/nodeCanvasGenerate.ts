@@ -1,31 +1,26 @@
 import {
   type CanvasOrigin,
+  canvasInputFingerprint,
+  canvasMainResult,
+  canvasNodeJobs,
   canvasOrigin,
-  connectCanvasNodes,
-  insertCanvasNode,
+  finishCanvasNodeJob,
   type PendingGeneration,
   readCanvasDocument,
+  setCanvasNodeJob,
   updateCanvasNode,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
 import { i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getImageDimensions } from '../../../lib/canvasImage'
-import {
-  type GenerationFailure,
-  type GenerationReference,
-  type GenerationSink,
-  type GenerationUnit,
-  resumeGeneration,
-  startGeneration,
-} from '../../../lib/generationJob'
-import type { CallApiResult } from '../../../lib/imageApiShared'
+import { type GenerationSink, resumeGeneration, startGeneration } from '../../../lib/generationJob'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '../../../store'
 import type { TaskParams } from '../../../types'
-import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
+import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
 
 /** 与拖进画布的图同一上限：卡片不要铺得比导入的图还大。 */
 const MAX_SIDE = 720
@@ -49,6 +44,9 @@ interface NodeJobContext {
 }
 
 interface NodeJobHandle {
+  jobId: string
+  inputFingerprint?: string
+  initialResultId?: string
   requestId?: string
   clientRequestId?: string
   nodeId: string
@@ -72,57 +70,10 @@ function imageNode(doc: Y.Doc, id: string) {
   return node?.type === 'image' ? node : undefined
 }
 
-/** 左右加号探出卡片，张数大于 1 时下一张要隔开这段，避免加号叠在一起。 */
-const SIBLING_GAP = 88
-
-/** 同一条生成的第 index 张，放在原卡右边，并接上同样的上游。 */
-function siblingImageNode(doc: Y.Doc, primaryId: string, index: number, resultId?: string): string {
-  const primary = imageNode(doc, primaryId)
-  if (!primary || index <= 0) return primaryId
-  const id = resultId ?? newElementId()
-  if (imageNode(doc, id) || (resultId && doc.getMap('deletedNodes').has(id))) return id
-  const snapshot = readCanvasDocument(doc)
-  const incoming = snapshot.edges.filter((edge) => edge.target === primaryId)
-  const x = primary.x + (primary.width + SIBLING_GAP) * index
-  let y = primary.y
-  while (
-    snapshot.nodes.some(
-      (n) =>
-        x < n.x + n.width + 24 &&
-        x + primary.width + 24 > n.x &&
-        y < n.y + n.height + 24 &&
-        y + primary.height + 24 > n.y,
-    )
-  )
-    y += primary.height + SIBLING_GAP
-  insertCanvasNode(
-    doc,
-    {
-      id,
-      type: 'image',
-      x,
-      y,
-      width: primary.width,
-      height: primary.height,
-      data: { meta: primary.data.meta },
-    },
-    generationOrigin,
-  )
-  for (const edge of incoming)
-    connectCanvasNodes(doc, { source: edge.source, target: id }, generationOrigin)
-  return id
-}
-
 function loading(pending: PendingGeneration | undefined): boolean {
   if (!pending) return false
   if (pending.type === 'generation') return !pending.errorCode
   return pending.status === 'loading'
-}
-
-function writePending(doc: Y.Doc, nodeId: string, pending: PendingGeneration): void {
-  const node = imageNode(doc, nodeId)
-  if (!node) return
-  updateCanvasNode(doc, nodeId, { data: { ...node.data, pending } }, generationOrigin)
 }
 
 function generationMeta(pending: PendingGeneration | undefined): NodeGenerationMeta | undefined {
@@ -203,88 +154,108 @@ function nodeGenerationSink(
   doc: Y.Doc,
   primaryId: string,
 ): GenerationSink<NodeJobHandle, NodeJobContext> {
-  let resultId = primaryId
-  const fail = (id: string, text: string) => {
-    const node = imageNode(doc, id)
-    const meta = node?.data.pending && 'meta' in node.data.pending ? node.data.pending.meta : {}
-    writePending(doc, id, { type: 'placeholder', status: 'error', message: text, meta })
-    useStore.getState().showToast(text, 'error')
-  }
+  let selectFirst = true
   return {
-    open(unit: GenerationUnit<NodeJobContext>): NodeJobHandle {
+    open(unit): NodeJobHandle {
+      adoptNodeResult(doc, primaryId)
+      for (const job of canvasNodeJobs(doc, primaryId))
+        if (job.status !== 'loading') finishCanvasNodeJob(doc, job.id, generationOrigin)
       const profile = getActiveApiProfile(useStore.getState().settings)
-      if (resultId === primaryId && imageNode(doc, primaryId)?.data.fileId) {
-        resultId = siblingImageNode(doc, primaryId, 1)
-        connectCanvasNodes(doc, { source: primaryId, target: resultId }, generationOrigin)
-      }
-      const nodeId = unit.index > 0 ? siblingImageNode(doc, resultId, unit.index) : resultId
-      writePending(doc, nodeId, {
-        type: 'placeholder',
-        status: 'loading',
-        message: '',
-        meta: {
-          nodeGeneration: true,
-          prompt: unit.context.prompt,
-          source: profile.source,
-          clientRequestId: unit.clientRequestId,
-          params: unit.params,
+      const inputFingerprint = canvasInputFingerprint(doc, primaryId)
+      const startedAt = Date.now()
+      const initialResultId = canvasMainResult(doc, primaryId)?.id
+      setCanvasNodeJob(
+        doc,
+        {
+          id: unit.clientRequestId,
+          nodeId: primaryId,
+          createdAt: startedAt,
+          status: 'loading',
+          message: '',
+          meta: {
+            nodeGeneration: true,
+            prompt: unit.context.prompt,
+            source: profile.source,
+            clientRequestId: unit.clientRequestId,
+            params: { ...unit.params },
+            inputFingerprint,
+            ...(initialResultId ? { initialResultId } : {}),
+          },
         },
-      })
+        generationOrigin,
+      )
       return {
-        nodeId,
+        jobId: unit.clientRequestId,
+        nodeId: primaryId,
         clientRequestId: unit.clientRequestId,
         prompt: unit.context.prompt,
         params: unit.params,
         profileView: unit.context.profileView,
-        startedAt: Date.now(),
+        startedAt,
+        inputFingerprint,
+        initialResultId,
       }
     },
-    accepted(handle: NodeJobHandle, reference: GenerationReference): void {
+    accepted(handle, reference) {
       if (reference.kind !== 'queue') return
       handle.requestId = reference.requestId
       claimResume(doc, handle.nodeId, reference.requestId)
-      const node = imageNode(doc, handle.nodeId)
-      const pending = node?.data.pending
-      if (!node || !pending || pending.type !== 'placeholder') return
-      writePending(doc, handle.nodeId, {
-        ...pending,
-        meta: { ...(pending.meta as object), bffRequestId: reference.requestId },
-      })
+      const job = canvasNodeJobs(doc).find((job) => job.id === handle.jobId)
+      if (job)
+        setCanvasNodeJob(
+          doc,
+          { ...job, meta: { ...job.meta, bffRequestId: reference.requestId } },
+          generationOrigin,
+        )
     },
     progress() {},
-    async delivered(handle: NodeJobHandle, result: CallApiResult) {
+    async delivered(handle, result) {
       const images = result.images.filter((item): item is string => Boolean(item))
-      if (images.length === 0) {
-        fail(handle.nodeId, i18next.t('placeholder.failed', { ns: 'canvas' }))
-        return
-      }
-      const taskId = handle.requestId ?? handle.clientRequestId
-      let placedAny = false
-      for (let index = 0; index < images.length; index++) {
-        const id =
-          index === 0
-            ? handle.nodeId
-            : siblingImageNode(
-                doc,
-                handle.nodeId,
-                index,
-                taskId ? `result:${taskId}:${index}` : undefined,
-              )
-        const placed = await putBitmapOnNode(editor, doc, id, images[index]!, undefined, true)
-        placedAny = placedAny || placed
-      }
-      if (!placedAny) return
-      void addCompletedCanvasTask({
-        ...(taskId ? { id: `canvas:${taskId}` } : {}),
+      if (!images.length) throw new Error(i18next.t('placeholder.failed', { ns: 'canvas' }))
+      const taskId = handle.requestId ?? handle.clientRequestId ?? handle.jobId
+      await addCompletedCanvasTask({
+        id: `canvas:${taskId}`,
         prompt: handle.prompt,
         params: handle.params,
         images,
         ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
         ...(handle.profileView ? { profile: handle.profileView } : {}),
       })
+      const results = await Promise.all(
+        images.map((dataUrl, outputIndex) =>
+          recordNodeOutput(
+            doc,
+            {
+              nodeId: handle.nodeId,
+              kind: 'image',
+              createdAt: (handle.startedAt ?? Date.now()) + outputIndex,
+              source: {
+                type: handle.requestId ? 'queue' : 'local',
+                taskId: handle.requestId ?? `canvas:${taskId}`,
+                outputIndex,
+              },
+              ...(handle.inputFingerprint ? { inputFingerprint: handle.inputFingerprint } : {}),
+            },
+            dataUrl,
+          ),
+        ),
+      )
+      if (
+        selectFirst &&
+        results[0] &&
+        canvasMainResult(doc, handle.nodeId)?.id === handle.initialResultId &&
+        (handle.initialResultId || !imageNode(doc, handle.nodeId)?.data.fileId)
+      ) {
+        selectFirst = false
+        await selectNodeResult(editor, doc, results[0].id, generationOrigin)
+      }
+      finishCanvasNodeJob(doc, handle.jobId, generationOrigin)
     },
-    failed(handle: NodeJobHandle, failure: GenerationFailure) {
-      fail(handle.nodeId, failure.text)
+    failed(handle, failure) {
+      const job = canvasNodeJobs(doc).find((job) => job.id === handle.jobId)
+      if (job)
+        setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, generationOrigin)
+      useStore.getState().showToast(failure.text, 'error')
     },
   }
 }
@@ -359,13 +330,41 @@ export function resumeNodeGenerations(
   doc: Y.Doc,
   markUnrecoverable = true,
 ): void {
+  // Adopt old single-request placeholders; new fan-out requests have independent entries.
   for (const node of readCanvasDocument(doc).nodes) {
-    if (node.type !== 'image' || !loading(node.data.pending)) continue
+    if (node.type !== 'image' || !loading(node.data.pending) || canvasNodeJobs(doc, node.id).length)
+      continue
     const meta = generationMeta(node.data.pending)
     if (!meta) continue
-    const params = meta.params ?? { ...useStore.getState().params, n: 1 }
+    const { params: legacyParams, ...jobMeta } = meta
+    const jobId = meta.clientRequestId ?? meta.bffRequestId ?? `legacy:${node.id}`
+    setCanvasNodeJob(
+      doc,
+      {
+        id: jobId,
+        nodeId: node.id,
+        createdAt: Date.now(),
+        status: 'loading',
+        message: '',
+        meta: {
+          ...jobMeta,
+          clientRequestId: jobId,
+          ...(legacyParams ? { params: { ...legacyParams } } : {}),
+        },
+      },
+      generationOrigin,
+    )
+  }
+  for (const job of canvasNodeJobs(doc)) {
+    if (!job.meta.nodeGeneration || job.status !== 'loading' || !imageNode(doc, job.nodeId))
+      continue
+    const meta = job.meta
+    const params = (meta.params as TaskParams | undefined) ?? {
+      ...useStore.getState().params,
+      n: 1,
+    }
     if (meta.source === 'builtin-edge' && meta.bffRequestId) {
-      if (!claimResume(doc, node.id, meta.bffRequestId)) continue
+      if (!claimResume(doc, job.nodeId, meta.bffRequestId)) continue
       void resumeGeneration(
         {
           settings: useStore.getState().settings,
@@ -373,8 +372,17 @@ export function resumeNodeGenerations(
           params,
           requestId: meta.bffRequestId,
         },
-        { nodeId: node.id, prompt: meta.prompt, params, requestId: meta.bffRequestId },
-        nodeGenerationSink(editor, doc, node.id),
+        {
+          jobId: job.id,
+          nodeId: job.nodeId,
+          prompt: meta.prompt,
+          params,
+          requestId: meta.bffRequestId,
+          inputFingerprint: meta.inputFingerprint,
+          initialResultId: meta.initialResultId,
+          startedAt: job.createdAt,
+        },
+        nodeGenerationSink(editor, doc, job.nodeId),
       )
       continue
     }
@@ -383,11 +391,6 @@ export function resumeNodeGenerations(
       meta.source === 'builtin-edge'
         ? i18next.t('placeholder.unconfirmed', { ns: 'canvas' })
         : i18next.t('placeholder.byokUnrecoverable', { ns: 'canvas' })
-    writePending(doc, node.id, {
-      type: 'placeholder',
-      status: 'stale',
-      message,
-      meta: node.data.pending && 'meta' in node.data.pending ? node.data.pending.meta : {},
-    })
+    setCanvasNodeJob(doc, { ...job, status: 'stale', message }, generationOrigin)
   }
 }

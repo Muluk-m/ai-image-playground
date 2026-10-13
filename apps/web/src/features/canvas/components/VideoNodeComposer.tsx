@@ -38,6 +38,7 @@ export default function VideoNodeComposer({
   busy,
   position,
   referenceTools,
+  resultTools,
   references,
   files,
   document,
@@ -55,6 +56,7 @@ export default function VideoNodeComposer({
   ) => void
   busy: boolean
   position: { left: number; top: number }
+  resultTools?: ReactNode
   referenceTools: ReactNode
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
@@ -182,6 +184,7 @@ export default function VideoNodeComposer({
       references={[]}
       files={{}}
     >
+      {resultTools}
       {option && (
         <Select value={mode} onValueChange={(next) => onMeta({ nodeVideoMode: next })}>
           <SelectTrigger

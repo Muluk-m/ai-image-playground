@@ -548,6 +548,13 @@
     "trimVideo": "Trim video",
     "trimStart": "Start (seconds)",
     "trimEnd": "End (seconds)",
-    "trimHint": "Keeps the original video. Existing and future timeline clips use this range."
+    "trimHint": "Keeps the original video. Existing and future timeline clips use this range.",
+    "candidateUnavailable": "This candidate is unavailable or has expired. The current main result is unchanged.",
+    "mainResult": "Main result",
+    "resultStale": "Inputs changed · regenerate to update",
+    "candidates": "Candidate results",
+    "previousCandidate": "Previous candidate",
+    "nextCandidate": "Next candidate",
+    "spreadCandidates": "Spread all candidates on canvas"
   }
 }

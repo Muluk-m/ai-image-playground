@@ -4,6 +4,7 @@ import { canvasConnectionAllowed, canvasNodeKind } from './canvas-registry'
 import { CANVAS_STATE_MAX_BYTES } from './canvas-sync'
 import { isCanvasTextDelta } from './canvas-text'
 import { isProjectDocument, type ProjectDocument, type ProjectElement } from './project-protocol'
+import { isVideoGenerationRecord } from './video-generation'
 
 /** Read model for old consumers (Agent archive and project listing). Y.Doc is authoritative. */
 export function canvasProjectDocument(doc: Y.Doc, identity: ProjectDocument): ProjectDocument {
@@ -72,6 +73,7 @@ export function validateCloudCanvas(
     'groupMembers',
     'nodeResults',
     'mainResults',
+    'nodeJobs',
   ]
   if ([...doc.share.keys()].some((key) => !roots.includes(key)))
     throw new Error('invalid_canvas_document')
@@ -219,6 +221,56 @@ export function validateCloudCanvas(
       throw new Error('invalid_canvas_node')
     if (JSON.stringify(data).length > 100_000 || JSON.stringify(data).includes('data:image/'))
       throw new Error('invalid_canvas_node')
+  }
+  const jobs = doc.getMap('nodeJobs')
+  if (jobs.size > 1000) throw new Error('canvas_document_too_large')
+  for (const [key, job] of jobs) {
+    if (
+      !object(job) ||
+      job.id !== key ||
+      !id(key) ||
+      !id(job.nodeId) ||
+      !allowed(job, ['id', 'nodeId', 'createdAt', 'status', 'message', 'meta']) ||
+      typeof job.createdAt !== 'number' ||
+      !Number.isSafeInteger(job.createdAt) ||
+      job.createdAt < 0 ||
+      !['loading', 'error', 'stale'].includes(String(job.status)) ||
+      typeof job.status !== 'string' ||
+      typeof job.message !== 'string' ||
+      job.message.length > 10000 ||
+      !object(job.meta) ||
+      !allowed(job.meta, [
+        'nodeGeneration',
+        'nodeVideo',
+        'prompt',
+        'source',
+        'clientRequestId',
+        'bffRequestId',
+        'params',
+        'generation',
+        'inputFingerprint',
+        'initialResultId',
+      ]) ||
+      (job.meta.nodeGeneration !== true && job.meta.nodeVideo !== true) ||
+      (job.meta.nodeGeneration !== undefined && job.meta.nodeGeneration !== true) ||
+      (job.meta.nodeVideo !== undefined && job.meta.nodeVideo !== true) ||
+      (job.meta.nodeGeneration === true && job.meta.nodeVideo === true) ||
+      (job.meta.source !== undefined &&
+        !['builtin-edge', 'user-byok'].includes(String(job.meta.source))) ||
+      (job.meta.params !== undefined && !object(job.meta.params)) ||
+      (job.meta.generation !== undefined && !isVideoGenerationRecord(job.meta.generation)) ||
+      (job.meta.initialResultId !== undefined && !id(job.meta.initialResultId)) ||
+      (job.meta.inputFingerprint !== undefined &&
+        (typeof job.meta.inputFingerprint !== 'string' ||
+          !/^v1:[0-9]+:[a-f0-9]+:[a-f0-9]+$/.test(job.meta.inputFingerprint))) ||
+      typeof job.meta.prompt !== 'string' ||
+      job.meta.prompt.length > 100000 ||
+      !id(job.meta.clientRequestId) ||
+      (job.meta.bffRequestId !== undefined && !id(job.meta.bffRequestId)) ||
+      JSON.stringify(job.meta).length > 100000 ||
+      JSON.stringify(job.meta).includes('data:image/')
+    )
+      throw new Error('invalid_canvas_job')
   }
   const results = doc.getMap('nodeResults')
   if (results.size > 10000) throw new Error('canvas_document_too_large')

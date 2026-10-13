@@ -1,9 +1,11 @@
 import {
+  canvasInputFingerprint,
+  canvasMainResult,
+  canvasNodeJobs,
   canvasOrigin,
-  connectCanvasNodes,
-  insertCanvasNode,
+  finishCanvasNodeJob,
   readCanvasDocument,
-  updateCanvasNode,
+  setCanvasNodeJob,
   type VideoGenerationRecord,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
@@ -15,14 +17,12 @@ import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { superviseGeneration } from '../../../lib/generationJob'
 import { notifyPrivateSubmissionAccepted } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
-import { videoOutputFrame } from '../../agent/lib/artifactSource'
-import { blankVideoPoster } from '../../agent/lib/videoPoster'
 import { videoRejectionText } from '../../video/lib/labels'
 import { useVideoStore } from '../../video/store'
 import type { VideoDraft } from '../../video/types'
-import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import type { NodeReference } from './nodeCanvasFlow'
+import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
 import { canvasVideoPromptRefusal, guardAllows } from './submitVideoFromCanvas'
 import { generationInputIds, inputIndices } from './videoInputs'
 import { videoOptionRejection } from './videoRejection'
@@ -44,54 +44,41 @@ function mediaNode(doc: Y.Doc, id: string) {
   const node = readCanvasDocument(doc).nodes.find((n) => n.id === id)
   return node && (node.type === 'image' || node.type === 'video') ? node : undefined
 }
-function pending(doc: Y.Doc, id: string, status: string, message: string, meta: object) {
-  const node = mediaNode(doc, id)
-  if (node)
-    updateCanvasNode(
-      doc,
-      id,
-      { data: { ...node.data, pending: { type: 'placeholder', status, message, meta } } },
-      origin,
-    )
-}
 async function settle(
   editor: CanvasEditor,
   doc: Y.Doc,
   id: string,
   requestId: string,
   generation: VideoGenerationRecord,
+  jobId: string,
+  inputFingerprint?: string,
+  initialResultId?: string,
 ): Promise<void> {
-  const [output] = await awaitQueueOutputs(requestId)
-  if (!output) throw new Error(i18next.t('nodes.generationFailed', { ns: 'canvas' }))
-  const source = { taskId: requestId, outputIndex: output.index }
-  const dataUrl =
-    (await videoOutputFrame(source)) ??
-    blankVideoPoster({ width: output.width, height: output.height })
-  const node = mediaNode(doc, id)
-  if (!node) return
-  const video = { ...source, generation }
-  const ratio = output.width && output.height ? output.width / output.height : 16 / 9
-  const width = node.width
-  const height = width / ratio
-  if (editor.doc.getElement(id)?.type === 'image')
-    editor.doc.replaceImageBitmap(id, dataUrl, { video, width, height })
-  else editor.placeImages([{ id, dataUrl, x: node.x, y: node.y, width, height, video }])
-  const settled = mediaNode(doc, id)
-  if (settled)
-    updateCanvasNode(
-      doc,
-      id,
-      {
-        width,
-        height,
-        data: {
-          ...settled.data,
-          pending: undefined,
-          meta: { ...node.data.meta, ...settled.data.meta },
-        },
-      },
-      origin,
-    )
+  const outputs = await awaitQueueOutputs(requestId)
+  if (!outputs.length) throw new Error(i18next.t('nodes.generationFailed', { ns: 'canvas' }))
+  const results = await Promise.all(
+    outputs.map((output) =>
+      recordNodeOutput(doc, {
+        nodeId: id,
+        kind: 'video',
+        source: { type: 'queue', taskId: requestId, outputIndex: output.index },
+        display: { video: { taskId: requestId, outputIndex: output.index, generation } },
+        createdAt: Date.now() + output.index,
+        ...(inputFingerprint ? { inputFingerprint } : {}),
+      }),
+    ),
+  )
+  if (
+    results[0] &&
+    canvasMainResult(doc, id)?.id === initialResultId &&
+    (initialResultId || !mediaNode(doc, id)?.data.fileId)
+  )
+    await selectNodeResult(editor, doc, results[0].id, origin, {
+      taskId: requestId,
+      outputIndex: outputs[0]!.index,
+      generation,
+    })
+  finishCanvasNodeJob(doc, jobId, origin)
 }
 export function submitNodeVideo(
   editor: CanvasEditor,
@@ -149,46 +136,30 @@ export function submitNodeVideo(
   if (inputs.some((input) => !input))
     return reject(i18next.t('nodes.mediaMissing', { ns: 'canvas' }))
   if (!guardAllows(generation)) return false
-  let outputId = id
-  if (node.data.fileId) {
-    outputId = newElementId()
-    const snapshot = readCanvasDocument(doc)
-    const x = node.x + node.width + 100
-    let y = node.y
-    while (
-      snapshot.nodes.some(
-        (n) =>
-          x < n.x + n.width + 24 &&
-          x + node.width + 24 > n.x &&
-          y < n.y + n.height + 24 &&
-          y + node.height + 24 > n.y,
-      )
-    )
-      y += node.height + 88
-    insertCanvasNode(
-      doc,
-      {
-        id: outputId,
-        type: 'image',
-        x,
-        y,
-        width: node.width,
-        height: node.height,
-        data: { meta: { ...node.data.meta, nodeKind: 'video' } },
-      },
-      origin,
-    )
-    for (const edge of snapshot.edges.filter((edge) => edge.target === id))
-      connectCanvasNodes(doc, { source: edge.source, target: outputId }, origin)
+  adoptNodeResult(doc, id)
+  for (const job of canvasNodeJobs(doc, id))
+    if (job.status !== 'loading') finishCanvasNodeJob(doc, job.id, origin)
+  const meta = {
+    nodeVideo: true as const,
+    prompt,
+    generation,
+    clientRequestId: crypto.randomUUID(),
+    inputFingerprint: canvasInputFingerprint(doc, id),
+    initialResultId: canvasMainResult(doc, id)?.id,
   }
-  const meta = { nodeVideo: true, prompt, generation, clientRequestId: crypto.randomUUID() }
-  pending(doc, outputId, 'loading', '', meta)
+  const jobId = meta.clientRequestId
+  setCanvasNodeJob(
+    doc,
+    { id: jobId, nodeId: id, createdAt: Date.now(), status: 'loading', message: '', meta },
+    origin,
+  )
   void superviseGeneration(
-    outputId,
+    id,
     {
       delivered() {},
-      failed(nodeId, failure) {
-        pending(doc, nodeId, 'error', failure.text, meta)
+      failed(_nodeId, failure) {
+        const job = canvasNodeJobs(doc).find((job) => job.id === jobId)
+        if (job) setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, origin)
         useStore.getState().showToast(failure.text, 'error')
       },
     },
@@ -205,42 +176,94 @@ export function submitNodeVideo(
         ),
         clientRequestId: meta.clientRequestId,
       })
-      claimResume(doc, outputId, requestId)
-      pending(doc, outputId, 'loading', '', { ...meta, bffRequestId: requestId })
+      claimResume(doc, id, requestId)
+      const job = canvasNodeJobs(doc).find((job) => job.id === jobId)
+      if (job) setCanvasNodeJob(doc, { ...job, meta: { ...meta, bffRequestId: requestId } }, origin)
       notifyPrivateSubmissionAccepted()
-      await settle(editor, doc, outputId, requestId, generation)
+      await settle(
+        editor,
+        doc,
+        id,
+        requestId,
+        generation,
+        jobId,
+        meta.inputFingerprint,
+        meta.initialResultId,
+      )
     },
   )
   return true
 }
 export function resumeNodeVideos(editor: CanvasEditor, doc: Y.Doc, markUnrecoverable = true): void {
   for (const node of readCanvasDocument(doc).nodes) {
-    if (node.type !== 'image' && node.type !== 'video') continue
-    const job = node.data.pending
-    if (job?.type !== 'placeholder' || job.status !== 'loading') continue
-    const meta = job.meta as {
+    if ((node.type !== 'image' && node.type !== 'video') || canvasNodeJobs(doc, node.id).length)
+      continue
+    const pending = node.data.pending
+    if (pending?.type !== 'placeholder' || pending.status !== 'loading') continue
+    const meta = pending.meta as {
       nodeVideo?: boolean
+      prompt?: string
       bffRequestId?: string
+      clientRequestId?: string
       generation?: VideoGenerationRecord
     }
     if (!meta.nodeVideo) continue
-    if (!meta.bffRequestId || !meta.generation) {
-      if (!markUnrecoverable) continue
-      pending(doc, node.id, 'stale', i18next.t('placeholder.unconfirmed', { ns: 'canvas' }), meta)
-      continue
-    }
-    if (!claimResume(doc, node.id, meta.bffRequestId)) continue
-    const requestId = meta.bffRequestId,
-      generation = meta.generation
-    void superviseGeneration(
-      node.id,
+    const jobId = meta.clientRequestId ?? meta.bffRequestId ?? `legacy:${node.id}`
+    setCanvasNodeJob(
+      doc,
       {
-        delivered() {},
-        failed(id, failure) {
-          pending(doc, id, 'error', failure.text, meta)
+        id: jobId,
+        nodeId: node.id,
+        createdAt: Date.now(),
+        status: 'loading',
+        message: '',
+        meta: {
+          nodeVideo: true,
+          prompt: meta.prompt ?? '',
+          clientRequestId: jobId,
+          ...(meta.bffRequestId ? { bffRequestId: meta.bffRequestId } : {}),
+          ...(meta.generation ? { generation: meta.generation } : {}),
         },
       },
-      () => settle(editor, doc, node.id, requestId, generation),
+      origin,
+    )
+  }
+  for (const job of canvasNodeJobs(doc)) {
+    if (!job.meta.nodeVideo || job.status !== 'loading' || !mediaNode(doc, job.nodeId)) continue
+    const { bffRequestId, generation, inputFingerprint, initialResultId } = job.meta
+    if (!bffRequestId || !generation) {
+      if (markUnrecoverable)
+        setCanvasNodeJob(
+          doc,
+          {
+            ...job,
+            status: 'stale',
+            message: i18next.t('placeholder.unconfirmed', { ns: 'canvas' }),
+          },
+          origin,
+        )
+      continue
+    }
+    if (!claimResume(doc, job.nodeId, bffRequestId)) continue
+    void superviseGeneration(
+      job.nodeId,
+      {
+        delivered() {},
+        failed(_id, failure) {
+          setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, origin)
+        },
+      },
+      () =>
+        settle(
+          editor,
+          doc,
+          job.nodeId,
+          bffRequestId,
+          generation,
+          job.id,
+          inputFingerprint,
+          initialResultId,
+        ),
     )
   }
 }

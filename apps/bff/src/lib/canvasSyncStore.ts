@@ -1,4 +1,5 @@
 import {
+  canvasNodeJobs,
   canvasOrigin,
   canvasProjectDocument,
   canvasResultMediaIds,
@@ -113,6 +114,7 @@ function referencedTasks(doc: Y.Doc): Set<string> {
       ...(result.display?.video ? [result.display.video.taskId] : []),
     ]),
   )
+  for (const job of canvasNodeJobs(doc)) if (job.meta.bffRequestId) tasks.add(job.meta.bffRequestId)
   for (const node of readCanvasDocument(doc).nodes) {
     if ('video' in node.data) tasks.add(node.data.video.taskId)
     if ('pending' in node.data && node.data.pending?.type === 'placeholder') {

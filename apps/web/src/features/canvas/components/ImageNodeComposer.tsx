@@ -18,6 +18,7 @@ import NodeMediaImage from './NodeMediaImage'
 /** 图片卡下面的生成栏：模型、画幅、张数跟工作台是同一组 ParamControls。 */
 export default function ImageNodeComposer({
   referenceTools,
+  resultTools,
   document,
   nodeId,
   references,
@@ -28,6 +29,7 @@ export default function ImageNodeComposer({
   onChange,
   onSubmit,
 }: {
+  resultTools?: ReactNode
   referenceTools?: ReactNode
   document: object
   nodeId: string
@@ -81,6 +83,7 @@ export default function ImageNodeComposer({
       references={referenceTools ? [] : references}
       files={files}
     >
+      {resultTools}
       {referenceTools}
       {temporary.length > 0 && (
         <div className="flex flex-wrap gap-2" aria-label={t('nodes.temporaryReferences')}>
