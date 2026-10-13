@@ -37,7 +37,7 @@ export function nodeVideoInputs(
       : images.find((ref) => ref.id !== first?.id)
   const seenFiles = new Set<string>()
   const uniqueReferences = refs.filter((ref) => {
-    if (ref.kind !== 'image') return false
+    if (ref.kind !== 'image' || (ref.asset && !ref.fileId)) return false
     const key = ref.fileId ?? ref.id
     if (seenFiles.has(key)) return false
     seenFiles.add(key)
@@ -52,7 +52,12 @@ export function nodeVideoInputs(
             Boolean(ref),
           )
   return {
-    refs: [...refs.filter((ref) => ref.kind === 'text'), ...selected],
+    refs: [
+      ...refs
+        .filter((ref) => ref.kind === 'text' || (ref.asset && !selected.includes(ref)))
+        .map((ref) => (ref.asset ? { ...ref, kind: 'text' as const, fileId: undefined } : ref)),
+      ...selected,
+    ],
     roles: Object.fromEntries(
       selected.map((ref) => [
         ref.id,

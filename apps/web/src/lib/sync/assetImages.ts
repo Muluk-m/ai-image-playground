@@ -6,6 +6,7 @@
 import { assetStore } from '../../features/library/lib/assetStore'
 import { lookImageIds, lookStore } from '../../features/library/lib/lookStore'
 import { blobToDataUrl, refreshImageThumbnail } from '../../store'
+import { accountScope, scopedStorageName } from '../authScope'
 import { getImage, hasImage, putImage } from '../db'
 import {
   clearImageUnsynced,
@@ -32,41 +33,49 @@ export function forgetUploadedAssetImages(): void {
 
 /** 页面隐藏时的冲刷靠它挑记录：这一刻传得动的只有服务端已经拿到的那些图。 */
 export function isAssetImageOnServer(imageId: string): boolean {
-  return uploaded.has(imageId)
+  return uploaded.has(scopedStorageName(imageId))
 }
 
 /** 服务端回传过的素材图它自己就有；不记下来，改个名就会把整张图重传一遍。 */
 export function noteAssetImageOnServer(imageId: string): void {
-  uploaded.add(imageId)
+  uploaded.add(scopedStorageName(imageId))
 }
 
 export function uploadAssetImage(imageId: string): Promise<AssetImageUpload> {
-  if (uploaded.has(imageId)) return Promise.resolve('uploaded')
-  const running = uploads.get(imageId)
+  if (uploaded.has(scopedStorageName(imageId))) return Promise.resolve('uploaded')
+  const key = scopedStorageName(imageId)
+  const running = uploads.get(key)
   if (running) return running
-  const task = upload(imageId).finally(() => uploads.delete(imageId))
-  uploads.set(imageId, task)
+  const task = upload(imageId, accountScope()).finally(() => uploads.delete(key))
+  uploads.set(key, task)
   return task
 }
 
 /** 本机有图片本体就直接算数；没有才去服务端取一张回来。 */
 export function ensureAssetImage(imageId: string): Promise<boolean> {
   if (!imageId) return Promise.resolve(false)
-  const running = fetches.get(imageId)
+  const key = scopedStorageName(imageId)
+  const current = accountScope()
+  const running = fetches.get(key)
   if (running) return running
-  const task = fetchQueue.then(() => fetchIfMissing(imageId)).finally(() => fetches.delete(imageId))
+  const task = fetchQueue
+    .then(() => fetchIfMissing(imageId, current))
+    .finally(() => fetches.delete(key))
   fetchQueue = task
-  fetches.set(imageId, task)
+  fetches.set(key, task)
   return task
 }
 
-async function upload(imageId: string): Promise<AssetImageUpload> {
+async function upload(imageId: string, current: () => boolean): Promise<AssetImageUpload> {
   try {
     const image = await getImage(imageId)
+    if (!current()) return 'failed'
     const blob = image && toBlob(image.dataUrl)
     if (!blob) return 'imageless'
 
-    if ((await putAssetImage(imageId, blob)) === 'refused') {
+    const result = await putAssetImage(imageId, blob)
+    if (!current()) return 'failed'
+    if (result === 'refused') {
       markImageUnsynced(imageId)
       return 'refused'
     }
@@ -78,22 +87,28 @@ async function upload(imageId: string): Promise<AssetImageUpload> {
   return 'uploaded'
 }
 
-async function fetchIfMissing(imageId: string): Promise<boolean> {
+async function fetchIfMissing(imageId: string, current: () => boolean): Promise<boolean> {
   try {
-    if (await hasImage(imageId)) return true
+    if (!current()) return false
+    const cached = await hasImage(imageId)
+    if (!current()) return false
+    if (cached) return true
     if (!useSyncStatus.getState().enabled) return false
     // 服务端只存素材图与模板图；任务结果、商品图这些本机数据的缺图不该去问它。
     const named = await recordsUsing(imageId)
-    if (named.length === 0) return false
+    if (!current() || named.length === 0) return false
 
     const blob = await getAssetImage(imageId)
-    if (!blob) return false
+    if (!blob || !current()) return false
+    const dataUrl = await blobToDataUrl(blob)
+    if (!current()) return false
     await putImage({
       id: imageId,
-      dataUrl: await blobToDataUrl(blob),
+      dataUrl,
       createdAt: Date.now(),
       source: 'upload',
     })
+    if (!current()) return false
     refreshImageThumbnail(imageId)
     noteAssetImageOnServer(imageId)
     restoreImagelessRecords(named)

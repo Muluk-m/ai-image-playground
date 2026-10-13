@@ -4,16 +4,17 @@ import Credits from '../../../components/Credits'
 import ParamControls from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
-import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import type { AssetRecord } from '../../library/types'
 import { type NodeReference, referenceFileIds } from '../lib/nodeCanvasFlow'
 import { useNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import NodeComposerFrame from './NodeComposerFrame'
 import NodeMediaImage from './NodeMediaImage'
+import NodePromptInput from './NodePromptInput'
 
 /** 图片卡下面的生成栏：模型、画幅、张数跟工作台是同一组 ParamControls。 */
 export default function ImageNodeComposer({
@@ -23,6 +24,7 @@ export default function ImageNodeComposer({
   nodeId,
   references,
   files,
+  onAsset,
   value,
   busy,
   position,
@@ -35,6 +37,7 @@ export default function ImageNodeComposer({
   nodeId: string
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
+  onAsset?: (asset: AssetRecord, prompt: string) => Promise<boolean>
   value: string
   busy: boolean
   position: { left: number; top: number }
@@ -113,19 +116,13 @@ export default function ImageNodeComposer({
           ))}
         </div>
       )}
-      <Textarea
+      <NodePromptInput
         value={value}
-        placeholder={t('nodes.composerImage')}
-        aria-label={t('nodes.composerImage')}
-        rows={3}
-        className="max-h-40 min-h-[4.5rem] w-full resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault()
-            submit()
-          }
-        }}
+        onChange={onChange}
+        onSubmit={submit}
+        onAsset={onAsset}
+        label={t('nodes.composerImage')}
+        className="max-h-40 min-h-20 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
       />
       <div className="flex items-end gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">

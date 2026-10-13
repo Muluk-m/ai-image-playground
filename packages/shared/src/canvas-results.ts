@@ -136,6 +136,9 @@ export function canvasInputFingerprint(doc: Y.Doc, nodeId: string): string {
         node.type === 'video' ? [node.data.video.taskId, node.data.video.outputIndex] : null,
         node.data.meta?.videoTrimIn ?? null,
         node.data.meta?.videoTrimOut ?? null,
+        ...(node.data.meta?.nodeKind === 'asset'
+          ? [[node.data.name ?? '', node.data.meta.assetDescription ?? '']]
+          : []),
       ]
     })
   // Two independent 32-bit accumulators, versioned so future context rules can invalidate safely.

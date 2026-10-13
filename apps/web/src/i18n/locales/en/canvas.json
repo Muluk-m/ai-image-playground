@@ -557,7 +557,11 @@
     "nextCandidate": "Next candidate",
     "spreadCandidates": "Spread all candidates on canvas",
     "candidateStorageFailed": "These results could not be saved in this browser. Retry saving or download them before refreshing.",
-    "retryCandidateStorage": "Retry saving"
+    "retryCandidateStorage": "Retry saving",
+    "assetDragHint": "Click an asset to add it, or drag it onto the canvas.",
+    "assetNoImage": "This asset has no reference image. Generation will use its name and description, so appearance may vary.",
+    "assetNode": "Asset",
+    "saveAsAsset": "Save as asset"
   },
   "pixelEdit": {
     "title": "Edit image",
