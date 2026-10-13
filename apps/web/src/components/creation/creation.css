@@ -10,8 +10,9 @@
 :where(.creation-reference) > button:first-child { padding: 0; width: 100%; height: 100%; overflow: hidden; border-radius: 12px; }
 :where(.creation-reference) img { width: 100%; height: 100%; object-fit: cover; }
 :where(.creation-reference) span { position: absolute; bottom: 4px; left: 5px; @apply text-label-sm; padding: 0 5px; background: hsl(var(--scrim) / .7); color: hsl(var(--on-media)); border-radius: 5px; }
-/* 缩略图角标，和左下序号同一档。压过按钮默认尺寸，也压过侧栏 44px 触控下限。 */
-.creation-composer .creation-reference-remove {
+/* 缩略图角标，和左下序号同一档。压过按钮默认尺寸，也压过侧栏 44px 触控下限。
+   悬浮参考图经 Popover 挂到 body，不在 .creation-composer 里，所以两条都要写。 */
+:is(.creation-composer, .creation-reference-hover) .creation-reference-remove {
   position: absolute; top: 4px; right: 4px; z-index: 30;
   display: grid; place-items: center;
   width: 16px; height: 16px; min-width: 16px; min-height: 16px; padding: 0;
@@ -19,9 +20,9 @@
   background: hsl(var(--scrim) / .72); color: hsl(var(--on-media));
   box-shadow: none;
 }
-.creation-composer .creation-reference-remove:hover { background: hsl(var(--scrim) / .88); color: hsl(var(--on-media)); }
-.creation-composer .creation-reference-remove::before { content: ""; position: absolute; inset: -10px; }
-.creation-composer .creation-reference-remove > svg { width: 10px; height: 10px; }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-remove:hover { background: hsl(var(--scrim) / .88); color: hsl(var(--on-media)); }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-remove::before { content: ""; position: absolute; inset: -10px; }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-remove > svg { width: 10px; height: 10px; }
 .creation-prompt { flex: 1; min-width: 0; min-height: 72px; padding: 1px 0 0; @apply text-base; line-height: 1.75; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 330px; overflow-y: auto; }
 .creation-prompt:empty::before { content: attr(data-placeholder); display: block; max-width: 64ch; pointer-events: none; color: hsl(var(--muted-foreground) / .85); }
 .creation-mention { display: inline-flex; align-items: center; gap: 5px; background: hsl(var(--muted)); border-radius: 7px; padding: 1px 5px; @apply text-body-sm; vertical-align: middle; }
@@ -165,13 +166,18 @@
 @container creation-composer (max-width: 520px) {
  .creation-body .creation-editor { width: 100%; }
  .creation-body .creation-prompt { min-height: 72px; @apply text-sm; }
- /* 模式、模型、参数、发送保持一行；模型名先截断，空间再紧才截模式文案。 */
- .creation-toolbar[data-has-mode] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 32px; gap: 6px; }
+ /* 有模式：模式 · 模型 · 参数 · 发送。无模式：模型/参数 · 发送。模型名先截断，参数摘要有上限。 */
+ .creation-toolbar[data-has-mode=true] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 32px; gap: 6px; }
+ .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 32px; gap: 6px; }
  .creation-toolbar-mode { grid-column: 1; grid-row: 1; min-width: 0; }
- .creation-toolbar-action { grid-column: 3; grid-row: 1; }
- .creation-live-controls { grid-column: 2; grid-row: 1; width: auto; min-width: 0; gap: 6px; }
- .creation-live-controls > button[role=combobox] { flex: 1 1 0; min-width: 0; max-width: none; }
- .creation-live-controls > button[aria-haspopup=dialog] { flex: 0 0 auto; min-width: 0; max-width: none; }
+ .creation-toolbar[data-has-mode=true] .creation-toolbar-action { grid-column: 3; grid-row: 1; }
+ .creation-toolbar[data-has-mode=false] .creation-toolbar-action { grid-column: 2; grid-row: 1; }
+ .creation-toolbar[data-has-mode=true] .creation-live-controls { grid-column: 2; grid-row: 1; }
+ .creation-live-controls { width: auto; min-width: 0; gap: 6px; }
+ /* 模型按钮也是 dialog 弹出层，参数规则必须排除它，否则后写的宽度会盖掉模型。 */
+ .creation-live-controls > button[aria-haspopup=dialog]:not([role=combobox]) { flex: 0 1 auto; min-width: 0; max-width: 60%; }
+ .creation-live-controls > button[aria-haspopup=dialog]:not([role=combobox]) > .truncate { min-width: 0; }
+ .creation-live-controls > button[role=combobox] { flex: 1 1 0; min-width: 4rem; max-width: none; }
  .creation-toolbar .creation-mode-trigger { width: auto; max-width: 100%; min-width: 0; height: 32px; border-radius: 8px; padding-inline: 8px; @apply text-label-sm; }
  .creation-toolbar .creation-mode-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
  .creation-toolbar .creation-send { width: 32px; height: 32px; border-radius: 8px; }
@@ -182,12 +188,13 @@
 
 /* Touch targets follow the same rule in home and canvas, without sidebar overrides. */
 @media (pointer: coarse) {
- .creation-toolbar[data-has-mode] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 44px; }
+ .creation-toolbar[data-has-mode=true] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 44px; }
  .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 44px; }
  .creation-composer .creation-toolbar button { min-height: 44px; }
  .creation-composer .creation-toolbar .creation-send { width: 44px; height: 44px; }
  @container creation-composer (max-width: 520px) {
-  .creation-toolbar[data-has-mode] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 44px; gap: 6px; }
+  .creation-toolbar[data-has-mode=true] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 44px; gap: 6px; }
+  .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; }
  }
 }
 
