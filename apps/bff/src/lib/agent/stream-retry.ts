@@ -5,7 +5,7 @@ import { log } from '../logger'
 /** 只重试明确的过载拒绝；断流、超时与已有输出都不能证明可以安全重发。 */
 export function retryOverloadedStream(
   stream: StreamFn,
-  isOverloadRejected: () => boolean,
+  isOverloadRejected: (message: AssistantMessage) => boolean,
   onRetry?: (message: AssistantMessage) => Promise<void>,
   backoffMs = 1000,
 ): StreamFn {
@@ -30,8 +30,7 @@ export function retryOverloadedStream(
               event.reason === 'error' &&
               !emitted &&
               event.error.content.length === 0 &&
-              isOverloadRejected() &&
-              /\b(overloaded|server_overloaded)\b/i.test(event.error.errorMessage ?? '') &&
+              isOverloadRejected(event.error) &&
               !options?.signal?.aborted &&
               attempt < 2
             ) {
