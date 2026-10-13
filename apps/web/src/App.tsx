@@ -30,6 +30,7 @@ import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
+import { dragTargetIsImage } from './lib/dragTarget'
 import { startSyncEngine } from './lib/sync/engine'
 import {
   buildSettingsFromUrlParams,
@@ -87,9 +88,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
-      if ((e.target as HTMLElement | null)?.closest('img')) {
-        e.preventDefault()
-      }
+      if (dragTargetIsImage(e.target)) e.preventDefault()
     }
 
     // 松手落在落点外时浏览器会直接打开这张图，把整个工作台顶掉。
