@@ -40,6 +40,7 @@
   },
   "suggestions": {
     "aria": "Example prompts",
+    "followUpsAria": "Next messages",
     "draftKeptToast": "The input already has text; clear it to use an example",
     "inspirationTitle": "Inspiration",
     "shuffle": "Shuffle",

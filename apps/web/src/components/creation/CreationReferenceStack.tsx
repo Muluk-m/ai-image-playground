@@ -79,29 +79,32 @@ export function CreationReferenceStack({
       <div className="creation-reference-heading">
         <span>{t('studio.references', { count })}</span>
         <div className="flex items-center gap-2">
+          {onClear && (
+            <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={onClear}>
+              {t('studio.clearReferences')}
+            </Button>
+          )}
+          {/* 悬停层移开指针就会收起，不放收起按钮。查看全部放在最右；钉住之后同一位置换成收起。 */}
           {!expanded && count > 1 && (
             <Button type="button" variant="ghost" size="xs" onClick={expand}>
               <Icon name="fit" />
               {t('studio.viewAllReferences')}
             </Button>
           )}
-          {onClear && (
-            <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={onClear}>
-              {t('studio.clearReferences')}
-            </Button>
+          {expanded && (
+            <Hint tooltip={t('studio.collapseReferences')}>
+              <Button
+                ref={collapse}
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t('studio.collapseReferences')}
+                onClick={close}
+              >
+                <Icon name="minimize" />
+              </Button>
+            </Hint>
           )}
-          <Hint tooltip={t('studio.collapseReferences')}>
-            <Button
-              ref={collapse}
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label={t('studio.collapseReferences')}
-              onClick={close}
-            >
-              <Icon name="minimize" />
-            </Button>
-          </Hint>
         </div>
       </div>
       {status && (
@@ -182,7 +185,7 @@ export function CreationReferenceStack({
                       </span>
                     )}
                   </Button>
-                  {count > 1 && (
+                  {count > 1 && !hovered && (
                     <Button
                       type="button"
                       variant="secondary"

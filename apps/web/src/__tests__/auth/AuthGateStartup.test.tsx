@@ -10,10 +10,21 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 
+const SESSION_HINT = 'image_playground_signed_in'
+
+function clearSessionHint() {
+  document.cookie = `${SESSION_HINT}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
+}
+
+function markSessionHint() {
+  document.cookie = `${SESSION_HINT}=1; Path=/`
+}
+
 beforeEach(() => {
   vi.resetModules()
   localStorage.clear()
   sessionStorage.clear()
+  clearSessionHint()
   vi.stubGlobal('indexedDB', new IDBFactory())
   vi.stubGlobal(
     'fetch',
@@ -50,6 +61,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.useRealTimers()
+  clearSessionHint()
   await act(async () => root.unmount())
   host.remove()
   vi.doUnmock('../../App')
@@ -111,6 +123,7 @@ function coachDismissed(): string | null | undefined {
 
 describe('authenticated startup coach state', () => {
   it('keeps a returning user’s coach dismissed instead of reading anonymous defaults', async () => {
+    markSessionHint()
     saveCoachState('image-playground', false)
     saveCoachState('image-playground:user-alice', true)
 
@@ -123,6 +136,7 @@ describe('authenticated startup coach state', () => {
   })
 
   it('does not inherit an anonymous visitor’s dismissal for a user who has not seen the coach', async () => {
+    markSessionHint()
     saveCoachState('image-playground', true)
     saveCoachState('image-playground:user-alice', false)
 
@@ -160,6 +174,7 @@ describe('fallback startup', () => {
 
 describe('connection recovery', () => {
   it('retries a failed channel request and opens the workspace without a click', async () => {
+    markSessionHint()
     let channelsAvailable = false
     const fetchMock = vi.mocked(fetch)
     const original = fetchMock.getMockImplementation()!
@@ -183,6 +198,7 @@ describe('connection recovery', () => {
 })
 
 it('opens an agent-enabled workspace without a migration request', async () => {
+  markSessionHint()
   const fetchMock = vi.mocked(fetch)
   const original = fetchMock.getMockImplementation()!
   fetchMock.mockImplementation(async (...args) => {
@@ -234,6 +250,7 @@ describe('anonymous startup', () => {
     await bootAnonymously()
 
     const calls = vi.mocked(fetch).mock.calls
+    expect(calls.some(([url]) => String(url).includes('/api/auth/me'))).toBe(false)
     expect(calls.some(([url]) => String(url).includes('/api/channels'))).toBe(true)
     const { scopedStorageName } = await import('../../lib/authScope')
     expect(scopedStorageName('image-playground')).toBe('image-playground')
@@ -276,6 +293,7 @@ describe('anonymous startup', () => {
   })
 
   it('keeps the workspace up and offers a re-login when the session expires', async () => {
+    markSessionHint()
     await boot()
     const { AUTH_SESSION_EXPIRED_EVENT } = await import('../../lib/authClient')
 

@@ -17,6 +17,7 @@ import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import HeaderMembershipChip from './HeaderMembershipChip'
+import LocaleGlobe from './LocaleGlobe'
 import LogoutDialog from './LogoutDialog'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
@@ -25,7 +26,8 @@ export default function Header() {
   const { t } = useTranslation('shell')
   useWorkspaceViewport()
   const setShowSettings = useStore((s) => s.setShowSettings)
-  const workbench = useStore((s) => isWorkbenchMode(s.appMode))
+  const appMode = useStore((s) => s.appMode)
+  const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
@@ -91,9 +93,17 @@ export default function Header() {
   return (
     <>
       {/*
-        没有顶栏：账号这一簇直接浮在右上角，不要底色与描边（暗底上多一层卡面反而像贴纸）；
-        页头（PageHeader）按它测得的宽度让出右侧空位。
+        窄屏有一条毛玻璃顶栏，正文从它下面开始，滚上去时不再透出内容。
+        画布自己有顶上的留白，不再加这条栏。宽屏没有顶栏，账号簇浮在右上角，
+        页头按测得的宽度让出右侧空位。
       */}
+      {appMode !== 'canvas' ? (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-x-0 top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md md:hidden"
+          style={{ height: 'var(--mobile-topbar-height)' }}
+        />
+      ) : null}
       <div
         ref={headerActionsRef}
         data-no-drag-select
@@ -107,6 +117,7 @@ export default function Header() {
         >
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
+          <LocaleGlobe />
           {auth.user ? (
             <PrivateWebHeaderAccountActions
               username={auth.user.username}

@@ -192,7 +192,8 @@
 .auth-benefits > div {
   position: relative;
   min-width: 0;
-  padding: 0 16px;
+  /* 每列要放下「Many ways to create」整行，再窄就会把 create 单独折下去。 */
+  padding: 0 8px;
 }
 
 .auth-benefits > div:first-child {
@@ -239,6 +240,7 @@
   color: hsl(var(--muted-foreground));
   font-size: theme('fontSize.label-sm');
   line-height: 1.55;
+  text-wrap: pretty;
 }
 
 /* 注册视图比登录高：让右栏自己滚，弹框高度不跟着内容变。 */
@@ -656,21 +658,6 @@
   cursor: pointer;
 }
 
-.auth-status-line {
-  width: 110px;
-  height: 2px;
-  overflow: hidden;
-  background: hsl(var(--border));
-}
-
-.auth-status-line span {
-  display: block;
-  width: 45%;
-  height: 100%;
-  background: hsl(var(--primary));
-  animation: auth-loading 1.2s ease-in-out infinite alternate;
-}
-
 .auth-status-screen--problem {
   padding: 20px;
 }
@@ -736,22 +723,14 @@
   }
 }
 
-@keyframes auth-loading {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(225%);
-  }
-}
-
 /* 窄屏放不下两栏：左侧展示位压成一条头图，表单占满弹框。 */
 @media (max-width: 900px) {
   .auth-dialog {
     width: 100%;
-    height: min(640px, calc(100svh - 2rem));
+    height: min(640px, calc(100dvh - 1rem));
+    max-height: calc(100dvh - 1rem);
     grid-template-columns: 1fr;
-    grid-template-rows: 150px auto;
+    grid-template-rows: 112px minmax(0, 1fr);
   }
 
   .auth-showcase {
@@ -825,7 +804,7 @@
 @media (max-width: 480px) {
   .auth-dialog {
     border-radius: 16px;
-    grid-template-rows: 128px auto;
+    grid-template-rows: 96px minmax(0, 1fr);
   }
 
   .auth-panel-content {
@@ -917,8 +896,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-spinner,
-  .auth-status-line span {
+  .auth-spinner {
     animation: none;
   }
 }
@@ -931,7 +909,9 @@
   /* 没有顶栏了：留着这个变量是给还在算偏移的老样式兜底。 */
   --header-height: 0px;
   /* 侧栏在窄屏不占位；宽屏下由入口决定摊开还是收成图标条（见 --app-sidebar-size）。 */
-  --app-sidebar-size: 13rem;
+  --app-sidebar-size: 15rem;
+  /* 窄屏顶栏（账号胶囊那一条）的占位。宽屏没有这条栏，保持 0。 */
+  --mobile-topbar-height: 0px;
   /* 右上角那颗常驻账号胶囊的占位宽度：各页面标题行照它让位，别被盖住。 */
   --app-topbar-reserve: 15rem;
   --app-sidebar-width: 0px;
@@ -944,11 +924,29 @@
   }
 }
 
+@media (max-width: 767px) {
+  :root {
+    --mobile-topbar-height: calc(3.5rem + var(--safe-area-top));
+  }
+
+  .mobile-topbar-offset {
+    padding-top: var(--mobile-topbar-height);
+  }
+}
+
 html {
   overflow-y: scroll;
 }
 
-html.pricing-route {
+.explore-chips {
+  scrollbar-width: none;
+}
+.explore-chips::-webkit-scrollbar {
+  display: none;
+}
+
+html.pricing-route,
+.pricing-surface {
   /* 定价页是独立营销页，颜色和展示字号钉死，不跟工作台主题与字阶走。 */
   --pricing-bg: #070709; /* design-allow css-color: 定价页固定底色 */
   --pricing-fg: #f4f4f5; /* design-allow css-color: 定价页固定前景 */
@@ -1308,10 +1306,13 @@ input[type="number"] {
   min-height: var(--header-height);
 }
 
-@media (max-width: 640px) {
-  input,
-  textarea,
-  select {
+/* 去掉缩放锁之后，输入框至少 16px，避免 iOS 聚焦时自动放大。
+   特异度要压过 Input / SearchField 上的 text-sm。 */
+@media (max-width: 767px) {
+  :is(input, textarea, select),
+  :is(input, textarea, select).text-sm,
+  .auth-field input,
+  .creation-prompt {
     font-size: theme('fontSize.base');
   }
 }

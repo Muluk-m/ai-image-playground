@@ -49,6 +49,13 @@ function exportButton() {
   )!
 }
 describe('image resize editing', () => {
+  it('shows the settings disabled and asks for images before anything is added', async () => {
+    await act(async () => root.render(<ExportForm sources={[]} />))
+    expect(host.querySelector('fieldset')?.hasAttribute('disabled')).toBe(true)
+    expect(host.textContent).toContain('export.addToExport')
+    expect(host.textContent).not.toContain('export.action')
+    expect(host.textContent).not.toContain('export.selected')
+  })
   it('allows clearing the final digit, blocks export while empty and links the next size', async () => {
     await act(async () => root.render(<ExportForm sources={sources} />))
     const width = host.querySelector<HTMLInputElement>('#export-width')!

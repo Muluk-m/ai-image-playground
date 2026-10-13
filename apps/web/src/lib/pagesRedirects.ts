@@ -1,4 +1,10 @@
-import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH, PRICING_PATH } from './appPaths'
+import {
+  APP_MODE_PATHS,
+  LEGACY_PROJECTS_PATH,
+  PRICING_PATH,
+  PRIVACY_PATH,
+  TERMS_PATH,
+} from './appPaths'
 
 /** 项目地址 `/p/<项目>` 的 Pages 写法。 */
 export const PROJECT_ROUTE_PATTERN = '/p/:project'
@@ -20,6 +26,8 @@ export function pagesRedirects(): string {
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
     PRICING_PATH,
+    TERMS_PATH,
+    PRIVACY_PATH,
   ]
   const rules = routes.flatMap((route) => [
     `${route} / 200`,

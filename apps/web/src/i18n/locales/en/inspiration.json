@@ -1,15 +1,17 @@
 {
   "panel": {
-    "searchPlaceholder": "Search title / prompt / tag"
+    "searchPlaceholder": "Search cases"
   },
   "filter": {
     "provider": "Model",
     "all": "All",
-    "imageEdit": "Image edits · Before & after"
+    "imageEdit": "Image edits · Before & after",
+    "imageEditShort": "Before & after"
   },
   "list": {
     "loading": "Loading…",
-    "empty": "No matching inspiration"
+    "empty": "No matching inspiration",
+    "resetFilters": "Reset filters"
   },
   "card": {
     "titleHint": "{{title}}\nSuggested model: {{model}}",

@@ -115,6 +115,7 @@ import {
 } from '../lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
+import { visibleFollowUps } from '../lib/followUps'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
@@ -137,6 +138,7 @@ import {
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
+import AgentFollowUps from './AgentFollowUps'
 import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
 import { useAssetSlots } from './useAssetSlots'
@@ -316,6 +318,16 @@ export default function AgentComposer({
     recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const loading = readingDraft || recoveryBlocked
+  const followUpLines = useAgentStore((state) =>
+    visibleFollowUps({
+      idle: state.turn === 'idle',
+      historyBlocked: state.historyLoading || state.historyFailed,
+      welcome,
+      draft: draft.prompt,
+      messages: state.messages,
+      turns: state.turns,
+    }),
+  )
   const setDraft = session.update
   useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
@@ -1015,6 +1027,7 @@ export default function AgentComposer({
           </Button>
         </div>
       )}
+      {followUpLines.length > 0 && <AgentFollowUps lines={followUpLines} />}
       <CreationFrame className={dragging ? 'ring-2 ring-primary' : ''}>
         {productionMode && (
           <ProductionQuoteChip

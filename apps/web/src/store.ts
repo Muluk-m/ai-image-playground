@@ -23,6 +23,7 @@ import { getProfileModels, updateSelectedModel } from './lib/channels/profileSel
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import { isVideoModeAvailable } from './lib/channels/videoChannels'
+import { markHistoryReady } from './lib/historyReady'
 import type {
   AppSettings,
   ExportData,
@@ -1374,10 +1375,17 @@ async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>>
 
 /** 初始化：从 IndexedDB 加载任务与平台记录缓存，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
-  const storedTasks = await getAllTasks()
-  const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
-  await Promise.all(interruptedTasks.map((task) => putTask(task)))
-  useStore.getState().setTasks(tasks)
+  let tasks: TaskRecord[]
+  try {
+    const storedTasks = await getAllTasks()
+    const marked = markInterruptedOpenAIRunningTasks(storedTasks)
+    tasks = marked.tasks
+    await Promise.all(marked.interruptedTasks.map((task) => putTask(task)))
+    useStore.getState().setTasks(tasks)
+  } finally {
+    // 读盘失败也结束骨架，后面的清理仍不跑。
+    markHistoryReady()
+  }
   // 平台记录的权威在平台，本机只留一份可整体替换的缓存，作品页第一帧靠它有东西可看。
   void loadPlatformGenerations()
   for (const task of tasks) {

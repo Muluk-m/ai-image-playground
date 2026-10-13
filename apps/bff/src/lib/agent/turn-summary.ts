@@ -83,6 +83,7 @@ export async function listAgentTurnSummaries(
       stopReason: schema.agent_turns.stop_reason,
       cost: schema.agent_turns.cost,
       failure: schema.agent_turns.failure,
+      followUps: schema.agent_turns.follow_ups,
       createdAt: schema.agent_turns.created_at,
       // 被打断的轮排过一次中断续跑：页脚标「已中断」而不是「失败」。
       resumed: sql<boolean>`EXISTS (SELECT 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${schema.agent_turns.conversation_id} AND ${inbox.client_message_id} = ${agentResumeKey('')} || ${schema.agent_turns.turn_id})`,
@@ -99,5 +100,15 @@ export async function listAgentTurnSummaries(
       ? { error: 'agent_turn_interrupted' as const }
       : {}),
     ...(row.cost ? { cost: row.cost } : {}),
+    ...storedFollowUps(row.followUps),
   }))
+}
+
+/** 空着或还没生成都不进快照，老的页脚断言也不必认识这一项。 */
+function storedFollowUps(value: unknown): { followUps: readonly string[] } | Record<string, never> {
+  if (!Array.isArray(value)) return {}
+  const followUps = value
+    .filter((line): line is string => typeof line === 'string' && line.trim() !== '')
+    .slice(0, 3)
+  return followUps.length > 0 ? { followUps } : {}
 }

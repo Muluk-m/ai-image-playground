@@ -98,6 +98,7 @@ export default function ExportForm({
     onBusyChange?.(progress !== null)
   }, [progress, onBusyChange])
   const images = sources.filter((one) => one.media === 'image').length
+  const empty = sources.length === 0
   const count = images * settings.rows.length + sources.length - images
   const busy = progress !== null
   const locked = settings.stretch === undefined
@@ -211,19 +212,25 @@ export default function ExportForm({
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">
-              {single ? first?.name : t('export.selected', { count: sources.length })}
+              {empty
+                ? t('export.description')
+                : single
+                  ? first?.name
+                  : t('export.selected', { count: sources.length })}
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-              {loading
-                ? t('export.loading')
-                : dimensions
-                  ? `${dimensions.width} × ${dimensions.height}`
-                  : !single && t(locked ? 'export.batchHint' : 'export.ratioUnlocked')}
-            </p>
+            {!empty && (
+              <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                {loading
+                  ? t('export.loading')
+                  : dimensions
+                    ? `${dimensions.width} × ${dimensions.height}`
+                    : !single && t(locked ? 'export.batchHint' : 'export.ratioUnlocked')}
+              </p>
+            )}
           </div>
         </div>
-        {images > 0 && (
-          <fieldset disabled={busy} className="space-y-6">
+        {(empty || images > 0) && (
+          <fieldset disabled={busy || empty} className={cn('space-y-6', empty && 'opacity-60')}>
             <Section
               title={t('export.size')}
               action={
@@ -451,23 +458,29 @@ export default function ExportForm({
         )}
       </div>
       <footer className="space-y-2 border-t border-border px-5 py-4">
-        <Button
-          className="h-10 w-full rounded-lg"
-          disabled={!sources.length || invalid || loading || busy}
-          onClick={() => void run()}
-        >
-          {busy ? (
-            <>
-              <Icon name="loading" className="animate-spin" />
-              {t('export.progress', { done: progress, total: sources.length })}
-            </>
-          ) : (
-            <>
-              <Icon name="download" />
-              {t('export.action', { count })}
-            </>
-          )}
-        </Button>
+        {empty ? (
+          <p className="py-2 text-center text-sm text-muted-foreground">
+            {t('export.addToExport')}
+          </p>
+        ) : (
+          <Button
+            className="h-10 w-full rounded-lg"
+            disabled={!sources.length || invalid || loading || busy}
+            onClick={() => void run()}
+          >
+            {busy ? (
+              <>
+                <Icon name="loading" className="animate-spin" />
+                {t('export.progress', { done: progress, total: sources.length })}
+              </>
+            ) : (
+              <>
+                <Icon name="download" />
+                {t('export.action', { count })}
+              </>
+            )}
+          </Button>
+        )}
         {count > 1 && (
           <p className="text-center text-xs text-muted-foreground">{t('export.zipHint')}</p>
         )}

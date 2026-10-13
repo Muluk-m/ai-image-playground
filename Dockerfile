@@ -54,6 +54,9 @@ ARG PRIVATE_OVERLAY_PRESENT=false
 RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
 ENV PRIVATE_WEB_OVERLAY_ENTRY=/app/private/apps/web/index.tsx
 RUN pnpm install --offline --frozen-lockfile
+# Product release baked into Settings. Empty falls back to the root package.json version.
+ARG APP_RELEASE=
+ENV APP_RELEASE=$APP_RELEASE
 RUN pnpm --filter @image-playground/web build
 
 FROM deps AS admin-build
@@ -116,6 +119,8 @@ ENV ADMIN_DIST_DIR=/app/apps/admin/dist
 # after it is worth caching.
 ARG APP_VERSION=unknown
 ENV APP_VERSION=$APP_VERSION
+ARG APP_RELEASE=unknown
+ENV APP_RELEASE=$APP_RELEASE
 
 EXPOSE 8080 37377 37378 37379
 
