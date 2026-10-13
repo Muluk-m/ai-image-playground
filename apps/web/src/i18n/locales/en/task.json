@@ -81,9 +81,7 @@
     "imageCopied": "Image copied",
     "addReferenceFailed": "Could not add the reference image: {{reason}}",
     "saveAsAsset": "Save as asset",
-    "saveAsAssetFailed": "Could not save as asset: {{reason}}",
-    "makeVideo": "Make video",
-    "makeVideoFailed": "Could not create the video: {{reason}}"
+    "saveAsAssetFailed": "Could not save as asset: {{reason}}"
   },
   "lightbox": {
     "saveFailed": "Save failed",

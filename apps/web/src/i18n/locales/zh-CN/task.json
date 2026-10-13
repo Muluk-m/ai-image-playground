@@ -81,9 +81,7 @@
     "imageCopied": "图片已复制",
     "addReferenceFailed": "加入参考图失败：{{reason}}",
     "saveAsAsset": "存为素材",
-    "saveAsAssetFailed": "存为素材失败：{{reason}}",
-    "makeVideo": "做成视频",
-    "makeVideoFailed": "做成视频失败：{{reason}}"
+    "saveAsAssetFailed": "存为素材失败：{{reason}}"
   },
   "lightbox": {
     "saveFailed": "保存失败",
