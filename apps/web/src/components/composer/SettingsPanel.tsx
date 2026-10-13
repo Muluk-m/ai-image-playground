@@ -27,7 +27,7 @@ export function composerChipClass(size: ComposerControlSize = 'md') {
 export function composerModelChipClass(size: ComposerControlSize = 'md') {
   return cn(
     composerChipClass(size),
-    'shrink',
+    'creation-model-trigger shrink',
     size === 'md' ? 'min-w-[11.5rem] max-w-[14rem] pr-8' : 'max-w-[11rem] pr-7',
   )
 }

@@ -995,48 +995,47 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     }
 
     return (
-      <Hint
+      <div
         key={img.id}
-        sideOffset={16}
-        disableHoverableContent
-        tooltip={
-          imageHintText || (
-            <img
-              src={displaySrc}
-              alt={mentionLabels(idx) ?? ''}
-              className="creation-reference-preview-image"
-            />
-          )
-        }
-        className={imageHintText ? undefined : 'creation-reference-preview'}
-        open={imageHintText ? imageHintId === img.id && (!isMobile || isMaskTarget) : undefined}
+        data-input-image-index={idx}
+        className={`relative group inline-block h-[72px] w-[72px] shrink-0 self-start transition-opacity ${isImageDragging ? 'opacity-40' : ''}`}
+        style={{ touchAction: isMaskTarget ? 'auto' : 'none' }}
+        draggable={!isMobile}
+        onMouseLeave={hideImageHint}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onDragEnd={resetImageDrag}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setThumbMenu({ index: idx, imageId: img.id, x: e.clientX, y: e.clientY })
+        }}
       >
-        <div
-          key={img.id}
-          data-input-image-index={idx}
-          className={`relative group inline-block h-[72px] w-[72px] shrink-0 self-start transition-opacity ${isImageDragging ? 'opacity-40' : ''}`}
-          style={{ touchAction: isMaskTarget ? 'auto' : 'none' }}
-          draggable={!isMobile}
-          onMouseLeave={hideImageHint}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onDragEnd={resetImageDrag}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchCancel}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            setThumbMenu({ index: idx, imageId: img.id, x: e.clientX, y: e.clientY })
-          }}
+        {showDropBefore && (
+          <div className="absolute -left-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
+        )}
+        {showDropAfter && (
+          <div className="absolute -right-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
+        )}
+        <Hint
+          sideOffset={16}
+          disableHoverableContent
+          tooltip={
+            imageHintText || (
+              <img
+                src={displaySrc}
+                alt={mentionLabels(idx) ?? ''}
+                className="creation-reference-preview-image"
+              />
+            )
+          }
+          className={imageHintText ? undefined : 'creation-reference-preview'}
+          open={imageHintText ? imageHintId === img.id && (!isMobile || isMaskTarget) : undefined}
         >
-          {showDropBefore && (
-            <div className="absolute -left-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
-          )}
-          {showDropAfter && (
-            <div className="absolute -right-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
-          )}
           <div
             className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
               isMaskTarget ? 'border-2 border-primary' : 'border border-border'
@@ -1066,7 +1065,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             }}
           >
             {displaySrc && (
-              <div className="h-full w-full overflow-hidden rounded-xl">
+              <div className="h-full w-full overflow-hidden">
                 <img
                   src={displaySrc}
                   className="w-full h-full object-cover hover:opacity-90 transition-opacity pointer-events-none"
@@ -1084,24 +1083,38 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
               {idx + 1}
             </span>
-            {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
-              images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
-            {canEdit && supportsMask && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="absolute inset-0 z-20 h-full w-full rounded-xl bg-black/40 p-0 opacity-0 transition-opacity hover:bg-black/40 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setMaskEditorImageId(img.id)
-                }}
-                title={isMaskTarget ? t('mask.title') : t('image.addMask')}
-                aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
-              >
-                <Icon name="brush" size="md" className="text-white" />
-              </Button>
-            )}
           </div>
+        </Hint>
+        {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
+              images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
+        {canEdit && supportsMask && (
+          <Hint
+            tooltip={isMaskTarget ? t('mask.title') : t('image.addMask')}
+            side="bottom"
+            disableHoverableContent
+            className="creation-reference-action-hint"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              className="creation-reference-mask absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 opacity-0 transition-opacity hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation()
+                setMaskEditorImageId(img.id)
+              }}
+              title={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
+            >
+              <Icon name="brush" size="xs" className="text-white" />
+            </Button>
+          </Hint>
+        )}
+        <Hint
+          tooltip={t('common:action.remove')}
+          side="right"
+          disableHoverableContent
+          className="creation-reference-action-hint"
+        >
           <Button
             type="button"
             variant="ghost"
@@ -1114,8 +1127,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           >
             <Icon name="close" size="xs" />
           </Button>
-        </div>
-      </Hint>
+        </Hint>
+      </div>
     )
   }
 
@@ -1364,9 +1377,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               />
             }
             action={
-              <Hint tooltip={submitBlockedTip}>
+              <Hint tooltip={submitBlockedTip || submitTitle || submitLabel}>
                 <span className="inline-flex">
                   <CreationSend
+                    autoTooltip={false}
                     streaming={lookSubmitting}
                     onClick={onSubmitClick}
                     disabled={submitDisabled}

@@ -1,9 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../features/library/store'
 import { describeError, useTranslation } from '../i18n'
-import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { editImageInComposer, ensureImageCached, storeImageFromUrl, useStore } from '../store'
 import ContextMenu, { ContextMenuItem } from './patterns/ContextMenu'
@@ -173,16 +171,6 @@ export default function ImageContextMenu() {
           startNamingAsset,
         )}
       />
-      {isVideoModeAvailable() && (
-        <ContextMenuItem
-          icon={<Icon name="video" />}
-          label={t('menu.makeVideo')}
-          onClick={withStoredImage(
-            (reason) => t('menu.makeVideoFailed', { reason }),
-            startVideoFromImage,
-          )}
-        />
-      )}
     </ContextMenu>
   )
 }
