@@ -142,6 +142,7 @@
     "done_other": "已导出 {{count}} 个文件",
     "progress": "正在导出 {{done}} / {{total}}",
     "action_other": "导出 {{count}} 个文件",
+    "addToExport": "添加图片后再导出",
     "zipHint": "多个文件会打包成 ZIP 下载",
     "jpegHint": "JPG 不支持透明，透明区域会填充为白色",
     "videoHint": "视频按原文件导出，尺寸和格式只对图片生效",

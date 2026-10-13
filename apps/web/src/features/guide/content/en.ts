@@ -39,8 +39,9 @@ export const guideEn: GuideContent = {
   },
   home: {
     image: img('home'),
+    portrait: img('home-portrait'),
     imageAlt:
-      'The Muvloom Create page: sidebar navigation, the prompt box with parameters, and inspiration and works below',
+      'The Muvloom Create page: Smart creation, Quick generate and Canvas, with the Image 2.5 Flare model',
   },
   chapters: [
     {
@@ -64,22 +65,22 @@ export const guideEn: GuideContent = {
               'Muvloom home page: sidebar navigation, the prompt box in the center, inspiration and works below',
               'The Create page',
               [
-                { x: 2, y: 7.1 },
-                { x: 48.9, y: 19.8 },
-                { x: 27.4, y: 28.1 },
-                { x: 40, y: 35.8 },
-                { x: 50.8, y: 34.5 },
-                { x: 78.6, y: 34.1 },
-                { x: 23.6, y: 47.9 },
-                { x: 18.5, y: 68.4 },
-                { x: 93.9, y: 2.8 },
+                { x: 8, y: 10.5 },
+                { x: 48, y: 26.2 },
+                { x: 36, y: 33.5 },
+                { x: 36, y: 43.2 },
+                { x: 52, y: 43.2 },
+                { x: 74, y: 43.2 },
+                { x: 36, y: 53 },
+                { x: 32, y: 70 },
+                { x: 97.5, y: 3.8 },
               ],
             ),
             steps(
               '**Sidebar**: the [[Create]], [[Explore]] and [[Assets]] entry points, followed by your recent canvas projects. On mobile these move to a bottom tab bar.',
-              '**Mode**: [[Generate]] produces images directly; [[Canvas]] opens a new canvas project and passes your request to the AI agent.',
+              '**Mode**: [[Smart creation]] hands the sentence to the agent; [[Quick generate]] produces images directly; [[Canvas]] opens a new canvas project.',
               '**Prompt box**: enter your prompt here. Use `@` to reference images and `{slot}` for batch generation.',
-              '**Model**: the model used for generation.',
+              '**Model**: choose the model used for generation, for example [[Image 2.5 Flare]].',
               '**Parameters**: [[Ratio]] (or [[Size]]) and [[Count]]; further options are under [[More]].',
               '**Generate**: submits the job. Shortcut: {{Enter}}.',
               '**Inspiration**: example prompts; click one to load its prompt and settings.',
@@ -93,7 +94,7 @@ export const guideEn: GuideContent = {
           title: 'Generate your first image',
           blocks: [
             p(
-              'On the home page, make sure [[Generate]] is selected above the prompt box, then describe the image, for example:',
+              'On the home page, make sure [[Quick generate]] is selected above the prompt box, then describe the image, for example:',
             ),
             prompt(
               'Example prompt',

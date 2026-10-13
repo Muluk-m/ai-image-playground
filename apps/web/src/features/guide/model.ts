@@ -87,7 +87,7 @@ export interface GuideContent {
     otherLanguage: string
     updated: string
   }
-  home: { image: string; imageAlt: string }
+  home: { image: string; imageAlt: string; portrait?: string }
   chapters: GuideChapter[]
   faq: { id: string; title: string; items: GuideFaq[] }
 }

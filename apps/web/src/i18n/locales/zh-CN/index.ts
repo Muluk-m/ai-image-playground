@@ -5,6 +5,7 @@ import common from './common.json'
 import composer from './composer.json'
 import errors from './errors.json'
 import inspiration from './inspiration.json'
+import legal from './legal.json'
 import lib from './lib.json'
 import library from './library.json'
 import pricing from './pricing.json'
@@ -37,6 +38,7 @@ export const zhCN = {
   canvas,
   agent,
   inspiration,
+  legal,
   toolbox,
 }
 

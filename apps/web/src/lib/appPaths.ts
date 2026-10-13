@@ -14,12 +14,30 @@ export const LEGACY_PROJECTS_PATH = '/projects'
 /** 定价页。它不是工作台入口，侧栏不收它。 */
 export const PRICING_PATH = '/pricing'
 
+/** 服务条款与隐私政策。同样不是工作台入口。 */
+export const TERMS_PATH = '/terms'
+export const PRIVACY_PATH = '/privacy'
+
 export function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, '') || '/'
 }
 
 export function isPricingPath(pathname: string): boolean {
   return normalizePath(pathname) === PRICING_PATH
+}
+
+export function isTermsPath(pathname: string): boolean {
+  return normalizePath(pathname) === TERMS_PATH
+}
+
+export function isPrivacyPath(pathname: string): boolean {
+  return normalizePath(pathname) === PRIVACY_PATH
+}
+
+/** 整页文档：切工作台入口时不能把地址改掉。 */
+export function isStandalonePath(pathname: string): boolean {
+  const path = normalizePath(pathname)
+  return path === PRICING_PATH || path === TERMS_PATH || path === PRIVACY_PATH
 }
 
 /** 地址属于某个入口时返回它；其余（项目地址、`/`、定价页、未知路径）返回 null。 */

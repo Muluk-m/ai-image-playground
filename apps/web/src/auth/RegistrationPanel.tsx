@@ -11,6 +11,7 @@ import { Icon } from '../components/ui/icon'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { useTranslation } from '../i18n'
+import AuthConsent from './AuthConsent'
 
 type ValidationErrorKey =
   | 'validation.invalidEmail'
@@ -317,7 +318,7 @@ export function RegistrationPanel({
           </Button>
         </p>
       )}
-      <p className="auth-terms">{t('registration.terms')}</p>
+      <AuthConsent kind="registration" />
     </div>
   )
 }
