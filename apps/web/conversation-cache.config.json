@@ -1,3 +1,4 @@
 {
-  "maxBytes": 104857600
+  "maxBytes": 104857600,
+  "prefetch": { "idleMs": 3000, "retryMs": 30000, "maxAttempts": 2 }
 }

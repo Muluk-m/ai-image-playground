@@ -420,3 +420,59 @@ it('subtracts removed and logged-out records from the byte counter', async () =>
   expect(total).toBe(metadata.reduce((sum, record) => sum + record.bytes, 0))
   db.close()
 })
+
+it('prefetches missing history without changing foreground LRU recency or overwriting it', async () => {
+  await resetPrefetchDatabase()
+  const signal = new AbortController().signal
+  const cold = conversationCache('cold')
+  expect(await cold.prefetchStatus()).toBe('missing')
+  expect(await cold.prefetch(panel, signal)).toBe('stored')
+  expect(await cold.prefetchStatus()).toBe('present')
+  await cold.write(sizedPanel(10))
+  expect(await cold.prefetch(panel, signal)).toBe('skipped')
+  expect((await cold.read())?.messages).toEqual(sizedPanel(10).messages)
+})
+it('prefetch never evicts cached history when its byte budget is full', async () => {
+  await resetPrefetchDatabase()
+  const signal = new AbortController().signal
+  await conversationCache('visited').write(sizedPanel(15000))
+  expect(await conversationCache('background').prefetch(sizedPanel(10000), signal)).toBe('full')
+  expect(await conversationCache('visited').read()).not.toBeNull()
+  expect(await conversationCache('background').read()).toBeNull()
+})
+it('prefetch respects cancellation and account changes even after a request has finished', async () => {
+  const controller = new AbortController()
+  const owner = conversationCache('aborted')
+  controller.abort()
+  expect(await owner.prefetch(panel, controller.signal)).toBe('skipped')
+  setClientStorageScope('another-prefetch-account')
+  expect(await owner.prefetchStatus()).toBe('unavailable')
+  expect(await owner.prefetch(panel, new AbortController().signal)).toBe('skipped')
+})
+it('concurrent foreground writes take precedence over background filling the same history', async () => {
+  const owner = conversationCache('race-prefetch')
+  await Promise.all([
+    owner.prefetch(panel, new AbortController().signal),
+    owner.write(sizedPanel(20)),
+  ])
+  expect((await owner.read())?.messages).toEqual(sizedPanel(20).messages)
+})
+it('prefetched histories are evicted before visited histories under foreground pressure', async () => {
+  await resetPrefetchDatabase()
+  const signal = new AbortController().signal
+  await conversationCache('visited').write(sizedPanel(7000))
+  await conversationCache('cold').prefetch(sizedPanel(7000), signal)
+  await conversationCache('new-visited').write(sizedPanel(10000))
+  expect(await conversationCache('cold').read()).toBeNull()
+  expect(await conversationCache('visited').read()).not.toBeNull()
+})
+
+async function resetPrefetchDatabase() {
+  const db = await cacheDatabase()
+  const tx = db.transaction(['conversations', 'metadata', 'usage'], 'readwrite')
+  for (const name of ['conversations', 'metadata', 'usage']) tx.objectStore(name).clear()
+  await new Promise<void>((resolve) => {
+    tx.oncomplete = () => resolve()
+  })
+  db.close()
+}
