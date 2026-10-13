@@ -120,7 +120,7 @@ export default function TaskBulkActions() {
             size="icon-sm"
             type="button"
             onClick={handleToggleFavorite}
-            className="text-warning transition-colors"
+            className="text-primary transition-colors"
             aria-label={t('bulk.toggleFavorite')}
           >
             <Icon name="favorite" />
@@ -133,7 +133,7 @@ export default function TaskBulkActions() {
             size="icon-sm"
             type="button"
             onClick={handleExportSelected}
-            className="text-success transition-colors"
+            className="text-foreground transition-colors"
             aria-label={t('bulk.export')}
           >
             <Icon name="download" />

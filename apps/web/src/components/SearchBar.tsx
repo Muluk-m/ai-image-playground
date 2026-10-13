@@ -28,7 +28,7 @@ export default function SearchBar({ compact = false }: { compact?: boolean } = {
           onClick={() => setFilterFavorite(!filterFavorite)}
           className={`shrink-0 ${
             filterFavorite
-              ? 'border-warning bg-warning/10 dark:bg-warning/10 text-warning'
+              ? 'border-primary bg-accent text-primary'
               : 'border-border bg-card text-muted-foreground hover:bg-card'
           }`}
           title={filterFavorite ? t('search.favoriteOnlyOff') : t('search.favoriteOnly')}
