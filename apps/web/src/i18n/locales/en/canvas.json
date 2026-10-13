@@ -637,5 +637,32 @@
     "overflow": "More than {{max}} shots. Remove extras before finalizing.",
     "count_one": "{{count}} shot",
     "batch_one": "This batch has {{count}} shot and {{count}} first-frame image."
+  },
+  "nodeBatch": {
+    "title": "Run selected nodes",
+    "summary_one": "Run {{count}} generation node in dependency order.",
+    "summary_other": "Run {{count}} generation nodes in dependency order.",
+    "confirm": "Confirm and run",
+    "run": "Run selection",
+    "stop": "Stop remaining jobs",
+    "close": "Close",
+    "refresh": "Refresh estimate",
+    "empty": "No generation nodes are selected.",
+    "cycle": "The references form a cycle. Adjust the connections first.",
+    "busy": "A selected node is generating or uploading. Wait for it to finish.",
+    "prompt": "Add a prompt to each generation node first.",
+    "media": "Some references are unavailable. Restore them or include their generation nodes.",
+    "model": "A video model is unavailable. Select another model.",
+    "changed": "Inputs, settings, or pricing changed. Review the batch again.",
+    "failed": "The batch stopped. Check the failed node; completed results are kept.",
+    "cancelled": "Remaining jobs stopped. Submitted jobs will finish.",
+    "limit": "Some nodes exceed the model reference limit. Adjust their references first.",
+    "images": " images",
+    "seconds": " seconds",
+    "finished": "Done",
+    "running": "Generating",
+    "progress": "Completed {{done}} / {{total}}. Closing stops remaining jobs; submitted jobs will finish.",
+    "done": "All selected jobs finished.",
+    "balance": "The available balance cannot cover this entire batch. Refresh your balance before confirming."
   }
 }
