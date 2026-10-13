@@ -7,6 +7,8 @@ import {
   readCanvasDocument,
   readCanvasGroups,
   reconcileLegacyElements,
+  renderScriptDocument,
+  scriptBriefById,
 } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
@@ -64,6 +66,26 @@ describe('node canvas editing transactions', () => {
     expect(nodes.find((n) => n.id === parentId)).toEqual(parent)
     canvas.undo.undo()
     expect(readCanvasDocument(canvas.doc).nodes.map((n) => n.id)).not.toContain(branchId)
+  })
+  it('writes a popular brief into one undoable text node', () => {
+    const canvas = setup()
+    const brief = scriptBriefById('sprout-window')!
+    const id = createNode(canvas, 'text', { x: 40, y: 40 }, '#fff', undefined, {
+      name: brief.title,
+      text: renderScriptDocument(brief),
+    })
+    const node = readCanvasDocument(canvas.doc).nodes.find((one) => one.id === id)
+    expect(node?.type).toBe('text')
+    if (node?.type === 'text') {
+      expect(node.data.name).toBe('窗台萌芽')
+      expect(node.data.text).toContain('## 大纲')
+      expect(node.data.text).toContain('## 人物表')
+      expect(node.data.text).toContain('林夏')
+      expect(node.data.text).toContain('## 第 1 集')
+      expect(node.data.text).toContain('第一片新叶')
+    }
+    canvas.undo.undo()
+    expect(readCanvasDocument(canvas.doc).nodes).toEqual([])
   })
   it('undoes creation and inline editing without a second editor history', () => {
     const canvas = setup()

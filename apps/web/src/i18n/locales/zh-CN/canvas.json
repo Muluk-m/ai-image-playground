@@ -661,5 +661,28 @@
     "promptTooLong": "镜头内容过长，请精简画面描述、镜头或台词后再生成。",
     "splitFailed": "宫格切分失败，原始结果已保留，重新打开项目可重试。",
     "prepareFailed": "镜头准备失败，请检查分镜内容后重试。"
+  },
+  "scriptBrief": {
+    "open": "剧本设定",
+    "title": "剧本设定",
+    "hint": "选一个热门设定，或把某项留成自动。确认后只写入文本节点，不生成图片。",
+    "name": "标题",
+    "auto": "自动",
+    "genre": "题材",
+    "audience": "目标受众",
+    "era": "时代背景",
+    "hook": "核心看点",
+    "style": "画风",
+    "structure": "结构",
+    "episodes": "集数",
+    "outline": "大纲",
+    "characters": "人物表",
+    "person": "人物",
+    "location": "地点",
+    "prop": "道具",
+    "description": "描述",
+    "episode1": "第 1 集",
+    "confirm": "生成文本节点",
+    "cancel": "取消"
   }
 }

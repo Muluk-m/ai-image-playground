@@ -550,3 +550,29 @@ it('picks compatible references from the canvas without changing the target sele
   act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   expect(host.querySelector('.studio-node-pick-banner')).toBeNull()
 })
+
+it('places a popular script brief from the blank canvas menu', async () => {
+  await render()
+  const surface = host.querySelector('.react-flow')!
+  await act(async () =>
+    surface.dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, clientX: 240, clientY: 180 }),
+    ),
+  )
+  const clickText = (text: string) =>
+    [...document.querySelectorAll('button')].find((button) => button.textContent?.includes(text))!
+  await act(async () => clickText('剧本设定').click())
+  expect(document.querySelector('[role=dialog]')?.textContent).toContain('题材')
+  await act(async () => clickText('山海学徒').click())
+  await act(async () => clickText('生成文本节点').click())
+  const script = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
+  expect(script?.type).toBe('text')
+  if (script?.type === 'text') {
+    expect(script.data.name).toBe('山海学徒')
+    expect(script.data.text).toContain('## 大纲')
+    expect(script.data.text).toContain('## 人物表')
+    expect(script.data.text).toContain('阿禾')
+    expect(script.data.text).toContain('## 第 1 集')
+  }
+  expect(document.querySelector('[role=dialog]')).toBeNull()
+})

@@ -682,5 +682,28 @@
     "promptTooLong": "A shot is too long. Shorten its description, camera direction or dialogue before generating.",
     "splitFailed": "Could not split this contact sheet. Your original result is kept; reopen the project to retry.",
     "prepareFailed": "Could not prepare these shots. Review the storyboard and try again."
+  },
+  "scriptBrief": {
+    "open": "Script brief",
+    "title": "Script brief",
+    "hint": "Pick a popular brief, or leave a field on automatic. Confirm writes a text node only.",
+    "name": "Title",
+    "auto": "Automatic",
+    "genre": "Genre",
+    "audience": "Audience",
+    "era": "Era",
+    "hook": "Hook",
+    "style": "Look",
+    "structure": "Structure",
+    "episodes": "Episodes",
+    "outline": "Outline",
+    "characters": "Characters",
+    "person": "Character",
+    "location": "Location",
+    "prop": "Prop",
+    "description": "description",
+    "episode1": "Episode 1",
+    "confirm": "Create text node",
+    "cancel": "Cancel"
   }
 }
