@@ -26,6 +26,7 @@ import type { PublicChannel } from '../../lib/channels/types'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { getAllImageIds, putImage } from '../../lib/db'
 import { getContentEditablePlainText, setContentEditableCursor } from '../../lib/promptEditorDom'
+import * as storeModule from '../../store'
 import { useStore } from '../../store'
 
 declare global {
@@ -57,6 +58,28 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+it('does not reattach a pending import after an inspiration clears references', async () => {
+  remount('canvas')
+  let finish!: (value: Awaited<ReturnType<typeof storeModule.storeImageFromFile>>) => void
+  vi.spyOn(storeModule, 'storeImageFromFile').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [new File(['image'], 'old.png', { type: 'image/png' })],
+  })
+  act(() => input.dispatchEvent(new Event('change', { bubbles: true })))
+  act(() => fillAgentComposer({ text: 'New inspiration', replace: true, clearReferences: true }))
+  await act(async () => finish({ id: 'old', dataUrl: 'data:image/png;base64,old' }))
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().prompt).toBe('New inspiration')
 })
 
 /** 生成设置 chip：aria-label 是「生成设置: 摘要」。 */

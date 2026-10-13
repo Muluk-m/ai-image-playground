@@ -7,14 +7,12 @@ import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
-import ProjectWelcome from '../../../../features/canvas/components/ProjectWelcome'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
+import { useInspirationStore } from '../../../../features/inspiration/store'
 import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
-import { useStore } from '../../../../store'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -50,7 +48,12 @@ function suggestionList(): HTMLElement | null {
 }
 
 function suggestionButtons(): HTMLButtonElement[] {
-  return [...(suggestionList()?.querySelectorAll('button') ?? [])]
+  return [...(suggestionList()?.querySelectorAll<HTMLButtonElement>('article button') ?? [])]
+}
+
+function promptFor(button: HTMLButtonElement): string {
+  const title = button.closest('article')!.querySelector('h4')!.textContent
+  return useInspirationStore.getState().items.find((item) => item.title === title)!.prompt
 }
 
 function textbox(): HTMLElement {
@@ -58,6 +61,20 @@ function textbox(): HTMLElement {
 }
 
 beforeEach(async () => {
+  useInspirationStore.setState({
+    items: ['Product', 'Poster', 'Character'].map((title, index) => ({
+      id: String(index),
+      title,
+      kind: 'showcase',
+      category: 'Creative',
+      prompt: `Create a detailed ${title} image`,
+      thumbnailUrl: `/sample-${index}.png`,
+      recommendedModel: 'gpt-image-2.5-flare',
+      recommendedProvider: 'openai-compat',
+      params: { size: 'auto' },
+    })),
+    loadRemote: async () => {},
+  })
   const session = agentDraft(null)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
   session.update(EMPTY_DRAFT)
@@ -105,7 +122,7 @@ describe('示例建议', () => {
     const buttons = suggestionButtons()
     expect(buttons.length).toBeGreaterThanOrEqual(3)
     const suggestion = buttons[0]!
-    const prompt = suggestion.dataset.prompt!
+    const prompt = promptFor(suggestion)
     expect(prompt.length).toBeGreaterThan(10)
 
     act(() => suggestion.click())
@@ -128,7 +145,7 @@ describe('示例建议', () => {
     act(() => second!.click())
     await settle()
 
-    expect(textbox().textContent).toBe(second!.dataset.prompt)
+    expect(textbox().textContent).toBe(promptFor(second!))
   })
 
   it('对话开始后建议不再显示', async () => {
@@ -154,32 +171,38 @@ describe('示例建议', () => {
     expect(suggestionList()).toBeNull()
   })
 
-  it('输入框里有用户自己写的话（恢复的未发草稿）时，点建议不覆盖，只提示', async () => {
-    agentDraft(null).update({ ...EMPTY_DRAFT, prompt: '我自己写了一半的话' })
+  it('点击试一下会替换已有草稿并清空参考图', async () => {
+    agentDraft(null).update({
+      ...EMPTY_DRAFT,
+      prompt: '我自己写了一半的话',
+      references: [{ id: 'old', dataUrl: 'data:image/png;base64,old' }],
+    })
     act(() => root.render(<AgentPanel doc={new CanvasDoc()} editor={EDITOR} />))
     await settle()
 
-    act(() => suggestionButtons()[0]!.click())
+    const button = suggestionButtons()[0]!
+    act(() => button.click())
     await settle()
 
-    expect(agentDraft(null).getSnapshot().draft.prompt).toBe('我自己写了一半的话')
-    expect(textbox().textContent).toBe('我自己写了一半的话')
-    expect(useStore.getState().toast?.message).toBe('输入框里已有内容，清空后再选示例')
+    expect(agentDraft(null).getSnapshot().draft.prompt).toBe(promptFor(button))
+    expect(textbox().textContent).toBe(promptFor(button))
+    expect(agentDraft(null).getSnapshot().draft.references).toEqual([])
+    expect(send).not.toHaveBeenCalled()
   })
 
-  it('建议填进来后被用户改过，再点别的建议也不覆盖', async () => {
+  it('修改建议后再次试一下仍完整替换', async () => {
     act(() => root.render(<AgentPanel doc={new CanvasDoc()} editor={EDITOR} />))
     await settle()
 
     const [first, second] = suggestionButtons()
     act(() => first!.click())
     await settle()
-    const edited = `${first!.dataset.prompt}，再加一只猫`
+    const edited = `${promptFor(first!)}，再加一只猫`
     act(() => agentDraft(null).update((current) => ({ ...current, prompt: edited })))
     await settle()
     act(() => second!.click())
     await settle()
 
-    expect(agentDraft(null).getSnapshot().draft.prompt).toBe(edited)
+    expect(agentDraft(null).getSnapshot().draft.prompt).toBe(promptFor(second!))
   })
 })

@@ -27,6 +27,7 @@ export async function importImageFiles(
   editor: CanvasEditor,
   files: File[],
   center: { x: number; y: number },
+  shouldSelect: () => boolean = () => true,
 ): Promise<number> {
   const imageFiles = files.filter((f) => f.type.startsWith('image/'))
   if (imageFiles.length === 0) return 0
@@ -108,6 +109,6 @@ export async function importImageFiles(
   })
 
   const ids = editor.placeImages(items)
-  editor.setSelectedElements(ids)
+  if (shouldSelect()) editor.setSelectedElements(ids)
   return items.length
 }
