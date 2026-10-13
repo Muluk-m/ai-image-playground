@@ -6,7 +6,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import ProductionDraftCard from '../../production/components/ProductionDraftCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { CARD_NOTE, CARD_TEXT, GHOST_LINK } from '../agentStyles'
+import { CARD_NOTE, CARD_TEXT } from '../agentStyles'
 import { agentDraftOutputCount, isProductionDraft } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
