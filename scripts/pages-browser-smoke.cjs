@@ -193,7 +193,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             : '[aria-label="创作画布"] canvas, [aria-label="创作画布"] .react-flow'
           await page.locator(ready).first().waitFor({ timeout: timeoutMs })
           if (nodeCanvas && index === 1) {
-            await page.getByRole('button', { name: '小地图', exact: true }).click()
+            await page.getByRole('button', { name: '显示小地图', exact: true }).click()
             await page.locator('.react-flow__minimap').waitFor({ timeout: timeoutMs })
           }
           await page.locator('#boot').waitFor({ state: 'detached', timeout: timeoutMs })
