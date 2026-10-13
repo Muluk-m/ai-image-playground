@@ -99,7 +99,7 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
       const capabilities = await fetch('/api/capabilities').then(r => r.json());
       if (!capabilities['canvas:nodes']) throw new Error('Node capability missing');
       document.getElementById('boot').remove();
-      document.getElementById('root').innerHTML = '<button aria-label="创作">创作</button><div aria-label="创作画布"><div class="react-flow" style="width:300px;height:300px"><button aria-label="小地图">小地图</button><div class="react-flow__minimap" style="width:100px;height:100px"></div></div></div>';
+      document.getElementById('root').innerHTML = '<button aria-label="创作">创作</button><div aria-label="创作画布"><div class="react-flow" style="width:300px;height:300px"><button aria-label="显示小地图">显示小地图</button><div class="react-flow__minimap" style="width:100px;height:100px"></div></div></div>';
     `,
     )
     await checkWorkspace(browser, server.origin, { local: true, nodeCanvas: true, timeoutMs: 3000 })
