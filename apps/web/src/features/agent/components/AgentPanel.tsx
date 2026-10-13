@@ -446,10 +446,8 @@ export default function AgentPanel({
             >
               {messages.length === 0 && !historyLoading && !historyFailed && (
                 <div className="studio-chat-empty">
-                  <span className="studio-spark">✧</span>
                   <h3>{t('panel.emptyTitle')}</h3>
-                  <p>{t('panel.emptyBody')}</p>
-                  <AgentSuggestions className="studio-suggestions mt-6" />
+                  <AgentSuggestions className="studio-suggestions" />
                 </div>
               )}
               {messages.map((message, index) => {

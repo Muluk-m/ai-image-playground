@@ -133,7 +133,7 @@ it.each([
       expect(host.querySelector('[data-slot="composer-send"]')?.getAttribute('aria-busy')).toBe(
         'true',
       )
-      expect(host.querySelector('.creation-stack-upload')).not.toBeNull()
+      expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).not.toBeNull()
       expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
         true,
       )

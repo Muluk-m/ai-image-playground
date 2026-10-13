@@ -215,9 +215,14 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   // 空状态的示例提示词点一下填进来（没有智能体的部署里，这条输入框就是「那个输入框」）。
   // 直接生成栏没有智能体，也就不认技能：起手句只取句子本身。
+  const attachmentRevision = useRef(0)
   useComposerFillTarget({
     read: () => useCanvasComposer.getState().prompt,
-    write: ({ text }) => {
+    write: ({ text, clearReferences }) => {
+      if (clearReferences) {
+        attachmentRevision.current += 1
+        editor.setSelectedElements([])
+      }
       setPrompt(text)
       // 光标放到句末等用户接着写：受控 textarea 这一帧还是旧值，等渲染完再挪。
       window.setTimeout(() => {
@@ -232,6 +237,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   // 附件即「放到画布上的参考图」：导入后自动选中，选区随即被当作本次生成的输入。
   const attach = (files: File[]) => {
+    const revision = attachmentRevision.current
     // 先按导入本身的准入规则筛一遍（非图片本来就会被丢掉），确认框里的张数才是真会进画布的张数。
     const images = files.filter((file) => file.type.startsWith('image/'))
     if (images.length === 0) {
@@ -239,8 +245,14 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
       return
     }
     confirmImageBatch(images.length, () => {
+      if (revision !== attachmentRevision.current) return
       const bounds = editor.getViewportPageBounds()
-      void importImageFiles(editor, images, { x: bounds.midX, y: bounds.midY })
+      void importImageFiles(
+        editor,
+        images,
+        { x: bounds.midX, y: bounds.midY },
+        () => revision === attachmentRevision.current,
+      )
         .then((count) => {
           if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
         })
