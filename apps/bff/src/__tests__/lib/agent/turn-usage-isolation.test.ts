@@ -160,11 +160,9 @@ describe('startAgentTurn usage', () => {
     setAgentFetchForTesting(
       recordingAgentFetch([], () =>
         ++calls === 1
-          ? Response.json(
-              {
-                error: { message: 'Our servers are currently overloaded. Please try again later.' },
-              },
-              { status: 503 },
+          ? new Response(
+              'data: {"error":{"type":"overloaded_error","message":"Our servers are currently overloaded. Please try again later."}}\n\n',
+              { headers: { 'content-type': 'text/event-stream' } },
             )
           : completionStream('好'),
       ),
