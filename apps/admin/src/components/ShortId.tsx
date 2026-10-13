@@ -43,6 +43,7 @@ export function ShortId({ value, len = 8, className }: ShortIdProps) {
         >
           <span>{shortId(value, len)}</span>
           <Button
+            autoTooltip={false}
             type="button"
             variant="ghost"
             size="icon"
@@ -55,7 +56,9 @@ export function ShortId({ value, len = 8, className }: ShortIdProps) {
         </span>
       </TooltipTrigger>
       <TooltipContent>
-        <span className="font-mono text-xs">{value}</span>
+        <span className="font-mono text-xs">
+          {copied ? '已复制' : '复制'}：{value}
+        </span>
       </TooltipContent>
     </Tooltip>
   )

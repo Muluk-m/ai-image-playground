@@ -80,7 +80,8 @@ export default function ProductionWorkspace({
   const assetsPane = useRef<HTMLElement>(null)
   useEffect(() => {
     if (!assetsDrawerOpen) return
-    assetsPane.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    // Focus the region, so an auto-focused close button does not open a tooltip above the drawer.
+    assetsPane.current?.focus()
     return () => assetsTrigger.current?.focus()
   }, [assetsDrawerOpen])
   useEffect(
@@ -129,6 +130,7 @@ export default function ProductionWorkspace({
         <aside
           className="production-assets"
           ref={assetsPane}
+          tabIndex={-1}
           hidden={!assetsOpen}
           aria-label={t('assets')}
           onKeyDown={(event) => {

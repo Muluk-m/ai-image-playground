@@ -187,6 +187,11 @@
     "uploadProgress": "Uploading {{ready}}/{{total}}",
     "viewAllReferences": "View all",
     "clearReferences": "Clear references",
-    "collapseReferences": "Collapse references"
+    "collapseReferences": "Collapse references",
+    "shortModes": {
+      "agent": "Agent",
+      "image": "Image",
+      "video": "Video"
+    }
   }
 }

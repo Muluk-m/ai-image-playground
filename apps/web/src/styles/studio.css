@@ -277,22 +277,19 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
       var(--studio-account-cluster-control) + 0.75rem
   );
 }
-/* 画布沉浸时这一簇直接压在画布内容上，没有底就像两层图叠在一起——给一层毛玻璃托底当 chrome 读。
-   托底与里面的 chip 都是胶囊，内圆角比外圆角正好小一个 padding，曲线才同心。
-   描边留一层极淡的内阴影，避免暗底上出现白边。
-   积分按钮自带 rounded-lg，和「> *」特异度相同且写在 Tailwind 层里更晚，会把胶囊切回 8px，
-   灰底拐角就和外层对不齐。这里只打第一层按钮，特异度压过实用类；再往下是账号菜单，不能被切成胶囊。 */
+/* Keep account actions separate and flat; do not frame them in another pill. */
 .studio-header-float {
   padding: var(--studio-account-cluster-pad);
-  border-radius: 9999px;
-  background: hsl(var(--background) / 0.55);
-  backdrop-filter: blur(14px);
-  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.06);
+  background: transparent;
+  box-shadow: none;
 }
-.studio-header-float > button,
-.studio-header-float > * > button {
-  border-radius: 9999px;
+.studio-header-float > button {
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
 }
+.studio-header-float > * > button { border-radius: 9999px; }
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .studio-header-float { top: var(--workspace-viewport-top, 0px); }
@@ -401,6 +398,14 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   height: 1100px;
   overflow: hidden;
   pointer-events: none;
+}
+
+.studio-home-intro { padding-top: 48px; }
+.studio-home-create { max-width: 768px; margin-inline: auto; }
+.studio-home-create .creation-body .creation-prompt { min-height: 96px; }
+@media (max-width: 767px) {
+  .studio-home-create .creation-body .creation-prompt { min-height: 84px; }
+  .studio-home-intro { padding-top: 80px; }
 }
 :root:not(.dark) .studio-home-backdrop { --dot-alpha: .07; }
 .studio-home-backdrop::after {
@@ -593,11 +598,6 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   box-shadow:
     inset 0 0 0 1px hsl(var(--on-media) / 0.35),
     0 18px 48px -14px hsl(var(--primary));
-}
-
-.studio-create-target .studio-generate-button,
-.studio-create-target .studio-generate-button:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 1px hsl(var(--on-media) / .22);
 }
 
 /* 对话保持连续，产物在独立的审阅区放大查看。 */

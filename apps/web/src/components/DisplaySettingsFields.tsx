@@ -40,7 +40,7 @@ export default function DisplaySettingsFields({
               aria-label={t('locale.label')}
               data-display-setting="locale"
               lang={locale}
-              className="h-8 w-32 text-xs"
+              className="h-8 w-32 text-sm"
             >
               <SelectValue />
             </SelectTrigger>
@@ -63,7 +63,7 @@ export default function DisplaySettingsFields({
             <SelectTrigger
               aria-label={t('theme.label')}
               data-display-setting="theme"
-              className="h-8 w-32 text-xs"
+              className="h-8 w-32 text-sm"
             >
               <SelectValue />
             </SelectTrigger>

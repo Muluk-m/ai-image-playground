@@ -121,7 +121,59 @@ function layerViolations(file: ts.SourceFile): number[] {
   })
 }
 
+/** 纯图标按钮必须显式给出非空名称；Button 用它同时提供读屏与悬停/聚焦提示。 */
+function iconButtonLabels(file: ts.SourceFile): number[] {
+  const hits: number[] = []
+  const isIcon = (node: ts.Node): boolean => {
+    if (ts.isJsxText(node)) return !node.text.trim()
+    if (ts.isJsxExpression(node)) return !node.expression || isIcon(node.expression)
+    if (ts.isConditionalExpression(node)) return isIcon(node.whenTrue) && isIcon(node.whenFalse)
+    if (ts.isJsxSelfClosingElement(node))
+      return /^(Icon|BrandAvatar|\w+Icon)$/.test(node.tagName.getText(file))
+    if (ts.isJsxElement(node)) {
+      const tag = node.openingElement.tagName.getText(file)
+      if (tag === 'svg') return true
+      return tag === 'span' && node.openingElement.attributes.getText(file).includes('sr-only')
+    }
+    return false
+  }
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node
+      if (opening.tagName.getText(file) === 'Button') {
+        const attrs = opening.attributes.properties.filter(ts.isJsxAttribute)
+        const attr = (name: string) =>
+          attrs.find((one) => one.name.getText(file) === name)?.initializer
+        const size = attr('size')
+        const iconSize = size && ts.isStringLiteral(size) && size.text.startsWith('icon')
+        const iconContent =
+          ts.isJsxElement(node) &&
+          node.children.some((one) => !ts.isJsxText(one)) &&
+          node.children.every(isIcon)
+        const label = attr('aria-label')
+        const value = label && ts.isJsxExpression(label) ? label.expression : label
+        const named =
+          value &&
+          !(ts.isStringLiteralLike(value) && !value.text.trim()) &&
+          value.kind !== ts.SyntaxKind.NullKeyword &&
+          !(ts.isIdentifier(value) && value.text === 'undefined') &&
+          !ts.isVoidExpression(value)
+        if ((iconSize || iconContent) && !named) hits.push(opening.getStart(file))
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return hits
+}
+
 export const DESIGN_RULES: readonly DesignRule[] = [
+  {
+    id: 'icon-button-label',
+    fix: '纯图标 Button 必须有非空 aria-label；共用 Button 会显示同文案的悬停与键盘聚焦提示',
+    find: iconButtonLabels,
+    extensions: ['tsx'],
+  },
   {
     id: 'native-control',
     fix: '用 components/ui 或 components/patterns 里的组件，不写原生控件（新控件类型先加进 patterns）',

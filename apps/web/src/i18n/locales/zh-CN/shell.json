@@ -70,9 +70,9 @@
     "canvas": "画布"
   },
   "hero": {
-    "titleLead": "用想象，",
-    "titleAccent": "创造更多可能",
-    "subtitle": "在幕芽 Muvloom，把灵感变成看得见的作品"
+    "titleLead": "做图、做视频，",
+    "titleAccent": "就在这里",
+    "subtitle": "从文字或参考图开始，生成后继续编辑。"
   },
   "createTarget": {
     "aria": "这句话交给谁",
