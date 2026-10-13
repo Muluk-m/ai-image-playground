@@ -1,19 +1,16 @@
-import { LoaderCircle } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { originalBlob } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
 import { loadImageOriginal } from '../lib/imageSource'
 import { useStore } from '../store'
-import { DownloadIcon, VideoIcon } from './icons'
 import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 10
@@ -25,7 +22,7 @@ function clamp(v: number, min: number, max: number) {
 }
 
 export default function Lightbox() {
-  const { t } = useTranslation('task')
+  const { t } = useTranslation(['task', 'common'])
   const lightboxImageId = useStore((s) => s.lightboxImageId)
   const lightboxImageList = useStore((s) => s.lightboxImageList)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
@@ -163,7 +160,17 @@ export default function Lightbox() {
       >
         <div className="flex h-full w-full items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
-          <LoaderCircle className="relative h-10 w-10 animate-spin text-white/80" />
+          <Icon name="loading" size="lg" className="relative animate-spin text-white" />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
+            className="absolute right-4 top-4"
+            aria-label={t('common:action.close')}
+            onClick={close}
+          >
+            <Icon name="close" />
+          </Button>
         </div>
       </Overlay>
     )
@@ -251,8 +258,6 @@ function LightboxInner({
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const originalUnavailable = originalPending || originalFailed
-  // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
-  const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
   // 用 ref 追踪最新变换，避免闭包过期
   const scaleRef = useRef(1)
@@ -610,10 +615,7 @@ function LightboxInner({
   const isDragging = dragRef.current.active || pinchRef.current.active
   const zoomPercent = Math.round(s * 100)
 
-  const navBtnClass =
-    'absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-all z-10 backdrop-blur-sm'
-  const actionBtnClass =
-    'flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm text-white backdrop-blur-sm transition-all hover:bg-black/60'
+  const navBtnClass = 'absolute top-1/2 -translate-y-1/2 z-10'
 
   return (
     <Overlay
@@ -660,10 +662,10 @@ function LightboxInner({
         </div>
         {originalUnavailable && (
           <span
-            className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur-sm"
+            className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm"
             aria-live="polite"
           >
-            {originalPending && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+            {originalPending && <Icon name="loading" size="xs" className="animate-spin" />}
             {t(originalFailed ? 'lightbox.originalFailed' : 'lightbox.loadingOriginal')}
             {originalFailed && onRetryOriginal && (
               <Button
@@ -679,30 +681,19 @@ function LightboxInner({
           </span>
         )}
 
-        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-          {videoAvailable && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                void startVideoFromImage(imageId)
-              }}
-              className={actionBtnClass}
-            >
-              <VideoIcon className="w-4 h-4" />
-              {t('menu.makeVideo')}
-            </button>
-          )}
+        <div className="absolute top-4 right-4 left-4 z-10 flex flex-wrap items-center justify-end gap-2">
           <Button
             data-save-image
             variant="secondary"
             disabled={originalUnavailable}
             onClick={handleSave}
-            className={actionBtnClass}
+            size="sm"
           >
-            <DownloadIcon className="w-4 h-4" />
+            <Icon name="download" />
             {t('toolbox:export.downloadOriginal')}
           </Button>
           <Button
+            size="sm"
             disabled={originalUnavailable}
             onClick={(event) => {
               event.stopPropagation()
@@ -716,74 +707,66 @@ function LightboxInner({
               ])
             }}
           >
-            <DownloadIcon className="w-4 h-4" />
+            <Icon name="download" />
             {t('toolbox:export.export')}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
+            aria-label={t('common:action.close')}
+            onClick={(event) => {
+              event.stopPropagation()
+              onClose()
+            }}
+          >
+            <Icon name="close" />
           </Button>
         </div>
 
         {/* 左右切换按钮 */}
         {showNav && !isZoomed && (
           <>
-            <button
+            <Button
               type="button"
               aria-label={t('common:action.previousImage')}
+              variant="secondary"
+              size="icon"
               className={`${navBtnClass} left-3 sm:left-5`}
               onClick={(e) => {
                 e.stopPropagation()
                 goPrev()
               }}
             >
-              <svg
-                className="w-5 h-5 sm:w-6 sm:h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-            </button>
-            <button
+              <Icon name="chevronLeft" />
+            </Button>
+            <Button
               type="button"
               aria-label={t('common:action.nextImage')}
+              variant="secondary"
+              size="icon"
               className={`${navBtnClass} right-3 sm:right-5`}
               onClick={(e) => {
                 e.stopPropagation()
                 goNext()
               }}
             >
-              <svg
-                className="w-5 h-5 sm:w-6 sm:h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5l7 7-7 7"
-                />
-              </svg>
-            </button>
+              <Icon name="chevronRight" />
+            </Button>
           </>
         )}
 
         {/* 底部指示器 */}
         {showZoomBadge && isZoomed && zoomPercent !== 100 && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-            <span className="px-3 py-1.5 bg-black/50 text-white/80 text-xs rounded-full backdrop-blur-sm transition-opacity duration-500">
+            <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm transition-opacity duration-500">
               {zoomPercent}%
             </span>
           </div>
         )}
         {showNav && !isZoomed && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-            <span className="px-3 py-1.5 bg-black/50 text-white/80 text-xs rounded-full backdrop-blur-sm">
+            <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm">
               {currentIndex + 1} / {total}
             </span>
           </div>

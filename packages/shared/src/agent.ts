@@ -883,6 +883,13 @@ export interface AgentClarificationBlock {
   readonly type: 'clarification'
   readonly question: string
   readonly options: readonly string[]
+  /** 服务端核对图片组合的选项；普通模型澄清不能签发这份映射。 */
+  readonly imageCombination?: {
+    readonly targetImageId: string
+    readonly referenceImageIds: readonly string[]
+    /** 原调用的有序输入，保留每组都需要的固定参考；旧记录可由 target/reference 还原。 */
+    readonly inputImageIds?: readonly string[]
+  }
 }
 
 export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock | AgentClarificationBlock
@@ -1220,6 +1227,8 @@ export interface AgentTurnSummaryView {
   readonly error?: AgentTurnErrorCode
   readonly failure?: AgentTurnFailure
   readonly cost?: AgentTurnCost
+  /** 建议用户接着发的完整句子。缺席表示这一轮没有。 */
+  readonly followUps?: readonly string[]
 }
 
 /** 进行中的轮，`GET .../messages` 用它告诉刷新后的前端该挂回哪一轮。 */

@@ -1,6 +1,7 @@
 import type { ProductionMediaReference } from '@image-playground/shared'
-import { ImagePlus, Library, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { imageMimeFromBytes } from '../../../lib/imageBytes'
 import { MAX_IMAGE_BYTES } from '../../../lib/inputImageLimit'
@@ -105,27 +106,37 @@ export default function ProductionReferenceEditor({
         </div>
       )}
       <div className="production-reference-actions">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           disabled={disabled || uploading}
           onClick={() => fileInput.current?.click()}
         >
-          <ImagePlus size={14} />
+          <Icon name="imageAdd" />
           {t(uploading ? 'saving' : 'asset.upload')}
-        </button>
-        <button type="button" disabled={disabled || uploading} onClick={() => void showLibrary()}>
-          <Library size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          disabled={disabled || uploading}
+          onClick={() => void showLibrary()}
+        >
+          <Icon name="assets" />
           {t('asset.library')}
-        </button>
+        </Button>
         {value && (
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             type="button"
             aria-label={t('asset.removeReference')}
             disabled={disabled || uploading}
             onClick={() => onChange(undefined)}
           >
-            <X size={14} />
-          </button>
+            <Icon name="close" />
+          </Button>
         )}
       </div>
       <input
@@ -149,22 +160,30 @@ export default function ProductionReferenceEditor({
         <div className="production-library-picker">
           <header>
             <strong>{t('asset.library')}</strong>
-            <button type="button" aria-label={t('close')} onClick={() => setLibrary(null)}>
-              <X size={14} />
-            </button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              type="button"
+              aria-label={t('close')}
+              onClick={() => setLibrary(null)}
+            >
+              <Icon name="close" />
+            </Button>
           </header>
           {library.length === 0
             ? t('asset.emptyLibrary')
             : library.flatMap((asset) =>
                 asset.views.map((view, index) => (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     key={`${asset.id}:${view.imageId}`}
                     onClick={() => void chooseAsset(view.imageId)}
                   >
                     {asset.name}
                     {asset.views.length > 1 ? ` · ${index + 1}` : ''}
-                  </button>
+                  </Button>
                 )),
               )}
         </div>

@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
+import { inspirationFacetLabel } from '../lib/labels'
 import { type InspirationProviderFilter, useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
@@ -11,6 +13,10 @@ export default function InspirationGrid() {
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
   const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
+  const setProvider = useInspirationStore((s) => s.setProvider)
+  const setCategory = useInspirationStore((s) => s.setCategory)
+  const setOnlyImageEdits = useInspirationStore((s) => s.setOnlyImageEdits)
+  const setSearch = useInspirationStore((s) => s.setSearch)
   const showDetail = useInspirationStore((s) => s.showDetail)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
   const { t } = useTranslation('inspiration')
@@ -27,8 +33,23 @@ export default function InspirationGrid() {
 
   if (ordered.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-        {items.length === 0 ? t('list.loading') : t('list.empty')}
+      <div className="flex h-64 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+        <p>{items.length === 0 ? t('list.loading') : t('list.empty')}</p>
+        {items.length > 0 ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="max-md:h-11"
+            onClick={() => {
+              setProvider('all')
+              setCategory(null)
+              setOnlyImageEdits(false)
+              setSearch('')
+            }}
+          >
+            {t('list.resetFilters')}
+          </Button>
+        ) : null}
       </div>
     )
   }
@@ -61,7 +82,15 @@ function filterItems(
     if (category && item.category !== category) return false
     if (onlyImageEdits && !item.referenceImages?.length) return false
     if (!kw) return true
-    const haystack = [item.title, item.description ?? '', item.prompt, ...(item.tags ?? [])]
+    const haystack = [
+      item.title,
+      item.description ?? '',
+      item.prompt,
+      item.category,
+      inspirationFacetLabel(item.category),
+      ...(item.tags ?? []),
+      ...(item.tags ?? []).map((tag) => inspirationFacetLabel(tag)),
+    ]
       .join(' ')
       .toLowerCase()
     return haystack.includes(kw)

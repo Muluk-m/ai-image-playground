@@ -21,6 +21,14 @@
     --brand-sprout: 83 100% 81.4%;
     --brand-sprout-strong: 83 68% 70%;
     --brand-mint: 145 75.9% 72.4%;
+    /* 会员身份色与主站的 membership tokens 对齐。 */
+    --tier-basic-ink: 96 46% 29%;
+    --tier-plus-ink: 192 75% 30%;
+    --tier-max-ink: 35 90% 35%;
+    --tier-free-light: 156 5.21% 62.35%;
+    --tier-basic-light: 101.19 65.56% 64.71%;
+    --tier-plus-light: 188.63 76.88% 60.98%;
+    --tier-max-light: 42.8 85.23% 65.49%;
 
     /* 中性（zinc 阶，与 tailwind.config.js 的 gray: colors.zinc 同源） */
     --neutral-0: 0 0% 100%;
@@ -102,6 +110,10 @@
     --warning: var(--status-amber);
     --danger: var(--status-rose);
     --private: var(--status-violet);
+    --membership-free: var(--muted-foreground);
+    --membership-basic: var(--tier-basic-ink);
+    --membership-plus: var(--tier-plus-ink);
+    --membership-max: var(--tier-max-ink);
 
     /* 芽绿只做「主要动作」与「选中态」，必须成对使用前景色 */
     --brand-action: var(--brand-sprout);
@@ -233,6 +245,10 @@
       --warning: var(--status-amber-light);
       --danger: var(--status-rose-light);
       --private: var(--status-violet-light);
+      --membership-free: var(--tier-free-light);
+      --membership-basic: var(--tier-basic-light);
+      --membership-plus: var(--tier-plus-light);
+      --membership-max: var(--tier-max-light);
       --sidebar-background: var(--neutral-900);
       --sidebar-foreground: var(--neutral-100);
       --sidebar-primary: var(--neutral-50);

@@ -1,17 +1,8 @@
-import {
-  ArrowLeft,
-  ChevronDown,
-  Clapperboard,
-  FolderOpen,
-  ImagePlus,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Search,
-} from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
@@ -96,9 +87,15 @@ export default function CanvasMode() {
       <div className="studio-canvas-status" role="alert">
         <div>
           {routeError}
-          <button type="button" className="ml-3 underline" onClick={backToCurrentProject}>
+          <Button
+            variant="link"
+            size="sm"
+            type="button"
+            className="ml-3"
+            onClick={backToCurrentProject}
+          >
             {t('project.backToProjects')}
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -107,13 +104,15 @@ export default function CanvasMode() {
       <div className="studio-canvas-status" role="alert">
         <div>
           {projectError}
-          <button
+          <Button
+            variant="link"
+            size="sm"
             type="button"
-            className="ml-3 underline"
+            className="ml-3"
             onClick={() => void openCurrentProject()}
           >
             {t('project.reload')}
-          </button>
+          </Button>
         </div>
       </div>
     ) : (
@@ -429,25 +428,29 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     if (pendingImages > 0) workspace.placePendingImages()
   }, [workspace, loading, loadFailed, pendingImages])
   const homeMark = (
-    <button
+    <Button
+      variant="ghost"
+      size="icon-sm"
       type="button"
       onClick={() => useStore.getState().setAppMode('image')}
       aria-label={t('workspace.backHome')}
       title={t('workspace.backHome')}
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+      className="shrink-0"
     >
       <img src="/brand/muvloom-mark.svg" alt="" className="h-6 w-6" />
-    </button>
+    </Button>
   )
   const sidebarToggle = (
-    <button
+    <Button
+      variant="ghost"
+      size="icon"
       type="button"
       onClick={() => useStore.getState().toggleSidebar()}
       aria-label={tShell('header.nav')}
-      className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
+      className="hidden shrink-0 text-muted-foreground md:inline-flex"
     >
-      <PanelLeftOpen size={16} />
-    </button>
+      <Icon name="sidebar" />
+    </Button>
   )
   return (
     <div
@@ -476,12 +479,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   className="shrink-0"
                   onClick={() => setOpen(true)}
                 >
-                  <PanelLeftOpen aria-hidden="true" />
+                  <Icon name="sidebar" />
                   {t('sidebar.openChat')}
                 </Button>
               )}
               {projectView === 'canvas' && project?.sourceProjectId && (
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   className="studio-source-chat-link"
                   onClick={() => {
@@ -489,14 +494,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       void useAgentStore.getState().selectProject(project.sourceProjectId)
                   }}
                 >
-                  <ArrowLeft size={15} aria-hidden="true" />
+                  <Icon name="back" />
                   {t('workspace.sourceChat')}
-                </button>
+                </Button>
               )}
               {projectView === 'chat' && (
                 <>
                   {productionEnabled && (
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="default"
                       type="button"
                       className="studio-production-trigger"
                       aria-label={tProduction('entry')}
@@ -512,28 +519,32 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         }
                       }}
                     >
-                      <Clapperboard size={17} aria-hidden="true" />
+                      <Icon name="storyboard" />
                       <span>{tProduction('entry')}</span>
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     type="button"
                     className="studio-assets-trigger studio-search-trigger"
                     aria-label="搜索当前对话"
                     title="搜索当前对话"
                     onClick={() => setSearchOpen(true)}
                   >
-                    <Search size={18} aria-hidden="true" />
-                  </button>
-                  <button
+                    <Icon name="search" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     type="button"
                     className="studio-assets-trigger"
                     aria-label={t('workspace.assets')}
                     title={t('workspace.assets')}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
-                    <FolderOpen size={18} aria-hidden="true" />
-                  </button>
+                    <Icon name="folder" />
+                  </Button>
                 </>
               )}
             </div>
@@ -553,20 +564,24 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 role="group"
                 aria-label={t('mobileSwitch.aria')}
               >
-                <button
+                <Button
+                  variant="ghost"
+                  size="lg"
                   type="button"
                   aria-pressed={projectView === 'chat'}
                   onClick={() => setProjectView('chat')}
                 >
                   {t('mobileSwitch.chat')}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="lg"
                   type="button"
                   aria-pressed={projectView === 'canvas'}
                   onClick={() => setProjectView('canvas')}
                 >
                   {t('mobileSwitch.canvas')}
-                </button>
+                </Button>
               </div>
             )}
             {/* 直接画布仍沿用原来的项目顶行；Agent 项目共用上方的双视图导航。 */}
@@ -576,14 +591,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 inert={!hasAgent && (loading || loadFailed)}
               >
                 {mobileChatSheet && mobileChatOpen && (
-                  <button
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
                     type="button"
                     className="studio-mobile-chat-close"
                     onClick={() => setMobileChatOpen(false)}
                     aria-label={t('sidebar.collapseAria')}
                   >
-                    <ChevronDown size={18} aria-hidden="true" />
-                  </button>
+                    <Icon name="chevronDown" />
+                  </Button>
                 )}
                 {!hasAgent && (
                   <div className="studio-canvas-topbar">
@@ -699,14 +716,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       <span className="text-body-sm font-medium text-foreground">
                         {t('sidebar.title')}
                       </span>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
                         type="button"
                         onClick={() => setOpen(false)}
                         aria-label={t('sidebar.collapseAria')}
-                        className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                        className="text-muted-foreground"
                       >
-                        <PanelLeftClose size={16} aria-hidden="true" />
-                      </button>
+                        <Icon name="sidebar" />
+                      </Button>
                     </div>
                     <div className="studio-chat-empty px-4">
                       <h3>{t('sidebar.emptyTitle')}</h3>
@@ -722,7 +741,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               /* 收起后只留一颗胶囊：窄栏会压住左侧画布工具条，也没给用户任何信息。
                  Agent 项目的展开按钮在上方项目栏里，这里只给没有项目栏的直接画布。 */
               !hasAgent && (
-                <button
+                <Button
+                  variant="outline"
+                  size="lg"
                   type="button"
                   className="studio-open-chat"
                   onClick={() => setOpen(true)}
@@ -730,19 +751,21 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 >
                   <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                   {t('sidebar.openChat')}
-                  <PanelLeftOpen size={16} aria-hidden="true" className="text-muted-foreground" />
-                </button>
+                  <Icon name="sidebar" />
+                </Button>
               )
             )}
             {mobileChatSheet && !mobileChatOpen && (
-              <button
+              <Button
+                variant="outline"
+                size="lg"
                 type="button"
                 className="studio-open-chat studio-mobile-open-chat"
                 onClick={() => setMobileChatOpen(true)}
               >
                 <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                 {t('sidebar.openChat')}
-              </button>
+              </Button>
             )}
             {hasSelectedResult && activeResult && projectView === 'chat' && !productionVisible && (
               <AgentArtifactPane
@@ -829,13 +852,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg md:top-[var(--studio-account-cluster-clearance)]"
                 >
                   <p>{t('saveError.message')}</p>
-                  <button
+                  <Button
+                    variant="link"
+                    size="sm"
                     type="button"
-                    className="mt-2 underline"
+                    className="mt-2"
                     onClick={() => void workspace.flush()}
                   >
                     {t('saveError.retry')}
-                  </button>
+                  </Button>
                 </div>
               )}
               {/* 右下角控件栈：小地图贴角，快捷键速查叠在它上面。两者共用一列，天然不重叠；
@@ -849,14 +874,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   <img src="/brand/muvloom-mark.svg" alt="" />
                   <h2>{t('empty.title')}</h2>
                   <p>{hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}</p>
-                  <button
+                  <Button
+                    variant="outline"
+                    size="default"
                     type="button"
-                    className="studio-secondary"
+                    className="bg-sidebar"
                     onClick={() => fileInput.current?.click()}
                   >
-                    <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                    <Icon name="imageAdd" />
                     {t('empty.import')}
-                  </button>
+                  </Button>
                 </div>
               )}
               <input
@@ -893,9 +920,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <div role="alert" className="studio-canvas-status">
           <div>
             <p>{t('loadError.message')}</p>
-            <button type="button" className="mt-2 underline" onClick={workspace.retryLoad}>
+            <Button
+              variant="link"
+              size="sm"
+              type="button"
+              className="mt-2"
+              onClick={workspace.retryLoad}
+            >
               {t('loadError.retry')}
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}

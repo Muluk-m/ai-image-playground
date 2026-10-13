@@ -1,7 +1,6 @@
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
 import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
 import SkillStarterGuide from '../../agent/components/SkillStarterGuide'
@@ -40,12 +39,12 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
       }}
     >
       <section
-        className="mx-auto flex w-full max-w-3xl flex-col items-center gap-7 pb-10 pt-[9vh]"
+        className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 pb-12 pt-12"
         aria-label={t('welcome.aria')}
       >
         <img src="/brand/muvloom-mark.svg" alt="Muvloom" className="h-14 w-14" />
         <div className="text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+          <h1 className="text-headline font-semibold tracking-tight text-foreground">
             {video ? t('video:landing.title') : t('welcome.title')}
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
@@ -59,8 +58,8 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
             </div>
           )}
           {/* 渐变描边只是一层背景，内层自己铺卡面。 */}
-          <div className="rounded-[22px] bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-[1.5px] shadow-[0_24px_60px_-30px_hsl(var(--primary)/0.4)]">
-            <div className="rounded-[21px] bg-card p-3">
+          <div className="rounded-3xl bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-0.5 shadow-[0_24px_60px_-30px_hsl(var(--primary)/0.4)]">
+            <div className="rounded-3xl bg-card p-3">
               {/*
                 图片档的参数不在这里：AgentComposer 底部已经有模型 chip 与生成设置（尺寸、思考深度、
                 格式与质量）。再摆一份就是同一组参数出现两次。
@@ -142,7 +141,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
       </section>
       <section className="mx-auto max-w-6xl" aria-label={t('welcome.recent')}>
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{t('welcome.recent')}</h2>
+          <h2 className="text-title font-semibold">{t('welcome.recent')}</h2>
           <Button
             type="button"
             variant="link"

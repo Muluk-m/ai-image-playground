@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
+import { signalBootReady } from './boot/ready'
 import ConfirmDialog from './components/ConfirmDialog'
 import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
@@ -23,13 +24,18 @@ import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
+import LegalPage from './features/legal/LegalPage'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
+import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
+import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
+import { dragTargetIsImage } from './lib/dragTarget'
+import { usePathname } from './lib/pathname'
 import { startSyncEngine } from './lib/sync/engine'
 import {
   buildSettingsFromUrlParams,
@@ -45,9 +51,14 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const user = useAuth().user
   const { t } = useTranslation('shell')
   const homeBackdropRef = useRef<HTMLDivElement>(null)
+  const pathname = usePathname()
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
+  // 会话检查和懒加载期间闪屏继续盖着；工作台这一帧才淡出。
+  useEffect(() => {
+    signalBootReady()
+  }, [])
 
   // 匿名设备没有同步；能力关不关由引擎自己判断。
   useEffect(() => (user ? startSyncEngine() : undefined), [user])
@@ -87,9 +98,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
-      if ((e.target as HTMLElement | null)?.closest('img')) {
-        e.preventDefault()
-      }
+      if (dragTargetIsImage(e.target)) e.preventDefault()
     }
 
     // 松手落在落点外时浏览器会直接打开这张图，把整个工作台顶掉。
@@ -107,11 +116,17 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [])
 
+  if (isPricingPath(pathname)) return <PricingPage />
+  if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
+
   return (
     <>
       <Header />
       <Sidebar />
-      <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
+      <div
+        style={{ paddingLeft: 'var(--app-sidebar-width)' }}
+        className={appMode === 'canvas' ? undefined : 'mobile-topbar-offset'}
+      >
         {appMode === 'canvas' ? (
           <CanvasMode />
         ) : appMode === 'explore' ? (
@@ -147,15 +162,15 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 <div className="studio-home-backdrop__hover" />
               </div>
               <div className="safe-area-x relative mx-auto max-w-6xl">
-                <div className="pt-12 text-center">
-                  <h1 className="text-[30px] font-semibold leading-tight sm:text-display">
+                <div className="studio-home-intro text-center">
+                  <h1 className="text-headline font-semibold leading-tight sm:text-display">
                     {t('hero.titleLead')}
                     <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
                   </h1>
-                  <p className="pb-6 pt-2 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
+                  <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
-                <div className="pt-6">
+                <div className="studio-home-create pt-5">
                   <CreateTargetSwitch />
                   <div className="pt-4">
                     <InputBar inline />

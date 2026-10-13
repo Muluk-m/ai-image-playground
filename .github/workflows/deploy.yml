@@ -35,7 +35,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
-      deploy: ${{ steps.decide.outputs.deploy }}
+      deploy_api: ${{ steps.decide.outputs.deploy_api }}
+      deploy_pages: ${{ steps.decide.outputs.deploy_pages }}
     steps:
       - name: Require secrets
         env:
@@ -62,10 +63,34 @@ jobs:
           . "$RUNNER_TEMP/pages.env"
           scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$INTERNAL_BFF_BASE_URL" "$PAID_BFF_BASE_URL"
 
+  release:
+    name: Tag the release
+    needs: target
+    if: needs.target.outputs.deploy_api == 'true' || needs.target.outputs.deploy_pages == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+      - id: tag
+        run: |
+          version=$(scripts/next-release-version.sh)
+          git tag "v${version}" "${{ needs.target.outputs.sha }}"
+          git push origin "refs/tags/v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Tagged v${version}"
+
   backend:
     name: Backend images and VPS rollout
-    needs: target
-    if: needs.target.outputs.deploy == 'true'
+    needs: [target, release]
+    if: needs.target.outputs.deploy_api == 'true' && needs.release.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -124,6 +149,7 @@ jobs:
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
           PRIVATE_SHA: ${{ steps.overlay.outputs.commit }}
+          APP_RELEASE: ${{ needs.release.outputs.version }}
         run: |
           release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
           ./scripts/build-vps-release.sh all "$RUNNER_TEMP/$release_id"
@@ -151,7 +177,12 @@ jobs:
 
   pages:
     name: Pages (internal, paid, then admin)
-    needs: [target, backend]
+    needs: [target, release, backend]
+    if: >-
+      always() &&
+      needs.target.outputs.deploy_pages == 'true' &&
+      needs.release.result == 'success' &&
+      (needs.backend.result == 'success' || needs.backend.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -195,6 +226,7 @@ jobs:
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
       - name: Wait for all APIs to serve the deployed commit
+        if: needs.target.outputs.deploy_api == 'true'
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
           PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
@@ -224,14 +256,17 @@ jobs:
       - name: Release the internal site (no private overlay)
         env:
           PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-internal-build
+          APP_RELEASE: ${{ needs.release.outputs.version }}
         run: ./scripts/pages-release.sh internal
-      # 与 backend 同一份 overlay：那边已经把 `verified` 解成了具体 sha，这里照它取，
-      # 两个 job 之间不会因为指针中途前移而错开。
+      # 与 backend 同一份 overlay。API 被跳过时 backend 没有输出，改读这次提交里的 private.lock。
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
       - name: Check out the private overlay at the backend's commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ needs.backend.outputs.private_sha }}
+          ref: ${{ needs.backend.outputs.private_sha || steps.lock.outputs.sha }}
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
@@ -244,8 +279,10 @@ jobs:
       - name: Release the paid site (with private overlay)
         env:
           PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-paid-build
+          APP_RELEASE: ${{ needs.release.outputs.version }}
         run: ./scripts/pages-release.sh paid
       - name: Wait for the Admin API when cut over
+        if: needs.target.outputs.deploy_api == 'true'
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
           PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
@@ -283,6 +320,8 @@ jobs:
           retention-days: 7
 
       - name: Release the paid Admin site when cut over
+        env:
+          APP_RELEASE: ${{ needs.release.outputs.version }}
         run: |
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"

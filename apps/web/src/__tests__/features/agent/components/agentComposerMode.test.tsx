@@ -258,6 +258,21 @@ describe('起手句填进项目输入框', () => {
   })
 })
 
+it('inspiration replaces a typed draft and clears references without submitting', async () => {
+  const session = agentDraft(null, PROJECT_ID)
+  session.update({
+    prompt: '已有草稿',
+    references: [{ id: 'reference', dataUrl: 'data:image/png;base64,AA==' }],
+  })
+  render()
+  await settle()
+  act(() => fillAgentComposer({ text: '灵感里的完整提示词', replace: true, clearReferences: true }))
+  expect(session.getSnapshot().draft.prompt).toBe('灵感里的完整提示词')
+  expect(session.getSnapshot().draft.references).toEqual([])
+  expect(editor().textContent).toBe('灵感里的完整提示词')
+  expect(send).not.toHaveBeenCalled()
+})
+
 describe('用户消息重新编辑', () => {
   it('图片引用回填为可读名称，不把传输标记绑定到草稿中的其他图片', async () => {
     const message: AgentTextMessage = {

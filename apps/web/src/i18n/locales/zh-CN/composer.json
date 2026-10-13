@@ -50,7 +50,8 @@
     "configureApiFirst": "请先配置 API",
     "apiNotConfigured": "请先在设置里配置 API",
     "startCanvas": "开始创作",
-    "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送"
+    "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
+    "promptRequired": "请输入提示词后再生成"
   },
   "search": {
     "favoriteOnly": "只看收藏",
@@ -176,6 +177,15 @@
     "projectActions": "项目操作",
     "start": "开始创作",
     "newProject": "新建项目",
-    "references": "参考素材（{{count}}）"
+    "references": "参考素材（{{count}}）",
+    "uploadProgress": "上传中 {{ready}}/{{total}}",
+    "viewAllReferences": "查看全部",
+    "clearReferences": "清空参考素材",
+    "collapseReferences": "收起参考图",
+    "shortModes": {
+      "agent": "智能",
+      "image": "图片",
+      "video": "视频"
+    }
   }
 }

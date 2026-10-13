@@ -13,17 +13,15 @@ import {
   AttachmentLoading,
   AttachmentTile,
 } from '../../../components/assistant-ui/elements/attachment'
-import {
-  Composer,
-  ComposerAttachments,
-  ComposerSend,
-} from '../../../components/assistant-ui/elements/composer'
+import { Composer, ComposerAttachments } from '../../../components/assistant-ui/elements/composer'
 import {
   CreationBody,
   CreationFrame,
   CreationModePicker,
+  CreationSend,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
+import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
 import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
@@ -117,6 +115,7 @@ import {
 } from '../lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
+import { visibleFollowUps } from '../lib/followUps'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
@@ -139,6 +138,7 @@ import {
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
+import AgentFollowUps from './AgentFollowUps'
 import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
 import { useAssetSlots } from './useAssetSlots'
@@ -218,8 +218,11 @@ function ComposerAttachmentThumb({
         onResolveError={onResolveError}
         className={[className, hide ? 'opacity-0' : ''].filter(Boolean).join(' ')}
       />
-      {(pending || (uploading && here?.ok !== true)) && (
-        <AttachmentLoading label={uploading ? t('composer.upload.uploading') : undefined} />
+      {(pending || uploading) && (
+        <AttachmentLoading
+          uploading={uploading}
+          label={uploading ? t('composer.upload.uploading') : undefined}
+        />
       )}
       {previewFailed &&
         (retryPreview ? (
@@ -315,6 +318,16 @@ export default function AgentComposer({
     recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const loading = readingDraft || recoveryBlocked
+  const followUpLines = useAgentStore((state) =>
+    visibleFollowUps({
+      idle: state.turn === 'idle',
+      historyBlocked: state.historyLoading || state.historyFailed,
+      welcome,
+      draft: draft.prompt,
+      messages: state.messages,
+      turns: state.turns,
+    }),
+  )
   const setDraft = session.update
   useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
@@ -351,13 +364,21 @@ export default function AgentComposer({
   const failedReference = draft.references.find(
     (reference) => attachmentUploadState(uploadReference(reference)) === 'failed',
   )
+  const uploadingCount = draft.references.filter((reference) =>
+    ['queued', 'uploading', 'verifying'].includes(
+      attachmentUploadState(uploadReference(reference)) ?? '',
+    ),
+  ).length
   const referenceStatus = failedReference
     ? attachmentUploadErrorMessage(
         attachmentUploadError(uploadReference(failedReference)),
         getAttachmentLimits(),
       )
-    : uploadsBlocked
-      ? t('composer.upload.uploading')
+    : uploadingCount > 0
+      ? t('composer:studio.uploadProgress', {
+          ready: draft.references.length - uploadingCount,
+          total: draft.references.length,
+        })
       : undefined
 
   const retryUpload = (reference: AgentReference) => {
@@ -382,7 +403,9 @@ export default function AgentComposer({
 
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：整组读取 → 进引用区。
   // 一次进来的图多了先问一声：整份文件夹误拖进来时，确认框比事后逐张删引用便宜。
+  const attachmentRevision = useRef(0)
   const attachFiles = (files: File[]) => {
+    const revision = attachmentRevision.current
     if (loading) {
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
@@ -404,7 +427,7 @@ export default function AgentComposer({
     }
     const currentAccount = accountScope()
     confirmImageBatch(images.length, () => {
-      if (!currentAccount()) return
+      if (!currentAccount() || revision !== attachmentRevision.current) return
       const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
       if (
         limits &&
@@ -426,6 +449,7 @@ export default function AgentComposer({
       } else {
         void added
           .then((references) => {
+            if (!currentAccount() || revision !== attachmentRevision.current) return
             setDraft((current) => attachReferences(current, references, transportRef.current))
           })
           .catch((error: unknown) =>
@@ -472,7 +496,15 @@ export default function AgentComposer({
     },
     write: (content) => {
       const { prompt, selection } = agentComposerFillPrompt(content)
-      setDraft((current) => ({ ...current, prompt }))
+      if (content.clearReferences) {
+        attachmentRevision.current += 1
+        doc.setSelection([])
+      }
+      setDraft((current) => ({
+        ...current,
+        prompt,
+        ...(content.clearReferences ? { references: [], submission: undefined } : {}),
+      }))
       promptEditor.select(selection.start, selection.end)
       return prompt
     },
@@ -1002,6 +1034,7 @@ export default function AgentComposer({
           </Button>
         </div>
       )}
+      {followUpLines.length > 0 && <AgentFollowUps lines={followUpLines} />}
       <CreationFrame className={dragging ? 'ring-2 ring-primary' : ''}>
         {productionMode && (
           <ProductionQuoteChip
@@ -1014,7 +1047,18 @@ export default function AgentComposer({
           references={
             <CreationReferenceStack
               count={draft.references.length}
+              disabled={loading}
+              onClear={() =>
+                setDraft((current) => {
+                  let next = current
+                  for (let index = current.references.length - 1; index >= 0; index--) {
+                    next = removeReference(next, index)
+                  }
+                  return next
+                })
+              }
               failed={Boolean(failedReference)}
+              uploading={uploadingCount > 0}
               status={referenceStatus}
               previews={draft.references
                 .slice(-3)
@@ -1090,63 +1134,65 @@ export default function AgentComposer({
                     )
                     return (
                       <div key={reference.id} className="group flex max-w-full items-start gap-2">
-                        <AttachmentTile
-                          name={label}
-                          title={label}
-                          failed={uploadState === 'failed'}
-                          className="size-[72px]"
-                        >
-                          <ComposerAttachmentThumb
-                            src={reference.dataUrl}
-                            uploading={isUploading}
+                        <CreationReferencePreview src={reference.dataUrl} label={label}>
+                          <AttachmentTile
+                            name={label}
+                            title={label}
                             failed={uploadState === 'failed'}
-                            frameClassName="h-full w-full"
-                            className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
-                            alt={label}
-                            retryPreview
-                          />
-                          {masked && (
-                            <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
-                              MASK
-                            </span>
-                          )}
-                          {uploadState === 'failed' && (
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                            className="size-[72px]"
+                          >
+                            <ComposerAttachmentThumb
+                              src={reference.dataUrl}
+                              uploading={isUploading}
+                              failed={uploadState === 'failed'}
+                              frameClassName="h-full w-full"
+                              className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                              alt={label}
+                              retryPreview
+                            />
+                            {masked && (
+                              <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
+                                MASK
+                              </span>
+                            )}
+                            {uploadState === 'failed' && (
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                              >
+                                <Icon name="error" size="lg" />
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={
+                                masked
+                                  ? t('composer.editMaskAria', { label })
+                                  : t('composer.drawMaskAria', { label })
+                              }
+                              className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                              onClick={() => editMask(reference)}
                             >
-                              <Icon name="error" size="lg" />
-                            </span>
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={
-                              masked
-                                ? t('composer.editMaskAria', { label })
-                                : t('composer.drawMaskAria', { label })
-                            }
-                            className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                            onClick={() => editMask(reference)}
-                          >
-                            <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                              <Icon name="brush" />
-                            </span>
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t('composer.removeReferenceAria', { label })}
-                            className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                            onClick={() => setDraft(removeReference(draft, index))}
-                          >
-                            <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                              <Icon name="close" />
-                            </span>
-                          </Button>
-                        </AttachmentTile>
+                              <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                                <Icon name="brush" />
+                              </span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={t('composer.removeReferenceAria', { label })}
+                              className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                              onClick={() => setDraft(removeReference(draft, index))}
+                            >
+                              <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                                <Icon name="close" />
+                              </span>
+                            </Button>
+                          </AttachmentTile>
+                        </CreationReferencePreview>
                         {uploadState && (
                           <span
                             role={uploadState === 'failed' ? 'alert' : 'status'}
@@ -1205,31 +1251,53 @@ export default function AgentComposer({
           </div>
         </CreationBody>
         <CreationToolbar
-          action={
-            <ComposerSend
-              className="creation-send"
-              streaming={stopMode}
-              idle={
-                !historyBlocked &&
-                !loading &&
-                !submitting &&
-                !uploadsBlocked &&
-                Boolean(draft.prompt.trim())
+          mode={
+            <CreationModePicker
+              value={productionMode ? 'video' : creationMode}
+              modes={
+                productionMode
+                  ? ['video']
+                  : ['agent', 'image', ...(videoAvailable ? ['video' as const] : [])]
               }
+              onChange={(next) => {
+                const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
+                useStore.setState((state) => ({
+                  projectCreationTargets: {
+                    ...state.projectCreationTargets,
+                    [session.key]: target,
+                  },
+                }))
+                useStore.getState().setCreateTarget(target)
+              }}
+            />
+          }
+          status={
+            referenceStatus && (
+              <span className={failedReference ? 'text-destructive' : 'text-muted-foreground'}>
+                {referenceStatus}
+              </span>
+            )
+          }
+          action={
+            <CreationSend
+              busy={!stopMode && (uploadingCount > 0 || submitting)}
+              streaming={stopMode}
               aria-label={
                 stopMode
                   ? t('composer.abort')
                   : submitting
                     ? t('composer.sending')
-                    : running
-                      ? t('composer.queue')
-                      : t('composer.sendAndCreate')
+                    : uploadsBlocked
+                      ? (referenceStatus ?? t('composer.sendAndCreate'))
+                      : running
+                        ? t('composer.queue')
+                        : t('composer.sendAndCreate')
               }
               title={
                 stopMode
                   ? t('composer.abortTitle')
                   : uploadsBlocked
-                    ? t('composer.uploadsPending')
+                    ? referenceStatus
                     : running
                       ? t('composer.queue')
                       : t('composer.sendAndCreateTitle')
@@ -1247,34 +1315,16 @@ export default function AgentComposer({
             />
           }
         >
-          <CreationModePicker
-            value={productionMode ? 'video' : creationMode}
-            modes={
-              productionMode
-                ? ['video']
-                : ['agent', 'image', ...(videoAvailable ? ['video' as const] : [])]
-            }
-            onChange={(next) => {
-              const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
-              useStore.setState((state) => ({
-                projectCreationTargets: { ...state.projectCreationTargets, [session.key]: target },
-              }))
-              useStore.getState().setCreateTarget(target)
-            }}
-          />
-          <span className="creation-tool-divider" aria-hidden="true" />
-          <div className="creation-tools creation-live-controls">
-            {mode === 'video' && !productionMode ? (
-              <CanvasVideoParams hasFirstFrame={false}>
-                <AgentExecutionSettings />
-              </CanvasVideoParams>
-            ) : (
-              <AgentParamsChip
-                generationControls={!productionMode}
-                thinkingControls={creationMode !== 'image'}
-              />
-            )}
-          </div>
+          {mode === 'video' && !productionMode ? (
+            <CanvasVideoParams hasFirstFrame={false}>
+              <AgentExecutionSettings />
+            </CanvasVideoParams>
+          ) : (
+            <AgentParamsChip
+              generationControls={!productionMode}
+              thinkingControls={creationMode !== 'image'}
+            />
+          )}
         </CreationToolbar>
         <input
           ref={fileInputRef}

@@ -13,6 +13,10 @@ describe('GET /health', () => {
     process.env.APP_VERSION = 'public-sha+private-sha'
     const res = await app.handle(new Request('http://localhost/health'))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, version: 'public-sha+private-sha' })
+    expect(await res.json()).toEqual({
+      ok: true,
+      version: 'public-sha+private-sha',
+      release: 'unknown',
+    })
   })
 })

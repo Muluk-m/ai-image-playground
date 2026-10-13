@@ -2,15 +2,22 @@
 
 前端由 Pages 托管，后端镜像经私有 GHCR 送到 VPS，VPS 仅运行预构建镜像。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
 
+## 产品版本
+
+线上版本是 `MAJOR.MINOR.PATCH`。唯一需要手改的是仓库根 `package.json` 的 `version`：只改主版本或次版本，并把补丁写成 `0`（现在是 `0.4.0`）。每次从 main 真正发出去的生产部署都会打一个标签，补丁在该 `vMAJOR.MINOR.*` 上加一。主版本或次版本和最新标签不是同一条线时，从 `.0` 重新计。标签是补丁的来源，部署不会把新版本提交回 main，以免再次触发自己。
+
+设置里的 `v…` 来自这次部署注入的 `APP_RELEASE`。本地和 PR 构建没有这个变量，显示根 `package.json` 里的 `MAJOR.MINOR.0`。`/health` 的 `version` 仍是提交号（付费版再加私有提交）；产品版本在旁边的 `release` 字段。
+
 ## 默认：合并 main 即部署
 
 负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
 
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
-2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则跳过；两套 API 都已是该提交时自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
-3. `backend`：检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
-4. `pages`：先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒），再无 `private/` 发布内部版、克隆同一私有提交后发布付费版，最后发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。
-5. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
+2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则整单跳过。相对线上提交的 diff 再拆开：前端包（`apps/web`、`packages/shared`、lockfile）变了就发 Pages，API 树没变就跳过镜像；两边都没变、或两套 API 已经在跑这个提交时，自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
+3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
+4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`（带上 `APP_RELEASE`）；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
+5. `pages`：API 这次有发布时，先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒）。API 被跳过时不等待。然后无 `private/` 发布内部版、克隆同一私有提交后发布付费版，最后发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。构建时的 `APP_RELEASE` 写进设置里的版本号。
+6. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
 ### 前端启动验收
 
@@ -22,7 +29,7 @@ PR/main/test 的公开版与带 overlay 构建都在 Chromium 中冷启动首页
 
 静态资源缺失不得回退首页：web 使用顶层 `404.html` 关闭 Pages 默认 SPA 回退，`_redirects` 只列真实业务路由，构建时由 `apps/web/src/lib/pagesRedirects.ts` 从 `appPaths.ts` 生成，新增入口只改 `appPaths.ts`。`/assets/*` 使用一年 `immutable`：Pages 的 `_headers` 不作用于 404，发布校验也会确认缺失资源返回不可复用的 404；前提是不恢复全站 SPA 回退。资产页路由同样是 `/assets`：带斜杠的 `/assets/` 落在这条规则里，只做 301 跳到 `/assets`，不回退 SPA；发布校验会拒绝带长缓存的业务深链。
 
-2026-10-01 启动故障的错误脚本缓存已单 URL 清除。独立内联脚本在入口脚本、必需样式或分片（`vite:preloadError`）加载失败时，自动用带 `__aip_reload` 时间戳的当前页面 URL 重载一次，让 HTML 重新获取对应版本的哈希资源；一分钟内再次失败、离线或 sessionStorage 不可写时显示重试，避免循环刷新。按钮也使用新的 HTML URL，保留原路径、其他查询参数和 hash，首次 React 渲染后移除恢复参数；不清理账号、IndexedDB 或用户作品。30 秒仍未渲染时显示重试，React 渲染后的业务加载与错误由应用接管。外部字体样式独立、非阻塞加载，失败回退系统字体，不再触发启动失败。
+2026-10-01 启动故障的错误脚本缓存已单 URL 清除。独立内联脚本在入口脚本、必需样式或分片（`vite:preloadError`）加载失败时，自动用带 `__aip_reload` 时间戳的当前页面 URL 重载一次，让 HTML 重新获取对应版本的哈希资源；同一次失败会话中，同源 `/assets/` 的入口或必需样式再次失败时，最多等待 20 秒，每 2 秒探测原始资源 URL（单次最多 5 秒）；构建时记录入口的静态依赖分片和关联 CSS（不包含动态懒加载分片），它们和已报告失败的资源均返回 200、正确 JS/CSS MIME 和非空内容后再刷新一次。两次自动恢复的预算均写入 sessionStorage，跨重载保留且不按时间过期；只有用户显式点击重试才重置预算；首次 React 渲染可能只是登录或加载页，不恢复预算，以免后续懒加载分片持续失败造成刷新循环。持续失败、离线或 sessionStorage 不可写时显示重试，避免循环刷新。同一 CSS 的 link 错误和 Vite 预加载错误共用既有探测期限；仅匹配实际失败的同一资源，无关分片错误仍正常处理。探测不修改资源 URL，不把 SPA HTML 当成资源恢复。按钮也使用新的 HTML URL，保留原路径、其他查询参数和 hash，首次 React 渲染后移除恢复参数；不清理账号、IndexedDB 或用户作品。30 秒仍未渲染时显示重试并禁止晚到的失败事件触发自动导航；随后成功渲染仍可撤下超时面板。React 渲染后的业务加载与错误由应用接管。外部字体样式独立、非阻塞加载，失败回退系统字体，不再触发启动失败。
 
 ### Secrets（仓库 `Muluk-m/ai-image-playground`）
 

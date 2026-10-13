@@ -44,6 +44,29 @@ mobileToc?.addEventListener('click', (event) => {
   if ((event.target as Element).closest('a')) mobileToc.open = false
 })
 
+/* ── 截图点开看大图。没跑脚本时链接仍会在新标签打开原图。 ── */
+
+document.addEventListener('click', (event) => {
+  const link = (event.target as Element).closest<HTMLAnchorElement>('a[data-zoom]')
+  if (!link) return
+  event.preventDefault()
+  let dialog = document.querySelector<HTMLDialogElement>('[data-zoom-dialog]')
+  if (!dialog) {
+    dialog = document.createElement('dialog')
+    dialog.dataset.zoomDialog = ''
+    dialog.className = 'guide-zoom'
+    dialog.innerHTML = '<img alt="" />'
+    document.body.appendChild(dialog)
+    dialog.addEventListener('click', () => dialog?.close())
+    dialog.addEventListener('cancel', (cancelEvent) => cancelEvent.stopPropagation())
+  }
+  const image = dialog.querySelector('img')
+  if (!image) return
+  image.src = link.href
+  image.alt = link.querySelector('img')?.alt ?? ''
+  dialog.showModal()
+})
+
 /* ── 复制示例提示词 ── */
 
 document.addEventListener('click', (event) => {
@@ -134,11 +157,11 @@ if (dialog && input && results) {
     active = 0
     results.innerHTML =
       hits.length === 0
-        ? `<p class="px-3 py-8 text-center text-[14px] text-muted-foreground">${escape(dialog.dataset.empty ?? '')}</p>`
+        ? `<p class="px-3 py-8 text-center text-sm text-muted-foreground">${escape(dialog.dataset.empty ?? '')}</p>`
         : hits
             .map(
               ({ entry }, i) =>
-                `<a href="${escape(entry.url)}" data-result role="option" aria-selected="${i === 0}" class="block rounded-xl px-3 py-2.5 aria-selected:bg-muted"><span class="block text-[12px] text-muted-foreground">${escape(entry.chapter)}</span><span class="block text-[14.5px] font-medium text-foreground">${escape(entry.title)}</span><span class="mt-0.5 block truncate text-body-sm text-muted-foreground">${snippet(entry.text, terms[0]!)}</span></a>`,
+                `<a href="${escape(entry.url)}" data-result role="option" aria-selected="${i === 0}" class="block rounded-xl px-3 py-2.5 aria-selected:bg-muted"><span class="block text-xs text-muted-foreground">${escape(entry.chapter)}</span><span class="block text-sm font-medium text-foreground">${escape(entry.title)}</span><span class="mt-0.5 block truncate text-body-sm text-muted-foreground">${snippet(entry.text, terms[0]!)}</span></a>`,
             )
             .join('')
   }

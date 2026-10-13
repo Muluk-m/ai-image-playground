@@ -4,6 +4,7 @@ import type {
   AgentBatchAnalysisLimit,
   AgentCanvasEditPlan,
   AgentCanvasSnapshot,
+  AgentClarificationBlock,
   AgentFetchedImage,
   AgentMode,
   AgentSaveCard,
@@ -20,6 +21,7 @@ import type {
 import type { Static, TSchema } from 'typebox'
 import type { ChatAttempt } from '../../chatCompletion'
 import type { AgentAutoSubmitBudget } from '../auto-submit'
+import type { ImageCombinationGuard } from '../image-combinations'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
 import type { TurnAuthorizationText } from '../turn-authorization'
@@ -55,6 +57,7 @@ export interface AgentToolContext {
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
   readonly visualWorkset?: VisualWorkset
+  readonly imageCombinations?: ImageCombinationGuard
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */
@@ -92,6 +95,7 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  readonly clarification?: AgentClarificationBlock
   /** 拟稿时冻结的实际视频参数，确认前即展示给用户。 */
   readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit

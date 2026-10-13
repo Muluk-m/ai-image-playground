@@ -32,7 +32,6 @@
     "aria": "Creation chat",
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
-    "emptyBody": "Describe your idea or add a reference.",
     "jumpToLatest": "New messages",
     "search": "Search this conversation",
     "closeSearch": "Close search",
@@ -41,13 +40,11 @@
   },
   "suggestions": {
     "aria": "Example prompts",
-    "productTitle": "Product shot",
-    "productPrompt": "Shoot an e-commerce hero image of a minimalist white ceramic coffee mug: plain background, soft side light, bring out the glaze texture.",
-    "posterTitle": "Holiday poster",
-    "posterPrompt": "Design a Mid-Autumn Festival poster: a full moon in the night sky over distant hills and osmanthus, warm gold tones, room for a title at the top.",
-    "characterTitle": "Character art",
-    "characterPrompt": "Draw a half-length cyberpunk girl character: a rainy street at night, neon light reflecting off her raincoat, cinematic framing.",
-    "draftKeptToast": "The input already has text; clear it to use an example"
+    "followUpsAria": "Next messages",
+    "draftKeptToast": "The input already has text; clear it to use an example",
+    "inspirationTitle": "Inspiration",
+    "shuffle": "Shuffle",
+    "try": "Try it"
   },
   "userMessage": {
     "reedit": "Edit again"
@@ -222,7 +219,6 @@
     "continuePrompt": "Continue"
   },
   "composer": {
-    "uploadsPending": "Reference images are still uploading; you can send once they finish",
     "editorAria": "Message the agent",
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",
@@ -416,7 +412,9 @@
   "history": {
     "loading": "Loading the conversation…",
     "failed": "Could not load the conversation. Your project and draft are kept.",
-    "retry": "Reload"
+    "retry": "Reload",
+    "syncing": "Syncing conversation…",
+    "syncFailed": "Sync failed. Showing saved history."
   },
   "navigation": {
     "switchAria": "Switch project, current: {{name}}",

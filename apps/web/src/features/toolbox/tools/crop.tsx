@@ -1,4 +1,3 @@
-import { Crop } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { Field, Segmented } from '../components/fields'
@@ -39,7 +38,7 @@ export const cropTool: EachTool = {
   id: 'crop',
   group: 'process',
   kind: 'each',
-  icon: Crop,
+  icon: 'crop',
   useController() {
     const { t } = useTranslation('toolbox')
     const [preset, setPreset] = useState<CropPresetId>('r1x1')

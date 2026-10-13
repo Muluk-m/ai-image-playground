@@ -28,7 +28,7 @@ export default function SectionHeader({
           type="button"
           onClick={action.onClick}
           aria-expanded={action.expanded}
-          className="group ml-auto inline-flex items-center gap-1 rounded-sm text-body-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group ml-auto inline-flex items-center gap-1 rounded-sm px-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 max-md:px-2"
         >
           {action.label}
           {!action.expanded ? (

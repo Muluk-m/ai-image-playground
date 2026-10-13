@@ -330,6 +330,11 @@ describe('智能体输入框', () => {
     const folderInput = host.querySelector<HTMLInputElement>('input[webkitdirectory]')!
     pickFiles(folderInput, [folderFile('产品A/2.png'), folderFile('产品A/10.png')])
 
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(agentDraft(null).getSnapshot().draft.references).toHaveLength(2),
+      )
+    })
     expect(await attached()).toHaveLength(2)
     expect(host.querySelector('img[alt="2"]')).not.toBeNull()
   })

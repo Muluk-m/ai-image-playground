@@ -1,0 +1,58 @@
+{
+  "documentTitle": "Terms of service",
+  "brand": "Muvloom",
+  "terms": {
+    "documentTitle": "Terms of service - Muvloom",
+    "title": "Terms of service",
+    "updated": "Last updated: 13 October 2026",
+    "intro": "Welcome to Muvloom (the “service”). The service provides AI image and video generation, canvas editing, and related creation tools. By creating an account, signing in, or continuing to use the service, you agree to these terms and the privacy policy. If you use the service for an organization, you confirm that you can bind that organization."
+  },
+  "privacy": {
+    "documentTitle": "Privacy policy - Muvloom",
+    "title": "Privacy policy",
+    "updated": "Last updated: 13 October 2026",
+    "intro": "This policy describes how Muvloom handles information when you use its AI image and video tools. It applies together with the terms of service. The operator only collects data for capabilities that are actually enabled on this deployment."
+  },
+  "sections": {
+    "accounts": {
+      "title": "Accounts",
+      "body": "You create an account with a contact email and a password, or with a third-party sign-in method we offer. Keep your credentials private. Activity under the account is treated as yours.\n\nYou can update sign-in methods in account settings. Tell us through the in-product support entry if you notice unauthorized use. We may suspend or close an account that breaks these terms, poses a security risk, or must be restricted by law."
+    },
+    "credits": {
+      "title": "Credits, payments, and refunds",
+      "body": "Some features are billed in credits. Plan credits are granted on the cycle you buy. Top-up credits remain available after they are added, as described on the purchase screen at the time. If a generation fails for a reason on our side, the credits for that attempt are returned.\n\nPayment is completed by the channel you choose. Unless the purchase screen says otherwise, a plan does not renew automatically when it ends. Unused paid credits may be refunded as required by applicable law and the operator’s published rules. Credits that were already spent, granted as a bonus, or clawed back for a terms violation are generally not refundable. Prices and the credit amounts shown at checkout control."
+    },
+    "content": {
+      "title": "Your content and license",
+      "body": "You keep the rights you have in prompts, reference images, assets, and the works generated for you in the service (“your content”).\n\nTo run generation, storage, sync, preview, and support, you give the operator a limited worldwide license to host, copy, transmit, and process your content only to operate the service. We do not use your private works in external marketing unless you clearly agree.\n\nYou are responsible for having the rights to what you upload, and for deciding whether an output is appropriate for commercial use. Model output is not guaranteed to be original, non-infringing, or eligible for intellectual-property registration."
+    },
+    "prohibited": {
+      "title": "Prohibited content",
+      "body": "Do not use the service to create, upload, or share illegal content; sexual content involving minors; non-consensual intimate imagery; fraud, phishing, or impersonation; malware; or content intended to cause serious physical harm.\n\nRequests that clearly infringe someone else’s intellectual property, privacy, or likeness are also refused. Some requests are blocked automatically. Repeated violations can lead to credits being reclaimed and the account being limited."
+    },
+    "ai": {
+      "title": "AI output",
+      "body": "Outputs come from machine-learning models. They can be inaccurate, incomplete, unlike the prompt, or similar to existing works. Review text, people, trademarks, and facts before you publish or sell anything.\n\nThe service does not warrant that a particular output is merchantable, fit for a particular purpose, or always available. Models, prices, and features change. Purchased credits are spent under the rules published at purchase until a later change is announced."
+    },
+    "data": {
+      "title": "Data we collect",
+      "body": "To run accounts and creation, we may process your email, username, and sign-in identifiers; prompts, reference images, canvases, and generated results; credit, order, and payment status (card numbers stay with the payment provider); basic device and browser details, language, and theme; and logs used for security and troubleshooting.\n\nBefore you sign in, works and settings stay mainly in your browser. After you sign in, content uploaded for sync is stored with that account."
+    },
+    "cookies": {
+      "title": "Cookies and local storage",
+      "body": "We use necessary cookies or similar technology to keep you signed in, and local storage for interface language, theme, and drafts that have not been synced. These are not cross-site advertising cookies.\n\nClearing them in the browser can sign you out, reset language, or remove local works that were never uploaded."
+    },
+    "providers": {
+      "title": "Third-party AI and processors",
+      "body": "To generate an image or video, the prompt, reference images, and related parameters for that task are sent to the model provider used for the request. Infrastructure providers also host the app, store files, and process payments.\n\nThose processors only handle data as needed to provide their piece of the service. We do not sell your personal information. If you connect with your own API key, the browser sends the request to the address you entered, and that provider’s terms apply."
+    },
+    "retention": {
+      "title": "Retention",
+      "body": "Account details, works, and credit records are kept while the account is active so you can keep creating and syncing. You can delete works in the product. An account-deletion request is handled within a reasonable time, except for transaction, security, or audit records the law requires us to keep.\n\nServer logs are kept only for a shorter period needed to investigate problems. Data stored only in your browser is under your control."
+    },
+    "contact": {
+      "title": "Contact",
+      "body": "For privacy requests, questions about these terms, or refunds, use the support entry in the account menu. Other contact details the operator publishes on the site are also valid.\n\nWe may update these pages as the product or the law changes. The updated text applies when it is published. If a change materially affects your rights, we will give a reasonable notice in the product."
+    }
+  }
+}

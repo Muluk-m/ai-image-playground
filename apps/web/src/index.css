@@ -22,7 +22,7 @@
   grid-template-columns: minmax(0, 47fr) minmax(400px, 53fr);
   color: hsl(var(--foreground));
   background: hsl(var(--background));
-  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+  box-shadow: 0 24px 90px hsl(var(--scrim) / 0.42);
   font-family: var(--font-ui-sans);
   animation: modal-in 0.18s ease-out;
 }
@@ -78,8 +78,8 @@
   content: '';
   pointer-events: none;
   background:
-    linear-gradient(180deg, transparent 42%, rgba(7, 8, 10, 0.22) 64%, hsl(var(--background)) 92%),
-    linear-gradient(90deg, rgba(5, 6, 8, 0.12), transparent 32%, rgba(5, 6, 8, 0.08));
+    linear-gradient(180deg, transparent 42%, hsl(var(--scrim) / 0.22) 64%, hsl(var(--background)) 92%),
+    linear-gradient(90deg, hsl(var(--scrim) / 0.12), transparent 32%, hsl(var(--scrim) / 0.08));
 }
 
 .auth-brand {
@@ -89,8 +89,8 @@
   align-items: center;
   gap: 10px;
   color: hsl(var(--foreground));
-  font-size: 17px;
-  font-weight: 720;
+  font-size: theme('fontSize.base');
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
@@ -110,9 +110,9 @@
   position: absolute;
   display: block;
   object-fit: cover;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid hsl(var(--on-media) / 0.1);
   border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.52);
+  box-shadow: 0 18px 50px hsl(var(--scrim) / 0.52);
 }
 
 .auth-art--portrait {
@@ -167,8 +167,8 @@
   color: transparent;
   background: linear-gradient(100deg, hsl(var(--primary)) 5%, hsl(var(--primary)) 48%, hsl(var(--primary)) 92%);
   background-clip: text;
-  font-size: clamp(26px, 2.2vw, 32px);
-  font-weight: 790;
+  font-size: theme('fontSize.headline');
+  font-weight: 600;
   line-height: 1.24;
   letter-spacing: -0.05em;
 }
@@ -177,7 +177,7 @@
   max-width: 340px;
   margin: 10px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 13px;
+  font-size: theme('fontSize.body-sm');
   line-height: 1.66;
 }
 
@@ -192,7 +192,8 @@
 .auth-benefits > div {
   position: relative;
   min-width: 0;
-  padding: 0 16px;
+  /* 每列要放下「Many ways to create」整行，再窄就会把 create 单独折下去。 */
+  padding: 0 8px;
 }
 
 .auth-benefits > div:first-child {
@@ -206,7 +207,7 @@
   left: 0;
   width: 1px;
   content: '';
-  background: rgba(255, 255, 255, 0.1);
+  background: hsl(var(--on-media) / 0.1);
 }
 
 .auth-benefit-icon {
@@ -230,15 +231,16 @@
   display: block;
   margin-top: 10px;
   color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 680;
+  font-size: theme('fontSize.body-sm');
+  font-weight: 600;
 }
 
 .auth-benefits p {
   margin: 5px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 11px;
+  font-size: theme('fontSize.label-sm');
   line-height: 1.55;
+  text-wrap: pretty;
 }
 
 /* 注册视图比登录高：让右栏自己滚，弹框高度不跟着内容变。 */
@@ -273,8 +275,8 @@
 .auth-form-heading h1 {
   margin: 0;
   color: hsl(var(--foreground));
-  font-size: 28px;
-  font-weight: 720;
+  font-size: theme('fontSize.xl');
+  font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.04em;
 }
@@ -282,7 +284,7 @@
 .auth-form-heading p {
   margin: 9px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 13px;
+  font-size: theme('fontSize.body-sm');
   line-height: 1.55;
 }
 
@@ -305,7 +307,7 @@
   color: hsl(var(--foreground));
   background: hsl(var(--card));
   font-family: inherit;
-  font-size: 13px;
+  font-size: theme('fontSize.body-sm');
   cursor: pointer;
 }
 
@@ -321,18 +323,18 @@
 
 .auth-provider-google,
 .auth-provider-generic {
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
 }
 
 .auth-provider-google {
-  color: #4285f4;
-  font-size: 19px;
+  color: hsl(var(--brand-google));
+  font-size: theme('fontSize.xl');
 }
 
 .auth-provider-generic {
   color: hsl(var(--muted-foreground));
-  font-size: 16px;
+  font-size: theme('fontSize.base');
 }
 
 .auth-divider {
@@ -341,7 +343,7 @@
   gap: 15px;
   margin: 24px 0;
   color: hsl(var(--muted-foreground));
-  font-size: 12px;
+  font-size: theme('fontSize.xs');
   white-space: nowrap;
 }
 
@@ -370,8 +372,8 @@
   display: block;
   margin-bottom: 9px;
   color: hsl(var(--foreground));
-  font-size: 12px;
-  font-weight: 580;
+  font-size: theme('fontSize.xs');
+  font-weight: 600;
 }
 
 .auth-field input {
@@ -385,7 +387,7 @@
   color: hsl(var(--foreground));
   background: hsl(var(--card));
   font-family: inherit;
-  font-size: 13px;
+  font-size: theme('fontSize.body-sm');
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -395,7 +397,7 @@
 
 .auth-registration input[name='verificationCode'] {
   text-align: center;
-  font-size: 20px;
+  font-size: theme('fontSize.xl');
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.28em;
 }
@@ -455,7 +457,7 @@
 .auth-message-slot {
   min-height: 28px;
   padding-top: 6px;
-  font-size: 11px;
+  font-size: theme('fontSize.label-sm');
   line-height: 1.5;
 }
 
@@ -480,8 +482,8 @@
   background: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--primary)) 53%, hsl(var(--primary)));
   box-shadow: none;
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 680;
+  font-size: theme('fontSize.sm');
+  font-weight: 600;
   cursor: pointer;
   transition:
     filter 160ms ease,
@@ -513,7 +515,7 @@
 .auth-spinner {
   width: 15px;
   height: 15px;
-  border: 2px solid rgba(255, 255, 255, 0.42);
+  border: 2px solid hsl(var(--on-media) / 0.42);
   border-top-color: hsl(var(--primary-foreground));
   border-radius: 50%;
   animation: auth-spin 700ms linear infinite;
@@ -522,7 +524,7 @@
 .auth-switch {
   margin: 31px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 12px;
+  font-size: theme('fontSize.xs');
   text-align: center;
 }
 
@@ -534,7 +536,7 @@
   color: hsl(var(--primary));
   background: transparent;
   font: inherit;
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .auth-switch button {
@@ -548,7 +550,7 @@
 .auth-terms {
   margin: 24px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 11px;
+  font-size: theme('fontSize.label-sm');
   line-height: 1.55;
   text-align: center;
 }
@@ -563,12 +565,12 @@
   color: hsl(var(--muted-foreground));
   background: transparent;
   font-family: inherit;
-  font-size: 12px;
+  font-size: theme('fontSize.xs');
   cursor: pointer;
 }
 
 .auth-back span {
-  font-size: 18px;
+  font-size: theme('fontSize.xl');
   line-height: 1;
   transition: transform 160ms ease;
 }
@@ -637,7 +639,7 @@
 
 .auth-status-screen h1 {
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: theme('fontSize.headline');
 }
 
 .auth-status-screen p {
@@ -652,23 +654,8 @@
   border: 1px solid hsl(var(--primary));
   color: hsl(var(--primary-foreground));
   background: hsl(var(--primary));
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
-}
-
-.auth-status-line {
-  width: 110px;
-  height: 2px;
-  overflow: hidden;
-  background: hsl(var(--border));
-}
-
-.auth-status-line span {
-  display: block;
-  width: 45%;
-  height: 100%;
-  background: hsl(var(--primary));
-  animation: auth-loading 1.2s ease-in-out infinite alternate;
 }
 
 .auth-status-screen--problem {
@@ -698,13 +685,13 @@
 }
 
 .auth-recovery-card h1 {
-  font-size: 19px;
+  font-size: theme('fontSize.xl');
   line-height: 1.35;
 }
 
 .auth-recovery-card p {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: theme('fontSize.body-sm');
   line-height: 1.6;
 }
 
@@ -718,7 +705,7 @@
   border-radius: 10px;
   color: hsl(var(--foreground));
   background: hsl(var(--secondary));
-  font-size: 13px;
+  font-size: theme('fontSize.body-sm');
 }
 
 .auth-recovery-card button:hover {
@@ -736,22 +723,14 @@
   }
 }
 
-@keyframes auth-loading {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(225%);
-  }
-}
-
 /* 窄屏放不下两栏：左侧展示位压成一条头图，表单占满弹框。 */
 @media (max-width: 900px) {
   .auth-dialog {
     width: 100%;
-    height: min(640px, calc(100svh - 2rem));
+    height: min(640px, calc(100dvh - 1rem));
+    max-height: calc(100dvh - 1rem);
     grid-template-columns: 1fr;
-    grid-template-rows: 150px auto;
+    grid-template-rows: 112px minmax(0, 1fr);
   }
 
   .auth-showcase {
@@ -760,13 +739,13 @@
   }
 
   .auth-showcase::after {
-    background: linear-gradient(180deg, rgba(7, 8, 10, 0.28), hsl(var(--background)));
+    background: linear-gradient(180deg, hsl(var(--scrim) / 0.28), hsl(var(--background)));
   }
 
   .auth-brand {
     top: 0;
     left: 20px;
-    font-size: 16px;
+    font-size: theme('fontSize.base');
   }
 
   .auth-art-wall {
@@ -804,7 +783,7 @@
 
   .auth-showcase-copy h2 {
     max-width: none;
-    font-size: 22px;
+    font-size: theme('fontSize.xl');
   }
 
   .auth-showcase-copy p,
@@ -825,7 +804,7 @@
 @media (max-width: 480px) {
   .auth-dialog {
     border-radius: 16px;
-    grid-template-rows: 128px auto;
+    grid-template-rows: 96px minmax(0, 1fr);
   }
 
   .auth-panel-content {
@@ -837,7 +816,7 @@
   }
 
   .auth-form-heading h1 {
-    font-size: 24px;
+    font-size: theme('fontSize.xl');
   }
 
   .auth-providers {
@@ -848,7 +827,7 @@
     height: 46px;
     padding: 0 8px;
     gap: 6px;
-    font-size: 11px;
+    font-size: theme('fontSize.label-sm');
   }
 
   .auth-divider {
@@ -917,8 +896,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-spinner,
-  .auth-status-line span {
+  .auth-spinner {
     animation: none;
   }
 }
@@ -932,6 +910,8 @@
   --header-height: 0px;
   /* 侧栏在窄屏不占位；宽屏下由入口决定摊开还是收成图标条（见 --app-sidebar-size）。 */
   --app-sidebar-size: 13rem;
+  /* 窄屏顶栏（账号胶囊那一条）的占位。宽屏没有这条栏，保持 0。 */
+  --mobile-topbar-height: 0px;
   /* 右上角那颗常驻账号胶囊的占位宽度：各页面标题行照它让位，别被盖住。 */
   --app-topbar-reserve: 15rem;
   --app-sidebar-width: 0px;
@@ -944,8 +924,101 @@
   }
 }
 
+@media (max-width: 767px) {
+  :root {
+    --mobile-topbar-height: calc(3.5rem + var(--safe-area-top));
+  }
+
+  .mobile-topbar-offset {
+    padding-top: var(--mobile-topbar-height);
+  }
+}
+
 html {
   overflow-y: scroll;
+}
+
+.explore-chips {
+  scrollbar-width: none;
+}
+.explore-chips::-webkit-scrollbar {
+  display: none;
+}
+
+html.pricing-route,
+.pricing-surface {
+  /* 定价页是独立营销页，颜色和展示字号钉死，不跟工作台主题与字阶走。 */
+  --pricing-bg: #070709; /* design-allow css-color: 定价页固定底色 */
+  --pricing-fg: #f4f4f5; /* design-allow css-color: 定价页固定前景 */
+  --pricing-lime: #dbffa0; /* design-allow css-color: 品牌强调色 */
+  --pricing-lime-hover: #e7ffc4; /* design-allow css-color: 品牌强调色的悬停 */
+  --pricing-ink: #161618; /* design-allow css-color: 浅色按钮上的字 */
+  --pricing-ink-strong: #23282b; /* design-allow css-color: 品牌按钮上的字 */
+  --pricing-hover: #ececee; /* design-allow css-color: 浅色按钮的悬停 */
+  --pricing-panel: #101013; /* design-allow css-color: 对比表底 */
+  --pricing-card: #121214; /* design-allow css-color: 方案卡底 */
+  --pricing-featured: #14140f; /* design-allow css-color: 重点方案卡底 */
+  background: var(--pricing-bg);
+  color: var(--pricing-fg);
+}
+
+html.pricing-route body {
+  background: var(--pricing-bg);
+  color: var(--pricing-fg);
+}
+
+.pricing-title {
+  font-size: 3.75rem; /* design-allow css-font-size: 定价页主标题 */
+  line-height: 1;
+}
+
+.pricing-section {
+  font-size: 1.875rem; /* design-allow css-font-size: 定价页章节标题 */
+  line-height: 2.25rem;
+}
+
+.pricing-close {
+  font-size: 2.25rem; /* design-allow css-font-size: 定价页收尾标题 */
+  line-height: 2.5rem;
+}
+
+.pricing-price {
+  font-size: 3rem; /* design-allow css-font-size: 方案价格 */
+  line-height: 1;
+}
+
+.pricing-pack {
+  font-size: 1.5rem; /* design-allow css-font-size: 充值档积分 */
+  line-height: 2rem;
+}
+
+.pricing-name {
+  font-size: 1.125rem; /* design-allow css-font-size: 方案名和规则标题 */
+  line-height: 1.75rem;
+}
+
+.pricing-copy {
+  font-size: 15px; /* design-allow css-font-size: 定价页导航和问题标题 */
+}
+
+.pricing-badge {
+  font-size: 11px; /* design-allow css-font-size: 重点方案角标 */
+}
+
+@media (min-width: 640px) {
+  .pricing-title {
+    font-size: 6rem; /* design-allow css-font-size: 定价页主标题 */
+  }
+
+  .pricing-section {
+    font-size: 2.25rem; /* design-allow css-font-size: 定价页章节标题 */
+    line-height: 2.5rem;
+  }
+
+  .pricing-close {
+    font-size: 3rem; /* design-allow css-font-size: 定价页收尾标题 */
+    line-height: 1;
+  }
 }
 
 body {
@@ -1115,8 +1188,8 @@ input[type="number"] {
 }
 
 .mask-edge-r {
-  -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
-  mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, hsl(var(--scrim)) 85%, transparent 100%);
+  mask-image: linear-gradient(to right, hsl(var(--scrim)) 85%, transparent 100%);
 }
 
 @keyframes toast-enter {
@@ -1233,11 +1306,14 @@ input[type="number"] {
   min-height: var(--header-height);
 }
 
-@media (max-width: 640px) {
-  input,
-  textarea,
-  select {
-    font-size: 16px;
+/* 去掉缩放锁之后，输入框至少 16px，避免 iOS 聚焦时自动放大。
+   特异度要压过 Input / SearchField 上的 text-sm。 */
+@media (max-width: 767px) {
+  :is(input, textarea, select),
+  :is(input, textarea, select).text-sm,
+  .auth-field input,
+  .creation-prompt {
+    font-size: theme('fontSize.base');
   }
 }
 
@@ -1251,7 +1327,7 @@ input[type="number"] {
   background: hsl(var(--accent));
   color: hsl(var(--primary));
   border: 1px solid hsl(var(--border));
-  font-size: 0.8125rem;
+  font-size: theme('fontSize.body-sm');
   font-weight: 600;
   line-height: 1.5;
   vertical-align: middle;
@@ -1409,8 +1485,8 @@ input[type="number"] {
 .slot-tag[data-slot-count]::after {
   content: attr(data-slot-count);
   margin-left: 4px;
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: theme('fontSize.label-sm');
+  font-weight: 600;
   opacity: 0.75;
 }
 

@@ -1,16 +1,14 @@
 import { useMemo } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
+import { inspirationFacetLabel } from '../lib/labels'
 import { useInspirationStore } from '../store'
 
-export default function InspirationCategoryFilter() {
+/** 分类列表跟随当前 provider——只列出这个模型下实际有的分类。 */
+export function useVisibleCategories(): string[] {
   const items = useInspirationStore((s) => s.items)
   const selectedProvider = useInspirationStore((s) => s.selectedProvider)
-  const selectedCategory = useInspirationStore((s) => s.selectedCategory)
-  const setCategory = useInspirationStore((s) => s.setCategory)
-  const { t } = useTranslation('inspiration')
-
-  // 分类列表跟随当前 provider 过滤——只看到对应模型下实际存在的分类
-  const visibleCategories = useMemo(() => {
+  return useMemo(() => {
     const set = new Set<string>()
     for (const item of items) {
       if (selectedProvider !== 'all' && item.recommendedProvider !== selectedProvider) continue
@@ -18,6 +16,13 @@ export default function InspirationCategoryFilter() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'))
   }, [items, selectedProvider])
+}
+
+export default function InspirationCategoryFilter() {
+  const selectedCategory = useInspirationStore((s) => s.selectedCategory)
+  const setCategory = useInspirationStore((s) => s.setCategory)
+  const { t } = useTranslation('inspiration')
+  const visibleCategories = useVisibleCategories()
 
   return (
     <nav className="flex flex-col gap-1 p-2">
@@ -29,7 +34,7 @@ export default function InspirationCategoryFilter() {
       {visibleCategories.map((category) => (
         <CategoryButton
           key={category}
-          label={category}
+          label={inspirationFacetLabel(category)}
           active={selectedCategory === category}
           onClick={() => setCategory(category)}
         />
@@ -48,14 +53,15 @@ function CategoryButton({
   onClick: () => void
 }) {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-left text-sm transition ${
-        active ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted'
-      }`}
+      variant={active ? 'secondary' : 'ghost'}
+      aria-pressed={active}
+      size="sm"
+      className="h-auto min-h-8 justify-start whitespace-normal break-words text-left"
     >
-      {label}
-    </button>
+      <span className="min-w-0 flex-1">{label}</span>
+    </Button>
   )
 }

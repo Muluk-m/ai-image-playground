@@ -1,7 +1,7 @@
-import { ImagePlus, Upload } from 'lucide-react'
 import { type ReactNode, useRef, useState } from 'react'
 import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
@@ -32,7 +32,7 @@ function recentFirst(assets: readonly AssetRecord[]): AssetRecord[] {
 export function AssetSlotFace({ label, className = '' }: { label: string; className?: string }) {
   return (
     <span className={`${CHIP} ${EMPTY} ${className}`} data-asset-slot-face="">
-      <ImagePlus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Icon name="imageAdd" size="xs" />
       <span className="truncate">{label}</span>
     </span>
   )
@@ -154,16 +154,16 @@ export default function AssetSlotChip({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Button
           type="button"
           data-asset-slot-chip={slot.key}
           data-filled={filled ? '' : undefined}
           aria-label={t('slot.fillAria', { label: slot.label })}
           title={slot.label}
-          className={`${CHIP} ${
-            filled
-              ? 'border border-border/70 bg-muted/80 font-medium text-foreground hover:bg-muted'
-              : `${EMPTY} hover:bg-primary/10`
+          variant={filled ? 'secondary' : 'outline'}
+          size="xs"
+          className={`mx-0.5 max-w-56 align-middle ${
+            filled ? '' : 'border-dashed border-primary/35 text-primary'
           } ${chipDrop.dragging ? 'ring-2 ring-primary' : ''}`}
           {...chipDrop.dropZoneProps}
         >
@@ -180,13 +180,13 @@ export default function AssetSlotChip({
               ))}
             </span>
           ) : (
-            <ImagePlus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <Icon name="imageAdd" />
           )}
           <span className="truncate">{name}</span>
           {images.length > 1 && (
             <span className="text-xs text-muted-foreground">×{images.length}</span>
           )}
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-3" {...panelDrop.dropZoneProps}>
         <div className="flex flex-col gap-3" data-asset-slot-panel={slot.key}>
@@ -223,7 +223,7 @@ export default function AssetSlotChip({
               className="flex-1"
               onClick={() => fileInputRef.current?.click()}
             >
-              <Upload className="h-4 w-4" aria-hidden="true" />
+              <Icon name="upload" />
               {t('slot.upload')}
             </Button>
             {filled && (

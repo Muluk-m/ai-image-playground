@@ -76,6 +76,7 @@ function generate(): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  localStorage.removeItem('aip.referencesExpanded')
   stubPointerApis()
   vi.stubGlobal('requestAnimationFrame', () => 0)
   vi.stubGlobal('cancelAnimationFrame', () => {})
@@ -167,5 +168,43 @@ describe('生成栏的视频档', () => {
 
     expect(document.body.textContent).toContain('720p')
     expect(generate().disabled).toBe(true)
+  })
+})
+
+describe('画布参考图展示偏好', () => {
+  it('remembers expansion without changing the prompt or selected generation inputs', async () => {
+    useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, model: GROK } })
+    act(() => root.render(<CanvasGenerateBar editor={editor} />))
+    type('保留我的描述')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    })
+    const selection = [...editor.getSelectedIds()]
+    act(() => (host.querySelector('button[aria-expanded="false"]') as HTMLButtonElement).click())
+    expect(localStorage.getItem('aip.referencesExpanded')).toBe('true')
+    expect(host.querySelectorAll('[data-slot="attachment"]')).toHaveLength(2)
+    // The canvas handles these keys on window; preview interactions must not reach it.
+    const canvasKeyDown = vi.fn(() => editor.setSelectedElements([]))
+    window.addEventListener('keydown', canvasKeyDown)
+    try {
+      const preview = host.querySelector('[data-slot="attachment"]')!
+      for (const key of ['Escape', 'Delete', 'Backspace']) {
+        act(() => preview.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+      }
+      expect(canvasKeyDown).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', canvasKeyDown)
+    }
+    expect(editor.getSelectedIds()).toEqual(selection)
+    expect(host.querySelector('textarea')!.value).toBe('保留我的描述')
+    act(() => root.render(null))
+    act(() => root.render(<CanvasGenerateBar editor={editor} />))
+    expect(host.querySelector('section[aria-label]')).not.toBeNull()
+    act(() =>
+      (host.querySelector('.creation-reference-heading button') as HTMLButtonElement).click(),
+    )
+    expect(localStorage.getItem('aip.referencesExpanded')).toBe('false')
+    expect(host.querySelector('button[aria-expanded="false"]')).not.toBeNull()
+    expect(editor.getSelectedIds()).toEqual(selection)
   })
 })

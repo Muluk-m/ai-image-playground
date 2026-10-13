@@ -46,7 +46,9 @@ it('lists a cloud conversation once and keeps selection and rename coherent for 
   try {
     await act(async () => root.render(<ProjectNavigation />))
     const trigger = host.querySelector<HTMLButtonElement>('[aria-label^="切换项目"]')!
-    await act(async () => host.querySelector<HTMLButtonElement>('[title="点击重命名"]')!.click())
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-description="点击重命名"]')!.click(),
+    )
     const input = host.querySelector<HTMLInputElement>('input[aria-label="项目名称"]')!
     input.value = 'Renamed conversation'
     await act(async () => input.blur())
@@ -152,7 +154,9 @@ it('renames the active project from the title', async () => {
   const root = createRoot(host)
   try {
     await act(async () => root.render(<ProjectNavigation />))
-    await act(async () => host.querySelector<HTMLButtonElement>('[title="点击重命名"]')!.click())
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-description="点击重命名"]')!.click(),
+    )
     const input = host.querySelector<HTMLInputElement>('input[aria-label="项目名称"]')!
     expect(input.value).toBe('Old name')
     input.value = '  New name  '
@@ -193,7 +197,9 @@ it('drops an in-progress rename when the active project changes', async () => {
   const root = createRoot(host)
   try {
     await act(async () => root.render(<ProjectNavigation />))
-    await act(async () => host.querySelector<HTMLButtonElement>('[title="点击重命名"]')!.click())
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-description="点击重命名"]')!.click(),
+    )
     await act(async () => useCanvasProjectStore.setState({ activeId: 'b' }))
     expect(host.querySelector('input[aria-label="项目名称"]')).toBeNull()
     expect(host.textContent).toContain('Beta')
