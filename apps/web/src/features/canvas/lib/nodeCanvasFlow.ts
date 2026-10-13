@@ -7,6 +7,7 @@ export interface NodeReference {
   label: string
   text?: string
   fileId?: string
+  asset?: boolean
 }
 
 /** 目标节点的直接上游，按连线写入顺序。 */
@@ -30,6 +31,7 @@ export function incomingReferences(
       id: node.id,
       kind: node.type === 'video' || node.data.meta?.nodeKind === 'video' ? 'video' : 'image',
       label: node.data.name?.trim() ?? '',
+      ...(node.data.meta?.nodeKind === 'asset' ? { asset: true } : {}),
       ...(node.data.fileId ? { fileId: node.data.fileId } : {}),
     })
   }

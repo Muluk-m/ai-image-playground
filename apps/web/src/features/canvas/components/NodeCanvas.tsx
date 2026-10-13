@@ -908,7 +908,9 @@ function Flow({
       const target = event.target instanceof HTMLElement ? event.target : null
       if (
         target?.isContentEditable ||
-        target?.closest('input,textarea,[contenteditable],[role="dialog"],[role="menu"]')
+        target?.closest(
+          'input,textarea,[contenteditable],[role="dialog"],[role="menu"],[role="listbox"],[role="combobox"]',
+        )
       )
         return
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
@@ -1042,7 +1044,7 @@ function Flow({
   const roles: Record<string, string> = {}
   for (const ref of references) roles[ref.id] = meta[`role:${ref.id}`] ?? 'reference'
   const draftValue = meta.nodePrompt ?? ''
-  const setMeta = (patch: Record<string, string>) => {
+  const setMeta = (patch: Record<string, string>, trackUndo = true) => {
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
     if (!node || node.type === 'text' || node.type === 'timeline') return
@@ -1050,7 +1052,7 @@ function Flow({
       canvas.doc,
       node.id,
       { data: { ...node.data, meta: { ...node.data.meta, ...patch } } },
-      canvas.origin,
+      trackUndo ? canvas.origin : canvasOrigin('system', 'node-defaults'),
     )
   }
   const available = composerNode
@@ -1083,7 +1085,7 @@ function Flow({
         if (at > 0) [ids[at - 1], ids[at]] = [ids[at]!, ids[at - 1]!]
         setMeta({ referenceOrder: JSON.stringify(ids) })
       }}
-      roles={nodeKind(composerNode) === 'video' ? roles : undefined}
+      roles={undefined}
       onRole={(id, role) => {
         const patch: Record<string, string> = { [`role:${id}`]: role }
         if (role === 'first' || role === 'last')
@@ -1665,23 +1667,30 @@ function Flow({
                 )}
                 {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
                   <VideoNodeComposer
+                    key={composerNode.id}
+                    document={canvas.doc}
+                    nodeId={composerNode.id}
+                    meta={meta}
+                    onMeta={setMeta}
+                    references={references}
+                    files={files}
                     value={draftValue}
                     onChange={(value) => setMeta({ nodePrompt: value })}
-                    onSubmit={() =>
+                    onSubmit={(draft, activeRefs, activeRoles, activeFiles) =>
                       submitNodeVideo(
                         editor,
                         canvas.doc,
                         composerNode.id,
-                        composeNodePrompt(draftValue, references),
-                        references,
-                        roles,
-                        files,
+                        composeNodePrompt(draftValue, activeRefs),
+                        activeRefs,
+                        activeRoles,
+                        activeFiles,
+                        draft,
                       )
                     }
                     busy={busy}
                     position={composerAt}
                     referenceTools={referenceTools}
-                    hasFirstFrame={Object.values(roles).includes('first')}
                   />
                 )}
               </SpawnContext.Provider>
