@@ -1,4 +1,5 @@
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { TOOL_GROUPS, TOOLS } from '../lib/registry'
@@ -10,7 +11,6 @@ import { useToolboxIntake } from './useToolboxIntake'
 function ToolCard({ tool }: { tool: ToolDefinition }) {
   const { t } = useTranslation('toolbox')
   const openTool = useToolboxStore((state) => state.openTool)
-  const Icon = tool.icon
   return (
     <Button
       variant="ghost"
@@ -19,7 +19,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
       className="!h-auto !whitespace-normal justify-start group flex flex-col items-start gap-3 rounded-2xl border border-border bg-card p-5 text-left transition-colors hover:border-primary/50 hover:bg-accent/40"
     >
       <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary">
-        <Icon className="h-5 w-5" />
+        <Icon name={tool.icon} />
       </span>
       <span>
         <span className="block text-title font-medium">{t(`tool.${tool.id}.name`)}</span>

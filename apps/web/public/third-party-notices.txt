@@ -14,7 +14,8 @@ fragments and rendered with a non-scaling 1.5px stroke.
 
 -------------------------------------------------------------------------------
 
-Lucide — https://lucide.dev (hand, type, shapes, loader-circle)
+Lucide — https://lucide.dev (hand, type, shapes, loader-circle, rotate-cw, flip-horizontal-2,
+flip-vertical-2, gallery-vertical, grid-3x3, rocket, lightbulb)
 
 ISC License
 

@@ -247,20 +247,6 @@
   "apps/web/src/features/canvas/components/canvasPanelStyles.ts": {
     "focus-not-visible": 1
   },
-  "apps/web/src/features/guide/client.ts": {
-    "arbitrary-font": 3
-  },
-  "apps/web/src/features/guide/render.ts": {
-    "arbitrary-font": 39,
-    "arbitrary-radius": 2,
-    "arbitrary-spacing": 3,
-    "font-weight": 2,
-    "lucide-import": 1,
-    "opacity-text": 7
-  },
-  "apps/web/src/features/image-export/ExportTool.tsx": {
-    "lucide-import": 1
-  },
   "apps/web/src/features/inspiration/components/ExplorePage.tsx": {
     "native-control": 1
   },
@@ -290,48 +276,6 @@
   "apps/web/src/features/library/components/TemplateDetail.tsx": {
     "font-weight": 1,
     "offscale-font": 1
-  },
-  "apps/web/src/features/toolbox/components/CombineView.tsx": {
-    "lucide-import": 1,
-    "native-control": 3
-  },
-  "apps/web/src/features/toolbox/components/ToolResultCard.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/toolbox/components/ToolShell.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/components/ToolboxHeader.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/components/fields.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/toolbox/lib/registry.ts": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/collage.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/compress.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/convert.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/crop.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/rotate.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/slice.tsx": {
-    "glyph-icon": 1,
-    "lucide-import": 1
-  },
-  "apps/web/src/features/toolbox/tools/stitch.tsx": {
-    "lucide-import": 1
   },
   "apps/web/src/features/video/components/DeriveVideoPopover.tsx": {
     "native-control": 2
