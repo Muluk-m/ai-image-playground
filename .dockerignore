@@ -36,6 +36,7 @@
 # tailwind.config.js / postcss.config.js
 !apps/*/*.config.js
 !apps/*/components.json
+!apps/web/conversation-cache.config.json
 !apps/*/drizzle.config.ts
 !apps/admin/server
 !apps/admin/contracts.ts
