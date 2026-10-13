@@ -138,6 +138,7 @@ import { Icon } from '@/components/ui/icon'
 | `pause` | 暂停 | pause |
 | `volume` | 声音 | volume-loud |
 | `fullscreen` | 全屏 | full-screen |
+| `minimize` | 收起展开的内容区域 | minimize |
 | `download` | 下载、导出 | download-minimalistic |
 | `upload` | 上传 | upload-minimalistic |
 | `share` | 分享 | share |

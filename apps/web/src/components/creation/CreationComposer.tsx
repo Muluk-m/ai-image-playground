@@ -161,6 +161,16 @@ export function CreationComposer({
   const references = (
     <CreationReferenceStack
       count={draft.references.length}
+      onClear={() => {
+        dispatch({
+          type: 'text',
+          text: draft.text.replace(
+            /\u2063@图(\d+)\u2064/g,
+            (_, n: string) => draft.references[Number(n) - 1]?.name ?? '',
+          ),
+        })
+        dispatch({ type: 'references', references: [] })
+      }}
       previews={draft.references
         .slice(-3)
         .map((reference) => <MediaImage key={reference.id} src={reference.src} alt="" />)}

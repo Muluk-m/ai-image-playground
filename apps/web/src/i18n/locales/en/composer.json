@@ -185,6 +185,7 @@
     "references": "References ({{count}})",
     "uploadProgress": "Uploading {{ready}}/{{total}}",
     "viewAllReferences": "View all",
+    "clearReferences": "Clear references",
     "collapseReferences": "Collapse references"
   }
 }
