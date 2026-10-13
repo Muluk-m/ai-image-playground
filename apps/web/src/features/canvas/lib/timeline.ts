@@ -88,6 +88,10 @@ export function addSelectionToTimeline(editor: CanvasEditor): string | null {
   // 能知道时长就把出点定下来：源视频之后被删，这一段的长度和成片总长都不跟着变。
   const clips = videos.map((video): TimelineClip => {
     const seconds = sourceSeconds(video)
+    const start = Number(video.meta?.videoTrimIn)
+    const end = Number(video.meta?.videoTrimOut)
+    if (Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start)
+      return { elementId: video.id, in: start, out: end }
     return seconds === undefined
       ? { elementId: video.id, in: 0 }
       : { elementId: video.id, in: 0, out: seconds }

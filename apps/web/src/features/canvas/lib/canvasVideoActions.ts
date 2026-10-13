@@ -296,7 +296,7 @@ const FRAME_TIMEOUT_MS = 20_000
 /** 在浏览器里取这段视频的首帧或尾帧。取不到（跨域污染、超时、解码失败）返回 null。 */
 export function captureCanvasVideoFrame(
   video: CanvasVideoRef,
-  which: 'first' | 'last',
+  which: 'first' | 'last' | number,
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const element = document.createElement('video')
@@ -319,6 +319,11 @@ export function captureCanvasVideoFrame(
     element.addEventListener(
       'loadedmetadata',
       () => {
+        if (typeof which === 'number') {
+          if (!Number.isFinite(which) || !Number.isFinite(element.duration)) return settle(null)
+          element.currentTime = Math.max(0.001, Math.min(which, element.duration - 0.05))
+          return
+        }
         if (which === 'first') {
           element.currentTime = 0.001
           return

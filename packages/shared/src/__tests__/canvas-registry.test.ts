@@ -46,3 +46,42 @@ it('uses semantic video kinds and rejects unsupported links independent of canva
   expect(canvasNodeRegistry.text.description.length).toBeGreaterThan(0)
   doc.destroy()
 })
+
+it('allows a derived video frame link without allowing video as a general image reference', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'frames')
+  insertCanvasNode(
+    doc,
+    {
+      id: 'video',
+      type: 'video',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { video: { taskId: 'task', outputIndex: 0 } },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    doc,
+    {
+      id: 'image',
+      type: 'image',
+      x: 400,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { meta: { frameOf: 'video', frame: 'current' } },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    doc,
+    { id: 'other', type: 'image', x: 800, y: 0, width: 320, height: 180, data: {} },
+    origin,
+  )
+  expect(connectCanvasNodes(doc, { source: 'video', target: 'image' }, origin)).toBe(true)
+  expect(connectCanvasNodes(doc, { source: 'video', target: 'other' }, origin)).toBe(false)
+  doc.destroy()
+})

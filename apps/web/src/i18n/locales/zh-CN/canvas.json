@@ -522,6 +522,14 @@
     "videoModeReference": "全能参考",
     "chooseFrame": "选择图片",
     "swapFrames": "对调首尾帧",
-    "tooManyVideoReferences": "当前模型最多支持 {{max}} 张参考图"
+    "tooManyVideoReferences": "当前模型最多支持 {{max}} 张参考图",
+    "videoTools": "视频工具",
+    "framecurrent": "截取当前帧",
+    "framefirst": "截取首帧",
+    "framelast": "截取尾帧",
+    "trimVideo": "裁剪时长",
+    "trimStart": "开始（秒）",
+    "trimEnd": "结束（秒）",
+    "trimHint": "保留原视频，已有和新加入的时间线片段使用此范围。"
   }
 }

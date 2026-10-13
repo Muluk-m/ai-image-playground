@@ -90,6 +90,7 @@ import {
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
 import { TEXT_CARD_HEIGHT, TEXT_CARD_WIDTH } from '../lib/nodeCanvasPlace'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
+import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import ImageNodeComposer from './ImageNodeComposer'
@@ -100,6 +101,7 @@ import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeSliceMenu from './NodeSliceMenu'
 import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
+import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
 import VideoNodeComposer from './VideoNodeComposer'
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
@@ -435,6 +437,7 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
+  const playheads = useContext(NodeVideoPlayheadContext)
   const poster = useNodeMedia(
     node && 'fileId' in node.data && node.data.fileId ? files[node.data.fileId] : undefined,
   )
@@ -476,6 +479,7 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
               src={queueOutputUrl(video.taskId, video.outputIndex)}
               poster={poster}
               onEnded={() => setPlaying(false)}
+              onTimeChange={(seconds) => playheads.set(node.id, seconds)}
             />
           </div>
         </div>
@@ -487,7 +491,13 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
       <NodeCaption node={node} />
       <NodeResize node={node} selected={selected} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
-        <Picture fileId={fileId} rotation={rotation} />
+        {fileId ? (
+          <Picture fileId={fileId} rotation={rotation} />
+        ) : (
+          <div className="studio-node-empty">
+            <Icon name="video" size="lg" />
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -676,7 +686,8 @@ function Flow({
       .then(setPreview)
       .catch(() => useStore.getState().showToast(t('nodes.mediaMissing'), 'error'))
   }
-  const [videoPreview, setVideoPreview] = useState<string | null>(null)
+  const [videoPreview, setVideoPreview] = useState<{ src: string; id: string } | null>(null)
+  const playheads = useRef(new Map<string, number>()).current
   const [history, setHistory] = useState({ undo: false, redo: false })
   const copied = useRef<CanvasSnapshot | null>(null)
   const selectedIds = useRef<string[]>([])
@@ -729,7 +740,12 @@ function Flow({
       const dy =
         top < 64
           ? 64 - top
-          : Math.min(0, frame.height - (target.type === 'text' ? 72 : 264) - bottom)
+          : Math.min(
+              0,
+              frame.height -
+                (target.type === 'text' ? 72 : nodeKind(target) === 'video' ? 480 : 320) -
+                bottom,
+            )
       if (dx || dy)
         flowRef.current?.setViewport({ zoom: frame.zoom, x: frame.x + dx, y: frame.y + dy })
     }
@@ -1167,538 +1183,564 @@ function Flow({
     }
   }
   return (
-    <PreviewContext.Provider value={showPreview}>
-      <RenameGroupContext.Provider
-        value={(id, name) => {
-          canvas.undo.stopCapturing()
-          renameCanvasGroup(canvas.doc, id, name, canvas.origin)
-        }}
-      >
-        <EditNodeContext.Provider value={editNode}>
-          <TextCanvasContext.Provider value={canvas}>
-            <FillImageContext.Provider value={uploadInto}>
-              <SpawnContext.Provider value={spawnBeside}>
-                <ReactFlow<FlowNode>
-                  nodes={nodes}
-                  edges={snapshot.edges.map((edge) => ({
-                    id: edge.id,
-                    source: edge.source,
-                    target: edge.target,
-                    interactionWidth: 22,
-                    selected: selectedEdges.includes(edge.id),
-                    className: litEdgeIds?.has(edge.id) ? 'studio-edge-lit' : undefined,
-                    zIndex: litEdgeIds?.has(edge.id) ? 1 : 0,
-                  }))}
-                  onEdgeMouseEnter={(_event, edge) => {
-                    setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
-                  }}
-                  onEdgeMouseLeave={(event) => {
-                    const next = event.relatedTarget
-                    const nextId =
-                      next instanceof Element
-                        ? next.closest('.react-flow__edge')?.getAttribute('data-id')
-                        : null
-                    if (nextId && litRef.current?.has(nextId)) return
-                    setLitEdgeIds(null)
-                  }}
-                  nodeTypes={nodeTypes}
-                  zoomOnDoubleClick={false}
-                  selectionOnDrag={mode === 'select'}
-                  selectionMode={SelectionMode.Partial}
-                  panOnDrag={mode === 'pan' ? true : [1, 2]}
-                  panOnScroll
-                  zoomOnScroll={false}
-                  multiSelectionKeyCode="Shift"
-                  onSelectionChange={({ nodes: selected }) => {
-                    const ids = selected.filter((n) => n.data.node || n.data.group).map((n) => n.id)
-                    selectedIds.current = ids
-                    if (ids.length) setSelectedEdges((current) => (current.length ? [] : current))
-                    setSelectedCount(ids.length)
-                    const id = ids.length === 1 ? ids[0]! : null
-                    selectedRef.current = id
-                    setSelectedId(id)
-                  }}
-                  onPaneContextMenu={(event) => {
-                    event.preventDefault()
-                    placeAt.current =
-                      flowRef.current?.screenToFlowPosition({
-                        x: event.clientX,
-                        y: event.clientY,
-                      }) ?? center()
-                    setMenu({ x: event.clientX, y: event.clientY })
-                  }}
-                  onNodeClick={(event, node) => {
-                    if (!event.shiftKey && node.data.node) revealNode(node.data.node)
-                  }}
-                  onNodeContextMenu={(event, node) => {
-                    event.preventDefault()
-                    if (!selectedIds.current.includes(node.id)) selectNode(node.id)
-                    placeAt.current = center()
-                    setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
-                  }}
-                  onEdgeClick={(event, edge) => {
-                    event.stopPropagation()
-                    selectNode(null)
-                    setSelectedEdges([edge.id])
-                  }}
-                  onConnectStart={(event) => {
-                    const point = 'touches' in event ? event.touches[0] : event
-                    if (point) connectStart.current = { x: point.clientX, y: point.clientY }
-                  }}
-                  elevateNodesOnSelect={false}
-                  onNodesChange={(changes: NodeChange<FlowNode>[]) =>
-                    setNodes((current) => {
-                      const next = applyNodeChanges(changes, current)
-                      const changed = new Set(
-                        changes
-                          .filter((change) => change.type === 'position')
-                          .map((change) => change.id),
-                      )
-                      const shifts = new Map<string, { x: number; y: number }>()
-                      for (const group of next.filter(
-                        (node) => node.data.group && changed.has(node.id),
-                      )) {
-                        const previous = current.find((node) => node.id === group.id)
-                        if (!previous) continue
-                        for (const id of group.data.group!.members)
-                          shifts.set(id, {
-                            x: group.position.x - previous.position.x,
-                            y: group.position.y - previous.position.y,
-                          })
-                      }
-                      return next.map((node) => {
-                        const shift = shifts.get(node.id)
-                        return shift && !changed.has(node.id)
-                          ? {
-                              ...node,
-                              position: {
-                                x: node.position.x + shift.x,
-                                y: node.position.y + shift.y,
-                              },
-                            }
-                          : node
+    <NodeVideoPlayheadContext.Provider value={playheads}>
+      <PreviewContext.Provider value={showPreview}>
+        <RenameGroupContext.Provider
+          value={(id, name) => {
+            canvas.undo.stopCapturing()
+            renameCanvasGroup(canvas.doc, id, name, canvas.origin)
+          }}
+        >
+          <EditNodeContext.Provider value={editNode}>
+            <TextCanvasContext.Provider value={canvas}>
+              <FillImageContext.Provider value={uploadInto}>
+                <SpawnContext.Provider value={spawnBeside}>
+                  <ReactFlow<FlowNode>
+                    nodes={nodes}
+                    edges={snapshot.edges.map((edge) => ({
+                      id: edge.id,
+                      source: edge.source,
+                      target: edge.target,
+                      interactionWidth: 22,
+                      selected: selectedEdges.includes(edge.id),
+                      className: litEdgeIds?.has(edge.id) ? 'studio-edge-lit' : undefined,
+                      zIndex: litEdgeIds?.has(edge.id) ? 1 : 0,
+                    }))}
+                    onEdgeMouseEnter={(_event, edge) => {
+                      setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
+                    }}
+                    onEdgeMouseLeave={(event) => {
+                      const next = event.relatedTarget
+                      const nextId =
+                        next instanceof Element
+                          ? next.closest('.react-flow__edge')?.getAttribute('data-id')
+                          : null
+                      if (nextId && litRef.current?.has(nextId)) return
+                      setLitEdgeIds(null)
+                    }}
+                    nodeTypes={nodeTypes}
+                    zoomOnDoubleClick={false}
+                    selectionOnDrag={mode === 'select'}
+                    selectionMode={SelectionMode.Partial}
+                    panOnDrag={mode === 'pan' ? true : [1, 2]}
+                    panOnScroll
+                    zoomOnScroll={false}
+                    multiSelectionKeyCode="Shift"
+                    onSelectionChange={({ nodes: selected }) => {
+                      const ids = selected
+                        .filter((n) => n.data.node || n.data.group)
+                        .map((n) => n.id)
+                      selectedIds.current = ids
+                      if (ids.length) setSelectedEdges((current) => (current.length ? [] : current))
+                      setSelectedCount(ids.length)
+                      const id = ids.length === 1 ? ids[0]! : null
+                      selectedRef.current = id
+                      setSelectedId(id)
+                    }}
+                    onPaneContextMenu={(event) => {
+                      event.preventDefault()
+                      placeAt.current =
+                        flowRef.current?.screenToFlowPosition({
+                          x: event.clientX,
+                          y: event.clientY,
+                        }) ?? center()
+                      setMenu({ x: event.clientX, y: event.clientY })
+                    }}
+                    onNodeClick={(event, node) => {
+                      if (!event.shiftKey && node.data.node) revealNode(node.data.node)
+                    }}
+                    onNodeContextMenu={(event, node) => {
+                      event.preventDefault()
+                      if (!selectedIds.current.includes(node.id)) selectNode(node.id)
+                      placeAt.current = center()
+                      setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
+                    }}
+                    onEdgeClick={(event, edge) => {
+                      event.stopPropagation()
+                      selectNode(null)
+                      setSelectedEdges([edge.id])
+                    }}
+                    onConnectStart={(event) => {
+                      const point = 'touches' in event ? event.touches[0] : event
+                      if (point) connectStart.current = { x: point.clientX, y: point.clientY }
+                    }}
+                    elevateNodesOnSelect={false}
+                    onNodesChange={(changes: NodeChange<FlowNode>[]) =>
+                      setNodes((current) => {
+                        const next = applyNodeChanges(changes, current)
+                        const changed = new Set(
+                          changes
+                            .filter((change) => change.type === 'position')
+                            .map((change) => change.id),
+                        )
+                        const shifts = new Map<string, { x: number; y: number }>()
+                        for (const group of next.filter(
+                          (node) => node.data.group && changed.has(node.id),
+                        )) {
+                          const previous = current.find((node) => node.id === group.id)
+                          if (!previous) continue
+                          for (const id of group.data.group!.members)
+                            shifts.set(id, {
+                              x: group.position.x - previous.position.x,
+                              y: group.position.y - previous.position.y,
+                            })
+                        }
+                        return next.map((node) => {
+                          const shift = shifts.get(node.id)
+                          return shift && !changed.has(node.id)
+                            ? {
+                                ...node,
+                                position: {
+                                  x: node.position.x + shift.x,
+                                  y: node.position.y + shift.y,
+                                },
+                              }
+                            : node
+                        })
                       })
-                    })
-                  }
-                  onPaneClick={() => {
-                    selectNode(null)
-                    closeMenu()
-                  }}
-                  onConnect={(connection) => {
-                    if (!connection.source || !connection.target) return
-                    connectCanvasNodes(
-                      canvas.doc,
-                      { source: connection.source, target: connection.target },
-                      canvas.origin,
-                    )
-                  }}
-                  onConnectEnd={connectDrop}
-                  isValidConnection={(connection) =>
-                    Boolean(
-                      connection.source &&
-                        connection.target &&
-                        canvasLinkAllowed(snapshot, {
-                          source: connection.source,
-                          target: connection.target,
-                        }),
-                    )
-                  }
-                  onNodeDragStart={() => canvas.undo.stopCapturing()}
-                  onNodeDragStop={(_event, _node, dragged) => {
-                    const groups = dragged.filter((one) => one.data.group)
-                    const members = new Set(groups.flatMap((one) => one.data.group!.members))
-                    const free = dragged.filter((one) => one.data.node && !members.has(one.id))
-                    canvas.doc.transact(() => {
-                      moveCanvasGroups(
+                    }
+                    onPaneClick={() => {
+                      selectNode(null)
+                      closeMenu()
+                    }}
+                    onConnect={(connection) => {
+                      if (!connection.source || !connection.target) return
+                      connectCanvasNodes(
                         canvas.doc,
-                        groups.map((one) => ({ id: one.id, ...one.position })),
+                        { source: connection.source, target: connection.target },
                         canvas.origin,
                       )
-                      moveCanvasNodes(
-                        canvas.doc,
-                        free.map((one) => ({ id: one.id, ...one.position })),
-                        canvas.origin,
-                      )
-                      reconcileCanvasGroupMembership(
-                        canvas.doc,
-                        free.map((one) => one.id),
-                        canvas.origin,
-                      )
-                    }, canvas.origin)
-                    canvas.undo.stopCapturing()
-                  }}
-                  onMove={(_event, viewport) => remember(viewport)}
-                  onMoveEnd={(_event, viewport) =>
-                    safeLocalStorage.setItem(
-                      scopedStorageName(`node-viewport:${viewKey}`),
-                      JSON.stringify(viewport),
-                    )
-                  }
-                  colorMode={theme}
-                  minZoom={0.05}
-                  maxZoom={8}
-                  onInit={(flow) => {
-                    flowRef.current = flow
-                    const bounds = contentBounds(snapshot)
-                    const box = container.current
-                    // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
-                    let saved: { x: number; y: number; zoom: number } | undefined
-                    try {
-                      const value = JSON.parse(
-                        safeLocalStorage.getItem(scopedStorageName(`node-viewport:${viewKey}`)) ??
-                          'null',
-                      )
-                      if (
-                        value &&
-                        [value.x, value.y, value.zoom].every(Number.isFinite) &&
-                        value.zoom >= 0.05 &&
-                        value.zoom <= 8
-                      )
-                        saved = value
-                    } catch {}
-                    if (saved) flow.setViewport(saved)
-                    else if (bounds && box?.clientWidth && box.clientHeight) {
-                      // 与旧画布一致：打开时最多按 100% 显示。
-                      flow.setViewport(
-                        getViewportForBounds(
-                          bounds,
-                          box.clientWidth,
-                          box.clientHeight,
-                          0.05,
-                          1,
-                          0.1,
-                        ),
+                    }}
+                    onConnectEnd={connectDrop}
+                    isValidConnection={(connection) =>
+                      Boolean(
+                        connection.source &&
+                          connection.target &&
+                          canvasLinkAllowed(snapshot, {
+                            source: connection.source,
+                            target: connection.target,
+                          }),
                       )
                     }
-                    remember(flow.getViewport())
-                  }}
-                  deleteKeyCode={null}
-                  proOptions={{ hideAttribution: true }}
-                >
-                  <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
-                  {minimap && <MiniMap pannable zoomable position="bottom-right" />}
-                </ReactFlow>
-                <NodeCanvasToolbar
-                  onCreate={(kind) => addNode(kind, center())}
-                  onMenu={openMenu}
-                  onAssets={() => {
-                    placeAt.current = center()
-                    setAssetsOpen(true)
-                  }}
-                  onUpload={() => {
-                    placeAt.current = center()
-                    fileInput.current?.click()
-                  }}
-                  mode={mode}
-                  onMode={setMode}
-                  zoom={frame.zoom}
-                  onZoom={(zoom) => void flowRef.current?.zoomTo(Math.max(0.05, Math.min(8, zoom)))}
-                  onFit={fit}
-                  minimap={minimap}
-                  onMinimap={() => setMinimap(!minimap)}
-                  onUndo={() => canvas.undo.undo()}
-                  onRedo={() => canvas.undo.redo()}
-                  canUndo={history.undo}
-                  canRedo={history.redo}
-                  onChat={onChat}
-                />
-                {snapshot.nodes.length === 0 && (
-                  <div className="studio-node-empty-hint text-body-md">{t('nodes.emptyHint')}</div>
-                )}
-                {selected?.data.group && (
-                  <div className="studio-node-selection-bar text-label-md">
-                    <span>{selected.data.group.name}</span>
-                    <NodeTool icon="folder" label={t('nodes.ungroup')} onClick={ungroup} />
-                    <NodeTool icon="duplicate" label={t('nodes.duplicate')} onClick={duplicate} />
-                  </div>
-                )}
-                {selectedCount > 1 && (
-                  <div className="studio-node-selection-bar text-label-md">
-                    <span>{t('nodes.selectedCount', { count: selectedCount })}</span>
-                    <NodeTool icon="folder" label={t('nodes.group')} onClick={makeGroup} />
-                    <NodeTool
-                      icon="add"
-                      label={t('nodes.newFromSelection')}
-                      onClick={() =>
-                        spawnBeside(selectedIds.current[selectedIds.current.length - 1]!, 'right')
-                      }
-                    />
-                    <NodeTool icon="duplicate" label={t('nodes.duplicate')} onClick={duplicate} />
-                    <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
-                  </div>
-                )}
-                {assetsOpen && (
-                  <NodeAssetPicker
-                    onClose={() => setAssetsOpen(false)}
-                    onChoose={(imageId, name) => {
-                      setAssetsOpen(false)
-                      void loadImageOriginal(imageId)
-                        .then(async (source) => {
-                          if (!source) throw new Error('missing image')
-                          const response = await fetch(source)
-                          if (!response.ok) throw new Error('missing image')
-                          const blob = await response.blob()
-                          const id = createNode(canvas, 'image', placeAt.current, textFill)
-                          await fillImageNode(
-                            editor,
-                            canvas.doc,
-                            id,
-                            new File([blob], name, { type: blob.type }),
-                          )
-                          selectNode(id)
-                        })
-                        .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+                    onNodeDragStart={() => canvas.undo.stopCapturing()}
+                    onNodeDragStop={(_event, _node, dragged) => {
+                      const groups = dragged.filter((one) => one.data.group)
+                      const members = new Set(groups.flatMap((one) => one.data.group!.members))
+                      const free = dragged.filter((one) => one.data.node && !members.has(one.id))
+                      canvas.doc.transact(() => {
+                        moveCanvasGroups(
+                          canvas.doc,
+                          groups.map((one) => ({ id: one.id, ...one.position })),
+                          canvas.origin,
+                        )
+                        moveCanvasNodes(
+                          canvas.doc,
+                          free.map((one) => ({ id: one.id, ...one.position })),
+                          canvas.origin,
+                        )
+                        reconcileCanvasGroupMembership(
+                          canvas.doc,
+                          free.map((one) => one.id),
+                          canvas.origin,
+                        )
+                      }, canvas.origin)
+                      canvas.undo.stopCapturing()
                     }}
-                  />
-                )}
-                {preview && <ImagePreview src={preview} onClose={() => setPreview(null)} />}
-                {videoPreview && (
-                  <Overlay onClose={() => setVideoPreview(null)} label={t('nodes.preview')}>
-                    <div className="relative h-[80vh] w-[90vw]">
-                      <CanvasVideoPlayer src={videoPreview} onEnded={() => {}} />
-                      <Button
-                        className="absolute right-2 top-2"
-                        onClick={() => setVideoPreview(null)}
-                      >
-                        {common('action.close')}
-                      </Button>
-                    </div>
-                  </Overlay>
-                )}
-                {composerNode &&
-                  selected &&
-                  'fileId' in composerNode.data &&
-                  composerNode.data.fileId && (
-                    <div
-                      className="studio-node-media-actions"
-                      style={{
-                        left: Math.max(
-                          150,
-                          Math.min(
-                            selected.position.x * frame.zoom +
-                              frame.x +
-                              ((selected.width ?? 0) * frame.zoom) / 2,
-                            frame.width - 150,
+                    onMove={(_event, viewport) => remember(viewport)}
+                    onMoveEnd={(_event, viewport) =>
+                      safeLocalStorage.setItem(
+                        scopedStorageName(`node-viewport:${viewKey}`),
+                        JSON.stringify(viewport),
+                      )
+                    }
+                    colorMode={theme}
+                    minZoom={0.05}
+                    maxZoom={8}
+                    onInit={(flow) => {
+                      flowRef.current = flow
+                      const bounds = contentBounds(snapshot)
+                      const box = container.current
+                      // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
+                      let saved: { x: number; y: number; zoom: number } | undefined
+                      try {
+                        const value = JSON.parse(
+                          safeLocalStorage.getItem(scopedStorageName(`node-viewport:${viewKey}`)) ??
+                            'null',
+                        )
+                        if (
+                          value &&
+                          [value.x, value.y, value.zoom].every(Number.isFinite) &&
+                          value.zoom >= 0.05 &&
+                          value.zoom <= 8
+                        )
+                          saved = value
+                      } catch {}
+                      if (saved) flow.setViewport(saved)
+                      else if (bounds && box?.clientWidth && box.clientHeight) {
+                        // 与旧画布一致：打开时最多按 100% 显示。
+                        flow.setViewport(
+                          getViewportForBounds(
+                            bounds,
+                            box.clientWidth,
+                            box.clientHeight,
+                            0.05,
+                            1,
+                            0.1,
                           ),
-                        ),
-                        top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),
-                      }}
-                    >
+                        )
+                      }
+                      remember(flow.getViewport())
+                    }}
+                    deleteKeyCode={null}
+                    proOptions={{ hideAttribution: true }}
+                  >
+                    <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
+                    {minimap && <MiniMap pannable zoomable position="bottom-right" />}
+                  </ReactFlow>
+                  <NodeCanvasToolbar
+                    onCreate={(kind) => addNode(kind, center())}
+                    onMenu={openMenu}
+                    onAssets={() => {
+                      placeAt.current = center()
+                      setAssetsOpen(true)
+                    }}
+                    onUpload={() => {
+                      placeAt.current = center()
+                      fileInput.current?.click()
+                    }}
+                    mode={mode}
+                    onMode={setMode}
+                    zoom={frame.zoom}
+                    onZoom={(zoom) =>
+                      void flowRef.current?.zoomTo(Math.max(0.05, Math.min(8, zoom)))
+                    }
+                    onFit={fit}
+                    minimap={minimap}
+                    onMinimap={() => setMinimap(!minimap)}
+                    onUndo={() => canvas.undo.undo()}
+                    onRedo={() => canvas.undo.redo()}
+                    canUndo={history.undo}
+                    canRedo={history.redo}
+                    onChat={onChat}
+                  />
+                  {snapshot.nodes.length === 0 && (
+                    <div className="studio-node-empty-hint text-body-md">
+                      {t('nodes.emptyHint')}
+                    </div>
+                  )}
+                  {selected?.data.group && (
+                    <div className="studio-node-selection-bar text-label-md">
+                      <span>{selected.data.group.name}</span>
+                      <NodeTool icon="folder" label={t('nodes.ungroup')} onClick={ungroup} />
+                      <NodeTool icon="duplicate" label={t('nodes.duplicate')} onClick={duplicate} />
+                    </div>
+                  )}
+                  {selectedCount > 1 && (
+                    <div className="studio-node-selection-bar text-label-md">
+                      <span>{t('nodes.selectedCount', { count: selectedCount })}</span>
+                      <NodeTool icon="folder" label={t('nodes.group')} onClick={makeGroup} />
                       <NodeTool
-                        icon="fullscreen"
-                        label={t('nodes.preview')}
-                        onClick={() => {
-                          if (composerNode.type === 'video') {
-                            setVideoPreview(
-                              queueOutputUrl(
-                                composerNode.data.video.taskId,
-                                composerNode.data.video.outputIndex,
-                              ),
-                            )
-                          } else {
-                            const source = files[composerNode.data.fileId!]
-                            if (source) showPreview(source)
-                          }
-                        }}
-                      />
-                      <NodeTool
-                        icon="download"
-                        label={
-                          composerNode.type === 'video'
-                            ? common('action.download')
-                            : t('nodes.download')
+                        icon="add"
+                        label={t('nodes.newFromSelection')}
+                        onClick={() =>
+                          spawnBeside(selectedIds.current[selectedIds.current.length - 1]!, 'right')
                         }
-                        onClick={() => {
-                          const source =
-                            composerNode.type === 'video'
-                              ? queueOutputUrl(
-                                  composerNode.data.video.taskId,
-                                  composerNode.data.video.outputIndex,
-                                )
-                              : files[composerNode.data.fileId!]
-                          if (source) {
-                            void resolveMediaSource(source, 'original', true)
-                              .then((url) => fetch(url, { credentials: 'include' }))
-                              .then(async (response) => {
-                                if (!response.ok) throw new Error('download failed')
-                                const blob = await response.blob()
-                                const extension =
-                                  blob.type.split('/')[1]?.split(';')[0] ||
-                                  (composerNode.type === 'video' ? 'mp4' : 'png')
-                                const name = composerNode.data.name || 'muvloom'
-                                downloadBlob(
-                                  blob,
-                                  /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
-                                    ? name
-                                    : `${name}.${extension}`,
-                                )
-                              })
-                              .catch(() =>
-                                useStore.getState().showToast(t('import.failed'), 'error'),
-                              )
-                          }
-                        }}
                       />
-                      {composerNode.type === 'image' && nodeKind(composerNode) === 'image' && (
-                        <NodeSliceMenu
-                          key={composerNode.id}
-                          editor={editor}
-                          canvas={canvas}
-                          nodeId={composerNode.id}
-                          onCreated={selectCreatedBatch}
-                        />
-                      )}
                       <NodeTool icon="duplicate" label={t('nodes.duplicate')} onClick={duplicate} />
                       <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                     </div>
                   )}
-                {fileOver && (
-                  <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
-                    <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
-                      {t('drop.hint')}
-                    </span>
-                  </div>
-                )}
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="sr-only"
-                  aria-hidden="true"
-                  tabIndex={-1}
-                  onChange={(event) => {
-                    const files = [...(event.target.files ?? [])]
-                    event.target.value = ''
-                    placeFiles(files)
-                  }}
-                />
-                {menu && (
-                  <NodeAddMenu
-                    disabledKinds={(['text', 'image', 'video'] as const).filter(
-                      (kind) => !canAddKind(kind),
+                  {assetsOpen && (
+                    <NodeAssetPicker
+                      onClose={() => setAssetsOpen(false)}
+                      onChoose={(imageId, name) => {
+                        setAssetsOpen(false)
+                        void loadImageOriginal(imageId)
+                          .then(async (source) => {
+                            if (!source) throw new Error('missing image')
+                            const response = await fetch(source)
+                            if (!response.ok) throw new Error('missing image')
+                            const blob = await response.blob()
+                            const id = createNode(canvas, 'image', placeAt.current, textFill)
+                            await fillImageNode(
+                              editor,
+                              canvas.doc,
+                              id,
+                              new File([blob], name, { type: blob.type }),
+                            )
+                            selectNode(id)
+                          })
+                          .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+                      }}
+                    />
+                  )}
+                  {preview && <ImagePreview src={preview} onClose={() => setPreview(null)} />}
+                  {videoPreview && (
+                    <Overlay onClose={() => setVideoPreview(null)} label={t('nodes.preview')}>
+                      <div className="relative h-[80vh] w-[90vw]">
+                        <CanvasVideoPlayer
+                          src={videoPreview.src}
+                          onTimeChange={(seconds) => playheads.set(videoPreview.id, seconds)}
+                          onEnded={() => {}}
+                        />
+                        <Button
+                          className="absolute right-2 top-2"
+                          onClick={() => setVideoPreview(null)}
+                        >
+                          {common('action.close')}
+                        </Button>
+                      </div>
+                    </Overlay>
+                  )}
+                  {composerNode &&
+                    selected &&
+                    (composerNode.type === 'video' ||
+                      ('fileId' in composerNode.data && composerNode.data.fileId)) && (
+                      <div
+                        className="studio-node-media-actions"
+                        style={{
+                          left: Math.max(
+                            150,
+                            Math.min(
+                              selected.position.x * frame.zoom +
+                                frame.x +
+                                ((selected.width ?? 0) * frame.zoom) / 2,
+                              frame.width - 150,
+                            ),
+                          ),
+                          top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),
+                        }}
+                      >
+                        <NodeTool
+                          icon="fullscreen"
+                          label={t('nodes.preview')}
+                          onClick={() => {
+                            if (composerNode.type === 'video') {
+                              setVideoPreview({
+                                id: composerNode.id,
+                                src: queueOutputUrl(
+                                  composerNode.data.video.taskId,
+                                  composerNode.data.video.outputIndex,
+                                ),
+                              })
+                            } else {
+                              const source = files[composerNode.data.fileId!]
+                              if (source) showPreview(source)
+                            }
+                          }}
+                        />
+                        <NodeTool
+                          icon="download"
+                          label={
+                            composerNode.type === 'video'
+                              ? common('action.download')
+                              : t('nodes.download')
+                          }
+                          onClick={() => {
+                            const source =
+                              composerNode.type === 'video'
+                                ? queueOutputUrl(
+                                    composerNode.data.video.taskId,
+                                    composerNode.data.video.outputIndex,
+                                  )
+                                : files[composerNode.data.fileId!]
+                            if (source) {
+                              void resolveMediaSource(source, 'original', true)
+                                .then((url) => fetch(url, { credentials: 'include' }))
+                                .then(async (response) => {
+                                  if (!response.ok) throw new Error('download failed')
+                                  const blob = await response.blob()
+                                  const extension =
+                                    blob.type.split('/')[1]?.split(';')[0] ||
+                                    (composerNode.type === 'video' ? 'mp4' : 'png')
+                                  const name = composerNode.data.name || 'muvloom'
+                                  downloadBlob(
+                                    blob,
+                                    /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
+                                      ? name
+                                      : `${name}.${extension}`,
+                                  )
+                                })
+                                .catch(() =>
+                                  useStore.getState().showToast(t('import.failed'), 'error'),
+                                )
+                            }
+                          }}
+                        />
+                        {composerNode.type === 'video' && (
+                          <NodeVideoTools
+                            key={`${composerNode.id}:${composerNode.data.video.taskId}:${composerNode.data.video.outputIndex}`}
+                            editor={editor}
+                            canvas={canvas}
+                            node={composerNode}
+                            onCreated={selectCreatedBatch}
+                          />
+                        )}
+                        {composerNode.type === 'image' && nodeKind(composerNode) === 'image' && (
+                          <NodeSliceMenu
+                            key={composerNode.id}
+                            editor={editor}
+                            canvas={canvas}
+                            nodeId={composerNode.id}
+                            onCreated={selectCreatedBatch}
+                          />
+                        )}
+                        <NodeTool
+                          icon="duplicate"
+                          label={t('nodes.duplicate')}
+                          onClick={duplicate}
+                        />
+                        <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
+                      </div>
                     )}
-                    x={menu.x}
-                    y={menu.y}
-                    onClose={closeMenu}
-                    onText={() => addNode('text')}
-                    onImage={() => addNode('image')}
-                    onVideo={() => addNode('video')}
-                    onAssets={() => {
-                      closeMenu()
-                      setAssetsOpen(true)
+                  {fileOver && (
+                    <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
+                      <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
+                        {t('drop.hint')}
+                      </span>
+                    </div>
+                  )}
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="sr-only"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    onChange={(event) => {
+                      const files = [...(event.target.files ?? [])]
+                      event.target.value = ''
+                      placeFiles(files)
                     }}
-                    actions={
-                      menu.nodeId
-                        ? [
-                            {
-                              icon: 'folder',
-                              label: t(selected?.data.group ? 'nodes.ungroup' : 'nodes.group'),
-                              onClick: selected?.data.group ? ungroup : makeGroup,
-                            },
-                            {
-                              icon: 'copy',
-                              label: t('nodes.copy'),
-                              onClick: () => {
-                                copied.current = copyNodes(snapshot, selectedIds.current)
-                                closeMenu()
-                              },
-                            },
-                            {
-                              icon: 'duplicate',
-                              label: t('nodes.duplicate'),
-                              onClick: () => {
-                                duplicate()
-                                closeMenu()
-                              },
-                            },
-                            { icon: 'delete', label: t('nodes.delete'), onClick: remove },
-                          ]
-                        : copied.current
+                  />
+                  {menu && (
+                    <NodeAddMenu
+                      disabledKinds={(['text', 'image', 'video'] as const).filter(
+                        (kind) => !canAddKind(kind),
+                      )}
+                      x={menu.x}
+                      y={menu.y}
+                      onClose={closeMenu}
+                      onText={() => addNode('text')}
+                      onImage={() => addNode('image')}
+                      onVideo={() => addNode('video')}
+                      onAssets={() => {
+                        closeMenu()
+                        setAssetsOpen(true)
+                      }}
+                      actions={
+                        menu.nodeId
                           ? [
                               {
+                                icon: 'folder',
+                                label: t(selected?.data.group ? 'nodes.ungroup' : 'nodes.group'),
+                                onClick: selected?.data.group ? ungroup : makeGroup,
+                              },
+                              {
                                 icon: 'copy',
-                                label: t('nodes.paste'),
+                                label: t('nodes.copy'),
                                 onClick: () => {
-                                  const ids = pasteNodes(canvas, copied.current!, placeAt.current)
-                                  selectNode(ids[0] ?? null)
+                                  copied.current = copyNodes(snapshot, selectedIds.current)
                                   closeMenu()
                                 },
                               },
+                              {
+                                icon: 'duplicate',
+                                label: t('nodes.duplicate'),
+                                onClick: () => {
+                                  duplicate()
+                                  closeMenu()
+                                },
+                              },
+                              { icon: 'delete', label: t('nodes.delete'), onClick: remove },
                             ]
-                          : undefined
-                    }
-                    onUpload={() => {
-                      closeMenu()
-                      fileInput.current?.click()
-                    }}
-                  />
-                )}
-                {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
-                  <ImageNodeComposer
-                    key={composerNode.id}
-                    document={canvas.doc}
-                    nodeId={composerNode.id}
-                    referenceTools={referenceTools}
-                    references={references}
-                    files={files}
-                    value={draftValue}
-                    busy={busy}
-                    position={composerAt}
-                    onChange={(value) => {
-                      setMeta({ nodePrompt: value })
-                    }}
-                    onSubmit={(temporaryReferences) => {
-                      const value = draftValue
-                      const urls = referenceFileIds(references, files).flatMap((id) => {
-                        const source = files[id]
-                        return source ? [source] : []
-                      })
-                      urls.push(...temporaryReferences)
-                      submitNodeImage(
-                        editor,
-                        canvas.doc,
-                        composerNode.id,
-                        composeNodePrompt(value, references),
-                        urls,
-                      )
-                    }}
-                  />
-                )}
-                {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
-                  <VideoNodeComposer
-                    key={composerNode.id}
-                    document={canvas.doc}
-                    nodeId={composerNode.id}
-                    meta={meta}
-                    onMeta={setMeta}
-                    references={references}
-                    files={files}
-                    value={draftValue}
-                    onChange={(value) => setMeta({ nodePrompt: value })}
-                    onSubmit={(draft, activeRefs, activeRoles, activeFiles) =>
-                      submitNodeVideo(
-                        editor,
-                        canvas.doc,
-                        composerNode.id,
-                        composeNodePrompt(draftValue, activeRefs),
-                        activeRefs,
-                        activeRoles,
-                        activeFiles,
-                        draft,
-                      )
-                    }
-                    busy={busy}
-                    position={composerAt}
-                    referenceTools={referenceTools}
-                  />
-                )}
-              </SpawnContext.Provider>
-            </FillImageContext.Provider>
-          </TextCanvasContext.Provider>
-        </EditNodeContext.Provider>
-      </RenameGroupContext.Provider>
-    </PreviewContext.Provider>
+                          : copied.current
+                            ? [
+                                {
+                                  icon: 'copy',
+                                  label: t('nodes.paste'),
+                                  onClick: () => {
+                                    const ids = pasteNodes(canvas, copied.current!, placeAt.current)
+                                    selectNode(ids[0] ?? null)
+                                    closeMenu()
+                                  },
+                                },
+                              ]
+                            : undefined
+                      }
+                      onUpload={() => {
+                        closeMenu()
+                        fileInput.current?.click()
+                      }}
+                    />
+                  )}
+                  {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
+                    <ImageNodeComposer
+                      key={composerNode.id}
+                      document={canvas.doc}
+                      nodeId={composerNode.id}
+                      referenceTools={referenceTools}
+                      references={references}
+                      files={files}
+                      value={draftValue}
+                      busy={busy}
+                      position={composerAt}
+                      onChange={(value) => {
+                        setMeta({ nodePrompt: value })
+                      }}
+                      onSubmit={(temporaryReferences) => {
+                        const value = draftValue
+                        const urls = referenceFileIds(references, files).flatMap((id) => {
+                          const source = files[id]
+                          return source ? [source] : []
+                        })
+                        urls.push(...temporaryReferences)
+                        submitNodeImage(
+                          editor,
+                          canvas.doc,
+                          composerNode.id,
+                          composeNodePrompt(value, references),
+                          urls,
+                        )
+                      }}
+                    />
+                  )}
+                  {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
+                    <VideoNodeComposer
+                      key={composerNode.id}
+                      document={canvas.doc}
+                      nodeId={composerNode.id}
+                      meta={meta}
+                      onMeta={setMeta}
+                      references={references}
+                      files={files}
+                      value={draftValue}
+                      onChange={(value) => setMeta({ nodePrompt: value })}
+                      onSubmit={(draft, activeRefs, activeRoles, activeFiles) =>
+                        submitNodeVideo(
+                          editor,
+                          canvas.doc,
+                          composerNode.id,
+                          composeNodePrompt(draftValue, activeRefs),
+                          activeRefs,
+                          activeRoles,
+                          activeFiles,
+                          draft,
+                        )
+                      }
+                      busy={busy}
+                      position={composerAt}
+                      referenceTools={referenceTools}
+                    />
+                  )}
+                </SpawnContext.Provider>
+              </FillImageContext.Provider>
+            </TextCanvasContext.Provider>
+          </EditNodeContext.Provider>
+        </RenameGroupContext.Provider>
+      </PreviewContext.Provider>
+    </NodeVideoPlayheadContext.Provider>
   )
 }
 
@@ -1764,13 +1806,24 @@ export default function NodeCanvas({
     }
     let alive = true
     let opened: NodeCanvasDocument | undefined
+    let projecting = false
+    const projectVideoEdits = () => {
+      if (!opened || !alive) return
+      projecting = true
+      try {
+        projectNodeVideoEdits(workspace.editor, opened)
+      } finally {
+        projecting = false
+      }
+    }
     let previous = workspace.doc.elements as readonly LegacyCanvasElement[]
     const queued: Array<readonly [readonly LegacyCanvasElement[], readonly LegacyCanvasElement[]]> =
       []
     const unsubscribe = workspace.doc.subscribe(() => {
       const next = workspace.doc.elements as readonly LegacyCanvasElement[]
-      if (opened && alive) synchronizeLegacyElements(opened.doc, previous, next, legacyOrigin)
-      else if (alive && previous !== next) queued.push([previous, next])
+      if (opened && alive && !projecting)
+        synchronizeLegacyElements(opened.doc, previous, next, legacyOrigin)
+      else if (!opened && alive && previous !== next) queued.push([previous, next])
       previous = next
     })
     setCanvas(null)
@@ -1787,6 +1840,8 @@ export default function NodeCanvas({
         for (const [before, after] of queued)
           synchronizeLegacyElements(one.doc, before, after, legacyOrigin)
         queued.length = 0
+        one.doc.on('update', projectVideoEdits)
+        projectVideoEdits()
         resumeNodeGenerations(workspace.editor, one.doc)
         resumeNodeVideos(workspace.editor, one.doc)
         setCanvas(one)
@@ -1797,6 +1852,7 @@ export default function NodeCanvas({
     return () => {
       alive = false
       unsubscribe()
+      opened?.doc.off('update', projectVideoEdits)
       void opened?.destroy()
     }
   }, [key, workspace])
