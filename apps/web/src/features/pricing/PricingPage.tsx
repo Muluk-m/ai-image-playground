@@ -1,6 +1,6 @@
-import { Check, ChevronDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
+import { Icon } from '../../components/ui/icon'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { formatCount, formatNumber } from '../../i18n/format'
 import { useLocalePicker } from '../../i18n/useLocalePicker'
@@ -92,8 +92,11 @@ export default function PricingPage() {
     cycle === 1 ? t('plan.perMonth') : cycle === 3 ? t('plan.perQuarter') : t('plan.perYear')
 
   return (
-    <div data-selectable-text className="min-h-svh bg-[#070709] font-sans text-[#f4f4f5]">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#070709]/90 backdrop-blur-md">
+    <div
+      data-selectable-text
+      className="min-h-svh bg-[var(--pricing-bg)] font-sans text-[var(--pricing-fg)]"
+    >
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-[var(--pricing-bg)]/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-5 sm:px-8">
           <a
             href="/"
@@ -101,10 +104,10 @@ export default function PricingPage() {
               event.preventDefault()
               navigate('/')
             }}
-            className="flex items-center gap-2.5 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dbffa0]"
+            className="flex items-center gap-2.5 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
           >
             <img src="/brand/muvloom-mark.svg" alt="" width={28} height={28} />
-            <span className="text-[15px] font-semibold tracking-tight">{t('nav.brand')}</span>
+            <span className="pricing-copy font-semibold tracking-tight">{t('nav.brand')}</span>
           </a>
           <nav
             className="flex items-center gap-5 text-sm text-white/70"
@@ -115,7 +118,7 @@ export default function PricingPage() {
             </a>
             <a
               href={GUIDE_PATHS[locale]}
-              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dbffa0]"
+              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('nav.guide')}
             </a>
@@ -127,12 +130,12 @@ export default function PricingPage() {
               className="hidden items-center gap-2 text-xs sm:flex"
             >
               {(['zh-CN', 'en'] as const).map((code) => (
-                <button
+                <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                   key={code}
                   type="button"
                   aria-pressed={locale === code}
                   onClick={() => change(code)}
-                  className={`rounded-full px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0] ${
+                  className={`rounded-full px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                     locale === code ? 'text-white' : 'text-white/40 hover:text-white'
                   }`}
                 >
@@ -140,10 +143,10 @@ export default function PricingPage() {
                 </button>
               ))}
             </div>
-            <button
+            <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
               type="button"
               onClick={enter}
-              className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[#161618] hover:bg-[#ececee] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+              className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
             >
               {auth.enabled && !auth.user ? t('nav.login') : t('nav.workspace')}
             </button>
@@ -154,20 +157,21 @@ export default function PricingPage() {
       <main>
         <section className="mx-auto max-w-6xl px-5 pb-8 pt-16 text-center sm:px-8 sm:pt-24">
           <p className="inline-flex items-center gap-2 text-sm text-white/70">
-            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#dbffa0]" />
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 rounded-full bg-[var(--pricing-lime)]"
+            />
             {t('hero.eyebrow')}
           </p>
-          <h1 className="mt-5 text-6xl font-semibold tracking-tight sm:text-8xl">
-            {t('hero.title')}
-          </h1>
+          <h1 className="mt-5 pricing-title font-semibold tracking-tight">{t('hero.title')}</h1>
           <p className="mx-auto mt-6 max-w-xl text-sm leading-7 text-white/60 sm:text-base">
             {t('hero.subtitle')}
           </p>
         </section>
 
         <section className="mx-auto max-w-6xl px-5 pb-16 sm:px-8">
-          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t('intro.title')}</h2>
-          <p className="mt-4 max-w-3xl text-sm leading-7 text-white/65 sm:text-[15px]">
+          <h2 className="pricing-section font-semibold tracking-tight">{t('intro.title')}</h2>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-white/65 sm:pricing-copy">
             {t('intro.body')}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
@@ -198,15 +202,15 @@ export default function PricingPage() {
                       ? t('cycle.quarter')
                       : t('cycle.year')
                 return (
-                  <button
+                  <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                     key={value}
                     type="button"
                     role="radio"
                     aria-checked={selected}
                     onClick={() => setCycle(value)}
-                    className={`h-9 rounded-full px-5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0] ${
+                    className={`h-9 rounded-full px-5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                       selected
-                        ? 'bg-white font-semibold text-[#161618]'
+                        ? 'bg-white font-semibold text-[var(--pricing-ink)]'
                         : 'text-white/70 hover:text-white'
                     }`}
                   >
@@ -226,15 +230,13 @@ export default function PricingPage() {
 
         <section id="benefits" className="scroll-mt-24 pb-20">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              {t('compare.title')}
-            </h2>
-            <div className="mt-6 overflow-x-auto rounded-3xl border border-white/10 bg-[#101013]">
+            <h2 className="pricing-section font-semibold tracking-tight">{t('compare.title')}</h2>
+            <div className="mt-6 overflow-x-auto rounded-3xl border border-white/10 bg-[var(--pricing-panel)]">
               <table className="w-full min-w-[760px] border-collapse text-sm">
                 <caption className="sr-only">{t('compare.caption')}</caption>
                 <thead>
                   <tr className="border-b border-white/10">
-                    <th className="sticky left-0 bg-[#101013] px-5 py-6 text-left font-medium text-white/45">
+                    <th className="sticky left-0 bg-[var(--pricing-panel)] px-5 py-6 text-left font-medium text-white/45">
                       {t('compare.feature')}
                     </th>
                     {PRICING_PLANS.map((plan) => (
@@ -244,10 +246,10 @@ export default function PricingPage() {
                           {money(plan.prices[cycle])}
                           {unit}
                         </div>
-                        <button
+                        <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                           type="button"
                           onClick={enter}
-                          className="mt-3 h-8 rounded-full bg-white px-4 text-xs font-semibold text-[#161618] hover:bg-[#ececee] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+                          className="mt-3 h-8 rounded-full bg-white px-4 text-xs font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
                         >
                           {t('compare.upgrade')}
                         </button>
@@ -299,7 +301,7 @@ export default function PricingPage() {
         </section>
 
         <section className="mx-auto max-w-6xl px-5 pb-20 sm:px-8">
-          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t('rules.title')}</h2>
+          <h2 className="pricing-section font-semibold tracking-tight">{t('rules.title')}</h2>
           <div className="mt-8 grid gap-10 md:grid-cols-2">
             <Rule title={t('rules.meterTitle')} body={t('rules.meterBody')} />
             <Rule
@@ -319,9 +321,7 @@ export default function PricingPage() {
 
         <section id="recharge" className="scroll-mt-24 pb-20">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              {t('recharge.title')}
-            </h2>
+            <h2 className="pricing-section font-semibold tracking-tight">{t('recharge.title')}</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-white/60">
               {t('recharge.subtitle', { rate: formatCount(RECHARGE_CREDITS_PER_YUAN) })}
             </p>
@@ -333,20 +333,20 @@ export default function PricingPage() {
               {RECHARGE_AMOUNTS_YUAN.map((yuan) => {
                 const selected = rechargeYuan === yuan
                 return (
-                  <button
+                  <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                     key={yuan}
                     type="button"
                     role="radio"
                     aria-checked={selected}
                     onClick={() => setRechargeYuan(yuan)}
-                    className={`rounded-3xl border px-5 py-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0] ${
+                    className={`rounded-3xl border px-5 py-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                       selected
-                        ? 'border-[#dbffa0] bg-[#dbffa0]/10'
-                        : 'border-white/10 bg-[#121214] hover:border-white/25'
+                        ? 'border-[var(--pricing-lime)] bg-[var(--pricing-lime)]/10'
+                        : 'border-white/10 bg-[var(--pricing-card)] hover:border-white/25'
                     }`}
                   >
                     <div className="text-sm text-white/50">¥{formatCount(yuan)}</div>
-                    <div className="mt-3 text-2xl font-semibold tracking-tight">
+                    <div className="mt-3 pricing-pack font-semibold tracking-tight">
                       {t('recharge.credits', { n: formatCount(rechargeCredits(yuan)) })}
                     </div>
                     <div className="mt-2 text-sm text-white/45">{t('recharge.valid')}</div>
@@ -354,10 +354,10 @@ export default function PricingPage() {
                 )
               })}
             </div>
-            <button
+            <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
               type="button"
               onClick={enter}
-              className="mt-6 h-11 rounded-full bg-[#dbffa0] px-6 text-sm font-semibold text-[#23282b] hover:bg-[#e7ffc4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+              className="mt-6 h-11 rounded-full bg-[var(--pricing-lime)] px-6 text-sm font-semibold text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('recharge.pay', { amount: formatCount(rechargeYuan) })}
             </button>
@@ -366,7 +366,7 @@ export default function PricingPage() {
 
         <section id="faq" className="scroll-mt-24 pb-20">
           <div className="mx-auto max-w-3xl px-5 sm:px-8">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t('faq.title')}</h2>
+            <h2 className="pricing-section font-semibold tracking-tight">{t('faq.title')}</h2>
             <p className="mt-3 text-sm text-white/50">{t('faq.lead')}</p>
             <div className="mt-6 divide-y divide-white/10 border-y border-white/10">
               {FAQ_ITEMS.map((item) => {
@@ -374,18 +374,17 @@ export default function PricingPage() {
                 const panelId = `pricing-faq-${item.q}`
                 return (
                   <div key={item.q}>
-                    <button
+                    <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                       type="button"
                       aria-expanded={open}
                       aria-controls={panelId}
                       onClick={() => setOpenFaq(open ? '' : item.q)}
-                      className="flex w-full items-center justify-between gap-6 py-4 text-left text-[15px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+                      className="flex w-full items-center justify-between gap-6 py-4 text-left pricing-copy font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
                     >
                       {t(item.q)}
-                      <ChevronDown
-                        aria-hidden="true"
-                        size={18}
-                        className={`shrink-0 text-white/50 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+                      <Icon
+                        name="chevronDown"
+                        className={`size-[18px] shrink-0 text-white/50 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
                       />
                     </button>
                     {open ? (
@@ -402,16 +401,14 @@ export default function PricingPage() {
 
         <section className="border-t border-white/10">
           <div className="mx-auto max-w-6xl px-5 py-20 text-center sm:px-8">
-            <h2 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-              {t('close.title')}
-            </h2>
+            <h2 className="pricing-close font-semibold tracking-tight">{t('close.title')}</h2>
             <p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-white/60">
               {t('close.body')}
             </p>
-            <button
+            <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
               type="button"
               onClick={enter}
-              className="mt-8 h-12 rounded-full bg-[#dbffa0] px-8 text-sm font-semibold text-[#23282b] hover:bg-[#e7ffc4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+              className="mt-8 h-12 rounded-full bg-[var(--pricing-lime)] px-8 text-sm font-semibold text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('close.action')}
             </button>
@@ -432,24 +429,24 @@ export default function PricingPage() {
                 event.preventDefault()
                 navigate('/')
               }}
-              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dbffa0]"
+              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('footer.start')}
             </a>
             <a
               href={GUIDE_PATHS[locale]}
-              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dbffa0]"
+              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('footer.guide')}
             </a>
             <div role="group" aria-label={t('nav.locale')} className="flex gap-3 sm:hidden">
               {(['zh-CN', 'en'] as const).map((code) => (
-                <button
+                <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                   key={code}
                   type="button"
                   aria-pressed={locale === code}
                   onClick={() => change(code)}
-                  className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0] ${
+                  className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                     locale === code ? 'text-white' : 'hover:text-white'
                   }`}
                 >
@@ -467,10 +464,10 @@ export default function PricingPage() {
 
 function TextButton({ children, onClick }: { children: string; onClick: () => void }) {
   return (
-    <button
+    <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
       type="button"
       onClick={onClick}
-      className="h-10 rounded-full border border-white/15 px-4 text-sm text-white/85 hover:border-white/40 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+      className="h-10 rounded-full border border-white/15 px-4 text-sm text-white/85 hover:border-white/40 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
     >
       {children}
     </button>
@@ -494,22 +491,24 @@ function PlanCard({
   return (
     <article
       className={`relative flex flex-col rounded-3xl border p-5 ${
-        plan.featured ? 'border-[#dbffa0]/80 bg-[#14140f]' : 'border-white/10 bg-[#121214]'
+        plan.featured
+          ? 'border-[var(--pricing-lime)]/80 bg-[var(--pricing-featured)]'
+          : 'border-white/10 bg-[var(--pricing-card)]'
       }`}
     >
       {plan.featured ? (
-        <span className="absolute -top-3 right-5 rounded-full bg-[#dbffa0] px-2.5 py-1 text-[11px] font-semibold text-[#23282b]">
+        <span className="absolute -top-3 right-5 rounded-full bg-[var(--pricing-lime)] px-2.5 py-1 pricing-badge font-semibold text-[var(--pricing-ink-strong)]">
           {t('plan.featured')}
         </span>
       ) : null}
-      <h3 className="text-lg font-semibold">{t(PLAN_NAME[plan.id])}</h3>
+      <h3 className="pricing-name font-semibold">{t(PLAN_NAME[plan.id])}</h3>
       <p className="mt-1 text-sm text-white/50">{t(PLAN_TAGLINE[plan.id])}</p>
       <p className="mt-4 text-sm text-white/80">
         {t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}
       </p>
       <p className="mt-6 flex items-end gap-1" aria-live="polite">
         <span className="pb-1.5 text-base text-white/70">¥</span>
-        <span className="text-5xl font-semibold tracking-tight">{yuanText(cents)}</span>
+        <span className="pricing-price font-semibold tracking-tight">{yuanText(cents)}</span>
         <span className="pb-1.5 text-sm text-white/50">{unit}</span>
       </p>
       {cycle === 1 ? null : (
@@ -517,10 +516,10 @@ function PlanCard({
           {t('plan.equivalent', { amount: yuanText(monthly) })}
         </p>
       )}
-      <button
+      <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
         type="button"
         onClick={onUpgrade}
-        className="mt-6 h-11 w-full rounded-full bg-[#ececee] text-sm font-semibold text-[#161618] hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dbffa0]"
+        className="mt-6 h-11 w-full rounded-full bg-[var(--pricing-hover)] text-sm font-semibold text-[var(--pricing-ink)] hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
       >
         {t('plan.upgrade')}
       </button>
@@ -548,7 +547,7 @@ function PlanCard({
 function Feature({ children }: { children: string }) {
   return (
     <li className="flex gap-2">
-      <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-white/70" />
+      <Icon name="check" className="mt-0.5 shrink-0 text-white/70" />
       <span>{children}</span>
     </li>
   )
@@ -557,7 +556,7 @@ function Feature({ children }: { children: string }) {
 function Rule({ title, body }: { title: string; body: string }) {
   return (
     <div className="max-w-xl">
-      <h3 className="text-lg font-semibold">{title}</h3>
+      <h3 className="pricing-name font-semibold">{title}</h3>
       <p className="mt-2 text-sm leading-7 text-white/60">{body}</p>
     </div>
   )
@@ -579,7 +578,7 @@ function GroupLabel({ label }: { label: string }) {
 function Row({ label, children }: { label: string; children: (plan: PricingPlan) => string }) {
   return (
     <tr className="border-t border-white/[0.08]">
-      <th className="sticky left-0 bg-[#101013] px-5 py-3.5 text-left font-normal text-white/70">
+      <th className="sticky left-0 bg-[var(--pricing-panel)] px-5 py-3.5 text-left font-normal text-white/70">
         {label}
       </th>
       {PRICING_PLANS.map((plan) => (
