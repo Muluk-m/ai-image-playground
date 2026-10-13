@@ -17,6 +17,7 @@ export interface CanvasResult {
     | { type: 'media'; mediaId: string }
     | { type: 'file'; fileId: string }
   createdAt: number
+  assetViewLabel?: 'sheet'
   inputFingerprint?: string
   /** Chosen or spread at least once; unchosen video metadata alone is not adoption. */
   adopted?: true

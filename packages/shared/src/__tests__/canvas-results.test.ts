@@ -339,3 +339,17 @@ it('tracks asset semantic inputs while keeping ordinary image labels cosmetic', 
   )
   expect(canvasInputFingerprint(doc, 'downstream')).not.toBe(before)
 })
+
+it('round-trips character-sheet provenance and rejects unknown view labels', () => {
+  const doc = fixture()
+  const image = { ...result(doc, 'sheet'), assetViewLabel: 'sheet' as const }
+  doc.getMap('nodeResults').set(image.id, image)
+  validateCloudCanvas(doc, { version: 1, elements: [] })
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, Y.encodeStateAsUpdate(doc))
+  expect(canvasResults(restored)[0]?.assetViewLabel).toBe('sheet')
+  doc.getMap('nodeResults').set(image.id, { ...image, assetViewLabel: 'unknown' })
+  expect(() => validateCloudCanvas(doc, { version: 1, elements: [] })).toThrow(
+    'invalid_canvas_result',
+  )
+})

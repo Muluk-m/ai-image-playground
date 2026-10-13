@@ -20,6 +20,7 @@ import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '..
 import type { TaskParams } from '../../../types'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
+import { saveAssetNodeResult } from './nodeAssetGeneration'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
 import { persistLocalNodeResults } from './nodeResultPersistence'
 
@@ -40,11 +41,13 @@ function claimResume(doc: Y.Doc, nodeId: string, requestId: string): boolean {
 }
 
 interface NodeJobContext {
+  assetViewLabel?: 'sheet'
   prompt: string
   profileView: CanvasProfileSnapshot
 }
 
 interface NodeJobHandle {
+  assetViewLabel?: 'sheet'
   jobId: string
   inputFingerprint?: string
   initialResultId?: string
@@ -180,6 +183,7 @@ function nodeGenerationSink(
             clientRequestId: unit.clientRequestId,
             params: { ...unit.params },
             inputFingerprint,
+            ...(unit.context.assetViewLabel ? { assetViewLabel: unit.context.assetViewLabel } : {}),
             ...(initialResultId ? { initialResultId } : {}),
           },
         },
@@ -194,6 +198,7 @@ function nodeGenerationSink(
         profileView: unit.context.profileView,
         startedAt,
         inputFingerprint,
+        assetViewLabel: unit.context.assetViewLabel,
         initialResultId,
       }
     },
@@ -231,6 +236,7 @@ function nodeGenerationSink(
             {
               nodeId: handle.nodeId,
               kind: 'image',
+              ...(handle.assetViewLabel ? { assetViewLabel: handle.assetViewLabel } : {}),
               createdAt: (handle.startedAt ?? Date.now()) + outputIndex,
               source: {
                 type: handle.requestId ? 'queue' : 'local',
@@ -250,7 +256,16 @@ function nodeGenerationSink(
         (handle.initialResultId || !imageNode(doc, handle.nodeId)?.data.fileId)
       ) {
         selectFirst = false
-        await selectNodeResult(editor, doc, results[0].id, generationOrigin)
+        const selected = await selectNodeResult(editor, doc, results[0].id, generationOrigin)
+        if (selected && imageNode(doc, handle.nodeId)?.data.meta?.nodeKind === 'asset') {
+          try {
+            await saveAssetNodeResult(editor, doc, handle.nodeId)
+          } catch {
+            useStore
+              .getState()
+              .showToast(i18next.t('nodes.assetSaveFailed', { ns: 'canvas' }), 'error')
+          }
+        }
       }
       finishCanvasNodeJob(doc, handle.jobId, generationOrigin)
     },
@@ -274,6 +289,7 @@ export function submitNodeImage(
   prompt: string,
   inputImageDataUrls: string[],
   edit?: { maskDataUrl?: string },
+  assetViewLabel?: 'sheet',
 ): boolean {
   const node = imageNode(doc, nodeId)
   if (!node || loading(node.data.pending)) return false
@@ -301,6 +317,7 @@ export function submitNodeImage(
           ...(edit?.maskDataUrl ? { maskDataUrl: edit.maskDataUrl } : {}),
           context: {
             prompt,
+            assetViewLabel,
             profileView: {
               apiProvider: view.provider,
               apiProfileId: view.id,
@@ -385,6 +402,7 @@ export function resumeNodeGenerations(
           params,
           requestId: meta.bffRequestId,
           inputFingerprint: meta.inputFingerprint,
+          assetViewLabel: meta.assetViewLabel,
           initialResultId: meta.initialResultId,
           startedAt: job.createdAt,
         },

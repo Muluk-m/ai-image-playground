@@ -249,6 +249,7 @@ export function validateCloudCanvas(
         'params',
         'generation',
         'inputFingerprint',
+        'assetViewLabel',
         'adopted',
         'initialResultId',
       ]) ||
@@ -260,6 +261,8 @@ export function validateCloudCanvas(
         !['builtin-edge', 'user-byok'].includes(String(job.meta.source))) ||
       (job.meta.params !== undefined && !object(job.meta.params)) ||
       (job.meta.generation !== undefined && !isVideoGenerationRecord(job.meta.generation)) ||
+      (job.meta.assetViewLabel !== undefined &&
+        (job.meta.assetViewLabel !== 'sheet' || job.meta.nodeGeneration !== true)) ||
       (job.meta.initialResultId !== undefined && !id(job.meta.initialResultId)) ||
       (job.meta.inputFingerprint !== undefined &&
         (typeof job.meta.inputFingerprint !== 'string' ||
@@ -289,9 +292,12 @@ export function validateCloudCanvas(
         'source',
         'createdAt',
         'inputFingerprint',
+        'assetViewLabel',
         'adopted',
         'display',
       ]) ||
+      (result.assetViewLabel !== undefined &&
+        (result.assetViewLabel !== 'sheet' || result.kind !== 'image')) ||
       (result.adopted !== undefined && result.adopted !== true) ||
       typeof result.createdAt !== 'number' ||
       !Number.isSafeInteger(result.createdAt) ||

@@ -661,3 +661,26 @@ it('saves a tool prompt as a reusable template without borrowing or replacing th
   expect(saved.params.n).toBe(DEFAULT_PARAMS.n)
   expect(useStore.getState().prompt).toBe('正在编辑的草稿')
 })
+
+it('keeps a generated view when a stale details form saves its description', async () => {
+  const { appendGeneratedAssetView, assetStore } = await import(
+    '../../../features/library/lib/assetStore'
+  )
+  const original = await useLibraryStore
+    .getState()
+    .saveAssetRecord({ name: 'place', description: 'old', views: [] })
+  await appendGeneratedAssetView(original.id, {
+    imageId: 'generated',
+    label: 'none',
+    source: 'generated',
+  })
+  // The form still has the record from before generation completed.
+  await useLibraryStore.getState().saveAssetRecord({ ...original, description: 'new' })
+  await useLibraryStore.getState().noteAssetUsed(original.id)
+  await useLibraryStore.getState().renameAsset(original.id, 'renamed')
+  expect((await assetStore.list())[0]).toMatchObject({
+    name: 'renamed',
+    description: 'new',
+    views: [{ imageId: 'generated' }],
+  })
+})

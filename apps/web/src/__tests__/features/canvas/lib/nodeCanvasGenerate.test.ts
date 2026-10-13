@@ -20,7 +20,12 @@ import {
 } from '../../../../features/canvas/lib/nodeCanvasGenerate'
 import { useStore } from '../../../../store'
 
-const mocks = vi.hoisted(() => ({ start: vi.fn(), resume: vi.fn(), completed: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  resume: vi.fn(),
+  completed: vi.fn(),
+  saveAsset: vi.fn(async () => true),
+}))
 vi.mock('../../../../store', async (original) => ({
   ...(await original<typeof import('../../../../store')>()),
   addCompletedCanvasTask: mocks.completed,
@@ -28,6 +33,10 @@ vi.mock('../../../../store', async (original) => ({
 vi.mock('../../../../lib/canvasImage', async (original) => ({
   ...(await original<typeof import('../../../../lib/canvasImage')>()),
   getImageDimensions: async () => ({ width: 100, height: 100 }),
+}))
+
+vi.mock('../../../../features/canvas/lib/nodeAssetGeneration', () => ({
+  saveAssetNodeResult: mocks.saveAsset,
 }))
 
 vi.mock('../../../../lib/generationJob', () => ({
@@ -317,4 +326,46 @@ it.each([
       data: { fileId: 'user-replacement' },
     })
   doc.destroy()
+})
+
+it('retains an asset candidate when automatic library persistence fails', async () => {
+  const doc = new Y.Doc()
+  insertCanvasNode(
+    doc,
+    {
+      id: 'asset',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 220,
+      data: { name: 'place', meta: { nodeKind: 'asset', assetId: 'a' } },
+    },
+    canvasOrigin('system', 'fixture'),
+  )
+  mocks.saveAsset.mockRejectedValueOnce(new Error('storage failed'))
+  const editor = new CanvasEditor(new CanvasDoc())
+  mocks.start.mockImplementation((spec, sink) => {
+    const unit = {
+      clientRequestId: 'asset-request',
+      params: spec.params,
+      context: spec.variants[0].context,
+    }
+    return [sink.open(unit)]
+  })
+  submitNodeImage(editor, doc, 'asset', 'empty scene', [], undefined, 'sheet')
+  const sink = mocks.start.mock.calls[mocks.start.mock.calls.length - 1]![1]
+  const job = canvasNodeJobs(doc)[0]!
+  expect(job.meta.assetViewLabel).toBe('sheet')
+  await sink.delivered(
+    {
+      ...mocks.start.mock.results[mocks.start.mock.results.length - 1]!.value[0],
+      requestId: 'queued-asset',
+    },
+    { images: ['data:image/png;base64,AA'] },
+  )
+  expect(canvasResults(doc, 'asset')).toHaveLength(1)
+  expect(canvasResults(doc, 'asset')[0]?.assetViewLabel).toBe('sheet')
+  expect(mocks.saveAsset).toHaveBeenCalledWith(editor, doc, 'asset')
+  expect(canvasNodeJobs(doc, 'asset')).toHaveLength(0)
 })
