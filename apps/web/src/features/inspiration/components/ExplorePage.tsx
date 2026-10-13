@@ -25,7 +25,7 @@ export default function ExplorePage() {
   }, [])
 
   return (
-    <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col">
+    <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col">
       <PageHeader title={APP_MODE_LABELS.explore}>
         <InspirationProviderTabs />
         <Button
