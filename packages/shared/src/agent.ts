@@ -1227,6 +1227,8 @@ export interface AgentTurnSummaryView {
   readonly error?: AgentTurnErrorCode
   readonly failure?: AgentTurnFailure
   readonly cost?: AgentTurnCost
+  /** 建议用户接着发的完整句子。缺席表示这一轮没有。 */
+  readonly followUps?: readonly string[]
 }
 
 /** 进行中的轮，`GET .../messages` 用它告诉刷新后的前端该挂回哪一轮。 */

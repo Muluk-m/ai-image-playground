@@ -206,6 +206,31 @@ export async function fetchMessages(
   if (!response.ok) throw await withSignal(requestError(response), signal)
   return (await withSignal(response.json(), signal)) as AgentConversationState
 }
+
+/**
+ * 这一轮的下一句。null 表示还在生成；数组表示已经定了，空数组就是没有。
+ * 响应里没有这个字段时也当没有，避免把别的接口的正文当成还在等。
+ */
+export async function fetchFollowUps(
+  conversationId: string,
+  turnId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<readonly string[] | null> {
+  const response = await fetcher(
+    url(
+      `/conversations/${encodeURIComponent(conversationId)}/follow-ups/${encodeURIComponent(turnId)}`,
+    ),
+    { headers: deviceHeaders(), signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  )
+  if (!response.ok) throw await requestError(response)
+  const body = (await response.json()) as unknown
+  if (!body || typeof body !== 'object' || !('followUps' in body)) return []
+  const followUps = (body as { followUps: unknown }).followUps
+  if (followUps === null) return null
+  if (!Array.isArray(followUps)) return []
+  return followUps.filter((line): line is string => typeof line === 'string' && line.trim() !== '')
+}
+
 export async function fetchSubmissionReceipt(
   conversationId: string,
   clientMessageId: string,
