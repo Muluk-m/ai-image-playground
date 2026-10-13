@@ -287,6 +287,7 @@ export function submitNodeImage(
   const handles = startGeneration<NodeJobHandle, NodeJobContext>(
     {
       settings,
+      outputRetention: 'candidate',
       profile,
       params,
       variants: [

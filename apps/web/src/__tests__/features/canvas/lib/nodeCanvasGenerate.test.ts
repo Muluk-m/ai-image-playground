@@ -66,6 +66,7 @@ describe('submitNodeImage', () => {
     expect(readCanvasDocument(ydoc).nodes.find((node) => node.id === 'card')!.data).toMatchObject({
       pending: { type: 'placeholder', status: 'loading' },
     })
+    expect(mocks.start.mock.calls[0]![0].outputRetention).toBe('candidate')
     expect(mocks.start.mock.calls[0]![0].params.n).toBe(useStore.getState().params.n)
   })
 

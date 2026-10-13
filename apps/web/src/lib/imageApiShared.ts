@@ -30,6 +30,7 @@ export const MAX_MASK_EDIT_FILE_BYTES = 50 * 1024 * 1024
 export const MAX_IMAGE_INPUT_PAYLOAD_BYTES = 512 * 1024 * 1024
 
 export interface CallApiOptions {
+  outputRetention?: 'candidate'
   settings: AppSettings
   prompt: string
   params: TaskParams
