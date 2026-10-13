@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { CreationReferenceStack } from '../../components/creation/CreationReferenceStack'
@@ -41,16 +42,16 @@ it('expands inline, preserves adding and removal, and remembers collapse', () =>
     )
   }
   act(() => root.render(<Fixture />))
-  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('.creation-stack-expand')!.click())
-  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
   expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBe('true')
-  act(() => host.querySelector<HTMLButtonElement>('[data-remove]')!.click())
+  act(() => document.querySelector<HTMLButtonElement>('[data-remove]')!.click())
   expect(host.querySelector('.creation-reference-heading')!.textContent).toContain('99')
   act(() => host.querySelector<HTMLButtonElement>('.creation-stack-add button')!.click())
   expect(add).toHaveBeenCalledOnce()
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起参考图"]')!.click())
-  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
   expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBe('false')
 })
 
@@ -74,10 +75,10 @@ it('restores the view after remount and synchronizes mounted composers and other
   expect(host.querySelectorAll('.creation-reference-panel')).toHaveLength(0)
   act(() => root.render(null))
   act(() => root.render(fixture))
-  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
   localStorage.setItem(REFERENCE_DISPLAY_KEY, 'true')
   act(() => window.dispatchEvent(new StorageEvent('storage', { key: REFERENCE_DISPLAY_KEY })))
-  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
 })
 
 it('opens on hover without saving, supports quick removal, and closes after leaving', () => {
@@ -93,13 +94,13 @@ it('opens on hover without saving, supports quick removal, and closes after leav
     ),
   )
   act(() => host.querySelector('.creation-stack-trigger')!.dispatchEvent(pointer('pointerover')))
-  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
   expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBeNull()
-  act(() => host.querySelector<HTMLButtonElement>('[data-remove]')!.click())
+  act(() => document.querySelector<HTMLButtonElement>('[data-remove]')!.click())
   expect(remove).toHaveBeenCalledOnce()
   act(() => host.querySelector('.creation-reference-stack')!.dispatchEvent(pointer('pointerout')))
   act(() => vi.advanceTimersByTime(210))
-  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
 })
 
 it('only offers view all for multiple images and clears every reference', () => {
@@ -121,7 +122,7 @@ it('only offers view all for multiple images and clears every reference', () => 
   act(() => root.render(<Fixture />))
   expect(host.querySelector('.creation-stack-expand')).not.toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('.creation-stack-trigger')!.click())
-  act(() => host.querySelector<HTMLButtonElement>('[data-remove]')!.click())
+  act(() => document.querySelector<HTMLButtonElement>('[data-remove]')!.click())
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起参考图"]')!.click())
   expect(host.querySelector('.creation-stack-expand')).toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('.creation-stack-trigger')!.click())
@@ -130,30 +131,78 @@ it('only offers view all for multiple images and clears every reference', () => 
       .find((b) => b.textContent === '清空参考素材')!
       .click(),
   )
-  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
   expect(host.querySelector('.creation-stack-trigger')).toBeNull()
   expect(host.querySelector('.creation-stack-add')).not.toBeNull()
 })
 
-it('keeps hover references mounted while a portalled menu is active, then closes', () => {
+it('keeps its own portalled menu mounted, without retaining unrelated menus', () => {
   vi.useFakeTimers()
+  const menu = (
+    <div role="menu">
+      <Button role="menuitem">菜单操作</Button>
+    </div>
+  )
   act(() =>
     root.render(
       <CreationReferenceStack count={2} previews={[]} add={<Button>添加</Button>}>
-        <span>参考</span>
+        {createPortal(menu, document.body)}
       </CreationReferenceStack>,
     ),
   )
   act(() => host.querySelector('.creation-stack-trigger')!.dispatchEvent(pointer('pointerover')))
-  const menu = document.createElement('div')
-  menu.setAttribute('role', 'menu')
-  menu.tabIndex = -1
-  document.body.append(menu)
-  menu.focus()
+  act(() => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.focus())
   act(() => host.querySelector('.creation-reference-stack')!.dispatchEvent(pointer('pointerout')))
   act(() => vi.advanceTimersByTime(500))
-  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
-  menu.remove()
+  expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
+  const unrelated = document.createElement('button')
+  unrelated.setAttribute('role', 'menuitem')
+  document.body.append(unrelated)
+  act(() => unrelated.focus())
   act(() => vi.advanceTimersByTime(210))
-  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
+  unrelated.remove()
+})
+
+it('keeps a stable focused single-image trigger so hover then click pins the panel', () => {
+  act(() =>
+    root.render(
+      <CreationReferenceStack count={1} previews={[]} add={<Button>添加</Button>}>
+        <span>图片</span>
+      </CreationReferenceStack>,
+    ),
+  )
+  const trigger = host.querySelector<HTMLButtonElement>('.creation-stack-trigger')!
+  act(() => trigger.focus())
+  act(() => trigger.dispatchEvent(pointer('pointerover')))
+  expect(trigger.isConnected).toBe(true)
+  expect(document.activeElement).toBe(trigger)
+  act(() => trigger.click())
+  expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBe('true')
+  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
+})
+
+it('does not close when an action focuses the editor while the pointer stays over references', () => {
+  vi.useFakeTimers()
+  const editor = document.createElement('textarea')
+  document.body.append(editor)
+  act(() =>
+    root.render(
+      <CreationReferenceStack count={2} previews={[]} add={<Button>添加</Button>}>
+        <Button data-remove onClick={() => editor.focus()}>
+          插入引用
+        </Button>
+      </CreationReferenceStack>,
+    ),
+  )
+  act(() => host.querySelector('.creation-stack-trigger')!.dispatchEvent(pointer('pointerover')))
+  const action = document.querySelector<HTMLButtonElement>('[data-remove]')!
+  act(() => action.focus())
+  act(() => action.click())
+  act(() => vi.advanceTimersByTime(500))
+  expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
+  act(() => host.querySelector('.creation-reference-stack')!.dispatchEvent(pointer('pointerout')))
+  act(() => vi.advanceTimersByTime(210))
+  expect(document.querySelector('.creation-reference-panel')).toBeNull()
+  editor.remove()
 })
