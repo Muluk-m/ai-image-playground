@@ -45,8 +45,10 @@ import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import {
   createContext,
+  lazy,
   memo,
   type RefObject,
+  Suspense,
   useContext,
   useEffect,
   useMemo,
@@ -106,6 +108,8 @@ import NodeSliceMenu from './NodeSliceMenu'
 import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
 import VideoNodeComposer from './VideoNodeComposer'
+
+const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const legacyOrigin = canvasOrigin('system', 'legacy-update')
@@ -688,6 +692,7 @@ function Flow({
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [minimap, setMinimap] = useState(false)
+  const [imageEditId, setImageEditId] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const showPreview = (source: string) => {
     void resolveMediaSource(source, 'original', true)
@@ -1482,6 +1487,16 @@ function Flow({
                       }}
                     />
                   )}
+                  {imageEditId && (
+                    <Suspense fallback={null}>
+                      <NodeImageEditor
+                        editor={editor}
+                        canvas={canvas}
+                        nodeId={imageEditId}
+                        onClose={() => setImageEditId(null)}
+                      />
+                    </Suspense>
+                  )}
                   {preview && <ImagePreview src={preview} onClose={() => setPreview(null)} />}
                   {videoPreview && (
                     <Overlay onClose={() => setVideoPreview(null)} label={t('nodes.preview')}>
@@ -1569,6 +1584,13 @@ function Flow({
                             }
                           }}
                         />
+                        {composerNode.type === 'image' && nodeKind(composerNode) === 'image' && (
+                          <NodeTool
+                            icon="brush"
+                            label={t('pixelEdit.title')}
+                            onClick={() => setImageEditId(composerNode.id)}
+                          />
+                        )}
                         {composerNode.type === 'video' && (
                           <NodeVideoTools
                             key={`${composerNode.id}:${composerNode.data.video.taskId}:${composerNode.data.video.outputIndex}`}

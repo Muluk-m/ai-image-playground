@@ -558,5 +558,27 @@
     "spreadCandidates": "Spread all candidates on canvas",
     "candidateStorageFailed": "These results could not be saved in this browser. Retry saving or download them before refreshing.",
     "retryCandidateStorage": "Retry saving"
+  },
+  "pixelEdit": {
+    "title": "Edit image",
+    "close": "Back to canvas",
+    "mode": "Edit mode",
+    "inpaint": "Inpaint",
+    "annotate": "Mark and edit",
+    "draw": "Draw",
+    "tools": "Drawing tools",
+    "brush": "Brush",
+    "eraser": "Eraser",
+    "rect": "Rectangle",
+    "width": "Width",
+    "color": "Brush color",
+    "prompt": "Describe the changes…",
+    "save": "Save as candidate",
+    "generate": "Generate candidate",
+    "saving": "Working…",
+    "inpaintHint": "Paint over the area to change. Unmarked areas stay unchanged.",
+    "annotateHint": "Mark the image and describe your changes. Generated images will omit the marks.",
+    "drawHint": "Save your strokes as a new candidate, keeping the original.",
+    "sourceChanged": "The source image changed or was removed. Reopen the editor from the canvas."
   }
 }

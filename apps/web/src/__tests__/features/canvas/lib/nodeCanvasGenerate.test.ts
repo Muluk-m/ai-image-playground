@@ -70,6 +70,23 @@ describe('submitNodeImage', () => {
     expect(mocks.start.mock.calls[0]![0].params.n).toBe(useStore.getState().params.n)
   })
 
+  it('sends an edit mask and forces a single new candidate', () => {
+    const doc = new Y.Doc()
+    insertCanvasNode(
+      doc,
+      { id: 'card', type: 'image', x: 0, y: 0, width: 280, height: 280, data: {} },
+      canvasOrigin('system', 'fixture'),
+    )
+    const editor = new CanvasEditor(new CanvasDoc())
+    expect(submitNodeImage(editor, doc, 'card', 'edit', ['source'], { maskDataUrl: 'mask' })).toBe(
+      true,
+    )
+    expect(mocks.start.mock.calls[0]![0]).toMatchObject({
+      params: { n: 1 },
+      variants: [{ inputImageDataUrls: ['source'], maskDataUrl: 'mask' }],
+    })
+  })
+
   it('keeps fan-out jobs in one node with independent recovery references', () => {
     mocks.start.mockImplementation((spec, sink) => {
       const variant = spec.variants[0]

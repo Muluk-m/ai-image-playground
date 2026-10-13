@@ -273,6 +273,7 @@ export function submitNodeImage(
   nodeId: string,
   prompt: string,
   inputImageDataUrls: string[],
+  edit?: { maskDataUrl?: string },
 ): boolean {
   const node = imageNode(doc, nodeId)
   if (!node || loading(node.data.pending)) return false
@@ -286,7 +287,7 @@ export function submitNodeImage(
   const settings = useStore.getState().settings
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const params = { ...useStore.getState().params }
+  const params = { ...useStore.getState().params, ...(edit ? { n: 1 } : {}) }
   const handles = startGeneration<NodeJobHandle, NodeJobContext>(
     {
       settings,
@@ -297,6 +298,7 @@ export function submitNodeImage(
         {
           prompt,
           inputImageDataUrls,
+          ...(edit?.maskDataUrl ? { maskDataUrl: edit.maskDataUrl } : {}),
           context: {
             prompt,
             profileView: {
