@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
-import type { NodeReference } from '../lib/nodeCanvasFlow'
+import { type NodeReference, referenceFileIds } from '../lib/nodeCanvasFlow'
 import NodeMediaImage from './NodeMediaImage'
 
 export default function NodeReferenceEditor({
@@ -34,10 +34,16 @@ export default function NodeReferenceEditor({
 }) {
   const { t } = useTranslation('canvas')
   const [picking, setPicking] = useState(false)
+  const imageIds = referenceFileIds(references, files)
   return (
     <div className="studio-node-references" aria-label={t('nodes.references')}>
       {references.map((ref, index) => (
         <div className="studio-node-reference" key={ref.id}>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {ref.kind === 'image' && imageIds.includes(ref.fileId ?? '')
+              ? imageIds.indexOf(ref.fileId ?? '') + 1
+              : null}
+          </span>
           {ref.fileId && files[ref.fileId] ? (
             <NodeMediaImage src={files[ref.fileId]} alt="" />
           ) : (
