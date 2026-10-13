@@ -29,10 +29,12 @@ typecheck、测试和构建。两个方向的边界都由 `scripts/check-private
 - `apps/web/src/lib/privateOverlay.tsx`：用户侧 header、提交门禁和状态 UI
 - `apps/admin/src/lib/private-overlay.tsx`：运营概览、用户摘要和用户详情 UI
 
-overlay 反过来只允许通过上面三个接缝与三个**宿主面**引公开树，不许 `../../../apps/*/src/...`
+overlay 反过来只允许通过上面三个接缝与以下**宿主面**引公开树，不许 `../../../apps/*/src/...`
 深路径（测试文件除外）：
 
 - `apps/bff/src/lib/private-host.ts`、`apps/web/src/lib/privateHost.ts`、`apps/admin/src/lib/private-host.ts`（lib）与 `private-host-ui.ts`（shadcn 组件，走 `@/` 别名，bun 测试不能碰）
+
+- `apps/web/src/lib/privateIcons.ts`：跨 Web / Admin 的纯展示图标与 `cn`，不加载 Web i18n、登录或配置初始化。共享徽标从此入口引用。
 
 宿主面里每一行都是对收费版的承诺。改动只能**先扩后缩**：加成员随时；改名 / 删除 / 换签名前
 先确认 `private.lock` 钉住的 overlay 不再引用它——公开 CI 的 `with-overlay` 作业（候选公开树 +
