@@ -406,6 +406,7 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 @media (max-width: 767px) {
   .studio-home-create .creation-body .creation-prompt { min-height: 84px; }
   .studio-home-intro { padding-top: 80px; }
+  [data-home-main] .creation-composer { --creation-space: 20px; }
 }
 :root:not(.dark) .studio-home-backdrop { --dot-alpha: .07; }
 .studio-home-backdrop::after {
@@ -524,6 +525,7 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   content: '';
 }
 [data-home-main] .creation-composer {
+  --home-card-border: color-mix(in srgb, hsl(var(--foreground)) 16%, hsl(var(--background)));
   position: relative;
   z-index: 1;
   border: 1px solid transparent;
@@ -537,12 +539,12 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
       hsl(var(--on-media) / .16) 357deg,
       transparent 360deg
     ) border-box,
-    linear-gradient(hsl(var(--border)), hsl(var(--border))) border-box;
+    linear-gradient(var(--home-card-border), var(--home-card-border)) border-box;
 }
 [data-home-main] .studio-history-composer:focus-within { animation: none; }
 [data-home-main] .studio-history-composer:focus-within::before { opacity: 0; }
 [data-home-main] .creation-composer:focus-within {
-  border-color: hsl(var(--border));
+  border-color: var(--home-card-border);
   background: hsl(var(--card));
   box-shadow: none;
 }
@@ -573,7 +575,7 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   [data-home-main] .studio-history-composer { animation: none; }
   [data-home-main] .studio-history-composer::before { opacity: 0; }
   [data-home-main] .creation-composer {
-    border-color: hsl(var(--border));
+    border-color: var(--home-card-border);
     background: hsl(var(--card));
   }
   .studio-hero-accent {
@@ -581,6 +583,30 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
     color: hsl(var(--primary));
     -webkit-text-fill-color: hsl(var(--primary));
   }
+}
+
+/* 起手 chip 的底保持中性深色，缩略图静止时略降饱和，悬停或按下恢复原色。 */
+[data-home-main] .studio-home-chips button {
+  border-color: hsl(var(--border));
+  background: hsl(var(--secondary));
+  color: hsl(var(--muted-foreground));
+}
+[data-home-main] .studio-home-chips button:hover,
+[data-home-main] .studio-home-chips button:active {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+[data-home-main] .studio-home-chip-thumb {
+  filter: saturate(.62) brightness(.84);
+  transition: filter .18s ease;
+}
+[data-home-main] .studio-home-chips button:hover .studio-home-chip-thumb,
+[data-home-main] .studio-home-chips button:active .studio-home-chip-thumb,
+[data-home-main] .studio-home-chips button:focus-visible .studio-home-chip-thumb {
+  filter: saturate(1) brightness(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-home-main] .studio-home-chip-thumb { transition: none; }
 }
 
 /* 模式切与主按钮复用主色与前景色，亮暗主题保持对比度。 */

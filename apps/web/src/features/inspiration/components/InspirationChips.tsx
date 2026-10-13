@@ -34,7 +34,7 @@ export default function InspirationChips() {
   if (items.length === 0) return null
 
   return (
-    <div className="-mx-4 flex items-center gap-2.5 overflow-x-auto px-4 pt-5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:justify-center sm:overflow-visible sm:px-0">
+    <div className="studio-home-chips -mx-4 flex items-center gap-2.5 overflow-x-auto px-4 pt-5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:justify-center sm:overflow-visible sm:px-0">
       {picked.map((item) => (
         <Button
           key={item.id}
@@ -48,7 +48,7 @@ export default function InspirationChips() {
             src={item.thumbnailUrl}
             alt=""
             loading="lazy"
-            className="h-7 w-10 rounded-lg object-cover"
+            className="studio-home-chip-thumb h-7 w-10 rounded-lg object-cover"
           />
           <span className="max-w-[12rem] truncate">{item.title}</span>
         </Button>
