@@ -1037,7 +1037,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             <div className="absolute -right-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
           )}
           <div
-            className={`relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
+            className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
               isMaskTarget ? 'border-2 border-primary' : 'border border-border'
             }`}
             role="button"

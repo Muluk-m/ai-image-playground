@@ -50,6 +50,22 @@ vi.mock('../../lib/api-client', () => {
         last_submitted_at: Date.now(),
       },
     ],
+    models: [
+      {
+        model: 'gpt-image-2',
+        tasks: 30,
+        completed: 20,
+        failed: 10,
+        upstream_invocations: 40,
+      },
+      {
+        model: 'doubao-seedream',
+        tasks: 2,
+        completed: 1,
+        failed: 1,
+        upstream_invocations: 3,
+      },
+    ],
   }
   const user = {
     id: 'user-1',
@@ -337,6 +353,15 @@ describe('今日概览', () => {
     expect(screen.getByRole('link', { name: '设计师的失败任务' }).getAttribute('href')).toMatch(
       /status=failed/,
     )
+    const models = within(screen.getByRole('table', { name: '今天按模型' }))
+    const large = models.getByRole('link', { name: 'gpt-image-2的失败任务' })
+    expect(large.getAttribute('href')).toMatch(/model=gpt-image-2/)
+    expect(large.getAttribute('href')).toMatch(/status=failed/)
+    expect(large.closest('tr')).toHaveTextContent('33.3%')
+    expect(large.closest('tr')?.textContent).toContain('40')
+    expect(models.getByText('33.3%').className).toContain('text-danger')
+    const small = models.getByText('doubao-seedream').closest('tr')!
+    expect(within(small).getByText('50.0%').className).not.toContain('text-danger')
     expect(screen.queryByText('Agent 输入缓存')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('时间范围')).not.toBeInTheDocument()
   })
