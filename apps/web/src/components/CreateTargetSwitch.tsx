@@ -50,7 +50,7 @@ export default function CreateTargetSwitch() {
             onClick={() => setTarget(one.id)}
             className={`max-md:h-11 min-w-0 gap-1.5 rounded-lg px-3 text-xs sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
               active
-                ? 'bg-secondary text-foreground ring-1 ring-inset ring-border hover:bg-secondary hover:text-foreground'
+                ? 'bg-secondary text-primary ring-1 ring-inset ring-primary/40 hover:bg-secondary hover:text-primary'
                 : 'text-muted-foreground hover:bg-transparent hover:text-foreground'
             }`}
           >
