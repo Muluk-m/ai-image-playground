@@ -181,6 +181,11 @@
     "uploadProgress": "上传中 {{ready}}/{{total}}",
     "viewAllReferences": "查看全部",
     "clearReferences": "清空参考素材",
-    "collapseReferences": "收起参考图"
+    "collapseReferences": "收起参考图",
+    "shortModes": {
+      "agent": "智能",
+      "image": "图片",
+      "video": "视频"
+    }
   }
 }

@@ -111,10 +111,7 @@ export default function Header() {
         style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
-        <div
-          className="flex items-center gap-2 rounded-full bg-background/55 backdrop-blur-md ring-1 ring-hairline max-md:[&_button]:min-h-10 max-md:[&_button]:min-w-10"
-          style={{ padding: 'var(--studio-account-cluster-pad)' }}
-        >
+        <div className="studio-header-float flex items-center gap-2">
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
           <LocaleGlobe />
