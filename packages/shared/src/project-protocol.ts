@@ -1,4 +1,5 @@
 import { AGENT_IMAGE_MAX_N, type AgentToolErrorCode, isAgentToolErrorCode } from './agent'
+import { type CanvasStoryboardData, isCanvasStoryboardData } from './canvas-storyboard'
 import { isVideoGenerationRecord, type VideoGenerationRecord } from './video-generation'
 
 export const PROJECT_NAME_MAX_LENGTH = 120
@@ -109,6 +110,16 @@ export type ProjectElement =
     }
   | { id: string; type: 'freedraw'; points: number[]; stroke: string; strokeWidth: number }
   | ProjectTimeline
+  | ProjectStoryboard
+
+export interface ProjectStoryboard extends CanvasStoryboardData {
+  id: string
+  type: 'storyboard'
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 /** 时间线只存对同一项目里视频元素的有序引用与入出点（秒），不存媒体。 */
 export interface ProjectTimeline {
@@ -313,6 +324,19 @@ function element(value: unknown): value is ProjectElement {
       color(value.fill) &&
       typeof value.text === 'string' &&
       value.text.length <= 10000
+    )
+  }
+  if (value.type === 'storyboard') {
+    return (
+      keys(value, ['id', 'type', 'x', 'y', 'width', 'height', 'shots', 'confirmed']) &&
+      coordinate(value.x) &&
+      coordinate(value.y) &&
+      size(value.width) &&
+      size(value.height) &&
+      isCanvasStoryboardData({
+        shots: value.shots,
+        ...(value.confirmed === undefined ? {} : { confirmed: value.confirmed }),
+      })
     )
   }
   if (value.type === 'timeline') {

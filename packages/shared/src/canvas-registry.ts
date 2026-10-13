@@ -1,6 +1,6 @@
 import type { CanvasNode, CanvasSnapshot } from './canvas-document'
 
-export const CANVAS_NODE_TYPES = ['text', 'image', 'video', 'timeline'] as const
+export const CANVAS_NODE_TYPES = ['text', 'image', 'video', 'timeline', 'storyboard'] as const
 export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number]
 
 interface CanvasNodeDefinition {
@@ -28,6 +28,11 @@ export const canvasNodeRegistry = {
     inputs: ['text', 'image', 'video'],
     size: { width: 360, height: 240 },
     description: 'Generate video with explicit input mode and model capability checks.',
+  },
+  storyboard: {
+    inputs: ['text', 'image'],
+    size: { width: 640, height: 340 },
+    description: 'Editable shot table with character and location node references.',
   },
   timeline: {
     inputs: ['video'],

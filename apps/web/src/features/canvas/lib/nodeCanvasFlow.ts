@@ -21,7 +21,7 @@ export function incomingReferences(
   for (const edge of edges) {
     if (edge.target !== targetId) continue
     const node = byId.get(edge.source)
-    if (!node || node.type === 'timeline') continue
+    if (!node || node.type === 'timeline' || node.type === 'storyboard') continue
     if (node.type === 'text') {
       const text = node.data.text.trim()
       refs.push({ id: node.id, kind: 'text', label: text.slice(0, 42), text })

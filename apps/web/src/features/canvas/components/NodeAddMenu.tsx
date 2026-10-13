@@ -12,19 +12,21 @@ export default function NodeAddMenu({
   onImage,
   onVideo,
   onTimeline,
+  onStoryboard,
   actions,
   onUpload,
   onAssets,
   onClose,
   disabledKinds = [],
 }: {
-  disabledKinds?: readonly ('text' | 'image' | 'video' | 'timeline')[]
+  disabledKinds?: readonly ('text' | 'image' | 'video' | 'timeline' | 'storyboard')[]
   x: number
   y: number
   onText: () => void
   onImage: () => void
   onVideo?: () => void
   onTimeline?: () => void
+  onStoryboard?: () => void
   actions?: { icon: IconName; label: string; onClick: () => void }[]
   onUpload: () => void
   onAssets?: () => void
@@ -104,6 +106,14 @@ export default function NodeAddMenu({
           icon="video"
           label={t('nodes.addVideo')}
           onClick={onVideo}
+        />
+      )}
+      {onStoryboard && (
+        <MenuItem
+          disabled={disabledKinds.includes('storyboard')}
+          icon="storyboard"
+          label={t('storyboard.title')}
+          onClick={onStoryboard}
         />
       )}
       {onTimeline && (

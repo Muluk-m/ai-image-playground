@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import { type CanvasNode, readCanvasDocument } from './canvas-document'
 import { canvasConnectionAllowed, canvasNodeKind } from './canvas-registry'
+import { isCanvasStoryboardData } from './canvas-storyboard'
 import { CANVAS_STATE_MAX_BYTES } from './canvas-sync'
 import { isCanvasTextDelta } from './canvas-text'
 import {
@@ -26,6 +27,8 @@ export function canvasProjectDocument(doc: Y.Doc, identity: ProjectDocument): Pr
     if (type === 'text') {
       const { text, fontSize, fill } = data as Extract<CanvasNode, { type: 'text' }>['data']
       elements.push({ ...box, type, text, fontSize, fill })
+    } else if (type === 'storyboard') {
+      elements.push({ ...box, type, ...data } as ProjectElement)
     } else if (type === 'timeline') {
       elements.push({
         ...box,
@@ -112,6 +115,28 @@ export function validateCloudCanvas(
       )
         throw new Error('invalid_canvas_timeline')
     }
+    if (value.get('type') === 'storyboard') {
+      const shots = value.get('storyboardShots')
+      if (
+        !isCanvasStoryboardData(value.get('data')) ||
+        !(shots instanceof Y.Map) ||
+        shots.size > 1000
+      )
+        throw new Error('invalid_canvas_storyboard')
+      for (const [key, entry] of shots) {
+        if (!(entry instanceof Y.Map)) throw new Error('invalid_canvas_storyboard')
+        const { order, deleted, ...shot } = entry.toJSON()
+        if (
+          shot.id !== key ||
+          !Number.isSafeInteger(order) ||
+          Number(order) < 0 ||
+          Number(order) > 1000 ||
+          (deleted !== undefined && deleted !== true) ||
+          !isCanvasStoryboardData({ shots: [shot] })
+        )
+          throw new Error('invalid_canvas_storyboard')
+      }
+    } else if (value.has('storyboardShots')) throw new Error('invalid_canvas_storyboard')
     if (value.has('richText')) {
       const text = value.get('richText')
       if (
@@ -183,7 +208,7 @@ export function validateCloudCanvas(
       node.width < 0 ||
       node.height < 0 ||
       !object(node.data) ||
-      !['text', 'image', 'video', 'timeline'].includes(node.type)
+      !['text', 'image', 'video', 'timeline', 'storyboard'].includes(node.type)
     )
       throw new Error('invalid_canvas_node')
     const data = node.data
@@ -278,7 +303,11 @@ export function validateCloudCanvas(
     } else if (
       !allowed(
         data,
-        node.type === 'text' ? ['text', 'fontSize', 'fill', 'name', 'richText'] : ['clips'],
+        node.type === 'text'
+          ? ['text', 'fontSize', 'fill', 'name', 'richText']
+          : node.type === 'storyboard'
+            ? ['shots', 'confirmed']
+            : ['clips'],
       )
     )
       throw new Error('invalid_canvas_node')

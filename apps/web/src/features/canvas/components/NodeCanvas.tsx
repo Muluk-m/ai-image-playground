@@ -122,6 +122,7 @@ import NodePorts, { SpawnContext } from './NodePorts'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeResultPicker from './NodeResultPicker'
 import NodeSliceMenu from './NodeSliceMenu'
+import NodeStoryboard, { NodeStoryboardContext } from './NodeStoryboard'
 import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import NodeTimeline, { NodeTimelineContext } from './NodeTimeline'
 import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
@@ -505,6 +506,10 @@ const TextNode = memo(function TextNode({ data: { node }, selected }: NodeProps<
   )
 })
 
+const StoryboardNode = memo(function StoryboardNode({ data: { node } }: NodeProps<FlowNode>) {
+  return node?.type === 'storyboard' ? <NodeStoryboard node={node} /> : null
+})
+
 const TimelineNode = memo(function TimelineNode({ data: { node } }: NodeProps<FlowNode>) {
   return node?.type === 'timeline' ? <NodeTimeline node={node} /> : null
 })
@@ -555,6 +560,7 @@ const nodeTypes = {
   video: VideoNode,
   text: TextNode,
   timeline: TimelineNode,
+  storyboard: StoryboardNode,
   annotation: AnnotationNode,
 }
 
@@ -1160,7 +1166,8 @@ function Flow({
   const composerNode =
     selected?.data.node &&
     selected.data.node.type !== 'text' &&
-    selected.data.node.type !== 'timeline'
+    selected.data.node.type !== 'timeline' &&
+    selected.data.node.type !== 'storyboard'
       ? selected.data.node
       : undefined
   const referenceNode = selected?.data.node?.type !== 'timeline' ? selected?.data.node : undefined
@@ -1188,7 +1195,8 @@ function Flow({
   const setMeta = (patch: Record<string, string>, trackUndo = true) => {
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
-    if (!node || node.type === 'text' || node.type === 'timeline') return
+    if (!node || node.type === 'text' || node.type === 'timeline' || node.type === 'storyboard')
+      return
     const data = canvas.doc.getMap<Y.Map<unknown>>('nodes').get(node.id)?.get('data') as
       | ImageNodeData
       | undefined
@@ -1348,545 +1356,369 @@ function Flow({
     }
   }
   return (
-    <NodeTimelineContext.Provider
-      value={{
-        editor,
-        snapshot,
-        onPick: (id) => {
-          selectNode(id)
-          setReferencePick({ targetId: id, viewport: flowRef.current?.getViewport() ?? frame })
-          fit()
-        },
-        onLocate: (id) => {
-          selectNode(id)
-          void flowRef.current?.fitView({
-            nodes: [{ id }],
-            padding: 0.5,
-            minZoom: 0.2,
-            maxZoom: 1,
-            duration: 250,
-          })
-        },
-      }}
-    >
-      <NodeVideoPlayheadContext.Provider value={playheads}>
-        <PreviewContext.Provider value={showPreview}>
-          <RenameGroupContext.Provider
-            value={(id, name) => {
-              canvas.undo.stopCapturing()
-              renameCanvasGroup(canvas.doc, id, name, canvas.origin)
-            }}
-          >
-            <EditNodeContext.Provider value={editNode}>
-              <TextCanvasContext.Provider value={canvas}>
-                <FillImageContext.Provider value={uploadInto}>
-                  <SpawnContext.Provider value={spawnBeside}>
-                    <ReactFlow<FlowNode>
-                      nodes={nodes.map((node) => {
-                        if (referencePick)
-                          return {
-                            ...node,
-                            className: pickableIds.has(node.id)
-                              ? 'studio-node-reference-eligible'
-                              : 'studio-node-reference-disabled',
+    <NodeStoryboardContext.Provider value={{ canvas, snapshot }}>
+      <NodeTimelineContext.Provider
+        value={{
+          editor,
+          snapshot,
+          onPick: (id) => {
+            selectNode(id)
+            setReferencePick({ targetId: id, viewport: flowRef.current?.getViewport() ?? frame })
+            fit()
+          },
+          onLocate: (id) => {
+            selectNode(id)
+            void flowRef.current?.fitView({
+              nodes: [{ id }],
+              padding: 0.5,
+              minZoom: 0.2,
+              maxZoom: 1,
+              duration: 250,
+            })
+          },
+        }}
+      >
+        <NodeVideoPlayheadContext.Provider value={playheads}>
+          <PreviewContext.Provider value={showPreview}>
+            <RenameGroupContext.Provider
+              value={(id, name) => {
+                canvas.undo.stopCapturing()
+                renameCanvasGroup(canvas.doc, id, name, canvas.origin)
+              }}
+            >
+              <EditNodeContext.Provider value={editNode}>
+                <TextCanvasContext.Provider value={canvas}>
+                  <FillImageContext.Provider value={uploadInto}>
+                    <SpawnContext.Provider value={spawnBeside}>
+                      <ReactFlow<FlowNode>
+                        nodes={nodes.map((node) => {
+                          if (referencePick)
+                            return {
+                              ...node,
+                              className: pickableIds.has(node.id)
+                                ? 'studio-node-reference-eligible'
+                                : 'studio-node-reference-disabled',
+                            }
+                          const position = arrangementPositions.get(node.id)
+                          return position ? { ...node, position } : node
+                        })}
+                        className={
+                          arrangementActive
+                            ? 'studio-node-arranging'
+                            : referencePick
+                              ? 'studio-node-reference-picking'
+                              : undefined
+                        }
+                        nodesDraggable={!arrangementActive && !referencePick}
+                        nodesConnectable={!arrangementActive && !referencePick}
+                        elementsSelectable={!arrangementActive && !referencePick}
+                        edges={snapshot.edges.map((edge) => ({
+                          id: edge.id,
+                          type: 'reference',
+                          source: edge.source,
+                          target: edge.target,
+                          interactionWidth: 22,
+                          hidden: !connections && !referencePick,
+                          selected: selectedEdges.includes(edge.id),
+                          className: highlightedEdges.has(edge.id) ? 'studio-edge-lit' : undefined,
+                          zIndex: highlightedEdges.has(edge.id) ? 1 : 0,
+                        }))}
+                        onEdgeMouseEnter={(_event, edge) => {
+                          setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
+                        }}
+                        onEdgeMouseLeave={(event) => {
+                          const next = event.relatedTarget
+                          const nextId =
+                            next instanceof Element
+                              ? next.closest('.react-flow__edge')?.getAttribute('data-id')
+                              : null
+                          if (nextId && litRef.current?.has(nextId)) return
+                          setLitEdgeIds(null)
+                        }}
+                        edgeTypes={edgeTypes}
+                        nodeTypes={nodeTypes}
+                        zoomOnDoubleClick={false}
+                        selectionOnDrag={mode === 'select' && !referencePick}
+                        selectionMode={SelectionMode.Partial}
+                        panOnDrag={mode === 'pan' ? true : [1, 2]}
+                        panOnScroll
+                        zoomOnScroll={false}
+                        multiSelectionKeyCode="Shift"
+                        onSelectionChange={({ nodes: selected }) => {
+                          if (arrangementActive || referencePick) return
+                          const ids = selected
+                            .filter((n) => n.data.node || n.data.group)
+                            .map((n) => n.id)
+                          selectedIds.current = ids
+                          if (ids.length)
+                            setSelectedEdges((current) => (current.length ? [] : current))
+                          setSelectedCount(ids.length)
+                          const id = ids.length === 1 ? ids[0]! : null
+                          selectedRef.current = id
+                          setSelectedId(id)
+                        }}
+                        onPaneContextMenu={(event) => {
+                          event.preventDefault()
+                          if (referencePick) return
+                          placeAt.current =
+                            flowRef.current?.screenToFlowPosition({
+                              x: event.clientX,
+                              y: event.clientY,
+                            }) ?? center()
+                          setMenu({ x: event.clientX, y: event.clientY })
+                        }}
+                        onNodeClick={(event, node) => {
+                          if (referencePick) {
+                            event.stopPropagation()
+                            if (
+                              addCanvasReference(
+                                canvas,
+                                referencePick.targetId,
+                                node.id,
+                                referencePick.slot,
+                              ) &&
+                              referencePick.slot
+                            )
+                              finishReferencePick()
+                            return
                           }
-                        const position = arrangementPositions.get(node.id)
-                        return position ? { ...node, position } : node
-                      })}
-                      className={
-                        arrangementActive
-                          ? 'studio-node-arranging'
-                          : referencePick
-                            ? 'studio-node-reference-picking'
-                            : undefined
-                      }
-                      nodesDraggable={!arrangementActive && !referencePick}
-                      nodesConnectable={!arrangementActive && !referencePick}
-                      elementsSelectable={!arrangementActive && !referencePick}
-                      edges={snapshot.edges.map((edge) => ({
-                        id: edge.id,
-                        type: 'reference',
-                        source: edge.source,
-                        target: edge.target,
-                        interactionWidth: 22,
-                        hidden: !connections && !referencePick,
-                        selected: selectedEdges.includes(edge.id),
-                        className: highlightedEdges.has(edge.id) ? 'studio-edge-lit' : undefined,
-                        zIndex: highlightedEdges.has(edge.id) ? 1 : 0,
-                      }))}
-                      onEdgeMouseEnter={(_event, edge) => {
-                        setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
-                      }}
-                      onEdgeMouseLeave={(event) => {
-                        const next = event.relatedTarget
-                        const nextId =
-                          next instanceof Element
-                            ? next.closest('.react-flow__edge')?.getAttribute('data-id')
-                            : null
-                        if (nextId && litRef.current?.has(nextId)) return
-                        setLitEdgeIds(null)
-                      }}
-                      edgeTypes={edgeTypes}
-                      nodeTypes={nodeTypes}
-                      zoomOnDoubleClick={false}
-                      selectionOnDrag={mode === 'select' && !referencePick}
-                      selectionMode={SelectionMode.Partial}
-                      panOnDrag={mode === 'pan' ? true : [1, 2]}
-                      panOnScroll
-                      zoomOnScroll={false}
-                      multiSelectionKeyCode="Shift"
-                      onSelectionChange={({ nodes: selected }) => {
-                        if (arrangementActive || referencePick) return
-                        const ids = selected
-                          .filter((n) => n.data.node || n.data.group)
-                          .map((n) => n.id)
-                        selectedIds.current = ids
-                        if (ids.length)
-                          setSelectedEdges((current) => (current.length ? [] : current))
-                        setSelectedCount(ids.length)
-                        const id = ids.length === 1 ? ids[0]! : null
-                        selectedRef.current = id
-                        setSelectedId(id)
-                      }}
-                      onPaneContextMenu={(event) => {
-                        event.preventDefault()
-                        if (referencePick) return
-                        placeAt.current =
-                          flowRef.current?.screenToFlowPosition({
-                            x: event.clientX,
-                            y: event.clientY,
-                          }) ?? center()
-                        setMenu({ x: event.clientX, y: event.clientY })
-                      }}
-                      onNodeClick={(event, node) => {
-                        if (referencePick) {
+                          if (arrangementActive) return
+                          if (!event.shiftKey && node.data.node) revealNode(node.data.node)
+                        }}
+                        onNodeContextMenu={(event, node) => {
+                          event.preventDefault()
+                          if (arrangementActive || referencePick) return
+                          if (!selectedIds.current.includes(node.id)) selectNode(node.id)
+                          placeAt.current = center()
+                          setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
+                        }}
+                        onEdgeClick={(event, edge) => {
                           event.stopPropagation()
-                          if (
-                            addCanvasReference(
-                              canvas,
-                              referencePick.targetId,
-                              node.id,
-                              referencePick.slot,
-                            ) &&
-                            referencePick.slot
-                          )
-                            finishReferencePick()
-                          return
-                        }
-                        if (arrangementActive) return
-                        if (!event.shiftKey && node.data.node) revealNode(node.data.node)
-                      }}
-                      onNodeContextMenu={(event, node) => {
-                        event.preventDefault()
-                        if (arrangementActive || referencePick) return
-                        if (!selectedIds.current.includes(node.id)) selectNode(node.id)
-                        placeAt.current = center()
-                        setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
-                      }}
-                      onEdgeClick={(event, edge) => {
-                        event.stopPropagation()
-                        if (referencePick) return
-                        selectNode(null)
-                        setSelectedEdges([edge.id])
-                      }}
-                      onConnectStart={(event) => {
-                        const point = 'touches' in event ? event.touches[0] : event
-                        if (point) connectStart.current = { x: point.clientX, y: point.clientY }
-                      }}
-                      elevateNodesOnSelect={false}
-                      onNodesChange={(changes: NodeChange<FlowNode>[]) =>
-                        setNodes((current) => {
-                          const next = applyNodeChanges(changes, current)
-                          const changed = new Set(
-                            changes
-                              .filter((change) => change.type === 'position')
-                              .map((change) => change.id),
-                          )
-                          const shifts = new Map<string, { x: number; y: number }>()
-                          for (const group of next.filter(
-                            (node) => node.data.group && changed.has(node.id),
-                          )) {
-                            const previous = current.find((node) => node.id === group.id)
-                            if (!previous) continue
-                            for (const id of group.data.group!.members)
-                              shifts.set(id, {
-                                x: group.position.x - previous.position.x,
-                                y: group.position.y - previous.position.y,
-                              })
-                          }
-                          return next.map((node) => {
-                            const shift = shifts.get(node.id)
-                            return shift && !changed.has(node.id)
-                              ? {
-                                  ...node,
-                                  position: {
-                                    x: node.position.x + shift.x,
-                                    y: node.position.y + shift.y,
-                                  },
-                                }
-                              : node
+                          if (referencePick) return
+                          selectNode(null)
+                          setSelectedEdges([edge.id])
+                        }}
+                        onConnectStart={(event) => {
+                          const point = 'touches' in event ? event.touches[0] : event
+                          if (point) connectStart.current = { x: point.clientX, y: point.clientY }
+                        }}
+                        elevateNodesOnSelect={false}
+                        onNodesChange={(changes: NodeChange<FlowNode>[]) =>
+                          setNodes((current) => {
+                            const next = applyNodeChanges(changes, current)
+                            const changed = new Set(
+                              changes
+                                .filter((change) => change.type === 'position')
+                                .map((change) => change.id),
+                            )
+                            const shifts = new Map<string, { x: number; y: number }>()
+                            for (const group of next.filter(
+                              (node) => node.data.group && changed.has(node.id),
+                            )) {
+                              const previous = current.find((node) => node.id === group.id)
+                              if (!previous) continue
+                              for (const id of group.data.group!.members)
+                                shifts.set(id, {
+                                  x: group.position.x - previous.position.x,
+                                  y: group.position.y - previous.position.y,
+                                })
+                            }
+                            return next.map((node) => {
+                              const shift = shifts.get(node.id)
+                              return shift && !changed.has(node.id)
+                                ? {
+                                    ...node,
+                                    position: {
+                                      x: node.position.x + shift.x,
+                                      y: node.position.y + shift.y,
+                                    },
+                                  }
+                                : node
+                            })
                           })
-                        })
-                      }
-                      onPaneClick={() => {
-                        if (referencePick) return
-                        selectNode(null)
-                        closeMenu()
-                      }}
-                      onConnect={(connection) => {
-                        if (!connection.source || !connection.target) return
-                        connectCanvasNodes(
-                          canvas.doc,
-                          { source: connection.source, target: connection.target },
-                          canvas.origin,
-                        )
-                      }}
-                      onConnectEnd={connectDrop}
-                      isValidConnection={(connection) =>
-                        Boolean(
-                          connection.source &&
-                            connection.target &&
-                            canvasLinkAllowed(snapshot, {
-                              source: connection.source,
-                              target: connection.target,
-                            }),
-                        )
-                      }
-                      onNodeDragStart={() => canvas.undo.stopCapturing()}
-                      onNodeDragStop={(_event, _node, dragged) => {
-                        const groups = dragged.filter((one) => one.data.group)
-                        const members = new Set(groups.flatMap((one) => one.data.group!.members))
-                        const free = dragged.filter((one) => one.data.node && !members.has(one.id))
-                        canvas.doc.transact(() => {
-                          moveCanvasGroups(
+                        }
+                        onPaneClick={() => {
+                          if (referencePick) return
+                          selectNode(null)
+                          closeMenu()
+                        }}
+                        onConnect={(connection) => {
+                          if (!connection.source || !connection.target) return
+                          connectCanvasNodes(
                             canvas.doc,
-                            groups.map((one) => ({ id: one.id, ...one.position })),
+                            { source: connection.source, target: connection.target },
                             canvas.origin,
                           )
-                          moveCanvasNodes(
-                            canvas.doc,
-                            free.map((one) => ({ id: one.id, ...one.position })),
-                            canvas.origin,
-                          )
-                          reconcileCanvasGroupMembership(
-                            canvas.doc,
-                            free.map((one) => one.id),
-                            canvas.origin,
-                          )
-                        }, canvas.origin)
-                        canvas.undo.stopCapturing()
-                      }}
-                      onMove={(_event, viewport) => remember(viewport)}
-                      onMoveEnd={(_event, viewport) =>
-                        safeLocalStorage.setItem(
-                          scopedStorageName(`node-viewport:${viewKey}`),
-                          JSON.stringify(viewport),
-                        )
-                      }
-                      colorMode={theme}
-                      minZoom={0.05}
-                      maxZoom={8}
-                      onInit={(flow) => {
-                        flowRef.current = flow
-                        const bounds = contentBounds(snapshot)
-                        const box = container.current
-                        // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
-                        let saved: { x: number; y: number; zoom: number } | undefined
-                        try {
-                          const value = JSON.parse(
-                            safeLocalStorage.getItem(
-                              scopedStorageName(`node-viewport:${viewKey}`),
-                            ) ?? 'null',
-                          )
-                          if (
-                            value &&
-                            [value.x, value.y, value.zoom].every(Number.isFinite) &&
-                            value.zoom >= 0.05 &&
-                            value.zoom <= 8
-                          )
-                            saved = value
-                        } catch {}
-                        if (saved) flow.setViewport(saved)
-                        else if (bounds && box?.clientWidth && box.clientHeight) {
-                          // 与旧画布一致：打开时最多按 100% 显示。
-                          flow.setViewport(
-                            getViewportForBounds(
-                              bounds,
-                              box.clientWidth,
-                              box.clientHeight,
-                              0.05,
-                              1,
-                              0.1,
-                            ),
+                        }}
+                        onConnectEnd={connectDrop}
+                        isValidConnection={(connection) =>
+                          Boolean(
+                            connection.source &&
+                              connection.target &&
+                              canvasLinkAllowed(snapshot, {
+                                source: connection.source,
+                                target: connection.target,
+                              }),
                           )
                         }
-                        remember(flow.getViewport())
-                      }}
-                      deleteKeyCode={null}
-                      proOptions={{ hideAttribution: true }}
-                    >
-                      <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
-                      {minimap && <MiniMap pannable zoomable position="bottom-right" />}
-                    </ReactFlow>
-                    {referencePick && (
-                      <div className="studio-node-pick-banner" role="status">
-                        <Icon name="fit" /> <span>{t('nodes.pickFromCanvas')}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={t('nodes.finishPicking')}
-                          onClick={finishReferencePick}
-                        >
-                          <Icon name="close" />
-                        </Button>
-                      </div>
-                    )}
-                    <NodeCanvasToolbar
-                      onCreate={(kind) => {
-                        finishReferencePick()
-                        addNode(kind, center())
-                      }}
-                      onMenu={openMenu}
-                      onAssets={() => {
-                        assetTarget.current = undefined
-                        placeAt.current = center()
-                        setAssetsOpen(true)
-                      }}
-                      onUpload={() => {
-                        placeAt.current = center()
-                        fileInput.current?.click()
-                      }}
-                      mode={mode}
-                      onMode={setMode}
-                      zoom={frame.zoom}
-                      onZoom={(zoom) =>
-                        void flowRef.current?.zoomTo(Math.max(0.05, Math.min(8, zoom)))
-                      }
-                      onFit={fit}
-                      minimap={minimap}
-                      onMinimap={() => setMinimap(!minimap)}
-                      connections={connections}
-                      onConnections={() => setConnections(!connections)}
-                      onArrange={arrange}
-                      canArrange={snapshot.nodes.length > 1}
-                      arranging={arrangementActive}
-                      onKeepArrangement={keepArrangement}
-                      onRevertArrangement={revertArrangement}
-                      onUndo={() => canvas.undo.undo()}
-                      onRedo={() => canvas.undo.redo()}
-                      canUndo={history.undo}
-                      canRedo={history.redo}
-                      onChat={onChat}
-                    />
-                    {snapshot.nodes.length === 0 && (
-                      <div className="studio-node-empty-hint text-body-md">
-                        {t('nodes.emptyHint')}
-                      </div>
-                    )}
-                    {selected?.data.group && (
-                      <div className="studio-node-selection-bar text-label-md">
-                        <span>{selected.data.group.name}</span>
-                        <NodeTool icon="folder" label={t('nodes.ungroup')} onClick={ungroup} />
-                        <NodeTool
-                          icon="duplicate"
-                          label={t('nodes.duplicate')}
-                          onClick={duplicate}
-                        />
-                      </div>
-                    )}
-                    {selectedCount > 1 && (
-                      <div className="studio-node-selection-bar text-label-md">
-                        <span>{t('nodes.selectedCount', { count: selectedCount })}</span>
-                        <NodeTool icon="folder" label={t('nodes.group')} onClick={makeGroup} />
-                        <NodeTool
-                          icon="add"
-                          label={t('nodes.newFromSelection')}
-                          onClick={() =>
-                            spawnBeside(
-                              selectedIds.current[selectedIds.current.length - 1]!,
-                              'right',
+                        onNodeDragStart={() => canvas.undo.stopCapturing()}
+                        onNodeDragStop={(_event, _node, dragged) => {
+                          const groups = dragged.filter((one) => one.data.group)
+                          const members = new Set(groups.flatMap((one) => one.data.group!.members))
+                          const free = dragged.filter(
+                            (one) => one.data.node && !members.has(one.id),
+                          )
+                          canvas.doc.transact(() => {
+                            moveCanvasGroups(
+                              canvas.doc,
+                              groups.map((one) => ({ id: one.id, ...one.position })),
+                              canvas.origin,
+                            )
+                            moveCanvasNodes(
+                              canvas.doc,
+                              free.map((one) => ({ id: one.id, ...one.position })),
+                              canvas.origin,
+                            )
+                            reconcileCanvasGroupMembership(
+                              canvas.doc,
+                              free.map((one) => one.id),
+                              canvas.origin,
+                            )
+                          }, canvas.origin)
+                          canvas.undo.stopCapturing()
+                        }}
+                        onMove={(_event, viewport) => remember(viewport)}
+                        onMoveEnd={(_event, viewport) =>
+                          safeLocalStorage.setItem(
+                            scopedStorageName(`node-viewport:${viewKey}`),
+                            JSON.stringify(viewport),
+                          )
+                        }
+                        colorMode={theme}
+                        minZoom={0.05}
+                        maxZoom={8}
+                        onInit={(flow) => {
+                          flowRef.current = flow
+                          const bounds = contentBounds(snapshot)
+                          const box = container.current
+                          // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
+                          let saved: { x: number; y: number; zoom: number } | undefined
+                          try {
+                            const value = JSON.parse(
+                              safeLocalStorage.getItem(
+                                scopedStorageName(`node-viewport:${viewKey}`),
+                              ) ?? 'null',
+                            )
+                            if (
+                              value &&
+                              [value.x, value.y, value.zoom].every(Number.isFinite) &&
+                              value.zoom >= 0.05 &&
+                              value.zoom <= 8
+                            )
+                              saved = value
+                          } catch {}
+                          if (saved) flow.setViewport(saved)
+                          else if (bounds && box?.clientWidth && box.clientHeight) {
+                            // 与旧画布一致：打开时最多按 100% 显示。
+                            flow.setViewport(
+                              getViewportForBounds(
+                                bounds,
+                                box.clientWidth,
+                                box.clientHeight,
+                                0.05,
+                                1,
+                                0.1,
+                              ),
                             )
                           }
-                        />
-                        <NodeTool
-                          icon="duplicate"
-                          label={t('nodes.duplicate')}
-                          onClick={duplicate}
-                        />
-                        <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
-                      </div>
-                    )}
-                    {assetsOpen && (
-                      <NodeAssetPicker
-                        onClose={() => {
-                          setAssetsOpen(false)
-                          assetTarget.current = undefined
+                          remember(flow.getViewport())
                         }}
-                        onChoose={(asset, imageId) => {
-                          setAssetsOpen(false)
-                          const targetId = assetTarget.current
-                          assetTarget.current = undefined
-                          void addAsset(asset, imageId, placeAt.current, targetId)
-                        }}
-                      />
-                    )}
-                    {imageEditId && (
-                      <Suspense fallback={null}>
-                        <NodeImageEditor
-                          editor={editor}
-                          canvas={canvas}
-                          nodeId={imageEditId}
-                          onClose={() => setImageEditId(null)}
-                        />
-                      </Suspense>
-                    )}
-                    <TimelineEditorHost
-                      editor={editor}
-                      onLocate={(id) => {
-                        selectNode(id)
-                        void flowRef.current?.fitView({
-                          nodes: [{ id }],
-                          padding: 0.5,
-                          minZoom: 0.2,
-                          maxZoom: 1,
-                          duration: 250,
-                        })
-                      }}
-                      beginEdit={(id) => {
-                        const draft = beginCanvasTimelineEdit(canvas.doc, id, canvas.origin)
-                        return {
-                          clips: draft.clips,
-                          save: (clips) => {
-                            canvas.undo.stopCapturing()
-                            draft.save(clips)
-                          },
-                        }
-                      }}
-                    />
-                    <FilmExportStatus />
-                    {preview && <ImagePreview src={preview} onClose={() => setPreview(null)} />}
-                    {videoPreview && (
-                      <Overlay onClose={() => setVideoPreview(null)} label={t('nodes.preview')}>
-                        <div className="relative h-[80vh] w-[90vw]">
-                          <CanvasVideoPlayer
-                            src={videoPreview.src}
-                            onTimeChange={(seconds) => playheads.set(videoPreview.id, seconds)}
-                            onEnded={() => {}}
-                          />
+                        deleteKeyCode={null}
+                        proOptions={{ hideAttribution: true }}
+                      >
+                        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
+                        {minimap && <MiniMap pannable zoomable position="bottom-right" />}
+                      </ReactFlow>
+                      {referencePick && (
+                        <div className="studio-node-pick-banner" role="status">
+                          <Icon name="fit" /> <span>{t('nodes.pickFromCanvas')}</span>
                           <Button
-                            className="absolute right-2 top-2"
-                            onClick={() => setVideoPreview(null)}
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t('nodes.finishPicking')}
+                            onClick={finishReferencePick}
                           >
-                            {common('action.close')}
+                            <Icon name="close" />
                           </Button>
                         </div>
-                      </Overlay>
-                    )}
-                    {composerNode &&
-                      selected &&
-                      (composerNode.type === 'video' ||
-                        ('fileId' in composerNode.data && composerNode.data.fileId)) && (
-                        <div
-                          className="studio-node-media-actions"
-                          style={{
-                            left: Math.max(
-                              150,
-                              Math.min(
-                                selected.position.x * frame.zoom +
-                                  frame.x +
-                                  ((selected.width ?? 0) * frame.zoom) / 2,
-                                frame.width - 150,
-                              ),
-                            ),
-                            top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),
-                          }}
-                        >
+                      )}
+                      <NodeCanvasToolbar
+                        onCreate={(kind) => {
+                          finishReferencePick()
+                          addNode(kind, center())
+                        }}
+                        onMenu={openMenu}
+                        onAssets={() => {
+                          assetTarget.current = undefined
+                          placeAt.current = center()
+                          setAssetsOpen(true)
+                        }}
+                        onUpload={() => {
+                          placeAt.current = center()
+                          fileInput.current?.click()
+                        }}
+                        mode={mode}
+                        onMode={setMode}
+                        zoom={frame.zoom}
+                        onZoom={(zoom) =>
+                          void flowRef.current?.zoomTo(Math.max(0.05, Math.min(8, zoom)))
+                        }
+                        onFit={fit}
+                        minimap={minimap}
+                        onMinimap={() => setMinimap(!minimap)}
+                        connections={connections}
+                        onConnections={() => setConnections(!connections)}
+                        onArrange={arrange}
+                        canArrange={snapshot.nodes.length > 1}
+                        arranging={arrangementActive}
+                        onKeepArrangement={keepArrangement}
+                        onRevertArrangement={revertArrangement}
+                        onUndo={() => canvas.undo.undo()}
+                        onRedo={() => canvas.undo.redo()}
+                        canUndo={history.undo}
+                        canRedo={history.redo}
+                        onChat={onChat}
+                      />
+                      {snapshot.nodes.length === 0 && (
+                        <div className="studio-node-empty-hint text-body-md">
+                          {t('nodes.emptyHint')}
+                        </div>
+                      )}
+                      {selected?.data.group && (
+                        <div className="studio-node-selection-bar text-label-md">
+                          <span>{selected.data.group.name}</span>
+                          <NodeTool icon="folder" label={t('nodes.ungroup')} onClick={ungroup} />
                           <NodeTool
-                            icon="fullscreen"
-                            label={t('nodes.preview')}
-                            onClick={() => {
-                              if (composerNode.type === 'video') {
-                                setVideoPreview({
-                                  id: composerNode.id,
-                                  src: videoOutputUrl(composerNode.data.video),
-                                })
-                              } else {
-                                const source = files[composerNode.data.fileId!]
-                                if (source) showPreview(source)
-                              }
-                            }}
+                            icon="duplicate"
+                            label={t('nodes.duplicate')}
+                            onClick={duplicate}
                           />
-                          {composerNode.type === 'image' && (
-                            <NodeTool
-                              icon="layers"
-                              label={t('nodes.saveAsAsset')}
-                              onClick={() => {
-                                void saveNodeAsAsset(editor, canvas, composerNode.id).catch(() =>
-                                  useStore.getState().showToast(t('import.failed'), 'error'),
-                                )
-                              }}
-                            />
-                          )}
+                        </div>
+                      )}
+                      {selectedCount > 1 && (
+                        <div className="studio-node-selection-bar text-label-md">
+                          <span>{t('nodes.selectedCount', { count: selectedCount })}</span>
+                          <NodeTool icon="folder" label={t('nodes.group')} onClick={makeGroup} />
                           <NodeTool
-                            icon="download"
-                            label={
-                              composerNode.type === 'video'
-                                ? common('action.download')
-                                : t('nodes.download')
+                            icon="add"
+                            label={t('nodes.newFromSelection')}
+                            onClick={() =>
+                              spawnBeside(
+                                selectedIds.current[selectedIds.current.length - 1]!,
+                                'right',
+                              )
                             }
-                            onClick={() => {
-                              const source =
-                                composerNode.type === 'video'
-                                  ? videoOutputUrl(composerNode.data.video)
-                                  : files[composerNode.data.fileId!]
-                              if (source) {
-                                void resolveMediaSource(source, 'original', true)
-                                  .then((url) => fetch(url, { credentials: 'include' }))
-                                  .then(async (response) => {
-                                    if (!response.ok) throw new Error('download failed')
-                                    const blob = await response.blob()
-                                    const extension =
-                                      blob.type.split('/')[1]?.split(';')[0] ||
-                                      (composerNode.type === 'video' ? 'mp4' : 'png')
-                                    const name = composerNode.data.name || 'muvloom'
-                                    downloadBlob(
-                                      blob,
-                                      /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
-                                        ? name
-                                        : `${name}.${extension}`,
-                                    )
-                                  })
-                                  .catch(() =>
-                                    useStore.getState().showToast(t('import.failed'), 'error'),
-                                  )
-                              }
-                            }}
                           />
-                          {composerNode.type === 'image' && nodeKind(composerNode) === 'image' && (
-                            <NodeTool
-                              icon="brush"
-                              label={t('pixelEdit.title')}
-                              onClick={() => setImageEditId(composerNode.id)}
-                            />
-                          )}
-                          {composerNode.type === 'video' && (
-                            <NodeVideoTools
-                              key={`${composerNode.id}:${composerNode.data.video.taskId}:${composerNode.data.video.outputIndex}`}
-                              editor={editor}
-                              canvas={canvas}
-                              node={composerNode}
-                              onCreated={selectCreatedBatch}
-                            />
-                          )}
-                          {composerNode.type === 'image' && nodeKind(composerNode) === 'image' && (
-                            <NodeSliceMenu
-                              key={composerNode.id}
-                              editor={editor}
-                              canvas={canvas}
-                              nodeId={composerNode.id}
-                              onCreated={selectCreatedBatch}
-                            />
-                          )}
                           <NodeTool
                             icon="duplicate"
                             label={t('nodes.duplicate')}
@@ -1895,259 +1727,444 @@ function Flow({
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
-                    {fileOver && (
-                      <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
-                        <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
-                          {t('drop.hint')}
-                        </span>
-                      </div>
-                    )}
-                    <input
-                      ref={referenceInput}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      hidden
-                      onChange={async (event) => {
-                        const files = [...(event.target.files ?? [])]
-                        event.target.value = ''
-                        const targetId = uploadReferenceTarget.current
-                        uploadReferenceTarget.current = null
-                        if (targetId)
-                          for (const file of files) await uploadReference(targetId, file)
-                      }}
-                    />
-                    <input
-                      ref={fileInput}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="sr-only"
-                      aria-hidden="true"
-                      tabIndex={-1}
-                      onChange={(event) => {
-                        const files = [...(event.target.files ?? [])]
-                        event.target.value = ''
-                        placeFiles(files)
-                      }}
-                    />
-                    {menu && (
-                      <NodeAddMenu
-                        disabledKinds={(['text', 'image', 'video', 'timeline'] as const).filter(
-                          (kind) => !canAddKind(kind),
-                        )}
-                        x={menu.x}
-                        y={menu.y}
-                        onClose={closeMenu}
-                        onText={() => addNode('text')}
-                        onImage={() => addNode('image')}
-                        onVideo={() => addNode('video')}
-                        onTimeline={() => addNode('timeline')}
-                        onAssets={() => {
-                          closeMenu()
-                          setAssetsOpen(true)
+                      {assetsOpen && (
+                        <NodeAssetPicker
+                          onClose={() => {
+                            setAssetsOpen(false)
+                            assetTarget.current = undefined
+                          }}
+                          onChoose={(asset, imageId) => {
+                            setAssetsOpen(false)
+                            const targetId = assetTarget.current
+                            assetTarget.current = undefined
+                            void addAsset(asset, imageId, placeAt.current, targetId)
+                          }}
+                        />
+                      )}
+                      {imageEditId && (
+                        <Suspense fallback={null}>
+                          <NodeImageEditor
+                            editor={editor}
+                            canvas={canvas}
+                            nodeId={imageEditId}
+                            onClose={() => setImageEditId(null)}
+                          />
+                        </Suspense>
+                      )}
+                      <TimelineEditorHost
+                        editor={editor}
+                        onLocate={(id) => {
+                          selectNode(id)
+                          void flowRef.current?.fitView({
+                            nodes: [{ id }],
+                            padding: 0.5,
+                            minZoom: 0.2,
+                            maxZoom: 1,
+                            duration: 250,
+                          })
                         }}
-                        actions={
-                          menu.nodeId
-                            ? [
-                                ...(canvasResults(canvas.doc, menu.nodeId).length > 1
-                                  ? [
-                                      {
-                                        icon: 'grid' as const,
-                                        label: t('nodes.spreadCandidates'),
-                                        onClick: () => {
-                                          const id = menu.nodeId!
-                                          closeMenu()
-                                          void spreadNodeResults(editor, canvas, id)
-                                            .then(selectCreatedBatch)
-                                            .catch(() =>
-                                              useStore
-                                                .getState()
-                                                .showToast(
-                                                  t('nodes.candidateUnavailable'),
-                                                  'error',
-                                                ),
-                                            )
-                                        },
-                                      },
-                                    ]
-                                  : []),
-                                {
-                                  icon: 'folder',
-                                  label: t(selected?.data.group ? 'nodes.ungroup' : 'nodes.group'),
-                                  onClick: selected?.data.group ? ungroup : makeGroup,
-                                },
-                                {
-                                  icon: 'copy',
-                                  label: t('nodes.copy'),
-                                  onClick: () => {
-                                    copied.current = copyNodes(snapshot, selectedIds.current)
-                                    closeMenu()
-                                  },
-                                },
-                                {
-                                  icon: 'duplicate',
-                                  label: t('nodes.duplicate'),
-                                  onClick: () => {
-                                    duplicate()
-                                    closeMenu()
-                                  },
-                                },
-                                { icon: 'delete', label: t('nodes.delete'), onClick: remove },
-                              ]
-                            : copied.current
+                        beginEdit={(id) => {
+                          const draft = beginCanvasTimelineEdit(canvas.doc, id, canvas.origin)
+                          return {
+                            clips: draft.clips,
+                            save: (clips) => {
+                              canvas.undo.stopCapturing()
+                              draft.save(clips)
+                            },
+                          }
+                        }}
+                      />
+                      <FilmExportStatus />
+                      {preview && <ImagePreview src={preview} onClose={() => setPreview(null)} />}
+                      {videoPreview && (
+                        <Overlay onClose={() => setVideoPreview(null)} label={t('nodes.preview')}>
+                          <div className="relative h-[80vh] w-[90vw]">
+                            <CanvasVideoPlayer
+                              src={videoPreview.src}
+                              onTimeChange={(seconds) => playheads.set(videoPreview.id, seconds)}
+                              onEnded={() => {}}
+                            />
+                            <Button
+                              className="absolute right-2 top-2"
+                              onClick={() => setVideoPreview(null)}
+                            >
+                              {common('action.close')}
+                            </Button>
+                          </div>
+                        </Overlay>
+                      )}
+                      {composerNode &&
+                        selected &&
+                        (composerNode.type === 'video' ||
+                          ('fileId' in composerNode.data && composerNode.data.fileId)) && (
+                          <div
+                            className="studio-node-media-actions"
+                            style={{
+                              left: Math.max(
+                                150,
+                                Math.min(
+                                  selected.position.x * frame.zoom +
+                                    frame.x +
+                                    ((selected.width ?? 0) * frame.zoom) / 2,
+                                  frame.width - 150,
+                                ),
+                              ),
+                              top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),
+                            }}
+                          >
+                            <NodeTool
+                              icon="fullscreen"
+                              label={t('nodes.preview')}
+                              onClick={() => {
+                                if (composerNode.type === 'video') {
+                                  setVideoPreview({
+                                    id: composerNode.id,
+                                    src: videoOutputUrl(composerNode.data.video),
+                                  })
+                                } else {
+                                  const source = files[composerNode.data.fileId!]
+                                  if (source) showPreview(source)
+                                }
+                              }}
+                            />
+                            {composerNode.type === 'image' && (
+                              <NodeTool
+                                icon="layers"
+                                label={t('nodes.saveAsAsset')}
+                                onClick={() => {
+                                  void saveNodeAsAsset(editor, canvas, composerNode.id).catch(() =>
+                                    useStore.getState().showToast(t('import.failed'), 'error'),
+                                  )
+                                }}
+                              />
+                            )}
+                            <NodeTool
+                              icon="download"
+                              label={
+                                composerNode.type === 'video'
+                                  ? common('action.download')
+                                  : t('nodes.download')
+                              }
+                              onClick={() => {
+                                const source =
+                                  composerNode.type === 'video'
+                                    ? videoOutputUrl(composerNode.data.video)
+                                    : files[composerNode.data.fileId!]
+                                if (source) {
+                                  void resolveMediaSource(source, 'original', true)
+                                    .then((url) => fetch(url, { credentials: 'include' }))
+                                    .then(async (response) => {
+                                      if (!response.ok) throw new Error('download failed')
+                                      const blob = await response.blob()
+                                      const extension =
+                                        blob.type.split('/')[1]?.split(';')[0] ||
+                                        (composerNode.type === 'video' ? 'mp4' : 'png')
+                                      const name = composerNode.data.name || 'muvloom'
+                                      downloadBlob(
+                                        blob,
+                                        /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
+                                          ? name
+                                          : `${name}.${extension}`,
+                                      )
+                                    })
+                                    .catch(() =>
+                                      useStore.getState().showToast(t('import.failed'), 'error'),
+                                    )
+                                }
+                              }}
+                            />
+                            {composerNode.type === 'image' &&
+                              nodeKind(composerNode) === 'image' && (
+                                <NodeTool
+                                  icon="brush"
+                                  label={t('pixelEdit.title')}
+                                  onClick={() => setImageEditId(composerNode.id)}
+                                />
+                              )}
+                            {composerNode.type === 'video' && (
+                              <NodeVideoTools
+                                key={`${composerNode.id}:${composerNode.data.video.taskId}:${composerNode.data.video.outputIndex}`}
+                                editor={editor}
+                                canvas={canvas}
+                                node={composerNode}
+                                onCreated={selectCreatedBatch}
+                              />
+                            )}
+                            {composerNode.type === 'image' &&
+                              nodeKind(composerNode) === 'image' && (
+                                <NodeSliceMenu
+                                  key={composerNode.id}
+                                  editor={editor}
+                                  canvas={canvas}
+                                  nodeId={composerNode.id}
+                                  onCreated={selectCreatedBatch}
+                                />
+                              )}
+                            <NodeTool
+                              icon="duplicate"
+                              label={t('nodes.duplicate')}
+                              onClick={duplicate}
+                            />
+                            <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
+                          </div>
+                        )}
+                      {fileOver && (
+                        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/70 backdrop-blur-[2px]">
+                          <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
+                            {t('drop.hint')}
+                          </span>
+                        </div>
+                      )}
+                      <input
+                        ref={referenceInput}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        hidden
+                        onChange={async (event) => {
+                          const files = [...(event.target.files ?? [])]
+                          event.target.value = ''
+                          const targetId = uploadReferenceTarget.current
+                          uploadReferenceTarget.current = null
+                          if (targetId)
+                            for (const file of files) await uploadReference(targetId, file)
+                        }}
+                      />
+                      <input
+                        ref={fileInput}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="sr-only"
+                        aria-hidden="true"
+                        tabIndex={-1}
+                        onChange={(event) => {
+                          const files = [...(event.target.files ?? [])]
+                          event.target.value = ''
+                          placeFiles(files)
+                        }}
+                      />
+                      {menu && (
+                        <NodeAddMenu
+                          disabledKinds={(
+                            ['text', 'image', 'video', 'timeline', 'storyboard'] as const
+                          ).filter((kind) => !canAddKind(kind))}
+                          x={menu.x}
+                          y={menu.y}
+                          onClose={closeMenu}
+                          onText={() => addNode('text')}
+                          onImage={() => addNode('image')}
+                          onVideo={() => addNode('video')}
+                          onTimeline={() => addNode('timeline')}
+                          onStoryboard={() => addNode('storyboard')}
+                          onAssets={() => {
+                            closeMenu()
+                            setAssetsOpen(true)
+                          }}
+                          actions={
+                            menu.nodeId
                               ? [
+                                  ...(canvasResults(canvas.doc, menu.nodeId).length > 1
+                                    ? [
+                                        {
+                                          icon: 'grid' as const,
+                                          label: t('nodes.spreadCandidates'),
+                                          onClick: () => {
+                                            const id = menu.nodeId!
+                                            closeMenu()
+                                            void spreadNodeResults(editor, canvas, id)
+                                              .then(selectCreatedBatch)
+                                              .catch(() =>
+                                                useStore
+                                                  .getState()
+                                                  .showToast(
+                                                    t('nodes.candidateUnavailable'),
+                                                    'error',
+                                                  ),
+                                              )
+                                          },
+                                        },
+                                      ]
+                                    : []),
+                                  {
+                                    icon: 'folder',
+                                    label: t(
+                                      selected?.data.group ? 'nodes.ungroup' : 'nodes.group',
+                                    ),
+                                    onClick: selected?.data.group ? ungroup : makeGroup,
+                                  },
                                   {
                                     icon: 'copy',
-                                    label: t('nodes.paste'),
+                                    label: t('nodes.copy'),
                                     onClick: () => {
-                                      const ids = pasteNodes(
-                                        canvas,
-                                        copied.current!,
-                                        placeAt.current,
-                                      )
-                                      selectNode(ids[0] ?? null)
+                                      copied.current = copyNodes(snapshot, selectedIds.current)
                                       closeMenu()
                                     },
                                   },
+                                  {
+                                    icon: 'duplicate',
+                                    label: t('nodes.duplicate'),
+                                    onClick: () => {
+                                      duplicate()
+                                      closeMenu()
+                                    },
+                                  },
+                                  { icon: 'delete', label: t('nodes.delete'), onClick: remove },
                                 ]
-                              : undefined
-                        }
-                        onUpload={() => {
-                          closeMenu()
-                          fileInput.current?.click()
-                        }}
-                      />
-                    )}
-                    {referenceNode?.type === 'text' && selected && (
-                      <NodeComposerFrame
-                        label={t('nodes.references')}
-                        position={composerAnchor(selected, frame)}
-                        references={[]}
-                        files={files}
-                      >
-                        {referenceTools}
-                      </NodeComposerFrame>
-                    )}
-                    {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
-                      <ImageNodeComposer
-                        resultTools={
-                          <>
+                              : copied.current
+                                ? [
+                                    {
+                                      icon: 'copy',
+                                      label: t('nodes.paste'),
+                                      onClick: () => {
+                                        const ids = pasteNodes(
+                                          canvas,
+                                          copied.current!,
+                                          placeAt.current,
+                                        )
+                                        selectNode(ids[0] ?? null)
+                                        closeMenu()
+                                      },
+                                    },
+                                  ]
+                                : undefined
+                          }
+                          onUpload={() => {
+                            closeMenu()
+                            fileInput.current?.click()
+                          }}
+                        />
+                      )}
+                      {referenceNode?.type === 'text' && selected && (
+                        <NodeComposerFrame
+                          label={t('nodes.references')}
+                          position={composerAnchor(selected, frame)}
+                          references={[]}
+                          files={files}
+                        >
+                          {referenceTools}
+                        </NodeComposerFrame>
+                      )}
+                      {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
+                        <ImageNodeComposer
+                          resultTools={
+                            <>
+                              <NodeResultPicker
+                                key={composerNode.id}
+                                canvas={canvas}
+                                editor={editor}
+                                nodeId={composerNode.id}
+                              />
+                              <NodeAssetTools
+                                key={`asset:${composerNode.id}`}
+                                canvas={canvas}
+                                editor={editor}
+                                nodeId={composerNode.id}
+                                busy={busy || addingAsset || referenceBusy}
+                              />
+                            </>
+                          }
+                          onAsset={async (asset, prompt) =>
+                            !!(await addAsset(
+                              asset,
+                              undefined,
+                              placeAt.current,
+                              composerNode.id,
+                              prompt,
+                            ))
+                          }
+                          key={composerNode.id}
+                          document={canvas.doc}
+                          nodeId={composerNode.id}
+                          onReferenceUpload={(file, slot) =>
+                            uploadReference(composerNode.id, file, slot)
+                          }
+                          referenceTools={referenceTools}
+                          references={references}
+                          files={files}
+                          value={draftValue}
+                          busy={busy || addingAsset || referenceBusy}
+                          position={composerAt}
+                          onChange={(value) => {
+                            setMeta({ nodePrompt: value })
+                          }}
+                          onSubmit={(temporaryReferences) => {
+                            const value = draftValue
+                            const urls = referenceFileIds(references, files).flatMap((id) => {
+                              const source = files[id]
+                              return source ? [source] : []
+                            })
+                            urls.push(...temporaryReferences)
+                            submitNodeImage(
+                              editor,
+                              canvas.doc,
+                              composerNode.id,
+                              [assetNodeContext(composerNode), composeNodePrompt(value, references)]
+                                .filter(Boolean)
+                                .join('\n\n'),
+                              urls,
+                            )
+                          }}
+                        />
+                      )}
+                      {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
+                        <VideoNodeComposer
+                          resultTools={
                             <NodeResultPicker
                               key={composerNode.id}
                               canvas={canvas}
                               editor={editor}
                               nodeId={composerNode.id}
                             />
-                            <NodeAssetTools
-                              key={`asset:${composerNode.id}`}
-                              canvas={canvas}
-                              editor={editor}
-                              nodeId={composerNode.id}
-                              busy={busy || addingAsset || referenceBusy}
-                            />
-                          </>
-                        }
-                        onAsset={async (asset, prompt) =>
-                          !!(await addAsset(
-                            asset,
-                            undefined,
-                            placeAt.current,
-                            composerNode.id,
-                            prompt,
-                          ))
-                        }
-                        key={composerNode.id}
-                        document={canvas.doc}
-                        nodeId={composerNode.id}
-                        onReferenceUpload={(file, slot) =>
-                          uploadReference(composerNode.id, file, slot)
-                        }
-                        referenceTools={referenceTools}
-                        references={references}
-                        files={files}
-                        value={draftValue}
-                        busy={busy || addingAsset || referenceBusy}
-                        position={composerAt}
-                        onChange={(value) => {
-                          setMeta({ nodePrompt: value })
-                        }}
-                        onSubmit={(temporaryReferences) => {
-                          const value = draftValue
-                          const urls = referenceFileIds(references, files).flatMap((id) => {
-                            const source = files[id]
-                            return source ? [source] : []
-                          })
-                          urls.push(...temporaryReferences)
-                          submitNodeImage(
-                            editor,
-                            canvas.doc,
-                            composerNode.id,
-                            [assetNodeContext(composerNode), composeNodePrompt(value, references)]
-                              .filter(Boolean)
-                              .join('\n\n'),
-                            urls,
-                          )
-                        }}
-                      />
-                    )}
-                    {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
-                      <VideoNodeComposer
-                        resultTools={
-                          <NodeResultPicker
-                            key={composerNode.id}
-                            canvas={canvas}
-                            editor={editor}
-                            nodeId={composerNode.id}
-                          />
-                        }
-                        onAsset={async (asset, prompt) =>
-                          !!(await addAsset(
-                            asset,
-                            undefined,
-                            placeAt.current,
-                            composerNode.id,
-                            prompt,
-                          ))
-                        }
-                        key={composerNode.id}
-                        document={canvas.doc}
-                        nodeId={composerNode.id}
-                        onPickReference={startReferencePick}
-                        meta={meta}
-                        onMeta={setMeta}
-                        references={references}
-                        files={files}
-                        value={draftValue}
-                        onChange={(value) => setMeta({ nodePrompt: value })}
-                        onSubmit={(draft, activeRefs, activeRoles, activeFiles) =>
-                          submitNodeVideo(
-                            editor,
-                            canvas.doc,
-                            composerNode.id,
-                            composeNodePrompt(draftValue, activeRefs),
-                            activeRefs,
-                            activeRoles,
-                            activeFiles,
-                            draft,
-                          )
-                        }
-                        busy={busy || addingAsset || referenceBusy}
-                        position={composerAt}
-                        onReferenceUpload={(file, slot) =>
-                          uploadReference(composerNode.id, file, slot)
-                        }
-                        referenceTools={referenceTools}
-                      />
-                    )}
-                  </SpawnContext.Provider>
-                </FillImageContext.Provider>
-              </TextCanvasContext.Provider>
-            </EditNodeContext.Provider>
-          </RenameGroupContext.Provider>
-        </PreviewContext.Provider>
-      </NodeVideoPlayheadContext.Provider>
-    </NodeTimelineContext.Provider>
+                          }
+                          onAsset={async (asset, prompt) =>
+                            !!(await addAsset(
+                              asset,
+                              undefined,
+                              placeAt.current,
+                              composerNode.id,
+                              prompt,
+                            ))
+                          }
+                          key={composerNode.id}
+                          document={canvas.doc}
+                          nodeId={composerNode.id}
+                          onPickReference={startReferencePick}
+                          meta={meta}
+                          onMeta={setMeta}
+                          references={references}
+                          files={files}
+                          value={draftValue}
+                          onChange={(value) => setMeta({ nodePrompt: value })}
+                          onSubmit={(draft, activeRefs, activeRoles, activeFiles) =>
+                            submitNodeVideo(
+                              editor,
+                              canvas.doc,
+                              composerNode.id,
+                              composeNodePrompt(draftValue, activeRefs),
+                              activeRefs,
+                              activeRoles,
+                              activeFiles,
+                              draft,
+                            )
+                          }
+                          busy={busy || addingAsset || referenceBusy}
+                          position={composerAt}
+                          onReferenceUpload={(file, slot) =>
+                            uploadReference(composerNode.id, file, slot)
+                          }
+                          referenceTools={referenceTools}
+                        />
+                      )}
+                    </SpawnContext.Provider>
+                  </FillImageContext.Provider>
+                </TextCanvasContext.Provider>
+              </EditNodeContext.Provider>
+            </RenameGroupContext.Provider>
+          </PreviewContext.Provider>
+        </NodeVideoPlayheadContext.Provider>
+      </NodeTimelineContext.Provider>
+    </NodeStoryboardContext.Provider>
   )
 }
 
