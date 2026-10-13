@@ -555,6 +555,8 @@
     "candidates": "Candidate results",
     "previousCandidate": "Previous candidate",
     "nextCandidate": "Next candidate",
-    "spreadCandidates": "Spread all candidates on canvas"
+    "spreadCandidates": "Spread all candidates on canvas",
+    "candidateStorageFailed": "These results could not be saved in this browser. Retry saving or download them before refreshing.",
+    "retryCandidateStorage": "Retry saving"
   }
 }

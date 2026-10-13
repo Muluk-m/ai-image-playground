@@ -25,6 +25,7 @@ import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import { createNode } from './nodeCanvasActions'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
+import { pendingNodeResultImage } from './nodeResultPersistence'
 
 const system = canvasOrigin('system', 'node-result')
 const pixels = new WeakMap<Y.Doc, Map<string, string>>()
@@ -132,6 +133,8 @@ async function imageSource(
     const blob = await response.blob()
     return fileToDataUrl(new File([blob], 'candidate', { type: blob.type }))
   } else if (source.type === 'local') {
+    const retained = pendingNodeResultImage(doc, source.taskId, source.outputIndex)
+    if (retained) return retained
     const task = (await getAllTasks()).find((task) => task.id === source.taskId)
     const id = task?.outputImages[source.outputIndex]
     const stored = id ? await loadImageOriginal(id) : undefined
@@ -222,8 +225,30 @@ export async function selectNodeResult(
   return chooseCanvasResult(doc, result.nodeId, result.id, projection, origin)
 }
 
-/** Load every candidate before inserting anything; one undo removes the entire spread. */
+const spreading = new WeakMap<Y.Doc, Set<string>>()
+
+/** Concurrent clicks share one spread; a later deliberate spread is allowed. */
 export async function spreadNodeResults(
+  editor: CanvasEditor,
+  canvas: NodeCanvasDocument,
+  nodeId: string,
+): Promise<string[]> {
+  let active = spreading.get(canvas.doc)
+  if (!active) {
+    active = new Set()
+    spreading.set(canvas.doc, active)
+  }
+  if (active.has(nodeId)) return []
+  active.add(nodeId)
+  try {
+    return await spreadResults(editor, canvas, nodeId)
+  } finally {
+    active.delete(nodeId)
+  }
+}
+
+/** Load every candidate before inserting anything; one undo removes the entire spread. */
+async function spreadResults(
   editor: CanvasEditor,
   canvas: NodeCanvasDocument,
   nodeId: string,

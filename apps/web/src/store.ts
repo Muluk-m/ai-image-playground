@@ -44,7 +44,7 @@ function filterUserProfileCache(
 }
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
+import { accountScope, STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { mediaIdentity, resolveMediaSource } from './lib/cloudMedia'
@@ -181,12 +181,14 @@ interface StoredGeneratedImagesResult {
 async function storeGeneratedImages(
   images: string[],
   task?: Pick<TaskRecord, 'transparentOutput'>,
+  current?: () => boolean,
 ): Promise<StoredGeneratedImagesResult> {
   const outputIds: string[] = []
   const outputDataUrls: string[] = []
   const transparentOriginalImageIds: string[] = []
 
   for (const dataUrl of images) {
+    if (current && !current()) throw new Error('account_changed')
     let outputDataUrl = dataUrl
 
     if (task?.transparentOutput) {
@@ -205,6 +207,7 @@ async function storeGeneratedImages(
     }
 
     const imgId = await storeImage(outputDataUrl, 'generated')
+    if (current && !current()) throw new Error('account_changed')
     cacheImage(imgId, outputDataUrl)
     outputIds.push(imgId)
     outputDataUrls.push(outputDataUrl)
@@ -2410,7 +2413,7 @@ export type CanvasProfileSnapshot = Pick<
 /**
  * 画布生成完成后落一条已完成任务进工作台历史：输出图写 image store，可收藏 / 检索 /
  * 下载 / 复用 prompt，与工作台任务同列展示。画布任务的输入图是选区栅格化的临时合成物，
- * 刻意不落库（inputImageIds 恒空）。历史写入是 best-effort：失败仅告警，不抛、不影响画布结果。
+ * 刻意不落库（inputImageIds 恒空）。历史写入不抛异常；返回 false 时调用方保留结果并提示重试，不能当作持久化成功。
  * profile 身份优先用发起时快照（缺失兜底当前 active profile，如旧占位框恢复）。
  */
 export async function addCompletedCanvasTask(args: {
@@ -2420,11 +2423,13 @@ export async function addCompletedCanvasTask(args: {
   images: string[]
   elapsed?: number
   profile?: CanvasProfileSnapshot
-}): Promise<void> {
+}): Promise<boolean> {
+  const current = accountScope()
   try {
     const completed = (tasks: TaskRecord[]) =>
       args.id && tasks.some((task) => task.id === args.id && task.status === 'done')
-    if (completed(useStore.getState().tasks) || (args.id && completed(await getAllTasks()))) return
+    if (args.id && completed(await getAllTasks())) return true
+    if (!current()) return false
     const profile =
       args.profile ??
       (() => {
@@ -2436,8 +2441,9 @@ export async function addCompletedCanvasTask(args: {
           apiModel: view.model,
         }
       })()
-    const { outputIds } = await storeGeneratedImages(args.images)
-    if (completed(useStore.getState().tasks)) return
+    const { outputIds } = await storeGeneratedImages(args.images, undefined, current)
+    if (args.id && completed(await getAllTasks())) return true
+    if (!current()) return false
     const finishedAt = Date.now()
     const elapsed = args.elapsed ?? null
     const newTask: TaskRecord = {
@@ -2455,12 +2461,15 @@ export async function addCompletedCanvasTask(args: {
       finishedAt,
       elapsed,
     }
+    await putTask(newTask)
+    if (!current()) return false
     useStore
       .getState()
       .setTasks([newTask, ...useStore.getState().tasks.filter((task) => task.id !== newTask.id)])
-    await putTask(newTask)
+    return true
   } catch (err) {
     console.warn('canvas task history write failed:', err)
+    return false
   }
 }
 

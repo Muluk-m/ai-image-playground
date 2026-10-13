@@ -164,6 +164,7 @@ import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
+import * as database from '../lib/db'
 import { clearImages, getAllImages, getAllTasks, getImage, putImage } from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
@@ -1078,6 +1079,24 @@ describe('getPersistedState builtin profile stripping', () => {
 })
 
 describe('addCompletedCanvasTask', () => {
+  it('does not report a failed task write as persisted and allows the same completion to retry', async () => {
+    const task = {
+      id: 'canvas:storage-retry',
+      prompt: 'retry',
+      params: DEFAULT_PARAMS,
+      images: ['data:image/png;base64,one'],
+    }
+    const saving = vi.spyOn(database, 'putTask').mockRejectedValueOnce(new Error('quota exceeded'))
+    try {
+      expect(await addCompletedCanvasTask(task)).toBe(false)
+      expect(useStore.getState().tasks.some((t) => t.id === task.id)).toBe(false)
+      expect(await addCompletedCanvasTask(task)).toBe(true)
+      expect((await getAllTasks()).find((t) => t.id === task.id)?.outputImages).toHaveLength(1)
+    } finally {
+      saving.mockRestore()
+    }
+  })
+
   it('preserves favorites and original completion metadata on repeated delivery', async () => {
     const task = {
       id: 'canvas:favorite-job',

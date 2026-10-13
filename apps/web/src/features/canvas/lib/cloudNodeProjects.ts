@@ -20,7 +20,7 @@ import {
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { accountScope } from '../../../lib/authScope'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
@@ -102,7 +102,7 @@ export class CloudNodeProjectSession {
     }))
   }
   private async open() {
-    const doc = new Y.Doc()
+    const doc = new Y.Doc({ guid: scopedStorageName(nodeCanvasDatabaseName(this.record.key)) })
     const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(this.record.key), doc)
     this.persistence = persistence
     try {

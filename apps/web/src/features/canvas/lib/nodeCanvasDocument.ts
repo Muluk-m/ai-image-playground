@@ -8,6 +8,7 @@ import {
 } from '@image-playground/shared'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
+import { scopedStorageName } from '../../../lib/authScope'
 
 /** 本机节点画布：一个项目一份 `Y.Doc`，存在它自己的 IndexedDB 库里，旧存档只读不写。 */
 export interface NodeCanvasDocument {
@@ -71,7 +72,7 @@ export async function openNodeCanvasDocument(
   sceneKey: string,
   legacy: () => readonly LegacyCanvasElement[],
 ): Promise<NodeCanvasDocument> {
-  const doc = new Y.Doc()
+  const doc = new Y.Doc({ guid: scopedStorageName(nodeCanvasDatabaseName(sceneKey)) })
   const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(sceneKey), doc)
   try {
     await migratePersistedDocument(persistence, doc, legacy)

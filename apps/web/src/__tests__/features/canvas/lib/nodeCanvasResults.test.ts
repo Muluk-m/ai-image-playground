@@ -218,3 +218,23 @@ it('selects a durable video after the queue task has expired', async () => {
   })
   await canvas.destroy()
 })
+
+it('ignores a repeated spread while decoding and permits retry after completion', async () => {
+  const { canvas, editor } = fixture()
+  await candidate(canvas.doc, 'second', 'data:image/png;base64,second')
+  let finish!: (value: { width: number; height: number }) => void
+  mocks.dimensions.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const first = spreadNodeResults(editor, canvas, 'image')
+  await vi.waitFor(() => expect(finish).toBeDefined())
+  expect(await spreadNodeResults(editor, canvas, 'image')).toEqual([])
+  finish({ width: 600, height: 400 })
+  expect(await first).toHaveLength(2)
+  expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(3)
+  expect(await spreadNodeResults(editor, canvas, 'image')).toHaveLength(2)
+  await canvas.destroy()
+})
