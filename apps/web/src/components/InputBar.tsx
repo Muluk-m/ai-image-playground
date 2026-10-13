@@ -73,6 +73,7 @@ import {
   CreationToolbar,
 } from './creation/CreationFrame'
 import { CreationReferenceStack } from './creation/CreationReferenceStack'
+import { useReferenceDisplay } from './creation/referenceDisplay'
 import { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
@@ -121,6 +122,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const moveInputImage = useStore((s) => s.moveInputImage)
 
+  const [referencesExpanded] = useReferenceDisplay()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -736,15 +738,25 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     const imagesHeight = stacked ? (imagesRef.current?.offsetHeight ?? 0) : 0
     const fixedOverhead = imagesHeight + 140
 
+    // 参考图展开时，样式把提示词收到一行。测量前先去掉 min-height，
+    // 否则 scrollHeight 仍是收起时那块空写区，行内 height 会把它锁回去。
+    const referencesOpen = Boolean(
+      el
+        .closest('.creation-body')
+        ?.querySelector('.creation-reference-stack[data-expanded="true"]'),
+    )
     // 1. 关闭过渡动画，设高度为 0 以获取真实的文本内容高度
     el.style.transition = 'none'
     el.style.height = '0'
+    if (referencesOpen) el.style.minHeight = '0'
     el.style.overflowY = 'hidden'
     const { targetH, scroll } = computePromptHeight({
       scrollH: el.scrollHeight,
       innerHeight: window.innerHeight,
       fixedOverhead,
+      ...(referencesOpen ? { minH: 0 } : {}),
     })
+    if (referencesOpen) el.style.minHeight = ''
 
     // 2. 将高度设回上一次的实际高度，强制重绘，准备开始动画
     el.style.height = prevHeightRef.current + 'px'
@@ -760,7 +772,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   useEffect(() => {
     adjustTextareaHeight()
-  }, [prompt, inputImages, adjustTextareaHeight])
+  }, [prompt, inputImages, referencesExpanded, adjustTextareaHeight])
 
   useEffect(() => {
     setOpenSlot((slot) => (slot && !getPromptSlotNames(prompt).includes(slot.name) ? null : slot))
@@ -1091,10 +1103,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           </div>
           <Button
             type="button"
-            variant="destructive"
-            size="icon-xs"
+            variant="ghost"
             aria-label={t('common:action.remove')}
-            className="absolute right-1 top-1 z-30 opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            className="creation-reference-remove opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)

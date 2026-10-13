@@ -535,7 +535,10 @@ it('removes a masked reference from the expanded stack', () => {
   )
   const panel = openReferenceStack(host)
   expect(panel.querySelector('.creation-reference-heading')?.textContent).toContain('清空参考素材')
-  act(() => panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!.click())
+  const remove = panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!
+  expect(remove.className).toContain('creation-reference-remove')
+  expect(remove.className).not.toContain('bg-destructive')
+  act(() => remove.click())
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
   expect(host.querySelector('.creation-stack-trigger')).toBeNull()
