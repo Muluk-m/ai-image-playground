@@ -28,7 +28,9 @@ import { timelineClipRange } from '../../../../features/canvas/lib/timelineRange
 const mocks = vi.hoisted(() => ({
   dimensions: vi.fn(async () => ({ width: 600, height: 400 })),
   fetch: vi.fn(),
+  poster: vi.fn(async () => 'data:image/png;base64,poster'),
 }))
+vi.mock('../../../../features/agent/lib/videoPoster', () => ({ captureVideoPoster: mocks.poster }))
 vi.mock('../../../../lib/canvasImage', () => ({ getImageDimensions: mocks.dimensions }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: mocks.fetch }))
 vi.mock('../../../../lib/cloudMedia', () => ({
@@ -193,4 +195,26 @@ it('bounds timeline playback to the current source without losing the original t
   expect(timelineClipRange(clip, 5)).toEqual({ in: 4.9, out: 5 })
   expect(timelineClipRange(clip, 12)).toEqual(clip)
   expect(clip).toEqual({ in: 6, out: 10 })
+})
+
+it('selects a durable video after the queue task has expired', async () => {
+  const { canvas, editor } = fixture()
+  const next = await recordNodeOutput(canvas.doc, {
+    nodeId: 'image',
+    kind: 'video',
+    createdAt: 2,
+    source: { type: 'queue', taskId: 'expired', outputIndex: 0 },
+    display: {
+      video: { taskId: 'expired', outputIndex: 0, mediaId: '11111111-1111-4111-8111-111111111111' },
+    },
+  })
+  expect(await selectNodeResult(editor, canvas.doc, next!.id, canvas.origin)).toBe(true)
+  expect(mocks.fetch).not.toHaveBeenCalled()
+  expect(mocks.poster).toHaveBeenCalledWith(
+    expect.stringContaining('/api/media/11111111-1111-4111-8111-111111111111/content'),
+  )
+  expect(editor.doc.getElement('image')).toMatchObject({
+    video: { mediaId: '11111111-1111-4111-8111-111111111111' },
+  })
+  await canvas.destroy()
 })

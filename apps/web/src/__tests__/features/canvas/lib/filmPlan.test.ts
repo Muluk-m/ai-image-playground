@@ -109,3 +109,13 @@ describe('clipFrameCount', () => {
     expect(clipFrameCount({ in: 5, out: 5 }, 5, 30)).toBe(1)
   })
 })
+
+it('retains the durable original when resolving a timeline clip', () => {
+  const source = video('adopted', 5)
+  if (source.type !== 'image' || !source.video) throw new Error('fixture')
+  source.video.mediaId = '11111111-1111-4111-8111-111111111111'
+  expect(planFilm([{ elementId: source.id, in: 1, out: 4 }], lookupOf([source]))).toMatchObject({
+    ok: true,
+    clips: [{ mediaId: source.video.mediaId, in: 1, out: 4 }],
+  })
+})

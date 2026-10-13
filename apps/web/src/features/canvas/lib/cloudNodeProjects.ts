@@ -8,8 +8,10 @@ import {
   importLegacyElements,
   type LegacyCanvasElement,
   type ProjectDocument,
+  type ProjectVideoRef,
   promoteCanvasResultMedia,
   promoteCanvasStoredResult,
+  promoteCanvasVideoMedia,
   readCanvasDocument,
   readCanvasSyncMessage,
   synchronizeLegacyElements,
@@ -19,7 +21,7 @@ import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { accountScope } from '../../../lib/authScope'
-import { mediaIdentity } from '../../../lib/cloudMedia'
+import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import type { CloudProjectSession, ProjectSyncStatus } from './cloudProjects'
@@ -386,13 +388,55 @@ export class CloudNodeProjectSession {
   }
   private saved() {
     this.retries = 0
-    this.status('saved')
+    this.status(this.missingVideos.size ? 'media-local' : 'saved')
     for (const wait of this.waits) wait.resolve()
     this.waits.clear()
   }
   private rejectWaits(error: unknown) {
     for (const wait of this.waits) wait.reject(error)
     this.waits.clear()
+  }
+  private readonly missingVideos = new Set<string>()
+  private async prepareVideoMedia() {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const videos: ProjectVideoRef[] = readCanvasDocument(doc).nodes.flatMap((node) =>
+      node.type === 'video' ? [node.data.video] : [],
+    )
+    for (const result of canvasResults(doc)) {
+      if (
+        result.display?.video &&
+        (result.adopted || result.display.fileId || result.display.mediaId)
+      )
+        videos.push(result.display.video)
+    }
+    const unique = new Map(
+      videos
+        .filter((video) => !video.mediaId)
+        .map((video) => [JSON.stringify([video.taskId, video.outputIndex]), video]),
+    )
+    for (const key of this.missingVideos) if (!unique.has(key)) this.missingVideos.delete(key)
+    for (const [key, video] of unique) {
+      if (this.missingVideos.has(key)) continue
+      try {
+        const media = await mediaJson<{ id: string }>(
+          '/video-outputs',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ taskId: video.taskId, outputIndex: video.outputIndex }),
+            signal: this.controller.signal,
+          },
+          130_000,
+        )
+        this.current()
+        promoteCanvasVideoMedia(doc, video, media.id, legacyOrigin)
+      } catch (error) {
+        // An already-expired legacy video must not prevent saving unrelated document edits.
+        if (!(error instanceof MediaRequestError && error.status === 404)) throw error
+        this.missingVideos.add(key)
+      }
+    }
   }
   private async prepareMedia() {
     if (!this.canvas) return
@@ -448,8 +492,15 @@ export class CloudNodeProjectSession {
     this.preparing = this.preparing
       .then(async () => {
         this.current()
-        await this.prepareMedia()
-        if (this.project.cloud?.nameDirty) await this.flushName()
+        // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
+        let preparedVersion: number
+        do {
+          preparedVersion = this.editVersion
+          await this.prepareVideoMedia()
+          await this.prepareMedia()
+          if (this.project.cloud?.nameDirty) await this.flushName()
+          this.current()
+        } while (preparedVersion !== this.editVersion)
         if (!this.canvas || this.socket?.readyState !== WebSocket.OPEN || !this.serverVector) {
           this.connect()
           return

@@ -25,11 +25,13 @@ export interface ProjectImage {
   createdAt?: number
   groupId?: string
   meta?: Record<string, string>
-  /** 有值即 `mediaId` 只是封面，片子在队列里；播放地址由客户端现拼，不存整条 URL。 */
+  /** 有值即 `mediaId` 只是封面，片子由 video.mediaId 或队列引用定位；播放地址由客户端现拼，不存整条 URL。 */
   video?: ProjectVideoRef
 }
 
 export interface ProjectVideoRef {
+  /** Adopted original; unlike the poster, this is the durable video binary. */
+  mediaId?: string
   taskId: string
   outputIndex: number
   generation?: VideoGenerationRecord
@@ -39,8 +41,12 @@ export interface ProjectVideoRef {
 const PROJECT_VIDEO_OUTPUT_MAX = 16
 
 function videoRef(value: unknown): boolean {
-  if (!object(value) || !keys(value, ['taskId', 'outputIndex', 'generation'])) return false
+  if (!object(value) || !keys(value, ['taskId', 'outputIndex', 'generation', 'mediaId']))
+    return false
   return (
+    (value.mediaId === undefined ||
+      (typeof value.mediaId === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.mediaId))) &&
     typeof value.taskId === 'string' &&
     // 它会被拼进播放地址的路径段，只放行 id 字符。
     /^[A-Za-z0-9_-]{1,128}$/.test(value.taskId) &&

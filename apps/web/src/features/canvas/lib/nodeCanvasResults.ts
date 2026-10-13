@@ -153,7 +153,7 @@ async function prepareResult(
     if (ref.type !== 'queue') throw new Error('candidate_expired')
     const videoRef = video ??
       result.display?.video ?? { taskId: ref.taskId, outputIndex: ref.outputIndex }
-    if (!video) {
+    if (!video && !videoRef.mediaId) {
       const outputs = await awaitQueueOutputs(ref.taskId)
       if (!outputs.some((output) => output.index === ref.outputIndex))
         throw new Error('candidate_expired')
@@ -251,9 +251,10 @@ export async function spreadNodeResults(
         side: 'right',
         size: projection,
       })
-      const copy = { ...result, id: crypto.randomUUID(), nodeId: id, display: projection.data }
-      recordCanvasResult(canvas.doc, copy, system)
       cacheCanvasResultDisplay(canvas.doc, result.id, projection.data, system)
+      const retained = canvasResults(canvas.doc, nodeId).find((item) => item.id === result.id)!
+      const copy = { ...retained, id: crypto.randomUUID(), nodeId: id }
+      recordCanvasResult(canvas.doc, copy, system)
       updateCanvasNode(
         canvas.doc,
         id,

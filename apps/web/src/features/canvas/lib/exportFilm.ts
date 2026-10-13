@@ -1,6 +1,6 @@
 import { zipSync } from 'fflate'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import type { ComposeClip } from './composeFilm'
 import { composeInWorker, decodeClipAudio, FilmExportError } from './filmPipeline'
 import type { FilmClip } from './filmSpec'
@@ -34,7 +34,7 @@ export function filmExportSupported(): Promise<boolean> {
 async function fetchClip(clip: FilmClip, position: number, signal: AbortSignal): Promise<Blob> {
   let res: Response
   try {
-    res = await authenticatedBffFetch(queueOutputUrl(clip.taskId, clip.outputIndex), { signal })
+    res = await authenticatedBffFetch(videoOutputUrl(clip), { signal })
   } catch (err) {
     if (signal.aborted) throw err
     throw new FilmExportError('fetch', position)

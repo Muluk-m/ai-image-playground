@@ -6,7 +6,7 @@ import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { useStore } from '../../../store'
 import type { CanvasEditor } from '../lib/editor'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
@@ -125,7 +125,7 @@ export default function NodeVideoTools({
               controls
               playsInline
               crossOrigin="use-credentials"
-              src={queueOutputUrl(node.data.video.taskId, node.data.video.outputIndex)}
+              src={videoOutputUrl(node.data.video)}
               onLoadedMetadata={(event) => {
                 const seconds = event.currentTarget.duration
                 if (!Number.isFinite(seconds)) return

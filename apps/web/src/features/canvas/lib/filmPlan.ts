@@ -41,6 +41,7 @@ function toFilmClips(
     // 调用前已确认每段都是带视频的图片元素。
     const { video } = lookup(clip.elementId) as Extract<CanvasEl, { type: 'image' }>
     return {
+      ...(video!.mediaId ? { mediaId: video!.mediaId } : {}),
       taskId: video!.taskId,
       outputIndex: video!.outputIndex,
       ...(video!.generation?.duration !== undefined

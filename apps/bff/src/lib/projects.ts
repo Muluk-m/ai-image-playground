@@ -148,10 +148,13 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
     const imageIds = input.document.elements.flatMap((element) =>
       element.type === 'image' ? [element.mediaId] : [],
     )
-    const mediaIds = [...new Set(imageIds)]
+    const videoIds = input.document.elements.flatMap((el) =>
+      el.type === 'image' && el.video?.mediaId ? [el.video.mediaId] : [],
+    )
+    const mediaIds = [...new Set([...imageIds, ...videoIds])]
     if (mediaIds.length) {
       const ready = await tx
-        .select({ id: schema.media_objects.id })
+        .select({ id: schema.media_objects.id, contentType: schema.media_objects.content_type })
         .from(schema.media_objects)
         .where(
           and(
@@ -160,7 +163,10 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
             inArray(schema.media_objects.id, mediaIds),
           ),
         )
-      if (ready.length !== mediaIds.length)
+      if (
+        ready.length !== mediaIds.length ||
+        ready.some((media) => videoIds.includes(media.id) && media.contentType !== 'video/mp4')
+      )
         return { ok: false as const, status: 409 as const, error: 'project_media_not_ready' }
     }
     const now = Date.now()

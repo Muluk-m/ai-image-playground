@@ -7,6 +7,7 @@ import {
   canvasSyncStep1,
   canvasSyncUpdate,
   chooseCanvasResult,
+  deleteCanvasNode,
   importLegacyElements,
   insertCanvasNode,
   moveCanvasNodes,
@@ -300,5 +301,151 @@ it('uploads only chosen candidates, including a previous main switched before th
   expect(record.editor.doc.elements.find((e) => e.id === 'image')).toMatchObject({
     fileId: 'cloud-11111111-1111-4111-8111-111111111111',
   })
+  record.dispose()
+})
+
+it('promotes adopted video originals but leaves unchosen candidates in temporary storage', async () => {
+  const { session, record } = await fixture()
+  const { doc, origin } = session.canvas!
+  const promoted: string[] = []
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (url, init) => {
+    expect(String(url)).toContain('/api/media/video-outputs')
+    const { taskId } = JSON.parse(String(init?.body))
+    promoted.push(taskId)
+    return Response.json({ id: '22222222-2222-4222-8222-222222222222' })
+  })
+  insertCanvasNode(
+    doc,
+    { id: 'video', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+    origin,
+  )
+  for (const id of ['one', 'two', 'unused'])
+    recordCanvasResult(
+      doc,
+      {
+        id,
+        nodeId: 'video',
+        kind: 'video',
+        createdAt: 1,
+        source: { type: 'queue', taskId: id, outputIndex: 0 },
+        display: { video: { taskId: id, outputIndex: 0 } },
+      },
+      origin,
+    )
+  for (const taskId of ['one', 'two'])
+    chooseCanvasResult(
+      doc,
+      'video',
+      taskId,
+      { data: { video: { taskId, outputIndex: 0 } } },
+      origin,
+    )
+  await vi.waitFor(() =>
+    expect(canvasResults(doc).filter((r) => r.display?.video?.mediaId)).toHaveLength(2),
+  )
+  expect(promoted.sort()).toEqual(['one', 'two'])
+  expect(readCanvasDocument(doc).nodes.find((n) => n.id === 'video')?.data).toMatchObject({
+    video: { taskId: 'two', mediaId: '22222222-2222-4222-8222-222222222222' },
+  })
+  record.dispose()
+})
+
+it('saves edits around expired legacy videos, and clears the warning after removal', async () => {
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  const { doc, origin } = session.canvas!
+  vi.mocked(authenticatedBffFetch).mockResolvedValue(
+    Response.json({ error: 'video_output_not_found' }, { status: 404 }),
+  )
+  insertCanvasNode(
+    doc,
+    {
+      id: 'expired',
+      type: 'video',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { video: { taskId: 'expired-task', outputIndex: 0 } },
+    },
+    origin,
+  )
+  await vi.waitFor(() =>
+    expect(authenticatedBffFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/video-outputs'),
+      expect.anything(),
+    ),
+  )
+  await vi.waitFor(() => {
+    const last = readCanvasSyncMessage(socket.sent[socket.sent.length - 1]!)
+    expect(last.kind).toBe('update')
+    Y.applyUpdate(server, last.value)
+    expect(readCanvasDocument(server).nodes.some((n) => n.id === 'expired')).toBe(true)
+  })
+  socket.receive(canvasSyncAck(server))
+  expect(session.getSnapshot().status).toBe('media-local')
+  deleteCanvasNode(doc, 'expired', origin)
+  await vi.waitFor(() => {
+    Y.applyUpdate(server, readCanvasSyncMessage(socket.sent[socket.sent.length - 1]!).value)
+    expect(readCanvasDocument(server).nodes.some((n) => n.id === 'expired')).toBe(false)
+  })
+  socket.receive(canvasSyncAck(server))
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+
+it('does not send a saved version until videos selected during another promotion are retained', async () => {
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  const { doc, origin } = session.canvas!
+  const finishing = new Map<string, () => void>()
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (_url, init) => {
+    const { taskId } = JSON.parse(String(init?.body))
+    await new Promise<void>((resolve) => finishing.set(taskId, resolve))
+    return Response.json({ id: '22222222-2222-4222-8222-222222222222' })
+  })
+  const sent = socket.sent.length
+  insertCanvasNode(
+    doc,
+    { id: 'video', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+    origin,
+  )
+  for (const id of ['a', 'b'])
+    recordCanvasResult(
+      doc,
+      {
+        id,
+        nodeId: 'video',
+        kind: 'video',
+        source: { type: 'queue', taskId: id, outputIndex: 0 },
+        createdAt: 1,
+        display: { video: { taskId: id, outputIndex: 0 } },
+      },
+      origin,
+    )
+  chooseCanvasResult(
+    doc,
+    'video',
+    'a',
+    { data: { video: { taskId: 'a', outputIndex: 0 } } },
+    origin,
+  )
+  await vi.waitFor(() => expect(finishing.has('a')).toBe(true))
+  chooseCanvasResult(
+    doc,
+    'video',
+    'b',
+    { data: { video: { taskId: 'b', outputIndex: 0 } } },
+    origin,
+  )
+  finishing.get('a')!()
+  await vi.waitFor(() => expect(finishing.has('b')).toBe(true))
+  expect(socket.sent).toHaveLength(sent)
+  finishing.get('b')!()
+  await vi.waitFor(() => expect(socket.sent.length).toBeGreaterThan(sent))
+  Y.applyUpdate(server, readCanvasSyncMessage(socket.sent[socket.sent.length - 1]!).value)
+  socket.receive(canvasSyncAck(server))
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(canvasResults(server).every((r) => r.display?.video?.mediaId)).toBe(true)
   record.dispose()
 })
