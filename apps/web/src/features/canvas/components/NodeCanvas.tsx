@@ -1665,6 +1665,7 @@ function Flow({
                         </div>
                       )}
                       <NodeCanvasToolbar
+                        active={active}
                         onCreate={(kind) => {
                           finishReferencePick()
                           addNode(kind, center())

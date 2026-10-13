@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
@@ -37,6 +38,7 @@ export function NodeTool({
   )
 }
 export default function NodeCanvasToolbar({
+  active,
   onCreate,
   onMenu,
   onUpload,
@@ -61,6 +63,7 @@ export default function NodeCanvasToolbar({
   canRedo,
   onChat,
 }: {
+  active: boolean
   onCreate: (kind: CreateNodeKind) => void
   onMenu: () => void
   onUpload: () => void
@@ -196,10 +199,14 @@ export default function NodeCanvasToolbar({
           </PopoverContent>
         </Popover>
       </div>
-      <div className="studio-node-history" role="toolbar" aria-label={t('nodes.undo')}>
-        <NodeTool icon="undo" label={t('nodes.undo')} disabled={!canUndo} onClick={onUndo} />
-        <NodeTool icon="redo" label={t('nodes.redo')} disabled={!canRedo} onClick={onRedo} />
-      </div>
+      {active &&
+        createPortal(
+          <div className="studio-node-history" role="toolbar" aria-label={t('nodes.undo')}>
+            <NodeTool icon="undo" label={t('nodes.undo')} disabled={!canUndo} onClick={onUndo} />
+            <NodeTool icon="redo" label={t('nodes.redo')} disabled={!canRedo} onClick={onRedo} />
+          </div>,
+          document.body,
+        )}
       {onChat && (
         <Button className="studio-node-chat rounded-full" variant="secondary" onClick={onChat}>
           <span className="studio-node-chat-mark" aria-hidden="true">
