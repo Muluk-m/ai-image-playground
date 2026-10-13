@@ -70,6 +70,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.retryOf ? { retryOf: block.retryOf } : {}),
     ...(block.timeline ? { timeline: block.timeline } : {}),
     ...(block.canvasRead ? { canvasRead: block.canvasRead } : {}),
+    ...(block.canvasRun ? { canvasRun: block.canvasRun } : {}),
     ...(block.canvasEdit ? { canvasEdit: block.canvasEdit } : {}),
     ...(block.saveCard ? { saveCard: block.saveCard } : {}),
     ...(block.sources ? { sources: block.sources } : {}),

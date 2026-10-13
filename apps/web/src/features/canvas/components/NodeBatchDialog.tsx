@@ -1,10 +1,8 @@
 import type { CanvasSnapshot } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import Badge from '../../../components/patterns/Badge'
 import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
-import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -14,20 +12,24 @@ import {
   currentNodeBatch,
   type NodeBatchError,
   NodeBatchFailure,
+  type NodeBatchPlan,
   runNodeBatch,
 } from '../lib/nodeBatch'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
+import NodeBatchJobs from './NodeBatchJobs'
 
 export default function NodeBatchDialog({
   canvas,
   editor,
   ids,
   snapshot,
+  initialPlan,
   onClose,
 }: {
   canvas: NodeCanvasDocument
   editor: CanvasEditor
   ids: readonly string[]
+  initialPlan?: NodeBatchPlan
   snapshot: CanvasSnapshot
   onClose: () => void
 }) {
@@ -36,7 +38,7 @@ export default function NodeBatchDialog({
   useStore((state) => state.settings)
   useStore((state) => state.params)
   useVideoStore((state) => state.draft)
-  const [plan, setPlan] = useState(() => currentNodeBatch(canvas.doc, editor, ids))
+  const [plan, setPlan] = useState(() => initialPlan ?? currentNodeBatch(canvas.doc, editor, ids))
   const [status, setStatus] = useState<'ready' | 'running' | 'done' | 'error'>('ready')
   const [completed, setCompleted] = useState(0),
     [active, setActive] = useState(''),
@@ -119,31 +121,11 @@ export default function NodeBatchDialog({
       <p className="text-sm text-muted-foreground">
         {t('nodeBatch.summary', { count: plan.jobs.length })}
       </p>
-      <ol className="my-4 space-y-2">
-        {plan.jobs.map((job, index) => (
-          <li
-            key={job.id}
-            className="flex min-w-0 items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
-          >
-            <span className="text-xs text-muted-foreground tabular-nums">{index + 1}</span>
-            <Icon name={job.kind === 'image' ? 'image' : 'video'} size="sm" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate">
-                {job.label || t(job.kind === 'image' ? 'nodes.addImage' : 'nodes.addVideo')}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {job.model} · {job.quantity}
-                {t(job.kind === 'image' ? 'nodeBatch.images' : 'nodeBatch.seconds')}
-              </p>
-            </div>
-            {index < completed ? (
-              <Badge tone="success">{t('nodeBatch.finished')}</Badge>
-            ) : active === job.id && status === 'running' ? (
-              <Badge tone="primary">{t('nodeBatch.running')}</Badge>
-            ) : null}
-          </li>
-        ))}
-      </ol>
+      <NodeBatchJobs
+        jobs={plan.jobs}
+        completed={completed}
+        active={status === 'running' ? active : undefined}
+      />
       {plan.credits !== undefined && (
         <p className="flex items-center justify-between gap-2 text-sm">
           <span>{t('nodes.estimatedCost')}</span>

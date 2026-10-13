@@ -25,6 +25,7 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   connectNodes: undefined,
   deleteNodes: undefined,
   arrangeNodes: undefined,
+  runNodes: undefined,
   loadSkill: true,
   planImageBatch: undefined,
   proposeBatchGeneration: undefined,

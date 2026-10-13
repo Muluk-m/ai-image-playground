@@ -96,6 +96,7 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  readonly canvasRun?: import('@image-playground/shared').AgentCanvasRunProposal
   readonly canvasRead?: readonly { id: string; name: string }[]
   readonly clarification?: AgentClarificationBlock
   /** 拟稿时冻结的实际视频参数，确认前即展示给用户。 */

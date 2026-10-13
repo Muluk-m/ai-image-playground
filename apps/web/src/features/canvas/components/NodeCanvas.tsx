@@ -79,6 +79,7 @@ import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
+import type { NodeBatchPlan } from '../lib/nodeBatch'
 import {
   type CreateNodeKind,
   copyNodes,
@@ -109,7 +110,9 @@ import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCan
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
+import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
+import { useCanvasProjectStore } from '../projectStore'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
@@ -648,6 +651,12 @@ function Flow({
 }) {
   const { t } = useTranslation('canvas')
   const { t: common } = useTranslation('common')
+  const projectId = useCanvasProjectStore(
+    (state) =>
+      state.projects.find(
+        (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
+      )?.id,
+  )
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
   const { theme } = useTheme()
@@ -716,6 +725,8 @@ function Flow({
     return () => clearNodeCanvasSelection(editor, canvas)
   }, [editor, canvas])
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
+  const [agentBatchPlan, setAgentBatchPlan] = useState<NodeBatchPlan>()
+  const batchOpening = useRef(false)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const connectStart = useRef<{ x: number; y: number } | null>(null)
@@ -859,6 +870,34 @@ function Flow({
         getViewportForBounds(bounds, frame.width, frame.height, 0.1, Math.min(1, frame.zoom), 0.3),
       )
   }
+  useAgentNodeRun({
+    canvas,
+    editor,
+    projectId,
+    active,
+    revision: snapshot,
+    files,
+    review: (ids, plan) => {
+      if (batchIds || batchOpening.current) return false
+      batchOpening.current = true
+      const selected = new Set(ids)
+      for (const group of readCanvasDocument(canvas.doc).groups ?? [])
+        if (selected.has(group.id)) for (const id of group.members) selected.add(id)
+      selectNode(null)
+      selectedIds.current = [...selected]
+      setNodeCanvasSelection(editor, canvas, selectedIds.current)
+      setSelectedCount(selected.size)
+      setNodes((current) => current.map((node) => ({ ...node, selected: selected.has(node.id) })))
+      void flowRef.current?.fitView({
+        nodes: [...selected].map((id) => ({ id })),
+        padding: 0.3,
+        maxZoom: 1,
+      })
+      setAgentBatchPlan(plan)
+      setBatchIds(ids)
+      return true
+    },
+  })
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
     return rect
@@ -1713,7 +1752,12 @@ function Flow({
                           editor={editor}
                           ids={batchIds}
                           snapshot={snapshot}
-                          onClose={() => setBatchIds(null)}
+                          initialPlan={agentBatchPlan}
+                          onClose={() => {
+                            setBatchIds(null)
+                            setAgentBatchPlan(undefined)
+                            batchOpening.current = false
+                          }}
                         />
                       )}
                       {selected?.data.group && (
