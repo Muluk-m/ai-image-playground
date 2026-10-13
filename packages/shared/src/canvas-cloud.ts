@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 import { type CanvasNode, readCanvasDocument } from './canvas-document'
 import { canvasConnectionAllowed, canvasNodeKind } from './canvas-registry'
 import { CANVAS_STATE_MAX_BYTES } from './canvas-sync'
+import { isCanvasTextDelta } from './canvas-text'
 import { isProjectDocument, type ProjectDocument, type ProjectElement } from './project-protocol'
 
 /** Read model for old consumers (Agent archive and project listing). Y.Doc is authoritative. */
@@ -73,8 +74,19 @@ export function validateCloudCanvas(
   if (doc.store.pendingStructs || doc.store.pendingDs) throw new Error('incomplete_canvas_update')
   if (Y.encodeStateAsUpdate(doc).length > CANVAS_STATE_MAX_BYTES)
     throw new Error('canvas_document_too_large')
-  for (const [key, value] of doc.getMap('nodes'))
+  for (const [key, value] of doc.getMap('nodes')) {
     if (!(value instanceof Y.Map) || value.get('id') !== key) throw new Error('invalid_canvas_node')
+    if (value.has('richText')) {
+      const text = value.get('richText')
+      if (
+        value.get('type') !== 'text' ||
+        !(text instanceof Y.Text) ||
+        text.length > 100000 ||
+        !isCanvasTextDelta(text.toDelta())
+      )
+        throw new Error('invalid_canvas_text')
+    }
+  }
   for (const root of ['annotations', 'edges'])
     for (const [key, value] of doc.getMap(root))
       if (!object(value) || value.id !== key) throw new Error('invalid_canvas_document')
@@ -103,6 +115,12 @@ export function validateCloudCanvas(
     )
       throw new Error('invalid_canvas_node')
     const data = node.data
+    if (
+      node.type === 'text' &&
+      node.data.richText !== undefined &&
+      !isCanvasTextDelta(node.data.richText)
+    )
+      throw new Error('invalid_canvas_text')
     if (
       'name' in data &&
       data.name !== undefined &&
@@ -186,7 +204,10 @@ export function validateCloudCanvas(
           throw new Error('invalid_canvas_pending')
       }
     } else if (
-      !allowed(data, node.type === 'text' ? ['text', 'fontSize', 'fill', 'name'] : ['clips'])
+      !allowed(
+        data,
+        node.type === 'text' ? ['text', 'fontSize', 'fill', 'name', 'richText'] : ['clips'],
+      )
     )
       throw new Error('invalid_canvas_node')
     if (JSON.stringify(data).length > 100_000 || JSON.stringify(data).includes('data:image/'))

@@ -3,6 +3,7 @@ import {
   canvasOrigin,
   createCanvasUndoManager,
   importLegacyElements,
+  initializeCanvasTexts,
   type LegacyCanvasElement,
 } from '@image-playground/shared'
 import { IndexeddbPersistence } from 'y-indexeddb'
@@ -50,9 +51,9 @@ async function migratePersistedDocument(
         // 外层 origin 阻止持久化监听器另开写事务；本次更新由当前事务原子提交。
         doc.transact(() => {
           for (const update of request.result) Y.applyUpdate(doc, update)
-          if (doc.getMap('meta').get('legacyImported')) return
-          importLegacyElements(doc, legacy(), importOrigin)
-          updates.add(Y.encodeStateAsUpdate(doc))
+          const imported = doc.getMap('meta').get('legacyImported')
+          if (!imported) importLegacyElements(doc, legacy(), importOrigin)
+          if (initializeCanvasTexts(doc) || !imported) updates.add(Y.encodeStateAsUpdate(doc))
         }, persistence)
       } catch (error) {
         failure = error

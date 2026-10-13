@@ -58,7 +58,6 @@ import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
-import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -74,7 +73,6 @@ import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import {
   type CreateNodeKind,
-  changeNodeText,
   copyNodes,
   createNode,
   nodeKind,
@@ -101,6 +99,7 @@ import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeSliceMenu from './NodeSliceMenu'
+import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import VideoNodeComposer from './VideoNodeComposer'
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
@@ -108,7 +107,6 @@ const legacyOrigin = canvasOrigin('system', 'legacy-update')
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
-const CommitTextContext = createContext<(id: string, text: string) => void>(() => {})
 const FillImageContext = createContext<(id: string, file: File) => void>(() => {})
 const SpawnContext = createContext<(nodeId: string, side: 'left' | 'right') => void>(() => {})
 const EditNodeContext = createContext<
@@ -505,55 +503,13 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
 })
 
 const TextNode = memo(function TextNode({ data: { node }, selected }: NodeProps<FlowNode>) {
-  const { t } = useTranslation('canvas')
-  const commitText = useContext(CommitTextContext)
-  const stored = node?.type === 'text' ? node.data.text : ''
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(stored)
   if (node?.type !== 'text') return null
-  const text = node.data.text
   return (
     <>
       <NodePorts nodeId={node.id} />
       <NodeCaption node={node} />
       <NodeResize node={node} selected={selected} />
-      <div
-        className="studio-node studio-node--text"
-        onDoubleClick={(event) => {
-          event.stopPropagation()
-          setDraft(text)
-          setEditing(true)
-        }}
-      >
-        <div className="studio-node-text-body text-sm">
-          {editing ? (
-            <Textarea
-              value={draft}
-              autoFocus
-              aria-label={t('nodes.composerText')}
-              className="nodrag nopan nowheel h-full min-h-0 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={(event) => {
-                setEditing(false)
-                commitText(node.id, event.target.value)
-              }}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Escape' ||
-                  (event.key === 'Enter' && (event.metaKey || event.ctrlKey))
-                ) {
-                  event.preventDefault()
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-          ) : text ? (
-            text
-          ) : (
-            <span className="text-muted-foreground">{t('nodes.textPlaceholder')}</span>
-          )}
-        </div>
-      </div>
+      <NodeTextBody nodeId={node.id} data={node.data} selected={selected} />
     </>
   )
 })
@@ -1143,9 +1099,6 @@ function Flow({
       : composerNode.data.pending.status === 'loading'
     : false
   const composerAt = composerNode && selected ? composerAnchor(selected, frame) : null
-  const commitText = (id: string, value: string) => {
-    changeNodeText(canvas, id, value)
-  }
   const uploadInto = (id: string, file: File) => {
     void fillImageNode(editor, canvas.doc, id, file).catch(() =>
       useStore.getState().showToast(t('import.failed'), 'error'),
@@ -1220,7 +1173,7 @@ function Flow({
         }}
       >
         <EditNodeContext.Provider value={editNode}>
-          <CommitTextContext.Provider value={commitText}>
+          <TextCanvasContext.Provider value={canvas}>
             <FillImageContext.Provider value={uploadInto}>
               <SpawnContext.Provider value={spawnBeside}>
                 <ReactFlow<FlowNode>
@@ -1734,7 +1687,7 @@ function Flow({
                 )}
               </SpawnContext.Provider>
             </FillImageContext.Provider>
-          </CommitTextContext.Provider>
+          </TextCanvasContext.Provider>
         </EditNodeContext.Provider>
       </RenameGroupContext.Provider>
     </PreviewContext.Provider>

@@ -6,6 +6,7 @@ import {
   canvasSyncStep1,
   canvasSyncStep2,
   canvasSyncUpdate,
+  canvasText,
   createCanvasGroup,
   createCanvasUndoManager,
   disconnectCanvasNodes,
@@ -458,5 +459,38 @@ it('persists group membership and movement with the same cloud document', async 
   expect(readCanvasGroups(restored)).toEqual(readCanvasGroups(doc))
   expect(readCanvasDocument(restored).nodes[0]).toMatchObject({ x: 332, y: 264 })
   doc.destroy()
+  restored.destroy()
+})
+
+it('persists concurrent rich text edits and keeps the legacy read model in sync', async () => {
+  const id = await create()
+  const a = new Y.Doc(),
+    b = new Y.Doc()
+  const snapshot = await accessCanvasDocument('owner', id)
+  Y.applyUpdate(a, snapshot)
+  Y.applyUpdate(b, snapshot)
+  a.transact(() => canvasText(a, 'title')!.insert(0, '第一幕：'), origin)
+  b.transact(() => {
+    canvasText(b, 'title')!.insert(3, '继续创作')
+    canvasText(b, 'title')!.format(3, 1, { header: 1 })
+  }, origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(a))
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(b))
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, await accessCanvasDocument('owner', id))
+  expect(canvasText(restored, 'title')!.toString()).toContain('第一幕：')
+  expect(canvasText(restored, 'title')!.toString()).toContain('继续创作')
+  expect(
+    canvasText(restored, 'title')!
+      .toDelta()
+      .some((op: { attributes?: { header?: number } }) => op.attributes?.header === 1),
+  ).toBe(true)
+  const [project] = await db
+    .select()
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.id, id))
+  expect(project!.document.elements[0]).toMatchObject({ text: '第一幕：旧存档继续创作' })
+  a.destroy()
+  b.destroy()
   restored.destroy()
 })
