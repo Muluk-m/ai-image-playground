@@ -67,13 +67,15 @@ import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
-import { loadImageOriginal } from '../../../lib/imageSource'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
+import { useLibraryStore } from '../../library/store'
+import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { newElementId } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
+import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import {
   type CreateNodeKind,
   copyNodes,
@@ -133,15 +135,28 @@ function NodeCaption({ node }: { node: CanvasNode }) {
   const [name, setName] = useState('')
   const kind = nodeKind(node)
   const label =
-    kind === 'text'
-      ? t('nodes.addText')
-      : kind === 'video'
-        ? t('nodes.addVideo')
-        : t('nodes.addImage')
+    'meta' in node.data && node.data.meta?.nodeKind === 'asset'
+      ? t('nodes.assetNode')
+      : kind === 'text'
+        ? t('nodes.addText')
+        : kind === 'video'
+          ? t('nodes.addVideo')
+          : t('nodes.addImage')
   const title = 'name' in node.data ? node.data.name : undefined
   return (
     <div className="studio-node-caption text-xs text-muted-foreground">
-      <Icon name={kind === 'text' ? 'text' : kind === 'video' ? 'video' : 'image'} size="xs" />
+      <Icon
+        name={
+          'meta' in node.data && node.data.meta?.nodeKind === 'asset'
+            ? 'layers'
+            : kind === 'text'
+              ? 'text'
+              : kind === 'video'
+                ? 'video'
+                : 'image'
+        }
+        size="xs"
+      />
       {editing ? (
         <Input
           className="nodrag nopan h-6 w-48 text-xs"
@@ -432,7 +447,15 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           <Pending pending={pending} />
         ) : (
           <div className="studio-node-empty">
-            <Icon name="image" size="lg" />
+            <Icon name={node.data.meta?.nodeKind === 'asset' ? 'layers' : 'image'} size="lg" />
+            {node.data.meta?.nodeKind === 'asset' && (
+              <div className="px-5 text-center">
+                <p className="text-sm font-medium">{node.data.name}</p>
+                <p className="mt-2 line-clamp-4 text-xs text-muted-foreground">
+                  {node.data.meta.assetDescription}
+                </p>
+              </div>
+            )}
           </div>
         )}
         {fileId && pending && (
@@ -691,6 +714,8 @@ function Flow({
   } | null>(null)
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
+  const [addingAsset, setAddingAsset] = useState(false)
+  const assetOperation = useRef(false)
   const [minimap, setMinimap] = useState(false)
   const [imageEditId, setImageEditId] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
@@ -784,6 +809,36 @@ function Flow({
           : undefined
       return group ? [...updated, toGroupFlowNode(group, true)] : updated
     })
+  }
+  const addAsset = async (
+    asset: AssetRecord,
+    imageId?: string,
+    point = placeAt.current,
+    targetId?: string,
+    targetPrompt?: string,
+  ) => {
+    if (assetOperation.current) return null
+    assetOperation.current = true
+    setAddingAsset(true)
+    try {
+      const id = await insertAssetNode(
+        editor,
+        canvas,
+        asset,
+        point,
+        targetId,
+        imageId,
+        targetPrompt,
+      )
+      if (id && !targetId) selectNode(id)
+      return id
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+      return null
+    } finally {
+      assetOperation.current = false
+      setAddingAsset(false)
+    }
   }
   const selectCreatedBatch = (ids: string[]) => {
     const chosen = new Set(ids)
@@ -1014,7 +1069,8 @@ function Flow({
       setFileOver(true)
     }
     const onDragOver = (event: DragEvent) => {
-      if (event.dataTransfer?.types.includes('Files')) event.preventDefault()
+      if (event.dataTransfer?.types.some((type) => type === 'Files' || type === ASSET_DRAG_TYPE))
+        event.preventDefault()
     }
     const onDragLeave = () => {
       if (fileDepth.current === 0) return
@@ -1029,6 +1085,17 @@ function Flow({
       const point = flowPoint(event)
       if (!point) return
       placeAt.current = point
+      const assetId = event.dataTransfer.types.includes(ASSET_DRAG_TYPE)
+        ? event.dataTransfer.getData(ASSET_DRAG_TYPE)
+        : ''
+      if (assetId) {
+        const asset = useLibraryStore.getState().assets.find((one) => one.id === assetId)
+        if (asset) {
+          setAssetsOpen(false)
+          void addAsset(asset, undefined, point)
+        }
+        return
+      }
       // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
       void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files))
     }
@@ -1466,24 +1533,9 @@ function Flow({
                   {assetsOpen && (
                     <NodeAssetPicker
                       onClose={() => setAssetsOpen(false)}
-                      onChoose={(imageId, name) => {
+                      onChoose={(asset, imageId) => {
                         setAssetsOpen(false)
-                        void loadImageOriginal(imageId)
-                          .then(async (source) => {
-                            if (!source) throw new Error('missing image')
-                            const response = await fetch(source)
-                            if (!response.ok) throw new Error('missing image')
-                            const blob = await response.blob()
-                            const id = createNode(canvas, 'image', placeAt.current, textFill)
-                            await fillImageNode(
-                              editor,
-                              canvas.doc,
-                              id,
-                              new File([blob], name, { type: blob.type }),
-                            )
-                            selectNode(id)
-                          })
-                          .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+                        void addAsset(asset, imageId)
                       }}
                     />
                   )}
@@ -1549,6 +1601,17 @@ function Flow({
                             }
                           }}
                         />
+                        {composerNode.type === 'image' && (
+                          <NodeTool
+                            icon="layers"
+                            label={t('nodes.saveAsAsset')}
+                            onClick={() => {
+                              void saveNodeAsAsset(editor, canvas, composerNode.id).catch(() =>
+                                useStore.getState().showToast(t('import.failed'), 'error'),
+                              )
+                            }}
+                          />
+                        )}
                         <NodeTool
                           icon="download"
                           label={
@@ -1728,6 +1791,15 @@ function Flow({
                           nodeId={composerNode.id}
                         />
                       }
+                      onAsset={async (asset, prompt) =>
+                        !!(await addAsset(
+                          asset,
+                          undefined,
+                          placeAt.current,
+                          composerNode.id,
+                          prompt,
+                        ))
+                      }
                       key={composerNode.id}
                       document={canvas.doc}
                       nodeId={composerNode.id}
@@ -1735,7 +1807,7 @@ function Flow({
                       references={references}
                       files={files}
                       value={draftValue}
-                      busy={busy}
+                      busy={busy || addingAsset}
                       position={composerAt}
                       onChange={(value) => {
                         setMeta({ nodePrompt: value })
@@ -1767,6 +1839,15 @@ function Flow({
                           nodeId={composerNode.id}
                         />
                       }
+                      onAsset={async (asset, prompt) =>
+                        !!(await addAsset(
+                          asset,
+                          undefined,
+                          placeAt.current,
+                          composerNode.id,
+                          prompt,
+                        ))
+                      }
                       key={composerNode.id}
                       document={canvas.doc}
                       nodeId={composerNode.id}
@@ -1788,7 +1869,7 @@ function Flow({
                           draft,
                         )
                       }
-                      busy={busy}
+                      busy={busy || addingAsset}
                       position={composerAt}
                       referenceTools={referenceTools}
                     />

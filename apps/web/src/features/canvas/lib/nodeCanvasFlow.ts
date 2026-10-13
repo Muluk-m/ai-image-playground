@@ -31,7 +31,12 @@ export function incomingReferences(
       id: node.id,
       kind: node.type === 'video' || node.data.meta?.nodeKind === 'video' ? 'video' : 'image',
       label: node.data.name?.trim() ?? '',
-      ...(node.data.meta?.nodeKind === 'asset' ? { asset: true } : {}),
+      ...(node.data.meta?.nodeKind === 'asset'
+        ? {
+            asset: true,
+            text: [node.data.name, node.data.meta.assetDescription].filter(Boolean).join('：'),
+          }
+        : {}),
       ...(node.data.fileId ? { fileId: node.data.fileId } : {}),
     })
   }
@@ -103,7 +108,9 @@ export function composeNodePrompt(
   userPrompt: string,
   references: readonly NodeReference[],
 ): string {
-  const notes = references.flatMap((ref) => (ref.kind === 'text' && ref.text ? [ref.text] : []))
+  const notes = references.flatMap((ref) =>
+    (ref.kind === 'text' || ref.asset) && ref.text ? [ref.text] : [],
+  )
   return [...notes, userPrompt.trim()].filter(Boolean).join('\n')
 }
 

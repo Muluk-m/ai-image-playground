@@ -27,7 +27,7 @@ it('only offers generation modes declared by the model and channel', () => {
   }
 })
 it('resolves four input modes without leaking unused images into the request', () => {
-  expect(nodeVideoInputs('text', refs).refs.map((ref) => ref.id)).toEqual(['text'])
+  expect(nodeVideoInputs('text', refs).refs.map((ref) => ref.id)).toEqual(['text', 'asset'])
   expect(nodeVideoInputs('first', refs).roles).toEqual({ one: 'first' })
   expect(nodeVideoInputs('frames', refs).roles).toEqual({ one: 'first', two: 'last' })
   expect(nodeVideoInputs('reference', refs).roles).toEqual({

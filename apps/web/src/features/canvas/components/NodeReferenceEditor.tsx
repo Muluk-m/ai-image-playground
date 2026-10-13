@@ -59,7 +59,7 @@ export default function NodeReferenceEditor({
                     : 'nodes.addImage',
               )}
           </span>
-          {roles && onRole && ref.kind === 'image' && (
+          {roles && onRole && ref.kind === 'image' && !ref.asset && (
             <Select
               value={roles[ref.id] ?? 'reference'}
               onValueChange={(value) => onRole(ref.id, value)}
@@ -94,6 +94,11 @@ export default function NodeReferenceEditor({
           </Button>
         </div>
       ))}
+      {references.some((ref) => ref.asset && !ref.fileId) && (
+        <p className="w-full text-xs text-muted-foreground" role="note">
+          {t('nodes.assetNoImage')}
+        </p>
+      )}
       {available.length > 0 && (
         <Popover open={picking} onOpenChange={setPicking}>
           <PopoverTrigger asChild>

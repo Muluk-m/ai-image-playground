@@ -539,7 +539,11 @@
     "nextCandidate": "下一个候选",
     "spreadCandidates": "将全部候选摊开到画布",
     "candidateStorageFailed": "浏览器未能保存这些结果，刷新前请重试保存或先下载。",
-    "retryCandidateStorage": "重试保存"
+    "retryCandidateStorage": "重试保存",
+    "assetDragHint": "点击素材添加，或拖到画布指定位置。",
+    "assetNoImage": "此素材还没有参考图，将仅使用名称和描述生成，外观可能不一致。",
+    "assetNode": "素材",
+    "saveAsAsset": "存为素材"
   },
   "pixelEdit": {
     "title": "编辑图片",

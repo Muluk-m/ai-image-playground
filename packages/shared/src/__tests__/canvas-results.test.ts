@@ -317,3 +317,25 @@ it('retains adopted videos across main selection undo and delayed poster decodin
   undo.destroy()
   doc.destroy()
 })
+
+it('tracks asset semantic inputs while keeping ordinary image labels cosmetic', () => {
+  const doc = fixture()
+  connectCanvasNodes(doc, { source: 'image', target: 'downstream' }, origin)
+  const original = canvasInputFingerprint(doc, 'downstream')
+  updateCanvasNode(doc, 'image', { data: { name: 'cosmetic label' } }, origin)
+  expect(canvasInputFingerprint(doc, 'downstream')).toBe(original)
+  updateCanvasNode(
+    doc,
+    'image',
+    { data: { name: 'night street', meta: { nodeKind: 'asset', assetDescription: 'neon' } } },
+    origin,
+  )
+  const before = canvasInputFingerprint(doc, 'downstream')
+  updateCanvasNode(
+    doc,
+    'image',
+    { data: { name: 'morning street', meta: { nodeKind: 'asset', assetDescription: 'neon' } } },
+    origin,
+  )
+  expect(canvasInputFingerprint(doc, 'downstream')).not.toBe(before)
+})

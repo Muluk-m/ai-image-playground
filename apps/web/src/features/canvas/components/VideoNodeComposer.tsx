@@ -10,12 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select'
-import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import type { AssetRecord } from '../../library/types'
 import { clampDraftToSupport } from '../../video/lib/draft'
 import { useVideoStore } from '../../video/store'
 import type { VideoDraft } from '../../video/types'
@@ -30,8 +30,10 @@ import { useNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import CanvasVideoParams from './CanvasVideoParams'
 import NodeComposerFrame from './NodeComposerFrame'
 import NodeMediaImage from './NodeMediaImage'
+import NodePromptInput from './NodePromptInput'
 
 export default function VideoNodeComposer({
+  onAsset,
   value,
   onChange,
   onSubmit,
@@ -46,6 +48,7 @@ export default function VideoNodeComposer({
   meta,
   onMeta,
 }: {
+  onAsset?: (asset: AssetRecord, prompt: string) => Promise<boolean>
   value: string
   onChange: (text: string) => void
   onSubmit: (
@@ -321,18 +324,13 @@ export default function VideoNodeComposer({
           </Button>
         </div>
       )}
-      <Textarea
-        aria-label={t('nodes.composerVideo')}
-        placeholder={t('nodes.composerVideo')}
-        className="min-h-20 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
+      <NodePromptInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault()
-            send()
-          }
-        }}
+        onChange={onChange}
+        onSubmit={send}
+        onAsset={onAsset}
+        label={t('nodes.composerVideo')}
+        className="max-h-40 min-h-20 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
       />
       <div className="flex items-end gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap gap-2">
