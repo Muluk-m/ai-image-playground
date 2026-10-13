@@ -9,6 +9,7 @@ import {
   type LegacyCanvasElement,
   type ProjectDocument,
   type ProjectVideoRef,
+  projectKind,
   promoteCanvasResultMedia,
   promoteCanvasStoredResult,
   promoteCanvasVideoMedia,
@@ -29,7 +30,12 @@ import type { NodeCanvasDocument } from './nodeCanvasDocument'
 import { nodeCanvasDatabaseName } from './nodeCanvasDocument'
 import { writePersistedScene } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
-import { type LoadedBindings, projectDocument, projectScene } from './projectMedia'
+import {
+  archivedProjectKind,
+  type LoadedBindings,
+  projectDocument,
+  projectScene,
+} from './projectMedia'
 import { type CanvasProject, projectRepository } from './projectRepository'
 import type { SceneRecord } from './sceneRecord'
 
@@ -73,7 +79,7 @@ export class CloudNodeProjectSession {
     this.identity = {
       version: 1,
       elements: [],
-      kind: project.kind,
+      kind: archivedProjectKind(record.checkpoint) ?? project.kind,
       experience: project.experience,
       sourceProjectId: project.sourceProjectId,
     }
@@ -151,12 +157,8 @@ export class CloudNodeProjectSession {
               { ...binding, source: this.record.editor.doc.files[fileId] ?? '' },
             ]),
           )
-          const local = projectDocument(
-            this.record.editor.doc,
-            bindings,
-            this.project.kind,
-            this.project,
-          )
+          const legacyKind = archivedProjectKind(this.record.checkpoint) ?? this.project.kind
+          const local = projectDocument(this.record.editor.doc, bindings, legacyKind, this.project)
           const stable = (value: unknown) =>
             JSON.stringify(value, (_key, item) =>
               item && typeof item === 'object' && !Array.isArray(item)
@@ -173,7 +175,10 @@ export class CloudNodeProjectSession {
           }
           if (dirty)
             this.publish(
-              await projectRepository.createRecoveryCopy(this.project, this.record.contents()),
+              await projectRepository.createRecoveryCopy(
+                { ...this.project, kind: legacyKind },
+                this.record.contents(),
+              ),
             )
         }
         if (created)
@@ -625,7 +630,10 @@ export class CloudNodeProjectSession {
   async resolveConflict(_choice: 'cloud' | 'copy'): Promise<CanvasProject | undefined> {
     // Keep the complete CRDT graph in an independent local project when a cloud project is deleted.
     if (!this.canvas) return undefined
-    const copy = await projectRepository.createRecoveryCopy(this.project, this.record.contents())
+    const copy = await projectRepository.createRecoveryCopy(
+      { ...this.project, kind: projectKind(this.identity) },
+      this.record.contents(),
+    )
     const doc = new Y.Doc()
     const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(copy.sceneKey), doc)
     await persistence.whenSynced

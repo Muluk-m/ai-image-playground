@@ -42,11 +42,11 @@ beforeEach(() => {
 })
 
 describe('从一张图发起生成视频', () => {
-  it('图片画布里发起视频：自动开一张视频画布，再把图带过去', async () => {
+  it('旧图片画布里发起视频：保留当前画布并带入参考', async () => {
     await startVideoFromImage('img-1')
 
     const main = useStore.getState()
-    expect(createProject).toHaveBeenCalledWith('video', true, 'canvas')
+    expect(createProject).not.toHaveBeenCalled()
     expect(main.appMode).toBe('canvas')
     expect(main.pendingCanvasImages).toEqual(['data:image/png;base64,AAAA'])
     expect(main.lightboxImageId).toBeNull()
@@ -81,10 +81,11 @@ describe('从一张图发起生成视频', () => {
     project.experience = 'chat'
     useStore.setState({ appMode: 'canvas' })
     await startVideoFromImage('img-1')
-    expect(createProject).toHaveBeenCalledWith('video', true, 'canvas')
+    expect(createProject).toHaveBeenCalledWith(undefined, true, 'canvas')
   })
 
   it('新画布开不出来就不带图走', async () => {
+    project.experience = 'chat'
     createProject.mockResolvedValueOnce(false)
 
     await startVideoFromImage('img-1')

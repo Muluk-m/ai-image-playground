@@ -155,7 +155,7 @@ export interface AgentToolCall {
 
 export interface AgentToolDefinition<P extends TSchema = TSchema> {
   readonly name: AgentToolName
-  /** 哪些创作类型看得见这个工具。视频轮也要生图改图——首帧要先画出来再改。 */
+  /** 旧工具分类元数据；不再作为权限过滤，实际可用性由 available 决定。 */
   readonly modes: readonly AgentMode[]
   /** 面板与模型清单上的短名。 */
   readonly label: string
