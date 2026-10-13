@@ -160,6 +160,25 @@ export function pasteNodes(
             delete meta.referenceOrder
           }
         }
+        // Copied output is independent until a copied storyboard is reviewed again.
+        if (meta.storyboardId) {
+          const boardId = ids.get(meta.storyboardId)
+          if (boardId && meta.storyboardRole !== 'grid') {
+            meta.storyboardId = boardId
+            delete meta.storyboardFingerprint
+            if (meta.storyboardSources) {
+              try {
+                meta.storyboardSources = JSON.stringify(
+                  JSON.parse(meta.storyboardSources).flatMap((id: string) => ids.get(id) ?? []),
+                )
+              } catch {
+                delete meta.storyboardSources
+              }
+            }
+          } else {
+            for (const key of Object.keys(meta)) if (key.startsWith('storyboard')) delete meta[key]
+          }
+        }
         data.meta = meta
       }
       insertCanvasNode(

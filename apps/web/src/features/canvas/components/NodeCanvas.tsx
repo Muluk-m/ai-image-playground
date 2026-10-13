@@ -106,6 +106,7 @@ import {
 } from '../lib/nodeCanvasReferences'
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
+import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
@@ -647,6 +648,7 @@ function Flow({
   const { t } = useTranslation('canvas')
   const { t: common } = useTranslation('common')
   const snapshot = useDocumentSnapshot(canvas)
+  useStoryboardGridSplitting(canvas, editor)
   const { theme } = useTheme()
   const files = useContext(FilesContext)
   const [nodes, setNodes] = useState<FlowNode[]>([])
@@ -1358,7 +1360,7 @@ function Flow({
     }
   }
   return (
-    <NodeStoryboardContext.Provider value={{ canvas, snapshot }}>
+    <NodeStoryboardContext.Provider value={{ canvas, snapshot, onRun: setBatchIds }}>
       <NodeTimelineContext.Provider
         value={{
           editor,

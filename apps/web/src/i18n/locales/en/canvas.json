@@ -664,5 +664,24 @@
     "progress": "Completed {{done}} / {{total}}. Closing stops remaining jobs; submitted jobs will finish.",
     "done": "All selected jobs finished.",
     "balance": "The available balance cannot cover this entire batch. Refresh your balance before confirming."
+  },
+  "storyFlow": {
+    "frames": "Create first frames",
+    "videos": "Create shots & timeline",
+    "review": "Review generation",
+    "grid": "One contact sheet",
+    "gridHint": "Generate contact sheets of up to 9 shots, then split them into individual first frames. Longer prompts use smaller sheets.",
+    "individual": "Generate each shot",
+    "individualHint": "Generate one image per shot, in storyboard order.",
+    "noImages": "These referenced assets have no image: {{names}}. Their descriptions will still be used.",
+    "finalizeFirst": "Finalize the current storyboard before preparing production.",
+    "noFirstFrameModel": "Choose a video model that supports a first frame.",
+    "framesMissing": "Generate or refresh each shot’s first frame before creating videos.",
+    "frameName": "Shot {{index}} · First frame",
+    "videoName": "Shot {{index}} · Video",
+    "gridName": "Storyboard contact sheet {{index}}",
+    "promptTooLong": "A shot is too long. Shorten its description, camera direction or dialogue before generating.",
+    "splitFailed": "Could not split this contact sheet. Your original result is kept; reopen the project to retry.",
+    "prepareFailed": "Could not prepare these shots. Review the storyboard and try again."
   }
 }

@@ -332,3 +332,22 @@ it('keeps a generating asset as an image input for a downstream reference video'
   })
   expect(plan.jobs[1]?.roles).toEqual({ a: 'reference' })
 })
+it('quotes one image for each storyboard frame or contact sheet regardless of the workbench batch size', () => {
+  const { doc, input } = setup()
+  for (const [id, storyboardRole] of [
+    ['a', 'grid'],
+    ['b', 'frame'],
+  ]) {
+    const node = readCanvasDocument(doc).nodes.find((node) => node.id === id)!
+    if (node.type === 'image')
+      updateCanvasNode(
+        doc,
+        node.id,
+        { data: { ...node.data, meta: { ...node.data.meta, storyboardRole } } },
+        origin,
+      )
+  }
+  const plan = buildNodeBatch(input())
+  expect(plan.jobs.map((job) => job.quantity)).toEqual([1, 1])
+  expect(plan.credits).toBe(6)
+})

@@ -643,5 +643,24 @@
     "progress": "已完成 {{done}} / {{total}}。关闭后停止后续任务，已提交任务继续完成。",
     "done": "本组生成已完成。",
     "balance": "当前可用积分不足以执行整组，或余额尚未读取。请更新余额后再确认。"
+  },
+  "storyFlow": {
+    "frames": "铺首帧",
+    "videos": "建立镜头与时间线",
+    "review": "查看生成预估",
+    "grid": "宫格出图",
+    "gridHint": "每组最多 9 镜，生成后自动切为各镜首帧；描述较长时会拆成更小的宫格。",
+    "individual": "逐镜出图",
+    "individualHint": "按镜号分别生成，每镜一张图片。",
+    "noImages": "以下引用素材还没有图片：{{names}}。仍会使用其文字描述。",
+    "finalizeFirst": "请先定稿当前分镜表，再铺首帧或建立镜头。",
+    "noFirstFrameModel": "请选择支持首帧的视频模型。",
+    "framesMissing": "请先生成或更新每一镜的首帧，再建立视频。",
+    "frameName": "镜头 {{index}} · 首帧",
+    "videoName": "镜头 {{index}} · 视频",
+    "gridName": "分镜宫格 {{index}}",
+    "promptTooLong": "镜头内容过长，请精简画面描述、镜头或台词后再生成。",
+    "splitFailed": "宫格切分失败，原始结果已保留，重新打开项目可重试。",
+    "prepareFailed": "镜头准备失败，请检查分镜内容后重试。"
   }
 }
