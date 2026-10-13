@@ -17,9 +17,19 @@ const mutations = new Map<string, symbol>()
 
 function openDatabase(): Promise<IDBDatabase> {
   if (!database) {
+    let abandoned = false
     database = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(DATABASE, 2)
-      request.onupgradeneeded = () => {
+      // v3 fences out v2 tabs, whose writes do not participate in revision checks.
+      const request = indexedDB.open(DATABASE, 3)
+      const abandon = () => {
+        abandoned = true
+        clearTimeout(timeout)
+        reject(new Error('Conversation cache open unavailable'))
+      }
+      const timeout = setTimeout(abandon, 5000)
+      request.onblocked = abandon
+      request.onupgradeneeded = (event) => {
+        if (event.oldVersion >= 2) return
         const db = request.result
         const store = db.objectStoreNames.contains(STORE)
           ? request.transaction!.objectStore(STORE)
@@ -56,15 +66,27 @@ function openDatabase(): Promise<IDBDatabase> {
         }
       }
       request.onsuccess = () => {
+        clearTimeout(timeout)
+        if (abandoned) {
+          request.result.close()
+          database = undefined
+          return
+        }
         request.result.onversionchange = () => {
           request.result.close()
           database = undefined
         }
         resolve(request.result)
       }
-      request.onerror = () => reject(request.error)
+      request.onerror = () => {
+        clearTimeout(timeout)
+        database = undefined
+        reject(request.error)
+      }
     }).catch((error) => {
-      database = undefined
+      // Keep a rejected result while its un-cancellable request is queued behind old tabs.
+      // Reopening on every call could leave subsequent requests waiting without onblocked.
+      if (!abandoned) database = undefined
       throw error
     })
   }
@@ -125,40 +147,64 @@ function trim(tx: IDBTransaction, totalBytes: number, budget: number, keep?: str
   }
 }
 
-async function save(db: IDBDatabase, key: string, record: unknown, bytes: number): Promise<void> {
+type CacheWrite = { key: string; record: unknown; bytes: number; revision?: string | null }
+
+async function save(db: IDBDatabase, write: CacheWrite, retry = false): Promise<void> {
+  const { key, record, bytes } = write
   const tx = db.transaction(STORES, 'readwrite')
   const done = complete(tx)
-  const metadata = tx.objectStore(METADATA)
-  const previous = metadata.get(key)
-  previous.onsuccess = () => {
-    const usage = tx.objectStore(USAGE).get('bytes')
-    usage.onsuccess = () => {
-      trim(tx, (usage.result ?? 0) - (previous.result?.bytes ?? 0) + bytes, cacheMaxBytes, key)
+  const usage = tx.objectStore(USAGE)
+  const revision = usage.get('revision')
+  let writeError: unknown
+  revision.onsuccess = () => {
+    if (retry && (write.revision === undefined || (revision.result ?? null) !== write.revision))
+      return
+    write.revision = revision.result ?? null
+    try {
+      const metadata = tx.objectStore(METADATA)
+      const previous = metadata.get(key)
+      previous.onsuccess = () => {
+        const total = usage.get('bytes')
+        total.onsuccess = () => {
+          trim(tx, (total.result ?? 0) - (previous.result?.bytes ?? 0) + bytes, cacheMaxBytes, key)
+        }
+      }
+      tx.objectStore(STORE).put(record, key)
+      metadata.put({ key, bytes, accessedAt: Date.now() })
+      usage.put(crypto.randomUUID(), 'revision')
+    } catch (error) {
+      writeError = error
+      tx.abort()
     }
   }
   try {
-    tx.objectStore(STORE).put(record, key)
-    metadata.put({ key, bytes, accessedAt: Date.now() })
+    await done
   } catch (error) {
-    tx.abort()
-    await done.catch(() => {})
-    throw error
+    throw writeError ?? error
   }
-  await done
 }
 
-function reclaim(db: IDBDatabase, key: string, bytes: number): Promise<void> {
+async function reclaim(db: IDBDatabase, write: CacheWrite): Promise<boolean> {
   const tx = db.transaction(STORES, 'readwrite')
-  const request = tx.objectStore(USAGE).get('bytes')
-  request.onsuccess = () => {
-    const total = request.result ?? 0
-    trim(tx, total, Math.max(0, total - Math.max(bytes, total * 0.1)), key)
+  const usage = tx.objectStore(USAGE)
+  const revision = usage.get('revision')
+  let canRetry = false
+  revision.onsuccess = () => {
+    if (write.revision === undefined || (revision.result ?? null) !== write.revision) return
+    canRetry = true
+    const request = usage.get('bytes')
+    request.onsuccess = () => {
+      const total = request.result ?? 0
+      trim(tx, total, Math.max(0, total - Math.max(write.bytes, total * 0.1)), write.key)
+    }
   }
-  return complete(tx)
+  await complete(tx)
+  return canRetry
 }
 
 function remove(db: IDBDatabase, key: string): Promise<void> {
   const tx = db.transaction(STORES, 'readwrite')
+  tx.objectStore(USAGE).put(crypto.randomUUID(), 'revision')
   const metadata = tx.objectStore(METADATA)
   const record = metadata.get(key)
   record.onsuccess = () => {
@@ -298,15 +344,18 @@ export function conversationCache(conversationId: string) {
         const record = cacheRecord(panel)
         const bytes = recordBytes(record)
         if (bytes > cacheMaxBytes) return
+        const write: CacheWrite = { key, record, bytes }
         try {
-          await save(db, key, record, bytes)
+          await save(db, write)
         } catch (error) {
           if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error
           if (!canWrite()) return
           // The origin also stores artwork. On real disk pressure reclaim only history,
           // commit that reclamation, then retry once; a failed write otherwise rolls it back.
-          await reclaim(db, key, bytes)
-          if (canWrite()) await save(db, key, record, bytes)
+          if (!(await reclaim(db, write))) return
+          // A single durable revision also covers deletes of absent keys and scope clears,
+          // without retaining per-conversation tombstones. Unrelated writes may cancel a retry.
+          if (canWrite()) await save(db, write, true)
         }
       } catch {
         // A full, blocked or unavailable cache must never prevent reading the server.
@@ -333,6 +382,7 @@ export async function clearConversationCache(): Promise<void> {
   clearedScopes.add(scope)
   const db = await openDatabase()
   const tx = db.transaction(STORES, 'readwrite')
+  tx.objectStore(USAGE).put(crypto.randomUUID(), 'revision')
   let removedBytes = 0
   const cursor = tx.objectStore(METADATA).openCursor()
   cursor.onsuccess = () => {
