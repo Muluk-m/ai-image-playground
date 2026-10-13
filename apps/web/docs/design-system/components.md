@@ -29,6 +29,10 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 | `icon-sm` | 32 | 工具条、对话框关闭、复制等纯图标按钮 |
 | `icon` | 36 | 与 36px 输入框或文字按钮同排的图标按钮 |
 | `icon-lg` | 40 | 首页输入框的工具按钮（图标 20px） |
+| `chip-lg` | 40 | 首页模型与参数 chip（12px 圆角） |
+| `chip-sm` | 32 | 窄输入区的模型与参数 chip（10px 圆角） |
+
+`chip-lg` 在命名容器 `creation-composer` 宽度不超过 520px 时切换为 32px 高、10px 圆角、8px 水平内边距与 `text-label-sm`，由 Button 统一提供响应尺寸。
 
 ```tsx
 <Button variant="ghost" size="icon-sm" aria-label={t('common:action.close')} onClick={onClose}>
@@ -37,7 +41,7 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 ```
 
 - 纯图标按钮必须有 `aria-label`；需要悬停说明时外面包 `Hint`。
-- 圆角用默认的 `rounded-md`，见 DESIGN.md「Shapes」。
+- 圆角用默认的 `rounded-md`，见 DESIGN.md「Shapes」。模型与参数 chip 选 `chip-lg` / `chip-sm` 尺寸并配 `outline`，不要在调用点再硬改高度、圆角或底色。
 - 顶栏账号簇保留移动端至少 40px 的触控区域，容器只在小于 768px 时统一设置最小宽高；
   桌面仍用 32px 控件。数据驱动的长分类名称可用 `h-auto min-h-8 whitespace-normal` 换行。
 - 禁用态由原语给（50% 透明 + 不响应指针）。品牌生成按钮这类自带禁用外观的，加

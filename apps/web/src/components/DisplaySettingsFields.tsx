@@ -3,8 +3,8 @@ import { useLocalePicker } from '../i18n/useLocalePicker'
 import type { ThemeChoice } from '../theme'
 import { THEME_LABEL_KEY } from '../theme/labels'
 import { useTheme } from '../theme/useTheme'
-import { GlobeIcon, MoonIcon, SunIcon } from './icons'
 import { SettingRow } from './patterns/SettingRow'
+import { Icon } from './ui/icon'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 /** 设置面板与头像菜单共用这两个主题选项。 */
@@ -21,18 +21,17 @@ export interface DisplaySettingsFieldsProps {
  */
 export default function DisplaySettingsFields({
   rowClassName,
-  iconClassName = 'h-[18px] w-[18px]',
+  iconClassName = 'h-4 w-4',
 }: DisplaySettingsFieldsProps) {
   const { t } = useTranslation('common')
   const { locale, change } = useLocalePicker()
   const { theme, choice, setChoice } = useTheme()
-  const ThemeIcon = theme === 'dark' ? MoonIcon : SunIcon
 
   return (
     <>
       <SettingRow
         className={rowClassName}
-        icon={<GlobeIcon className={iconClassName} />}
+        icon={<Icon name="language" className={iconClassName} />}
         label={t('locale.label')}
         control={
           <Select value={locale} onValueChange={(next) => change(next as AppLocale)}>
@@ -57,7 +56,7 @@ export default function DisplaySettingsFields({
       />
       <SettingRow
         className={rowClassName}
-        icon={<ThemeIcon className={iconClassName} />}
+        icon={<Icon name={theme === 'dark' ? 'dark' : 'light'} className={iconClassName} />}
         label={t('theme.label')}
         control={
           <Select value={choice} onValueChange={(next) => setChoice(next as ThemeChoice)}>
