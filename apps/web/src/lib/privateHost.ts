@@ -15,8 +15,14 @@
 export { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 export { default as BrandAvatar } from '../components/BrandAvatar'
 export { default as DisplaySettingsMenuItems } from '../components/DisplaySettingsMenuItems'
+export { DialogSurface, default as Dialog } from '../components/patterns/Dialog'
 export { default as Overlay } from '../components/patterns/Overlay'
+export { default as SegmentedTabs } from '../components/patterns/SegmentedTabs'
+export { Button } from '../components/ui/button'
+export { Icon, type IconName } from '../components/ui/icon'
 export { SettingsIcon } from '../components/ui/icon/settings'
+export { Input } from '../components/ui/input'
+export { Label } from '../components/ui/label'
 export {
   BRAND_WORDMARK,
   brandNeedsWordmark,
@@ -29,3 +35,4 @@ export { authenticatedBffFetch } from './authClient'
 export { bootstrapClientCapabilities, isClientCapabilityEnabled } from './clientCapabilities'
 export { isInFloatingLayer } from './dropdown'
 export { bffBaseUrl, getRuntimeConfig } from './runtimeConfig'
+export { cn } from './utils'

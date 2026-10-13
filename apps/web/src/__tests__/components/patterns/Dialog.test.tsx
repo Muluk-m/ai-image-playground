@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import Dialog from '../../../components/patterns/Dialog'
+import Dialog, { DialogSurface } from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
 
 declare global {
@@ -27,6 +28,20 @@ afterEach(() => {
 })
 
 describe('Dialog', () => {
+  it('renders a named surface without a portal for a host-owned modal', () => {
+    const html = renderToStaticMarkup(
+      <DialogSurface title="付款" onClose={() => {}} footer={<Button>完成</Button>}>
+        <p>订单状态</p>
+      </DialogSurface>,
+    )
+    host.innerHTML = html
+    const dialog = host.querySelector('[role="dialog"]')
+    expect(dialog?.getAttribute('aria-labelledby')).toBe(dialog?.querySelector('h2')?.id)
+    expect(dialog?.textContent).toContain('订单状态')
+    expect(dialog?.querySelector('[data-slot="dialog-footer"]')?.textContent).toBe('完成')
+    expect(dialog?.querySelector('button[aria-label="关闭"]')).not.toBeNull()
+  })
+
   it('names the dialog after its title and closes from the header button', () => {
     const onClose = vi.fn()
     act(() =>
