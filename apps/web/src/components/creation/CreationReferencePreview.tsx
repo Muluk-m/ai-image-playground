@@ -13,6 +13,8 @@ export function CreationReferencePreview({
 }) {
   return (
     <Hint
+      sideOffset={16}
+      disableHoverableContent
       className="creation-reference-preview"
       tooltip={
         <>

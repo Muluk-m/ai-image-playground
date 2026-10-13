@@ -179,6 +179,7 @@
     "references": "参考素材（{{count}}）",
     "uploadProgress": "上传中 {{ready}}/{{total}}",
     "viewAllReferences": "查看全部",
+    "clearReferences": "清空参考素材",
     "collapseReferences": "收起参考图"
   }
 }
