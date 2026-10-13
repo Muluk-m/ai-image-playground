@@ -269,7 +269,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   }
 
   return (
-    <div className="studio-direct-composer" onPointerDown={(e) => e.stopPropagation()}>
+    <div
+      className="studio-direct-composer"
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
       {hint && <p className="px-1 pb-2 text-label-sm text-muted-foreground">{hint}</p>}
       <SubmissionBillingAction
         blockedAction={submissionGuard.blockedAction}

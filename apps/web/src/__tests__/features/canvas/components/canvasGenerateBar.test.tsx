@@ -183,6 +183,18 @@ describe('画布参考图展示偏好', () => {
     act(() => (host.querySelector('button[aria-expanded="false"]') as HTMLButtonElement).click())
     expect(localStorage.getItem('aip.referencesExpanded')).toBe('true')
     expect(host.querySelectorAll('[data-slot="attachment"]')).toHaveLength(2)
+    // The canvas handles these keys on window; preview interactions must not reach it.
+    const canvasKeyDown = vi.fn(() => editor.setSelectedElements([]))
+    window.addEventListener('keydown', canvasKeyDown)
+    try {
+      const preview = host.querySelector('[data-slot="attachment"]')!
+      for (const key of ['Escape', 'Delete', 'Backspace']) {
+        act(() => preview.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+      }
+      expect(canvasKeyDown).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', canvasKeyDown)
+    }
     expect(editor.getSelectedIds()).toEqual(selection)
     expect(host.querySelector('textarea')!.value).toBe('保留我的描述')
     act(() => root.render(null))
