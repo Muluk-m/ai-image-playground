@@ -183,3 +183,36 @@ it('duplicates an empty group frame and undoes only that copy', () => {
   canvas.undo.undo()
   expect(readCanvasGroups(canvas.doc)).toHaveLength(1)
 })
+
+it('remaps copied timeline clips to copied shots while keeping unselected and missing source references', () => {
+  const canvas = setup()
+  const source = createNode(canvas, 'video', { x: 0, y: 0 }, '#fff')
+  const timeline = createNode(canvas, 'timeline', { x: 600, y: 0 }, '#fff')
+  connectCanvasNodes(canvas.doc, { source, target: timeline }, canvas.origin)
+  const copy = copyNodes(readCanvasDocument(canvas.doc), [source, timeline])
+  const timelineCopy = copy.nodes.find((n) => n.type === 'timeline')!
+  if (timelineCopy.type !== 'timeline') throw new Error('timeline')
+  timelineCopy.data.clips.push({ elementId: 'missing', in: 2, out: 5 })
+  const ids = pasteNodes(canvas, copy, { x: 0, y: 400 })
+  const created = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === ids[1])!
+  expect(created.data).toMatchObject({
+    clips: [
+      { elementId: ids[0], in: 0 },
+      { elementId: 'missing', in: 2, out: 5 },
+    ],
+  })
+})
+
+it('reconnects an independently duplicated timeline to the original shots', () => {
+  const canvas = setup()
+  const source = createNode(canvas, 'video', { x: 0, y: 0 }, '#fff')
+  const timeline = createNode(canvas, 'timeline', { x: 600, y: 0 }, '#fff')
+  connectCanvasNodes(canvas.doc, { source, target: timeline }, canvas.origin)
+  const [copy] = pasteNodes(canvas, copyNodes(readCanvasDocument(canvas.doc), [timeline]), {
+    x: 600,
+    y: 500,
+  })
+  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
+    expect.objectContaining({ source, target: copy }),
+  )
+})

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import * as Y from 'yjs'
 import {
+  beginCanvasTimelineEdit,
   CANVAS_NODE_TYPES,
   canvasOrigin,
   connectCanvasNodes,
@@ -452,4 +453,458 @@ describe('edges', () => {
 it('tells actors apart by kind and id', () => {
   expect(canvasOrigin('user', 'me')).toBe(canvasOrigin('user', 'me'))
   expect(canvasOrigin('user', 'me')).not.toBe(canvasOrigin('agent', 'me'))
+})
+
+it('orders timeline connections, retains missing shots, and undoes clip edits with their edges', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'timeline')
+  const undo = createCanvasUndoManager(doc, origin)
+  for (const id of ['a', 'b'])
+    insertCanvasNode(
+      doc,
+      {
+        id,
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        data: { meta: { nodeKind: 'video' } },
+      },
+      origin,
+    )
+  insertCanvasNode(
+    doc,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 500,
+      y: 0,
+      width: 560,
+      height: 240,
+      data: { clips: [] },
+    },
+    origin,
+  )
+  const clips = () =>
+    (
+      readCanvasDocument(doc).nodes.find((n) => n.id === 'timeline')!.data as {
+        clips: { elementId: string; in: number; out?: number }[]
+      }
+    ).clips
+  connectCanvasNodes(doc, { source: 'b', target: 'timeline' }, origin)
+  connectCanvasNodes(doc, { source: 'a', target: 'timeline' }, origin)
+  expect(clips().map((c) => c.elementId)).toEqual(['b', 'a'])
+  expect(connectCanvasNodes(doc, { source: 'a', target: 'timeline' }, origin)).toBe(false)
+  undo.stopCapturing()
+  updateCanvasNode(
+    doc,
+    'timeline',
+    { data: { clips: [{ elementId: 'a', in: 1, out: 4 }] } },
+    origin,
+  )
+  expect(readCanvasDocument(doc).edges.map((e) => e.source)).toEqual(['a'])
+  undo.undo()
+  expect(clips().map((c) => c.elementId)).toEqual(['b', 'a'])
+  expect(readCanvasDocument(doc).edges).toHaveLength(2)
+  undo.stopCapturing()
+  deleteCanvasNode(doc, 'b', origin)
+  expect(clips().map((c) => c.elementId)).toEqual(['b', 'a'])
+  disconnectCanvasNodes(doc, 'a:timeline', origin)
+  expect(clips().map((c) => c.elementId)).toEqual(['b'])
+})
+
+it('refuses a 65th timeline connection without dropping a slot or adding an edge', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'timeline')
+  insertCanvasNode(
+    doc,
+    {
+      id: 'next',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { meta: { nodeKind: 'video' } },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    doc,
+    {
+      id: 'full',
+      type: 'timeline',
+      x: 500,
+      y: 0,
+      width: 560,
+      height: 240,
+      data: { clips: Array.from({ length: 64 }, (_, i) => ({ elementId: `missing-${i}`, in: 0 })) },
+    },
+    origin,
+  )
+  expect(connectCanvasNodes(doc, { source: 'next', target: 'full' }, origin)).toBe(false)
+  expect(readCanvasDocument(doc).edges).toHaveLength(0)
+})
+
+it('preserves concurrent shot additions in both replicas and retains a recovered slot when its source is deleted', () => {
+  const a = new Y.Doc(),
+    b = new Y.Doc(),
+    origin = canvasOrigin('user', 'A'),
+    remote = canvasOrigin('user', 'B')
+  for (const id of ['a', 'b'])
+    insertCanvasNode(
+      a,
+      {
+        id,
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        data: { meta: { nodeKind: 'video' } },
+      },
+      origin,
+    )
+  insertCanvasNode(
+    a,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 500,
+      y: 0,
+      width: 560,
+      height: 240,
+      data: { clips: [] },
+    },
+    origin,
+  )
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const undo = createCanvasUndoManager(a, origin)
+  connectCanvasNodes(a, { source: 'a', target: 'timeline' }, origin)
+  connectCanvasNodes(b, { source: 'b', target: 'timeline' }, remote)
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const clips = (doc: Y.Doc) =>
+    (
+      readCanvasDocument(doc).nodes.find((n) => n.id === 'timeline')!.data as {
+        clips: { elementId: string }[]
+      }
+    ).clips
+  expect(clips(a)).toEqual(clips(b))
+  expect(
+    clips(a)
+      .map((c) => c.elementId)
+      .sort(),
+  ).toEqual(['a', 'b'])
+  undo.undo()
+  expect(clips(a).map((c) => c.elementId)).toEqual(['b'])
+  undo.redo()
+  undo.stopCapturing()
+  deleteCanvasNode(a, 'b', origin)
+  expect(
+    clips(a)
+      .map((c) => c.elementId)
+      .sort(),
+  ).toEqual(['a', 'b'])
+})
+
+it('keeps independent trimmed additions after offline editing and source deletion', () => {
+  const a = new Y.Doc(),
+    b = new Y.Doc(),
+    origin = canvasOrigin('user', 'a')
+  for (const id of ['a', 'b'])
+    insertCanvasNode(
+      a,
+      {
+        id,
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        data: { meta: { nodeKind: 'video', videoTrimIn: '2', videoTrimOut: '4' } },
+      },
+      origin,
+    )
+  insertCanvasNode(
+    a,
+    { id: 'timeline', type: 'timeline', x: 0, y: 0, width: 500, height: 240, data: { clips: [] } },
+    origin,
+  )
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  for (const [doc, id] of [
+    [a, 'a'],
+    [b, 'b'],
+  ] as const) {
+    connectCanvasNodes(doc, { source: id, target: 'timeline' }, origin)
+    updateCanvasNode(
+      doc,
+      'timeline',
+      { data: { clips: [{ elementId: id, in: 2.5, out: 3.5 }] } },
+      origin,
+    )
+  }
+  deleteCanvasNode(a, 'a', origin)
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const timeline = readCanvasDocument(a).nodes.find((n) => n.id === 'timeline')!
+  expect(timeline.data).toEqual({
+    clips: [
+      { elementId: 'a', in: 2.5, out: 3.5 },
+      { elementId: 'b', in: 2.5, out: 3.5 },
+    ],
+  })
+  expect(readCanvasDocument(b).nodes.find((n) => n.id === 'timeline')).toEqual(timeline)
+})
+
+it('preserves duplicate legacy slots while reordering and trimming', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'test')
+  insertCanvasNode(
+    doc,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 240,
+      data: {
+        clips: [
+          { elementId: 'a', in: 0, out: 1 },
+          { elementId: 'a', in: 3, out: 4 },
+        ],
+      },
+    },
+    origin,
+  )
+  const clips = [
+    { elementId: 'a', in: 3, out: 4 },
+    { elementId: 'a', in: 0, out: 0.5 },
+  ]
+  updateCanvasNode(doc, 'timeline', { data: { clips } }, origin)
+  expect(readCanvasDocument(doc).nodes[0].data).toEqual({ clips })
+})
+
+it('merges stale editor drafts without erasing remote additions, trims or deletions', () => {
+  const a = new Y.Doc(),
+    b = new Y.Doc(),
+    origin = canvasOrigin('user', 'test')
+  insertCanvasNode(
+    a,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 240,
+      data: {
+        clips: [
+          { elementId: 'a', in: 0, out: 4 },
+          { elementId: 'b', in: 0, out: 4 },
+        ],
+      },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    a,
+    {
+      id: 'c',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { meta: { nodeKind: 'video' } },
+    },
+    origin,
+  )
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const draftA = beginCanvasTimelineEdit(a, 'timeline', origin),
+    draftB = beginCanvasTimelineEdit(b, 'timeline', origin)
+  draftA.save([draftA.clips[1], draftA.clips[0]])
+  draftB.save([{ ...draftB.clips[0], in: 1, out: 3 }, draftB.clips[1]])
+  connectCanvasNodes(b, { source: 'c', target: 'timeline' }, origin)
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const clips = (doc: Y.Doc) =>
+    (readCanvasDocument(doc).nodes.find((n) => n.id === 'timeline')!.data as { clips: unknown[] })
+      .clips
+  expect(clips(a)).toEqual([
+    { elementId: 'b', in: 0, out: 4 },
+    { elementId: 'a', in: 1, out: 3 },
+    { elementId: 'c', in: 0 },
+  ])
+  expect(clips(a)).toEqual(clips(b))
+  const stale = beginCanvasTimelineEdit(a, 'timeline', origin)
+  connectCanvasNodes(b, { source: 'a', target: 'timeline' }, origin)
+  updateCanvasNode(
+    b,
+    'timeline',
+    {
+      data: {
+        clips: [
+          { elementId: 'b', in: 0, out: 4 },
+          { elementId: 'c', in: 0 },
+        ],
+      },
+    },
+    origin,
+  )
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b))
+  stale.save(stale.clips.map((c) => (c.elementId === 'b' ? { ...c, in: 1 } : c)))
+  expect(clips(a)).toEqual([
+    { elementId: 'b', in: 1, out: 4 },
+    { elementId: 'c', in: 0 },
+  ])
+})
+
+it('keeps an unseen addition when a draft is saved after receiving it', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'test')
+  insertCanvasNode(
+    doc,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 240,
+      data: { clips: [{ elementId: 'a', in: 0, out: 4 }] },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    doc,
+    {
+      id: 'b',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { meta: { nodeKind: 'video' } },
+    },
+    origin,
+  )
+  const draft = beginCanvasTimelineEdit(doc, 'timeline', origin)
+  connectCanvasNodes(doc, { source: 'b', target: 'timeline' }, origin)
+  draft.save([{ ...draft.clips[0], in: 1 }])
+  expect(readCanvasDocument(doc).nodes[0].data).toEqual({
+    clips: [
+      { elementId: 'a', in: 1, out: 4 },
+      { elementId: 'b', in: 0 },
+    ],
+  })
+})
+
+it('reorders slots with tied concurrent positions in the requested order', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'test')
+  insertCanvasNode(
+    doc,
+    { id: 'timeline', type: 'timeline', x: 0, y: 0, width: 500, height: 240, data: { clips: [] } },
+    origin,
+  )
+  for (const id of ['a', 'b', 'c']) {
+    doc
+      .getMap('timelineSlots')
+      .set(JSON.stringify(['timeline', 'source', id, 'clip']), { elementId: id, in: 0 })
+    doc.getMap('timelineSlots').set(JSON.stringify(['timeline', 'source', id, 'order']), 0)
+  }
+  const draft = beginCanvasTimelineEdit(doc, 'timeline', origin)
+  draft.save([draft.clips[1], draft.clips[0], draft.clips[2]])
+  expect(readCanvasDocument(doc).nodes[0].data).toEqual({
+    clips: [
+      { elementId: 'b', in: 0 },
+      { elementId: 'a', in: 0 },
+      { elementId: 'c', in: 0 },
+    ],
+  })
+})
+
+it('keeps duplicate slot identity through concurrent ordering and trimming', () => {
+  const a = new Y.Doc(),
+    b = new Y.Doc(),
+    origin = canvasOrigin('user', 'test')
+  insertCanvasNode(
+    a,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 240,
+      data: {
+        clips: [
+          { elementId: 'a', in: 0 },
+          { elementId: 'a', in: 1 },
+        ],
+      },
+    },
+    origin,
+  )
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const first = beginCanvasTimelineEdit(a, 'timeline', origin),
+    second = beginCanvasTimelineEdit(b, 'timeline', origin)
+  first.save([{ ...first.clips[1], in: 2 }, first.clips[0]])
+  second.save([{ ...second.clips[0], in: 0.5 }, second.clips[1]])
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  expect(readCanvasDocument(a).nodes[0].data).toEqual({
+    clips: [
+      { elementId: 'a', in: 2 },
+      { elementId: 'a', in: 0.5 },
+    ],
+  })
+  expect(readCanvasDocument(b).nodes[0].data).toEqual(readCanvasDocument(a).nodes[0].data)
+})
+
+it('applies a legacy timeline edit without rewriting its immutable imported slot base', () => {
+  const doc = new Y.Doc(),
+    origin = canvasOrigin('user', 'test')
+  const timeline = {
+    id: 'timeline',
+    type: 'timeline' as const,
+    x: 0,
+    y: 0,
+    width: 500,
+    height: 240,
+    clips: [
+      { elementId: 'a', in: 0 },
+      { elementId: 'b', in: 0 },
+    ],
+  }
+  importLegacyElements(doc, [timeline], origin)
+  updateCanvasNode(
+    doc,
+    'timeline',
+    {
+      data: {
+        clips: [
+          { elementId: 'b', in: 1 },
+          { elementId: 'a', in: 0 },
+        ],
+      },
+    },
+    origin,
+  )
+  const previous = {
+    ...timeline,
+    clips: [
+      { elementId: 'b', in: 1 },
+      { elementId: 'a', in: 0 },
+    ],
+  }
+  const next = { ...timeline, clips: [{ elementId: 'b', in: 2 }] }
+  synchronizeLegacyElements(doc, [previous], [next], origin)
+  expect(readCanvasDocument(doc).nodes[0].data).toEqual({ clips: next.clips })
+  expect(doc.getMap<Y.Map<unknown>>('nodes').get('timeline')!.get('data')).toEqual({
+    clips: timeline.clips,
+  })
 })

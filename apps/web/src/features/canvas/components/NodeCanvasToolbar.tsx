@@ -94,6 +94,7 @@ export default function NodeCanvasToolbar({
         <NodeTool icon="text" label={t('nodes.addText')} onClick={() => onCreate('text')} />
         <NodeTool icon="image" label={t('nodes.addImage')} onClick={() => onCreate('image')} />
         <NodeTool icon="video" label={t('nodes.addVideo')} onClick={() => onCreate('video')} />
+        <NodeTool icon="list" label={t('timeline.title')} onClick={() => onCreate('timeline')} />
         <span className="studio-node-tool-divider" />
         <NodeTool icon="folder" label={t('nodes.assets')} onClick={onAssets} />
         <NodeTool icon="upload" label={t('nodes.addUpload')} onClick={onUpload} />

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  beginCanvasTimelineEdit,
   canvasNodeJobs,
   canvasOrigin,
   canvasResults,
@@ -9,6 +10,7 @@ import {
   canvasSyncStep2,
   canvasSyncUpdate,
   canvasText,
+  connectCanvasNodes,
   createCanvasGroup,
   createCanvasUndoManager,
   disconnectCanvasNodes,
@@ -746,4 +748,63 @@ it('persists durable video references after task expiry and rejects foreign or i
     bad.destroy()
   }
   doc.destroy()
+})
+
+it('persists concurrent timeline slots and trims through the server and legacy projection', async () => {
+  const id = await create(),
+    a = new Y.Doc(),
+    b = new Y.Doc()
+  Y.applyUpdate(a, await accessCanvasDocument('owner', id))
+  const seed = Y.encodeStateVector(a)
+  insertCanvasNode(
+    a,
+    { id: 'timeline', type: 'timeline', x: 0, y: 0, width: 560, height: 240, data: { clips: [] } },
+    origin,
+  )
+  for (const source of ['a', 'b'])
+    insertCanvasNode(
+      a,
+      {
+        id: source,
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        data: { meta: { nodeKind: 'video' } },
+      },
+      origin,
+    )
+  Y.applyUpdate(a, await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(a, seed)))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const vectorA = Y.encodeStateVector(a),
+    vectorB = Y.encodeStateVector(b)
+  connectCanvasNodes(a, { source: 'a', target: 'timeline' }, origin)
+  connectCanvasNodes(b, { source: 'b', target: 'timeline' }, origin)
+  const edit = beginCanvasTimelineEdit(a, 'timeline', origin)
+  edit.save([{ ...edit.clips[0], in: 1, out: 3 }])
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(a, vectorA))
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(b, vectorB))
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, await accessCanvasDocument('owner', id))
+  expect(readCanvasDocument(restored).nodes.find((n) => n.id === 'timeline')?.data).toEqual({
+    clips: [
+      { elementId: 'a', in: 1, out: 3 },
+      { elementId: 'b', in: 0 },
+    ],
+  })
+  const [project] = await db
+    .select()
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.id, id))
+  expect(project!.document.elements.find((el) => el.id === 'timeline')).toMatchObject({
+    type: 'timeline',
+    clips: [
+      { elementId: 'a', in: 1, out: 3 },
+      { elementId: 'b', in: 0 },
+    ],
+  })
+  a.destroy()
+  b.destroy()
+  restored.destroy()
 })

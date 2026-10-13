@@ -121,11 +121,13 @@ export interface ProjectTimeline {
   clips: { elementId: string; in: number; out?: number }[]
 }
 
+/** Authoring and film export limit. Storage tolerates concurrent additions for later reconciliation. */
 export const PROJECT_TIMELINE_MAX_CLIPS = 64
+const PROJECT_TIMELINE_STORAGE_MAX_CLIPS = 1000
 /** 单段入出点的上限（秒）。上游最长的片子也远不到它，超出只可能是坏数据。 */
 const PROJECT_CLIP_MAX_SECONDS = 3600
 
-function timelineClip(value: unknown): boolean {
+export function isProjectTimelineClip(value: unknown): boolean {
   if (!object(value) || !keys(value, ['elementId', 'in', 'out'])) return false
   const within = (seconds: unknown) =>
     typeof seconds === 'number' &&
@@ -321,8 +323,8 @@ function element(value: unknown): value is ProjectElement {
       size(value.width) &&
       size(value.height) &&
       Array.isArray(value.clips) &&
-      value.clips.length <= PROJECT_TIMELINE_MAX_CLIPS &&
-      value.clips.every(timelineClip)
+      value.clips.length <= PROJECT_TIMELINE_STORAGE_MAX_CLIPS &&
+      value.clips.every(isProjectTimelineClip)
     )
   }
   if (value.type === 'arrow' || value.type === 'freedraw') {

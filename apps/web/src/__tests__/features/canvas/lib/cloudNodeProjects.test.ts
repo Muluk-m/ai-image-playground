@@ -449,3 +449,47 @@ it('does not send a saved version until videos selected during another promotion
   expect(canvasResults(server).every((r) => r.display?.video?.mediaId)).toBe(true)
   record.dispose()
 })
+
+it('projects posterless videos and unfinished shots for timeline preview and source navigation', async () => {
+  const { session, record } = await fixture()
+  const canvas = session.canvas!
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'posterless',
+      type: 'video',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { video: { taskId: 'posterless-task', outputIndex: 0 } },
+    },
+    canvas.origin,
+  )
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'future',
+      type: 'image',
+      x: 400,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { meta: { nodeKind: 'video' } },
+    },
+    canvas.origin,
+  )
+  expect(record.editor.getElement('posterless')).toMatchObject({
+    type: 'image',
+    fileId: '',
+    video: { taskId: 'posterless-task' },
+  })
+  expect(record.editor.getElement('future')).toMatchObject({
+    type: 'image',
+    fileId: '',
+    meta: { nodeKind: 'video' },
+  })
+  deleteCanvasNode(canvas.doc, 'future', canvas.origin)
+  expect(record.editor.getElement('future')).toBeUndefined()
+  record.dispose()
+})

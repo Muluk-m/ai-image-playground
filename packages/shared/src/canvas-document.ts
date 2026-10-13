@@ -13,6 +13,14 @@ import {
 
 export { CANVAS_NODE_TYPES, type CanvasNodeType } from './canvas-registry'
 
+import {
+  appendCanvasTimelineClip,
+  type CanvasTimelineDraftClip,
+  canvasTimelineSlots,
+  deleteCanvasTimelineSlots,
+  editCanvasTimelineClips,
+  timelineSlotsOf,
+} from './canvas-timeline'
 import type {
   ProjectElement,
   ProjectGeneration,
@@ -20,6 +28,7 @@ import type {
   ProjectTimeline,
   ProjectVideoRef,
 } from './project-protocol'
+import { PROJECT_TIMELINE_MAX_CLIPS } from './project-protocol'
 
 /**
  * 项目画布的文档模型（ADR 0023）：一个 `Y.Doc`，浏览器与服务端共用这一份读写规则。
@@ -185,6 +194,12 @@ export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
   })
   const annotations = [...annotationsOf(doc).values()].sort((a, b) => a.z - b.z)
   const edges = [...edgesOf(doc).values()]
+  for (const node of nodes) {
+    if (node.type === 'timeline')
+      node.data = {
+        clips: canvasTimelineSlots(doc, node.id, node.data.clips).map(([, slot]) => slot.clip),
+      }
+  }
   const groups = readCanvasGroups(doc)
   return { nodes, annotations, edges, ...(groups.length ? { groups } : {}) }
 }
@@ -232,6 +247,22 @@ export function updateCanvasNode(
   if (!node) return
   doc.transact(() => {
     for (const [key, value] of Object.entries(patch)) {
+      if (
+        key === 'data' &&
+        node.get('type') === 'timeline' &&
+        value &&
+        typeof value === 'object' &&
+        'clips' in value
+      ) {
+        editCanvasTimelineClips(
+          doc,
+          id,
+          canvasTimelineSlots(doc, id, (node.get('data') as TimelineNodeData).clips),
+          value.clips,
+        )
+        syncTimelineEdges(doc, id, value.clips)
+        continue
+      }
       if (value !== undefined && !sameField(node.get(key), value)) {
         if (
           key === 'data' &&
@@ -248,11 +279,47 @@ export function updateCanvasNode(
   }, origin)
 }
 
+/** Capture stable slot identities and merge a completed editor draft as one undoable transaction. */
+export function beginCanvasTimelineEdit(doc: Y.Doc, id: string, origin: CanvasOrigin) {
+  const node = nodesOf(doc).get(id)
+  const baseline =
+    node?.get('type') === 'timeline'
+      ? canvasTimelineSlots(doc, id, (node.get('data') as TimelineNodeData).clips)
+      : []
+  return {
+    clips: baseline.map(([slotKey, slot]) => ({ ...slot.clip, slotKey })),
+    save(clips: CanvasTimelineDraftClip[]) {
+      if (nodesOf(doc).get(id)?.get('type') !== 'timeline') return
+      doc.transact(() => {
+        editCanvasTimelineClips(doc, id, baseline, clips)
+        const current = readCanvasDocument(doc).nodes.find((n) => n.id === id)
+        if (current?.type === 'timeline') syncTimelineEdges(doc, id, current.data.clips)
+      }, origin)
+    },
+  }
+}
+
+/** Timeline order lives in clips; edges only visualize the existing source nodes. */
+function syncTimelineEdges(doc: Y.Doc, target: string, clips: TimelineNodeData['clips']): void {
+  const sources = new Set(clips.map((clip) => clip.elementId))
+  const edges = edgesOf(doc)
+  for (const [id, edge] of edges) {
+    if (edge.target === target && !sources.has(edge.source)) edges.delete(id)
+  }
+  const snapshot = readCanvasDocument(doc)
+  for (const source of sources) {
+    const id = `${source}:${target}`
+    if (!edges.has(id) && canvasLinkAllowed(snapshot, { source, target }))
+      edges.set(id, { id, source, target })
+  }
+}
+
 /** 删掉节点，并拆掉一头已经悬空的线。 */
 export function deleteCanvasNode(doc: Y.Doc, id: string, origin: CanvasOrigin): void {
   const nodes = nodesOf(doc)
   if (!nodes.has(id)) return
   doc.transact(() => {
+    deleteCanvasTimelineSlots(doc, id)
     nodes.delete(id)
     doc.getMap('deletedNodes').set(id, true)
     dropEdgesTouching(edgesOf(doc), [id])
@@ -272,11 +339,32 @@ export function connectCanvasNodes(
   if (!source || !target || !canvasLinkAllowed(readCanvasDocument(doc), link)) return false
   const nodes = nodesOf(doc)
   const edges = edgesOf(doc)
+  const targetNode = readCanvasDocument(doc).nodes.find((node) => node.id === target)
+  const timeline = targetNode?.type === 'timeline' ? targetNode.data : undefined
+  if (
+    timeline &&
+    !timeline.clips.some((clip) => clip.elementId === source) &&
+    timeline.clips.length >= PROJECT_TIMELINE_MAX_CLIPS
+  )
+    return false
   const id = `${source}:${target}`
   if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return false
   doc.transact(() => {
     if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return
     edges.set(id, { id, source, target })
+    if (timeline && !timeline.clips.some((clip) => clip.elementId === source)) {
+      const sourceNode = readCanvasDocument(doc).nodes.find((node) => node.id === source)
+      const meta = sourceNode && 'meta' in sourceNode.data ? sourceNode.data.meta : undefined
+      const start = Number(meta?.videoTrimIn)
+      const end = Number(meta?.videoTrimOut)
+      const trimmed = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start
+      appendCanvasTimelineClip(
+        doc,
+        target,
+        { elementId: source, in: trimmed ? start : 0, ...(trimmed ? { out: end } : {}) },
+        timeline.clips.length,
+      )
+    }
   }, origin)
   return edges.has(id)
 }
@@ -284,7 +372,21 @@ export function connectCanvasNodes(
 export function disconnectCanvasNodes(doc: Y.Doc, id: string, origin: CanvasOrigin): void {
   const edges = edgesOf(doc)
   if (!edges.has(id)) return
-  doc.transact(() => edges.delete(id), origin)
+  doc.transact(() => {
+    const edge = edges.get(id)!
+    const target = nodesOf(doc).get(edge.target)
+    if (target?.get('type') === 'timeline') {
+      const data = target.get('data') as TimelineNodeData
+      const clips = canvasTimelineSlots(doc, edge.target, data.clips).map(([, slot]) => slot.clip)
+      editCanvasTimelineClips(
+        doc,
+        edge.target,
+        canvasTimelineSlots(doc, edge.target, data.clips),
+        clips.filter((clip) => clip.elementId !== edge.source),
+      )
+    }
+    edges.delete(id)
+  }, origin)
 }
 
 // 几何是逐字段可合并的；`data` 先整块存，按节点能力逐步换成细粒度的 Yjs 类型。
@@ -377,6 +479,7 @@ export function synchronizeLegacyElements(
       if (after.has(id)) continue
       if (nodes.has(id)) removed.push(id)
       nodes.delete(id)
+      deleteCanvasTimelineSlots(doc, id)
       annotations.delete(id)
     }
     dropEdgesTouching(edgesOf(doc), removed)
@@ -419,6 +522,10 @@ export function synchronizeLegacyElements(
           (!beforeNode || !sameField(beforeNode[field], item[field])) &&
           !sameField(current.get(field), item[field])
         ) {
+          if (field === 'data' && item.type === 'timeline') {
+            updateCanvasNode(doc, id, { data: item.data }, origin)
+            continue
+          }
           if (
             field === 'data' &&
             item.type === 'text' &&
@@ -529,6 +636,7 @@ export function createCanvasUndoManager(doc: Y.Doc, origin: CanvasOrigin): Y.Und
       nodesOf(doc),
       annotationsOf(doc),
       edgesOf(doc),
+      timelineSlotsOf(doc),
       doc.getMap('deletedNodes'),
       doc.getMap('groups'),
       doc.getMap('groupMembers'),
