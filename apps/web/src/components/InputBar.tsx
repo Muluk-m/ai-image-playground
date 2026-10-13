@@ -438,6 +438,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       read: () => useStore.getState().prompt,
       write: (content) => {
         const { prompt, selection } = agentComposerFillPrompt(content)
+        if (content.clearReferences) useStore.getState().clearInputImages()
         setPrompt(prompt)
         promptEditor.select(selection.start, selection.end)
         return prompt
@@ -976,8 +977,17 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     return (
       <Hint
         key={img.id}
-        tooltip={imageHintText}
-        open={imageHintId === img.id && Boolean(imageHintText) && (!isMobile || isMaskTarget)}
+        tooltip={
+          imageHintText || (
+            <img
+              src={displaySrc}
+              alt={mentionLabels(idx) ?? ''}
+              className="creation-reference-preview-image"
+            />
+          )
+        }
+        className={imageHintText ? undefined : 'creation-reference-preview'}
+        open={imageHintText ? imageHintId === img.id && (!isMobile || isMaskTarget) : undefined}
       >
         <div
           key={img.id}
