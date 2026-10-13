@@ -4,7 +4,7 @@ import { answerableClarificationId } from './panelMessages'
 
 const EMPTY: readonly string[] = []
 const ATTEMPTS = 10
-const INTERVAL_MS = 500
+const INTERVAL_MS = 2_000
 
 type FollowUpReader = (conversationId: string, turnId: string) => Promise<readonly string[] | null>
 

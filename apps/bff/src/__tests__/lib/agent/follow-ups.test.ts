@@ -16,7 +16,9 @@ const {
 const { listAgentTurnSummaries, recordAgentTurnSummary } = await import(
   '../../../lib/agent/turn-summary'
 )
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { appendAgentMessage, createAgentConversation } = await import(
+  '../../../lib/agent/conversations'
+)
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 function message(role: 'user' | 'assistant', text: string, createdAt: number): AgentMessageView {
@@ -178,6 +180,42 @@ describe('下一句落库', () => {
     expect(await readAgentFollowUps(conversationId, 'turn-2')).toEqual([
       '背景改成夜晚。',
       '再出一张方形。',
+    ])
+  })
+
+  it('出图后的复查没有新的用户原话时，沿用会话里上一句', async () => {
+    const conversationId = await conversation()
+    await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'turn-prev',
+      role: 'user',
+      content: [{ type: 'text', text: '先出男主设定图' }],
+    })
+    await recordAgentTurnSummary({
+      conversationId,
+      turnId: 'turn-review',
+      durationMs: 10,
+      stopReason: 'completed',
+    })
+    const seen: string[] = []
+    scheduleAgentFollowUps(
+      {
+        conversationId,
+        turnId: 'turn-review',
+        messages: [message('assistant', '设定图出好了，可以作为基准。', 2)],
+      },
+      async (prompt) => {
+        seen.push(prompt)
+        return { lines: ['把这张存成素材。', '出第一场分镜。'] }
+      },
+    )
+    await settled(conversationId, 'turn-review')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toContain('先出男主设定图')
+    expect(seen[0]).toContain('设定图出好了，可以作为基准。')
+    expect(await readAgentFollowUps(conversationId, 'turn-review')).toEqual([
+      '把这张存成素材。',
+      '出第一场分镜。',
     ])
   })
 })

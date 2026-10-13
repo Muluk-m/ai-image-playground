@@ -114,7 +114,7 @@ describe('下一句什么时候出现', () => {
       },
     )
     expect(lines).toEqual(['换成方形。', '灯光暖一点。'])
-    expect(waits).toEqual([500])
+    expect(waits).toEqual([2000])
 
     expect(
       await pollFollowUps(
