@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'bun:test'
 import * as Y from 'yjs'
-import { canvasProjectDocument, validateCloudCanvas } from '../canvas-cloud'
+import {
+  canvasProjectDocument,
+  initializeCanvasConnectionRules,
+  validateCloudCanvas,
+} from '../canvas-cloud'
 import {
   canvasOrigin,
   connectCanvasNodes,
+  createCanvasUndoManager,
   deleteCanvasNode,
+  disconnectCanvasNodes,
   importLegacyElements,
   insertCanvasNode,
   moveCanvasNodes,
@@ -151,4 +157,61 @@ describe('cloud canvas migration and protocol', () => {
     const bytes = canvasSyncStep1(new Y.Doc())
     expect(() => readCanvasSyncMessage(new Uint8Array([...bytes, 0]))).toThrow()
   })
+})
+
+it('enforces registry connections on the server without breaking pre-registry archives', () => {
+  const doc = new Y.Doc()
+  importLegacyElements(doc, legacy.elements, origin)
+  insertCanvasNode(
+    doc,
+    {
+      id: 'video',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      data: { meta: { nodeKind: 'video' } },
+    },
+    origin,
+  )
+  doc.getMap('edges').set('video:text', { id: 'video:text', source: 'video', target: 'text' })
+  expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_connection')
+  initializeCanvasConnectionRules(doc)
+  const legacyConnections = doc.getMap<string>('legacyConnections').toJSON()
+  const undo = createCanvasUndoManager(doc, origin)
+  moveCanvasNodes(doc, [{ id: 'text', x: 1000, y: 5 }], origin)
+  expect(() => validateCloudCanvas(doc, legacy, legacyConnections)).not.toThrow()
+  disconnectCanvasNodes(doc, 'video:text', origin)
+  expect(() => validateCloudCanvas(doc, legacy, legacyConnections)).not.toThrow()
+  undo.undo()
+  expect(readCanvasDocument(doc).edges).toHaveLength(1)
+  expect(() => validateCloudCanvas(doc, legacy, legacyConnections)).not.toThrow()
+  insertCanvasNode(
+    doc,
+    {
+      id: 'new-text',
+      type: 'text',
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      data: { text: '', fontSize: 16, fill: '#fff' },
+    },
+    origin,
+  )
+  doc
+    .getMap('edges')
+    .set('video:new-text', { id: 'video:new-text', source: 'video', target: 'new-text' })
+  expect(() => validateCloudCanvas(doc, legacy, legacyConnections)).toThrow(
+    'invalid_canvas_connection',
+  )
+  doc
+    .getMap('legacyConnections')
+    .set('video:new-text', JSON.stringify(['video', 'new-text', 'video', 'text']))
+  expect(() => validateCloudCanvas(doc, legacy, legacyConnections)).toThrow(
+    'invalid_canvas_connection_policy',
+  )
+  undo.destroy()
+  doc.destroy()
 })

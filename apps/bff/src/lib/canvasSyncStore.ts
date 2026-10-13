@@ -2,6 +2,7 @@ import {
   canvasOrigin,
   canvasProjectDocument,
   importLegacyElements,
+  initializeCanvasConnectionRules,
   type ProjectDocument,
   readCanvasDocument,
   synchronizeLegacyElements,
@@ -76,6 +77,11 @@ async function persist(
     await tx
       .delete(updates)
       .where(and(eq(updates.project_id, projectId), lte(updates.sequence, sequence)))
+  loaded.row.sequence = sequence
+  if (compact) {
+    loaded.row.compacted_sequence = sequence
+    loaded.row.compacted_at = now
+  }
   await tx.execute(sql`SELECT pg_notify('canvas_changed', ${projectId})`)
 }
 
@@ -225,13 +231,17 @@ export async function accessCanvasDocument(
     }
     const { doc } = loaded
     try {
+      const policyVector = Y.encodeStateVector(doc)
+      if (initializeCanvasConnectionRules(doc))
+        await persist(tx, projectId, loaded, Y.encodeStateAsUpdate(doc, policyVector))
+      const legacyConnections = doc.getMap<string>('legacyConnections').toJSON()
       if (update) {
         const vector = Y.encodeStateVector(doc)
         const before = Y.encodeStateAsUpdate(doc)
         const acceptedTasks = referencedTasks(doc)
         try {
           Y.applyUpdate(doc, update)
-          validateCloudCanvas(doc, project.document)
+          validateCloudCanvas(doc, project.document, legacyConnections)
         } catch {
           throw new CanvasSyncError(400, 'invalid_canvas_document')
         }

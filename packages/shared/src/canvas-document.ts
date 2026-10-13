@@ -1,4 +1,8 @@
 import * as Y from 'yjs'
+import { canvasLinkAllowed } from './canvas-registry'
+
+export { CANVAS_NODE_TYPES, type CanvasNodeType } from './canvas-registry'
+
 import type {
   ProjectElement,
   ProjectGeneration,
@@ -11,9 +15,6 @@ import type {
  * 项目画布的文档模型（ADR 0023）：一个 `Y.Doc`，浏览器与服务端共用这一份读写规则。
  * 调用方只经这里的函数读写，不直接碰 Yjs 结构。
  */
-
-export const CANVAS_NODE_TYPES = ['text', 'image', 'video', 'timeline'] as const
-export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number]
 
 export type CanvasAnnotationType = 'arrow' | 'freedraw'
 
@@ -205,7 +206,7 @@ export function connectCanvasNodes(
   origin: CanvasOrigin,
 ): boolean {
   const { source, target } = link
-  if (!source || !target || source === target) return false
+  if (!source || !target || !canvasLinkAllowed(readCanvasDocument(doc), link)) return false
   const nodes = nodesOf(doc)
   const edges = edgesOf(doc)
   const id = `${source}:${target}`

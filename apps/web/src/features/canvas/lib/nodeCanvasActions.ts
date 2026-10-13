@@ -1,6 +1,8 @@
 import {
   type CanvasNode,
   type CanvasSnapshot,
+  canvasNodeKind,
+  canvasNodeRegistry,
   connectCanvasNodes,
   deleteCanvasNode,
   disconnectCanvasNodes,
@@ -13,7 +15,7 @@ import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
 export type CreateNodeKind = 'text' | 'image' | 'video'
 export function nodeKind(node: CanvasNode): CreateNodeKind | 'timeline' {
-  return node.type === 'image' && node.data.meta?.nodeKind === 'video' ? 'video' : node.type
+  return canvasNodeKind(node)
 }
 export function createNode(
   canvas: NodeCanvasDocument,
@@ -23,8 +25,7 @@ export function createNode(
   beside?: { nodes: readonly CanvasNode[]; side: 'left' | 'right' },
 ): string {
   const id = newElementId()
-  const width = kind === 'text' ? 300 : 360
-  const height = kind === 'text' ? 220 : 240
+  const { width, height } = canvasNodeRegistry[kind].size
   const occupied = readCanvasDocument(canvas.doc).nodes
   const anchors = beside?.nodes ?? []
   const gap = 96

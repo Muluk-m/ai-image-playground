@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { type CanvasNode, readCanvasDocument } from './canvas-document'
+import { canvasConnectionAllowed, canvasNodeKind } from './canvas-registry'
 import { CANVAS_STATE_MAX_BYTES } from './canvas-sync'
 import { isProjectDocument, type ProjectDocument, type ProjectElement } from './project-protocol'
 
@@ -50,8 +51,20 @@ const allowed = (value: object, fields: string[]) =>
   Object.keys(value).every((key) => fields.includes(key))
 
 /** Validate the complete candidate before accepting any update; never apply untrusted bytes to a live room. */
-export function validateCloudCanvas(doc: Y.Doc, identity: ProjectDocument): void {
-  const roots = ['nodes', 'edges', 'annotations', 'meta', 'managedNodes', 'deletedNodes']
+export function validateCloudCanvas(
+  doc: Y.Doc,
+  identity: ProjectDocument,
+  legacyConnections: Record<string, string> = {},
+): void {
+  const roots = [
+    'nodes',
+    'edges',
+    'annotations',
+    'meta',
+    'managedNodes',
+    'deletedNodes',
+    'legacyConnections',
+  ]
   if ([...doc.share.keys()].some((key) => !roots.includes(key)))
     throw new Error('invalid_canvas_document')
   // An update missing its causal predecessor cannot be validated yet. Clients resend a full diff on reconnect.
@@ -188,15 +201,55 @@ export function validateCloudCanvas(doc: Y.Doc, identity: ProjectDocument): void
       edge.id !== `${edge.source}:${edge.target}`
     )
       throw new Error('invalid_canvas_edge')
+  const recorded = doc.getMap<string>('legacyConnections')
+  if (
+    recorded.size !== Object.keys(legacyConnections).length ||
+    [...recorded].some(([key, value]) => legacyConnections[key] !== value)
+  )
+    throw new Error('invalid_canvas_connection_policy')
+  const currentNodes = new Map(nodes.map((node) => [node.id, node]))
+  for (const edge of edges) {
+    const source = currentNodes.get(edge.source),
+      target = currentNodes.get(edge.target)
+    if (!source || !target || canvasConnectionAllowed(source, target)) continue
+    if (legacyConnections[edge.id] === connectionSignature(source, target)) continue
+    throw new Error('invalid_canvas_connection')
+  }
   for (const key of ['deletedNodes', 'managedNodes']) {
     for (const [name, value] of doc.getMap(key))
       if (!id(name) || value !== true) throw new Error('invalid_canvas_document')
   }
-  if ([...doc.getMap('meta')].some(([key, value]) => key !== 'legacyImported' || value !== true))
+  if (
+    [...doc.getMap('meta')].some(
+      ([key, value]) => !['legacyImported', 'connectionRules'].includes(key) || value !== true,
+    )
+  )
     throw new Error('invalid_canvas_document')
   if (
     new TextEncoder().encode(JSON.stringify(doc.toJSON())).length > 512 * 1024 ||
     !isProjectDocument(canvasProjectDocument(doc, identity))
   )
     throw new Error('invalid_canvas_document')
+}
+
+function connectionSignature(source: CanvasNode, target: CanvasNode): string {
+  return JSON.stringify([source.id, target.id, canvasNodeKind(source), canvasNodeKind(target)])
+}
+
+/** Server-only migration: call on the trusted stored document before applying any client update. */
+export function initializeCanvasConnectionRules(doc: Y.Doc): boolean {
+  if (doc.getMap('meta').get('connectionRules')) return false
+  const { nodes, edges } = readCanvasDocument(doc)
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  doc.transact(() => {
+    const legacy = doc.getMap<string>('legacyConnections')
+    for (const edge of edges) {
+      const source = byId.get(edge.source),
+        target = byId.get(edge.target)
+      if (source && target && !canvasConnectionAllowed(source, target))
+        legacy.set(edge.id, connectionSignature(source, target))
+    }
+    doc.getMap('meta').set('connectionRules', true)
+  }, 'system:connection-rules')
+  return true
 }

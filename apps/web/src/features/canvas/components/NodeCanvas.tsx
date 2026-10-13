@@ -2,6 +2,9 @@ import {
   type CanvasAnnotation,
   type CanvasNode,
   type CanvasSnapshot,
+  canvasConnectionAllowed,
+  canvasKindsConnect,
+  canvasLinkAllowed,
   canvasOrigin,
   connectCanvasNodes,
   disconnectCanvasNodes,
@@ -794,7 +797,18 @@ function Flow({
     selectNode(null)
     closeMenu()
   }
+  const canAddKind = (kind: CreateNodeKind) =>
+    (menu?.anchorIds ?? []).every((id) => {
+      const anchor = snapshot.nodes.find((node) => node.id === id)
+      return (
+        !anchor ||
+        (menu?.side === 'left'
+          ? canvasKindsConnect(kind, nodeKind(anchor))
+          : canvasKindsConnect(nodeKind(anchor), kind))
+      )
+    })
   const addNode = (kind: CreateNodeKind, at = placeAt.current) => {
+    if (!canAddKind(kind)) return
     const anchors = menu?.beside ? snapshot.nodes.filter((n) => menu.anchorIds?.includes(n.id)) : []
     const id = createNode(
       canvas,
@@ -1014,9 +1028,7 @@ function Flow({
         snapshot.nodes
           .filter(
             (n) =>
-              n.id !== composerNode.id &&
-              !references.some((r) => r.id === n.id) &&
-              n.type !== 'timeline',
+              canvasConnectionAllowed(n, composerNode) && !references.some((r) => r.id === n.id),
           )
           .map((n) => ({ id: n.id, source: n.id, target: composerNode.id })),
         composerNode.id,
@@ -1216,7 +1228,10 @@ function Flow({
                   Boolean(
                     connection.source &&
                       connection.target &&
-                      connection.source !== connection.target,
+                      canvasLinkAllowed(snapshot, {
+                        source: connection.source,
+                        target: connection.target,
+                      }),
                   )
                 }
                 onNodeDragStop={(_event, _node, dragged) =>
@@ -1450,6 +1465,9 @@ function Flow({
               />
               {menu && (
                 <NodeAddMenu
+                  disabledKinds={(['text', 'image', 'video'] as const).filter(
+                    (kind) => !canAddKind(kind),
+                  )}
                   x={menu.x}
                   y={menu.y}
                   onClose={closeMenu}

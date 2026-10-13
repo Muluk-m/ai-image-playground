@@ -6,6 +6,9 @@ import {
   canvasSyncStep1,
   canvasSyncStep2,
   canvasSyncUpdate,
+  createCanvasUndoManager,
+  disconnectCanvasNodes,
+  importLegacyElements,
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
@@ -386,4 +389,56 @@ it('keeps accepted video references writable after queue retention, rejecting ne
     'canvas_task_not_owned',
   )
   doc.destroy()
+})
+
+it('retains trusted old connection permissions across deletion, compaction and undo', async () => {
+  const id = await create()
+  const archived = new Y.Doc()
+  importLegacyElements(archived, legacy.elements, origin)
+  insertCanvasNode(
+    archived,
+    {
+      id: 'old-video',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      data: { meta: { nodeKind: 'video' } },
+    },
+    origin,
+  )
+  archived
+    .getMap('edges')
+    .set('old-video:title', { id: 'old-video:title', source: 'old-video', target: 'title' })
+  await db.insert(schema.canvas_documents).values({
+    project_id: id,
+    snapshot: Buffer.from(Y.encodeStateAsUpdate(archived)).toString('base64'),
+    legacy_document: legacy,
+    migrated_at: Date.now(),
+    compacted_at: Date.now(),
+  })
+  const client = new Y.Doc()
+  Y.applyUpdate(client, await accessCanvasDocument('owner', id))
+  const undo = createCanvasUndoManager(client, origin)
+  disconnectCanvasNodes(client, 'old-video:title', origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(client))
+  await db
+    .update(schema.canvas_documents)
+    .set({ compacted_at: 0 })
+    .where(eq(schema.canvas_documents.project_id, id))
+  undo.undo()
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(client)))
+  expect(readCanvasDocument(restored).edges).toEqual([
+    { id: 'old-video:title', source: 'old-video', target: 'title' },
+  ])
+  client.getMap('legacyConnections').set('forged:title', 'forged')
+  await expect(
+    accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(client)),
+  ).rejects.toMatchObject({ status: 400 })
+  undo.destroy()
+  client.destroy()
+  restored.destroy()
+  archived.destroy()
 })
