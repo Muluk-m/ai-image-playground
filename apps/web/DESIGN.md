@@ -22,6 +22,10 @@ colors:
   transparency-grid-light: "#737373"
   canvas-annotation: "#159cf6"
   brand-google: "#4285f4"
+  membership-free: "#9aa4a0"
+  membership-basic: "#8fe06a"
+  membership-plus: "#4fd2e8"
+  membership-max: "#f2c75c"
   light-background: "#f8f8f7"
   light-surface: "#ffffff"
   light-primary: "#436c28"
@@ -261,6 +265,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   的透明素材都能辨认；不用于页面、卡片或文字。
 - **Canvas-annotation**：区域编辑框与其编号使用的固定蓝色，与画布标注图层保持一致，不作界面强调色。
 - **Brand-google**：登录提供商 Google 标识的品牌蓝，只用于该标识。
+- **Membership-free / basic / plus / max**：会员等级的身份色，只用于等级徽标与对应套餐。
+  暗色保留灰绿、芽绿、青、金四档；亮色分别使用 muted-foreground、primary、深青与 warning，
+  不把等级色用于普通按钮或成功、失败状态。
 
 ## Typography
 

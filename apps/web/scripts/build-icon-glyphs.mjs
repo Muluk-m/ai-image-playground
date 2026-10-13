@@ -26,6 +26,11 @@ const GLYPHS = {
   light: ['solar', 'sun'],
   dark: ['solar', 'moon'],
   language: ['solar', 'global'],
+  // 会员等级
+  membershipFree: ['lucide', 'sprout'],
+  membershipBasic: ['solar', 'stars'],
+  membershipPlus: ['solar', 'star'],
+  membershipMax: ['solar', 'crown-line'],
   // 创作
   generate: ['solar', 'stars'],
   wand: ['solar', 'magic-wand'],
