@@ -35,7 +35,7 @@ export default function CreateTargetSwitch() {
     <div
       role="tablist"
       aria-label={t('createTarget.aria')}
-      className="mx-auto flex w-fit max-w-full gap-0.5 rounded-xl border border-border bg-card/80 p-1 backdrop-blur"
+      className="studio-create-target mx-auto flex w-fit max-w-full gap-0.5 rounded-xl border border-border bg-card/80 p-1 backdrop-blur"
     >
       {options.map((one) => {
         const active = one.id === target || (one.id === 'generate' && target === 'video')

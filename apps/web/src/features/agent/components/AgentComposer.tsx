@@ -1288,7 +1288,7 @@ export default function AgentComposer({
                   : submitting
                     ? t('composer.sending')
                     : uploadsBlocked
-                      ? referenceStatus
+                      ? (referenceStatus ?? t('composer.sendAndCreate'))
                       : running
                         ? t('composer.queue')
                         : t('composer.sendAndCreate')

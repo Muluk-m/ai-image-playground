@@ -41,8 +41,7 @@ type RecentKind = 'chat' | 'canvas'
 
 /**
  * 主导航。**没有顶栏**：品牌在侧栏里，账号与积分浮在右上角，整块主区从屏幕顶端开始。
- * 宽屏是一条 15rem 的栏（四个入口 + 最近画布），窄屏塌成底部标签条。
- * 15rem 才能放下中文品牌「幕芽 Muvloom」，再窄字标会被截成省略号。
+ * 宽屏是一条 13rem 的栏（四个入口 + 最近画布），窄屏塌成底部标签条。
  */
 export default function Sidebar() {
   const { t } = useTranslation('shell')
@@ -65,7 +64,8 @@ export default function Sidebar() {
   }, [])
   // 宽度由一个变量说了算：主区、画布与输入框都照它让位。
   useEffect(() => {
-    document.documentElement.style.setProperty('--app-sidebar-size', expanded ? '15rem' : '0px')
+    document.documentElement.style.setProperty('--app-sidebar-size', expanded ? '13rem' : '0px')
+    document.documentElement.style.setProperty('--app-nav-toggle-space', expanded ? '0px' : '4rem')
   }, [expanded])
   const catalog = projectCatalog(projects, cloudCatalog)
   const selectedId = catalogProjectId(activeProject, catalog)
@@ -146,12 +146,16 @@ export default function Sidebar() {
               type="button"
               variant="ghost"
               onClick={() => setAppMode('image')}
-              className="h-auto shrink-0 justify-start gap-2 px-1.5 py-1"
+              className="h-auto min-w-0 flex-1 justify-start gap-2 px-1.5 py-1"
             >
               <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
-              <span className="whitespace-nowrap text-title font-semibold">
-                {t('header.brandName')}
-                {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
+              <span className="min-w-0 text-left leading-tight">
+                <span className="block text-sm font-semibold">{t('header.brandName')}</span>
+                {brandNeedsWordmark() ? (
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {BRAND_WORDMARK}
+                  </span>
+                ) : null}
               </span>
             </Button>
             <Button
@@ -160,7 +164,7 @@ export default function Sidebar() {
               size="icon-sm"
               onClick={toggleSidebar}
               aria-label={t('nav.collapse')}
-              className="text-muted-foreground"
+              className="shrink-0 text-muted-foreground"
             >
               <Icon name="sidebar" />
             </Button>

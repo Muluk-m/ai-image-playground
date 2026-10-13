@@ -71,7 +71,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     expect(button.disabled).toBe(true)
     // Looks disabled too, and says why, instead of a ready-colored button with a not-allowed cursor.
     expect(button.className).toContain('bg-secondary')
-    expect(button.title).toMatch(/上传失败|重新上传|重试/)
+    expect(button.getAttribute('aria-description')).toMatch(/上传失败|重新上传|重试/)
     const retry = [...openReferenceStack(host).querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent?.includes('重试'),
     )

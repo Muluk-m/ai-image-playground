@@ -306,7 +306,9 @@ describe('首屏「画布」档的参考图', () => {
   /** 附图入口：能点时标题是「添加参考图……」，被拒时标题换成拒绝的理由。 */
   function attachButton(): HTMLButtonElement {
     const found = Array.from(host.querySelectorAll('button')).find(
-      (button) => button.title.startsWith('添加参考图') || button.title.includes('不支持参考图'),
+      (button) =>
+        (button.getAttribute('aria-description') ?? '').startsWith('添加参考图') ||
+        (button.getAttribute('aria-description') ?? '').includes('不支持参考图'),
     )
     if (!found) throw new Error('没找到附图入口')
     return found
@@ -342,7 +344,7 @@ describe('首屏「画布」档的参考图', () => {
   it('直出档同一个模型仍然拦着：附图入口自己说明为什么点不了', () => {
     remount('generate')
 
-    expect(attachButton().title).toContain('不支持参考图')
+    expect(attachButton().getAttribute('aria-description')).toContain('不支持参考图')
   })
 
   it('这一把文件进不去就一张都不落盘：写进去的图谁也不会再用，只占地方', async () => {
@@ -439,7 +441,9 @@ it('template preparation turns the send button into a click-only stop, even with
     })
     const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) =>
-        button.title.includes('生成') && !button.hasAttribute('aria-haspopup') && !button.disabled,
+        (button.getAttribute('aria-description') ?? '').includes('生成') &&
+        !button.hasAttribute('aria-haspopup') &&
+        !button.disabled,
     )
     expect(send).toBeDefined()
     await act(async () => {

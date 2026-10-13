@@ -1,7 +1,8 @@
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import type { ReactElement, ReactNode } from 'react'
 import * as React from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '../../lib/utils'
 
 const TooltipProvider = TooltipPrimitive.Provider
 const Tooltip = TooltipPrimitive.Root
@@ -26,3 +27,65 @@ const TooltipContent = React.forwardRef<
 TooltipContent.displayName = TooltipPrimitive.Content.displayName
 
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger }
+
+export type Side = 'top' | 'bottom' | 'left' | 'right'
+
+/**
+ * 收起所有打开着的提示。Radix 的提示在别的提示打开时会听 `tooltip.open` 自行关闭，
+ * 模态浮层打开时借同一个事件收起背景里的提示，免得它浮在 backdrop 上面。
+ */
+export function closeTooltips(): void {
+  document.dispatchEvent(new CustomEvent('tooltip.open'))
+}
+
+/**
+ * 给任意一个元素挂悬停/聚焦提示。`tooltip` 为空时不显示；
+ * `open` / `onOpenChange` 传入时由调用方控制显隐（比如触屏点一下也要能看到的说明）。
+ * 子元素必须能接 ref 和事件（原生元素或 forwardRef 组件）；禁用的按钮收不到指针事件，要包一层再挂。
+ */
+export function Hint({
+  tooltip,
+  side = 'top',
+  sideOffset = 6,
+  disableHoverableContent,
+  open,
+  onOpenChange,
+  className,
+  children,
+}: {
+  tooltip?: ReactNode
+  side?: Side
+  sideOffset?: number
+  disableHoverableContent?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  className?: string
+  children: ReactElement
+}) {
+  // 没有提示时也保持同一层结构：提示文字随状态出现或消失时，子元素不会被卸载重挂。
+  return (
+    <TooltipProvider delayDuration={300} skipDelayDuration={200}>
+      <Tooltip
+        open={open}
+        onOpenChange={onOpenChange}
+        disableHoverableContent={disableHoverableContent}
+      >
+        <TooltipTrigger asChild data-tooltip-trigger>
+          {children}
+        </TooltipTrigger>
+        {tooltip ? (
+          <TooltipContent
+            side={side}
+            sideOffset={sideOffset}
+            className={cn(
+              'z-[1000] max-w-xs bg-foreground px-2.5 text-background motion-reduce:animate-none',
+              className,
+            )}
+          >
+            {tooltip}
+          </TooltipContent>
+        ) : null}
+      </Tooltip>
+    </TooltipProvider>
+  )
+}

@@ -159,15 +159,15 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 <div className="studio-home-backdrop__grid" />
               </div>
               <div className="safe-area-x relative mx-auto max-w-6xl">
-                <div className="pt-12 text-center">
+                <div className="studio-home-intro text-center">
                   <h1 className="text-headline font-semibold leading-tight sm:text-display">
                     {t('hero.titleLead')}
                     <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
                   </h1>
-                  <p className="pb-6 pt-2 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
+                  <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
-                <div className="pt-6">
+                <div className="studio-home-create pt-5">
                   <CreateTargetSwitch />
                   <div className="pt-4">
                     <InputBar inline />
