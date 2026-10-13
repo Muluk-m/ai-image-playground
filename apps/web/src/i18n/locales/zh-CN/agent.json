@@ -676,5 +676,10 @@
     "upload": "上传图片",
     "clear": "清空",
     "canvas": "画布"
+  },
+  "canvasWelcome": {
+    "title": "让灵感，在这里萌芽",
+    "readCanvas": "从画布开始创作",
+    "readPrompt": "请读取当前选中的画布节点，梳理已有素材，并帮我规划下一步创作。"
   }
 }

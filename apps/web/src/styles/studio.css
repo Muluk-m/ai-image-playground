@@ -973,25 +973,46 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   position: absolute; z-index: 30; width: min(560px, calc(100% - 24px));
   transform: translateX(-50%);
 }
-/* Node canvas keeps the conversation at the right edge, including narrow desktop windows. */
+/* The node conversation is a full-height dock; the canvas keeps its own header clearance. */
+.studio-layout[data-node-canvas="true"] { padding-top: 0; }
+.studio-layout[data-node-canvas="true"] > .studio-canvas { margin-top: 56px; height: calc(100% - 56px); }
+body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) + 16px); }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column {
   display: flex; position: relative; order: 3; flex: 0 0 auto; min-width: 0;
-  width: auto; max-width: min(480px, 42%); margin: 0 12px 12px 0; padding: 0;
+  width: auto; max-width: min(480px, 42%); margin: 0; padding: 0;
   z-index: 35; transform-origin: right top;
 }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar {
-  max-width: 100%; height: 100%; border: 1px solid hsl(var(--border)); border-radius: 16px;
+  max-width: 100%; height: 100%; border: 0; border-left: 1px solid hsl(var(--border)); border-radius: 0;
   background: hsl(var(--card));
 }
-.studio-layout[data-node-canvas="true"] .studio-agent-tabs { padding: 12px; border-bottom: 1px solid hsl(var(--border)); }
+.studio-layout[data-node-canvas="true"] .studio-agent-tabs { height: 56px; padding: 0 16px; border-bottom: 1px solid hsl(var(--border) / .5); }
 .studio-layout[data-node-canvas="true"] > .studio-canvas { order: 1; }
 @media (max-width: 900px) {
   .studio-layout[data-node-canvas="true"] > .studio-chat-column {
-    position: absolute; inset: 64px 8px 8px auto; width: min(380px, calc(100% - 64px));
-    max-width: none; height: auto; margin: 0; box-shadow: var(--shadow-dialog);
+    position: absolute; inset: 0 0 0 auto; width: min(400px, calc(100% - 64px));
+    max-width: none; height: auto; margin: 0; z-index: 420; box-shadow: var(--shadow-dialog);
   }
   .studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar { width: 100% !important; }
   .studio-layout[data-node-canvas="true"] .studio-sidebar > [role="separator"] { display: none; }
+}
+
+.studio-canvas-agent-welcome { display: flex; flex-direction: column; align-items: center; gap: 24px; width: 100%; max-width: 360px; margin: auto; padding: 32px 16px; }
+.studio-canvas-agent-mark { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 24px; background: radial-gradient(circle at 35% 25%, hsl(var(--primary) / .2), hsl(var(--primary) / .04) 75%); box-shadow: inset 0 1px 0 hsl(var(--primary) / .15); }
+.studio-canvas-agent-mark img { width: 40px; height: 40px; }
+:root:not(.dark) .studio-canvas-agent-mark img { filter: brightness(.48) saturate(.85); }
+.studio-canvas-agent-welcome h3 { font-size: theme('fontSize.xl'); font-weight: 500; text-align: center; letter-spacing: -.02em; }
+.studio-canvas-agent-starters { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.studio-canvas-agent-starters > button { justify-content: flex-start; gap: 12px; width: 100%; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.sm'); font-weight: 400; }
+.studio-canvas-agent-starters .agent-skill-chip { gap: 12px; color: inherit; font-size: inherit; }
+.studio-layout[data-node-canvas="true"] .studio-agent-log { padding: 16px; }
+.studio-layout[data-node-canvas="true"] .studio-agent-composer { padding: 8px 12px 12px; }
+@media (max-width: 767px) {
+  .studio-layout[data-node-canvas="true"] > .studio-canvas { margin-top: 0; inset: 56px 0 0; }
+  .studio-layout[data-node-canvas="true"] > .studio-chat-column { width: 100%; z-index: 420; }
+  body:has(.studio-layout[data-node-canvas="true"] > .studio-chat-column) .studio-global-account { visibility: hidden; }
+  .studio-layout[data-node-canvas="true"] .studio-agent-tabs { padding-inline: 12px; }
+  .studio-canvas-agent-welcome { padding: 24px 16px; }
 }
 
 /* Node workspace: controls stay at screen scale, media owns the canvas. */
@@ -1072,7 +1093,8 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-layout[data-node-canvas="true"] .creation-mode-trigger { grid-column: 1; grid-row: 1; height: 32px; min-height: 32px; padding: 0 8px; font-size: theme('fontSize.xs'); }
 .studio-layout[data-node-canvas="true"] .creation-mode-trigger > span > span { gap: 6px; }
 .studio-layout[data-node-canvas="true"] .creation-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
-.studio-layout[data-node-canvas="true"] .creation-toolbar .creation-tools { display: contents; }
+.studio-layout[data-node-canvas="true"] .creation-toolbar :is(.creation-tools, .creation-live-controls) { display: contents; }
+.studio-layout[data-node-canvas="true"] .creation-toolbar-mode { grid-column: 1; grid-row: 1; }
 .studio-layout[data-node-canvas="true"] .creation-live-controls > button { height: 32px; min-height: 32px; min-width: 0; padding: 0 8px; font-size: theme('fontSize.xs'); }
 .studio-layout[data-node-canvas="true"] .creation-live-controls > button[role="combobox"] { grid-column: 2; grid-row: 1; width: 100%; max-width: 100%; }
 .studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) { grid-column: 1 / -1; grid-row: 2; justify-self: start; max-width: calc(100% - 44px); }
