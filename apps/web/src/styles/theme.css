@@ -9,6 +9,11 @@
   --transparency-grid-light: 0.0000 0.0000% 45.0980%;
   --canvas-annotation: 204.0000 92.5926% 52.3529%;
   --brand-google: 217.4157 89.0000% 60.7843%;
+  /* 首页创作路径保留原有芽绿渐变，选中态在两种主题下都用深色字。 */
+  --creation-selected-start: #d9ffba;
+  --creation-selected-middle: #93e46f;
+  --creation-selected-end: #63c455;
+  --creation-selected-foreground: #0b1a08;
   --foreground: 120 5% 12%;
   --card: 0 0% 100%;
   --card-foreground: var(--foreground);

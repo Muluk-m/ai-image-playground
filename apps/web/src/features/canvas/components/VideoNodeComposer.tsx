@@ -1,5 +1,6 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import Credits from '../../../components/Credits'
 import {
   CreationBody,
@@ -346,10 +347,17 @@ export default function VideoNodeComposer({
         mode={
           option ? (
             <Select value={mode} onValueChange={(next) => onMeta({ nodeVideoMode: next })}>
-              <SelectTrigger className="creation-mode-trigger" aria-label={t('nodes.videoMode')}>
-                <Icon name="video" />
-                <SelectValue />
-              </SelectTrigger>
+              <Hint tooltip={`${t('nodes.videoMode')}：${modeLabels[mode]}`}>
+                <SelectTrigger className="creation-mode-trigger" aria-label={t('nodes.videoMode')}>
+                  <SelectValue>
+                    <span className="creation-mode-value">
+                      <Icon name="video" />
+                      <span className="creation-mode-full">{modeLabels[mode]}</span>
+                      <span className="creation-mode-short">{modeLabels[mode]}</span>
+                    </span>
+                  </SelectValue>
+                </SelectTrigger>
+              </Hint>
               <SelectContent>
                 {nodeVideoModes(option.support).map((one) => (
                   <SelectItem key={one} value={one}>
