@@ -48,7 +48,7 @@ export default function CreateTargetSwitch() {
             role="tab"
             aria-selected={active}
             onClick={() => setTarget(one.id)}
-            className={`min-w-0 gap-1.5 px-3 text-xs sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
+            className={`max-md:h-11 min-w-0 gap-1.5 px-3 text-xs sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
               active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
           >

@@ -1,6 +1,6 @@
 {
   "panel": {
-    "searchPlaceholder": "Search title / prompt / tag"
+    "searchPlaceholder": "Search cases"
   },
   "filter": {
     "provider": "Model",
@@ -9,7 +9,8 @@
   },
   "list": {
     "loading": "Loading…",
-    "empty": "No matching inspiration"
+    "empty": "No matching inspiration",
+    "resetFilters": "Reset filters"
   },
   "card": {
     "titleHint": "{{title}}\nSuggested model: {{model}}",

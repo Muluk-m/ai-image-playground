@@ -24,6 +24,8 @@
 :is(.creation-composer, .creation-reference-hover) .creation-reference-remove::before { content: ""; position: absolute; inset: -10px; }
 :is(.creation-composer, .creation-reference-hover) .creation-reference-remove > svg { width: 10px; height: 10px; }
 .creation-prompt { flex: 1; min-width: 0; min-height: 72px; padding: 1px 0 0; @apply text-base; line-height: 1.75; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 330px; overflow-y: auto; }
+/* 清空按钮绝对定位在右上角，有内容时给正文留出右侧空位，避免文字压在 × 下面。 */
+.creation-prompt.creation-prompt-filled { padding-right: 2.75rem; }
 .creation-prompt:empty::before { content: attr(data-placeholder); display: block; max-width: 64ch; pointer-events: none; color: hsl(var(--muted-foreground) / .85); }
 .creation-mention { display: inline-flex; align-items: center; gap: 5px; background: hsl(var(--muted)); border-radius: 7px; padding: 1px 5px; @apply text-body-sm; vertical-align: middle; }
 :where(.creation-mention) img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; }
@@ -169,7 +171,7 @@
 /* A desktop canvas sidebar can be narrower than a phone; use the composer width. */
 @container creation-composer (max-width: 520px) {
  .creation-body .creation-editor { width: 100%; }
- .creation-body .creation-prompt { min-height: 72px; @apply text-sm; }
+ .creation-body .creation-prompt { min-height: 72px; @apply text-base; }
  /* 有模式：模式 · 模型 · 参数 · 发送。无模式：模型/参数 · 发送。模型名先截断，参数摘要有上限。 */
  .creation-toolbar[data-has-mode=true] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 32px; gap: 6px; }
  .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 32px; gap: 6px; }

@@ -1,5 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { type AuthUserView, USER_SESSION_COOKIE } from '@image-playground/shared'
+import {
+  type AuthUserView,
+  USER_SESSION_COOKIE,
+  USER_SESSION_HINT_COOKIE,
+} from '@image-playground/shared'
 import { eq, lte } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
@@ -16,17 +20,30 @@ const SESSION_COOKIE_OPTIONS = {
   maxAge: USER_SESSION_TTL_MS / 1000,
 } as const
 
+const HINT_COOKIE_OPTIONS = {
+  httpOnly: false,
+  secure: true,
+  sameSite: 'lax',
+  path: '/',
+  maxAge: USER_SESSION_TTL_MS / 1000,
+} as const
+
 interface MutableCookie {
   set(options: Record<string, unknown> & { value: string }): void
 }
 
-/** Every route that signs a user in must issue the identical cookie scope. */
+/**
+ * Every route that signs a user in must issue the identical cookie scope.
+ * 会话 cookie 必须先写：调用方用第一条 Set-Cookie 取 token。
+ */
 export function setUserSessionCookie(jar: Record<string, MutableCookie>, token: string): void {
   jar[USER_SESSION_COOKIE]?.set({ ...SESSION_COOKIE_OPTIONS, value: token })
+  jar[USER_SESSION_HINT_COOKIE]?.set({ ...HINT_COOKIE_OPTIONS, value: '1' })
 }
 
 export function clearUserSessionCookie(jar: Record<string, MutableCookie>): void {
   jar[USER_SESSION_COOKIE]?.set({ ...SESSION_COOKIE_OPTIONS, value: '', maxAge: 0 })
+  jar[USER_SESSION_HINT_COOKIE]?.set({ ...HINT_COOKIE_OPTIONS, value: '', maxAge: 0 })
 }
 
 export function hashSessionToken(token: string): string {
