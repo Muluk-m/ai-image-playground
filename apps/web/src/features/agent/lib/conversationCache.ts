@@ -171,6 +171,29 @@ function remove(db: IDBDatabase, key: string): Promise<void> {
   return complete(tx)
 }
 
+function cacheRecord(panel: AgentPanelState) {
+  const turns = Object.fromEntries(
+    Object.entries(panel.turns).map(([id, footer]) => [
+      id,
+      {
+        ...footer,
+        ...(footer.cost
+          ? {
+              cost: turnCostWithJobs(
+                footer.cost,
+                panel.messages.filter(
+                  (message): message is AgentToolMessage =>
+                    message.kind === 'tool' && message.turnId === footer.turnId,
+                ),
+              ),
+            }
+          : {}),
+      },
+    ]),
+  )
+  return { version: 1, savedAt: Date.now(), panel: { messages: panel.messages, turns } }
+}
+
 /** Display-only snapshots: never restore executors, queues or artifact delivery from this cache. */
 export function conversationCache(conversationId: string) {
   const backend = getRuntimeConfig().bff.baseUrl
@@ -209,37 +232,70 @@ export function conversationCache(conversationId: string) {
         return null
       }
     },
+    /** Metadata-only admission check; background reads must not make cold history look recently used. */
+    async prefetchStatus(): Promise<'present' | 'missing' | 'full' | 'unavailable'> {
+      try {
+        const db = await openDatabase()
+        if (!isCurrent()) return 'unavailable'
+        const tx = db.transaction([METADATA, USAGE])
+        const entry = tx.objectStore(METADATA).get(key)
+        const usage = tx.objectStore(USAGE).get('bytes')
+        await complete(tx)
+        if (!isCurrent()) return 'unavailable'
+        return entry.result ? 'present' : (usage.result ?? 0) >= cacheMaxBytes ? 'full' : 'missing'
+      } catch {
+        return 'unavailable'
+      }
+    },
+    /** Fill missing history only. Never evict or overwrite a foreground snapshot to prefetch. */
+    async prefetch(
+      panel: AgentPanelState,
+      signal: AbortSignal,
+    ): Promise<'stored' | 'skipped' | 'full' | 'unavailable'> {
+      try {
+        const db = await openDatabase()
+        if (!isCurrent() || signal.aborted) return 'skipped'
+        const record = cacheRecord(panel)
+        const bytes = recordBytes(record)
+        if (bytes > cacheMaxBytes) return 'skipped'
+        const tx = db.transaction(STORES, 'readwrite')
+        const done = complete(tx)
+        let outcome: 'stored' | 'skipped' | 'full' = 'skipped'
+        const metadata = tx.objectStore(METADATA)
+        const previous = metadata.get(key)
+        previous.onsuccess = () => {
+          if (previous.result) return
+          const usage = tx.objectStore(USAGE).get('bytes')
+          usage.onsuccess = () => {
+            if (!isCurrent() || signal.aborted) return
+            const total = (usage.result ?? 0) + bytes
+            if (total > cacheMaxBytes) {
+              outcome = 'full'
+              return
+            }
+            tx.objectStore(STORE).put(record, key)
+            // Opened histories always outrank background downloads for foreground LRU eviction.
+            metadata.put({ key, bytes, accessedAt: 0 })
+            tx.objectStore(USAGE).put(total, 'bytes')
+            tx.objectStore(USAGE).put(crypto.randomUUID(), 'revision')
+            outcome = 'stored'
+          }
+        }
+        await done
+        return outcome
+      } catch {
+        // No quota reclamation: preserve artwork and visited history under storage pressure.
+        return 'unavailable'
+      }
+    },
     async write(panel: AgentPanelState): Promise<void> {
       const mutation = Symbol()
       mutations.set(key, mutation)
       const canWrite = () => isCurrent() && mutations.get(key) === mutation
       try {
-        const turns = Object.fromEntries(
-          Object.entries(panel.turns).map(([id, footer]) => [
-            id,
-            {
-              ...footer,
-              ...(footer.cost
-                ? {
-                    cost: turnCostWithJobs(
-                      footer.cost,
-                      panel.messages.filter(
-                        (message): message is AgentToolMessage =>
-                          message.kind === 'tool' && message.turnId === footer.turnId,
-                      ),
-                    ),
-                  }
-                : {}),
-            },
-          ]),
-        )
         const db = await openDatabase()
         if (!canWrite()) return
-        const record = {
-          version: 1,
-          savedAt: Date.now(),
-          panel: { messages: panel.messages, turns },
-        }
+        const record = cacheRecord(panel)
         const bytes = recordBytes(record)
         if (bytes > cacheMaxBytes) return
         try {
