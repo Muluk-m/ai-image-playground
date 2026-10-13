@@ -108,8 +108,7 @@
     "subtitle": "No plan required. {{rate}} credits per yuan, and they do not expire.",
     "credits": "{{n}} credits",
     "valid": "No expiry",
-    "pay": "Top up ¥{{amount}}",
-    "selected": "Selected ¥{{amount}}"
+    "pay": "Top up ¥{{amount}}"
   },
   "faq": {
     "title": "Questions",
