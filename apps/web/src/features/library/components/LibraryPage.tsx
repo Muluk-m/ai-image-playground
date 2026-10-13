@@ -285,8 +285,8 @@ export default function LibraryPage() {
           kind="asset"
           agentReady={agentReady}
           onClose={() => setCreating(null)}
-          onSave={({ files, name, kind }) =>
-            importAssetFiles(files, { group: true, kind, name }).then(() => undefined)
+          onSave={({ files, name, kind, description }) =>
+            importAssetFiles(files, { group: true, kind, name, description }).then(() => undefined)
           }
         />
       )}

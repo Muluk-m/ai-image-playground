@@ -55,18 +55,22 @@
     },
     "cover": "Cover",
     "addView": "Add view",
-    "views": "Views"
+    "views": "Views",
+    "noImage": "Reference image pending",
+    "saveFailed": "Could not save the asset. Try again."
   },
   "createAsset": {
     "title": "New asset",
     "images": "Images",
-    "dropHint": "Drop one or more images of the same subject, or a whole folder",
+    "dropHint": "Drop reference images, or start with a name and description and add images later.",
     "fromLocal": "Add from device",
     "fromFolder": "Add a folder",
     "name": "Name",
     "namePlaceholder": "Enter a name",
     "kind": "Kind",
-    "save": "Save"
+    "save": "Save",
+    "description": "Asset description",
+    "descriptionPlaceholder": "Describe appearance, personality or surroundings. You can add reference images later."
   },
   "look": {
     "new": "New template",
