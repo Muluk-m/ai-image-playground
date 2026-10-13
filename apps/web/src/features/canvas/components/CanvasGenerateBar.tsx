@@ -1,10 +1,11 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { AttachmentTile } from '../../../components/assistant-ui/elements/attachment'
-import { composerChipClass } from '../../../components/composer/SettingsPanel'
 import {
   CreationBody,
   CreationFrame,
+  CreationModePicker,
+  CreationSend,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
 import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
@@ -13,13 +14,6 @@ import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../components/ui/select'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -357,37 +351,22 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           />
         </CreationBody>
         <CreationToolbar
+          mode={
+            <CreationModePicker
+              value={mode}
+              modes={isVideoModeAvailable() ? ['image', 'video'] : ['image']}
+              onChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
+            />
+          }
           action={
-            <Button
-              type="button"
-              size="icon"
+            <CreationSend
               onClick={() => void run()}
               disabled={!canSubmit}
               title={submissionGuard.disabledReason ?? t('common:action.generate')}
               aria-label={t('common:action.generate')}
-              className="flex-shrink-0 rounded-full disabled:bg-muted disabled:opacity-100 disabled:text-muted-foreground"
-            >
-              <Icon name="generate" />
-            </Button>
+            />
           }
         >
-          {isVideoModeAvailable() && (
-            <Select
-              value={mode}
-              onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
-            >
-              <SelectTrigger
-                aria-label={t('generate.modeAria')}
-                className={composerChipClass('sm')}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
-                <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
           {video ? (
             <CanvasVideoParams
               hasFirstFrame={
@@ -395,10 +374,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                 imageCount > 0 &&
                 !canvasVideoSelectionRefusal(editor, videoDraft.model)
               }
-              size="sm"
             />
           ) : (
-            <ParamControls showCount size="sm" />
+            <ParamControls showCount />
           )}
         </CreationToolbar>
         <input

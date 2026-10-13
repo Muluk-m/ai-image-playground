@@ -358,6 +358,11 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   一个点。卡片里的互斥档位一律用 `SettingsSegmented`（比例用 `RatioGrid`），开关用
   `SettingsToggle`。图片（`ParamControls`）与视频（`CanvasVideoParams`）共用这一个外壳，
   不要再在输入框里平铺一排参数 chip。
+- **Composer 底栏**：首页、智能创作与画布直接生成统一用 `CreationToolbar` 和 `CreationSend`。
+  宽栏按「模式 · 模型 · 参数 · 发送」一行排列，控件高 40px、间隔 8px；输入框宽度不超过
+  520px 时，第一行模式与发送两端对齐，第二行模型与参数，控件高 32px、行距 8px。
+  触屏控件至少高 44px。上传状态和充值入口另占一行，不挤占发送位置；长模型名截断，
+  具体模型仍可打开菜单查看。
 
 ## Do's and Don'ts
 
