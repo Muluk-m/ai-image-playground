@@ -14,8 +14,7 @@ import PromptEditor, { usePromptEditor } from '../PromptEditor'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { CreationBody, CreationFrame } from './CreationFrame'
+import { CreationBody, CreationFrame, CreationModePicker } from './CreationFrame'
 import { CreationReferenceStack } from './CreationReferenceStack'
 import type {
   CreationCatalog,
@@ -73,27 +72,7 @@ export function CreationComposer({
     ),
   })
   const modePicker = (
-    <Select
-      value={draft.mode}
-      onValueChange={(mode) => dispatch({ type: 'mode', mode: mode as CreationMode })}
-    >
-      <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent side="top" align="start" sideOffset={10} className="creation-mode-menu">
-        {(['agent', 'image', 'video'] as const).map((mode) => {
-          const ModeIcon = creationModeIcons[mode]
-          return (
-            <SelectItem key={mode} value={mode} className="creation-mode-option">
-              <span className="flex items-center gap-3">
-                <Icon name={ModeIcon} />
-                {modeLabels[mode]}
-              </span>
-            </SelectItem>
-          )
-        })}
-      </SelectContent>
-    </Select>
+    <CreationModePicker value={draft.mode} onChange={(mode) => dispatch({ type: 'mode', mode })} />
   )
   const modelPicker = (
     <Popover open={modelOpen} onOpenChange={setModelOpen}>
@@ -104,7 +83,7 @@ export function CreationComposer({
           aria-label={t('studio.model')}
         >
           <ModelLogo model={model.id} />
-          <span>{model.name}</span>
+          <span className="creation-model-name">{model.name}</span>
           <Icon name="chevronDown" />
         </Button>
       </PopoverTrigger>

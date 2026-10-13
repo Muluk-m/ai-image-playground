@@ -83,7 +83,7 @@ it('宽屏侧栏可收起并重新展开', () => {
 
   act(() => entry('主导航').click())
 
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('15rem')
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
   expect(host.querySelectorAll('nav')).toHaveLength(2)
 })
 
@@ -191,7 +191,7 @@ it('进入对话默认摊开宽栏，进入画布才收起', () => {
   // 首页发出一条对话：切进工作台，侧栏保持摊开。
   act(() => useStore.getState().setAppMode('canvas'))
   expect(host.querySelectorAll('nav')).toHaveLength(2)
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('15rem')
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
 
   act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
   expect(host.querySelectorAll('nav')).toHaveLength(1)

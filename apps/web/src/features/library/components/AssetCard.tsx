@@ -1,13 +1,11 @@
-import { type KeyboardEvent, useMemo, useState } from 'react'
+import { type KeyboardEvent, useState } from 'react'
 import Badge from '../../../components/patterns/Badge'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
-import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
-import { startVideoFromImage } from '../../canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import { assetCoverImageId } from '../types'
@@ -28,7 +26,6 @@ export default function AssetCard({
   const deleteAsset = useLibraryStore((s) => s.deleteAsset)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
-  const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
   const coverImageId = assetCoverImageId(asset)
   const unsynced = useSyncStatus(
     (s) => s.enabled && asset.views.some((view) => s.unsyncedImages.includes(view.imageId)),
@@ -123,19 +120,6 @@ export default function AssetCard({
           />
         )}
 
-        {videoAvailable && coverImageId && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => void startVideoFromImage(coverImageId)}
-            aria-label={t('asset.makeVideo')}
-            title={t('asset.makeVideo')}
-            className={ICON_BUTTON}
-          >
-            <Icon name="video" />
-          </Button>
-        )}
         <Button
           type="button"
           variant="ghost"

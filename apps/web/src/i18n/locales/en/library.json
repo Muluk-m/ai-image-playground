@@ -25,7 +25,6 @@
     "unsynced": "Waiting to save",
     "addAsReference": "Add reference",
     "zoom": "Zoom in",
-    "makeVideo": "Make a video",
     "deleted": "Asset deleted",
     "deleteTitle": "Delete asset",
     "deleteMessage": "Delete the asset “{{name}}”?",

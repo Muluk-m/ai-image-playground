@@ -98,15 +98,11 @@ export default function NodeReferenceEditor({
       }
     >
       {references.map((ref, index) => (
-        <div
-          className="relative flex w-[72px] shrink-0 flex-col gap-2"
-          key={ref.id}
-          title={ref.label}
-        >
+        <div className="relative flex shrink-0 flex-col gap-2" key={ref.id} title={ref.label}>
           <div className="creation-reference creation-reference-frame">
             <Hint tooltip={ref.label || t('nodes.references')}>
               <div
-                className="flex h-full w-full items-center justify-center overflow-hidden rounded-xl bg-secondary"
+                className="flex h-full w-full items-center justify-center overflow-hidden rounded-sm bg-secondary"
                 role="img"
                 aria-label={ref.label || t('nodes.references')}
               >

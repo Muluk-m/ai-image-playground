@@ -121,8 +121,8 @@
 .creation-live-controls > button[role=combobox] { flex: 0 1 auto; min-width: 0; max-width: 224px; }
 .creation-live-controls > button[aria-haspopup=dialog] { flex: 0 1 auto; min-width: 0; max-width: 60%; }
 .creation-live-controls > button[role=combobox] > span { min-width: 0; }
-.creation-live-controls > button[role=combobox] > span > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.creation-live-controls > button[role=combobox] > span > span > :is(img, svg) { display: inline-block; margin-right: 4px; vertical-align: middle; }
+.creation-live-controls > button[role=combobox] > span > span:not(.creation-model-value) { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creation-live-controls > button[role=combobox] > span > span:not(.creation-model-value) > :is(img, svg) { display: inline-block; margin-right: 4px; vertical-align: middle; }
 .creation-live-controls > button > svg { flex-shrink: 0; }
 :where(.creation-live-controls) > button { width: auto; }
 .creation-references [data-input-image-index] { width: 72px; height: 72px; }
@@ -150,17 +150,25 @@
 /* 浮层里的面板若按 100% 收缩，宽度会被缩略图行定死，标题按钮会冲出卡片。 */
 .creation-reference-hover .creation-reference-panel { width: max-content; max-width: 100%; }
 .creation-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
-.creation-reference-list { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding: 8px; scrollbar-width: thin; }
+.creation-reference-list { display: flex; align-items: flex-start; gap: 4px; overflow-x: auto; padding: 4px 0; scrollbar-width: thin; }
 .creation-reference-list > * { flex-shrink: 0; }
-.creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; gap: 8px; }
+.creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; gap: 4px; }
 .creation-reference-list > [data-slot="composer-attachments"] > div { flex-shrink: 0; }
-.creation-reference-list .creation-add { width: 72px; height: 72px; }
-[data-radix-popper-content-wrapper]:has(> .creation-reference-preview) { pointer-events: none; }
-.creation-reference-preview { pointer-events: none; max-height: var(--radix-tooltip-content-available-height); padding: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); border-radius: 12px; }
-/* 宽高都写死再 object-fit:contain，竖图会在固定盒子里留出左右空边。
-   只限制最大边，盒子跟着图片比例走。 */
-.creation-reference-preview img { display: block; width: auto; height: auto; max-width: min(288px, calc(100vw - 48px)); max-height: min(320px, calc(var(--radix-tooltip-content-available-height, 360px) - 48px)); border-radius: 8px; background: transparent; }
-.creation-reference-preview > span { display: block; margin-top: 8px; max-width: 288px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Expanded references stay a compact filmstrip in every composer, including canvas. */
+.creation-reference-list :is(.creation-reference, [data-input-image-index], [data-input-image-index] > [role="button"], [data-slot="attachment"], .creation-add) {
+ width: 48px; height: 64px; min-width: 48px; flex-shrink: 0; border-radius: 4px;
+}
+.creation-reference-list :is(.creation-reference, [data-input-image-index], [data-slot="attachment"]) img { object-fit: cover; border-radius: 0; }
+.creation-reference-list .creation-reference > button:first-child { border-radius: 4px; }
+.creation-reference-list :is([data-input-image-index] > [role="button"], .creation-reference > button:first-child, [data-slot="attachment"]) { outline: 1px solid hsl(var(--foreground) / .12); outline-offset: -1px; }
+.creation-reference-list .creation-reference-remove::before { inset: -4px; }
+/* Keep the mask and remove hit areas separate inside the small tile. */
+.creation-reference-list [data-slot="attachment"] > button { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
+[data-radix-popper-content-wrapper]:has(> :is(.creation-reference-preview, .creation-reference-action-hint)) { pointer-events: none; }
+.creation-reference-action-hint { pointer-events: none; }
+.creation-reference-preview { pointer-events: none; max-height: var(--radix-tooltip-content-available-height); padding: 0; border: 0; background: transparent; color: hsl(var(--popover-foreground)); border-radius: 4px; overflow: hidden; }
+.creation-reference-preview img { display: block; width: auto; height: auto; max-width: min(288px, calc(100vw - 48px)); max-height: min(240px, var(--radix-tooltip-content-available-height, 240px)); object-fit: contain; border-radius: 4px; }
+.creation-reference-preview > span { display: block; padding: 6px 8px; background: hsl(var(--popover)); max-width: 288px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .creation-reference-stack[data-failed=true] .creation-stack-count { background: hsl(var(--destructive)); color: hsl(var(--on-media)); }
 
@@ -173,7 +181,7 @@
 @container creation-composer (max-width: 520px) {
  .creation-body .creation-editor { width: 100%; }
  .creation-body .creation-prompt { min-height: 72px; @apply text-base; }
- /* 有模式：模式 · 模型 · 参数 · 发送。无模式：模型/参数 · 发送。模型名先截断，参数摘要有上限。 */
+ /* 有模式：模式 · 模型 · 参数 · 发送。无模式：模型/参数 · 发送。选择器按下方三档响应式规则收拢。 */
  .creation-toolbar[data-has-mode=true] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) 32px; gap: 6px; }
  .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 32px; gap: 6px; }
  .creation-toolbar-mode { grid-column: 1; grid-row: 1; min-width: 0; }
@@ -205,21 +213,31 @@
  }
 }
 
-/* 展开后的参考区只留一行标题和一排更小的缩略图，提示词在字数长起来之前保持一行。
-   这一行上面是 4px 区块间距，下面原来吃的是卡片 16px 底内边距，字会贴着缩略图、底下却空一截。
-   上下都收成 4px。收起态仍是 72px 写区和 48px 叠放，不跟着变。 */
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 4px; padding-bottom: 4px; }
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 0; }
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 0; }
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list [data-input-image-index],
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-reference-frame,
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-add { width: 56px; height: 56px; }
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-prompt { min-height: calc(1.75em + 2px); }
+/* Small reference tiles must not collapse the writing area beneath them. */
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 12px; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 12px; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 4px; }
 
-/* Reserve readable settings and the send action in narrow sidebars. */
+
+/* Selector detail follows the composer width, including narrow desktop sidebars. */
+.creation-mode-value, .creation-model-value { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.creation-mode-short { display: none; }
+.creation-toolbar .creation-live-controls > .creation-model-trigger { max-width: none; }
+.creation-model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container creation-composer (max-width: 600px) {
+ .creation-mode-full { display: none; }
+ .creation-mode-short { display: inline; }
+ .creation-toolbar .creation-live-controls > .creation-model-trigger { min-width: 0; max-width: 164px; }
+}
 @container creation-composer (max-width: 400px) {
- .creation-toolbar .creation-mode-trigger { max-width: 112px; }
- .creation-toolbar .creation-mode-trigger > span > span { gap: 6px; }
- .creation-live-controls > button[role=combobox] { min-width: 3rem; }
- .creation-live-controls > button[aria-haspopup=dialog]:not([role=combobox]) { flex-shrink: 0; }
+ .creation-mode-short, .creation-model-name { display: none; }
+ .creation-toolbar .creation-mode-trigger,
+ .creation-toolbar .creation-live-controls > .creation-model-trigger {
+  width: 52px; min-width: 52px; max-width: 52px; flex: 0 0 52px;
+  padding-inline: 8px; gap: 4px; justify-content: space-between;
+ }
+ .creation-mode-value, .creation-model-value { gap: 0; }
+ .creation-toolbar .creation-model-trigger > svg:last-child { position: static; transform: none; width: 12px; height: 12px; }
+ .creation-mode-trigger > svg:last-child { width: 12px; height: 12px; }
+ .creation-toolbar .creation-model-trigger { background: hsl(var(--muted) / .4); }
 }
