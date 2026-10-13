@@ -9,6 +9,8 @@ import { turnCostWithJobs } from './turnCost'
 const DATABASE = 'image-playground-agent-history'
 const STORE = 'conversations'
 const METADATA = 'metadata'
+const USAGE = 'usage'
+const STORES = [STORE, METADATA, USAGE]
 let database: Promise<IDBDatabase> | undefined
 const clearedScopes = new Set<string>()
 const mutations = new Map<string, symbol>()
@@ -24,17 +26,24 @@ function openDatabase(): Promise<IDBDatabase> {
           : db.createObjectStore(STORE)
         const metadata = db.createObjectStore(METADATA, { keyPath: 'key' })
         metadata.createIndex('accessedAt', 'accessedAt')
+        db.createObjectStore(USAGE)
+        let totalBytes = 0
         // Version 1 has at most 50 snapshots; retain them during this one-time migration.
         const cursor = store.openCursor()
         cursor.onsuccess = () => {
-          if (!cursor.result) return
+          if (!cursor.result) {
+            trim(request.transaction!, totalBytes, cacheMaxBytes)
+            return
+          }
           try {
             const record = cursor.result.value
             if (record?.version !== 1 || !cachedPanel(record.panel))
               throw new Error('Invalid snapshot')
+            const bytes = recordBytes(record)
+            totalBytes += bytes
             metadata.put({
               key: cursor.result.key,
-              bytes: recordBytes(record),
+              bytes,
               accessedAt:
                 typeof record.savedAt === 'number' && Number.isFinite(record.savedAt)
                   ? record.savedAt
@@ -91,36 +100,45 @@ async function touch(db: IDBDatabase, key: string, isCurrent: () => boolean): Pr
   }
 }
 
-function trim(tx: IDBTransaction, key: string, bytes: number, reclaimOnly = false): void {
+function trim(tx: IDBTransaction, totalBytes: number, budget: number, keep?: string): void {
+  const usage = tx.objectStore(USAGE)
+  if (totalBytes <= budget) {
+    usage.put(totalBytes, 'bytes')
+    return
+  }
+  // Walk only the oldest metadata needed for eviction, never clone the full cache index.
   const metadata = tx.objectStore(METADATA)
-  // Scan small metadata only, never every conversation body on the write/streaming path.
-  const request = metadata.index('accessedAt').getAll()
+  const request = metadata.index('accessedAt').openCursor()
   request.onsuccess = () => {
-    const records: CacheMetadata[] = request.result
-    const otherBytes = records.reduce(
-      (sum, record) => sum + (record.key === key ? 0 : record.bytes),
-      0,
-    )
-    let excess = reclaimOnly
-      ? Math.max(bytes, otherBytes * 0.1)
-      : otherBytes + bytes - cacheMaxBytes
-    for (const record of records) {
-      if (excess <= 0) break
-      if (record.key === key) continue
-      tx.objectStore(STORE).delete(record.key)
-      metadata.delete(record.key)
-      excess -= record.bytes
+    const cursor = request.result
+    if (!cursor || totalBytes <= budget) {
+      usage.put(totalBytes, 'bytes')
+      return
     }
+    const record: CacheMetadata = cursor.value
+    if (record.key !== keep) {
+      tx.objectStore(STORE).delete(record.key)
+      cursor.delete()
+      totalBytes -= record.bytes
+    }
+    cursor.continue()
   }
 }
 
 async function save(db: IDBDatabase, key: string, record: unknown, bytes: number): Promise<void> {
-  const tx = db.transaction([STORE, METADATA], 'readwrite')
+  const tx = db.transaction(STORES, 'readwrite')
   const done = complete(tx)
+  const metadata = tx.objectStore(METADATA)
+  const previous = metadata.get(key)
+  previous.onsuccess = () => {
+    const usage = tx.objectStore(USAGE).get('bytes')
+    usage.onsuccess = () => {
+      trim(tx, (usage.result ?? 0) - (previous.result?.bytes ?? 0) + bytes, cacheMaxBytes, key)
+    }
+  }
   try {
-    trim(tx, key, bytes)
     tx.objectStore(STORE).put(record, key)
-    tx.objectStore(METADATA).put({ key, bytes, accessedAt: Date.now() })
+    metadata.put({ key, bytes, accessedAt: Date.now() })
   } catch (error) {
     tx.abort()
     await done.catch(() => {})
@@ -130,8 +148,26 @@ async function save(db: IDBDatabase, key: string, record: unknown, bytes: number
 }
 
 function reclaim(db: IDBDatabase, key: string, bytes: number): Promise<void> {
-  const tx = db.transaction([STORE, METADATA], 'readwrite')
-  trim(tx, key, bytes, true)
+  const tx = db.transaction(STORES, 'readwrite')
+  const request = tx.objectStore(USAGE).get('bytes')
+  request.onsuccess = () => {
+    const total = request.result ?? 0
+    trim(tx, total, Math.max(0, total - Math.max(bytes, total * 0.1)), key)
+  }
+  return complete(tx)
+}
+
+function remove(db: IDBDatabase, key: string): Promise<void> {
+  const tx = db.transaction(STORES, 'readwrite')
+  const metadata = tx.objectStore(METADATA)
+  const record = metadata.get(key)
+  record.onsuccess = () => {
+    const usage = tx.objectStore(USAGE)
+    const total = usage.get('bytes')
+    total.onsuccess = () => usage.put((total.result ?? 0) - (record.result?.bytes ?? 0), 'bytes')
+  }
+  tx.objectStore(STORE).delete(key)
+  metadata.delete(key)
   return complete(tx)
 }
 
@@ -226,13 +262,7 @@ export function conversationCache(conversationId: string) {
       mutations.delete(key)
       try {
         const db = await openDatabase()
-        await new Promise<void>((resolve, reject) => {
-          const tx = db.transaction([STORE, METADATA], 'readwrite')
-          tx.objectStore(STORE).delete(key)
-          tx.objectStore(METADATA).delete(key)
-          tx.oncomplete = () => resolve()
-          tx.onabort = () => reject(tx.error)
-        })
+        await remove(db, key)
       } catch {
         // The server remains authoritative if local storage is unavailable.
       }
@@ -246,21 +276,23 @@ export async function clearConversationCache(): Promise<void> {
   if (scope === DATABASE) return
   clearedScopes.add(scope)
   const db = await openDatabase()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction([STORE, METADATA], 'readwrite')
-    const cursor = tx.objectStore(STORE).openCursor()
-    cursor.onsuccess = () => {
-      if (!cursor.result) return
-      if (
-        typeof cursor.result.key === 'string' &&
-        cursor.result.key.startsWith(`[${JSON.stringify(scope)},`)
-      ) {
-        tx.objectStore(METADATA).delete(cursor.result.key)
-        cursor.result.delete()
-      }
-      cursor.result.continue()
+  const tx = db.transaction(STORES, 'readwrite')
+  let removedBytes = 0
+  const cursor = tx.objectStore(METADATA).openCursor()
+  cursor.onsuccess = () => {
+    if (!cursor.result) {
+      const usage = tx.objectStore(USAGE)
+      const total = usage.get('bytes')
+      total.onsuccess = () => usage.put((total.result ?? 0) - removedBytes, 'bytes')
+      return
     }
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error)
-  })
+    const record: CacheMetadata = cursor.result.value
+    if (record.key.startsWith(`[${JSON.stringify(scope)},`)) {
+      tx.objectStore(STORE).delete(record.key)
+      removedBytes += record.bytes
+      cursor.result.delete()
+    }
+    cursor.result.continue()
+  }
+  await complete(tx)
 }

@@ -20,6 +20,8 @@ async function cacheDatabase() {
   })
 }
 
+let migratedBytes = 0
+let migratedKeys: IDBValidKey[] = []
 beforeAll(async () => {
   const request = indexedDB.open('image-playground-agent-history', 1)
   await new Promise<void>((resolve) => {
@@ -30,9 +32,14 @@ beforeAll(async () => {
   })
   const tx = request.result.transaction('conversations', 'readwrite')
   tx.objectStore('conversations').put(
-    { version: 1, savedAt: 1, panel },
+    { version: 1, savedAt: 100, panel },
     JSON.stringify(['image-playground-agent-history', 'https://one.test', 'legacy']),
   )
+  for (let i = 0; i < 3; i++)
+    tx.objectStore('conversations').put(
+      { version: 1, savedAt: i, panel: sizedPanel(10000) },
+      `legacy-large-${i}`,
+    )
   tx.objectStore('conversations').put(null, 'corrupt-null')
   const circular: Record<string, unknown> = { version: 1, savedAt: 1, panel }
   circular.circular = circular
@@ -41,6 +48,19 @@ beforeAll(async () => {
     tx.oncomplete = () => resolve()
   })
   request.result.close()
+  setClientStorageScope(null)
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://one.test' } })
+  await conversationCache('legacy').read()
+  const upgraded = await cacheDatabase()
+  const usage = upgraded.transaction('usage').objectStore('usage').get('bytes')
+  migratedBytes = await new Promise<number>((resolve) => {
+    usage.onsuccess = () => resolve(usage.result)
+  })
+  const keys = upgraded.transaction('conversations').objectStore('conversations').getAllKeys()
+  migratedKeys = await new Promise<IDBValidKey[]>((resolve) => {
+    keys.onsuccess = () => resolve(keys.result)
+  })
+  upgraded.close()
 })
 
 const panel: AgentPanelState = {
@@ -230,6 +250,11 @@ function sizedPanel(size: number): AgentPanelState {
 it('upgrades existing snapshots without losing their display contents', async () => {
   setClientStorageScope(null)
   expect(await conversationCache('legacy').read()).toEqual(panel)
+  expect(migratedBytes).toBeGreaterThan(60000)
+  expect(migratedBytes).toBeLessThanOrEqual(65536)
+  expect(migratedKeys).not.toContain('corrupt-null')
+  expect(migratedKeys).not.toContain('corrupt-cycle')
+  expect(migratedKeys).not.toContain('legacy-large-0')
 })
 
 it('evicts least recently read history by UTF-8 bytes, even without a successful server refresh', async () => {
@@ -311,13 +336,20 @@ it('serializes concurrent writes and keeps metadata consistent with snapshots', 
     Array.from({ length: 8 }, (_, i) => conversationCache(`parallel-${i}`).write(sizedPanel(5000))),
   )
   const db = await cacheDatabase()
-  const tx = db.transaction(['conversations', 'metadata'])
+  const tx = db.transaction(['conversations', 'metadata', 'usage'])
   const values = (store: string) =>
     new Promise<unknown[]>((resolve) => {
       const request = tx.objectStore(store).getAll()
       request.onsuccess = () => resolve(request.result)
     })
   const [snapshots, metadata] = await Promise.all([values('conversations'), values('metadata')])
+  const usage = tx.objectStore('usage').get('bytes')
+  const total = await new Promise<number>((resolve) => {
+    usage.onsuccess = () => resolve(usage.result)
+  })
+  expect(total).toBe(
+    metadata.reduce<number>((sum, row) => sum + (row as { bytes: number }).bytes, 0),
+  )
   expect(metadata.length).toBe(snapshots.length)
   expect(
     metadata.reduce<number>((sum, row) => sum + (row as { bytes: number }).bytes, 0),
@@ -349,4 +381,42 @@ it.each(['update', 'delete'])('does not let a quota retry undo a newer %s', asyn
   } finally {
     spy.mockRestore()
   }
+})
+
+it('saves among many small conversations without scanning metadata until capacity is exceeded', async () => {
+  const getAll = vi.spyOn(IDBIndex.prototype, 'getAll')
+  const cursor = vi.spyOn(IDBIndex.prototype, 'openCursor')
+  try {
+    for (let i = 0; i < 200; i++) await conversationCache(`small-${i}`).write(panel)
+    cursor.mockClear()
+    await conversationCache('small-0').write(panel)
+    expect(await conversationCache('small-0').read()).toEqual(panel)
+    expect(getAll).not.toHaveBeenCalled()
+    expect(cursor).not.toHaveBeenCalled()
+  } finally {
+    getAll.mockRestore()
+    cursor.mockRestore()
+  }
+})
+
+it('subtracts removed and logged-out records from the byte counter', async () => {
+  const cache = conversationCache('remove-accounting')
+  await cache.write(panel)
+  await cache.remove()
+  await conversationCache('logout-accounting').write(panel)
+  await clearConversationCache()
+  const db = await cacheDatabase()
+  const tx = db.transaction(['metadata', 'usage'])
+  const records = tx.objectStore('metadata').getAll()
+  const count = tx.objectStore('usage').get('bytes')
+  const [metadata, total] = await Promise.all([
+    new Promise<{ bytes: number }[]>((resolve) => {
+      records.onsuccess = () => resolve(records.result)
+    }),
+    new Promise<number>((resolve) => {
+      count.onsuccess = () => resolve(count.result)
+    }),
+  ])
+  expect(total).toBe(metadata.reduce((sum, record) => sum + record.bytes, 0))
+  db.close()
 })
