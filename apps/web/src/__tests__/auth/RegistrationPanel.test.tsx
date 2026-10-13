@@ -152,9 +152,11 @@ describe('RegistrationPanel', () => {
     })
 
     expect(host.textContent).toContain('该用户名已被使用')
-    expect(Array.from(host.querySelectorAll('button')).every((button) => button.disabled)).toBe(
-      true,
+    const actions = Array.from(host.querySelectorAll('button')).filter(
+      (button) => button.textContent !== '查看套餐',
     )
+    expect(actions.every((button) => button.disabled)).toBe(true)
+    expect(host.textContent).toContain('查看套餐')
   })
 })
 

@@ -1,13 +1,11 @@
 /**
  * 定价页展示用的公开价目。
  *
- * 数字跟私有计费种子对齐，页面不能 import `private/`：
- * - 套餐与标价：`private/apps/bff/billing/migrations/0000_billing.sql`
- * - 并发：`0013_plan_concurrency.sql`（入门保持默认 1）
- * - 入门首月 ¥39 的折扣截止 2026-09-01，已过期，这里只用原价
- * - 充值：`private/apps/recharge-pricing.config.json`（1 元 400 积分，10 / 50 / 100 元）
- * - 张数：`gpt-image-2` 种子价每张 100 积分
- * - 邀请：注册双方各 200；付费返利 5%，按 100 积分/元折进奖励余额
+ * 页面不能 import `private/`。标价抄自生产库 `billing_plan_prices`
+ * （2026-10-13 读取 image_playground_paid），不是迁移种子：
+ * 种子里的入门首月 ¥39 已在 2026-09-01 过期，后台后来改过三档原价和折扣。
+ * 折扣截止与私有 `effectivePrice` 一致：`now > discountEndsAt` 之后回到原价。
+ * 积分、并发、充值和邀请仍跟种子与充值配置一致。
  */
 
 export const BILLING_CYCLES = [1, 3, 12] as const
@@ -15,13 +13,25 @@ export type BillingCycle = (typeof BILLING_CYCLES)[number]
 
 export const GPT_IMAGE_2_CREDITS = 100
 
+/** 生产库三档折扣的共同截止时间：2027-02-28 15:59:59Z。 */
+export const PLAN_DISCOUNT_ENDS_AT = Date.parse('2027-02-28T15:59:59Z')
+
+export interface PlanPrice {
+  originalCents: number
+  discountCents: number | null
+  discountEndsAt: number | null
+}
+
 export interface PricingPlan {
   id: 'starter' | 'standard' | 'professional'
   monthlyCredits: number
   concurrency: number
   featured: boolean
-  /** 整个周期一次付清的金额，单位分。 */
-  prices: Record<BillingCycle, number>
+  prices: Record<BillingCycle, PlanPrice>
+}
+
+function quote(originalCents: number, discountCents: number): PlanPrice {
+  return { originalCents, discountCents, discountEndsAt: PLAN_DISCOUNT_ENDS_AT }
 }
 
 export const PRICING_PLANS: readonly PricingPlan[] = [
@@ -30,21 +40,33 @@ export const PRICING_PLANS: readonly PricingPlan[] = [
     monthlyCredits: 66_000,
     concurrency: 1,
     featured: false,
-    prices: { 1: 4900, 3: 14700, 12: 58800 },
+    prices: {
+      1: quote(4900, 3900),
+      3: quote(13500, 10500),
+      12: quote(46800, 34800),
+    },
   },
   {
     id: 'standard',
     monthlyCredits: 220_000,
     concurrency: 2,
     featured: true,
-    prices: { 1: 12900, 3: 38700, 12: 154800 },
+    prices: {
+      1: quote(9900, 7900),
+      3: quote(26700, 21300),
+      12: quote(94800, 70800),
+    },
   },
   {
     id: 'professional',
     monthlyCredits: 600_000,
     concurrency: 3,
     featured: false,
-    prices: { 1: 29900, 3: 89700, 12: 358800 },
+    prices: {
+      1: quote(19900, 15900),
+      3: quote(53700, 42900),
+      12: quote(190800, 142800),
+    },
   },
 ]
 
@@ -61,7 +83,15 @@ export function rechargeCredits(yuan: number): number {
   return yuan * RECHARGE_CREDITS_PER_YUAN
 }
 
-/** 季付、年付折成每月。种子价正好整除，没有年付折扣。 */
+/** 与私有账本 `effectivePrice` 相同：截止时刻仍然算折扣价。 */
+export function effectivePriceCents(price: PlanPrice, now = Date.now()): number {
+  if (price.discountCents === null || price.discountEndsAt === null || now > price.discountEndsAt) {
+    return price.originalCents
+  }
+  return price.discountCents
+}
+
+/** 季付、年付折成每月，单位分。 */
 export function monthlyEquivalentCents(cents: number, cycle: BillingCycle): number {
   return cents / cycle
 }

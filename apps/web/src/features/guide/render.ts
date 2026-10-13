@@ -148,7 +148,7 @@ function renderBlock(block: Block, content: GuideContent, options: GuideRenderOp
       const caption = block.caption
         ? `<figcaption class="mt-3 text-center text-body-sm text-muted-foreground">${renderInline(block.caption)}</figcaption>`
         : ''
-      return `<figure class="my-8"><a href="${escapeHtml(block.src)}" target="_blank" rel="noopener" class="block rounded-xl border border-border bg-muted/40 p-1.5 transition-colors hover:border-foreground/20"><span class="relative block overflow-hidden rounded-lg"><img class="block h-auto w-full" src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt)}" width="${width}" height="${height}" loading="lazy" decoding="async" />${marks}</span></a>${caption}</figure>`
+      return `<figure class="my-8"><a href="${escapeHtml(block.src)}" data-zoom target="_blank" rel="noopener" class="block rounded-xl border border-border bg-muted/40 p-1.5 transition-colors hover:border-foreground/20"><span class="relative block overflow-hidden rounded-lg"><img class="block h-auto w-full" src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt)}" width="${width}" height="${height}" loading="lazy" decoding="async" />${marks}</span></a>${caption}</figure>`
     }
     case 'table':
       return `<div class="my-6 overflow-x-auto"><table class="w-full border-collapse text-left"><thead class="border-b border-foreground/15"><tr>${block.head
@@ -414,7 +414,7 @@ function renderHome(content: GuideContent, options: GuideRenderOptions): string 
           <div class="mt-9 flex flex-wrap justify-center gap-3"><a href="${guidePagePath(content, first.id)}" class="${buttonVariants()}">${escapeHtml(chrome.startReading)}${icon('arrowRight', 'h-4 w-4')}</a><a href="/" class="${buttonVariants({ variant: 'outline' })}">${escapeHtml(chrome.start)}</a></div>
         </div>
         <div class="guide-hero-fade relative mx-auto mt-16 max-w-5xl px-4 sm:px-6">
-          <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-lg"><div class="flex h-8 items-center gap-1.5 border-b border-border bg-muted/60 px-3"><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span></div><img src="${escapeHtml(content.home.image)}" alt="${escapeHtml(content.home.imageAlt)}" width="${width}" height="${height}" fetchpriority="high" class="block h-auto w-full" /></div>
+          <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-lg"><div class="flex h-8 items-center gap-1.5 border-b border-border bg-muted/60 px-3"><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span></div><a href="${escapeHtml(content.home.image)}" data-zoom class="guide-hero-shot block">${content.home.portrait ? `<picture><source media="(max-width: 767px)" srcset="${escapeHtml(content.home.portrait)}" /><img src="${escapeHtml(content.home.image)}" alt="${escapeHtml(content.home.imageAlt)}" width="${width}" height="${height}" fetchpriority="high" class="block h-auto w-full" /></picture>` : `<img src="${escapeHtml(content.home.image)}" alt="${escapeHtml(content.home.imageAlt)}" width="${width}" height="${height}" fetchpriority="high" class="block h-auto w-full" />`}</a></div>
         </div>
       </section>
       <section aria-labelledby="chapters" class="mx-auto max-w-6xl px-6 pb-28">

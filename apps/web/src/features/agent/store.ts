@@ -89,6 +89,7 @@ import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
 import { browserConversationPrefetch } from './lib/conversationPrefetch'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
+import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -764,6 +765,28 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     } finally {
       await turnDelivery.settled()
       if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
+    }
+    if (
+      turnId &&
+      turnDelivery.isCurrent() &&
+      get().conversationId === conversationId &&
+      get().turn === 'idle' &&
+      shouldPollFollowUps({ turnId, messages: get().messages, turns: get().turns })
+    ) {
+      const watched = conversationId
+      const watchedTurn = turnId
+      void pollFollowUps(watched, watchedTurn, () => get().conversationId === watched).then(
+        (lines) => {
+          if (!lines?.length || get().conversationId !== watched) return
+          set((state) => {
+            const footer = state.turns[watchedTurn]
+            if (!footer) return state
+            return {
+              turns: { ...state.turns, [watchedTurn]: { ...footer, followUps: lines } },
+            }
+          })
+        },
+      )
     }
     if (recoveredQueue && turnDelivery.isCurrent())
       await openConversation(conversationId, recoveredQueue.turnId)

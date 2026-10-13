@@ -9,6 +9,7 @@ import { GUIDE_PATHS } from '../guide/paths'
 import {
   BILLING_CYCLES,
   type BillingCycle,
+  effectivePriceCents,
   GPT_IMAGE_2_CREDITS,
   imagesPerMonth,
   monthlyEquivalentCents,
@@ -19,6 +20,7 @@ import {
   REFERRAL_REGISTRATION_CREDITS,
   rechargeCredits,
 } from './catalog'
+import { closePricingSheet } from './pricingSheetState'
 
 const PLAN_NAME = {
   starter: 'plan.starterName',
@@ -54,14 +56,13 @@ function money(cents: number): string {
   return `¥${yuanText(cents)}`
 }
 
-function scrollToSection(id: string): void {
-  const node = document.getElementById(id)
-  if (!node) return
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  node.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
-}
-
-export default function PricingPage() {
+export default function PricingPage({
+  presentation = 'page',
+}: {
+  /** `sheet` 把同一份定价正文放进工作台弹层，不改地址。 */
+  presentation?: 'page' | 'sheet'
+}) {
+  const embedded = presentation === 'sheet'
   const { t } = useTranslation('pricing')
   const { t: tCommon } = useTranslation('common')
   const { locale, change } = useLocalePicker()
@@ -71,18 +72,33 @@ export default function PricingPage() {
   const [openFaq, setOpenFaq] = useState<string>('faq.grantQ')
 
   useEffect(() => {
+    if (embedded) return
     document.documentElement.classList.add('pricing-route')
     return () => document.documentElement.classList.remove('pricing-route')
-  }, [])
+  }, [embedded])
 
   useEffect(() => {
+    if (embedded) return
     setDocumentTitleOverride(() => i18next.t('documentTitle', { ns: 'pricing' }))
     return () => setDocumentTitleOverride(null)
-  }, [])
+  }, [embedded])
 
   const enter = () => {
+    if (embedded) {
+      closePricingSheet()
+      if (auth.enabled && !auth.user) auth.login()
+      return
+    }
     if (auth.enabled && !auth.user) {
       auth.login()
+      return
+    }
+    navigate('/')
+  }
+
+  const leave = () => {
+    if (embedded) {
+      closePricingSheet()
       return
     }
     navigate('/')
@@ -94,7 +110,11 @@ export default function PricingPage() {
   return (
     <div
       data-selectable-text
-      className="min-h-svh bg-[var(--pricing-bg)] font-sans text-[var(--pricing-fg)]"
+      className={
+        embedded
+          ? 'h-full overflow-y-auto font-sans text-[var(--pricing-fg)]'
+          : 'min-h-svh bg-[var(--pricing-bg)] font-sans text-[var(--pricing-fg)]'
+      }
     >
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[var(--pricing-bg)]/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-5 sm:px-8">
@@ -102,7 +122,7 @@ export default function PricingPage() {
             href="/"
             onClick={(event) => {
               event.preventDefault()
-              navigate('/')
+              leave()
             }}
             className="flex items-center gap-2.5 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
           >
@@ -113,7 +133,18 @@ export default function PricingPage() {
             className="flex items-center gap-5 text-sm text-white/70"
             aria-label={t('nav.pricing')}
           >
-            <a href="/pricing" aria-current="page" className="text-white">
+            <a
+              href="/pricing"
+              aria-current="page"
+              className="text-white"
+              onClick={
+                embedded
+                  ? (event) => {
+                      event.preventDefault()
+                    }
+                  : undefined
+              }
+            >
               {t('nav.pricing')}
             </a>
             <a
@@ -143,55 +174,42 @@ export default function PricingPage() {
                 </button>
               ))}
             </div>
-            <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-              type="button"
-              onClick={enter}
-              className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
-            >
-              {auth.enabled && !auth.user ? t('nav.login') : t('nav.workspace')}
-            </button>
+            {embedded ? (
+              <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                type="button"
+                onClick={closePricingSheet}
+                aria-label={tCommon('action.close')}
+                className="grid h-9 w-9 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+              >
+                <Icon name="close" />
+              </button>
+            ) : (
+              <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                type="button"
+                onClick={enter}
+                className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+              >
+                {auth.enabled && !auth.user ? t('nav.login') : t('nav.workspace')}
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       <main>
-        <section className="mx-auto max-w-6xl px-5 pb-8 pt-16 text-center sm:px-8 sm:pt-24">
-          <p className="inline-flex items-center gap-2 text-sm text-white/70">
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-full bg-[var(--pricing-lime)]"
-            />
-            {t('hero.eyebrow')}
-          </p>
-          <h1 className="mt-5 pricing-title font-semibold tracking-tight">{t('hero.title')}</h1>
-          <p className="mx-auto mt-6 max-w-xl text-sm leading-7 text-white/60 sm:text-base">
-            {t('hero.subtitle')}
-          </p>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-5 pb-16 sm:px-8">
-          <h2 className="pricing-section font-semibold tracking-tight">{t('intro.title')}</h2>
-          <p className="mt-4 max-w-3xl text-sm leading-7 text-white/65 sm:pricing-copy">
-            {t('intro.body')}
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <TextButton onClick={() => scrollToSection('benefits')}>
-              {t('intro.benefits')}
-            </TextButton>
-            <TextButton onClick={() => scrollToSection('plans')}>{t('intro.prices')}</TextButton>
-            <TextButton onClick={() => scrollToSection('recharge')}>
-              {t('intro.recharge')}
-            </TextButton>
-          </div>
-          <p className="mt-6 max-w-3xl text-sm leading-7 text-white/45">{t('intro.note')}</p>
-        </section>
-
-        <section id="plans" className="scroll-mt-24 pb-20">
-          <div className="mx-auto flex max-w-6xl justify-center px-5 sm:px-8">
+        <section
+          id="plans"
+          className="mx-auto max-w-6xl scroll-mt-24 px-5 pb-20 pt-12 sm:px-8 sm:pt-16"
+        >
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-xl">
+              <h1 className="pricing-section font-semibold tracking-tight">{t('hero.title')}</h1>
+              <p className="mt-3 text-sm leading-6 text-white/55">{t('hero.subtitle')}</p>
+            </div>
             <div
               role="radiogroup"
               aria-label={t('cycle.label')}
-              className="inline-flex rounded-full bg-white/[0.08] p-1"
+              className="inline-flex w-fit shrink-0 rounded-full bg-white/[0.08] p-1"
             >
               {BILLING_CYCLES.map((value) => {
                 const selected = cycle === value
@@ -220,8 +238,7 @@ export default function PricingPage() {
               })}
             </div>
           </div>
-
-          <div className="mx-auto mt-8 grid max-w-6xl items-stretch gap-4 px-5 sm:px-8 lg:grid-cols-3">
+          <div className="mt-8 grid items-stretch gap-4 pt-3 lg:grid-cols-3">
             {PRICING_PLANS.map((plan) => (
               <PlanCard key={plan.id} plan={plan} cycle={cycle} unit={unit} onUpgrade={enter} />
             ))}
@@ -243,7 +260,7 @@ export default function PricingPage() {
                       <th key={plan.id} className="px-4 py-6 text-center font-normal">
                         <div className="text-base font-semibold">{t(PLAN_NAME[plan.id])}</div>
                         <div className="mt-1 text-white/55">
-                          {money(plan.prices[cycle])}
+                          {money(effectivePriceCents(plan.prices[cycle]))}
                           {unit}
                         </div>
                         <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
@@ -427,7 +444,7 @@ export default function PricingPage() {
               href="/"
               onClick={(event) => {
                 event.preventDefault()
-                navigate('/')
+                leave()
               }}
               className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >
@@ -462,18 +479,6 @@ export default function PricingPage() {
   )
 }
 
-function TextButton({ children, onClick }: { children: string; onClick: () => void }) {
-  return (
-    <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-      type="button"
-      onClick={onClick}
-      className="h-10 rounded-full border border-white/15 px-4 text-sm text-white/85 hover:border-white/40 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
-    >
-      {children}
-    </button>
-  )
-}
-
 function PlanCard({
   plan,
   cycle,
@@ -486,13 +491,15 @@ function PlanCard({
   onUpgrade: () => void
 }) {
   const { t } = useTranslation('pricing')
-  const cents = plan.prices[cycle]
-  const monthly = monthlyEquivalentCents(cents, cycle)
+  const price = plan.prices[cycle]
+  const payable = effectivePriceCents(price)
+  const monthly = monthlyEquivalentCents(payable, cycle)
+  const discounted = payable < price.originalCents
   return (
     <article
-      className={`relative flex flex-col rounded-3xl border p-5 ${
+      className={`relative flex h-full flex-col rounded-3xl border p-5 ${
         plan.featured
-          ? 'border-[var(--pricing-lime)]/80 bg-[var(--pricing-featured)]'
+          ? 'border-[var(--pricing-lime)] bg-[var(--pricing-featured)]'
           : 'border-white/10 bg-[var(--pricing-card)]'
       }`}
     >
@@ -501,45 +508,44 @@ function PlanCard({
           {t('plan.featured')}
         </span>
       ) : null}
-      <h3 className="pricing-name font-semibold">{t(PLAN_NAME[plan.id])}</h3>
+      <h2 className="pricing-name font-semibold">{t(PLAN_NAME[plan.id])}</h2>
       <p className="mt-1 text-sm text-white/50">{t(PLAN_TAGLINE[plan.id])}</p>
-      <p className="mt-4 text-sm text-white/80">
-        {t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}
+      <p className="mt-5 min-h-5 text-sm text-white/40 line-through">
+        {discounted ? `${money(price.originalCents)}${unit}` : null}
       </p>
-      <p className="mt-6 flex items-end gap-1" aria-live="polite">
-        <span className="pb-1.5 text-base text-white/70">¥</span>
-        <span className="pricing-price font-semibold tracking-tight">{yuanText(cents)}</span>
+      <p className="mt-1 flex items-end gap-1" aria-live="polite">
+        <span className="pricing-price font-semibold tracking-tight">{money(payable)}</span>
         <span className="pb-1.5 text-sm text-white/50">{unit}</span>
       </p>
       {cycle === 1 ? null : (
-        <p className="mt-2 text-xs text-white/45">
+        <p className="mt-2 text-sm text-white/45">
           {t('plan.equivalent', { amount: yuanText(monthly) })}
         </p>
       )}
       <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
         type="button"
         onClick={onUpgrade}
-        className="mt-6 h-11 w-full rounded-full bg-[var(--pricing-hover)] text-sm font-semibold text-[var(--pricing-ink)] hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+        className={`mt-4 h-11 w-full rounded-full text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
+          plan.featured
+            ? 'bg-[var(--pricing-lime)] text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)]'
+            : 'bg-white text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)]'
+        }`}
       >
         {t('plan.upgrade')}
       </button>
-      <div className="mt-6 border-t border-white/10 pt-5">
-        <p className="text-xs text-white/45">{t('plan.includes')}</p>
-        <ul className="mt-3 space-y-3 text-sm">
-          <Feature>{t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}</Feature>
-          <Feature>
-            {t('plan.images', { n: formatCount(imagesPerMonth(plan.monthlyCredits)) })}
-          </Feature>
-          <Feature>{t('plan.expiry')}</Feature>
-          <Feature>{t('plan.concurrency', { n: plan.concurrency })}</Feature>
-          <Feature>{t('plan.studio')}</Feature>
-        </ul>
-        <p className="mt-5 text-xs leading-5 text-white/40">
-          {t('plan.grant')}
-          <br />
-          {t('plan.once')}
-        </p>
-      </div>
+      <ul className="mt-6 space-y-3 border-t border-white/10 pt-5 text-sm">
+        <Feature>{t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}</Feature>
+        <Feature>
+          {t('plan.images', { n: formatCount(imagesPerMonth(plan.monthlyCredits)) })}
+        </Feature>
+        <Feature>{t('plan.concurrency', { n: plan.concurrency })}</Feature>
+        <Feature>{t('plan.studio')}</Feature>
+      </ul>
+      <p className="mt-5 text-sm leading-6 text-white/40">
+        {t('plan.grant')}
+        <br />
+        {t('plan.once')}
+      </p>
     </article>
   )
 }
@@ -595,5 +601,5 @@ function SameRow({ label, value }: { label: string; value: string }) {
 }
 
 function PriceRow({ label, cycle }: { label: string; cycle: BillingCycle }) {
-  return <Row label={label}>{(plan) => money(plan.prices[cycle])}</Row>
+  return <Row label={label}>{(plan) => money(effectivePriceCents(plan.prices[cycle]))}</Row>
 }

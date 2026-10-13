@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
+import { signalBootReady } from './boot/ready'
 import ConfirmDialog from './components/ConfirmDialog'
 import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
@@ -23,13 +24,14 @@ import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
+import LegalPage from './features/legal/LegalPage'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
-import { isPricingPath } from './lib/appPaths'
+import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { dragTargetIsImage } from './lib/dragTarget'
@@ -53,6 +55,10 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
+  // 会话检查和懒加载期间闪屏继续盖着；工作台这一帧才淡出。
+  useEffect(() => {
+    signalBootReady()
+  }, [])
 
   // 匿名设备没有同步；能力关不关由引擎自己判断。
   useEffect(() => (user ? startSyncEngine() : undefined), [user])
@@ -111,12 +117,16 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   }, [])
 
   if (isPricingPath(pathname)) return <PricingPage />
+  if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
   return (
     <>
       <Header />
       <Sidebar />
-      <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
+      <div
+        style={{ paddingLeft: 'var(--app-sidebar-width)' }}
+        className={appMode === 'canvas' ? undefined : 'mobile-topbar-offset'}
+      >
         {appMode === 'canvas' ? (
           <CanvasMode />
         ) : appMode === 'explore' ? (

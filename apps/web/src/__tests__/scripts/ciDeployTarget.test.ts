@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
@@ -16,11 +16,18 @@ let repo: string
 let commits: string[]
 let env: NodeJS.ProcessEnv
 
+const isolatedGitEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_SYSTEM: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+}
+
 function git(...args: string[]) {
   const result = spawnSync(
     'git',
     ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-C', repo, ...args],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env: isolatedGitEnv },
   )
   if (result.status !== 0) throw new Error(result.stderr)
   return result.stdout.trim()
@@ -65,7 +72,7 @@ beforeEach(() => {
     commits.push(git('rev-parse', 'HEAD'))
   }
   git('update-ref', 'refs/remotes/origin/main', commits[2])
-  env = { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}` }
+  env = { ...isolatedGitEnv, PATH: `${join(root, 'bin')}:${process.env.PATH}` }
   serve({})
 })
 
@@ -77,12 +84,12 @@ describe('ci-deploy-target.sh', () => {
       [internalApi]: health(commits[1]),
       [paidApi]: health(`${commits[1]}+${'f'.repeat(40)}`),
     })
-    expect(decide(commits[2]).decision).toBe('deploy=true\n')
+    expect(decide(commits[2]).decision).toBe('deploy_api=true\ndeploy_pages=true\ndeploy=true\n')
   })
 
   it('skips a commit that is no longer the tip of main', () => {
     const { decision, log } = decide(commits[1])
-    expect(decision).toBe('deploy=false\n')
+    expect(decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
     expect(log).toContain(`::notice::${commits[1]} is not the tip of origin/main (${commits[2]})`)
   })
 
@@ -93,7 +100,7 @@ describe('ci-deploy-target.sh', () => {
       [paidApi]: health(`${commits[2]}+${'f'.repeat(40)}`),
     })
     const { decision, log } = decide(commits[1])
-    expect(decision).toBe('deploy=false\n')
+    expect(decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
     expect(log).toContain(`::notice::${paidApi} already runs ${commits[2]}`)
   })
 
@@ -102,14 +109,63 @@ describe('ci-deploy-target.sh', () => {
       [internalApi]: health(commits[2]),
       [paidApi]: health(`${commits[2]}+${'f'.repeat(40)}`),
     })
-    expect(decide(commits[2]).decision).toBe('deploy=false\n')
-    expect(decide(commits[2], 'workflow_dispatch').decision).toBe('deploy=true\n')
+    expect(decide(commits[2]).decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
+    expect(decide(commits[2], 'workflow_dispatch').decision).toBe(
+      'deploy_api=true\ndeploy_pages=true\ndeploy=true\n',
+    )
+  })
+
+  function commitOnTip(path: string, content: string) {
+    const full = join(repo, path)
+    mkdirSync(dirname(full), { recursive: true })
+    writeFileSync(full, content)
+    git('add', path)
+    git('commit', '-q', '-m', path)
+    const sha = git('rev-parse', 'HEAD')
+    git('update-ref', 'refs/remotes/origin/main', sha)
+    return sha
+  }
+
+  it('ships Pages without the API when only the web bundle changed', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('apps/web/src/main.tsx', 'export {}\n')
+    serve({
+      [internalApi]: health(previous),
+      [paidApi]: health(`${previous}+${'f'.repeat(40)}`),
+    })
+    const { decision, log } = decide(tip)
+    expect(decision).toBe('deploy_api=false\ndeploy_pages=true\ndeploy=true\n')
+    expect(log).toContain(`API tree unchanged since ${previous}`)
+  })
+
+  it('ships the API without Pages when only the API tree changed', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('apps/bff/src/index.ts', 'export {}\n')
+    serve({
+      [internalApi]: health(previous),
+      [paidApi]: health(previous),
+    })
+    const { decision, log } = decide(tip)
+    expect(decision).toBe('deploy_api=true\ndeploy_pages=false\ndeploy=true\n')
+    expect(log).toContain(`web bundle unchanged since ${previous}`)
+  })
+
+  it('skips both sides when the commit does not change the web bundle or the API', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('docs/note.md', 'note\n')
+    serve({
+      [internalApi]: health(previous),
+      [paidApi]: health(previous),
+    })
+    const { decision, log } = decide(tip)
+    expect(decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
+    expect(log).toContain(`no web bundle or API changes since ${previous}`)
   })
 
   it('deploys when an API does not report a version yet or cannot be reached', () => {
     serve({ [internalApi]: JSON.stringify({ ok: true }) })
     const { decision, log } = decide(commits[2])
-    expect(decision).toBe('deploy=true\n')
+    expect(decision).toBe('deploy_api=true\ndeploy_pages=true\ndeploy=true\n')
     expect(log).toContain(`::warning::${paidApi}/health did not answer`)
     expect(log).toContain(`::warning::${internalApi} reports no commit version`)
   })

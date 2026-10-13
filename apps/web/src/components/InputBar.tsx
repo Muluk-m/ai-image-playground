@@ -221,12 +221,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submitReady =
     !lookSubmitting && (toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
-  const submitBlockedTip = toCanvas
-    ? null
-    : skillNeedsCanvas
-      ? t('submit.skillNeedsCanvas')
-      : !hasSubmitApiConfig || submissionGuard.blocked
-        ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
+  const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
+  const submitBlockedTip = skillNeedsCanvas
+    ? t('submit.skillNeedsCanvas')
+    : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+      ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
+      : promptMissing
+        ? t('submit.promptRequired')
         : null
   const submit = () => {
     if (lookSubmitting) return
@@ -1284,7 +1285,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               <PromptEditor
                 editor={promptEditor}
                 placeholder={t(`studio.placeholders.${creationMode}`)}
-                className="creation-prompt"
+                className={
+                  prompt.length > 0 ? 'creation-prompt creation-prompt-filled' : 'creation-prompt'
+                }
                 style={{ maxHeight: 'none' }}
                 role="textbox"
                 aria-label={t('studio.prompt')}

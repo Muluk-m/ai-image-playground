@@ -1,13 +1,16 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { signalBootReady } from '../boot/ready'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
+import PricingSheet from '../features/pricing/PricingSheet'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
   getCurrentUser,
   logoutUser,
+  shouldProbeSession,
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
@@ -29,13 +32,9 @@ type Phase = 'checking' | 'ready' | 'reconnecting'
 export function LoadingScreen() {
   const { t } = useTranslation('auth')
   return (
-    <main className="auth-status-screen" aria-live="polite">
-      <img src="/brand/muvloom-mark.svg" alt="" width="40" height="40" />
-      <div className="auth-status-line">
-        <span />
-      </div>
-      <p>{t('status.preparing')}</p>
-    </main>
+    <p className="sr-only" aria-live="polite">
+      {t('status.preparing')}
+    </p>
   )
 }
 
@@ -49,6 +48,9 @@ export function ProblemScreen({
   retry?: () => void
 }) {
   const { t } = useTranslation('auth')
+  useEffect(() => {
+    signalBootReady()
+  }, [])
   return (
     <main className="auth-status-screen auth-status-screen--problem">
       <section
@@ -100,10 +102,13 @@ export function AuthGate() {
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
-        const currentUser = await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
-          if (err instanceof AuthRequestError && err.status === 401) return null
-          throw err
-        })
+        // 没有提示 cookie、也没有记住的用户时不请求 /api/auth/me，避免匿名打开就 401。
+        const currentUser = shouldProbeSession()
+          ? await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
+              if (err instanceof AuthRequestError && err.status === 401) return null
+              throw err
+            })
+          : null
         if (cancelled) return
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)
@@ -225,6 +230,7 @@ export function AuthGate() {
           }}
         />
       ) : null}
+      <PricingSheet />
     </AuthContextProvider>
   )
 }
