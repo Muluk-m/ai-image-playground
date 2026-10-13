@@ -29,7 +29,7 @@ export function createNode(
     side: 'left' | 'right'
     size?: { width: number; height: number }
   },
-  text?: { name?: string; text: string },
+  text?: { name?: string; text?: string; prompt?: string },
 ): string {
   const id = newElementId()
   const { width, height } = beside?.size ?? canvasNodeRegistry[kind].size
@@ -81,7 +81,12 @@ export function createNode(
                   fill,
                   ...(text?.name ? { name: text.name } : {}),
                 }
-              : { meta: { nodeKind: kind } },
+              : {
+                  meta: {
+                    nodeKind: kind,
+                    ...(text?.prompt ? { nodePrompt: text.prompt } : {}),
+                  },
+                },
     },
     canvas.origin,
   )

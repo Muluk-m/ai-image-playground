@@ -21,6 +21,7 @@ function createDraft() {
       }
     },
     remove: (id: string) => update({ items: snapshot.items.filter((item) => item.id !== id) }),
+    clear: () => update({ items: [] }),
     async upload(file: File) {
       if (snapshot.uploading) return
       update({ uploading: true })
@@ -49,7 +50,11 @@ export function useNodeReferenceDraft(document: object, nodeId: string) {
     nodes.set(nodeId, draft)
   }
   const snapshot = useSyncExternalStore(draft.subscribe, draft.getSnapshot)
-  return { ...snapshot, upload: draft.upload, remove: draft.remove }
+  return { ...snapshot, upload: draft.upload, remove: draft.remove, clear: draft.clear }
+}
+
+export function clearNodeReferenceDraft(document: object, nodeId: string): void {
+  drafts.get(document)?.get(nodeId)?.clear()
 }
 
 export function nodeReferenceDraft(document: object, nodeId: string): ReferenceDraft {
