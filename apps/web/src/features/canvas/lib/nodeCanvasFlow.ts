@@ -105,6 +105,15 @@ export function composeNodePrompt(
   return [...notes, userPrompt.trim()].filter(Boolean).join('\n')
 }
 
-export function referenceFileIds(references: readonly NodeReference[]): string[] {
-  return references.flatMap((ref) => (ref.fileId ? [ref.fileId] : []))
+export function referenceFileIds(
+  references: readonly NodeReference[],
+  files: Readonly<Record<string, string>>,
+): string[] {
+  return [
+    ...new Set(
+      references.flatMap((ref) =>
+        ref.kind === 'image' && ref.fileId && files[ref.fileId] ? [ref.fileId] : [],
+      ),
+    ),
+  ]
 }

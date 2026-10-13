@@ -1634,6 +1634,9 @@ function Flow({
                 )}
                 {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
                   <ImageNodeComposer
+                    key={composerNode.id}
+                    document={canvas.doc}
+                    nodeId={composerNode.id}
                     referenceTools={referenceTools}
                     references={references}
                     files={files}
@@ -1643,16 +1646,13 @@ function Flow({
                     onChange={(value) => {
                       setMeta({ nodePrompt: value })
                     }}
-                    onSubmit={() => {
+                    onSubmit={(temporaryReferences) => {
                       const value = draftValue
-                      const urls = referenceFileIds(references).flatMap((id) => {
+                      const urls = referenceFileIds(references, files).flatMap((id) => {
                         const source = files[id]
                         return source ? [source] : []
                       })
-                      const currentImage = composerNode.data.fileId
-                        ? files[composerNode.data.fileId]
-                        : undefined
-                      if (currentImage && !urls.includes(currentImage)) urls.push(currentImage)
+                      urls.push(...temporaryReferences)
                       submitNodeImage(
                         editor,
                         canvas.doc,
@@ -1661,7 +1661,6 @@ function Flow({
                         urls,
                       )
                     }}
-                    onUploadFile={(file) => uploadInto(composerNode.id, file)}
                   />
                 )}
                 {composerNode && nodeKind(composerNode) === 'video' && composerAt && (

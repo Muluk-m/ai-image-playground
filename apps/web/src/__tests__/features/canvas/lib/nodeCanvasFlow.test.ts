@@ -5,6 +5,7 @@ import {
   flowEdgeIds,
   incomingReferences,
   linkFromDrag,
+  referenceFileIds,
 } from '../../../../features/canvas/lib/nodeCanvasFlow'
 
 const image = (id: string, name?: string): CanvasNode => ({
@@ -78,4 +79,19 @@ describe('incoming references', () => {
     expect(composeNodePrompt('城市屋顶', refs)).toBe('第一幕的风\n城市屋顶')
     expect(composeNodePrompt('', incomingReferences(nodes, edges, 'b'))).toBe('')
   })
+})
+
+it('numbers only ready image inputs, deduplicated in submission order', () => {
+  expect(
+    referenceFileIds(
+      [
+        { id: 'text', kind: 'text', label: 'script', text: 'hello' },
+        { id: 'image', kind: 'image', label: 'image', fileId: 'ready' },
+        { id: 'copy', kind: 'image', label: 'same file', fileId: 'ready' },
+        { id: 'empty', kind: 'image', label: 'loading', fileId: 'missing' },
+        { id: 'video', kind: 'video', label: 'video', fileId: 'video-file' },
+      ],
+      { ready: 'data:image/png;base64,x', 'video-file': 'clip.mp4' },
+    ),
+  ).toEqual(['ready'])
 })

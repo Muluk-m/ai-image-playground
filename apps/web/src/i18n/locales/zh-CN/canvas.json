@@ -512,6 +512,8 @@
     "scriptEditor": "剧本编辑",
     "ungroup": "解除分组",
     "groupName": "分组名称",
-    "groupDefault": "未命名分组"
+    "groupDefault": "未命名分组",
+    "temporaryReferences": "临时参考图",
+    "estimatedCost": "预估消耗"
   }
 }

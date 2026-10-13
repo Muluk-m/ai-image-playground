@@ -530,6 +530,8 @@
     "scriptEditor": "Script editor",
     "ungroup": "Ungroup",
     "groupName": "Group name",
-    "groupDefault": "Untitled group"
+    "groupDefault": "Untitled group",
+    "temporaryReferences": "Temporary references",
+    "estimatedCost": "Estimated cost"
   }
 }
