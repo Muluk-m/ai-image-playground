@@ -78,6 +78,9 @@
 标准对话框：标题（20px）+ 右上角关闭 + 可滚动正文 + 可选底栏，面板 `rounded-3xl`、`shadow-dialog`。
 宽度用 `className` 的 `max-w-*` 给（默认 `max-w-md`）。
 
+已有 `Overlay` 的宿主可用同一组属性渲染 `DialogSurface`，复用面板而不嵌套 portal 或焦点锁。
+独立弹窗仍使用 `Dialog`。
+
 ```tsx
 <Dialog
   title={t('import.title')}
