@@ -64,10 +64,10 @@ const TOOL = {
 
 // 上限与压缩阈值同源，不另起一个数：这两条盯的就是这条相等关系。
 it('上限是窗口扣掉输出预留与计数误差余量', () => {
-  expect(compactionBudget(SETTINGS).threshold).toBe(10_000 - 1_000 - 500)
+  expect(compactionBudget(SETTINGS).threshold).toBe(10_000 - 4_000 - 500)
 })
 
-it('输出预留不超过模型真能出的那么多', () => {
+it('小输出模型只预留自身额度，不被旧统一配置挤占输入', () => {
   expect(compactionBudget({ ...SETTINGS, maxOutputTokens: 200 }).threshold).toBe(10_000 - 200 - 500)
 })
 
@@ -143,15 +143,15 @@ describe('出站硬闸', () => {
     expect(() => assertRequestWithinBudget(overhead, SETTINGS)).toThrow(AgentContextOverflow)
   })
 
-  // 图片块也要过闸，而且是按像素过：同样八张图，按预览发装得下、按原件发装不下——
+  // 图片块也要过闸，而且是按像素过：同样七张图，按预览发装得下、按原件发装不下——
   // `viewImage` 省下来的正是这个差额（#396）。换成 pi 的每块固定值，两者一样大，
   // 这道闸就再也分不出预览和原件。
-  it('图片按像素进闸：同样八张，预览放行、原件拒发', () => {
-    expect(() => assertRequestWithinBudget(gallery(png(1024, 614), 8), SETTINGS)).not.toThrow()
+  it('图片按像素进闸：同样七张，预览放行、原件拒发', () => {
+    expect(() => assertRequestWithinBudget(gallery(png(1024, 614), 7), SETTINGS)).not.toThrow()
 
     let thrown: unknown
     try {
-      assertRequestWithinBudget(gallery(png(2000, 1200), 8), SETTINGS)
+      assertRequestWithinBudget(gallery(png(2000, 1200), 7), SETTINGS)
     } catch (error) {
       thrown = error
     }

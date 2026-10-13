@@ -46,6 +46,7 @@ export interface CompactionSettings {
   readonly contextWindow: number
   /** 模型的最大输出。它不是窗口：当成窗口会让刚到一成容量就触发压缩。 */
   readonly maxOutputTokens: number
+  /** @deprecated 兼容旧调用；输出空间直接按本轮模型的 maxOutputTokens 预留。 */
   readonly outputReserveTokens: number
   readonly bufferTokens: number
   /** 近期原文保留多少 token；切点按它从最新一条往回收。 */
@@ -115,7 +116,8 @@ export interface CompactionBudget {
 }
 
 export function compactionBudget(settings: CompactionSettings): CompactionBudget {
-  const reserved = Math.min(settings.maxOutputTokens, settings.outputReserveTokens)
+  // 与请求实际允许的输出相同，不能再用旧的统一预留压低模型额度。
+  const reserved = settings.maxOutputTokens
   const effectiveWindow = settings.contextWindow - reserved
   return { effectiveWindow, threshold: effectiveWindow - settings.bufferTokens }
 }

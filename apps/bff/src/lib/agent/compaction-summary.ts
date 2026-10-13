@@ -11,22 +11,16 @@ import {
   type Summarize,
   type SummaryRequest,
 } from './compaction'
+import { agentModelLimits } from './model-limits'
 import { AgentRequestBudgetError } from './outbound-budget'
-import profiles from './thinking.config.json'
 import { estimateMessageTokens } from './token-estimate'
 
 /** 摘要输入很大而输出是四段话；给足够写完、又不够跑题的额度。 */
 const SUMMARY_MAX_TOKENS = 1_500
 
 function summaryModelWindow(): number {
-  const known = Object.values(profiles).find(
-    (profile) => profile.model === config.agent.summaryModel,
-  )
-  return (
-    config.agent.summaryContextWindow ??
-    known?.contextWindow ??
-    (config.agent.summaryModel === 'gpt-5.6-luna' ? 1_000_000 : 16_000)
-  )
+  const known = agentModelLimits(config.agent.summaryModel)
+  return config.agent.summaryContextWindow ?? known?.contextWindow ?? 16_000
 }
 
 function summaryPromptTokens(previousSummary: AgentCompactionNarrative | null): number {
