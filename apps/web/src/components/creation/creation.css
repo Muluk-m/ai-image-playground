@@ -144,6 +144,8 @@
 .creation-stack-entry:hover .creation-stack-expand, .creation-stack-entry:focus-within .creation-stack-expand { opacity: 1; pointer-events: auto; }
 .creation-reference-hover { width: max-content; min-width: 240px; max-width: min(640px, calc(100vw - 24px)); padding: 12px; border-radius: 12px; @apply shadow-popover; }
 .creation-reference-panel { width: 100%; min-width: 0; }
+/* 浮层里的面板若按 100% 收缩，宽度会被缩略图行定死，标题按钮会冲出卡片。 */
+.creation-reference-hover .creation-reference-panel { width: max-content; max-width: 100%; }
 .creation-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
 .creation-reference-list { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding: 8px; scrollbar-width: thin; }
 .creation-reference-list > * { flex-shrink: 0; }
