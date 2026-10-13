@@ -151,6 +151,9 @@ describe('generation task time windows', () => {
     const to = Date.now(),
       from = to - 1000
     expect(parseGenerationTasksSearch({ from, to })).toMatchObject({ from, to })
+    expect(parseGenerationTasksSearch({ model: 'gpt-image-2' })).toEqual({ model: 'gpt-image-2' })
+    expect(parseGenerationTasksSearch({ model: '' })).toEqual({})
+    expect(parseGenerationTasksSearch({ model: 'x'.repeat(129) })).toEqual({})
   })
   it('rejects incomplete, malformed and oversized explicit ranges', () => {
     const to = Date.now()

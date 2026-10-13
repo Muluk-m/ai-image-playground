@@ -562,13 +562,14 @@ export interface GenerationTaskFilters {
   deviceId?: string
   unassigned?: '1'
   status?: TaskStatus
+  model?: string
   from?: number
   to?: number
 }
 
 export function parseGenerationTaskFilters(input: Record<string, unknown>): GenerationTaskFilters {
   const out: GenerationTaskFilters = { ...parseTimeWindow(input) }
-  for (const key of ['userId', 'deviceId'] as const) {
+  for (const key of ['userId', 'deviceId', 'model'] as const) {
     if (typeof input[key] === 'string' && input[key].trim().length > 0 && input[key].length <= 128)
       out[key] = input[key].trim()
   }
@@ -591,9 +592,20 @@ export interface GenerationActor {
   last_submitted_at: number
 }
 
+export interface TodayModelStat {
+  model: string
+  tasks: number
+  completed: number
+  failed: number
+  /** 含重试。一个任务可以对应多次上游调用。 */
+  upstream_invocations: number
+}
+
 export interface TodayOverviewResult {
   window: TimeWindow
   actors: GenerationActor[]
+  /** 当天全部队列任务按模型汇总，不受演员列表 500 条截断影响。 */
+  models: TodayModelStat[]
   truncated: boolean
   summary: {
     users: number
