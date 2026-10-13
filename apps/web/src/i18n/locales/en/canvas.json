@@ -461,18 +461,6 @@
     "timeline_other": "Timeline · {{count}} clips",
     "mediaMissing": "Media missing",
     "loadFailed": "The node canvas couldn't open. Refresh to try again.",
-    "addTitle": "Add node",
-    "addText": "Text",
-    "textPlaceholder": "Double-click to start editing…",
-    "addImage": "Image",
-    "addResources": "Add resource",
-    "addUpload": "Upload",
-    "composerImage": "Describe the image to generate",
-    "composerText": "Write this text",
-    "composerSend": "Generate",
-    "composerWrite": "Write",
-    "contextLabel": "Context",
-    "connectIn": "Use as incoming context",
-    "connectOut": "Connect to the next node"
+    "generateUnavailable": "Generating isn't available on the node canvas yet. It arrives with the node prompt box."
   }
 }

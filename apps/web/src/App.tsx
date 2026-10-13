@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -50,8 +50,21 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const createTarget = useStore((s) => s.createTarget)
   const user = useAuth().user
   const { t } = useTranslation('shell')
-  const homeBackdropRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
+  const homeChrome =
+    appMode === 'image' &&
+    !isPricingPath(pathname) &&
+    !isTermsPath(pathname) &&
+    !isPrivacyPath(pathname)
+
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    if (homeChrome) root.dataset.home = 'true'
+    else delete root.dataset.home
+    return () => {
+      delete root.dataset.home
+    }
+  }, [homeChrome])
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -137,29 +150,13 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <ToolboxPage />
         ) : (
           <>
-            <main
-              data-home-main
-              data-drag-select-surface
-              className="relative pb-24"
-              onPointerMove={(event) => {
-                if (event.pointerType !== 'mouse') return
-                const backdrop = homeBackdropRef.current
-                if (!backdrop) return
-                const bounds = backdrop.getBoundingClientRect()
-                if (event.clientY > bounds.bottom) {
-                  backdrop.removeAttribute('data-pointer-active')
-                  return
-                }
-                backdrop.style.setProperty('--pointer-x', `${event.clientX - bounds.left}px`)
-                backdrop.style.setProperty('--pointer-y', `${event.clientY - bounds.top}px`)
-                backdrop.dataset.pointerActive = 'true'
-              }}
-              onPointerLeave={() => homeBackdropRef.current?.removeAttribute('data-pointer-active')}
-            >
-              <div ref={homeBackdropRef} aria-hidden="true" className="studio-home-backdrop">
+            <main data-home-main data-drag-select-surface className="relative pb-24">
+              <div aria-hidden="true" className="studio-home-backdrop">
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--a" />
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--b" />
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--c" />
                 <div className="studio-home-backdrop__grain" />
                 <div className="studio-home-backdrop__grid" />
-                <div className="studio-home-backdrop__hover" />
               </div>
               <div className="safe-area-x relative mx-auto max-w-6xl">
                 <div className="studio-home-intro text-center">

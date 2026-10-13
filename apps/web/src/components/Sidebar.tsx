@@ -32,8 +32,9 @@ const MODE_ICONS: Record<AppMode, IconName> = {
 }
 
 const ITEM = 'h-9 w-full justify-start gap-2.5 px-3 text-body-sm font-normal'
-/** 主入口选中换字色与双色图标，不铺底：底色留给下面「正在打开的项目」那一行。 */
-const ACTIVE_ITEM = 'font-semibold text-primary hover:bg-muted hover:text-primary'
+/** 主入口选中用中性底，芽绿只留给发送与少量高亮。底色比「正在打开的项目」那一行浅一档。 */
+const ACTIVE_ITEM =
+  'bg-secondary font-medium text-foreground hover:bg-secondary hover:text-foreground'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
 const ACTIVE_ROW = 'bg-accent font-medium text-foreground'
 type RecentKind = 'chat' | 'canvas'

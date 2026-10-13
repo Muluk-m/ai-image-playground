@@ -6,7 +6,7 @@ import {
   moveCanvasNodes,
   readCanvasDocument,
 } from '@image-playground/shared'
-import { act, createElement, type ElementType, type ReactNode, useEffect, useRef } from 'react'
+import { act, createElement, type ElementType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -15,12 +15,9 @@ import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasD
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 
-const mocks = vi.hoisted(() => ({ open: vi.fn(), importImages: vi.fn(async () => 1) }))
+const mocks = vi.hoisted(() => ({ open: vi.fn() }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
   openNodeCanvasDocument: mocks.open,
-}))
-vi.mock('../../../../features/canvas/lib/importImages', () => ({
-  importImageFiles: mocks.importImages,
 }))
 vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
   ARROW_POINTER: { length: 12, width: 10 },
@@ -35,35 +32,11 @@ vi.mock('@xyflow/react', () => ({
   Controls: () => null,
   MiniMap: () => null,
   getViewportForBounds: () => ({ x: 0, y: 0, zoom: 1 }),
-  Handle: ({
-    className,
-    children,
-    onClick,
-    'aria-label': label,
-  }: {
-    className?: string
-    children?: ReactNode
-    onClick?: () => void
-    'aria-label'?: string
-  }) =>
-    createElement(
-      'button',
-      {
-        type: 'button',
-        className: `react-flow__handle ${className ?? ''}`,
-        'aria-label': label,
-        onClick,
-      },
-      children,
-    ),
-  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
     nodeTypes,
     children,
-    onInit,
-    onPaneClick,
   }: {
     nodes: {
       id: string
@@ -73,27 +46,11 @@ vi.mock('@xyflow/react', () => ({
       position: { x: number; y: number }
       width: number
       height: number
-      selected?: boolean
     }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
-    onPaneClick?: () => void
-    onInit?: (flow: {
-      screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
-      setViewport: (viewport: { x: number; y: number; zoom: number }) => void
-      getViewport: () => { x: number; y: number; zoom: number }
-    }) => void
-  }) => {
-    const init = useRef(onInit)
-    init.current = onInit
-    useEffect(() => {
-      init.current?.({
-        screenToFlowPosition: (point) => point,
-        setViewport: () => {},
-        getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
-      })
-    }, [])
-    return createElement(
+  }) =>
+    createElement(
       'div',
       { className: 'react-flow' },
       ...nodes.map((node) =>
@@ -101,7 +58,6 @@ vi.mock('@xyflow/react', () => ({
           'div',
           {
             key: node.id,
-            className: `react-flow__node${node.selected ? ' selected' : ''}`,
             'data-node-id': node.id,
             'data-bounds': JSON.stringify({
               ...node.position,
@@ -114,13 +70,7 @@ vi.mock('@xyflow/react', () => ({
         ),
       ),
       children,
-      createElement('button', {
-        type: 'button',
-        'data-testid': 'pane',
-        onClick: () => onPaneClick?.(),
-      }),
-    )
-  },
+    ),
 }))
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -158,11 +108,7 @@ beforeEach(() => {
   old.elements = [image('image')]
   old.files = { file: 'data:image/png;base64,AA==' }
   canvas = createCanvas()
-  workspace = {
-    doc: old,
-    record: { key: 'fixture' },
-    editor: { doc: old },
-  } as unknown as CanvasWorkspace
+  workspace = { doc: old, record: { key: 'fixture' } } as unknown as CanvasWorkspace
   mocks.open.mockResolvedValue(canvas)
   host = document.createElement('div')
   document.body.append(host)
@@ -283,115 +229,4 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   const video = host.querySelector('video')!
   expect(video.parentElement!.style.transform).toBe('rotate(30deg)')
   expect(video.closest('[data-rotated]')).not.toBeNull()
-})
-
-it('opens an add menu on a double-click of the empty canvas', async () => {
-  await render()
-  const surface = host.querySelector('.studio-node-canvas')!
-  act(() => {
-    surface.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 48, clientY: 64 }))
-  })
-  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('文本')
-  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('图片')
-  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('上传')
-  act(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-  })
-  expect(document.body.querySelector('[role="menu"]')).toBeNull()
-})
-
-it('puts the workspace image controls under a new image card and keeps the card', async () => {
-  await render()
-  const surface = host.querySelector('.studio-node-canvas')!
-  act(() => {
-    surface.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 48, clientY: 64 }))
-  })
-  const item = [...document.body.querySelectorAll('[role="menuitem"]')].find((el) =>
-    el.textContent?.includes('图片'),
-  )
-  act(() => (item as HTMLButtonElement).click())
-  expect(document.body.querySelector('[role="menu"]')).toBeNull()
-  const composer = host.querySelector('.studio-node-composer')
-  expect(composer?.getAttribute('aria-label')).toBe('描述你想生成的图片')
-  expect(composer?.querySelector('.studio-direct-card')).not.toBeNull()
-  expect(composer?.querySelector('[aria-label^="生成设置"]')).not.toBeNull()
-  expect(host.querySelector('.studio-node-upload')?.textContent).toContain('上传')
-  expect(host.querySelectorAll('.react-flow__handle')).toHaveLength(4)
-  const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
-  expect(added).toMatchObject({ type: 'image', data: {} })
-  act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
-  expect(host.querySelector('.studio-node-composer')).toBeNull()
-  expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image', added!.id])
-})
-
-it('places a text card that stays large enough for the side handles', async () => {
-  await render()
-  const surface = host.querySelector('.studio-node-canvas')!
-  act(() => {
-    surface.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 80, clientY: 90 }))
-  })
-  const item = [...document.body.querySelectorAll('[role="menuitem"]')].find((el) =>
-    el.textContent?.includes('文本'),
-  )
-  act(() => (item as HTMLButtonElement).click())
-  const card = host.querySelector('.studio-node--text')
-  expect(card?.textContent).toContain('双击开始编辑…')
-  expect(card?.textContent).toContain('文本')
-  const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
-  expect(added).toMatchObject({ width: 300, height: 210 })
-  const bounds = JSON.parse(
-    host.querySelector(`[data-node-id="${added!.id}"]`)!.getAttribute('data-bounds')!,
-  )
-  expect(bounds.width).toBe(300)
-  expect(bounds.height).toBe(210)
-  const composer = host.querySelector('.studio-node-composer')
-  expect(composer?.getAttribute('aria-label')).toBe('写下这段文字')
-  expect(composer?.querySelector('[aria-label^="生成设置"]')).toBeNull()
-})
-
-it('creates a connected node from a side handle click', async () => {
-  await render()
-  const handle = (id: string, label: string) =>
-    host.querySelector<HTMLButtonElement>(`[data-node-id="${id}"] [aria-label="${label}"]`)!
-  act(() => handle('image', '接到下一个节点').click())
-  const afterRight = readCanvasDocument(canvas.doc)
-  const imageNode = afterRight.nodes.find((node) => node.id !== 'image')
-  expect(imageNode).toMatchObject({ type: 'image', x: 278, y: -70, width: 280, height: 280 })
-  expect(afterRight.edges).toEqual([
-    expect.objectContaining({ source: 'image', target: imageNode!.id }),
-  ])
-  expect(host.querySelector('.studio-node-composer')?.getAttribute('aria-label')).toBe(
-    '描述你想生成的图片',
-  )
-  act(() => handle('image', '接到下一个节点').click())
-  const second = readCanvasDocument(canvas.doc).nodes.find(
-    (node) => node.type === 'image' && node.id !== 'image' && node.id !== imageNode!.id,
-  )
-  expect(second!.x).toBeGreaterThanOrEqual(imageNode!.x + imageNode!.width)
-  act(() => handle('image', '接入上文').click())
-  const text = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
-  expect(text).toMatchObject({ x: -458, y: -35, width: 300, height: 210 })
-  expect(readCanvasDocument(canvas.doc).edges).toEqual(
-    expect.arrayContaining([expect.objectContaining({ source: text!.id, target: 'image' })]),
-  )
-})
-
-it('places a dropped image where the pointer is', async () => {
-  mocks.importImages.mockClear()
-  await render()
-  const surface = host.querySelector('.studio-node-canvas')!
-  const file = new File(['png'], 'shot.png', { type: 'image/png' })
-  const event = new MouseEvent('drop', {
-    bubbles: true,
-    cancelable: true,
-    clientX: 30,
-    clientY: 40,
-  })
-  Object.defineProperty(event, 'dataTransfer', {
-    value: { types: ['Files'], files: [file], items: [] },
-  })
-  await act(async () => {
-    surface.dispatchEvent(event)
-  })
-  expect(mocks.importImages).toHaveBeenCalledWith(workspace.editor, [file], { x: 30, y: 40 })
 })
