@@ -26,11 +26,14 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
+import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
+import { isPricingPath } from './lib/appPaths'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { dragTargetIsImage } from './lib/dragTarget'
+import { usePathname } from './lib/pathname'
 import { startSyncEngine } from './lib/sync/engine'
 import {
   buildSettingsFromUrlParams,
@@ -46,6 +49,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const user = useAuth().user
   const { t } = useTranslation('shell')
   const homeBackdropRef = useRef<HTMLDivElement>(null)
+  const pathname = usePathname()
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -105,6 +109,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       document.removeEventListener('drop', swallowStrayFileDrop)
     }
   }, [])
+
+  if (isPricingPath(pathname)) return <PricingPage />
 
   return (
     <>

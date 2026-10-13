@@ -56,7 +56,7 @@ export function guideHtmlEntries(webRoot: string): Record<string, string> {
 const searchIndexPath = (content: GuideContent) => `${content.root}search.json`
 
 /** 收进 sitemap 的应用公开页面。`/image` 与 `/` 是同一个入口，只列根地址。 */
-const SITEMAP_PATHS = ['/', '/explore']
+const SITEMAP_PATHS = ['/', '/explore', '/pricing']
 
 interface EmitContext {
   emitFile(file: { type: 'asset'; fileName: string; source: string }): string

@@ -1,4 +1,4 @@
-import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH } from './appPaths'
+import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH, PRICING_PATH } from './appPaths'
 
 /** 项目地址 `/p/<项目>` 的 Pages 写法。 */
 export const PROJECT_ROUTE_PATTERN = '/p/:project'
@@ -15,7 +15,12 @@ const HASHED_ASSETS_PATH = '/assets'
  * 跳转被缓存多久都无害。
  */
 export function pagesRedirects(): string {
-  const routes = [...Object.values(APP_MODE_PATHS), LEGACY_PROJECTS_PATH, PROJECT_ROUTE_PATTERN]
+  const routes = [
+    ...Object.values(APP_MODE_PATHS),
+    LEGACY_PROJECTS_PATH,
+    PROJECT_ROUTE_PATTERN,
+    PRICING_PATH,
+  ]
   const rules = routes.flatMap((route) => [
     `${route} / 200`,
     route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ / 200`,
