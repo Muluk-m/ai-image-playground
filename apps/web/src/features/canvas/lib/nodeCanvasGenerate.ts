@@ -21,6 +21,7 @@ import type { TaskParams } from '../../../types'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
+import { persistLocalNodeResults } from './nodeResultPersistence'
 
 /** 与拖进画布的图同一上限：卡片不要铺得比导入的图还大。 */
 const MAX_SIDE = 720
@@ -213,14 +214,16 @@ function nodeGenerationSink(
       const images = result.images.filter((item): item is string => Boolean(item))
       if (!images.length) throw new Error(i18next.t('placeholder.failed', { ns: 'canvas' }))
       const taskId = handle.requestId ?? handle.clientRequestId ?? handle.jobId
-      await addCompletedCanvasTask({
+      const history = {
         id: `canvas:${taskId}`,
         prompt: handle.prompt,
         params: handle.params,
         images,
         ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
         ...(handle.profileView ? { profile: handle.profileView } : {}),
-      })
+      }
+      if (handle.requestId) await addCompletedCanvasTask(history)
+      else await persistLocalNodeResults(doc, handle.nodeId, history)
       const results = await Promise.all(
         images.map((dataUrl, outputIndex) =>
           recordNodeOutput(

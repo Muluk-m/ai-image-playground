@@ -537,6 +537,8 @@
     "candidates": "候选结果",
     "previousCandidate": "上一个候选",
     "nextCandidate": "下一个候选",
-    "spreadCandidates": "将全部候选摊开到画布"
+    "spreadCandidates": "将全部候选摊开到画布",
+    "candidateStorageFailed": "浏览器未能保存这些结果，刷新前请重试保存或先下载。",
+    "retryCandidateStorage": "重试保存"
   }
 }
