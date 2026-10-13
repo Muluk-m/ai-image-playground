@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
@@ -41,6 +42,7 @@ import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 import AgentUserMessage from './AgentUserMessage'
+import CanvasAgentWelcome from './CanvasAgentWelcome'
 
 const TABS = [
   { id: 'chat', labelKey: 'label.chat' },
@@ -208,6 +210,23 @@ export default function AgentPanel({
   const historyCached = useAgentStore((state) => state.historyCached)
   const historyFailed = useAgentStore((state) => state.historyFailed)
   const logRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (dock !== 'right' || presentation !== 'side' || !open || !panelRef.current) return
+    const panel = panelRef.current
+    const measure = () =>
+      document.documentElement.style.setProperty(
+        '--studio-canvas-chat-width',
+        `${panel.offsetWidth}px`,
+      )
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    observer?.observe(panel)
+    return () => {
+      observer?.disconnect()
+      document.documentElement.style.removeProperty('--studio-canvas-chat-width')
+    }
+  }, [dock, presentation, open])
   const followLatest = useRef(true)
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
@@ -335,6 +354,7 @@ export default function AgentPanel({
 
   return (
     <div
+      ref={panelRef}
       aria-label={t('panel.aria')}
       data-dock={dock}
       style={presentation === 'side' ? { width: panelWidth } : undefined}
@@ -352,22 +372,28 @@ export default function AgentPanel({
       )}
       {presentation === 'side' && (
         <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
-          <div className="flex items-center gap-1.5">
-            {dock === 'right' && (
-              <img src="/brand/muvloom-mark.svg" alt="" className="h-6 w-6 mr-1" />
-            )}
-            {TABS.map((one) => (
-              <Button
-                key={one.id}
-                type="button"
-                variant="ghost"
-                onClick={() => setTab(one.id)}
-                className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
-              >
-                {t(one.labelKey)}
-              </Button>
-            ))}
-          </div>
+          {dock === 'right' ? (
+            <SegmentedTabs
+              label={t('panel.aria')}
+              tabs={TABS.map((one) => ({ value: one.id, label: t(one.labelKey) }))}
+              value={tab === 'layers' ? 'layers' : 'chat'}
+              onChange={setTab}
+            />
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {TABS.map((one) => (
+                <Button
+                  key={one.id}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setTab(one.id)}
+                  className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
+                >
+                  {t(one.labelKey)}
+                </Button>
+              ))}
+            </div>
+          )}
           <Button
             type="button"
             variant="ghost"
@@ -454,15 +480,20 @@ export default function AgentPanel({
               className={
                 presentation === 'page'
                   ? 'studio-agent-log-content'
-                  : 'flex shrink-0 flex-col gap-2.5'
+                  : `flex shrink-0 flex-col gap-2.5 ${dock === 'right' && messages.length === 0 ? 'min-h-full' : ''}`
               }
             >
-              {messages.length === 0 && !historyLoading && !historyFailed && (
-                <div className="studio-chat-empty">
-                  <h3>{t('panel.emptyTitle')}</h3>
-                  <AgentSuggestions className="studio-suggestions" />
-                </div>
-              )}
+              {messages.length === 0 &&
+                !historyLoading &&
+                !historyFailed &&
+                (dock === 'right' && presentation === 'side' ? (
+                  <CanvasAgentWelcome skills={skills} />
+                ) : (
+                  <div className="studio-chat-empty">
+                    <h3>{t('panel.emptyTitle')}</h3>
+                    <AgentSuggestions className="studio-suggestions" />
+                  </div>
+                ))}
               {messages.map((message, index) => {
                 const fetchedRun = fetchedRuns?.starts.get(index)
                 if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null

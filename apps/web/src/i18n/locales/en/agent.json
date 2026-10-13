@@ -706,5 +706,10 @@
     "upload": "Upload images",
     "clear": "Clear",
     "canvas": "Canvas"
+  },
+  "canvasWelcome": {
+    "title": "Give your ideas room to grow",
+    "readCanvas": "Create from your canvas",
+    "readPrompt": "Read the selected canvas nodes, review the existing material, and help me plan what to create next."
   }
 }
