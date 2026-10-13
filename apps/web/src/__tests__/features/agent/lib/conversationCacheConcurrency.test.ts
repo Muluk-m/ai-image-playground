@@ -58,7 +58,10 @@ function panel(text: string): AgentPanelState {
 }
 
 const races = (['sync-put', 'async-abort'] as const).flatMap((mode) =>
-  (['update', 'delete', 'clear', 'delete-empty'] as const).map((action) => ({ mode, action })),
+  (['update', 'delete', 'clear', 'delete-empty', 'prefetch-empty'] as const).map((action) => ({
+    mode,
+    action,
+  })),
 )
 
 it.each(races)("does not let a $mode quota retry undo another tab's $action", async ({
@@ -67,7 +70,7 @@ it.each(races)("does not let a $mode quota retry undo another tab's $action", as
 }) => {
   const firstTab = await loadTab()
   const first = firstTab.conversationCache('shared-conversation')
-  if (action !== 'delete-empty') await first.write(panel('Original snapshot'))
+  if (!action.endsWith('-empty')) await first.write(panel('Original snapshot'))
   else await first.read()
 
   const secondTab = await loadTab()
@@ -87,11 +90,13 @@ it.each(races)("does not let a $mode quota retry undo another tab's $action", as
   let concurrentMutation: Promise<void> | undefined
   const mutateFromOtherTab = () => {
     concurrentMutation =
-      action === 'update'
-        ? second.write(newerPanel)
-        : action === 'clear'
-          ? secondTab.clearConversationCache()
-          : second.remove()
+      action === 'prefetch-empty'
+        ? second.prefetch(newerPanel, new AbortController().signal).then(() => {})
+        : action === 'update'
+          ? second.write(newerPanel)
+          : action === 'clear'
+            ? secondTab.clearConversationCache()
+            : second.remove()
   }
   let failOnce = true
   vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
@@ -124,7 +129,9 @@ it.each(races)("does not let a $mode quota retry undo another tab's $action", as
   await first.write(panel('Stale snapshot awaiting quota recovery'))
   expect(concurrentMutation).toBeDefined()
   await concurrentMutation
-  expect(await first.read()).toEqual(action === 'update' ? newerPanel : null)
+  expect(await first.read()).toEqual(
+    action === 'update' || action === 'prefetch-empty' ? newerPanel : null,
+  )
   expect(await neighbor.read()).toEqual(neighborPanel)
 })
 
