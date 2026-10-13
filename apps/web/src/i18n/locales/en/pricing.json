@@ -9,17 +9,8 @@
     "locale": "Language"
   },
   "hero": {
-    "eyebrow": "Pick how you want to create",
     "title": "Pricing",
-    "subtitle": "Monthly, quarterly, and yearly plans are prepaid once and do not renew. Plan credits arrive each month. Top-up credits stay until you use them."
-  },
-  "intro": {
-    "title": "What you get",
-    "body": "Muvloom is a studio for AI images and video. Describe a picture, keep editing it on an infinite canvas, or finish a set with the agent. Images, video, and chat spend credits at the model price, and the estimate shows before you submit. Failed and cancelled jobs return the hold. Arranging, cropping, and organizing on the canvas does not spend credits.",
-    "benefits": "See what’s included",
-    "prices": "See plan prices",
-    "recharge": "See credit top-ups",
-    "note": "Monthly, quarterly, and yearly plans are a single prepayment. Nothing is charged again when the term ends. Quarterly and yearly credits still arrive once each month, and unused plan credits do not roll over."
+    "subtitle": "Pay once. Credits arrive monthly, expire at month end, and the plan does not renew."
   },
   "cycle": {
     "label": "Billing period",
@@ -37,11 +28,9 @@
     "featured": "Featured",
     "monthlyCredits": "{{n}} credits each month",
     "images": "About {{n}} gpt-image-2 images / month",
-    "expiry": "Plan credits expire at month end",
     "concurrency": "{{n}} jobs at once",
     "studio": "Images, video, canvas, and the agent",
     "upgrade": "Upgrade",
-    "includes": "Included",
     "perMonth": "/month",
     "perQuarter": "/quarter",
     "perYear": "/year",
@@ -123,7 +112,7 @@
     "failureA": "No. Failure and cancellation return the hold to the original bucket. A retry of that job does not hold credits again.",
     "unitQ": "How many credits is one image?",
     "unitA": "It depends on the model. gpt-image-2 is listed at 100 credits per image. Video is per second and chat is per token. The estimate before submit is the charge.",
-    "estimateQ": "Where does “about N images / month” come from?",
+    "estimateQ": "Where do the image counts come from?",
     "estimateA": "The month’s credits divided by 100, the gpt-image-2 price. That is a ceiling, not a promise. Other image models, video, and chat produce fewer images.",
     "rechargeQ": "Can I top up without a plan?",
     "rechargeA": "Yes. Packs are ¥10, ¥50, and ¥100, at 400 credits per yuan. They last, and a plan is not required.",
