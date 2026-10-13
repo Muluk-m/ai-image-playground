@@ -32,7 +32,12 @@ type Props = { agentReady: boolean } & (
   | {
       kind: 'asset'
       onClose: () => void
-      onSave: (input: { files: File[]; name: string; kind: AssetKind }) => Promise<void>
+      onSave: (input: {
+        files: File[]
+        name: string
+        kind: AssetKind
+        description: string
+      }) => Promise<void>
     }
   | {
       kind: 'look'
@@ -46,7 +51,7 @@ type Props = { agentReady: boolean } & (
     }
 )
 
-/** 新建素材 / 新建模板同一张表：图 + 名称 + 一个分类 + 描述（只有模板有）。 */
+/** 新建素材 / 新建模板同一张表：图 + 名称 + 一个分类 + 描述。 */
 export default function CreateRecordDialog(props: Props) {
   const { t } = useTranslation(['library', 'common'])
   const [files, setFiles] = useState<File[]>([])
@@ -62,7 +67,7 @@ export default function CreateRecordDialog(props: Props) {
   const ns = isAsset ? 'createAsset' : 'createLook'
   const command = isAsset ? '/create-asset ' : '/create-look '
   const previews = useObjectUrls(files)
-  const canSave = name.trim().length > 0 && files.length > 0 && !saving
+  const canSave = name.trim().length > 0 && (isAsset || files.length > 0) && !saving
 
   /**
    * 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。
@@ -83,7 +88,12 @@ export default function CreateRecordDialog(props: Props) {
     setSaving(true)
     try {
       if (props.kind === 'asset') {
-        await props.onSave({ files, name: name.trim(), kind: assetKind })
+        await props.onSave({
+          files,
+          name: name.trim(),
+          kind: assetKind,
+          description: description.trim(),
+        })
       } else {
         await props.onSave({ files, name: name.trim(), purpose, description: description.trim() })
       }
@@ -100,7 +110,7 @@ export default function CreateRecordDialog(props: Props) {
           e.preventDefault()
           void submit()
         }}
-        className="relative z-10 w-[min(94vw,680px)] rounded-3xl border border-border bg-card p-6 shadow-2xl ring-1 ring-hairline animate-modal-in"
+        className="relative z-10 max-h-[90dvh] overflow-y-auto w-[min(94vw,680px)] rounded-3xl border border-border bg-card p-6 shadow-2xl ring-1 ring-hairline animate-modal-in"
       >
         <div className="mb-5 flex items-center gap-2">
           <h3 className="text-lg font-semibold text-foreground">{t(`${ns}.title`)}</h3>
@@ -129,7 +139,7 @@ export default function CreateRecordDialog(props: Props) {
         </div>
 
         <span className="mb-1.5 block text-body-sm font-medium text-foreground">
-          {t(`${ns}.images`)} <span className="text-destructive">*</span>
+          {t(`${ns}.images`)} {!isAsset && <span className="text-destructive">*</span>}
         </span>
         <div
           onDragEnter={(e) => {
@@ -248,7 +258,7 @@ export default function CreateRecordDialog(props: Props) {
             <span className="mb-1.5 block text-body-sm font-medium text-foreground">
               {isAsset ? t('createAsset.kind') : t('createLook.purpose')}
             </span>
-            <div className="flex gap-1.5" role="radiogroup">
+            <div className="flex flex-wrap gap-1.5" role="radiogroup">
               {isAsset
                 ? ASSET_KINDS.map((one) => (
                     <Button
@@ -280,20 +290,25 @@ export default function CreateRecordDialog(props: Props) {
           </div>
         </div>
 
-        {!isAsset && (
+        {
           <label className="mt-4 block">
             <span className="mb-1.5 block text-body-sm font-medium text-foreground">
-              {t('createLook.description')}
+              {isAsset ? t('createAsset.description') : t('createLook.description')}
             </span>
             <Textarea
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('createLook.descriptionPlaceholder')}
+              placeholder={
+                isAsset
+                  ? t('createAsset.descriptionPlaceholder')
+                  : t('createLook.descriptionPlaceholder')
+              }
+              maxLength={20000}
               className="min-h-0 resize-none rounded-xl border-border bg-muted/60 shadow-none"
             />
           </label>
-        )}
+        }
 
         <div className="mt-5 flex items-center justify-end gap-2">
           <Button

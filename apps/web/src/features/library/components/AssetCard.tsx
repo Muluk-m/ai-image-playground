@@ -43,7 +43,8 @@ export default function AssetCard({
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      void attachAsset(asset.id)
+      if (asset.views.length) void attachAsset(asset.id)
+      else onOpen(asset)
     }
   }
 
@@ -53,7 +54,7 @@ export default function AssetCard({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => void attachAsset(asset.id)}
+        onClick={() => (asset.views.length ? void attachAsset(asset.id) : onOpen(asset))}
         onKeyDown={handleKeyDown}
         title={asset.name}
         className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -65,7 +66,7 @@ export default function AssetCard({
         </div>
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-label-sm font-medium text-white">
-          <span>{t('asset.addAsReference')}</span>
+          <span>{asset.views.length ? t('asset.addAsReference') : t('asset.noImage')}</span>
           {asset.background && (
             <Badge tone={asset.background === 'transparent' ? 'success' : 'overlay'}>
               {t(`asset.background.${asset.background}`)}
@@ -93,6 +94,7 @@ export default function AssetCard({
           type="button"
           variant="ghost"
           size="icon-xs"
+          disabled={!coverImageId}
           onClick={() => setLightboxImageId(coverImageId)}
           aria-label={t('asset.zoom')}
           title={t('asset.zoom')}
@@ -121,7 +123,7 @@ export default function AssetCard({
           />
         )}
 
-        {videoAvailable && (
+        {videoAvailable && coverImageId && (
           <Button
             type="button"
             variant="ghost"
