@@ -75,6 +75,7 @@ import PlayBadge from '../../video/components/PlayBadge'
 import { newElementId } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
+import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import {
   type CreateNodeKind,
@@ -102,6 +103,7 @@ import CanvasVideoPlayer from './CanvasVideoPlayer'
 import ImageNodeComposer from './ImageNodeComposer'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
+import NodeAssetTools from './NodeAssetTools'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodeReferenceEditor from './NodeReferenceEditor'
@@ -1784,12 +1786,21 @@ function Flow({
                   {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
                     <ImageNodeComposer
                       resultTools={
-                        <NodeResultPicker
-                          key={composerNode.id}
-                          canvas={canvas}
-                          editor={editor}
-                          nodeId={composerNode.id}
-                        />
+                        <>
+                          <NodeResultPicker
+                            key={composerNode.id}
+                            canvas={canvas}
+                            editor={editor}
+                            nodeId={composerNode.id}
+                          />
+                          <NodeAssetTools
+                            key={`asset:${composerNode.id}`}
+                            canvas={canvas}
+                            editor={editor}
+                            nodeId={composerNode.id}
+                            busy={busy || addingAsset}
+                          />
+                        </>
                       }
                       onAsset={async (asset, prompt) =>
                         !!(await addAsset(
@@ -1823,7 +1834,9 @@ function Flow({
                           editor,
                           canvas.doc,
                           composerNode.id,
-                          composeNodePrompt(value, references),
+                          [assetNodeContext(composerNode), composeNodePrompt(value, references)]
+                            .filter(Boolean)
+                            .join('\n\n'),
                           urls,
                         )
                       }}

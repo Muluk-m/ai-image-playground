@@ -18,6 +18,7 @@ export interface CanvasNodeJob {
     bffRequestId?: string
     params?: Record<string, unknown>
     generation?: VideoGenerationRecord
+    assetViewLabel?: 'sheet'
     inputFingerprint?: string
     initialResultId?: string
   }

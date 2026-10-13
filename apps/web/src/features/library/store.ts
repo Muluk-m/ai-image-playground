@@ -1,11 +1,12 @@
 import { pickLookAssetImageId } from '@image-playground/shared'
 import { create } from 'zustand'
 import { describeError, i18next } from '../../i18n'
+import { accountScope } from '../../lib/authScope'
 import type { ReferenceAdmission } from '../../lib/referenceDraft'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { DEFAULT_PARAMS, type InputImage } from '../../types'
-import { assetStore } from './lib/assetStore'
+import { assetStore, updateAssetRecord } from './lib/assetStore'
 import { lookStore } from './lib/lookStore'
 import { templateStore } from './lib/templateStore'
 import {
@@ -158,7 +159,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   cancelNamingTemplate: () => set({ namingTemplate: false }),
 
   loadAssets: async () => {
-    set({ assets: await assetStore.list() })
+    const current = accountScope()
+    const assets = await assetStore.list()
+    if (current()) set({ assets })
   },
 
   saveAsset: async (imageId, name) => {
@@ -177,7 +180,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   saveAssetRecord: async (input) => {
     const now = Date.now()
     const existing = input.id ? get().assets.find((a) => a.id === input.id) : undefined
-    const asset: AssetRecord = {
+    let asset: AssetRecord = {
       id: input.id ?? crypto.randomUUID(),
       name: input.name.trim(),
       ...(input.kind ? { kind: input.kind } : {}),
@@ -189,7 +192,33 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       updatedAt: now,
       lastUsedAt: existing?.lastUsedAt ?? now,
     }
-    await assetStore.put(asset)
+    const current = accountScope()
+    if (existing) {
+      const draft = asset
+      const saved = await updateAssetRecord(existing.id, (latest) => {
+        const changed = { ...latest, updatedAt: Math.max(now, latest.updatedAt + 1) }
+        for (const key of ['name', 'kind', 'background', 'description', 'voiceId'] as const) {
+          if (draft[key] !== existing[key]) Object.assign(changed, { [key]: draft[key] })
+        }
+        if (JSON.stringify(draft.views) !== JSON.stringify(existing.views)) {
+          const known = new Set(existing.views.map((view) => view.imageId))
+          changed.views = [
+            ...draft.views,
+            ...latest.views.filter(
+              (view) =>
+                !known.has(view.imageId) &&
+                !draft.views.some((one) => one.imageId === view.imageId),
+            ),
+          ]
+        }
+        return changed
+      })
+      if (!saved) throw new Error('asset_unavailable')
+      asset = saved
+    } else {
+      await assetStore.put(asset)
+    }
+    if (!current()) throw new Error('account_changed')
     set((s) => ({
       assets: existing
         ? s.assets.map((a) => (a.id === asset.id ? asset : a))
@@ -202,7 +231,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const trimmed = name.trim()
     const asset = get().assets.find((a) => a.id === id)
     if (!trimmed || !asset) return
-    await writeAsset(set, { ...asset, name: trimmed, updatedAt: Date.now() })
+    await writeAsset(set, asset.id, { name: trimmed, updatedAt: Date.now() })
   },
 
   deleteAsset: async (id) => {
@@ -225,7 +254,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const indexes = main.attachInputImages(views, admission)
     if (!indexes) return null
 
-    await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
+    await writeAsset(set, asset.id, { lastUsedAt: Date.now() })
     // 面板外（composer 的 `@` 菜单）插入的引用胶囊本身就是反馈，再 toast 是噪音。
     if (get().onLibraryPage) {
       const added = useStore.getState().inputImages.length > before
@@ -243,7 +272,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   noteAssetUsed: async (id) => {
     const asset = get().assets.find((one) => one.id === id)
-    if (asset) await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
+    if (asset) await writeAsset(set, asset.id, { lastUsedAt: Date.now() })
   },
 
   importAssetFiles: async (files, options = {}) => {
@@ -408,9 +437,11 @@ function stripFileExtension(fileName: string): string {
 type LibrarySet = (updater: (state: LibraryState) => Partial<LibraryState>) => void
 
 // 「使用」只动 lastUsedAt：改内容的调用方自己带上新的 updatedAt，这里不代劳。
-async function writeAsset(set: LibrarySet, asset: AssetRecord): Promise<void> {
-  await assetStore.put(asset)
-  set((s) => ({ assets: s.assets.map((a) => (a.id === asset.id ? asset : a)) }))
+async function writeAsset(set: LibrarySet, id: string, patch: Partial<AssetRecord>): Promise<void> {
+  const current = accountScope()
+  const asset = await updateAssetRecord(id, (latest) => ({ ...latest, ...patch }))
+  if (asset && current())
+    set((s) => ({ assets: s.assets.map((a) => (a.id === asset.id ? asset : a)) }))
 }
 
 async function writeTemplate(set: LibrarySet, template: TemplateRecord): Promise<void> {

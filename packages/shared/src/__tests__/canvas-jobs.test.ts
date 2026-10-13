@@ -64,11 +64,15 @@ it('rejects malformed recovery metadata before accepting a cloud update', () => 
     message: '',
     meta: { nodeGeneration: true, prompt: 'test', clientRequestId: 'job' },
   }
+  doc.getMap('nodeJobs').set('job', { ...valid, meta: { ...valid.meta, assetViewLabel: 'sheet' } })
+  validateCloudCanvas(doc, { version: 1, elements: [] })
   for (const meta of [
     { ...valid.meta, nodeVideo: true },
     { ...valid.meta, params: [] },
     { ...valid.meta, generation: { duration: -1 } },
     { ...valid.meta, extra: 'unknown' },
+    { ...valid.meta, assetViewLabel: 'unknown' },
+    { prompt: 'test', clientRequestId: 'job', nodeVideo: true, assetViewLabel: 'sheet' },
   ]) {
     doc.getMap('nodeJobs').set('job', { ...valid, meta })
     expect(() => validateCloudCanvas(doc, { version: 1, elements: [] })).toThrow(
