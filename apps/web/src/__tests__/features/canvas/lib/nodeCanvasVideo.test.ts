@@ -1,16 +1,20 @@
 import {
+  canvasNodeJobs,
   canvasOrigin,
+  canvasResults,
   insertCanvasNode,
   readCanvasDocument,
-  updateCanvasNode,
+  setCanvasNodeJob,
 } from '@image-playground/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { selectNodeResult } from '../../../../features/canvas/lib/nodeCanvasResults'
 import { resumeNodeVideos, submitNodeVideo } from '../../../../features/canvas/lib/nodeCanvasVideo'
 
 const mocks = vi.hoisted(() => ({
+  outputs: vi.fn(async (): Promise<{ index: number }[]> => []),
   submit: vi.fn(async () => 'request-1'),
   job: vi.fn(),
   guard: vi.fn(() => true),
@@ -24,7 +28,7 @@ vi.mock('../../../../lib/generationJob', () => ({
 }))
 vi.mock('../../../../lib/channels/queueClient', () => ({
   submitVideoRequest: mocks.submit,
-  awaitQueueOutputs: async () => [],
+  awaitQueueOutputs: mocks.outputs,
 }))
 vi.mock('../../../../lib/channels/channelStore', () => ({
   getStoredChannel: () => ({ id: 'video' }),
@@ -48,7 +52,15 @@ vi.mock('../../../../features/canvas/lib/submitVideoFromCanvas', () => ({
 }))
 vi.mock('../../../../lib/privateOverlay', () => ({ notifyPrivateSubmissionAccepted: vi.fn() }))
 vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast: mocks.toast }) } }))
-vi.mock('../../../../features/agent/lib/artifactSource', () => ({ videoOutputFrame: vi.fn() }))
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  videoOutputFrame: async () => 'data:image/png;base64,poster',
+}))
+vi.mock('../../../../lib/canvasImage', () => ({
+  getImageDimensions: async () => ({ width: 320, height: 180 }),
+}))
+vi.mock('../../../../lib/cloudMedia', () => ({
+  resolveMediaSource: async (source: string) => source,
+}))
 function fixture() {
   const doc = new Y.Doc()
   insertCanvasNode(
@@ -68,6 +80,7 @@ function fixture() {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.outputs.mockResolvedValue([])
   mocks.guard.mockReturnValue(true)
 })
 describe('node video submission', () => {
@@ -139,21 +152,10 @@ it('resumes a newly confirmed cloud video once after an earlier unconfirmed scan
   mocks.job.mockClear()
   resumeNodeVideos(editor, doc, false)
   expect(mocks.job).not.toHaveBeenCalled()
-  const node = readCanvasDocument(doc).nodes[0]!
-  if (!('pending' in node.data) || node.data.pending?.type !== 'placeholder')
-    throw new Error('missing job')
-  updateCanvasNode(
+  const job = canvasNodeJobs(doc, 'video')[0]!
+  setCanvasNodeJob(
     doc,
-    node.id,
-    {
-      data: {
-        ...node.data,
-        pending: {
-          ...node.data.pending,
-          meta: { ...node.data.pending.meta, bffRequestId: 'late-confirmation' },
-        },
-      },
-    },
+    { ...job, meta: { ...job.meta, bffRequestId: 'late-confirmation' } },
     canvasOrigin('system', 'remote'),
   )
   resumeNodeVideos(editor, doc, false)
@@ -191,4 +193,33 @@ it('sends the node-specific parameters and selected voices in the actual queue r
       }),
     }),
   )
+})
+
+it('retains generation parameters on every video candidate and a later selection', async () => {
+  const { doc, editor } = fixture()
+  mocks.outputs.mockResolvedValue([{ index: 0 }, { index: 1 }])
+  submitNodeVideo(
+    editor,
+    doc,
+    'video',
+    'pan',
+    [],
+    {},
+    {},
+    { model: 'model', duration: 8, aspectRatio: '9:16', resolution: '720p' },
+  )
+  await mocks.job.mock.calls[0]![0]()
+  const results = canvasResults(doc, 'video')
+  expect(results).toHaveLength(2)
+  for (const result of results)
+    expect(result.display?.video?.generation).toMatchObject({
+      duration: 8,
+      model: 'model',
+      aspectRatio: '9:16',
+    })
+  await selectNodeResult(editor, doc, results[1]!.id, canvasOrigin('user', 'test'))
+  expect(readCanvasDocument(doc).nodes[0]!.data).toMatchObject({
+    video: { outputIndex: 1, generation: { duration: 8, model: 'model' } },
+  })
+  doc.destroy()
 })

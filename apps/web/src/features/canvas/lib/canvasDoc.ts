@@ -249,6 +249,15 @@ export class CanvasDoc {
     this.emit()
   }
 
+  /** Cache candidate pixels without creating a canvas element or a second undo history. */
+  cacheBitmap(source: string, id = newElementId()): string {
+    if (this.files[id] !== source) {
+      this.files = { ...this.files, [id]: source }
+      this.emit()
+    }
+    return id
+  }
+
   /** Refresh derived video covers without changing geometry or adding an undo step. */
   replaceVideoPoster(id: string, expectedFileId: string, dataUrl: string): void {
     const element = this.getElement(id)

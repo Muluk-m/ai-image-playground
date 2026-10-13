@@ -530,6 +530,13 @@
     "trimVideo": "裁剪时长",
     "trimStart": "开始（秒）",
     "trimEnd": "结束（秒）",
-    "trimHint": "保留原视频，已有和新加入的时间线片段使用此范围。"
+    "trimHint": "保留原视频，已有和新加入的时间线片段使用此范围。",
+    "candidateUnavailable": "这个候选暂时无法读取，可能已过期。当前主结果未改变。",
+    "mainResult": "主结果",
+    "resultStale": "上游已变化 · 建议重新生成",
+    "candidates": "候选结果",
+    "previousCandidate": "上一个候选",
+    "nextCandidate": "下一个候选",
+    "spreadCandidates": "将全部候选摊开到画布"
   }
 }

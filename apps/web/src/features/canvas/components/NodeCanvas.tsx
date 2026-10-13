@@ -7,6 +7,7 @@ import {
   canvasKindsConnect,
   canvasLinkAllowed,
   canvasOrigin,
+  canvasResults,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -89,6 +90,7 @@ import {
 } from '../lib/nodeCanvasFlow'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
 import { TEXT_CARD_HEIGHT, TEXT_CARD_WIDTH } from '../lib/nodeCanvasPlace'
+import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
 import type { CanvasWorkspace } from '../lib/workspaces'
@@ -99,6 +101,7 @@ import NodeAssetPicker from './NodeAssetPicker'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodeReferenceEditor from './NodeReferenceEditor'
+import NodeResultPicker from './NodeResultPicker'
 import NodeSliceMenu from './NodeSliceMenu'
 import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
@@ -419,13 +422,18 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           if (fileId && files[fileId]) preview(files[fileId])
         }}
       >
-        {pending ? (
-          <Pending pending={pending} />
-        ) : fileId ? (
+        {fileId ? (
           <Picture fileId={fileId} rotation={rotation} />
+        ) : pending ? (
+          <Pending pending={pending} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="image" size="lg" />
+          </div>
+        )}
+        {fileId && pending && (
+          <div className="absolute inset-x-0 bottom-0 bg-background/80 py-2">
+            <Pending pending={pending} />
           </div>
         )}
       </div>
@@ -1632,6 +1640,25 @@ function Flow({
                       actions={
                         menu.nodeId
                           ? [
+                              ...(canvasResults(canvas.doc, menu.nodeId).length > 1
+                                ? [
+                                    {
+                                      icon: 'grid' as const,
+                                      label: t('nodes.spreadCandidates'),
+                                      onClick: () => {
+                                        const id = menu.nodeId!
+                                        closeMenu()
+                                        void spreadNodeResults(editor, canvas, id)
+                                          .then(selectCreatedBatch)
+                                          .catch(() =>
+                                            useStore
+                                              .getState()
+                                              .showToast(t('nodes.candidateUnavailable'), 'error'),
+                                          )
+                                      },
+                                    },
+                                  ]
+                                : []),
                               {
                                 icon: 'folder',
                                 label: t(selected?.data.group ? 'nodes.ungroup' : 'nodes.group'),
@@ -1677,6 +1704,14 @@ function Flow({
                   )}
                   {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
                     <ImageNodeComposer
+                      resultTools={
+                        <NodeResultPicker
+                          key={composerNode.id}
+                          canvas={canvas}
+                          editor={editor}
+                          nodeId={composerNode.id}
+                        />
+                      }
                       key={composerNode.id}
                       document={canvas.doc}
                       nodeId={composerNode.id}
@@ -1708,6 +1743,14 @@ function Flow({
                   )}
                   {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
                     <VideoNodeComposer
+                      resultTools={
+                        <NodeResultPicker
+                          key={composerNode.id}
+                          canvas={canvas}
+                          editor={editor}
+                          nodeId={composerNode.id}
+                        />
+                      }
                       key={composerNode.id}
                       document={canvas.doc}
                       nodeId={composerNode.id}

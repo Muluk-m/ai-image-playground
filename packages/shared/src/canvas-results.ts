@@ -212,3 +212,17 @@ export function refreshCanvasResultDisplay(
     origin,
   )
 }
+
+export function cacheCanvasResultDisplay(
+  doc: Y.Doc,
+  resultId: string,
+  display: CanvasResultDisplay,
+  origin: CanvasOrigin,
+): void {
+  const result = doc.getMap<CanvasResult>('nodeResults').get(resultId)
+  if (result)
+    doc.transact(
+      () => doc.getMap<CanvasResult>('nodeResults').set(resultId, { ...result, display }),
+      origin,
+    )
+}

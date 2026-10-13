@@ -6,13 +6,15 @@ import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { Box } from './geometry'
 import { PLACEMENT_GAP } from './placement'
+import { timelineClipRange } from './timelineRange'
+
+export { TIMELINE_UNKNOWN_SECONDS } from './timelineRange'
 
 /** 画布上一秒占多宽（页面单位）。8 秒一段约 200，和默认的 360 宽图片放在一起不突兀。 */
 export const TIMELINE_PX_PER_SECOND = 24
 export const TIMELINE_HEIGHT = 120
 export const TIMELINE_PADDING = 12
 /** 时长未知（旧视频没有生成记录）时按这么长画，入出点编辑时再按实际时长修正。 */
-export const TIMELINE_UNKNOWN_SECONDS = 5
 /** 片段太短时也保留能点中的宽度。 */
 const MIN_SEGMENT_WIDTH = 32
 
@@ -35,8 +37,8 @@ export function sourceSeconds(element: CanvasEl | undefined): number | undefined
 
 /** 一段实际播多长。出点缺省播到结尾；源时长未知时按占位时长。 */
 export function clipSeconds(clip: TimelineClip, element: CanvasEl | undefined): number {
-  const end = clip.out ?? sourceSeconds(element) ?? TIMELINE_UNKNOWN_SECONDS
-  return Math.max(0, end - clip.in)
+  const range = timelineClipRange(clip, sourceSeconds(element))
+  return Math.max(0, range.out - range.in)
 }
 
 export function isTimelineSource(element: CanvasEl | undefined): boolean {

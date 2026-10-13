@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  canvasNodeJobs,
   canvasOrigin,
   canvasResults,
   canvasSyncStep1,
@@ -19,6 +20,7 @@ import {
   readCanvasGroups,
   readCanvasSyncMessage,
   recordCanvasResult,
+  setCanvasNodeJob,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
@@ -584,4 +586,70 @@ it('authorizes candidate tasks without charging media storage and preserves refe
   doc.destroy()
   saved.destroy()
   reloaded.destroy()
+})
+
+it('checks every fan-out job task, not only the visible pending job', async () => {
+  const id = await create()
+  const owned = crypto.randomUUID(),
+    other = crypto.randomUUID()
+  for (const [task, user] of [
+    [owned, 'owner'],
+    [other, 'other'],
+  ])
+    await db.insert(schema.tasks).values({
+      id: task!,
+      user_id: user!,
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: 'completed',
+      request_payload: { prompt: 'fixture' },
+      submitted_at: Date.now(),
+    })
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const start = Y.encodeStateVector(doc)
+  insertCanvasNode(
+    doc,
+    { id: 'jobs-node', type: 'image', x: 0, y: 0, width: 300, height: 200, data: {} },
+    origin,
+  )
+  setCanvasNodeJob(
+    doc,
+    {
+      id: 'first',
+      nodeId: 'jobs-node',
+      createdAt: 1,
+      status: 'loading',
+      message: '',
+      meta: { nodeGeneration: true, prompt: 'test', clientRequestId: 'first', bffRequestId: owned },
+    },
+    origin,
+  )
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, start))
+  const before = Y.encodeStateVector(doc)
+  setCanvasNodeJob(
+    doc,
+    {
+      id: 'hidden',
+      nodeId: 'jobs-node',
+      createdAt: 2,
+      status: 'loading',
+      message: '',
+      meta: {
+        nodeGeneration: true,
+        prompt: 'test',
+        clientRequestId: 'hidden',
+        bffRequestId: other,
+      },
+    },
+    origin,
+  )
+  await expect(
+    accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, before)),
+  ).rejects.toThrow('canvas_task_not_owned')
+  const saved = new Y.Doc()
+  Y.applyUpdate(saved, await accessCanvasDocument('owner', id))
+  expect(canvasNodeJobs(saved).map((job) => job.id)).toEqual(['first'])
+  doc.destroy()
+  saved.destroy()
 })

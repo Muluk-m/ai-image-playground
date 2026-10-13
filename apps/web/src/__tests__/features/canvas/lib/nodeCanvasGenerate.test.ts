@@ -1,10 +1,13 @@
 import {
+  canvasNodeJobs,
   canvasOrigin,
+  canvasResults,
   connectCanvasNodes,
   deleteCanvasNode,
   importLegacyElements,
   insertCanvasNode,
   readCanvasDocument,
+  setCanvasNodeJob,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -66,7 +69,7 @@ describe('submitNodeImage', () => {
     expect(mocks.start.mock.calls[0]![0].params.n).toBe(useStore.getState().params.n)
   })
 
-  it('opens a sibling card for each extra fan-out index and keeps the same incoming edge', () => {
+  it('keeps fan-out jobs in one node with independent recovery references', () => {
     mocks.start.mockImplementation((spec, sink) => {
       const variant = spec.variants[0]
       return [0, 1].map((index) =>
@@ -97,18 +100,16 @@ describe('submitNodeImage', () => {
     const editor = new CanvasEditor(new CanvasDoc())
     expect(submitNodeImage(editor, ydoc, 'card', '两张', [])).toBe(true)
     const images = readCanvasDocument(ydoc).nodes.filter((node) => node.type === 'image')
-    expect(images).toHaveLength(3)
-    const sibling = images.find((node) => node.id !== 'card' && node.id !== 'upstream')
-    expect(sibling).toMatchObject({ y: 0, data: { pending: { status: 'loading' } } })
-    expect(sibling!.x).toBeGreaterThan(0)
-    expect(
-      readCanvasDocument(ydoc).edges.some(
-        (edge) => edge.source === 'upstream' && edge.target === sibling!.id,
-      ),
-    ).toBe(true)
+    expect(images).toHaveLength(2)
+    expect(canvasNodeJobs(ydoc, 'card')).toHaveLength(2)
+    expect(canvasNodeJobs(ydoc, 'card').map((job) => job.meta.clientRequestId)).toEqual([
+      'req-0',
+      'req-1',
+    ])
+    expect(readCanvasDocument(ydoc).edges).toHaveLength(1)
   })
 
-  it('preserves an existing image and places regeneration in a connected sibling', () => {
+  it('preserves the existing image as a candidate and generates in the same node', () => {
     const doc = new Y.Doc()
     insertCanvasNode(
       doc,
@@ -129,15 +130,14 @@ describe('submitNodeImage', () => {
       ]),
     ).toBe(true)
     const snapshot = readCanvasDocument(doc)
-    expect(snapshot.nodes.find((n) => n.id === 'original')?.data).toEqual({
+    expect(snapshot.nodes.find((n) => n.id === 'original')?.data).toMatchObject({
       fileId: 'source',
       meta: { nodePrompt: 'edit' },
+      pending: { status: 'loading' },
     })
-    expect(snapshot.nodes).toHaveLength(2)
-    expect(snapshot.edges).toContainEqual(
-      expect.objectContaining({ source: 'original', target: snapshot.nodes[1]!.id }),
-    )
-    expect(snapshot.nodes[1]!.data).toMatchObject({ pending: { status: 'loading' } })
+    expect(snapshot.nodes).toHaveLength(1)
+    expect(snapshot.edges).toHaveLength(0)
+    expect(canvasResults(doc, 'original')).toHaveLength(1)
   })
 
   it('does not start when there is nothing to say and nothing to reference', () => {
@@ -167,12 +167,8 @@ it('resumes a cloud image job when its request id arrives after initial loading'
   const editor = new CanvasEditor(new CanvasDoc())
   resumeNodeGenerations(editor, doc, false)
   expect(mocks.resume).not.toHaveBeenCalled()
-  updateCanvasNode(
-    doc,
-    'late',
-    { data: { pending: { ...pending, meta: { ...meta, bffRequestId: 'confirmed' } } } },
-    origin,
-  )
+  const job = canvasNodeJobs(doc, 'late')[0]!
+  setCanvasNodeJob(doc, { ...job, meta: { ...job.meta, bffRequestId: 'confirmed' } }, origin)
   resumeNodeGenerations(editor, doc, false)
   resumeNodeGenerations(editor, doc, false)
   expect(mocks.resume).toHaveBeenCalledTimes(1)
@@ -224,7 +220,9 @@ it('merges multi-image results from two recovering devices into the same output 
     readCanvasDocument(first)
       .nodes.map((node) => node.id)
       .sort(),
-  ).toEqual(['card', 'result:shared-task:1'])
+  ).toEqual(['card'])
+  expect(canvasResults(first, 'card')).toHaveLength(2)
+  expect(canvasResults(first, 'card')).toEqual(canvasResults(second, 'card'))
   expect(readCanvasDocument(second).nodes).toEqual(readCanvasDocument(first).nodes)
   expect(mocks.completed).toHaveBeenCalledTimes(2)
   for (const [record] of mocks.completed.mock.calls) expect(record.id).toBe('canvas:shared-task')

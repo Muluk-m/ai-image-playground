@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { type CanvasGroup, readCanvasGroups } from './canvas-groups'
+import { canvasPendingJob } from './canvas-jobs'
 import { canvasLinkAllowed } from './canvas-registry'
 import { canvasMainResult, refreshCanvasResultDisplay } from './canvas-results'
 import {
@@ -157,6 +158,8 @@ export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
       }
     }
     if (node.type === 'image' || node.type === 'video') {
+      const pending = canvasPendingJob(doc, node.id)
+      if (pending) node.data = { ...node.data, pending }
       const result = canvasMainResult(doc, node.id)
       if (result?.display) {
         const {
