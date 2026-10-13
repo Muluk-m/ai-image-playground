@@ -19,7 +19,7 @@ import type { BffTransaction } from './private-overlay'
 
 export class CanvasSyncError extends Error {
   constructor(
-    readonly status: 400 | 403 | 404 | 410 | 413,
+    readonly status: 400 | 403 | 404 | 409 | 410 | 413,
     message: string,
   ) {
     super(message)
@@ -229,7 +229,7 @@ async function validateOwnership(
 export async function accessCanvasDocument(
   userId: string,
   projectId: string,
-  update?: Uint8Array,
+  change?: Uint8Array | ((doc: Y.Doc, tx: BffTransaction) => Promise<Uint8Array | undefined>),
 ): Promise<Uint8Array> {
   return db.transaction(async (tx) => {
     await tx
@@ -269,6 +269,7 @@ export async function accessCanvasDocument(
       if (initializeCanvasConnectionRules(doc) || textMigrated)
         await persist(tx, projectId, loaded, Y.encodeStateAsUpdate(doc, policyVector))
       const legacyConnections = doc.getMap<string>('legacyConnections').toJSON()
+      const update = typeof change === 'function' ? await change(doc, tx) : change
       if (update) {
         const vector = Y.encodeStateVector(doc)
         const before = Y.encodeStateAsUpdate(doc)

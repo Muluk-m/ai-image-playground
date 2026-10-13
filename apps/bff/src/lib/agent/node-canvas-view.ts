@@ -23,8 +23,7 @@ function label(node: CanvasNode): string {
   return node.id
 }
 
-/** Read the authorized server graph, never accept a client-supplied project identity. */
-export async function readAgentNodeCanvas(context: AgentToolContext, params: ReadNodeCanvasParams) {
+export async function agentCanvasProject(context: AgentToolContext) {
   if (!context.userId) return null
   const [project] = await db
     .select({ id: schema.canvas_projects.id })
@@ -37,7 +36,13 @@ export async function readAgentNodeCanvas(context: AgentToolContext, params: Rea
       ),
     )
     .limit(1)
-  if (!project) return null
+  return project ?? null
+}
+
+/** Read the authorized server graph, never accept a client-supplied project identity. */
+export async function readAgentNodeCanvas(context: AgentToolContext, params: ReadNodeCanvasParams) {
+  const project = await agentCanvasProject(context)
+  if (!project || !context.userId) return null
   const doc = new Y.Doc()
   try {
     Y.applyUpdate(doc, await accessCanvasDocument(context.userId, project.id))

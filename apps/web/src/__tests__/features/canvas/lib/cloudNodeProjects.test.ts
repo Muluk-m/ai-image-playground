@@ -109,8 +109,10 @@ async function fixture(
     ],
     origin,
   )
-  vi.mocked(authenticatedBffFetch).mockImplementation(
-    async () => new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer),
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/canvas/commands')
+      ? Response.json([])
+      : new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer),
   )
   vi.stubGlobal('WebSocket', Socket)
   await beforeLoad?.(project, record, server)

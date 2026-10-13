@@ -4,6 +4,7 @@ import { canvasConnectionAllowed, canvasNodeKind } from './canvas-registry'
 import { isCanvasStoryboardData } from './canvas-storyboard'
 import { CANVAS_STATE_MAX_BYTES } from './canvas-sync'
 import { isCanvasTextDelta } from './canvas-text'
+import { restoreCanvasUndoLineage } from './canvas-undo-lineage'
 import {
   isProjectDocument,
   isProjectTimelineClip,
@@ -83,6 +84,7 @@ export function validateCloudCanvas(
     'mainResults',
     'nodeJobs',
     'timelineSlots',
+    'undoLineage',
   ]
   if ([...doc.share.keys()].some((key) => !roots.includes(key)))
     throw new Error('invalid_canvas_document')
@@ -90,6 +92,7 @@ export function validateCloudCanvas(
   if (doc.store.pendingStructs || doc.store.pendingDs) throw new Error('incomplete_canvas_update')
   if (Y.encodeStateAsUpdate(doc).length > CANVAS_STATE_MAX_BYTES)
     throw new Error('canvas_document_too_large')
+  restoreCanvasUndoLineage(doc)
   for (const [key, value] of doc.getMap('nodes')) {
     if (!(value instanceof Y.Map) || value.get('id') !== key) throw new Error('invalid_canvas_node')
     if (JSON.stringify(value.get('data')).includes('data:image/'))

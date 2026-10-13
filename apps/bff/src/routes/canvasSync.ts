@@ -10,6 +10,7 @@ import { Elysia, t } from 'elysia'
 import * as Y from 'yjs'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { listCanvasCommands, reverseStoredCanvasCommand } from '../lib/canvasCommands'
 import { type CanvasPeer, canvasSyncRooms } from '../lib/canvasSyncRooms'
 import { accessCanvasDocument, CanvasSyncError } from '../lib/canvasSyncStore'
 import { isCapabilityEnabled } from '../lib/capabilities'
@@ -53,6 +54,47 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
       }
     },
     { params: id },
+  )
+  .get(
+    '/api/projects/:id/canvas/commands',
+    async ({ authUser, params, status }) => {
+      try {
+        return await listCanvasCommands(authUser!.id, params.id)
+      } catch (error) {
+        if (error instanceof CanvasSyncError) return status(error.status, { error: error.message })
+        throw error
+      }
+    },
+    { params: id },
+  )
+  .post(
+    '/api/projects/:id/canvas/commands/:commandId/reverse',
+    async ({ authUser, params, body, status }) => {
+      try {
+        const update = await reverseStoredCanvasCommand(
+          authUser!.id,
+          params.id,
+          params.commandId,
+          body.revision,
+        )
+        return new Response(new Uint8Array(update).buffer, {
+          headers: {
+            'content-type': 'application/octet-stream',
+            'cache-control': 'private, no-store',
+          },
+        })
+      } catch (error) {
+        if (error instanceof CanvasSyncError) return status(error.status, { error: error.message })
+        throw error
+      }
+    },
+    {
+      params: t.Object({
+        id: t.String({ format: 'uuid' }),
+        commandId: t.String({ format: 'uuid' }),
+      }),
+      body: t.Object({ revision: t.Integer({ minimum: 0 }) }),
+    },
   )
   .put(
     '/api/projects/:id/canvas/name',

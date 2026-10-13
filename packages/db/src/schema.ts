@@ -432,6 +432,31 @@ export const canvas_updates = pgTable(
   (t) => [primaryKey({ columns: [t.project_id, t.sequence] })],
 )
 
+/** Durable reversible Agent commands; ownership follows the project. */
+export const canvas_commands = pgTable(
+  'canvas_commands',
+  {
+    id: text('id').primaryKey(),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_documents.project_id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    label: text('label').notNull(),
+    before: text('before').notNull(),
+    update: text('update').notNull(),
+    reversed: boolean('reversed').notNull().default(false),
+    revision: integer('revision').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_canvas_commands_call').on(t.project_id, t.turn_id, t.tool_call_id),
+    index('idx_canvas_commands_project_created').on(t.project_id, t.created_at),
+  ],
+)
+
 /**
  * 智能体会话。归属 `user_id` 或 `device_id`，由创建时的身份决定。
  * 删除以墓碑传播，`deleted_at` 非空的会话从读路径消失。

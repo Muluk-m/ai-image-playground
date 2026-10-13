@@ -18,6 +18,7 @@ import {
   synchronizeLegacyElements,
   updateCanvasNode,
 } from '@image-playground/shared'
+import i18next from 'i18next'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -25,9 +26,11 @@ import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { useStore } from '../../../store'
 import type { CloudProjectSession, ProjectSyncStatus } from './cloudProjects'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 import { nodeCanvasDatabaseName } from './nodeCanvasDocument'
+import { type CanvasCommandSummary, CloudCanvasHistory } from './nodeCanvasHistory'
 import { writePersistedScene } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
@@ -70,6 +73,8 @@ export class CloudNodeProjectSession {
   private editVersion = 0
   private sentVersion: number | undefined
   private loading: Promise<void> | undefined
+  private commandHistory: CloudCanvasHistory | undefined
+  private readingCommands: Promise<void> | undefined
   private waits = new Set<{ resolve(): void; reject(error: unknown): void }>()
   constructor(
     private project: CanvasProject,
@@ -227,7 +232,35 @@ export class CloudNodeProjectSession {
         }
       }
       normalizeMedia()
-      const undo = createCanvasUndoManager(doc, origin)
+      const undo = new CloudCanvasHistory(
+        createCanvasUndoManager(doc, origin),
+        async (command) => {
+          await this.sync()
+          const response = await authenticatedBffFetch(
+            `${bffBaseUrl()}/api/projects/${this.project.id}/canvas/commands/${command.id}/reverse`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ revision: command.revision }),
+              signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]),
+            },
+          )
+          if (!response.ok) {
+            await this.readCommands()
+            throw new ProjectRequestError(response.status, 'canvas_command_reverse_failed')
+          }
+          this.current()
+          Y.applyUpdate(doc, new Uint8Array(await response.arrayBuffer()), remoteOrigin)
+          await this.readingCommands
+          await this.readCommands()
+        },
+        (error) => {
+          if (error instanceof Error && error.message === 'canvas_undo_history_too_large')
+            useStore.getState().showToast(i18next.t('nodes.historyFull', { ns: 'canvas' }), 'error')
+          else this.status('offline')
+        },
+      )
+      this.commandHistory = undo
       this.canvas = { doc, origin, undo, destroy: async () => {} }
       let previous = this.record.editor.doc.elements as readonly LegacyCanvasElement[]
       this.stopLegacy = this.record.editor.doc.subscribe(() => {
@@ -361,9 +394,12 @@ export class CloudNodeProjectSession {
       try {
         this.current()
         const message = readCanvasSyncMessage(new Uint8Array(event.data))
-        if (message.kind === 'update') Y.applyUpdate(this.canvas.doc, message.value, remoteOrigin)
-        else if (message.kind === 'vector') {
+        if (message.kind === 'update') {
+          Y.applyUpdate(this.canvas.doc, message.value, remoteOrigin)
+          void this.readCommands().catch(() => {})
+        } else if (message.kind === 'vector') {
           this.serverVector = message.value
+          void this.readCommands().catch(() => {})
           this.requestSync()
         } else {
           this.serverVector = message.value
@@ -545,6 +581,25 @@ export class CloudNodeProjectSession {
       this.requestSync()
     })
   }
+  private readCommands(): Promise<void> {
+    if (this.readingCommands) return this.readingCommands
+    this.readingCommands = (async () => {
+      const response = await authenticatedBffFetch(
+        `${bffBaseUrl()}/api/projects/${this.project.id}/canvas/commands`,
+        {
+          cache: 'no-store',
+          signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]),
+        },
+      )
+      if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_commands_failed')
+      const commands: CanvasCommandSummary[] = await response.json()
+      this.current()
+      this.commandHistory?.accept(commands)
+    })().finally(() => {
+      this.readingCommands = undefined
+    })
+    return this.readingCommands
+  }
   reload = () => {
     this.socket?.close()
     this.connect()
@@ -565,6 +620,7 @@ export class CloudNodeProjectSession {
     this.current()
     if (this.canvas) Y.applyUpdate(this.canvas.doc, update, remoteOrigin)
     this.projectToEditor()
+    await this.readCommands()
   }
   knownMediaId(_fileId: string, source: string | undefined) {
     return source ? (mediaIdentity(source) ?? this.bindings.get(source)) : undefined

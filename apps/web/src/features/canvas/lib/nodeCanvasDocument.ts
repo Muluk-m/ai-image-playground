@@ -9,12 +9,13 @@ import {
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import { scopedStorageName } from '../../../lib/authScope'
+import type { CanvasHistory } from './nodeCanvasHistory'
 
 /** 本机节点画布：一个项目一份 `Y.Doc`，存在它自己的 IndexedDB 库里，旧存档只读不写。 */
 export interface NodeCanvasDocument {
   readonly doc: Y.Doc
   readonly origin: CanvasOrigin
-  readonly undo: Y.UndoManager
+  readonly undo: CanvasHistory
   destroy(): Promise<void>
 }
 

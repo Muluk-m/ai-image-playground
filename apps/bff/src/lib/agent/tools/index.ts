@@ -26,6 +26,7 @@ import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
+import { arrangeNodes, connectNodes, createNodes, deleteNodes, updateNodes } from './nodeCanvas'
 import { planImageBatch } from './planImageBatch'
 import { proposeProductionEdit, readProduction, writeProduction } from './production'
 import { proposeProductionAssets } from './production-assets'
@@ -81,6 +82,11 @@ const TOOLS: readonly AgentToolSpec[] = [
   readConversationImages,
   readLibrary,
   readCanvas,
+  createNodes,
+  updateNodes,
+  connectNodes,
+  deleteNodes,
+  arrangeNodes,
   generateVideo,
   arrangeTimeline,
   editCanvasObject,
@@ -104,6 +110,11 @@ function find(name: string): AgentToolSpec | undefined {
  */
 const CANVAS_TOOLS = new Set<AgentToolName>([
   'readCanvas',
+  'createNodes',
+  'updateNodes',
+  'connectNodes',
+  'deleteNodes',
+  'arrangeNodes',
   'editCanvasObject',
   'arrangeCanvas',
   'arrangeTimeline',
@@ -113,6 +124,8 @@ function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[]
   return TOOLS.filter(
     (tool) =>
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
+      (!audience?.nodeCanvas ||
+        !['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'].includes(tool.name)) &&
       (tool.available?.(mode, audience) ?? true),
   )
 }
@@ -129,29 +142,31 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  */
 export function agentTurnTools(context: AgentToolContext, failures?: ToolFailureLog): AgentTool[] {
   return [
-    ...present(context.mode, { userId: context.userId, experience: context.experience }).map(
-      (spec) => {
-        const tool = spec.create(context)
-        const execute = tool.execute
-        return {
-          ...tool,
-          execute: async (...args: Parameters<typeof execute>) => {
-            const [toolCallId, params, signal] = args
-            failures?.started(toolCallId)
-            try {
-              await context.assertExecution?.()
-              const replayed = context.replay && replayedJob(spec, context, params)
-              if (replayed) return replayed
-              return await execute(...args)
-            } catch (thrown) {
-              // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
-              failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
-              throw thrown
-            }
-          },
-        }
-      },
-    ),
+    ...present(context.mode, {
+      userId: context.userId,
+      experience: context.experience,
+      nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
+    }).map((spec) => {
+      const tool = spec.create(context)
+      const execute = tool.execute
+      return {
+        ...tool,
+        execute: async (...args: Parameters<typeof execute>) => {
+          const [toolCallId, params, signal] = args
+          failures?.started(toolCallId)
+          try {
+            await context.assertExecution?.()
+            const replayed = context.replay && replayedJob(spec, context, params)
+            if (replayed) return replayed
+            return await execute(...args)
+          } catch (thrown) {
+            // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
+            failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
+            throw thrown
+          }
+        },
+      }
+    }),
     clarificationTool,
   ]
 }

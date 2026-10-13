@@ -227,6 +227,11 @@ function dropEdgesTouching(edges: Y.Map<CanvasEdge>, ids: readonly string[]): vo
   }
 }
 
+/** Stored authoring data without candidate-result and running-job display projections. */
+export function canvasNodeSourceData(doc: Y.Doc, id: string): CanvasNode['data'] | undefined {
+  return nodesOf(doc).get(id)?.get('data') as CanvasNode['data'] | undefined
+}
+
 /** 放一个还没有旧元素的节点（空图片卡）。几何与 `data` 整份写入。 */
 export function insertCanvasNode(
   doc: Y.Doc,
@@ -237,7 +242,8 @@ export function insertCanvasNode(
   const z = nextZ(doc)
   // `Omit` 把可区分联合收成一个对象，展开后要再认回节点。
   // Undoing a user-created node must not let the legacy bitmap archive resurrect it.
-  if (origin.startsWith('user:')) doc.getMap('managedNodes').set(node.id, true)
+  if (origin.startsWith('user:') || origin.startsWith('agent:'))
+    doc.getMap('managedNodes').set(node.id, true)
   doc.transact(() => {
     doc.getMap('deletedNodes').delete(node.id)
     writeNode(doc, { ...node, z } as CanvasNode)

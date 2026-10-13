@@ -854,3 +854,139 @@ it('persists independent storyboard field updates and projects the merged table 
   b.destroy()
   restored.destroy()
 })
+
+it('persists Agent commands with no browser, retries idempotently, and authorizes atomic undo/redo', async () => {
+  const { executeCanvasCommand } = await import('../../lib/canvasCommands')
+  const id = await create()
+  const call = {
+    turnId: 'command-turn',
+    toolCallId: 'command-call',
+    label: '创建节点',
+    args: { ids: ['agent-a', 'agent-b'] },
+  }
+  const mutate = (doc: Y.Doc, origin: import('@image-playground/shared').CanvasOrigin) => {
+    for (const nodeId of call.args.ids)
+      insertCanvasNode(
+        doc,
+        {
+          id: nodeId,
+          type: 'text',
+          x: 400,
+          y: 100,
+          width: 300,
+          height: 220,
+          data: { text: nodeId, fontSize: 16, fill: '#fff' },
+        },
+        origin,
+      )
+    connectCanvasNodes(doc, { source: 'agent-a', target: 'agent-b' }, origin)
+  }
+  const first = await executeCanvasCommand('owner', id, call, mutate)
+  expect(await executeCanvasCommand('owner', id, call, mutate)).toEqual(first)
+  await expect(
+    executeCanvasCommand('owner', id, { ...call, args: { changed: true } }, mutate),
+  ).rejects.toThrow('canvas_command_conflict')
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  expect(readCanvasDocument(doc).nodes).toHaveLength(3)
+  const vector = Y.encodeStateVector(doc)
+  moveCanvasNodes(doc, [{ id: 'title', x: 700, y: 800 }], origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, vector))
+  const commandsUrl = `${base}/api/projects/${id}/canvas/commands`
+  const list = await fetch(commandsUrl, { headers: { cookie } })
+  const commands = await list.json()
+  expect(commands).toHaveLength(1)
+  expect(commands[0]).not.toHaveProperty('before')
+  expect((await fetch(commandsUrl, { headers: { cookie: otherCookie } })).status).toBe(404)
+  const reverse = (revision: number, credential = cookie) =>
+    fetch(`${commandsUrl}/${first.commandId}/reverse`, {
+      method: 'POST',
+      headers: { cookie: credential, 'content-type': 'application/json' },
+      body: JSON.stringify({ revision }),
+    })
+  expect((await reverse(0, otherCookie)).status).toBe(404)
+  const undone = await reverse(0)
+  expect(undone.status).toBe(200)
+  Y.applyUpdate(doc, new Uint8Array(await undone.arrayBuffer()))
+  expect(readCanvasDocument(doc).nodes).toHaveLength(1)
+  expect(readCanvasDocument(doc).nodes[0]).toMatchObject({ id: 'title', x: 700, y: 800 })
+  expect((await reverse(0)).status).toBe(409)
+  const redone = await reverse(1)
+  expect(redone.status).toBe(200)
+  Y.applyUpdate(doc, new Uint8Array(await redone.arrayBuffer()))
+  expect(readCanvasDocument(doc).nodes).toHaveLength(3)
+  expect(readCanvasDocument(doc).edges).toHaveLength(1)
+  const before = await accessCanvasDocument('owner', id)
+  await expect(
+    executeCanvasCommand('owner', id, { ...call, toolCallId: 'invalid' }, (candidate, source) => {
+      insertCanvasNode(
+        candidate,
+        {
+          id: 'bad',
+          type: 'image',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          data: { mediaId: 'not-owned' },
+        },
+        source,
+      )
+    }),
+  ).rejects.toThrow()
+  expect(await accessCanvasDocument('owner', id)).toEqual(before)
+  expect(await (await fetch(commandsUrl, { headers: { cookie } })).json()).toHaveLength(1)
+  doc.destroy()
+})
+
+it('keeps dependent command redo working across persisted parent restoration', async () => {
+  const { executeCanvasCommand, reverseStoredCanvasCommand } = await import(
+    '../../lib/canvasCommands'
+  )
+  const id = await create()
+  const created = await executeCanvasCommand(
+    'owner',
+    id,
+    { turnId: 'chain', toolCallId: 'create', label: '创建', args: {} },
+    (doc, actor) => {
+      insertCanvasNode(
+        doc,
+        {
+          id: 'agent-text',
+          type: 'text',
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 200,
+          data: { text: 'first', fontSize: 16, fill: '#fff' },
+        },
+        actor,
+      )
+    },
+  )
+  const edited = await executeCanvasCommand(
+    'owner',
+    id,
+    { turnId: 'chain', toolCallId: 'edit', label: '修改', args: {} },
+    (doc, actor) => {
+      updateCanvasNode(
+        doc,
+        'agent-text',
+        { data: { text: 'second', fontSize: 16, fill: '#fff' } },
+        actor,
+      )
+    },
+  )
+  for (let revision = 0; revision < 4; revision += 2) {
+    await reverseStoredCanvasCommand('owner', id, edited.commandId, revision)
+    await reverseStoredCanvasCommand('owner', id, created.commandId, revision)
+    await reverseStoredCanvasCommand('owner', id, created.commandId, revision + 1)
+    await reverseStoredCanvasCommand('owner', id, edited.commandId, revision + 1)
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+    expect(
+      readCanvasDocument(doc).nodes.find((node) => node.id === 'agent-text')?.data,
+    ).toMatchObject({ text: 'second' })
+    doc.destroy()
+  }
+})
