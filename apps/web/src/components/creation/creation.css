@@ -152,7 +152,9 @@
 .creation-reference-list .creation-add { width: 72px; height: 72px; }
 [data-radix-popper-content-wrapper]:has(> .creation-reference-preview) { pointer-events: none; }
 .creation-reference-preview { pointer-events: none; max-height: var(--radix-tooltip-content-available-height); padding: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); border-radius: 12px; }
-.creation-reference-preview img { display: block; width: 288px; max-width: calc(100vw - 48px); height: min(240px, calc(var(--radix-tooltip-content-available-height, 288px) - 48px)); object-fit: contain; border-radius: 8px; }
+/* 宽高都写死再 object-fit:contain，竖图会在固定盒子里留出左右空边。
+   只限制最大边，盒子跟着图片比例走。 */
+.creation-reference-preview img { display: block; width: auto; height: auto; max-width: min(288px, calc(100vw - 48px)); max-height: min(320px, calc(var(--radix-tooltip-content-available-height, 360px) - 48px)); border-radius: 8px; background: transparent; }
 .creation-reference-preview > span { display: block; margin-top: 8px; max-width: 288px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .creation-reference-stack[data-failed=true] .creation-stack-count { background: hsl(var(--destructive)); color: hsl(var(--on-media)); }
@@ -198,9 +200,12 @@
  }
 }
 
-/* The gallery already shows the references. Keep the prompt to one line until the text grows,
-   instead of reserving another empty writing well under the thumbnails. */
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 8px; }
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 4px; }
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 4px; }
+/* 展开后的参考区只留一行标题和一排更小的缩略图，提示词在字数长起来之前保持一行。
+   收起态仍是 72px 写区和 48px 叠放，不跟着变。 */
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 4px; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 0; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 0; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list [data-input-image-index],
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list [data-input-image-index] > div,
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-add { width: 56px; height: 56px; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-prompt { min-height: calc(1.75em + 2px); }
