@@ -156,7 +156,8 @@ export function browserConversationPrefetch() {
     'online',
     'offline',
   ] as const
-  for (const event of events) window.addEventListener(event, activity, { passive: true })
+  for (const event of events)
+    window.addEventListener(event, activity, { passive: true, capture: true })
   document.addEventListener('visibilitychange', activity)
   network?.addEventListener('change', activity)
   window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, stop)
@@ -166,7 +167,7 @@ export function browserConversationPrefetch() {
     update: runner.update,
     dispose() {
       runner.stop()
-      for (const event of events) window.removeEventListener(event, activity)
+      for (const event of events) window.removeEventListener(event, activity, true)
       document.removeEventListener('visibilitychange', activity)
       network?.removeEventListener('change', activity)
       window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, stop)
