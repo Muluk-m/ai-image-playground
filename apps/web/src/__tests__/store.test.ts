@@ -73,6 +73,17 @@ vi.mock('../lib/db', () => {
 vi.mock('../features/library/lib/assetStore', () => {
   const assets = new Map<string, AssetRecord>()
   return {
+    updateAssetRecord: async (
+      id: string,
+      change: (asset: AssetRecord) => AssetRecord,
+      canWrite = () => true,
+    ) => {
+      const current = assets.get(id)
+      if (!current || !canWrite()) return null
+      const saved = change(current)
+      assets.set(id, saved)
+      return saved
+    },
     assetStore: {
       list: async () => [...assets.values()],
       put: async (asset: AssetRecord) => {
