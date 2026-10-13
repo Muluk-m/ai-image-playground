@@ -10,7 +10,13 @@ import {
   PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
 } from '../../boot/constants'
-import { BOOT_REPORT_PATH, STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
+import {
+  BOOT_FADE_MS,
+  BOOT_REPORT_PATH,
+  SPROUT_HOLD_MS,
+  STARTUP_GUARD_SCRIPT,
+  startupGuardPlugin,
+} from '../../boot/vitePlugin'
 import { LOCALE_STORAGE_KEY } from '../../i18n/storageKey'
 
 /** jsdom's Blob has no `text()`. */
@@ -85,8 +91,10 @@ beforeEach(() => {
   sessionStorage.setItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY, String(Date.now()))
   installGuard()
 })
+const finishReveal = () => vi.advanceTimersByTime(SPROUT_HOLD_MS + BOOT_FADE_MS)
 afterEach(() => {
   document.dispatchEvent(new Event(BOOT_READY_EVENT))
+  if (vi.isFakeTimers()) finishReveal()
   vi.useRealTimers()
   document.body.innerHTML = ''
   localStorage.removeItem(LOCALE_STORAGE_KEY)
@@ -155,6 +163,7 @@ it('reloads once when stale HTML references a deleted chunk, then asks instead o
   const first = preloadError()
   expect(first.defaultPrevented).toBe(true)
   expect(Number(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY))).toBeGreaterThan(0)
+  finishReveal()
   expect(document.getElementById('boot')).toBeNull()
 
   document.body.innerHTML = bodyHtml
@@ -332,6 +341,7 @@ it('ignores optional font styles even after they switch to screen media', () => 
     link.dispatchEvent(new Event('error'))
     ready()
     expect(replace).not.toHaveBeenCalled()
+    finishReveal()
     expect(document.getElementById('boot')).toBeNull()
   } finally {
     link.remove()
