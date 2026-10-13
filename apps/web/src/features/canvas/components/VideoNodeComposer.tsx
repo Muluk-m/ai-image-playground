@@ -40,6 +40,8 @@ export default function VideoNodeComposer({
   busy,
   position,
   referenceTools,
+  onReferenceUpload,
+  onPickReference,
   resultTools,
   references,
   files,
@@ -61,6 +63,8 @@ export default function VideoNodeComposer({
   position: { left: number; top: number }
   resultTools?: ReactNode
   referenceTools: ReactNode
+  onReferenceUpload?: (file: File, slot?: 'first' | 'last') => Promise<void>
+  onPickReference?: (slot?: 'first' | 'last') => void
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
   document: object
@@ -241,23 +245,37 @@ export default function VideoNodeComposer({
                       <Icon name="image" />
                     </div>
                   )}
-                  <Select value={ref?.id ?? ''} onValueChange={(id) => setSlot(slot, id)}>
-                    <SelectTrigger
-                      className="h-7 w-full text-xs"
+                  {onPickReference ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      disabled={busy}
                       aria-label={t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
+                      onClick={() => onPickReference(slot)}
                     >
-                      <SelectValue placeholder={t('nodes.chooseFrame')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allRefs
-                        .filter((one) => one.kind === 'image' && !one.asset)
-                        .map((one) => (
-                          <SelectItem key={one.id} value={one.id}>
-                            {one.label || t('nodes.addImage')}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                      <Icon name="fit" />
+                      {t('nodes.pickFromCanvas')}
+                    </Button>
+                  ) : (
+                    <Select value={ref?.id ?? ''} onValueChange={(id) => setSlot(slot, id)}>
+                      <SelectTrigger
+                        className="h-7 w-full text-xs"
+                        aria-label={t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
+                      >
+                        <SelectValue placeholder={t('nodes.chooseFrame')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allRefs
+                          .filter((one) => one.kind === 'image' && !one.asset)
+                          .map((one) => (
+                            <SelectItem key={one.id} value={one.id}>
+                              {one.label || t('nodes.addImage')}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -387,6 +405,10 @@ export default function VideoNodeComposer({
           }
           const slot = uploadSlot.current
           try {
+            if (onReferenceUpload) {
+              await onReferenceUpload(file, slot === 'reference' ? undefined : slot)
+              return
+            }
             const item = await uploads.upload(file)
             if (item && slot !== 'reference') setSlot(slot, item.id)
           } catch {

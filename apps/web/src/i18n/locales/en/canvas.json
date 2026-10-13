@@ -574,7 +574,9 @@
     "keepArrangement": "Keep this arrangement?",
     "revertArrangement": "Revert",
     "applyArrangement": "Keep",
-    "zoomMenu": "Canvas zoom"
+    "zoomMenu": "Canvas zoom",
+    "pickFromCanvas": "Select from canvas",
+    "finishPicking": "Finish selection"
   },
   "pixelEdit": {
     "title": "Edit image",

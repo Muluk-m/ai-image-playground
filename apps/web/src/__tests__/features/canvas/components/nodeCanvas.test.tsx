@@ -3,6 +3,7 @@ import {
   canvasOrigin,
   createCanvasUndoManager,
   importLegacyElements,
+  insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
   updateCanvasNode,
@@ -357,7 +358,7 @@ it('places a text card that stays large enough for the side handles', async () =
   expect(bounds.width).toBe(300)
   expect(bounds.height).toBe(220)
   const composer = host.querySelector('.studio-node-composer')
-  expect(composer).toBeNull()
+  expect(composer?.getAttribute('aria-label')).toBe('参考内容')
 })
 
 it('offers all node types from either handle and connects the chosen node in the right direction', async () => {
@@ -504,4 +505,46 @@ it('keeps arrangement through media updates but cancels it when another editor m
     x: 200,
     y: 200,
   })
+})
+
+it('picks compatible references from the canvas without changing the target selection', async () => {
+  await render()
+  const click = (selector: string) => act(() => host.querySelector<HTMLElement>(selector)!.click())
+  click('.studio-node-tools [aria-label="图片"]')
+  const target = readCanvasDocument(canvas.doc).nodes.find((n) => n.id !== 'image')!
+  act(() =>
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id: 'empty-video',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 360,
+        height: 240,
+        data: { meta: { nodeKind: 'video' } },
+      },
+      canvas.origin,
+    ),
+  )
+  click('[aria-label="添加引用"]')
+  act(() =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent === '从画布选择')!
+      .click(),
+  )
+  expect(host.querySelector('.studio-node-pick-banner')).not.toBeNull()
+  click('[data-node-id="empty-video"]')
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
+  click('[data-node-id="image"]')
+  expect(readCanvasDocument(canvas.doc).edges).toEqual([
+    expect.objectContaining({ source: 'image', target: target.id }),
+  ])
+  expect(host.querySelector('.studio-node-composer')?.getAttribute('aria-label')).toBe(
+    '描述你想生成的图片',
+  )
+  click('[data-node-id="image"]')
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+  act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(host.querySelector('.studio-node-pick-banner')).toBeNull()
 })

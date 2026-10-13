@@ -1119,3 +1119,17 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 @media (max-width: 640px) {
   .studio-node-canvas .react-flow__panel.react-flow__minimap { bottom: 128px; }
 }
+
+.studio-node-pick-banner { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 16px; border-radius: 12px; border: 1px solid hsl(var(--primary) / .65); background: hsl(var(--card)); color: hsl(var(--primary)); box-shadow: var(--shadow-popover); white-space: nowrap; font-size: theme('fontSize.sm'); }
+.studio-node-reference-picking .react-flow__node > * { pointer-events: none !important; }
+.studio-node-reference-picking .studio-node-handle, .studio-node-reference-picking .react-flow__resize-control { visibility: hidden; }
+.studio-node-reference-picking .studio-node-reference-disabled { opacity: .22; filter: grayscale(1); cursor: not-allowed; }
+.studio-node-reference-picking .studio-node-reference-eligible { cursor: crosshair; }
+.studio-node-reference-eligible:hover .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 4px; }
+.studio-node-reference--image { position: relative; flex: 0 0 64px; height: 64px; padding: 3px; }
+.studio-node-reference--image > img { width: 56px; height: 56px; border-radius: 6px; }
+.studio-node-reference--image .studio-node-reference-label { display: none; }
+.studio-node-reference--image .studio-node-reference-index { position: absolute; left: 6px; bottom: 6px; padding: 0 4px; border-radius: 4px; color: hsl(var(--foreground)); background: hsl(var(--card) / .9); }
+.studio-node-reference--image > button { position: absolute; right: -2px; top: -2px; background: hsl(var(--card)); }
+.studio-node-reference--image > button:nth-last-of-type(2) { top: auto; bottom: -2px; }
+.studio-node-references:has(.studio-node-reference--image) .studio-node-reference-add { align-self: center; }
