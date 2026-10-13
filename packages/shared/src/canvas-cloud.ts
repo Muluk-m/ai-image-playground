@@ -3,7 +3,12 @@ import { type CanvasNode, readCanvasDocument } from './canvas-document'
 import { canvasConnectionAllowed, canvasNodeKind } from './canvas-registry'
 import { CANVAS_STATE_MAX_BYTES } from './canvas-sync'
 import { isCanvasTextDelta } from './canvas-text'
-import { isProjectDocument, type ProjectDocument, type ProjectElement } from './project-protocol'
+import {
+  isProjectDocument,
+  isProjectTimelineClip,
+  type ProjectDocument,
+  type ProjectElement,
+} from './project-protocol'
 import { isVideoGenerationRecord } from './video-generation'
 
 /** Read model for old consumers (Agent archive and project listing). Y.Doc is authoritative. */
@@ -74,6 +79,7 @@ export function validateCloudCanvas(
     'nodeResults',
     'mainResults',
     'nodeJobs',
+    'timelineSlots',
   ]
   if ([...doc.share.keys()].some((key) => !roots.includes(key)))
     throw new Error('invalid_canvas_document')
@@ -85,6 +91,27 @@ export function validateCloudCanvas(
     if (!(value instanceof Y.Map) || value.get('id') !== key) throw new Error('invalid_canvas_node')
     if (JSON.stringify(value.get('data')).includes('data:image/'))
       throw new Error('invalid_canvas_node')
+    if (value.get('type') === 'timeline') {
+      const raw = value.toJSON()
+      if (
+        !object(raw.data) ||
+        !isProjectDocument({
+          version: 1,
+          elements: [
+            {
+              id: key,
+              type: 'timeline',
+              x: raw.x,
+              y: raw.y,
+              width: raw.width,
+              height: raw.height,
+              clips: raw.data.clips,
+            },
+          ],
+        })
+      )
+        throw new Error('invalid_canvas_timeline')
+    }
     if (value.has('richText')) {
       const text = value.get('richText')
       if (
@@ -99,6 +126,42 @@ export function validateCloudCanvas(
   for (const root of ['annotations', 'edges'])
     for (const [key, value] of doc.getMap(root))
       if (!object(value) || value.id !== key) throw new Error('invalid_canvas_document')
+  const slots = doc.getMap('timelineSlots')
+  if (slots.size > 12000) throw new Error('canvas_document_too_large')
+  for (const [key, value] of slots) {
+    let parts: unknown
+    try {
+      parts = JSON.parse(key)
+    } catch {
+      throw new Error('invalid_canvas_timeline')
+    }
+    if (
+      !Array.isArray(parts) ||
+      parts.length !== 4 ||
+      !id(parts[0]) ||
+      !(
+        (parts[1] === 'source' && id(parts[2])) ||
+        (parts[1] === 'legacy' &&
+          Number.isSafeInteger(parts[2]) &&
+          parts[2] >= 0 &&
+          parts[2] < 1000)
+      )
+    )
+      throw new Error('invalid_canvas_timeline')
+    const field = parts[3]
+    if (field === 'clip') {
+      if (
+        !isProjectTimelineClip(value) ||
+        (parts[1] === 'source' && (!object(value) || value.elementId !== parts[2]))
+      )
+        throw new Error('invalid_canvas_timeline')
+    } else if (field === 'order') {
+      if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > 1000)
+        throw new Error('invalid_canvas_timeline')
+    } else if (field === 'deleted') {
+      if (typeof value !== 'boolean') throw new Error('invalid_canvas_timeline')
+    } else throw new Error('invalid_canvas_timeline')
+  }
   const { nodes, edges, annotations } = readCanvasDocument(doc)
   if (nodes.length + annotations.length > 1000 || edges.length > 4000)
     throw new Error('canvas_document_too_large')

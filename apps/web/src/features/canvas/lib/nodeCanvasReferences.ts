@@ -5,6 +5,7 @@ import {
   canvasNodeKind,
   connectCanvasNodes,
   type ImageNodeData,
+  PROJECT_TIMELINE_MAX_CLIPS,
   readCanvasDocument,
   updateCanvasNode,
 } from '@image-playground/shared'
@@ -51,6 +52,13 @@ export function canvasReferenceCandidates(
       .filter((source) => {
         if (!canvasConnectionAllowed(source, target)) return false
         const kind = canvasNodeKind(source)
+        if (target.type === 'timeline')
+          return (
+            kind === 'video' &&
+            !slot &&
+            !target.data.clips.some((clip) => clip.elementId === source.id) &&
+            target.data.clips.length < PROJECT_TIMELINE_MAX_CLIPS
+          )
         if (kind === 'video' || kind === 'timeline') return false
         if (
           slot &&

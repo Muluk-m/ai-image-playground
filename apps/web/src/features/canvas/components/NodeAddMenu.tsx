@@ -11,18 +11,20 @@ export default function NodeAddMenu({
   onText,
   onImage,
   onVideo,
+  onTimeline,
   actions,
   onUpload,
   onAssets,
   onClose,
   disabledKinds = [],
 }: {
-  disabledKinds?: readonly ('text' | 'image' | 'video')[]
+  disabledKinds?: readonly ('text' | 'image' | 'video' | 'timeline')[]
   x: number
   y: number
   onText: () => void
   onImage: () => void
   onVideo?: () => void
+  onTimeline?: () => void
   actions?: { icon: IconName; label: string; onClick: () => void }[]
   onUpload: () => void
   onAssets?: () => void
@@ -102,6 +104,14 @@ export default function NodeAddMenu({
           icon="video"
           label={t('nodes.addVideo')}
           onClick={onVideo}
+        />
+      )}
+      {onTimeline && (
+        <MenuItem
+          disabled={disabledKinds.includes('timeline')}
+          icon="list"
+          label={t('timeline.title')}
+          onClick={onTimeline}
         />
       )}
       <p className="studio-node-menu-section text-xs">{t('nodes.addResources')}</p>

@@ -15,7 +15,7 @@ import {
 import { newElementId } from './canvasDoc'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
-export type CreateNodeKind = 'text' | 'image' | 'video'
+export type CreateNodeKind = 'text' | 'image' | 'video' | 'timeline'
 export function nodeKind(node: CanvasNode): CreateNodeKind | 'timeline' {
   return canvasNodeKind(node)
 }
@@ -56,12 +56,17 @@ export function createNode(
     canvas.doc,
     {
       id,
-      type: kind === 'text' ? 'text' : 'image',
+      type: kind === 'timeline' ? 'timeline' : kind === 'text' ? 'text' : 'image',
       x,
       y,
       width,
       height,
-      data: kind === 'text' ? { text: '', fontSize: 16, fill } : { meta: { nodeKind: kind } },
+      data:
+        kind === 'timeline'
+          ? { clips: [] }
+          : kind === 'text'
+            ? { text: '', fontSize: 16, fill }
+            : { meta: { nodeKind: kind } },
     },
     canvas.origin,
   )
@@ -111,6 +116,11 @@ export function pasteNodes(
   canvas.doc.transact(() => {
     for (const node of copied.nodes) {
       const data = structuredClone(node.data)
+      if ('clips' in data)
+        data.clips = data.clips.map((clip) => ({
+          ...clip,
+          elementId: ids.get(clip.elementId) ?? clip.elementId,
+        }))
       if ('pending' in data) delete data.pending
       if ('meta' in data && data.meta) {
         const meta = { ...data.meta }
@@ -140,6 +150,16 @@ export function pasteNodes(
         { ...node, id: ids.get(node.id)!, x: node.x - x + point.x, y: node.y - y + point.y, data },
         canvas.origin,
       )
+    }
+    // A timeline copied alone still references its original shots; rebuild those visible links.
+    for (const node of copied.nodes) {
+      if (node.type !== 'timeline') continue
+      for (const clip of node.data.clips)
+        connectCanvasNodes(
+          canvas.doc,
+          { source: ids.get(clip.elementId) ?? clip.elementId, target: ids.get(node.id)! },
+          canvas.origin,
+        )
     }
     for (const group of copied.groups ?? []) {
       const id = newElementId()

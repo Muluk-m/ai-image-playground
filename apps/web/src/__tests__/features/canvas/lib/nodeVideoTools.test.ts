@@ -146,3 +146,57 @@ it('places tall extracted frames without overlapping the node below', async () =
   expect(image.height).toBe(640)
   expect(image.y + image.height <= 400 || image.y >= 640).toBe(true)
 })
+
+it('projects newly created timelines and posterless video sources into the shared preview/export editor', async () => {
+  const { canvas, editor } = setup()
+  const { insertCanvasNode } = await import('@image-playground/shared')
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'posterless',
+      type: 'video',
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      data: { video: { taskId: 'posterless-task', outputIndex: 0 } },
+    },
+    canvas.origin,
+  )
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'new-timeline',
+      type: 'timeline',
+      x: 0,
+      y: 500,
+      width: 560,
+      height: 240,
+      data: {
+        clips: [
+          { elementId: 'posterless', in: 0, out: 2 },
+          { elementId: 'future', in: 0 },
+        ],
+      },
+    },
+    canvas.origin,
+  )
+  projectNodeVideoEdits(editor, canvas)
+  expect(editor.getElement('new-timeline')).toMatchObject({
+    type: 'timeline',
+    clips: [
+      { elementId: 'posterless', in: 0, out: 2 },
+      { elementId: 'future', in: 0 },
+    ],
+  })
+  expect(editor.getElement('posterless')).toMatchObject({
+    type: 'image',
+    video: { taskId: 'posterless-task' },
+  })
+  const el = editor.getElement('new-timeline')!
+  if (el.type !== 'timeline') throw new Error('timeline')
+  expect(planFilm(el.clips, (id) => editor.getElement(id))).toEqual({
+    ok: false,
+    refusal: { kind: 'missing', position: 2 },
+  })
+})

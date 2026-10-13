@@ -203,3 +203,43 @@ describe('全屏时间线编辑', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 })
+
+it('switches preview to a new primary result without changing source identity, and clears a removed source', () => {
+  const preview = document.querySelector('video')!
+  expect(preview.getAttribute('src')).toContain('task-a')
+  act(() =>
+    doc.updateElements([
+      {
+        id: 'a',
+        patch: { video: { taskId: 'replacement', outputIndex: 0, generation: record(4) } },
+      },
+    ]),
+  )
+  expect(preview.getAttribute('src')).toContain('replacement')
+  act(() => doc.deleteElements(['a']))
+  expect(preview.hasAttribute('src')).toBe(false)
+  expect(document.querySelectorAll('ol li')).toHaveLength(3)
+})
+
+it('moves clips with accessible buttons and saves the draft before locating its source', () => {
+  const onSave = vi.fn(),
+    onLocate = vi.fn()
+  act(() => root.render(<TimelineEditorHost editor={editor} onSave={onSave} onLocate={onLocate} />))
+  act(() => button('第 2 段前移').click())
+  act(() => button('定位第 1 段源节点').click())
+  expect(onSave).toHaveBeenCalledWith('tl', [
+    { elementId: 'b', in: 0, out: 6 },
+    { elementId: 'a', in: 0, out: 4 },
+    { elementId: 'c', in: 0, out: 8 },
+  ])
+  expect(onLocate).toHaveBeenCalledWith('b')
+  expect(onSave.mock.invocationCallOrder[0]).toBeLessThan(onLocate.mock.invocationCallOrder[0]!)
+})
+
+it('stops playback when the current source disappears while keeping its timeline slot', () => {
+  act(() => button('播放').click())
+  expect(button('暂停')).toBeTruthy()
+  act(() => doc.deleteElements(['a']))
+  expect(button('播放')).toBeTruthy()
+  expect(document.querySelectorAll('ol li')).toHaveLength(3)
+})

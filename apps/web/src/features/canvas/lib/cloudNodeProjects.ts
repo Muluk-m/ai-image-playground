@@ -293,15 +293,16 @@ export class CloudNodeProjectSession {
       }
       if (
         (node.type === 'image' || node.type === 'video') &&
-        node.data.fileId &&
+        (node.data.fileId || node.type === 'video' || node.data.meta?.nodeKind === 'video') &&
         !node.data.mediaId
       ) {
+        // Timeline preview/export must see videos even before a poster exists.
         const { pending: _pending, ...data } = node.data
         scene.elements.push({
           ...data,
           id: node.id,
           type: 'image',
-          fileId: node.data.fileId,
+          fileId: node.data.fileId ?? '',
           x: node.x,
           y: node.y,
           width: node.width,

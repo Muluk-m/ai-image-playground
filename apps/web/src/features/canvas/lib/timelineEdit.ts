@@ -40,9 +40,7 @@ export function trimClip(
   if (edge === 'in') {
     const value = round(Math.max(0, Math.min(Math.max(0, seconds), range.out - MIN_CLIP_SECONDS)))
     // 出点本来缺省（播到结尾）就保持缺省：源时长未知时写死一个占位值，会把片子永久截短。
-    return clip.out === undefined
-      ? { elementId: clip.elementId, in: value }
-      : { ...clip, in: value }
+    return { ...clip, in: value }
   }
   // 源时长未知就不知道结尾在哪，出点无从裁起。
   if (source === undefined && clip.out === undefined) return clip

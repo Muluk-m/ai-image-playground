@@ -124,12 +124,28 @@ export function projectNodeVideoEdits(editor: CanvasEditor, canvas: NodeCanvasDo
     patch: Partial<CanvasEl>
   }>((node) => {
     const element = editor.doc.elements.find((element) => element.id === node.id)
-    if ((node.type === 'image' || node.type === 'video') && node.data.fileId && !element) {
+    if (node.type === 'timeline' && !element) {
+      additions.push({
+        id: node.id,
+        type: 'timeline',
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        clips: node.data.clips,
+      })
+      return []
+    }
+    if (
+      (node.type === 'video' ||
+        (node.type === 'image' && (node.data.fileId || node.data.meta?.nodeKind === 'video'))) &&
+      !element
+    ) {
       additions.push({
         ...node.data,
         id: node.id,
         type: 'image',
-        fileId: node.data.fileId,
+        fileId: node.data.fileId ?? '',
         x: node.x,
         y: node.y,
         width: node.width,
@@ -138,7 +154,12 @@ export function projectNodeVideoEdits(editor: CanvasEditor, canvas: NodeCanvasDo
       })
       return []
     }
-    if (node.type === 'image' && !node.data.fileId && element?.type === 'image') {
+    if (
+      node.type === 'image' &&
+      !node.data.fileId &&
+      node.data.meta?.nodeKind !== 'video' &&
+      element?.type === 'image'
+    ) {
       removals.push(node.id)
       return []
     }

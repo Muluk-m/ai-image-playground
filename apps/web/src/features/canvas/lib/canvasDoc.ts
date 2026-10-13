@@ -80,6 +80,8 @@ export interface PlaceholderEl {
 
 /** 时间线上的一段：引用画布上的一个视频元素，按入 / 出点截取（秒）。`out` 缺省即播到结尾。 */
 export interface TimelineClip {
+  /** Transient identity in the node timeline editor; stripped before persistence. */
+  slotKey?: string
   elementId: string
   in: number
   out?: number

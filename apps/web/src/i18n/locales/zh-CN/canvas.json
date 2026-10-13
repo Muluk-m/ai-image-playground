@@ -295,7 +295,13 @@
     "trimIn": "第 {{index}} 段入点",
     "trimOut": "第 {{index}} 段出点",
     "seconds": "{{seconds}} 秒",
-    "changedElsewhere": "编辑期间这条时间线在别处被改动过，已用你刚才的编辑覆盖；需要的话按 ⌘Z 撤回。"
+    "changedElsewhere": "编辑期间这条时间线在别处被改动过，已用你刚才的编辑覆盖；需要的话按 ⌘Z 撤回。",
+    "connectHint": "连接视频节点，或选中镜头后添加时间线",
+    "missingShots": "第 {{indices}} 镜缺少视频结果",
+    "locate": "定位第 {{index}} 段源节点",
+    "moveEarlier": "第 {{index}} 段前移",
+    "moveLater": "第 {{index}} 段后移",
+    "overflow": "合并后的片段超过 {{max}} 个，请删除多余片段后导出。"
   },
   "film": {
     "export": "导出成片",

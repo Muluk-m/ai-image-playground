@@ -15,6 +15,7 @@ import {
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
+  updateCanvasNode,
 } from '../canvas-document'
 import { createCanvasGroup } from '../canvas-groups'
 import { canvasSyncStep1, canvasSyncStep2, readCanvasSyncMessage } from '../canvas-sync'
@@ -228,4 +229,64 @@ it('rejects malformed group geometry and membership before broadcasting', () => 
   doc.getMap('groupMembers').set('text', { id: 'scene' })
   expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_group')
   doc.destroy()
+})
+
+it('accepts concurrent overflow without dropping slots and remains syncable after reconciliation', () => {
+  const a = new Y.Doc(),
+    b = new Y.Doc()
+  insertCanvasNode(
+    a,
+    {
+      id: 'timeline',
+      type: 'timeline',
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 240,
+      data: { clips: Array.from({ length: 63 }, (_, i) => ({ elementId: `old-${i}`, in: 0 })) },
+    },
+    origin,
+  )
+  for (const id of ['a', 'b'])
+    insertCanvasNode(
+      a,
+      {
+        id,
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+        data: { meta: { nodeKind: 'video' } },
+      },
+      origin,
+    )
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  connectCanvasNodes(a, { source: 'a', target: 'timeline' }, origin)
+  connectCanvasNodes(b, { source: 'b', target: 'timeline' }, origin)
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const node = readCanvasDocument(a).nodes.find((n) => n.id === 'timeline')!
+  if (node.type !== 'timeline') throw new Error('missing timeline')
+  expect(node.data.clips).toHaveLength(65)
+  validateCloudCanvas(a, legacy)
+  updateCanvasNode(a, 'timeline', { data: { clips: node.data.clips.slice(1) } }, origin)
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  expect(readCanvasDocument(b).nodes.find((n) => n.id === 'timeline')?.data).toEqual({
+    clips: node.data.clips.slice(1),
+  })
+  validateCloudCanvas(b, legacy)
+})
+
+it('rejects malformed timeline slot payloads even when their target is absent', () => {
+  for (const [field, value] of [
+    ['clip', { elementId: 'a', in: -1 }],
+    ['order', NaN],
+    ['deleted', 'yes'],
+    ['secret', 'x'],
+  ]) {
+    const doc = new Y.Doc()
+    doc.getMap('timelineSlots').set(JSON.stringify(['timeline', 'source', 'a', field]), value)
+    expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_timeline')
+  }
 })
