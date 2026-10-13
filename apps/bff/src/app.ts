@@ -4,7 +4,7 @@ import { cors } from '@elysiajs/cors'
 import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
-import { appVersion } from './lib/app-version'
+import { appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
@@ -185,7 +185,7 @@ export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
   // commit that is serving.
-  .get('/health', () => ({ ok: true, version: appVersion() }))
+  .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))
   .use(userAuthRoutes)
   .use(oauthRoutes)
   .use(capabilitiesRoutes)
