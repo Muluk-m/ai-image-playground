@@ -1,23 +1,8 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  ArrowUpRight,
-  Bot,
-  ChevronDown,
-  CircleHelp,
-  Copy,
-  FolderOpen,
-  Frame,
-  Info,
-  Lightbulb,
-  Rocket,
-  Search,
-  Sparkles,
-  TriangleAlert,
-  WandSparkles,
-} from 'lucide-react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { buttonVariants } from '../../components/ui/button'
+import { Icon, type IconName } from '../../components/ui/icon'
+import { Input } from '../../components/ui/input'
 import type { Block, GuideChapter, GuideContent, Inline } from './model'
 
 /**
@@ -68,15 +53,15 @@ export function renderInline(text: Inline): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
     .replace(
       /\[\[(.+?)\]\]/g,
-      '<span class="mx-0.5 inline-flex items-center whitespace-nowrap rounded-md border border-border bg-muted/60 px-1.5 align-baseline text-[0.88em] font-medium leading-[1.6] text-foreground">$1</span>',
+      '<span class="mx-0.5 inline-flex items-center whitespace-nowrap rounded-md border border-border bg-muted/60 px-1.5 align-baseline text-xs font-medium leading-[1.6] text-foreground">$1</span>',
     )
     .replace(
       /\{\{(.+?)\}\}/g,
-      '<kbd class="mx-0.5 inline-flex min-w-[1.7em] items-center justify-center rounded-[5px] border border-border border-b-2 bg-background px-1.5 font-mono text-[0.78em] leading-[1.7] text-foreground">$1</kbd>',
+      '<kbd class="mx-0.5 inline-flex min-w-[1.7em] items-center justify-center rounded-md border border-border border-b-2 bg-background px-1.5 font-mono text-label-sm leading-[1.7] text-foreground">$1</kbd>',
     )
     .replace(
       /`([^`]+)`/g,
-      '<code class="rounded-[5px] bg-muted px-1.5 py-px font-mono text-[0.86em] text-foreground">$1</code>',
+      '<code class="rounded-md bg-muted px-1.5 py-px font-mono text-xs text-foreground">$1</code>',
     )
     .replace(
       /\[([^\]]+)\]\(([^)\s]+)\)/g,
@@ -95,17 +80,15 @@ export function plainInline(text: Inline): string {
     .replace(/\[([^\]]+)\]\([^)\s]+\)/g, '$1')
 }
 
-type LucideIcon = typeof Sparkles
+const icon = (name: IconName, className: string) =>
+  renderToStaticMarkup(createElement(Icon, { name, className }))
 
-const icon = (Icon: LucideIcon, className: string) =>
-  renderToStaticMarkup(createElement(Icon, { className, strokeWidth: 1.75, 'aria-hidden': true }))
-
-const CHAPTER_ICONS: Record<string, LucideIcon> = {
-  'getting-started': Rocket,
-  create: WandSparkles,
-  canvas: Frame,
-  agent: Bot,
-  assets: FolderOpen,
+const CHAPTER_ICONS: Record<string, IconName> = {
+  'getting-started': 'gettingStarted',
+  create: 'create',
+  canvas: 'canvas',
+  agent: 'chat',
+  assets: 'assets',
 }
 
 function chapterIcon(chapter: GuideChapter, className: string): string {
@@ -117,12 +100,12 @@ function chapterIcon(chapter: GuideChapter, className: string): string {
 const two = (index: number) => String(index + 1).padStart(2, '0')
 
 const CALLOUT = {
-  tip: { Icon: Lightbulb, bar: 'border-l-primary', tint: 'text-primary' },
-  note: { Icon: Info, bar: 'border-l-foreground/25', tint: 'text-muted-foreground' },
-  warn: { Icon: TriangleAlert, bar: 'border-l-warning', tint: 'text-warning' },
+  tip: { Icon: 'tip', bar: 'border-l-primary', tint: 'text-primary' },
+  note: { Icon: 'info', bar: 'border-l-foreground/25', tint: 'text-muted-foreground' },
+  warn: { Icon: 'warning', bar: 'border-l-warning', tint: 'text-warning' },
 } as const
 
-const PROSE = 'text-[15.5px] leading-[1.85] text-foreground/75'
+const PROSE = 'text-title leading-[1.85] text-foreground'
 
 function renderBlock(block: Block, content: GuideContent, options: GuideRenderOptions): string {
   switch (block.type) {
@@ -139,7 +122,7 @@ function renderBlock(block: Block, content: GuideContent, options: GuideRenderOp
       return `<ol class="my-6">${block.items
         .map(
           (item, index) =>
-            `<li class="relative pb-5 pl-11 last:pb-0"><span class="absolute left-0 top-0 grid h-7 w-7 place-items-center rounded-full border border-border bg-background font-mono text-[12px] font-medium text-foreground/80">${index + 1}</span>${
+            `<li class="relative pb-5 pl-11 last:pb-0"><span class="absolute left-0 top-0 grid h-7 w-7 place-items-center rounded-full border border-border bg-background font-mono text-xs font-medium text-foreground">${index + 1}</span>${
               index < block.items.length - 1
                 ? '<span aria-hidden="true" class="absolute bottom-0 left-[13.5px] top-8 w-px bg-border"></span>'
                 : ''
@@ -152,14 +135,14 @@ function renderBlock(block: Block, content: GuideContent, options: GuideRenderOp
         content.chrome[
           block.tone === 'tip' ? 'tipLabel' : block.tone === 'warn' ? 'warnLabel' : 'noteLabel'
         ]
-      return `<aside class="my-6 flex gap-3 rounded-r-lg border-l-2 ${style.bar} bg-muted/50 px-4 py-3.5">${icon(style.Icon, `mt-[5px] h-4 w-4 shrink-0 ${style.tint}`)}<p class="text-[14.5px] leading-7 text-foreground/75"><span class="font-semibold text-foreground">${escapeHtml(label)}</span><span aria-hidden="true" class="mx-2 text-border">|</span>${renderInline(block.text)}</p></aside>`
+      return `<aside class="my-6 flex gap-3 rounded-r-lg border-l-2 ${style.bar} bg-muted/50 px-4 py-3.5">${icon(style.Icon, `mt-1 h-4 w-4 shrink-0 ${style.tint}`)}<p class="text-sm leading-7 text-foreground"><span class="font-semibold text-foreground">${escapeHtml(label)}</span><span aria-hidden="true" class="mx-2 text-border">|</span>${renderInline(block.text)}</p></aside>`
     }
     case 'shot': {
       const { width, height } = options.imageSize(block.src)
       const marks = (block.marks ?? [])
         .map(
           (mark, index) =>
-            `<span aria-hidden="true" class="absolute grid h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-primary font-mono text-label-sm font-bold text-primary-foreground ring-[3px] ring-background" style="left:${mark.x}%;top:${mark.y}%">${index + 1}</span>`,
+            `<span aria-hidden="true" class="absolute grid h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-primary font-mono text-label-sm font-semibold text-primary-foreground ring-[3px] ring-background" style="left:${mark.x}%;top:${mark.y}%">${index + 1}</span>`,
         )
         .join('')
       const caption = block.caption
@@ -171,7 +154,7 @@ function renderBlock(block: Block, content: GuideContent, options: GuideRenderOp
       return `<div class="my-6 overflow-x-auto"><table class="w-full border-collapse text-left"><thead class="border-b border-foreground/15"><tr>${block.head
         .map(
           (cell) =>
-            `<th class="whitespace-nowrap py-2.5 pr-6 text-[12.5px] font-medium text-muted-foreground">${renderInline(cell)}</th>`,
+            `<th class="whitespace-nowrap py-2.5 pr-6 text-body-sm font-medium text-muted-foreground">${renderInline(cell)}</th>`,
         )
         .join('')}</tr></thead><tbody>${block.rows
         .map(
@@ -179,13 +162,13 @@ function renderBlock(block: Block, content: GuideContent, options: GuideRenderOp
             `<tr class="border-b border-border/70">${row
               .map(
                 (cell) =>
-                  `<td class="py-3 pr-6 align-top text-[14.5px] leading-7 text-foreground/75">${renderInline(cell)}</td>`,
+                  `<td class="py-3 pr-6 align-top text-sm leading-7 text-foreground">${renderInline(cell)}</td>`,
               )
               .join('')}</tr>`,
         )
         .join('')}</tbody></table></div>`
     case 'prompt':
-      return `<figure class="my-6 overflow-hidden rounded-xl border border-border"><figcaption class="flex items-center justify-between border-b border-border bg-muted/50 py-1.5 pl-4 pr-1.5 text-[12px] font-medium text-muted-foreground">${renderInline(block.label)}<button type="button" data-copy data-copied="${escapeHtml(content.chrome.copied)}" class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-background hover:text-foreground">${icon(Copy, 'h-3.5 w-3.5')}<span>${escapeHtml(content.chrome.copy)}</span></button></figcaption><blockquote class="px-4 py-3.5 text-[14.5px] leading-7 text-foreground/85">${escapeHtml(block.text)}</blockquote></figure>`
+      return `<figure class="my-6 overflow-hidden rounded-xl border border-border"><figcaption class="flex items-center justify-between border-b border-border bg-muted/50 py-1.5 pl-4 pr-1.5 text-xs font-medium text-muted-foreground">${renderInline(block.label)}<button type="button" data-copy data-copied="${escapeHtml(content.chrome.copied)}" class="${buttonVariants({ variant: 'ghost', size: 'xs' })}">${icon('copy', 'h-3.5 w-3.5')}<span>${escapeHtml(content.chrome.copy)}</span></button></figcaption><blockquote class="px-4 py-3.5 text-sm leading-7 text-foreground">${escapeHtml(block.text)}</blockquote></figure>`
   }
 }
 
@@ -356,10 +339,10 @@ function renderHeader(
     : ''
   return `<header class="fixed inset-x-0 top-3 z-40 px-3 sm:top-4 sm:px-4">
       <div class="mx-auto flex h-12 max-w-6xl items-center gap-2 rounded-full border border-border bg-background/75 pl-4 pr-1.5 shadow-lg shadow-black/[0.06] backdrop-blur-xl">
-        <a href="/" class="flex shrink-0 items-center gap-2 whitespace-nowrap text-[14px] font-semibold"><img src="/brand/muvloom-mark.svg" alt="" width="24" height="24" class="h-6 w-6" />${escapeHtml(chrome.brand)}</a>
+        <a href="/" class="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm font-semibold"><img src="/brand/muvloom-mark.svg" alt="" width="24" height="24" class="h-6 w-6" />${escapeHtml(chrome.brand)}</a>
         <a href="${content.root}" class="hidden whitespace-nowrap px-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground sm:inline">${escapeHtml(chrome.title)}</a>
-        <button type="button" data-search-open aria-label="${escapeHtml(chrome.search)}" class="ml-auto flex h-8 items-center gap-2 rounded-full border border-border bg-muted/40 px-2.5 text-body-sm text-muted-foreground transition-colors hover:text-foreground md:ml-4 md:w-56 md:px-3">${icon(Search, 'h-4 w-4')}<span class="hidden md:inline">${escapeHtml(chrome.search)}</span><kbd class="ml-auto hidden rounded border border-border bg-background px-1.5 font-mono text-label-sm md:inline">⌘K</kbd></button>
-        <div class="flex shrink-0 items-center gap-1 md:ml-auto">${language}<a href="/" class="whitespace-nowrap rounded-full bg-primary px-4 py-2 text-body-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">${escapeHtml(chrome.start)}</a></div>
+        <button type="button" data-search-open aria-label="${escapeHtml(chrome.search)}" class="${buttonVariants({ variant: 'outline', size: 'sm', className: 'ml-auto text-muted-foreground md:ml-4 md:w-56' })}">${icon('search', 'h-4 w-4')}<span class="hidden md:inline">${escapeHtml(chrome.search)}</span><kbd class="ml-auto hidden rounded border border-border bg-background px-1.5 font-mono text-label-sm md:inline">⌘K</kbd></button>
+        <div class="flex shrink-0 items-center gap-1 md:ml-auto">${language}<a href="/" class="${buttonVariants({ size: 'sm' })}">${escapeHtml(chrome.start)}</a></div>
       </div>
     </header>`
 }
@@ -368,7 +351,7 @@ function renderSearchDialog(content: GuideContent): string {
   const { chrome } = content
   return `<dialog data-search data-index="${content.root}search.json" data-empty="${escapeHtml(chrome.searchEmpty)}" class="m-0 h-full max-h-none w-full max-w-none bg-transparent p-4 backdrop:bg-black/50 backdrop:backdrop-blur-sm">
       <div data-search-panel class="mx-auto mt-[10vh] w-full max-w-[640px] overflow-hidden rounded-2xl border border-border bg-popover text-foreground shadow-2xl">
-        <label class="flex h-14 items-center gap-3 border-b border-border px-5">${icon(Search, 'h-5 w-5 text-muted-foreground')}<input data-search-input type="search" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(chrome.searchPlaceholder)}" class="h-full flex-1 bg-transparent text-title outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden" /><kbd class="rounded border border-border px-1.5 font-mono text-label-sm text-muted-foreground">Esc</kbd></label>
+        <div class="flex h-14 items-center gap-3 border-b border-border px-5">${icon('search', 'h-5 w-5 text-muted-foreground')}${renderToStaticMarkup(createElement(Input, { ...{ 'data-search-input': '' }, type: 'search', autoComplete: 'off', spellCheck: false, 'aria-label': chrome.search, placeholder: chrome.searchPlaceholder, className: 'min-w-0 flex-1 [&::-webkit-search-cancel-button]:hidden' }))}<kbd class="rounded border border-border px-1.5 font-mono text-label-sm text-muted-foreground">Esc</kbd></div>
         <div data-search-results role="listbox" class="max-h-[60vh] overflow-y-auto p-2 empty:hidden"></div>
       </div>
     </dialog>`
@@ -413,25 +396,25 @@ function renderHome(content: GuideContent, options: GuideRenderOptions): string 
   const cards = content.chapters
     .map(
       (chapter, index) =>
-        `<a href="${guidePagePath(content, chapter.id)}" class="group relative flex min-h-[220px] flex-col overflow-hidden rounded-3xl border border-border bg-card/50 p-7 transition duration-300 hover:-translate-y-1 hover:border-primary/40 hover:bg-card ${index === 0 ? 'lg:col-span-2' : ''}"><span aria-hidden="true" class="pointer-events-none absolute -bottom-7 right-3 font-display text-[128px] font-bold leading-none text-foreground/[0.04] transition-colors group-hover:text-primary/10">${two(index)}</span><span class="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">${chapterIcon(chapter, 'h-5 w-5')}</span><h3 class="mt-6 text-[19px] font-semibold text-foreground">${escapeHtml(chapter.title)}</h3><p class="mt-2 max-w-[34ch] text-[14px] leading-6 text-muted-foreground">${escapeHtml(chapter.summary)}</p>${icon(ArrowUpRight, 'absolute right-6 top-7 h-5 w-5 text-muted-foreground transition-colors group-hover:text-primary')}</a>`,
+        `<a href="${guidePagePath(content, chapter.id)}" class="group relative flex min-h-[220px] flex-col overflow-hidden rounded-3xl border border-border bg-card/50 p-7 transition duration-300 hover:-translate-y-1 hover:border-primary/40 hover:bg-card ${index === 0 ? 'lg:col-span-2' : ''}"><span aria-hidden="true" class="pointer-events-none absolute bottom-4 right-3 opacity-10 font-display text-display font-semibold leading-none text-muted-foreground transition-colors group-hover:text-primary">${two(index)}</span><span class="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">${chapterIcon(chapter, 'h-5 w-5')}</span><h3 class="mt-6 text-xl font-semibold text-foreground">${escapeHtml(chapter.title)}</h3><p class="mt-2 max-w-[34ch] text-sm leading-6 text-muted-foreground">${escapeHtml(chapter.summary)}</p>${icon('external', 'absolute right-6 top-7 h-5 w-5 text-muted-foreground transition-colors group-hover:text-primary')}</a>`,
     )
     .join('')
   const faq = content.faq.items
     .map(
       (item) =>
-        `<div class="rounded-2xl border border-border bg-card/50 p-6"><h3 class="text-[16px] font-semibold leading-7 text-foreground">${escapeHtml(item.q)}</h3><p class="mt-2 text-[14.5px] leading-7 text-muted-foreground">${escapeHtml(item.a)}</p></div>`,
+        `<div class="rounded-2xl border border-border bg-card/50 p-6"><h3 class="text-base font-semibold leading-7 text-foreground">${escapeHtml(item.q)}</h3><p class="mt-2 text-sm leading-7 text-muted-foreground">${escapeHtml(item.a)}</p></div>`,
     )
     .join('')
   return `<main data-selectable-text>
       <section class="guide-hero relative overflow-hidden pb-6 pt-36 text-center sm:pt-44">
         <div class="relative mx-auto max-w-3xl px-6">
-          <span class="inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-[12px] text-muted-foreground">${icon(Sparkles, 'h-3.5 w-3.5 text-primary')}${escapeHtml(chrome.eyebrow)}</span>
-          <h1 class="mt-6 bg-gradient-to-b from-foreground to-foreground/55 bg-clip-text pb-1 font-display text-[52px] font-semibold leading-[1.08] tracking-[-0.03em] text-transparent sm:text-[76px]">${escapeHtml(chrome.title)}</h1>
-          <p class="mx-auto mt-5 max-w-xl text-[17px] leading-8 text-muted-foreground sm:text-[18px]">${renderInline(chrome.lead)}</p>
-          <div class="mt-9 flex flex-wrap justify-center gap-3"><a href="${guidePagePath(content, first.id)}" class="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-[14px] font-semibold text-background transition-opacity hover:opacity-90">${escapeHtml(chrome.startReading)}${icon(ArrowRight, 'h-4 w-4')}</a><a href="/" class="rounded-full border border-border px-6 py-3 text-[14px] font-medium text-foreground transition-colors hover:bg-muted">${escapeHtml(chrome.start)}</a></div>
+          <span class="inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-xs text-muted-foreground">${icon('generate', 'h-3.5 w-3.5 text-primary')}${escapeHtml(chrome.eyebrow)}</span>
+          <h1 class="mt-6 pb-1 font-display text-display font-semibold leading-[1.08] tracking-[-0.03em] text-foreground">${escapeHtml(chrome.title)}</h1>
+          <p class="mx-auto mt-5 max-w-xl text-base leading-8 text-muted-foreground">${renderInline(chrome.lead)}</p>
+          <div class="mt-9 flex flex-wrap justify-center gap-3"><a href="${guidePagePath(content, first.id)}" class="${buttonVariants()}">${escapeHtml(chrome.startReading)}${icon('arrowRight', 'h-4 w-4')}</a><a href="/" class="${buttonVariants({ variant: 'outline' })}">${escapeHtml(chrome.start)}</a></div>
         </div>
         <div class="guide-hero-fade relative mx-auto mt-16 max-w-5xl px-4 sm:px-6">
-          <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_30px_80px_-30px_rgba(0,0,0,0.55)]"><div class="flex h-8 items-center gap-1.5 border-b border-border bg-muted/60 px-3"><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span></div><img src="${escapeHtml(content.home.image)}" alt="${escapeHtml(content.home.imageAlt)}" width="${width}" height="${height}" fetchpriority="high" class="block h-auto w-full" /></div>
+          <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-lg"><div class="flex h-8 items-center gap-1.5 border-b border-border bg-muted/60 px-3"><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span><span class="h-2.5 w-2.5 rounded-full bg-foreground/15"></span></div><img src="${escapeHtml(content.home.image)}" alt="${escapeHtml(content.home.imageAlt)}" width="${width}" height="${height}" fetchpriority="high" class="block h-auto w-full" /></div>
         </div>
       </section>
       <section aria-labelledby="chapters" class="mx-auto max-w-6xl px-6 pb-28">
@@ -440,9 +423,9 @@ function renderHome(content: GuideContent, options: GuideRenderOptions): string 
       </section>
       <section aria-labelledby="${content.faq.id}" class="border-t border-border py-28">
         <div class="mx-auto max-w-6xl px-6">
-          <h2 id="${content.faq.id}" class="scroll-mt-24 text-center font-display text-[36px] font-semibold tracking-tight sm:text-[48px]">${escapeHtml(content.faq.title)}</h2>
+          <h2 id="${content.faq.id}" class="scroll-mt-24 text-center font-display text-headline font-semibold tracking-tight">${escapeHtml(content.faq.title)}</h2>
           <div class="mt-14 grid gap-4 md:grid-cols-2">${faq}</div>
-          <div class="guide-cta mt-20 overflow-hidden rounded-3xl border border-primary/25 px-8 py-14 text-center"><p class="font-display text-[28px] font-semibold tracking-tight sm:text-[32px]">${escapeHtml(chrome.ctaTitle)}</p><a href="/" class="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-title font-semibold text-primary-foreground transition-opacity hover:opacity-90">${escapeHtml(chrome.start)}${icon(ArrowRight, 'h-4 w-4')}</a></div>
+          <div class="guide-cta mt-20 overflow-hidden rounded-3xl border border-primary/25 px-8 py-14 text-center"><p class="font-display text-headline font-semibold tracking-tight">${escapeHtml(chrome.ctaTitle)}</p><a href="/" class="${buttonVariants({ className: 'mt-6' })}">${escapeHtml(chrome.start)}${icon('arrowRight', 'h-4 w-4')}</a></div>
         </div>
       </section>
     </main>
@@ -462,13 +445,13 @@ function renderChapterNav(content: GuideContent, current: GuideChapter): string 
       const subsections = entries
         .map(
           (entry) =>
-            `<li><a href="${here ? '' : guidePagePath(content, chapter.id)}#${entry.id}" ${here ? `data-toc="${entry.id}"` : ''} class="-ml-px block border-l border-transparent py-[5px] pl-4 text-[13.5px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground aria-[current=true]:border-primary aria-[current=true]:font-medium aria-[current=true]:text-foreground">${escapeHtml(entry.title)}</a></li>`,
+            `<li><a href="${here ? '' : guidePagePath(content, chapter.id)}#${entry.id}" ${here ? `data-toc="${entry.id}"` : ''} class="-ml-px block border-l border-transparent py-1 pl-4 text-body-sm text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground aria-[current=true]:border-primary aria-[current=true]:font-medium aria-[current=true]:text-foreground">${escapeHtml(entry.title)}</a></li>`,
         )
         .join('')
-      return `<div class="mb-7"><a href="${guidePagePath(content, chapter.id)}" ${here ? 'aria-current="page"' : ''} class="mb-2 flex items-center gap-2 text-body-sm font-semibold text-foreground/80 transition-colors hover:text-foreground aria-[current=page]:text-foreground">${chapterIcon(chapter, `h-4 w-4 ${here ? 'text-primary' : 'text-muted-foreground'}`)}${escapeHtml(chapter.title)}</a><ul class="ml-2 border-l border-border">${subsections}</ul></div>`
+      return `<div class="mb-7"><a href="${guidePagePath(content, chapter.id)}" ${here ? 'aria-current="page"' : ''} class="mb-2 flex items-center gap-2 text-body-sm font-semibold text-foreground transition-colors hover:text-foreground aria-[current=page]:text-foreground">${chapterIcon(chapter, `h-4 w-4 ${here ? 'text-primary' : 'text-muted-foreground'}`)}${escapeHtml(chapter.title)}</a><ul class="ml-2 border-l border-border">${subsections}</ul></div>`
     })
     .join('')
-  return `${chapters}<a href="${content.root}#${content.faq.id}" class="flex items-center gap-2 text-body-sm font-semibold text-foreground/80 transition-colors hover:text-foreground">${icon(CircleHelp, 'h-4 w-4 text-muted-foreground')}${escapeHtml(content.faq.title)}</a>`
+  return `${chapters}<a href="${content.root}#${content.faq.id}" class="flex items-center gap-2 text-body-sm font-semibold text-foreground transition-colors hover:text-foreground">${icon('help', 'h-4 w-4 text-muted-foreground')}${escapeHtml(content.faq.title)}</a>`
 }
 
 function renderPager(content: GuideContent, index: number): string {
@@ -476,7 +459,7 @@ function renderPager(content: GuideContent, index: number): string {
   const next = content.chapters[index + 1]
   const link = (chapter: GuideChapter | undefined, label: string, align: 'left' | 'right') =>
     chapter
-      ? `<a href="${guidePagePath(content, chapter.id)}" class="group rounded-xl border border-border p-4 transition-colors hover:border-primary/40 ${align === 'right' ? 'text-right sm:col-start-2' : ''}"><span class="flex items-center gap-1.5 text-[12.5px] text-muted-foreground ${align === 'right' ? 'justify-end' : ''}">${align === 'left' ? icon(ArrowLeft, 'h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5') : ''}${escapeHtml(label)}${align === 'right' ? icon(ArrowRight, 'h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5') : ''}</span><span class="mt-1 block text-title font-semibold text-foreground">${escapeHtml(chapter.title)}</span></a>`
+      ? `<a href="${guidePagePath(content, chapter.id)}" class="group rounded-xl border border-border p-4 transition-colors hover:border-primary/40 ${align === 'right' ? 'text-right sm:col-start-2' : ''}"><span class="flex items-center gap-1.5 text-body-sm text-muted-foreground ${align === 'right' ? 'justify-end' : ''}">${align === 'left' ? icon('back', 'h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5') : ''}${escapeHtml(label)}${align === 'right' ? icon('arrowRight', 'h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5') : ''}</span><span class="mt-1 block text-title font-semibold text-foreground">${escapeHtml(chapter.title)}</span></a>`
       : ''
   return `<nav class="mt-20 grid gap-3 sm:grid-cols-2">${link(prev, content.chrome.prev, 'left')}${link(next, content.chrome.next, 'right')}</nav>`
 }
@@ -502,18 +485,18 @@ function renderChapter(
   const subsections = chapter.subsections
     .map(
       (sub) =>
-        `<h2 id="${sub.id}" data-heading class="group mt-16 flex scroll-mt-24 items-center gap-2 text-[22px] font-semibold tracking-tight text-foreground">${escapeHtml(sub.title)}<a href="#${sub.id}" aria-hidden="true" tabindex="-1" class="text-border opacity-0 transition-opacity group-hover:opacity-100">#</a></h2>${renderBlocks(sub.blocks, content, options)}`,
+        `<h2 id="${sub.id}" data-heading class="group mt-16 flex scroll-mt-24 items-center gap-2 text-xl font-semibold tracking-tight text-foreground">${escapeHtml(sub.title)}<a href="#${sub.id}" aria-hidden="true" tabindex="-1" class="text-border opacity-0 transition-opacity group-hover:opacity-100">#</a></h2>${renderBlocks(sub.blocks, content, options)}`,
     )
     .join('')
   const faq = chapter.faq
-    ? `<h2 id="${content.faq.id}" data-heading class="mt-16 scroll-mt-24 text-[22px] font-semibold tracking-tight text-foreground">${escapeHtml(content.faq.title)}</h2><div class="mt-6 divide-y divide-border border-y border-border">${chapter.faq
+    ? `<h2 id="${content.faq.id}" data-heading class="mt-16 scroll-mt-24 text-xl font-semibold tracking-tight text-foreground">${escapeHtml(content.faq.title)}</h2><div class="mt-6 divide-y divide-border border-y border-border">${chapter.faq
         .map(
           (item) =>
-            `<details class="group py-4"><summary class="flex cursor-pointer list-none items-center justify-between gap-6 text-[15.5px] font-medium text-foreground [&::-webkit-details-marker]:hidden">${escapeHtml(item.q)}${icon(ChevronDown, 'h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180')}</summary><p class="mt-2.5 pr-10 text-[14.5px] leading-7 text-muted-foreground">${escapeHtml(item.a)}</p></details>`,
+            `<details class="group py-4"><summary class="flex cursor-pointer list-none items-center justify-between gap-6 text-title font-medium text-foreground [&::-webkit-details-marker]:hidden">${escapeHtml(item.q)}${icon('chevronDown', 'h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180')}</summary><p class="mt-2.5 pr-10 text-sm leading-7 text-muted-foreground">${escapeHtml(item.a)}</p></details>`,
         )
         .join('')}</div>`
     : ''
-  return `<div class="mx-auto flex max-w-[1400px] pt-[76px]">
+  return `<div class="mx-auto flex max-w-[1400px] pt-20">
       <aside class="sticky top-[76px] hidden h-[calc(100vh-76px)] w-[272px] shrink-0 overflow-y-auto border-r border-border px-6 pb-10 pt-8 lg:block">
         <nav aria-label="${escapeHtml(chrome.toc)}">${nav}</nav>
       </aside>
@@ -521,12 +504,12 @@ function renderChapter(
         <article class="mx-auto max-w-[740px]">
           <p class="text-body-sm text-muted-foreground"><a href="${content.root}" class="transition-colors hover:text-foreground">${escapeHtml(chrome.title)}</a><span aria-hidden="true" class="mx-2 text-border">/</span><span class="text-foreground">${escapeHtml(chapter.title)}</span></p>
           <details data-mobile-toc class="mt-6 rounded-xl border border-border lg:hidden">
-            <summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-[14px] font-medium [&::-webkit-details-marker]:hidden">${escapeHtml(chrome.toc)}${icon(ChevronDown, 'h-4 w-4 text-muted-foreground')}</summary>
+            <summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">${escapeHtml(chrome.toc)}${icon('chevronDown', 'h-4 w-4 text-muted-foreground')}</summary>
             <nav aria-label="${escapeHtml(chrome.toc)}" class="border-t border-border px-4 pt-5">${nav}</nav>
           </details>
-          <p class="mt-10 font-mono text-[12px] font-medium tracking-wider text-primary">${escapeHtml(chrome.chapterLabel.replace('{n}', two(index)))}</p>
-          <h1 class="mt-2 text-[36px] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-[40px]">${escapeHtml(chapter.title)}</h1>
-          <p class="mt-3 text-[17px] leading-8 text-muted-foreground">${escapeHtml(chapter.summary)}</p>
+          <p class="mt-10 font-mono text-xs font-medium tracking-wider text-primary">${escapeHtml(chrome.chapterLabel.replace('{n}', two(index)))}</p>
+          <h1 class="mt-2 text-headline font-semibold leading-tight tracking-[-0.02em] text-foreground">${escapeHtml(chapter.title)}</h1>
+          <p class="mt-3 text-base leading-8 text-muted-foreground">${escapeHtml(chapter.summary)}</p>
           <div class="mt-8 h-px bg-border"></div>
           ${renderBlocks(chapter.intro ?? [], content, options)}
           ${subsections}
@@ -535,7 +518,7 @@ function renderChapter(
         </article>
       </main>
       <aside class="sticky top-[76px] hidden h-[calc(100vh-76px)] w-56 shrink-0 overflow-y-auto pb-10 pr-6 pt-16 xl:block">
-        <p class="mb-3 text-[12px] font-semibold text-muted-foreground">${escapeHtml(chrome.onThisPage)}</p>
+        <p class="mb-3 text-xs font-semibold text-muted-foreground">${escapeHtml(chrome.onThisPage)}</p>
         <ul class="space-y-1">${rail}</ul>
       </aside>
     </div>

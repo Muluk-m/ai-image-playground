@@ -134,11 +134,11 @@ if (dialog && input && results) {
     active = 0
     results.innerHTML =
       hits.length === 0
-        ? `<p class="px-3 py-8 text-center text-[14px] text-muted-foreground">${escape(dialog.dataset.empty ?? '')}</p>`
+        ? `<p class="px-3 py-8 text-center text-sm text-muted-foreground">${escape(dialog.dataset.empty ?? '')}</p>`
         : hits
             .map(
               ({ entry }, i) =>
-                `<a href="${escape(entry.url)}" data-result role="option" aria-selected="${i === 0}" class="block rounded-xl px-3 py-2.5 aria-selected:bg-muted"><span class="block text-[12px] text-muted-foreground">${escape(entry.chapter)}</span><span class="block text-[14.5px] font-medium text-foreground">${escape(entry.title)}</span><span class="mt-0.5 block truncate text-body-sm text-muted-foreground">${snippet(entry.text, terms[0]!)}</span></a>`,
+                `<a href="${escape(entry.url)}" data-result role="option" aria-selected="${i === 0}" class="block rounded-xl px-3 py-2.5 aria-selected:bg-muted"><span class="block text-xs text-muted-foreground">${escape(entry.chapter)}</span><span class="block text-sm font-medium text-foreground">${escape(entry.title)}</span><span class="mt-0.5 block truncate text-body-sm text-muted-foreground">${snippet(entry.text, terms[0]!)}</span></a>`,
             )
             .join('')
   }

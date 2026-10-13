@@ -1,4 +1,3 @@
-import { GalleryVertical } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { GapAndBackground } from '../components/BackgroundField'
@@ -26,7 +25,7 @@ export const stitchTool: CombineTool = {
   id: 'stitch',
   group: 'compose',
   kind: 'combine',
-  icon: GalleryVertical,
+  icon: 'stitch',
   useController() {
     const { t } = useTranslation('toolbox')
     const [params, setParams] = useState<StitchParams>({

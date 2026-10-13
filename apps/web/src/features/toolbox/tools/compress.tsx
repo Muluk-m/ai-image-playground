@@ -1,4 +1,3 @@
-import { Minimize2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import {
   Select,
@@ -113,7 +112,7 @@ function CompressControls({
           value={params.format}
           onValueChange={(format) => onChange({ format: format as CompressFormat })}
         >
-          <SelectTrigger className="h-8 w-36 text-body-sm" aria-label={t('params.format')}>
+          <SelectTrigger className="w-36" aria-label={t('params.format')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -140,7 +139,7 @@ function CompressControls({
       )}
       {!lossless && params.mode === 'quality' && (
         <Field label={t('params.quality')}>
-          <div className="flex h-8 w-56 items-center gap-3">
+          <div className="flex h-9 w-56 items-center gap-3">
             <Slider
               min={5}
               max={100}
@@ -171,7 +170,7 @@ export const compressTool: EachTool = {
   id: 'compress',
   group: 'process',
   kind: 'each',
-  icon: Minimize2,
+  icon: 'compress',
   useController() {
     const [params, setParams] = useState(DEFAULTS)
     return {

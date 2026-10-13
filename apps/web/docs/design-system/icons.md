@@ -198,3 +198,21 @@ import { Icon } from '@/components/ui/icon'
 4. 在上表补一行，到陈列页（`/design.html`）深浅色各看一眼。
 
 品牌 Logo（模型厂商标识）在 `components/assistant-ui/elements/logos.tsx`，不属于图标体系。
+
+**工具箱与指南**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `resize` | 调整图片尺寸 | maximize |
+| `compress` | 压缩图片 | minimize-square |
+| `convertFormat` | 转换图片格式 | transfer-horizontal |
+| `rotate` | 旋转图片 | rotate-cw |
+| `flipHorizontal` | 水平翻转 | flip-horizontal-2 |
+| `flipVertical` | 垂直翻转 | flip-vertical-2 |
+| `collage` | 拼图 | widget |
+| `stitch` | 拼接长图 | gallery-vertical |
+| `slice` | 切图 | grid-3x3 |
+| `sendToComposer` | 送入创作页 | gallery-send |
+| `gettingStarted` | 快速上手 | rocket |
+| `tip` | 使用提示 | lightbulb |
+| `help` | 常见问题 | question-circle |
