@@ -43,13 +43,15 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  /** Disable when an ancestor trigger supplies the tooltip through an intermediary element. */
+  autoTooltip?: boolean
   'data-tooltip-trigger'?: boolean
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, title, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, autoTooltip = true, title, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
-    const hasTooltip = props['data-tooltip-trigger']
+    const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
     const label = title || props['aria-label']
     const button = (
       <Comp
@@ -63,7 +65,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       />
     )
     // 已有 Hint 的组合件沿用它自己的文案，避免双重提示。Portal 不改变按钮的布局层级。
-    return label && !hasTooltip ? <Hint tooltip={label}>{button}</Hint> : button
+    return hasTooltip ? button : <Hint tooltip={label}>{button}</Hint>
   },
 )
 Button.displayName = 'Button'

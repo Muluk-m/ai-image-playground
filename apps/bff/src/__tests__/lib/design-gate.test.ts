@@ -28,6 +28,14 @@ describe('scanSource', () => {
     expect(rulesIn(path, '<Button><Icon name="edit" />Edit</Button>')).toEqual([])
   })
 
+  it('rejects statically absent icon labels', () => {
+    for (const label of ['null', 'undefined', 'void 0', '``', '`  `', '""']) {
+      expect(
+        rulesIn('apps/web/src/Panel.tsx', `<Button size="icon" aria-label={${label}} />`),
+      ).toEqual(['icon-button-label'])
+    }
+  })
+
   it('flags native controls outside components/ui but not inside', () => {
     const source = '<button onClick={go}>Go</button>\n<textarea />'
     expect(rulesIn('apps/web/src/features/x/Panel.tsx', source)).toEqual([
