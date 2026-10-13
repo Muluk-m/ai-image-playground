@@ -462,32 +462,45 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   background-size: var(--dot-gap) var(--dot-gap);
   mask-image: radial-gradient(ellipse 60% 55% at 50% 22%, hsl(var(--scrim)) 0%, transparent 75%);
 }
+@media (max-width: 767px) {
+  /* 窄屏上光晕更容易被裁出首屏，把中性灰光略抬高，避免整页看起来是一块纯黑。 */
+  .studio-home-backdrop { --dot-alpha: .11; }
+  .dark .studio-home-backdrop__glow {
+    background: radial-gradient(closest-side, hsl(var(--foreground) / .18), transparent);
+  }
+  .studio-home-backdrop__glow--a {
+    width: 560px;
+    height: 340px;
+    left: calc(50% - 280px);
+    top: 8px;
+  }
+  .studio-home-backdrop__glow--b {
+    left: calc(50% - 200px);
+    top: 120px;
+    opacity: .9;
+  }
+  .studio-home-backdrop__glow--c {
+    left: calc(50% - 40px);
+    top: 200px;
+    opacity: .75;
+  }
+}
 
-/* 标题后半段是慢银光，不是芽绿渐变。 */
+/* 标题后半段是品牌芽绿，上面掠过一道很淡的银光。大面积必须仍是芽绿。 */
 .studio-hero-accent {
   background-image: linear-gradient(
     100deg,
-    hsl(var(--foreground)) 0%,
-    hsl(var(--foreground)) 38%,
-    hsl(var(--muted-foreground)) 46%,
-    hsl(var(--foreground)) 56%,
-    hsl(var(--foreground)) 100%
+    hsl(var(--primary)) 0%,
+    hsl(var(--primary)) 42%,
+    color-mix(in srgb, hsl(var(--primary)) 72%, white 28%) 50%,
+    hsl(var(--primary)) 58%,
+    hsl(var(--primary)) 100%
   );
   background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   animation: studio-hero-shimmer 10s linear infinite;
-}
-.dark .studio-hero-accent {
-  background-image: linear-gradient(
-    100deg,
-    hsl(var(--foreground)) 0%,
-    hsl(var(--foreground)) 38%,
-    hsl(var(--on-media)) 46%,
-    hsl(var(--foreground)) 56%,
-    hsl(var(--foreground)) 100%
-  );
 }
 
 /* 提示卡边上一道很暗的银光，大约 13 秒绕一圈，峰值约 0.16。聚焦时收起。 */
@@ -565,8 +578,8 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   }
   .studio-hero-accent {
     background-image: none;
-    color: hsl(var(--foreground));
-    -webkit-text-fill-color: hsl(var(--foreground));
+    color: hsl(var(--primary));
+    -webkit-text-fill-color: hsl(var(--primary));
   }
 }
 
