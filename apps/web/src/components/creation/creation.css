@@ -215,3 +215,11 @@
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-reference-frame,
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-add { width: 56px; height: 56px; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-prompt { min-height: calc(1.75em + 2px); }
+
+/* Reserve readable settings and the send action in narrow sidebars. */
+@container creation-composer (max-width: 400px) {
+ .creation-toolbar .creation-mode-trigger { max-width: 112px; }
+ .creation-toolbar .creation-mode-trigger > span > span { gap: 6px; }
+ .creation-live-controls > button[role=combobox] { min-width: 3rem; }
+ .creation-live-controls > button[aria-haspopup=dialog]:not([role=combobox]) { flex-shrink: 0; }
+}

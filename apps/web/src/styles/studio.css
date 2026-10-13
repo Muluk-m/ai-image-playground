@@ -1072,14 +1072,7 @@ body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) +
 .studio-node-canvas .react-flow__panel.react-flow__minimap { bottom: 76px; border-radius: 12px; overflow: hidden; border: 1px solid hsl(var(--border)); }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { opacity: 1; }
 .studio-node-canvas .react-flow__edge.selected .react-flow__edge-path { stroke: hsl(var(--primary)); stroke-width: 2; }
-.studio-node-references { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
-.studio-node-reference { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 6px; min-height: 32px; border: 1px solid hsl(var(--border) / .6); border-radius: 8px; background: hsl(var(--muted) / .4); }
-.studio-node-reference-add { height: 32px; padding: 0 8px; color: hsl(var(--muted-foreground)); border: 1px dashed hsl(var(--border)); border-radius: 8px; }
 .studio-node-reference-picker { z-index: 600; }
-.studio-node-reference > img { width: 28px; height: 28px; border-radius: 4px; object-fit: cover; }
-.studio-node-composer .studio-direct-card { gap: 12px; padding: 12px; border-radius: 16px; border-color: hsl(var(--border)); box-shadow: var(--shadow-popover); }
-.studio-node-composer .studio-direct-card:focus-within { border-color: hsl(var(--border)); }
-.studio-node-composer .studio-direct-card textarea { font-size: theme('fontSize.sm'); line-height: 1.5; padding: 0; }
 @media (max-width: 640px) {
  .studio-node-tools { left: 8px; padding: 4px; }
  .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
@@ -1090,33 +1083,6 @@ body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) +
 .studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; }
 .studio-node-media-actions { position: absolute; z-index: 24; display: flex; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { pointer-events: all; }
-
-/* The docked agent uses a compact composer instead of the homepage input proportions. */
-.studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-composer { --creation-space: 12px; border-radius: 16px; }
-.studio-layout[data-node-canvas="true"] .creation-body { flex-direction: row; align-items: flex-start; gap: 12px; }
-.studio-layout[data-node-canvas="true"] .creation-references { flex: 0 0 auto; width: auto; height: auto; }
-.studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] { width: 32px; height: 32px; }
-.studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] .creation-add { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: 8px; }
-.studio-layout[data-node-canvas="true"] .creation-reference-stack[data-filled="false"] .creation-add > span { display: none; }
-.studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-prompt { font-size: theme('fontSize.sm'); line-height: 1.5; min-height: 72px; max-height: 160px; }
-.studio-layout[data-node-canvas="true"] .creation-mode-trigger { grid-column: 1; grid-row: 1; height: 32px; min-height: 32px; padding: 0 8px; font-size: theme('fontSize.xs'); }
-.studio-layout[data-node-canvas="true"] .creation-mode-trigger > span > span { gap: 6px; }
-/* Keep the dock footer on one baseline; settings details remain in their popover. */
-.studio-layout[data-node-canvas="true"] .creation-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px 32px; align-items: center; gap: 6px; }
-.studio-layout[data-node-canvas="true"] .creation-toolbar :is(.creation-tools, .creation-live-controls) { display: contents; }
-.studio-layout[data-node-canvas="true"] .creation-toolbar-mode { grid-column: 1; grid-row: 1; }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button { height: 32px; min-height: 32px; min-width: 0; padding: 0 6px; font-size: theme('fontSize.xs'); border-color: transparent; background: transparent; box-shadow: none; }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button:hover { background: hsl(var(--muted)); }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button[role="combobox"] { grid-column: 2; grid-row: 1; width: 100%; max-width: 100%; }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) { grid-column: 3; grid-row: 1; width: 32px; max-width: none; justify-content: center; padding: 0; }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) > .truncate { display: none; }
-.studio-layout[data-node-canvas="true"] .creation-toolbar > .creation-toolbar-action { grid-column: 4; grid-row: 1; justify-self: end; }
-.studio-layout[data-node-canvas="true"] .creation-tool-divider { display: none; }
-.studio-layout[data-node-canvas="true"] .creation-send { width: 32px; height: 32px; min-width: 32px; min-height: 32px; border-radius: 9999px; }
-@container creation-composer (max-width: 400px) {
-  .studio-layout[data-node-canvas="true"] .creation-mode-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .studio-layout[data-node-canvas="true"] .creation-mode-trigger { gap: 4px; }
-}
 
 /* Group frames stay behind cards; only their header takes pointer input. */
 .studio-node-canvas .react-flow__node-canvasGroup { pointer-events: none; }
@@ -1164,10 +1130,3 @@ body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) +
 .studio-node-reference-picking .studio-node-reference-disabled { opacity: .22; filter: grayscale(1); cursor: not-allowed; }
 .studio-node-reference-picking .studio-node-reference-eligible { cursor: crosshair; }
 .studio-node-reference-eligible:hover .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 4px; }
-.studio-node-reference--image { position: relative; flex: 0 0 64px; height: 64px; padding: 3px; }
-.studio-node-reference--image > img { width: 56px; height: 56px; border-radius: 6px; }
-.studio-node-reference--image .studio-node-reference-label { display: none; }
-.studio-node-reference--image .studio-node-reference-index { position: absolute; left: 6px; bottom: 6px; padding: 0 4px; border-radius: 4px; color: hsl(var(--foreground)); background: hsl(var(--card) / .9); }
-.studio-node-reference--image > button { position: absolute; right: -2px; top: -2px; background: hsl(var(--card)); }
-.studio-node-reference--image > button:nth-last-of-type(2) { top: auto; bottom: -2px; }
-.studio-node-references:has(.studio-node-reference--image) .studio-node-reference-add { align-self: center; }

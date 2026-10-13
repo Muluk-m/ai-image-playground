@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ImageNodeComposer from '../../../../features/canvas/components/ImageNodeComposer'
+import { stubPointerApis } from '../../../helpers/radix'
 
 const mocks = vi.hoisted(() => ({ guard: vi.fn(), upload: vi.fn(), toast: vi.fn() }))
 vi.mock('../../../../components/ParamControls', () => ({ default: () => null }))
@@ -29,6 +30,8 @@ vi.mock('../../../../store', () => {
 let host: HTMLDivElement
 let root: Root
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  stubPointerApis()
   mocks.guard.mockReturnValue({ blocked: false, estimatedCredits: 30 })
   mocks.upload.mockResolvedValue('data:image/png;base64,temporary')
   host = document.createElement('div')
@@ -39,6 +42,7 @@ afterEach(async () => {
   await act(async () => root.unmount())
   host.remove()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
 })
 const button = (label: string) =>
   host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!

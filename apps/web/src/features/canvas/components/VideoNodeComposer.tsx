@@ -1,8 +1,14 @@
 import { videoRateMultiplier } from '@image-playground/shared'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
+import {
+  CreationBody,
+  CreationSend,
+  CreationToolbar,
+} from '../../../components/creation/CreationFrame'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -143,6 +149,7 @@ export default function VideoNodeComposer({
   }
   const uploadInput = useRef<HTMLInputElement>(null)
   const uploadSlot = useRef<'first' | 'last' | 'reference'>('reference')
+  const [frameMenu, setFrameMenu] = useState<'first' | 'last' | null>(null)
   const setSlot = (slot: 'first' | 'last', id: string) =>
     onMeta({ [slot === 'first' ? 'videoFirstFrame' : 'videoLastFrame']: id })
   const swap = () =>
@@ -155,202 +162,236 @@ export default function VideoNodeComposer({
   }
   return (
     <NodeComposerFrame
+      standard
+      tools={resultTools}
       label={t('nodes.composerVideo')}
       position={position}
       references={[]}
       files={{}}
     >
-      {resultTools}
-      {option && (
-        <Select value={mode} onValueChange={(next) => onMeta({ nodeVideoMode: next })}>
-          <SelectTrigger
-            className="h-8 w-auto max-w-full text-xs"
-            aria-label={t('nodes.videoMode')}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {nodeVideoModes(option.support).map((one) => (
-              <SelectItem key={one} value={one}>
-                {modeLabels[one]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-      {referenceTools}
-      {(mode === 'first' || mode === 'frames') && (
-        <div className="flex items-center gap-2">
-          {(['first', ...(mode === 'frames' ? ['last'] : [])] as ('first' | 'last')[]).map(
-            (slot) => {
-              const ref = inputs[slot]
-              return (
-                <div
-                  key={slot}
-                  className="min-w-0 flex-1 rounded-lg border bg-muted/30 p-2"
-                  draggable={Boolean(ref)}
-                  onDragStart={(event) =>
-                    event.dataTransfer.setData('application/x-canvas-frame', slot)
-                  }
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    const source = event.dataTransfer.getData('application/x-canvas-frame')
-                    if (source && source !== slot) swap()
-                  }}
-                >
-                  <div className="mb-1 text-xs text-muted-foreground">
-                    {t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
-                  </div>
-                  {ref?.fileId && allFiles[ref.fileId] ? (
-                    <NodeMediaImage
-                      src={allFiles[ref.fileId]}
-                      alt={ref.label}
-                      className="mb-2 h-16 w-full rounded-sm object-cover"
-                    />
-                  ) : (
-                    <div className="mb-2 flex h-16 items-center justify-center text-muted-foreground">
-                      <Icon name="image" />
-                    </div>
-                  )}
-                  {onPickReference ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      disabled={busy}
-                      aria-label={t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
-                      onClick={() => onPickReference(slot)}
-                    >
-                      <Icon name="fit" />
-                      {t('nodes.pickFromCanvas')}
-                    </Button>
-                  ) : (
-                    <Select value={ref?.id ?? ''} onValueChange={(id) => setSlot(slot, id)}>
-                      <SelectTrigger
-                        className="h-7 w-full text-xs"
-                        aria-label={t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
+      <CreationBody
+        references={
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 max-w-full">{referenceTools}</div>
+            {(mode === 'first' || mode === 'frames') && (
+              <div className="flex items-center gap-2">
+                {(['first', ...(mode === 'frames' ? ['last'] : [])] as ('first' | 'last')[]).map(
+                  (slot) => {
+                    const ref = inputs[slot]
+                    return (
+                      <div
+                        key={slot}
+                        className="flex flex-col items-center gap-1"
+                        draggable={Boolean(ref)}
+                        onDragStart={(event) =>
+                          event.dataTransfer.setData('application/x-canvas-frame', slot)
+                        }
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          const source = event.dataTransfer.getData('application/x-canvas-frame')
+                          if (source && source !== slot) swap()
+                        }}
                       >
-                        <SelectValue placeholder={t('nodes.chooseFrame')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allRefs
-                          .filter((one) => one.kind === 'image' && !one.asset)
-                          .map((one) => (
-                            <SelectItem key={one.id} value={one.id}>
-                              {one.label || t('nodes.addImage')}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+                        <Popover
+                          open={frameMenu === slot}
+                          onOpenChange={(open) => setFrameMenu(open ? slot : null)}
+                        >
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              className="creation-add overflow-hidden"
+                              disabled={busy}
+                              aria-label={t(
+                                slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame',
+                              )}
+                              title={t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
+                            >
+                              {ref?.fileId && allFiles[ref.fileId] ? (
+                                <NodeMediaImage
+                                  src={allFiles[ref.fileId]}
+                                  alt={ref.label}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <Icon name="add" />
+                              )}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            side="top"
+                            align="start"
+                            className="creation-popover w-56"
+                          >
+                            {onPickReference ? (
+                              <Button
+                                variant="ghost"
+                                className="creation-menu-item"
+                                onClick={() => {
+                                  setFrameMenu(null)
+                                  onPickReference(slot)
+                                }}
+                              >
+                                <Icon name="fit" />
+                                {t('nodes.pickFromCanvas')}
+                              </Button>
+                            ) : (
+                              <Select
+                                value={ref?.id ?? ''}
+                                onValueChange={(id) => setSlot(slot, id)}
+                              >
+                                <SelectTrigger
+                                  aria-label={t(
+                                    slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame',
+                                  )}
+                                >
+                                  <SelectValue placeholder={t('nodes.chooseFrame')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {allRefs
+                                    .filter((one) => one.kind === 'image' && !one.asset)
+                                    .map((one) => (
+                                      <SelectItem key={one.id} value={one.id}>
+                                        {one.label || t('nodes.addImage')}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                            <Button
+                              variant="ghost"
+                              className="creation-menu-item"
+                              disabled={busy || uploads.uploading}
+                              onClick={() => {
+                                setFrameMenu(null)
+                                uploadSlot.current = slot
+                                uploadInput.current?.click()
+                              }}
+                            >
+                              <Icon name="upload" />
+                              {t('nodes.addUpload')}
+                            </Button>
+                          </PopoverContent>
+                        </Popover>
+                        <span className="text-xs text-muted-foreground">
+                          {t(slot === 'first' ? 'nodes.firstFrame' : 'nodes.lastFrame')}
+                        </span>
+                      </div>
+                    )
+                  },
+                )}
+                {mode === 'frames' && (
                   <Button
                     variant="ghost"
-                    size="sm"
-                    disabled={busy || uploads.uploading}
-                    className="mt-1 w-full text-xs"
-                    onClick={() => {
-                      uploadSlot.current = slot
-                      uploadInput.current?.click()
-                    }}
+                    size="icon-sm"
+                    aria-label={t('nodes.swapFrames')}
+                    disabled={!inputs.first || !inputs.last || busy}
+                    onClick={swap}
                   >
-                    <Icon name="upload" size="xs" />
-                    {t('nodes.addUpload')}
+                    <Icon name="refresh" />
                   </Button>
-                </div>
-              )
-            },
-          )}
-          {mode === 'frames' && (
+                )}
+              </div>
+            )}
+          </div>
+        }
+      >
+        {mode === 'reference' && !referenceTools && (
+          <div className="flex flex-wrap items-center gap-2">
+            {uploads.items.map((item, index) => (
+              <div key={item.id} className="flex items-center gap-1 rounded-md border p-1">
+                <NodeMediaImage
+                  src={item.url}
+                  alt={item.name}
+                  className="h-8 w-8 rounded-sm object-cover"
+                />
+                <span className="text-xs">
+                  {referenceFileIds(references, files).length + index + 1}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={t('nodes.removeReference')}
+                  onClick={() => uploads.remove(item.id)}
+                >
+                  <Icon name="close" />
+                </Button>
+              </div>
+            ))}
             <Button
               variant="ghost"
-              size="icon-sm"
-              aria-label={t('nodes.swapFrames')}
-              disabled={!inputs.first || !inputs.last || busy}
-              onClick={swap}
-            >
-              <Icon name="refresh" />
-            </Button>
-          )}
-        </div>
-      )}
-      {mode === 'reference' && (
-        <div className="flex flex-wrap items-center gap-2">
-          {uploads.items.map((item, index) => (
-            <div key={item.id} className="flex items-center gap-1 rounded-md border p-1">
-              <NodeMediaImage
-                src={item.url}
-                alt={item.name}
-                className="h-8 w-8 rounded-sm object-cover"
-              />
-              <span className="text-xs">
-                {referenceFileIds(references, files).length + index + 1}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('nodes.removeReference')}
-                onClick={() => uploads.remove(item.id)}
-              >
-                <Icon name="close" />
-              </Button>
-            </div>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy || uploads.uploading}
-            onClick={() => {
-              uploadSlot.current = 'reference'
-              uploadInput.current?.click()
-            }}
-          >
-            <Icon name="imageAdd" />
-            {t('nodes.addUpload')}
-          </Button>
-        </div>
-      )}
-      <NodePromptInput
-        value={value}
-        onChange={onChange}
-        onSubmit={send}
-        onAsset={onAsset}
-        label={t('nodes.composerVideo')}
-        className="max-h-40 min-h-20 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
-      />
-      <div className="flex items-end gap-2">
-        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
-          {option ? (
-            <CanvasVideoParams
-              hasFirstFrame={Boolean(inputs.first)}
               size="sm"
-              controlled={{ draft, onChange: changeDraft, support }}
-            />
-          ) : (
-            <span className="text-xs text-muted-foreground">{t('nodes.noVideoModel')}</span>
-          )}
-        </div>
-        <Button
-          size="icon"
-          className="shrink-0 rounded-full"
-          aria-label={t('nodes.composerSend')}
-          disabled={!canSend}
-          onClick={send}
-        >
-          <Icon name={busy ? 'loading' : 'generate'} />
-        </Button>
-      </div>
-      {inputError && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {inputError}
-        </p>
-      )}
-      {guard.estimatedCredits !== undefined && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          {t('nodes.estimatedCost')} <Credits credits={guard.estimatedCredits} />
-        </div>
-      )}
+              disabled={busy || uploads.uploading}
+              onClick={() => {
+                uploadSlot.current = 'reference'
+                uploadInput.current?.click()
+              }}
+            >
+              <Icon name="imageAdd" />
+              {t('nodes.addUpload')}
+            </Button>
+          </div>
+        )}
+        <NodePromptInput
+          value={value}
+          onChange={onChange}
+          onSubmit={send}
+          onAsset={onAsset}
+          label={t('nodes.composerVideo')}
+          className="creation-prompt w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+        />
+      </CreationBody>
+      <CreationToolbar
+        mode={
+          option ? (
+            <Select value={mode} onValueChange={(next) => onMeta({ nodeVideoMode: next })}>
+              <SelectTrigger className="creation-mode-trigger" aria-label={t('nodes.videoMode')}>
+                <Icon name="video" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {nodeVideoModes(option.support).map((one) => (
+                  <SelectItem key={one} value={one}>
+                    {modeLabels[one]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : undefined
+        }
+        action={
+          <CreationSend
+            aria-label={t('nodes.composerSend')}
+            disabled={!canSend}
+            busy={busy}
+            onClick={send}
+          />
+        }
+        status={
+          <>
+            {inputError && (
+              <p role="status" className="text-muted-foreground">
+                {inputError}
+              </p>
+            )}
+            {guard.estimatedCredits !== undefined && (
+              <span className="flex items-center gap-1 text-muted-foreground">
+                {t('nodes.estimatedCost')} <Credits credits={guard.estimatedCredits} />
+              </span>
+            )}
+          </>
+        }
+      >
+        {option ? (
+          <CanvasVideoParams
+            hasFirstFrame={Boolean(inputs.first)}
+            controlled={{ draft, onChange: changeDraft, support }}
+          />
+        ) : (
+          <span className="text-xs text-muted-foreground">{t('nodes.noVideoModel')}</span>
+        )}
+      </CreationToolbar>
       <input
         ref={uploadInput}
         type="file"

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import VideoNodeComposer from '../../../../features/canvas/components/VideoNodeComposer'
 import type { VideoDraft } from '../../../../features/video/types'
+import { stubPointerApis } from '../../../helpers/radix'
 
 const mocks = vi.hoisted(() => ({
   upload: vi.fn(),
@@ -82,6 +83,7 @@ let root: Root
 let scope: object
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  stubPointerApis()
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -94,7 +96,13 @@ afterEach(async () => {
   vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
-function Fixture({ initial = {} }: { initial?: Record<string, string> }) {
+function Fixture({
+  initial = {},
+  onPickReference,
+}: {
+  initial?: Record<string, string>
+  onPickReference?: (slot?: 'first' | 'last') => void
+}) {
   const [meta, onMeta] = useState<Record<string, string>>(initial)
   return (
     <VideoNodeComposer
@@ -106,6 +114,7 @@ function Fixture({ initial = {} }: { initial?: Record<string, string> }) {
       busy={false}
       position={{ left: 0, top: 0 }}
       referenceTools={null}
+      onPickReference={onPickReference}
       references={['one', 'two'].map((id) => ({ id, fileId: id, kind: 'image', label: id }))}
       files={{ one: 'data:one', two: 'data:two' }}
       meta={meta}
@@ -139,7 +148,8 @@ it('changes offered modes with the node model, swaps frames and submits the node
 })
 it('uploads into the explicit first-frame slot and submits that media', async () => {
   await act(async () => root.render(<Fixture />))
-  const upload = [...host.querySelectorAll('button')].find((one) =>
+  await act(async () => button('首帧').click())
+  const upload = [...document.querySelectorAll('button')].find((one) =>
     one.textContent?.includes('上传'),
   )!
   await act(async () => upload.click())
@@ -182,4 +192,17 @@ it('does not inherit global voices or their quality limit for a saved silent nod
   } finally {
     mocks.voices = []
   }
+})
+
+it('closes the frame menu when handing selection to the canvas', async () => {
+  const pick = vi.fn()
+  await act(async () => root.render(<Fixture onPickReference={pick} />))
+  await act(async () => button('首帧').click())
+  const choose = [...document.querySelectorAll('button')].find((one) =>
+    one.textContent?.includes('从画布选择'),
+  )!
+  await act(async () => choose.click())
+  expect(pick).toHaveBeenCalledWith('first')
+  expect(document.body.contains(choose)).toBe(false)
+  expect(button('首帧').getAttribute('aria-expanded')).toBe('false')
 })

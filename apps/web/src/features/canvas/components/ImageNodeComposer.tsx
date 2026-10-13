@@ -1,6 +1,11 @@
 import type { ChangeEvent, ReactNode } from 'react'
 import { useRef } from 'react'
 import Credits from '../../../components/Credits'
+import {
+  CreationBody,
+  CreationSend,
+  CreationToolbar,
+} from '../../../components/creation/CreationFrame'
 import ParamControls from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -84,81 +89,82 @@ export default function ImageNodeComposer({
   }
   return (
     <NodeComposerFrame
+      standard
+      tools={resultTools}
       label={t('nodes.composerImage')}
       position={position}
       references={referenceTools ? [] : references}
       files={files}
     >
-      {resultTools}
-      {referenceTools}
-      {temporary.length > 0 && (
-        <div className="flex flex-wrap gap-2" aria-label={t('nodes.temporaryReferences')}>
-          {temporary.map((item, index) => (
-            <div
-              key={item.id}
-              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border bg-muted p-1"
-            >
-              <NodeMediaImage
-                src={item.url}
-                alt={item.name}
-                className="h-8 w-8 rounded-sm object-cover"
-              />
-              <span className="max-w-24 truncate text-xs">
-                {readyImageIds.length + index + 1}. {item.name}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('nodes.removeReference')}
-                disabled={busy}
-                onClick={() => remove(item.id)}
+      <CreationBody references={referenceTools}>
+        {temporary.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label={t('nodes.temporaryReferences')}>
+            {temporary.map((item, index) => (
+              <div
+                key={item.id}
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border bg-muted p-1"
               >
-                <Icon name="close" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-      <NodePromptInput
-        value={value}
-        onChange={onChange}
-        onSubmit={submit}
-        onAsset={onAsset}
-        label={t('nodes.composerImage')}
-        className="max-h-40 min-h-20 resize-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
-      />
-      <div className="flex items-end gap-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          {!referenceTools && (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              disabled={busy || uploading}
-              aria-label={t('nodes.addUpload')}
-              onClick={() => uploadInput.current?.click()}
-            >
-              <Icon name="imageAdd" />
-            </Button>
-          )}
-          <ParamControls showCount size="sm" />
-        </div>
-        <Button
-          type="button"
-          size="icon"
-          className="flex-shrink-0 rounded-full disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-          aria-label={t('nodes.composerSend')}
-          disabled={!canSend}
-          onClick={submit}
-        >
-          <Icon name="generate" />
-        </Button>
-      </div>
-      {profile.source === 'builtin-edge' && guard.estimatedCredits !== undefined && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground" aria-live="polite">
-          {t('nodes.estimatedCost')} <Credits credits={guard.estimatedCredits} />
-        </div>
-      )}
+                <NodeMediaImage
+                  src={item.url}
+                  alt={item.name}
+                  className="h-8 w-8 rounded-sm object-cover"
+                />
+                <span className="max-w-24 truncate text-xs">
+                  {readyImageIds.length + index + 1}. {item.name}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={t('nodes.removeReference')}
+                  disabled={busy}
+                  onClick={() => remove(item.id)}
+                >
+                  <Icon name="close" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <NodePromptInput
+          value={value}
+          onChange={onChange}
+          onSubmit={submit}
+          onAsset={onAsset}
+          label={t('nodes.composerImage')}
+          className="creation-prompt w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+        />
+      </CreationBody>
+      <CreationToolbar
+        action={
+          <CreationSend
+            aria-label={t('nodes.composerSend')}
+            disabled={!canSend}
+            busy={busy}
+            onClick={submit}
+          />
+        }
+        status={
+          profile.source === 'builtin-edge' && guard.estimatedCredits !== undefined ? (
+            <span className="flex items-center gap-1 text-muted-foreground" aria-live="polite">
+              {t('nodes.estimatedCost')} <Credits credits={guard.estimatedCredits} />
+            </span>
+          ) : undefined
+        }
+      >
+        {!referenceTools && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={busy || uploading}
+            aria-label={t('nodes.addUpload')}
+            onClick={() => uploadInput.current?.click()}
+          >
+            <Icon name="imageAdd" />
+          </Button>
+        )}
+        <ParamControls showCount />
+      </CreationToolbar>
       <input
         ref={uploadInput}
         type="file"
