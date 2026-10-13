@@ -45,3 +45,14 @@ describe('parseAgentCanvasSnapshot', () => {
     ).toBeUndefined()
   })
 })
+
+it('preserves an empty node selection and sanitizes selected node and group ids', () => {
+  expect(parseAgentCanvasSnapshot({ elements: [], selectedNodeIds: [] })).toEqual({
+    elements: [],
+    selectedNodeIds: [],
+  })
+  expect(
+    parseAgentCanvasSnapshot({ elements: [], selectedNodeIds: ['group', 'node', 'node', '', 4] })
+      ?.selectedNodeIds,
+  ).toEqual(['group', 'node'])
+})

@@ -69,6 +69,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.job ? { job: block.job } : {}),
     ...(block.retryOf ? { retryOf: block.retryOf } : {}),
     ...(block.timeline ? { timeline: block.timeline } : {}),
+    ...(block.canvasRead ? { canvasRead: block.canvasRead } : {}),
     ...(block.canvasEdit ? { canvasEdit: block.canvasEdit } : {}),
     ...(block.saveCard ? { saveCard: block.saveCard } : {}),
     ...(block.sources ? { sources: block.sources } : {}),

@@ -50,6 +50,8 @@
     "copyFailed": "复制失败，请选择回复文字手动复制"
   },
   "tool": {
+    "canvasReadNodes": "已读取节点：{{nodes}}",
+    "canvasReadNone": "无",
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
     "notFinished": "没有完成",

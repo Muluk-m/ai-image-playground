@@ -650,6 +650,7 @@ export interface AgentVisualObservation {
 }
 
 export interface AgentToolResultBlock {
+  readonly canvasRead?: readonly { id: string; name: string }[]
   readonly productionDraftRevision?: number
   /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
   readonly video?: VideoGenerationRecord
@@ -1336,6 +1337,8 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return block.saveCard.status === 'saved'
       ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
       : `${title}：卡片已经给到用户，他还没按下保存`
+  if (block.canvasRead)
+    return `${title}：已读取节点 ${block.canvasRead.map((node) => `${node.name}（${node.id}）`).join('、') || '无'}；需要正文时重新读取。`
   if (block.visualObservations?.length)
     return `${title}：完成；已观察结论：${block.visualObservations.map((entry) => `图片 ${entry.imageId}：${entry.observation}`).join('；')}。需要像素时用 viewImage 重读。`
   if (block.fetchedImages?.length)
