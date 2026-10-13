@@ -16,6 +16,7 @@ import NodeCanvas from '../../../../features/canvas/components/NodeCanvas'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
+import { stubPointerApis } from '../../../helpers/radix'
 
 const mocks = vi.hoisted(() => ({ open: vi.fn(), importImages: vi.fn(async () => 1) }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
@@ -164,6 +165,7 @@ function createCanvas(): NodeCanvasDocument {
   }
 }
 beforeEach(() => {
+  stubPointerApis()
   mocks.open.mockReset()
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
@@ -326,7 +328,7 @@ it('puts the workspace image controls under a new image card and keeps the card'
   expect(document.body.querySelector('[role="menu"]')).toBeNull()
   const composer = host.querySelector('.studio-node-composer')
   expect(composer?.getAttribute('aria-label')).toBe('描述你想生成的图片')
-  expect(composer?.querySelector('.studio-direct-card')).not.toBeNull()
+  expect(composer?.querySelector('.creation-composer')).not.toBeNull()
   expect(composer?.querySelector('[aria-label^="生成设置"]')).not.toBeNull()
   expect(host.querySelector('.studio-node-upload')?.textContent).toContain('上传')
   expect(host.querySelectorAll('.react-flow__handle')).toHaveLength(4)
