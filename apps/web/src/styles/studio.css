@@ -193,12 +193,6 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-tools::-webkit-scrollbar { display: none; }
 .studio-tools button { flex-shrink: 0; }
 .studio-direct-composer { margin-top: auto; padding: var(--studio-space-4); }
-.studio-direct-card { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); box-shadow: var(--studio-shadow); }
-.studio-direct-card:focus-within { border-color: hsl(var(--ring) / .5); }
-/* 卡内输入区不再单独描一圈：聚焦由卡片边框（:focus-within）表示。 */
-.studio-direct-card textarea { padding: 4px 6px; background: transparent; color: hsl(var(--foreground)); }
-.studio-direct-card textarea:focus-visible { outline: none; }
-.studio-direct-card textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .studio-canvas-status { position: absolute; inset: 0; z-index: 420; display: grid; place-items: center; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: theme('fontSize.body-sm'); }
 /* 读取真的久了才盖上的品牌标。点阵和画布同一套。短等待不挂这层，避免一闪。 */
 .studio-canvas-loading {
@@ -355,7 +349,6 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 }
 @media (max-width: 767px) {
   .studio-header-float button[aria-haspopup="menu"] { width: 40px; height: 40px; }
-  .studio-direct-card textarea { font-size: theme('fontSize.base'); }
 }
 
 /* 细点阵平时几乎看不见，往下淡出，不压到作品区；细纹始终在。 */
