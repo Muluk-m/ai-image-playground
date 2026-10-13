@@ -3,7 +3,6 @@ import {
   type CanvasGroup,
   type CanvasNode,
   type CanvasSnapshot,
-  canvasConnectionAllowed,
   canvasKindsConnect,
   canvasLinkAllowed,
   canvasOrigin,
@@ -11,6 +10,7 @@ import {
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
+  type ImageNodeData,
   type LegacyCanvasElement,
   moveCanvasGroups,
   moveCanvasNodes,
@@ -54,6 +54,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import type * as Y from 'yjs'
 import { ImagePreview } from '../../../components/Lightbox'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
@@ -65,6 +66,7 @@ import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
+import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import { useLibraryStore } from '../../library/store'
@@ -94,6 +96,13 @@ import {
 } from '../lib/nodeCanvasFlow'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
 import { TEXT_CARD_HEIGHT, TEXT_CARD_WIDTH } from '../lib/nodeCanvasPlace'
+import {
+  addCanvasReference,
+  CanvasReferenceLimitError,
+  canvasReferenceCandidates,
+  type ReferenceSlot,
+  uploadCanvasReference,
+} from '../lib/nodeCanvasReferences'
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
@@ -104,6 +113,7 @@ import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
 import NodeAssetTools from './NodeAssetTools'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
+import NodeComposerFrame from './NodeComposerFrame'
 import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodePorts, { SpawnContext } from './NodePorts'
@@ -647,6 +657,28 @@ function Flow({
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [addingAsset, setAddingAsset] = useState(false)
+  const assetTarget = useRef<string | undefined>(undefined)
+  const [referencePick, setReferencePick] = useState<{
+    targetId: string
+    slot?: ReferenceSlot
+    viewport: { x: number; y: number; zoom: number }
+  } | null>(null)
+  const [referenceBusy, setReferenceBusy] = useState(false)
+  const referenceInput = useRef<HTMLInputElement>(null)
+  const uploadReferenceTarget = useRef<string | null>(null)
+  const pickableIds = useMemo(
+    () =>
+      referencePick
+        ? canvasReferenceCandidates(snapshot, referencePick.targetId, referencePick.slot)
+        : new Set<string>(),
+    [snapshot, referencePick],
+  )
+  useEffect(() => {
+    if (referencePick && !snapshot.nodes.some((node) => node.id === referencePick.targetId)) {
+      flowRef.current?.setViewport(referencePick.viewport)
+      setReferencePick(null)
+    }
+  }, [snapshot.nodes, referencePick])
   const assetOperation = useRef(false)
   const [minimap, setMinimap] = useState(false)
   const [connections, setConnections] = useState(true)
@@ -817,7 +849,7 @@ function Flow({
       : { x: 0, y: 0 }
   }
   const fit = () => {
-    void flowRef.current?.fitView({ padding: 0.25, duration: 250 })
+    void flowRef.current?.fitView?.({ padding: 0.25, duration: 250 })
   }
   const revertArrangement = () => {
     if (arrangement) flowRef.current?.setViewport(arrangement.viewport)
@@ -980,6 +1012,13 @@ function Flow({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!active || event.defaultPrevented) return
+      if (referencePick) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          finishReferencePick()
+        }
+        return
+      }
       const target = event.target instanceof HTMLElement ? event.target : null
       if (
         target?.isContentEditable ||
@@ -1114,8 +1153,9 @@ function Flow({
     selected.data.node.type !== 'timeline'
       ? selected.data.node
       : undefined
-  const rawReferences = composerNode
-    ? incomingReferences(snapshot.nodes, snapshot.edges, composerNode.id)
+  const referenceNode = selected?.data.node?.type !== 'timeline' ? selected?.data.node : undefined
+  const rawReferences = referenceNode
+    ? incomingReferences(snapshot.nodes, snapshot.edges, referenceNode.id)
     : []
   const meta = composerNode?.data.meta ?? {}
   const parseList = (value: string | undefined): string[] => {
@@ -1139,43 +1179,76 @@ function Flow({
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
     if (!node || node.type === 'text' || node.type === 'timeline') return
+    const data = canvas.doc.getMap<Y.Map<unknown>>('nodes').get(node.id)?.get('data') as
+      | ImageNodeData
+      | undefined
+    if (!data) return
     updateCanvasNode(
       canvas.doc,
       node.id,
-      { data: { ...node.data, meta: { ...node.data.meta, ...patch } } },
+      { data: { ...data, meta: { ...data.meta, ...patch } } },
       trackUndo ? canvas.origin : canvasOrigin('system', 'node-defaults'),
     )
   }
-  const available = composerNode
-    ? incomingReferences(
-        snapshot.nodes,
-        snapshot.nodes
-          .filter(
-            (n) =>
-              canvasConnectionAllowed(n, composerNode) && !references.some((r) => r.id === n.id),
-          )
-          .map((n) => ({ id: n.id, source: n.id, target: composerNode.id })),
-        composerNode.id,
-      )
-    : []
-  const referenceTools = composerNode ? (
+  const startReferencePick = (slot?: ReferenceSlot) => {
+    if (!referenceNode) return
+    setReferencePick({
+      targetId: referenceNode.id,
+      slot,
+      viewport: referencePick?.viewport ?? flowRef.current?.getViewport() ?? frame,
+    })
+    closeMenu()
+    fit()
+  }
+  const finishReferencePick = () => {
+    if (referencePick) flowRef.current?.setViewport(referencePick.viewport)
+    setReferencePick(null)
+  }
+  const uploadReference = async (targetId: string, file: File, slot?: ReferenceSlot) => {
+    setReferenceBusy(true)
+    try {
+      await uploadCanvasReference(editor, canvas, targetId, file, slot)
+    } catch (error) {
+      useStore
+        .getState()
+        .showToast(
+          error instanceof CanvasReferenceLimitError
+            ? MAX_INPUT_IMAGES_MESSAGE
+            : t('import.failed'),
+          'error',
+        )
+    } finally {
+      setReferenceBusy(false)
+    }
+  }
+  const referenceTools = referenceNode ? (
     <NodeReferenceEditor
       references={references}
       files={files}
-      available={available}
-      onAdd={(id) =>
-        connectCanvasNodes(canvas.doc, { source: id, target: composerNode.id }, canvas.origin)
-      }
+      disabled={referenceBusy}
+      onPick={() => startReferencePick()}
+      onUpload={() => {
+        uploadReferenceTarget.current = referenceNode.id
+        referenceInput.current?.click()
+      }}
+      onAssets={() => {
+        assetTarget.current = referenceNode.id
+        setAssetsOpen(true)
+      }}
       onRemove={(id) => {
-        const edge = snapshot.edges.find((e) => e.source === id && e.target === composerNode.id)
+        const edge = snapshot.edges.find((e) => e.source === id && e.target === referenceNode.id)
         if (edge) disconnectCanvasNodes(canvas.doc, edge.id, canvas.origin)
       }}
-      onMove={(id) => {
-        const ids = references.map((r) => r.id)
-        const at = ids.indexOf(id)
-        if (at > 0) [ids[at - 1], ids[at]] = [ids[at]!, ids[at - 1]!]
-        setMeta({ referenceOrder: JSON.stringify(ids) })
-      }}
+      onMove={
+        composerNode
+          ? (id) => {
+              const ids = references.map((r) => r.id)
+              const at = ids.indexOf(id)
+              if (at > 0) [ids[at - 1], ids[at]] = [ids[at]!, ids[at - 1]!]
+              setMeta({ referenceOrder: JSON.stringify(ids) })
+            }
+          : undefined
+      }
       roles={undefined}
       onRole={(id, role) => {
         const patch: Record<string, string> = { [`role:${id}`]: role }
@@ -1278,25 +1351,34 @@ function Flow({
               <FillImageContext.Provider value={uploadInto}>
                 <SpawnContext.Provider value={spawnBeside}>
                   <ReactFlow<FlowNode>
-                    nodes={
+                    nodes={nodes.map((node) => {
+                      if (referencePick)
+                        return {
+                          ...node,
+                          className: pickableIds.has(node.id)
+                            ? 'studio-node-reference-eligible'
+                            : 'studio-node-reference-disabled',
+                        }
+                      const position = arrangementPositions.get(node.id)
+                      return position ? { ...node, position } : node
+                    })}
+                    className={
                       arrangementActive
-                        ? nodes.map((n) => ({
-                            ...n,
-                            position: arrangementPositions.get(n.id) ?? n.position,
-                          }))
-                        : nodes
+                        ? 'studio-node-arranging'
+                        : referencePick
+                          ? 'studio-node-reference-picking'
+                          : undefined
                     }
-                    className={arrangementActive ? 'studio-node-arranging' : undefined}
-                    nodesDraggable={!arrangementActive}
-                    nodesConnectable={!arrangementActive}
-                    elementsSelectable={!arrangementActive}
+                    nodesDraggable={!arrangementActive && !referencePick}
+                    nodesConnectable={!arrangementActive && !referencePick}
+                    elementsSelectable={!arrangementActive && !referencePick}
                     edges={snapshot.edges.map((edge) => ({
                       id: edge.id,
                       type: 'reference',
                       source: edge.source,
                       target: edge.target,
                       interactionWidth: 22,
-                      hidden: !connections,
+                      hidden: !connections && !referencePick,
                       selected: selectedEdges.includes(edge.id),
                       className: highlightedEdges.has(edge.id) ? 'studio-edge-lit' : undefined,
                       zIndex: highlightedEdges.has(edge.id) ? 1 : 0,
@@ -1316,14 +1398,14 @@ function Flow({
                     edgeTypes={edgeTypes}
                     nodeTypes={nodeTypes}
                     zoomOnDoubleClick={false}
-                    selectionOnDrag={mode === 'select'}
+                    selectionOnDrag={mode === 'select' && !referencePick}
                     selectionMode={SelectionMode.Partial}
                     panOnDrag={mode === 'pan' ? true : [1, 2]}
                     panOnScroll
                     zoomOnScroll={false}
                     multiSelectionKeyCode="Shift"
                     onSelectionChange={({ nodes: selected }) => {
-                      if (arrangementActive) return
+                      if (arrangementActive || referencePick) return
                       const ids = selected
                         .filter((n) => n.data.node || n.data.group)
                         .map((n) => n.id)
@@ -1336,6 +1418,7 @@ function Flow({
                     }}
                     onPaneContextMenu={(event) => {
                       event.preventDefault()
+                      if (referencePick) return
                       placeAt.current =
                         flowRef.current?.screenToFlowPosition({
                           x: event.clientX,
@@ -1344,18 +1427,33 @@ function Flow({
                       setMenu({ x: event.clientX, y: event.clientY })
                     }}
                     onNodeClick={(event, node) => {
+                      if (referencePick) {
+                        event.stopPropagation()
+                        if (
+                          addCanvasReference(
+                            canvas,
+                            referencePick.targetId,
+                            node.id,
+                            referencePick.slot,
+                          ) &&
+                          referencePick.slot
+                        )
+                          finishReferencePick()
+                        return
+                      }
                       if (arrangementActive) return
                       if (!event.shiftKey && node.data.node) revealNode(node.data.node)
                     }}
                     onNodeContextMenu={(event, node) => {
                       event.preventDefault()
-                      if (arrangementActive) return
+                      if (arrangementActive || referencePick) return
                       if (!selectedIds.current.includes(node.id)) selectNode(node.id)
                       placeAt.current = center()
                       setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
                     }}
                     onEdgeClick={(event, edge) => {
                       event.stopPropagation()
+                      if (referencePick) return
                       selectNode(null)
                       setSelectedEdges([edge.id])
                     }}
@@ -1399,6 +1497,7 @@ function Flow({
                       })
                     }
                     onPaneClick={() => {
+                      if (referencePick) return
                       selectNode(null)
                       closeMenu()
                     }}
@@ -1496,10 +1595,27 @@ function Flow({
                     <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
                     {minimap && <MiniMap pannable zoomable position="bottom-right" />}
                   </ReactFlow>
+                  {referencePick && (
+                    <div className="studio-node-pick-banner" role="status">
+                      <Icon name="fit" /> <span>{t('nodes.pickFromCanvas')}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t('nodes.finishPicking')}
+                        onClick={finishReferencePick}
+                      >
+                        <Icon name="close" />
+                      </Button>
+                    </div>
+                  )}
                   <NodeCanvasToolbar
-                    onCreate={(kind) => addNode(kind, center())}
+                    onCreate={(kind) => {
+                      finishReferencePick()
+                      addNode(kind, center())
+                    }}
                     onMenu={openMenu}
                     onAssets={() => {
+                      assetTarget.current = undefined
                       placeAt.current = center()
                       setAssetsOpen(true)
                     }}
@@ -1558,10 +1674,15 @@ function Flow({
                   )}
                   {assetsOpen && (
                     <NodeAssetPicker
-                      onClose={() => setAssetsOpen(false)}
+                      onClose={() => {
+                        setAssetsOpen(false)
+                        assetTarget.current = undefined
+                      }}
                       onChoose={(asset, imageId) => {
                         setAssetsOpen(false)
-                        void addAsset(asset, imageId)
+                        const targetId = assetTarget.current
+                        assetTarget.current = undefined
+                        void addAsset(asset, imageId, placeAt.current, targetId)
                       }}
                     />
                   )}
@@ -1714,6 +1835,20 @@ function Flow({
                     </div>
                   )}
                   <input
+                    ref={referenceInput}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    hidden
+                    onChange={async (event) => {
+                      const files = [...(event.target.files ?? [])]
+                      event.target.value = ''
+                      const targetId = uploadReferenceTarget.current
+                      uploadReferenceTarget.current = null
+                      if (targetId) for (const file of files) await uploadReference(targetId, file)
+                    }}
+                  />
+                  <input
                     ref={fileInput}
                     type="file"
                     accept="image/*"
@@ -1807,6 +1942,16 @@ function Flow({
                       }}
                     />
                   )}
+                  {referenceNode?.type === 'text' && selected && (
+                    <NodeComposerFrame
+                      label={t('nodes.references')}
+                      position={composerAnchor(selected, frame)}
+                      references={[]}
+                      files={files}
+                    >
+                      {referenceTools}
+                    </NodeComposerFrame>
+                  )}
                   {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
                     <ImageNodeComposer
                       resultTools={
@@ -1822,7 +1967,7 @@ function Flow({
                             canvas={canvas}
                             editor={editor}
                             nodeId={composerNode.id}
-                            busy={busy || addingAsset}
+                            busy={busy || addingAsset || referenceBusy}
                           />
                         </>
                       }
@@ -1838,11 +1983,14 @@ function Flow({
                       key={composerNode.id}
                       document={canvas.doc}
                       nodeId={composerNode.id}
+                      onReferenceUpload={(file, slot) =>
+                        uploadReference(composerNode.id, file, slot)
+                      }
                       referenceTools={referenceTools}
                       references={references}
                       files={files}
                       value={draftValue}
-                      busy={busy || addingAsset}
+                      busy={busy || addingAsset || referenceBusy}
                       position={composerAt}
                       onChange={(value) => {
                         setMeta({ nodePrompt: value })
@@ -1888,6 +2036,7 @@ function Flow({
                       key={composerNode.id}
                       document={canvas.doc}
                       nodeId={composerNode.id}
+                      onPickReference={startReferencePick}
                       meta={meta}
                       onMeta={setMeta}
                       references={references}
@@ -1906,8 +2055,11 @@ function Flow({
                           draft,
                         )
                       }
-                      busy={busy || addingAsset}
+                      busy={busy || addingAsset || referenceBusy}
                       position={composerAt}
+                      onReferenceUpload={(file, slot) =>
+                        uploadReference(composerNode.id, file, slot)
+                      }
                       referenceTools={referenceTools}
                     />
                   )}

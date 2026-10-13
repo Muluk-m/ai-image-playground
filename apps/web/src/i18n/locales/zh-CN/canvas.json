@@ -556,7 +556,9 @@
     "keepArrangement": "是否保留此次整理结果？",
     "revertArrangement": "还原",
     "applyArrangement": "保留",
-    "zoomMenu": "缩放画布"
+    "zoomMenu": "缩放画布",
+    "pickFromCanvas": "从画布选择",
+    "finishPicking": "完成选择"
   },
   "pixelEdit": {
     "title": "编辑图片",

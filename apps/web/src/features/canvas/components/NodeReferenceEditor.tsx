@@ -16,8 +16,10 @@ import NodeMediaImage from './NodeMediaImage'
 export default function NodeReferenceEditor({
   references,
   files,
-  available,
-  onAdd,
+  onPick,
+  onUpload,
+  onAssets,
+  disabled,
   onRemove,
   onMove,
   roles,
@@ -25,10 +27,12 @@ export default function NodeReferenceEditor({
 }: {
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
-  available: readonly NodeReference[]
-  onAdd: (id: string) => void
+  onPick: () => void
+  onUpload: () => void
+  onAssets: () => void
+  disabled?: boolean
   onRemove: (id: string) => void
-  onMove: (id: string) => void
+  onMove?: (id: string) => void
   roles?: Record<string, string>
   onRole?: (id: string, role: string) => void
 }) {
@@ -38,8 +42,12 @@ export default function NodeReferenceEditor({
   return (
     <div className="studio-node-references" aria-label={t('nodes.references')}>
       {references.map((ref, index) => (
-        <div className="studio-node-reference" key={ref.id}>
-          <span className="text-xs text-muted-foreground tabular-nums">
+        <div
+          className={`studio-node-reference${ref.fileId && files[ref.fileId] ? ' studio-node-reference--image' : ''}`}
+          key={ref.id}
+          title={ref.label}
+        >
+          <span className="studio-node-reference-index text-xs text-muted-foreground tabular-nums">
             {ref.kind === 'image' && imageIds.includes(ref.fileId ?? '')
               ? imageIds.indexOf(ref.fileId ?? '') + 1
               : null}
@@ -49,7 +57,7 @@ export default function NodeReferenceEditor({
           ) : (
             <Icon name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'} />
           )}
-          <span className="truncate max-w-28 text-xs" title={ref.label}>
+          <span className="studio-node-reference-label truncate max-w-28 text-xs" title={ref.label}>
             {ref.label ||
               t(
                 ref.kind === 'text'
@@ -74,7 +82,7 @@ export default function NodeReferenceEditor({
               </SelectContent>
             </Select>
           )}
-          {index > 0 && (
+          {index > 0 && onMove && (
             <Button
               size="icon-sm"
               variant="ghost"
@@ -99,59 +107,42 @@ export default function NodeReferenceEditor({
           {t('nodes.assetNoImage')}
         </p>
       )}
-      {available.length > 0 && (
-        <Popover open={picking} onOpenChange={setPicking}>
-          <PopoverTrigger asChild>
+      <Popover open={picking} onOpenChange={setPicking}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="studio-node-reference-add"
+            aria-label={t('nodes.addReference')}
+            disabled={disabled}
+          >
+            <Icon name="add" />
+            {t('nodes.addReference')}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="studio-node-reference-picker w-56 p-2" side="top" align="start">
+          {(
+            [
+              { icon: 'upload', label: t('nodes.addUpload'), action: onUpload },
+              { icon: 'folder', label: t('nodes.assets'), action: onAssets },
+              { icon: 'fit', label: t('nodes.pickFromCanvas'), action: onPick },
+            ] as const
+          ).map(({ icon, label, action }) => (
             <Button
+              key={icon}
               variant="ghost"
-              size="sm"
-              className="studio-node-reference-add"
-              aria-label={t('nodes.addReference')}
+              className="w-full justify-start"
+              onClick={() => {
+                setPicking(false)
+                action()
+              }}
             >
-              <Icon name="add" />
-              {t('nodes.addReference')}
+              <Icon name={icon} />
+              {label}
             </Button>
-          </PopoverTrigger>
-          <PopoverContent className="studio-node-reference-picker p-2" side="top" align="start">
-            <p className="px-2 py-1 text-xs text-muted-foreground">{t('nodes.addReference')}</p>
-            <div className="max-h-60 overflow-y-auto">
-              {available.map((ref) => (
-                <Button
-                  key={ref.id}
-                  variant="ghost"
-                  className="h-10 w-full justify-start gap-2 px-2"
-                  onClick={() => {
-                    onAdd(ref.id)
-                    setPicking(false)
-                  }}
-                >
-                  {ref.fileId && files[ref.fileId] ? (
-                    <NodeMediaImage
-                      src={files[ref.fileId]}
-                      alt=""
-                      className="h-7 w-7 rounded-sm object-cover"
-                    />
-                  ) : (
-                    <Icon
-                      name={ref.kind === 'text' ? 'text' : ref.kind === 'video' ? 'video' : 'image'}
-                    />
-                  )}
-                  <span className="truncate text-xs">
-                    {ref.label ||
-                      t(
-                        ref.kind === 'text'
-                          ? 'nodes.addText'
-                          : ref.kind === 'video'
-                            ? 'nodes.addVideo'
-                            : 'nodes.addImage',
-                      )}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-      )}
+          ))}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

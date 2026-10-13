@@ -19,6 +19,7 @@ import NodePromptInput from './NodePromptInput'
 /** 图片卡下面的生成栏：模型、画幅、张数跟工作台是同一组 ParamControls。 */
 export default function ImageNodeComposer({
   referenceTools,
+  onReferenceUpload,
   resultTools,
   document,
   nodeId,
@@ -33,6 +34,7 @@ export default function ImageNodeComposer({
 }: {
   resultTools?: ReactNode
   referenceTools?: ReactNode
+  onReferenceUpload?: (file: File, slot?: 'first' | 'last') => Promise<void>
   document: object
   nodeId: string
   references: readonly NodeReference[]
@@ -74,7 +76,8 @@ export default function ImageNodeComposer({
       return
     }
     try {
-      await uploadReference(file)
+      if (onReferenceUpload) await onReferenceUpload(file)
+      else await uploadReference(file)
     } catch {
       useStore.getState().showToast(t('import.failed'), 'error')
     }
@@ -126,16 +129,18 @@ export default function ImageNodeComposer({
       />
       <div className="flex items-end gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            disabled={busy || uploading}
-            aria-label={t('nodes.addUpload')}
-            onClick={() => uploadInput.current?.click()}
-          >
-            <Icon name="imageAdd" />
-          </Button>
+          {!referenceTools && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              disabled={busy || uploading}
+              aria-label={t('nodes.addUpload')}
+              onClick={() => uploadInput.current?.click()}
+            >
+              <Icon name="imageAdd" />
+            </Button>
+          )}
           <ParamControls showCount size="sm" />
         </div>
         <Button
