@@ -35,7 +35,7 @@ export default function CreateTargetSwitch() {
     <div
       role="tablist"
       aria-label={t('createTarget.aria')}
-      className="mx-auto flex w-fit max-w-full rounded-full border border-border bg-card/70 p-1 backdrop-blur"
+      className="studio-create-target mx-auto flex w-fit max-w-full rounded-full border border-border bg-card/70 p-1 backdrop-blur"
     >
       {options.map((one) => {
         const active = one.id === target || (one.id === 'generate' && target === 'video')
@@ -48,8 +48,10 @@ export default function CreateTargetSwitch() {
             role="tab"
             aria-selected={active}
             onClick={() => setTarget(one.id)}
-            className={`max-md:h-11 min-w-0 gap-1.5 px-3 text-xs sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
-              active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
+            className={`max-md:h-11 min-w-0 gap-1.5 rounded-full px-3 text-xs sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
+              active
+                ? 'studio-create-target-active'
+                : 'text-muted-foreground hover:bg-transparent hover:text-foreground'
             }`}
           >
             {one.icon}

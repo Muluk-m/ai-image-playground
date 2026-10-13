@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode, Ref } from 'react'
 import { useTranslation } from '../../i18n'
+import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -56,6 +57,7 @@ export function CreationSend({
   busy = false,
   ...props
 }: Omit<ComponentProps<typeof Button>, 'children' | 'className' | 'size' | 'variant'> & {
+  'aria-label': string
   streaming?: boolean
   busy?: boolean
 }) {
@@ -68,6 +70,7 @@ export function CreationSend({
       data-slot="composer-send"
       aria-busy={busy || undefined}
       {...props}
+      aria-label={props['aria-label']}
     >
       {busy && !streaming ? (
         <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
@@ -89,11 +92,24 @@ export function CreationModePicker({
 }) {
   const { t } = useTranslation('composer')
   const icons = { agent: 'chat', image: 'imageAdd', video: 'video' } as const
+  const shortLabels = {
+    agent: t('studio.shortModes.agent'),
+    image: t('studio.shortModes.image'),
+    video: t('studio.shortModes.video'),
+  }
   return (
     <Select value={value} onValueChange={(mode) => onChange(mode as CreationMode)}>
-      <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
-        <SelectValue />
-      </SelectTrigger>
+      <Hint tooltip={`${t('studio.type')}：${t(`studio.modes.${value}`)}`}>
+        <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
+          <SelectValue>
+            <span className="creation-mode-value">
+              <Icon name={icons[value]} />
+              <span className="creation-mode-full">{t(`studio.modes.${value}`)}</span>
+              <span className="creation-mode-short">{shortLabels[value]}</span>
+            </span>
+          </SelectValue>
+        </SelectTrigger>
+      </Hint>
       <SelectContent side="top" align="start" sideOffset={10} className="creation-mode-menu">
         {modes.map((mode) => (
           <SelectItem key={mode} value={mode} className="creation-mode-option">
