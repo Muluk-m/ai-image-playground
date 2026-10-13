@@ -142,6 +142,7 @@ export const config = {
     model: env('AGENT_CHAT_MODEL', ''),
     /** 未登记在 thinking.config.json 的旧模型窗口；已登记模型从自身元数据取值。 */
     contextWindow: positiveIntEnv('AGENT_CHAT_CONTEXT_WINDOW', 128_000),
+    // 未登记的自定义旧模型兜底；已登记模型以 models.config.json 为准。
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
