@@ -1103,10 +1103,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           </div>
           <Button
             type="button"
-            variant="destructive"
-            size="icon-xs"
+            variant="ghost"
             aria-label={t('common:action.remove')}
-            className="absolute right-1 top-1 z-30 opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            className="creation-reference-remove opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
