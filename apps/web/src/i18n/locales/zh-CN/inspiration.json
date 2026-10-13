@@ -5,7 +5,8 @@
   "filter": {
     "provider": "模型",
     "all": "全部",
-    "imageEdit": "图生图 · 看前后对比"
+    "imageEdit": "图生图 · 看前后对比",
+    "imageEditShort": "看前后"
   },
   "list": {
     "loading": "加载中…",

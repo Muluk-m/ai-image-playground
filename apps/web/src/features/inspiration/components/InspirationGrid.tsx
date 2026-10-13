@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
+import { inspirationFacetLabel } from '../lib/labels'
 import { type InspirationProviderFilter, useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
@@ -81,7 +82,15 @@ function filterItems(
     if (category && item.category !== category) return false
     if (onlyImageEdits && !item.referenceImages?.length) return false
     if (!kw) return true
-    const haystack = [item.title, item.description ?? '', item.prompt, ...(item.tags ?? [])]
+    const haystack = [
+      item.title,
+      item.description ?? '',
+      item.prompt,
+      item.category,
+      inspirationFacetLabel(item.category),
+      ...(item.tags ?? []),
+      ...(item.tags ?? []).map((tag) => inspirationFacetLabel(tag)),
+    ]
       .join(' ')
       .toLowerCase()
     return haystack.includes(kw)

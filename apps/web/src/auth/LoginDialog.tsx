@@ -16,6 +16,7 @@ import {
 } from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
+import AuthConsent from './AuthConsent'
 import type { LoginPromptReason } from './loginPrompt'
 import { preservePendingSubmissionForLogin } from './pendingSubmission'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
@@ -478,7 +479,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
                     <span>{t('login.registrationClosed')}</span>
                   )}
                 </p>
-                <p className="auth-terms">{t('login.terms')}</p>
+                <AuthConsent kind="login" />
               </div>
             )}
           </div>

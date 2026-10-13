@@ -24,13 +24,14 @@ import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
+import LegalPage from './features/legal/LegalPage'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
-import { isPricingPath } from './lib/appPaths'
+import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { dragTargetIsImage } from './lib/dragTarget'
@@ -116,6 +117,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   }, [])
 
   if (isPricingPath(pathname)) return <PricingPage />
+  if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
   return (
     <>

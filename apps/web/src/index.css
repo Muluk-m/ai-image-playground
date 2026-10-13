@@ -938,7 +938,15 @@ html {
   overflow-y: scroll;
 }
 
-html.pricing-route {
+.explore-chips {
+  scrollbar-width: none;
+}
+.explore-chips::-webkit-scrollbar {
+  display: none;
+}
+
+html.pricing-route,
+.pricing-surface {
   /* 定价页是独立营销页，颜色和展示字号钉死，不跟工作台主题与字阶走。 */
   --pricing-bg: #070709; /* design-allow css-color: 定价页固定底色 */
   --pricing-fg: #f4f4f5; /* design-allow css-color: 定价页固定前景 */
