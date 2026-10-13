@@ -14,8 +14,9 @@ import {
   updateCanvasNode,
 } from '@image-playground/shared'
 import { type Static, Type } from 'typebox'
-import type * as Y from 'yjs'
+import * as Y from 'yjs'
 import { executeCanvasCommand } from '../../canvasCommands'
+import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
 import { agentCanvasProject } from '../node-canvas-view'
 import { defineAgentTool } from './adapter'
@@ -309,4 +310,58 @@ export const arrangeNodes = defineAgentTool({
         origin,
       )
     }),
+})
+
+export const runNodes = defineAgentTool({
+  name: 'runNodes',
+  label: '建议运行节点',
+  modes,
+  available,
+  onError: 'continue',
+  guidance:
+    '先 readCanvas 确认节点。只给出运行建议，不能把工具成功当作生成完成；用户须在对话卡检查预估并在画布二次确认。',
+  description:
+    '为当前云端画布指定节点或分组准备运行建议。对话卡显示当前批次预估，用户检查后高亮节点并再次确认才提交任务。工具本身不生成、不扣费；实际结果应通过 readCanvas 再查看。',
+  parameters: Type.Object({
+    nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
+  }),
+  call: () => ({ title: '建议运行节点' }),
+  execute: (context) => async (_callId, params) => {
+    if (
+      !available(context.mode, {
+        ...context,
+        nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
+      })
+    )
+      invalid('当前会话没有可用的云端节点画布。')
+    const project = await agentCanvasProject(context)
+    if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
+    await context.assertExecution?.()
+    const doc = new Y.Doc()
+    try {
+      Y.applyUpdate(doc, await accessCanvasDocument(context.userId, project.id))
+      const graph = readCanvasDocument(doc)
+      const existing = new Set([
+        ...graph.nodes.map((node) => node.id),
+        ...(graph.groups ?? []).map((group) => group.id),
+      ])
+      for (const id of params.nodeIds) if (!existing.has(id)) invalid(`节点或分组不存在：${id}`)
+      const canvasRun = { projectId: project.id, nodeIds: params.nodeIds }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              ...canvasRun,
+              submitted: false,
+              note: '运行建议已给到用户；检查预估并二次确认前不会提交或扣费。不得声称已生成，结果需重新读取画布。',
+            }),
+          },
+        ],
+        details: { canvasRun },
+      }
+    } finally {
+      doc.destroy()
+    }
+  },
 })

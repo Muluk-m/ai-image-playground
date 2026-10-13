@@ -70,6 +70,7 @@ export type AgentToolName =
   | 'connectNodes'
   | 'deleteNodes'
   | 'arrangeNodes'
+  | 'runNodes'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
@@ -654,7 +655,14 @@ export interface AgentVisualObservation {
   readonly evidence: readonly AgentVisualEvidence[]
 }
 
+/** A proposal only. The client must review the live estimate and confirm the batch before submission. */
+export interface AgentCanvasRunProposal {
+  readonly projectId: string
+  readonly nodeIds: readonly string[]
+}
+
 export interface AgentToolResultBlock {
+  readonly canvasRun?: AgentCanvasRunProposal
   readonly canvasRead?: readonly { id: string; name: string }[]
   readonly productionDraftRevision?: number
   /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
@@ -1330,6 +1338,8 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
+  if (block.canvasRun)
+    return `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户可在画布检查预估并二次确认，实际执行情况需重新读取节点。`
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =

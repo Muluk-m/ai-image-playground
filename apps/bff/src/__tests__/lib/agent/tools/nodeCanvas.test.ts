@@ -19,8 +19,15 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../../canvas-sync-operator-config.json',
 )
 const { db, schema, close } = await import('../../../../db/client')
-const { createNodes, updateNodes, connectNodes, deleteNodes, arrangeNodes, patchAgentCanvasNode } =
-  await import('../../../../lib/agent/tools/nodeCanvas')
+const {
+  createNodes,
+  updateNodes,
+  connectNodes,
+  deleteNodes,
+  arrangeNodes,
+  runNodes,
+  patchAgentCanvasNode,
+} = await import('../../../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
@@ -85,7 +92,14 @@ async function fixture() {
 it('exposes new tools only for authenticated node canvas and keeps legacy writes out of that turn', async () => {
   const { context } = await fixture()
   const names = agentTurnTools(context).map((tool) => tool.name)
-  for (const name of ['createNodes', 'updateNodes', 'connectNodes', 'deleteNodes', 'arrangeNodes'])
+  for (const name of [
+    'createNodes',
+    'updateNodes',
+    'connectNodes',
+    'deleteNodes',
+    'arrangeNodes',
+    'runNodes',
+  ])
     expect(names).toContain(name)
   for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'])
     expect(names).not.toContain(name)
@@ -211,4 +225,27 @@ it('does not persist pending jobs or selected candidates into authoring data whi
   })
   expect(readCanvasDocument(doc).nodes[0]?.data).not.toHaveProperty('pending')
   doc.destroy()
+})
+
+it('only proposes an authorized batch and never submits or modifies the canvas before confirmation', async () => {
+  const { context, run, graph } = await fixture()
+  await run(createNodes, { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] })
+  const before = await graph()
+  const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+  const proposal = await run(runNodes, { nodeIds: ['image'] })
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['image'])
+  expect(proposal.details).not.toHaveProperty('job')
+  expect(await graph()).toEqual(before)
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
+  await expect(run(runNodes, { nodeIds: ['missing'] })).rejects.toThrow('不存在')
+  await expect(
+    runNodes
+      .create({ ...context, conversationId: 'another-conversation' })
+      .execute('foreign', { nodeIds: ['image'] }, undefined, undefined),
+  ).rejects.toThrow('云端项目')
+  await expect(
+    runNodes
+      .create({ ...context, experience: 'chat' })
+      .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
+  ).rejects.toThrow('云端节点画布')
 })

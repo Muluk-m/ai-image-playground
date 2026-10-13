@@ -48,6 +48,7 @@ import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
+import AgentNodeRunCard from './AgentNodeRunCard'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
 import AgentVideoToolCard from './AgentVideoToolCard'
@@ -538,6 +539,12 @@ function StandardAgentToolCard({
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
   }
+  if (message.canvasRun)
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
+        <AgentNodeRunCard proposal={message.canvasRun} />
+      </div>
+    )
   if (message.status === 'awaiting_confirmation') {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>

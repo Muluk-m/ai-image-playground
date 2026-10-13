@@ -712,5 +712,12 @@
     "title": "Give your ideas room to grow",
     "readCanvas": "Create from your canvas",
     "readPrompt": "Read the selected canvas nodes, review the existing material, and help me plan what to create next."
+  },
+  "nodeRun": {
+    "title": "Suggested node run",
+    "unpriced": "Charged by actual model usage",
+    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
+    "changed": "The canvas or settings changed, or a confirmation is already open. Review again.",
+    "review": "Review nodes and confirm"
   }
 }

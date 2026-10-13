@@ -209,6 +209,7 @@ export function toolResultBlock(
     ...(details?.skill ? { skill: details.skill } : {}),
     ...(details?.timeline ? { timeline: details.timeline } : {}),
     ...(details?.canvasRead ? { canvasRead: details.canvasRead } : {}),
+    ...(details?.canvasRun ? { canvasRun: details.canvasRun } : {}),
     ...(details?.canvasEdit ? { canvasEdit: details.canvasEdit } : {}),
     ...(details?.saveCard ? { saveCard: details.saveCard } : {}),
     ...(details?.sources?.length ? { sources: details.sources } : {}),

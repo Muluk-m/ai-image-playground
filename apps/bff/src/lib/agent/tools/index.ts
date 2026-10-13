@@ -26,7 +26,14 @@ import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
-import { arrangeNodes, connectNodes, createNodes, deleteNodes, updateNodes } from './nodeCanvas'
+import {
+  arrangeNodes,
+  connectNodes,
+  createNodes,
+  deleteNodes,
+  runNodes,
+  updateNodes,
+} from './nodeCanvas'
 import { planImageBatch } from './planImageBatch'
 import { proposeProductionEdit, readProduction, writeProduction } from './production'
 import { proposeProductionAssets } from './production-assets'
@@ -87,6 +94,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   connectNodes,
   deleteNodes,
   arrangeNodes,
+  runNodes,
   generateVideo,
   arrangeTimeline,
   editCanvasObject,
@@ -115,6 +123,7 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'connectNodes',
   'deleteNodes',
   'arrangeNodes',
+  'runNodes',
   'editCanvasObject',
   'arrangeCanvas',
   'arrangeTimeline',
