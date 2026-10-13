@@ -285,12 +285,12 @@ export function RatioGrid({
       {options.map((option) => (
         <Button
           variant="ghost"
-          size="xs"
+          size="lg"
           key={option.value}
           type="button"
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={cn(SEGMENT_ITEM, 'h-auto min-h-10 min-w-0 flex-col gap-1 py-2 text-label-sm')}
+          className={cn(SEGMENT_ITEM, 'min-w-0 flex-col gap-0 px-2 py-1 text-label-sm')}
         >
           {option.icon ?? <RatioShape ratio={option.value} />}
           <span className="max-w-full truncate">{option.label}</span>

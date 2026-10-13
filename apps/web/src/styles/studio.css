@@ -673,7 +673,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-pane-prompt > div { display: flex; align-items: center; justify-content: space-between; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.body-sm'); }
 .studio-artifact-pane-prompt > div button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; transition: background .18s ease, color .18s ease; }
 .studio-artifact-pane-prompt > div button:hover { background: hsl(var(--foreground) / .07); color: hsl(var(--foreground)); }
-.studio-artifact-pane-prompt > p { margin-top: 8px; color: hsl(var(--foreground) / .88); font-size: theme('fontSize.sm'); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.studio-artifact-pane-prompt > p { margin-top: 8px; color: hsl(var(--foreground)); font-size: theme('fontSize.sm'); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .studio-artifact-pane-prompt-text { max-height: 180px; overflow-y: auto !important; text-overflow: clip !important; white-space: pre-wrap !important; scrollbar-width: thin; }
 .studio-artifact-pane-actions { display: flex; flex-direction: column; gap: 10px; }
 .studio-artifact-pane-actions .studio-artifact-pane-quick,
@@ -683,7 +683,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-pane-canvas-action { grid-template-columns: minmax(0, 1fr); }
 .studio-artifact-pane-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .studio-artifact-pane-actions button,
-.studio-artifact-pane-actions .studio-artifact-pane-edit { display: inline-flex; justify-content: flex-start; gap: 10px; width: 100%; min-height: 46px; margin: 0; padding: 0 13px; border: 0; border-radius: 10px; background: transparent; color: hsl(var(--foreground) / .87); font-size: theme('fontSize.body-sm'); font-weight: 500; text-align: left; transition: background .16s ease, color .16s ease, transform .16s ease; }
+.studio-artifact-pane-actions .studio-artifact-pane-edit { display: inline-flex; justify-content: flex-start; gap: 10px; width: 100%; min-height: 46px; margin: 0; padding: 0 13px; border: 0; border-radius: 10px; background: transparent; color: hsl(var(--foreground)); font-size: theme('fontSize.body-sm'); font-weight: 500; text-align: left; transition: background .16s ease, color .16s ease, transform .16s ease; }
 .studio-artifact-pane-actions button:hover:not(:disabled) { background: hsl(var(--foreground) / .085); color: hsl(var(--foreground)); transform: translateY(-1px); }
 .studio-artifact-pane-actions button:active:not(:disabled) { transform: translateY(0); }
 .studio-artifact-pane-actions button:disabled { cursor: not-allowed; opacity: .45; }
@@ -854,7 +854,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 }
 .studio-agent-generation-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px; }
 .studio-agent-generation-gallery { display: flex; flex-wrap: nowrap; gap: 5px; min-width: 0; overflow-x: auto; }
-.studio-agent-generation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: theme('fontSize.body-sm'); font-weight: 500; line-height: 1.5; color: hsl(var(--foreground) / .85); }
+.studio-agent-generation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: theme('fontSize.body-sm'); font-weight: 500; line-height: 1.5; color: hsl(var(--foreground)); }
 .studio-agent-generation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .studio-agent-generation-actions:empty { display: none; }
 .studio-agent-generation-action { min-height: 30px; padding: 4px 8px; margin-left: -8px; border-radius: 6px; font-size: theme('fontSize.xs'); font-weight: 400; color: hsl(var(--muted-foreground)); transition: background .15s, color .15s; }

@@ -32,6 +32,8 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 | `chip-lg` | 40 | 首页模型与参数 chip（12px 圆角） |
 | `chip-sm` | 32 | 窄输入区的模型与参数 chip（10px 圆角） |
 
+`chip-lg` 在命名容器 `creation-composer` 宽度不超过 520px 时切换为 32px 高、10px 圆角、8px 水平内边距与 `text-label-sm`，由 Button 统一提供响应尺寸。
+
 ```tsx
 <Button variant="ghost" size="icon-sm" aria-label={t('common:action.close')} onClick={onClose}>
   <Icon name="close" />
