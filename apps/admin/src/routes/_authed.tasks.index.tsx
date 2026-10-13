@@ -89,7 +89,7 @@ function GenerationTasksPage() {
     <>
       <Page
         crumbs={[{ label: '概览', to: '/overview' }, { label: '生成任务' }]}
-        description={`${time(taskWindow.from)} — ${time(taskWindow.to)} · 北京时间${owner ? ` · ${owner}` : ''}`}
+        description={`${time(taskWindow.from)} — ${time(taskWindow.to)} · 北京时间${owner ? ` · ${owner}` : ''}${search.model ? ` · ${search.model}` : ''}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
