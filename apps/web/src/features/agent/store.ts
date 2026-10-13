@@ -31,6 +31,7 @@ import {
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { reportClientError } from '../../lib/errorReporting'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
+import { getRuntimeConfig } from '../../lib/runtimeConfig'
 import { useStore } from '../../store'
 import {
   autoNameProject,
@@ -86,6 +87,7 @@ import {
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
+import { browserConversationPrefetch } from './lib/conversationPrefetch'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
@@ -478,6 +480,20 @@ function readPanelWidth(): number {
 }
 
 export const useAgentStore = create<AgentState>((set, get, store) => {
+  let prefetch: ReturnType<typeof browserConversationPrefetch> | undefined
+  store.subscribe((state, previous) => {
+    if (prefetch && !prefetch.isCurrent()) {
+      prefetch.dispose()
+      prefetch = undefined
+    }
+    if (state.conversations !== previous.conversations && state.conversations.length && !prefetch)
+      prefetch = browserConversationPrefetch()
+    prefetch?.update(
+      state.conversations,
+      state.historyLoading || state.turn === 'running',
+      state.conversationId,
+    )
+  })
   let cache: ReturnType<typeof conversationCache> | null = null
   let pendingCacheWrite: (() => void) | undefined
   let cacheTimer: ReturnType<typeof setTimeout> | undefined
@@ -1648,9 +1664,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       cancelPendingConversationImport = undefined
       const revision = conversationListRevision
       const request = ++conversationListRequest
+      const sameAccount = accountScope()
+      const backend = getRuntimeConfig().bff.baseUrl
       try {
         const conversations = await fetchConversations()
         if (
+          !sameAccount() ||
+          getRuntimeConfig().bff.baseUrl !== backend ||
           changingProject ||
           revision !== conversationListRevision ||
           request !== conversationListRequest

@@ -789,3 +789,30 @@ describe('排队消息请求', () => {
     expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ deviceId: DEVICE })
   })
 })
+
+it('cancels background history while reading the response body and marks its network priority low', async () => {
+  const cancellation = new AbortController()
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'))
+      },
+    }),
+  )
+  const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => response)
+  const pending = fetchMessages('background', fetcher, cancellation.signal)
+  const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  await vi.waitFor(() => expect(response.bodyUsed).toBe(true))
+  cancellation.abort()
+  await rejected
+  expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ priority: 'low' })
+})
+it('does not issue an already cancelled background history request', async () => {
+  const cancellation = new AbortController()
+  cancellation.abort()
+  const fetcher = vi.fn()
+  await expect(fetchMessages('background', fetcher, cancellation.signal)).rejects.toMatchObject({
+    name: 'AbortError',
+  })
+  expect(fetcher).not.toHaveBeenCalled()
+})
