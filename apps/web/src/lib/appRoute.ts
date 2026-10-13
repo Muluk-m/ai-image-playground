@@ -2,7 +2,7 @@ import { readProjectRoute, writeProjectRoute } from '../features/canvas/lib/proj
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { type AppMode, useStore } from '../store'
-import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH, pathAppMode } from './appPaths'
+import { APP_MODE_PATHS, isPricingPath, LEGACY_PROJECTS_PATH, pathAppMode } from './appPaths'
 
 /**
  * 三个入口各有自己的地址：创作 `/image`、探索 `/explore`、资产 `/assets`（老的 `/projects` 落到资产的项目标签）。
@@ -16,6 +16,8 @@ function isRoot(pathname: string): boolean {
 
 function writeModeRoute(mode: AppMode): void {
   const { pathname, search, hash } = window.location
+  // 定价页不是工作台入口。别处改 appMode 不能把人从 /pricing 带走。
+  if (isPricingPath(pathname)) return
   if (mode !== 'canvas') {
     const target = APP_MODE_PATHS[mode]
     if (pathname !== target) window.history.pushState(null, '', `${target}${search}${hash}`)
