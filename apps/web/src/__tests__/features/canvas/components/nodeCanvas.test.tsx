@@ -5,6 +5,7 @@ import {
   importLegacyElements,
   moveCanvasNodes,
   readCanvasDocument,
+  updateCanvasNode,
 } from '@image-playground/shared'
 import { act, createElement, type ElementType, type ReactNode, useEffect, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -452,4 +453,55 @@ it('offers video tools and preview when the video has no poster file', async () 
   act(() => host.querySelector<HTMLElement>('[data-node-id="posterless"]')!.click())
   expect(host.querySelector('button[aria-label="视频工具"]')).not.toBeNull()
   expect(host.querySelector('button[aria-label="全屏查看"]')).not.toBeNull()
+})
+
+it('previews arrangement without saving, reverts it, and keeps it as one undo step', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  const before = readCanvasDocument(canvas.doc).nodes
+  const click = (label: string) =>
+    act(() => {
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (b) => b.getAttribute('aria-label') === label || b.textContent === label,
+      )
+      expect(button).toBeDefined()
+      button!.click()
+    })
+  click('整理画布')
+  expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(host.textContent).toContain('是否保留此次整理结果？')
+  click('还原')
+  expect(host.textContent).not.toContain('是否保留此次整理结果？')
+  click('整理画布')
+  click('保留')
+  expect(readCanvasDocument(canvas.doc).nodes).not.toEqual(before)
+  act(() => canvas.undo.undo())
+  expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+})
+
+it('keeps arrangement through media updates but cancels it when another editor moves a node', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="整理画布"]')!.click())
+  act(() =>
+    updateCanvasNode(
+      canvas.doc,
+      'image',
+      { data: { fileId: 'file', name: 'Updated' } },
+      canvasOrigin('system', 'remote'),
+    ),
+  )
+  expect(host.textContent).toContain('是否保留此次整理结果？')
+  act(() =>
+    moveCanvasNodes(
+      canvas.doc,
+      [{ id: 'image', x: 200, y: 200 }],
+      canvasOrigin('system', 'remote'),
+    ),
+  )
+  expect(host.textContent).not.toContain('是否保留此次整理结果？')
+  expect(readCanvasDocument(canvas.doc).nodes.find((n) => n.id === 'image')).toMatchObject({
+    x: 200,
+    y: 200,
+  })
 })
