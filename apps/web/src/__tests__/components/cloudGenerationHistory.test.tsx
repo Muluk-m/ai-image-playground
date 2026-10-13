@@ -8,6 +8,7 @@ import InputBar from '../../components/InputBar'
 import { setClientStorageScope } from '../../lib/authScope'
 import { setChannels } from '../../lib/channels/channelStore'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
+import { markHistoryReady } from '../../lib/historyReady'
 import { useStore } from '../../store'
 import { DEFAULT_PARAMS } from '../../types'
 
@@ -51,6 +52,7 @@ beforeEach(async () => {
     filterFavorite: false,
     appMode: 'image',
   })
+  markHistoryReady()
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)

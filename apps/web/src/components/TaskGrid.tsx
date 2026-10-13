@@ -1,7 +1,8 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { i18next, useTranslation } from '../i18n'
+import { isHistoryReady, subscribeHistoryReady } from '../lib/historyReady'
 import {
   type LegacyProductJob,
   legacyActionLabels,
@@ -15,6 +16,20 @@ import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+
+/** 首页作品区在本机记录落地前的占位。侧栏、标题和输入框已经是真的，这里只盖网格。 */
+function HomeWorksSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+      {Array.from({ length: 3 }, (_, index) => (
+        <div key={index}>
+          <div className="aspect-[4/3] animate-pulse rounded-2xl bg-muted" />
+          <div className="mt-3 h-3 w-2/5 animate-pulse rounded-full bg-muted" />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /** 套的名字要落在它自己的记录上；记录还没加载时至少不能把分镜说成商品图。 */
 function setFallbackName(task: TaskRecord | undefined): string {
@@ -42,6 +57,7 @@ export default function TaskGrid({
   onExpand?: () => void
 } = {}) {
   const { t } = useTranslation('task')
+  const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
   const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
@@ -369,6 +385,8 @@ export default function TaskGrid({
       />
     </div>
   )
+
+  if (hero && !historyReady) return <HomeWorksSkeleton />
 
   if (!filteredTasks.length) {
     if (!unfiltered && (searchQuery || filterFavorite || filterStatus !== 'all')) {

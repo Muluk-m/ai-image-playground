@@ -24,36 +24,58 @@
     <link rel="preload" href="/hero/hero-8.webp" as="image" fetchpriority="low" />
     <title>幕芽 Muvloom · AI 图片与视频创作工作台</title>
     <style>
-      /* 启动闪屏：HTML 一到就画，避免整条启动链（配置 → 会话 → 能力）期间是一片黑。
-         React 首次渲染出任何界面后由内联启动守卫摘掉。 */
+      /* 启动闪屏：HTML 一到就画。芽在原地展开，盖住配置、会话和能力；
+         工作台或故障页画出来之后由内联启动守卫淡出，不再脉冲、也不横移。 */
       #boot {
         position: fixed;
         inset: 0;
+        z-index: 40;
         display: grid;
         place-items: center;
         background: #0b0f0c;
       }
-      #boot img {
-        width: 46px;
+      #boot .sprout {
+        width: 76px;
+        height: 76px;
+        display: block;
         margin: 0 auto;
-        height: 46px;
-        border-radius: 14px;
-        animation: boot-pulse 1.4s ease-in-out infinite;
       }
-      @keyframes boot-pulse {
-        0%,
-        100% {
-          opacity: 0.45;
-          transform: scale(0.96);
-        }
-        50% {
-          opacity: 1;
-          transform: scale(1);
-        }
+      #boot .plate,
+      #boot .petal {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      #boot .plate {
+        animation: boot-plate 0.42s cubic-bezier(0.16, 0.84, 0.32, 1) both;
+      }
+      #boot .petal {
+        animation: boot-petal 0.55s cubic-bezier(0.16, 0.84, 0.24, 1) both;
+        animation-delay: var(--d);
+      }
+      #boot[data-state="done"] {
+        animation: boot-fade 0.65s ease forwards;
+        pointer-events: none;
+      }
+      @keyframes boot-fade {
+        to { opacity: 0; }
+      }
+      @keyframes boot-plate {
+        from { opacity: 0; transform: scale(0.86); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes boot-petal {
+        from { opacity: 0; transform: scale(0.2); }
+        to { opacity: 1; transform: none; }
       }
       @media (prefers-reduced-motion: reduce) {
-        #boot img {
+        #boot .plate,
+        #boot .petal {
           animation: none;
+          opacity: 1;
+        }
+        #boot[data-state="done"] {
+          animation: none;
+          opacity: 0;
         }
       }
       #boot > div { text-align: center; padding: 24px; color: #eef2e8; font-family: system-ui, sans-serif; }
@@ -62,7 +84,8 @@
       #boot-error p { font-size: 14px; color: #aab5a2; }
       #boot-retry { margin-top: 12px; border: 0; border-radius: 8px; padding: 10px 20px; background: #c6e999; color: #203014; cursor: pointer; }
       #boot[data-state="error"] { z-index: 10000; }
-      #boot[data-state="error"] img { animation: none; }
+      #boot[data-state="error"] .plate,
+      #boot[data-state="error"] .petal { animation: none; opacity: 1; }
     </style>
   </head>
   <body class="bg-background text-foreground min-h-screen">
@@ -72,7 +95,17 @@
       <p>一句话生成图片，在无限画布上继续编辑，与 AI 智能体一起完成海报、商品图与短视频。使用幕芽需要开启 JavaScript。</p>
       <p><a href="/guide/">使用指南</a> · <a href="/guide/en/">User guide</a></p>
     </noscript>
-    <div id="boot"><div><img src="/brand/muvloom-icon.svg" alt="" />
+    <div id="boot" aria-busy="true"><div>
+      <svg class="sprout" viewBox="0 0 64 64" aria-hidden="true">
+        <rect class="plate" width="64" height="64" rx="15" fill="#23282b"/>
+        <defs><linearGradient id="boot-bloom" x1="50" y1="12" x2="15" y2="54" gradientUnits="userSpaceOnUse"><stop stop-color="#dbffa0"/><stop offset="1" stop-color="#83eeb0"/></linearGradient></defs>
+        <g fill="url(#boot-bloom)">
+          <path class="petal" style="--d:80ms" d="M13 31c-4-1-4-6-3-12 1-5 4-7 10-7h9c6 0 9 3 8 8-1 4-4 5-8 4h-5c-3 0-4 2-5 5-1 3-4 4-6 2Z"/>
+          <path class="petal" style="--d:180ms" d="M39 25c-1-9 5-14 14-14 0 10-5 15-14 14Z"/>
+          <path class="petal" style="--d:280ms" d="M20 34c4 0 5 3 4 6-1 3 0 4 2 5 3 4-1 8-6 8h-3c-5 0-7-3-7-7v-3c0-5 4-8 10-9Z"/>
+          <path class="petal" style="--d:400ms" d="M44 30c6-2 9 3 9 9v5c0 6-3 9-9 9h-8c-5 0-7-3-6-7 0-3 2-4 5-4 4 1 5-1 4-4-2-6 0-7 5-8Z"/>
+        </g>
+      </svg>
       <div id="boot-error" role="alert" hidden>
         <h1 id="boot-error-title">工作台暂时无法打开</h1>
         <p id="boot-error-description">请重新加载页面后重试。</p>

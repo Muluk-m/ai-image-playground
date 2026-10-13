@@ -1,5 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { signalBootReady } from '../boot/ready'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
 import { useTranslation } from '../i18n'
@@ -29,13 +30,9 @@ type Phase = 'checking' | 'ready' | 'reconnecting'
 export function LoadingScreen() {
   const { t } = useTranslation('auth')
   return (
-    <main className="auth-status-screen" aria-live="polite">
-      <img src="/brand/muvloom-mark.svg" alt="" width="40" height="40" />
-      <div className="auth-status-line">
-        <span />
-      </div>
-      <p>{t('status.preparing')}</p>
-    </main>
+    <p className="sr-only" aria-live="polite">
+      {t('status.preparing')}
+    </p>
   )
 }
 
@@ -49,6 +46,9 @@ export function ProblemScreen({
   retry?: () => void
 }) {
   const { t } = useTranslation('auth')
+  useEffect(() => {
+    signalBootReady()
+  }, [])
   return (
     <main className="auth-status-screen auth-status-screen--problem">
       <section
