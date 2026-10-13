@@ -1,7 +1,7 @@
 /**
  * 公开树暴露给私有 overlay 的**宿主面**。
  *
- * overlay 只许从这里（和 `privateOverlay.tsx` 的契约类型）拿公开树的东西，不许 `../../../apps/web/src/...`
+ * overlay 只许从这里、纯展示入口 `privateIcons.ts`（和 `privateOverlay.tsx` 的契约类型）拿公开树的东西，不许 `../../../apps/web/src/...`
  * 深路径乱引——否则整棵源码树都成了它的 API，任何重构都可能悄悄打断收费版
  * （`scripts/check-private-boundary.ts` 反向扫描 `private/` 强制这条）。
  *
