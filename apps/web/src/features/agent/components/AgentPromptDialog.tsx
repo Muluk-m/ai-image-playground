@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { BookmarkIcon, CloseIcon, CodeIcon, CopyIcon } from '../../../components/icons'
 import Overlay from '../../../components/patterns/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+import { Input } from '../../../components/ui/input'
+import { Label } from '../../../components/ui/label'
 import { useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
@@ -25,8 +28,6 @@ export default function AgentPromptDialog({
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
-  const action =
-    'inline-flex min-h-10 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
   return (
     <Overlay onClose={onClose} role="none">
       <section
@@ -36,26 +37,28 @@ export default function AgentPromptDialog({
         className="flex max-h-[85dvh] w-full max-w-[780px] flex-col overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl"
       >
         <header className="flex shrink-0 items-center justify-between gap-2 px-4 py-3 sm:px-5">
-          <h2 id={titleId} className="flex items-center gap-2 text-sm font-semibold">
-            <CodeIcon aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+          <h2 id={titleId} className="flex items-center gap-2 text-xl font-semibold">
+            <Icon name="code" size="sm" className="text-muted-foreground" />
             {t('promptDialog.title')}
           </h2>
-          <button
+          <Button
             ref={closeRef}
             type="button"
-            className={action}
+            variant="ghost"
+            size="icon-sm"
             aria-label={t('promptDialog.closeAria')}
             onClick={onClose}
           >
-            <CloseIcon className="h-4 w-4" />
-          </button>
+            <Icon name="close" />
+          </Button>
         </header>
         <div className="mx-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background sm:mx-5">
           <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/40 px-3">
             <span className="font-mono text-label-sm text-muted-foreground">Plain text</span>
-            <button
+            <Button
               type="button"
-              className={action}
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 void copyTextToClipboard(prompt).then(
                   () => setCopied(true),
@@ -69,9 +72,9 @@ export default function AgentPromptDialog({
                 )
               }}
             >
-              <CopyIcon className="h-4 w-4" />
+              <Icon name="copy" />
               {copied ? t('promptDialog.copied') : t('common:action.copy')}
-            </button>
+            </Button>
           </div>
           <pre
             tabIndex={0}
@@ -86,16 +89,17 @@ export default function AgentPromptDialog({
           <span className="text-label-sm text-muted-foreground">
             {t('promptDialog.charCount', { count: Array.from(prompt).length })}
           </span>
-          <button
+          <Button
             type="button"
-            className={action}
+            variant="ghost"
+            size="sm"
             ref={saveRef}
             aria-expanded={naming}
             onClick={() => setNaming(!naming)}
           >
-            <BookmarkIcon className="h-4 w-4" />
+            <Icon name="template" />
             {t('promptDialog.saveTemplate')}
-          </button>
+          </Button>
         </footer>
         {naming && (
           <form
@@ -116,25 +120,21 @@ export default function AgentPromptDialog({
               }
             }}
           >
-            <label className="min-w-0 flex-1 text-xs text-muted-foreground">
+            <Label className="min-w-0 flex-1 text-xs text-muted-foreground">
               {t('promptDialog.templateName')}
-              <input
+              <Input
                 autoFocus
                 aria-label={t('promptDialog.templateName')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={40}
                 placeholder={t('promptDialog.templateNamePlaceholder')}
-                className="mt-1 block h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="mt-1 text-foreground"
               />
-            </label>
-            <button
-              type="submit"
-              disabled={saving || !name.trim()}
-              className="h-10 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50"
-            >
+            </Label>
+            <Button type="submit" disabled={saving || !name.trim()}>
               {saving ? t('promptDialog.saving') : t('promptDialog.saveTemplateAction')}
-            </button>
+            </Button>
           </form>
         )}
       </section>

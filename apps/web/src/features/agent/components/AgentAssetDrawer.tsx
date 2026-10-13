@@ -1,10 +1,10 @@
-import { FolderOpen, Play, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
+import SearchField from '../../../components/patterns/SearchField'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
-import { Input } from '../../../components/ui/input'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { blobDataUrl } from '../../../lib/cloudMedia'
 import { assetExportSource } from '../../image-export/sources'
@@ -32,7 +32,7 @@ const BATCH_REFRESH_MS = 4_000
 const CARD_CHECK =
   'size-5 rounded-full border-[1.5px] border-white/90 bg-black/30 shadow-none backdrop-blur-sm data-[state=checked]:border-primary data-[state=checked]:bg-primary'
 const FOOT_CHECK =
-  'size-4 rounded-[5px] border-muted-foreground/60 bg-transparent shadow-none data-[state=checked]:border-primary data-[state=checked]:bg-primary'
+  'size-4 rounded-md border-muted-foreground/60 bg-transparent shadow-none data-[state=checked]:border-primary data-[state=checked]:bg-primary'
 
 export default function AgentAssetDrawer({
   messages,
@@ -321,17 +321,29 @@ export default function AgentAssetDrawer({
         aria-modal="true"
         aria-label={t('assets.title')}
       >
-        <header className="studio-assets-head">
-          <FolderOpen size={18} aria-hidden="true" />
-          <h2>{t('assets.title')}</h2>
-          <Button variant="ghost" type="button" onClick={onClose} aria-label={t('assets.close')}>
-            <X size={18} />
+        <header className="flex items-center gap-2.5 px-5 py-4">
+          <Icon name="folder" size="sm" />
+          <h2 className="flex-1 text-xl font-semibold">{t('assets.title')}</h2>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            type="button"
+            onClick={onClose}
+            aria-label={t('assets.close')}
+          >
+            <Icon name="close" />
           </Button>
         </header>
-        <div className="studio-assets-tabs" role="group" aria-label={t('assets.scope')}>
+        <div
+          className="mx-5 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+          role="group"
+          aria-label={t('assets.scope')}
+        >
           <Button
             variant="ghost"
             type="button"
+            size="xs"
+            className="text-muted-foreground aria-pressed:bg-card aria-pressed:text-foreground"
             aria-pressed={scope === 'session'}
             onClick={() => setScope('session')}
           >
@@ -340,27 +352,31 @@ export default function AgentAssetDrawer({
           <Button
             variant="ghost"
             type="button"
+            size="xs"
+            className="text-muted-foreground aria-pressed:bg-card aria-pressed:text-foreground"
             aria-pressed={scope === 'all'}
             onClick={() => setScope('all')}
           >
             {t('assets.all')}
           </Button>
         </div>
-        <label className="studio-assets-search">
-          <Search size={17} aria-hidden="true" />
-          <Input
+        <div className="px-5">
+          <SearchField
+            className="max-w-none"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('assets.search')}
             aria-label={t('assets.search')}
           />
-        </label>
-        <div className="studio-assets-filters" role="group" aria-label={t('assets.media')}>
+        </div>
+        <div className="flex gap-1 px-5 py-3" role="group" aria-label={t('assets.media')}>
           {(['all', 'image', 'video'] as const).map((one) => (
             <Button
               variant="ghost"
               key={one}
               type="button"
+              size="xs"
+              className="text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground"
               aria-pressed={media === one}
               onClick={() => setMedia(one)}
             >
@@ -551,7 +567,7 @@ function AssetThumb({
         {source && <img src={source} alt="" loading="lazy" />}
         {item.media === 'video' && (
           <span className="studio-assets-video" aria-hidden="true">
-            <Play size={11} fill="currentColor" />
+            <Icon name="play" />
           </span>
         )}
       </span>

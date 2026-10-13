@@ -3,29 +3,19 @@ import {
   type VideoGenerationRecord,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import {
-  AudioLines,
-  Clock3,
-  Film,
-  Images,
-  type LucideIcon,
-  Monitor,
-  Ratio,
-  SkipBack,
-  SkipForward,
-} from 'lucide-react'
 import type { ReactNode } from 'react'
 import Credits from '../../../components/Credits'
 import { ModelLogo } from '../../../components/ModelIdentity'
+import { Icon, type IconName } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 
 function VideoDetail({
-  icon: Icon,
+  icon,
   label,
   children,
 }: {
-  icon: LucideIcon
+  icon: IconName
   label: string
   children?: ReactNode
 }) {
@@ -36,7 +26,7 @@ function VideoDetail({
       aria-label={label}
       className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1"
     >
-      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <Icon name={icon} size="xs" />
       {children}
     </span>
   )
@@ -57,20 +47,20 @@ export function AgentVideoDetails({ video }: { video: VideoGenerationRecord }) {
         <ModelLogo model={video.model} />
         {model}
       </span>
-      <VideoDetail icon={Clock3} label={t('agent:video.seconds', { count: video.duration })}>
+      <VideoDetail icon="clock" label={t('agent:video.seconds', { count: video.duration })}>
         {t('agent:video.seconds', { count: video.duration })}
       </VideoDetail>
-      <VideoDetail icon={Monitor} label={`${t('video:field.resolution')} ${video.resolution}`}>
+      <VideoDetail icon="resolution" label={`${t('video:field.resolution')} ${video.resolution}`}>
         {video.resolution}
       </VideoDetail>
-      <VideoDetail icon={Ratio} label={`${t('video:field.aspectRatio')} ${video.aspectRatio}`}>
+      <VideoDetail icon="ratio" label={`${t('video:field.aspectRatio')} ${video.aspectRatio}`}>
         {video.aspectRatio}
       </VideoDetail>
-      {video.firstFrameId && <VideoDetail icon={SkipBack} label={t('agent:video.firstFrame')} />}
-      {video.lastFrameId && <VideoDetail icon={SkipForward} label={t('agent:video.lastFrame')} />}
+      {video.firstFrameId && <VideoDetail icon="firstFrame" label={t('agent:video.firstFrame')} />}
+      {video.lastFrameId && <VideoDetail icon="lastFrame" label={t('agent:video.lastFrame')} />}
       {!!video.referenceIds?.length && (
         <VideoDetail
-          icon={Images}
+          icon="images"
           label={t('agent:video.references', { count: video.referenceIds.length })}
         >
           {video.referenceIds.length}
@@ -78,17 +68,14 @@ export function AgentVideoDetails({ video }: { video: VideoGenerationRecord }) {
       )}
       {!!video.keyframes?.length && (
         <VideoDetail
-          icon={Film}
+          icon="keyframes"
           label={t('agent:video.keyframes', { count: video.keyframes.length })}
         >
           {video.keyframes.length}
         </VideoDetail>
       )}
       {!!video.voices?.length && (
-        <VideoDetail
-          icon={AudioLines}
-          label={t('agent:video.voices', { count: video.voices.length })}
-        >
+        <VideoDetail icon="audio" label={t('agent:video.voices', { count: video.voices.length })}>
           {video.voices.length}
         </VideoDetail>
       )}

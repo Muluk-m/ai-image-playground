@@ -1,23 +1,10 @@
-import {
-  Brush,
-  Crop,
-  Eraser,
-  Hand,
-  Lasso,
-  Maximize,
-  Minus,
-  Plus,
-  Redo2,
-  Square,
-  Trash2,
-  Undo2,
-  X,
-} from 'lucide-react'
 import { type PointerEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../../../components/patterns/Overlay'
 import RegionPromptEditor, { useRegionPrompt } from '../../../components/RegionPromptEditor'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Slider } from '../../../components/ui/slider'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { classifyMaskAlpha, fillMaskLasso, isUsableMaskLasso } from '../../../lib/mask'
 import { prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
@@ -690,18 +677,21 @@ export default function AgentArtifactEditDialog({
         }
       }}
     >
-      <header>
-        <h2 id="artifact-edit-title">{t(`tool.${action}`)}</h2>
+      <div className="flex min-h-16 shrink-0 items-center justify-between border-b border-border px-4 sm:px-6">
+        <h2 id="artifact-edit-title" className="!text-xl">
+          {t(`tool.${action}`)}
+        </h2>
         <Button
           variant="ghost"
           type="button"
           onClick={onClose}
           disabled={busy}
           aria-label={t('tool.closePreview')}
+          size="icon-sm"
         >
-          <X size={22} />
+          <Icon name="close" />
         </Button>
-      </header>
+      </div>
       <div ref={stageRef} className="studio-artifact-edit-stage">
         {loading && <span role="status">{t('tool.loadingPreview')}</span>}
         {working && (
@@ -781,17 +771,19 @@ export default function AgentArtifactEditDialog({
           </div>
         )}
         {marked && working && (
-          <div className="studio-artifact-edit-toolbar">
+          <div className="absolute bottom-2.5 left-2 z-[6] flex min-h-11 max-w-[calc(100%_-_2rem)] flex-wrap items-center gap-1 rounded-xl border border-border bg-card/95 p-1 shadow-lg backdrop-blur sm:bottom-4 sm:left-4">
             <Button
               type="button"
               variant="ghost"
               disabled={busy || drawing}
               aria-label={t('tool.markLasso')}
               title={t('tool.markLasso')}
+              className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
               aria-pressed={tool === 'lasso'}
               onClick={() => setTool('lasso')}
+              size="icon-sm"
             >
-              <Lasso size={18} />
+              <Icon name="selectLasso" />
             </Button>
             <Button
               type="button"
@@ -799,10 +791,12 @@ export default function AgentArtifactEditDialog({
               disabled={busy || drawing}
               aria-label={t('tool.markRectangle')}
               title={t('tool.markRectangle')}
+              className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
               aria-pressed={tool === 'rectangle'}
               onClick={() => setTool('rectangle')}
+              size="icon-sm"
             >
-              <Square size={18} />
+              <Icon name="selectRectangle" />
             </Button>
             <Button
               variant="ghost"
@@ -810,10 +804,12 @@ export default function AgentArtifactEditDialog({
               disabled={busy || drawing}
               aria-label={t('tool.markBrush')}
               title={t('tool.markBrush')}
+              className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
               aria-pressed={tool === 'brush'}
               onClick={() => setTool('brush')}
+              size="icon-sm"
             >
-              <Brush size={18} />
+              <Icon name="brush" />
             </Button>
             <Button
               variant="ghost"
@@ -821,10 +817,12 @@ export default function AgentArtifactEditDialog({
               disabled={busy || drawing}
               aria-label={t('tool.markEraser')}
               title={t('tool.markEraser')}
+              className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
               aria-pressed={tool === 'eraser'}
               onClick={() => setTool('eraser')}
+              size="icon-sm"
             >
-              <Eraser size={18} />
+              <Icon name="erase" />
             </Button>
             <Button
               variant="ghost"
@@ -832,10 +830,12 @@ export default function AgentArtifactEditDialog({
               disabled={busy || drawing}
               aria-label={t('tool.panImage')}
               title={t('tool.panImage')}
+              className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
               aria-pressed={tool === 'pan'}
               onClick={() => setTool('pan')}
+              size="icon-sm"
             >
-              <Hand size={18} />
+              <Icon name="pan" />
             </Button>
             <span className="studio-artifact-edit-tool-divider" />
             <Button
@@ -844,8 +844,9 @@ export default function AgentArtifactEditDialog({
               aria-label={t('tool.undoMark')}
               onClick={() => restore('undo')}
               disabled={!canUndo || busy || drawing}
+              size="icon-sm"
             >
-              <Undo2 size={18} />
+              <Icon name="undo" />
             </Button>
             <Button
               variant="ghost"
@@ -853,8 +854,9 @@ export default function AgentArtifactEditDialog({
               aria-label={t('tool.redoMark')}
               onClick={() => restore('redo')}
               disabled={!canRedo || busy || drawing}
+              size="icon-sm"
             >
-              <Redo2 size={18} />
+              <Icon name="redo" />
             </Button>
             <Button
               type="button"
@@ -874,11 +876,12 @@ export default function AgentArtifactEditDialog({
                 redrawPreview()
                 syncMarkPresent()
               }}
+              size="icon-sm"
             >
-              <Trash2 size={18} />
+              <Icon name="delete" />
             </Button>
-            <label>
-              <span>{t('tool.brushSize')}</span>
+            <label className="flex items-center gap-2 px-2 text-label-sm text-muted-foreground">
+              <span className="hidden sm:inline">{t('tool.brushSize')}</span>
               <Slider
                 aria-label={t('tool.brushSize')}
                 min={10}
@@ -893,18 +896,20 @@ export default function AgentArtifactEditDialog({
         )}
         {action === 'crop' && (
           <div className="studio-artifact-edit-hint">
-            <Crop size={15} />
+            <Icon name="crop" size="sm" />
             {t('tool.cropHint')}
           </div>
         )}
         {action === 'outpaint' && (
-          <div className="studio-artifact-edit-toolbar studio-artifact-edit-extension">
+          <div className="absolute bottom-2.5 left-2 z-[6] flex items-center gap-1 rounded-xl border border-border bg-card/95 p-1 shadow-lg sm:bottom-4 sm:left-4">
             <span>{t('tool.extendBy')}</span>
             {[0.15, 0.25, 0.4].map((value) => (
               <Button
                 variant="ghost"
                 type="button"
                 key={value}
+                size="sm"
+                className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
                 aria-pressed={extension === value}
                 onClick={() => setExtension(value)}
               >
@@ -914,15 +919,16 @@ export default function AgentArtifactEditDialog({
           </div>
         )}
         {marked && (
-          <div className="studio-artifact-edit-zoom">
+          <div className="absolute right-2 top-2.5 z-[6] flex items-center gap-1 rounded-xl border border-border bg-card/95 p-1 shadow-lg sm:right-4">
             <Button
               variant="ghost"
               type="button"
               disabled={busy || drawing}
               aria-label={t('tool.zoomOut')}
               onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
+              size="icon-sm"
             >
-              <Minus size={16} />
+              <Icon name="zoomOut" />
             </Button>
             <Button
               type="button"
@@ -934,23 +940,27 @@ export default function AgentArtifactEditDialog({
                 setZoom(1)
                 setPan({ x: 0, y: 0 })
               }}
+              size="icon-sm"
             >
-              <Maximize size={16} />
+              <Icon name="fit" />
             </Button>
-            <span>{Math.round(zoom * 100)}%</span>
+            <span className="min-w-10 text-center text-xs tabular-nums">
+              {Math.round(zoom * 100)}%
+            </span>
             <Button
               variant="ghost"
               type="button"
               disabled={busy || drawing}
               aria-label={t('tool.zoomIn')}
               onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
+              size="icon-sm"
             >
-              <Plus size={16} />
+              <Icon name="zoomIn" />
             </Button>
           </div>
         )}
       </div>
-      <div className="studio-artifact-edit-composer">
+      <div className="shrink-0 px-4 py-4 sm:px-6">
         {marked ? (
           <RegionPromptEditor
             prompt={regionPrompt}
@@ -959,7 +969,8 @@ export default function AgentArtifactEditDialog({
             disabled={busy || drawing}
           />
         ) : (
-          <textarea
+          <Textarea
+            className="max-h-40 resize-y"
             value={instruction}
             onChange={(event) => setInstruction(event.target.value)}
             placeholder={t(`tool.${action}Placeholder`)}
@@ -968,8 +979,8 @@ export default function AgentArtifactEditDialog({
             maxLength={2000}
           />
         )}
-        <div>
-          <span>
+        <div className="flex items-center justify-between gap-3 pt-3">
+          <span className="max-w-[55%] text-xs text-muted-foreground">
             {marked
               ? t('tool.markHint')
               : action === 'outpaint'
@@ -977,7 +988,6 @@ export default function AgentArtifactEditDialog({
                 : t('tool.cropHint')}
           </span>
           <Button
-            variant="ghost"
             type="button"
             onClick={generate}
             disabled={
