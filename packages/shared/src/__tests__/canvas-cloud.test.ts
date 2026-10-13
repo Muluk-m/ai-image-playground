@@ -16,6 +16,7 @@ import {
   moveCanvasNodes,
   readCanvasDocument,
 } from '../canvas-document'
+import { createCanvasGroup } from '../canvas-groups'
 import { canvasSyncStep1, canvasSyncStep2, readCanvasSyncMessage } from '../canvas-sync'
 import type { ProjectDocument } from '../project-protocol'
 
@@ -213,5 +214,18 @@ it('enforces registry connections on the server without breaking pre-registry ar
     'invalid_canvas_connection_policy',
   )
   undo.destroy()
+  doc.destroy()
+})
+
+it('rejects malformed group geometry and membership before broadcasting', () => {
+  const doc = new Y.Doc()
+  importLegacyElements(doc, legacy.elements, origin)
+  createCanvasGroup(doc, 'scene', ['text'], '第一场', origin)
+  expect(() => validateCloudCanvas(doc, legacy)).not.toThrow()
+  doc.getMap<Y.Map<unknown>>('groups').get('scene')!.set('width', Number.NaN)
+  expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_group')
+  doc.getMap<Y.Map<unknown>>('groups').get('scene')!.set('width', 500)
+  doc.getMap('groupMembers').set('text', { id: 'scene' })
+  expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_group')
   doc.destroy()
 })

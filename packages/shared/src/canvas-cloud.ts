@@ -64,6 +64,8 @@ export function validateCloudCanvas(
     'managedNodes',
     'deletedNodes',
     'legacyConnections',
+    'groups',
+    'groupMembers',
   ]
   if ([...doc.share.keys()].some((key) => !roots.includes(key)))
     throw new Error('invalid_canvas_document')
@@ -190,6 +192,27 @@ export function validateCloudCanvas(
     if (JSON.stringify(data).length > 100_000 || JSON.stringify(data).includes('data:image/'))
       throw new Error('invalid_canvas_node')
   }
+  const groups = doc.getMap<Y.Map<unknown>>('groups')
+  if (groups.size > 1000 || doc.getMap('groupMembers').size > 10000)
+    throw new Error('canvas_document_too_large')
+  for (const [key, group] of groups) {
+    if (!(group instanceof Y.Map)) throw new Error('invalid_canvas_group')
+    const value = group.toJSON()
+    if (
+      value.id !== key ||
+      !id(key) ||
+      doc.getMap('nodes').has(key) ||
+      !allowed(value, ['id', 'name', 'x', 'y', 'width', 'height']) ||
+      typeof value.name !== 'string' ||
+      value.name.length > 500 ||
+      !['x', 'y', 'width', 'height'].every((key) => finite(value[key])) ||
+      value.width < 0 ||
+      value.height < 0
+    )
+      throw new Error('invalid_canvas_group')
+  }
+  for (const [nodeId, groupId] of doc.getMap('groupMembers'))
+    if (!id(nodeId) || !id(groupId)) throw new Error('invalid_canvas_group')
   // Deletion and concurrent edge insertion may leave dangling edges; they are inert, not corrupt data.
   for (const edge of edges)
     if (

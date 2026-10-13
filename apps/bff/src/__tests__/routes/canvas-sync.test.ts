@@ -6,12 +6,15 @@ import {
   canvasSyncStep1,
   canvasSyncStep2,
   canvasSyncUpdate,
+  createCanvasGroup,
   createCanvasUndoManager,
   disconnectCanvasNodes,
   importLegacyElements,
   insertCanvasNode,
+  moveCanvasGroups,
   moveCanvasNodes,
   readCanvasDocument,
+  readCanvasGroups,
   readCanvasSyncMessage,
   updateCanvasNode,
 } from '@image-playground/shared'
@@ -441,4 +444,19 @@ it('retains trusted old connection permissions across deletion, compaction and u
   client.destroy()
   restored.destroy()
   archived.destroy()
+})
+
+it('persists group membership and movement with the same cloud document', async () => {
+  const id = await create(),
+    doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  createCanvasGroup(doc, 'scene', ['title'], '第一场', origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc))
+  moveCanvasGroups(doc, [{ id: 'scene', x: 300, y: 200 }], origin)
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc)))
+  expect(readCanvasGroups(restored)).toEqual(readCanvasGroups(doc))
+  expect(readCanvasDocument(restored).nodes[0]).toMatchObject({ x: 332, y: 264 })
+  doc.destroy()
+  restored.destroy()
 })

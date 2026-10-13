@@ -4,10 +4,12 @@ import {
   canvasNodeKind,
   canvasNodeRegistry,
   connectCanvasNodes,
+  createCanvasGroup,
   deleteCanvasNode,
   disconnectCanvasNodes,
   insertCanvasNode,
   readCanvasDocument,
+  ungroupCanvasNodes,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { newElementId } from './canvasDoc'
@@ -74,13 +76,17 @@ export function removeNodes(
 ): void {
   canvas.undo.stopCapturing()
   canvas.doc.transact(() => {
+    ungroupCanvasNodes(canvas.doc, ids, canvas.origin)
     for (const id of ids) deleteCanvasNode(canvas.doc, id, canvas.origin)
     for (const id of edgeIds) disconnectCanvasNodes(canvas.doc, id, canvas.origin)
   }, canvas.origin)
 }
 export function copyNodes(snapshot: CanvasSnapshot, ids: readonly string[]): CanvasSnapshot {
   const selected = new Set(ids)
+  const groups = snapshot.groups?.filter((group) => selected.has(group.id)) ?? []
+  for (const group of groups) for (const id of group.members) selected.add(id)
   return structuredClone({
+    ...(groups.length ? { groups } : {}),
     nodes: snapshot.nodes.filter((n) => selected.has(n.id)),
     annotations: [],
     edges: snapshot.edges.filter((e) => selected.has(e.source) && selected.has(e.target)),
@@ -91,9 +97,11 @@ export function pasteNodes(
   copied: CanvasSnapshot,
   point: { x: number; y: number },
 ): string[] {
-  if (!copied.nodes.length) return []
-  const x = Math.min(...copied.nodes.map((n) => n.x))
-  const y = Math.min(...copied.nodes.map((n) => n.y))
+  const boxes = copied.nodes.length ? copied.nodes : (copied.groups ?? [])
+  if (!boxes.length) return []
+  const x = Math.min(...boxes.map((n) => n.x))
+  const y = Math.min(...boxes.map((n) => n.y))
+  const groupIds: string[] = []
   const ids = new Map(copied.nodes.map((n) => [n.id, newElementId()]))
   canvas.undo.stopCapturing()
   canvas.doc.transact(() => {
@@ -126,6 +134,25 @@ export function pasteNodes(
         canvas.origin,
       )
     }
+    for (const group of copied.groups ?? []) {
+      const id = newElementId()
+      if (
+        createCanvasGroup(
+          canvas.doc,
+          id,
+          group.members.flatMap((id) => ids.get(id) ?? []),
+          group.name,
+          canvas.origin,
+          {
+            x: group.x - x + point.x,
+            y: group.y - y + point.y,
+            width: group.width,
+            height: group.height,
+          },
+        )
+      )
+        groupIds.push(id)
+    }
     for (const edge of copied.edges)
       connectCanvasNodes(
         canvas.doc,
@@ -133,5 +160,5 @@ export function pasteNodes(
         canvas.origin,
       )
   }, canvas.origin)
-  return [...ids.values()]
+  return [...groupIds, ...ids.values()]
 }

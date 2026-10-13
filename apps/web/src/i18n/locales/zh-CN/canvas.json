@@ -492,6 +492,10 @@
     "generationFailed": "生成失败，请重试",
     "videoInputUnsupported": "当前视频节点仅接受文本和图片引用",
     "assets": "从资产库添加",
-    "assetsEmpty": "没有匹配的资产"
+    "assetsEmpty": "没有匹配的资产",
+    "group": "选中节点成组",
+    "ungroup": "解除分组",
+    "groupName": "分组名称",
+    "groupDefault": "未命名分组"
   }
 }
