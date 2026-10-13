@@ -3,9 +3,10 @@
  * Upstream: assistant-ui/assistant-ui@4fffd182971380758dcda062ea076f7bc9257fee
  * See UPSTREAM.md for source paths and local adaptations; license in LICENSE.
  */
-import { AlertCircleIcon } from 'lucide-react'
+
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '../../../lib/utils'
+import { Icon } from '../../ui/icon'
 import { field, paper } from './surfaces'
 
 export function ToolError({
@@ -29,7 +30,7 @@ export function ToolError({
       {...props}
     >
       <div className="flex items-center gap-2.5">
-        <AlertCircleIcon aria-hidden className="size-4 shrink-0 text-foreground" />
+        <Icon name="error" size="sm" className="text-foreground" />
         <span className="min-w-0 flex-1 break-words text-body-sm font-medium">{name}</span>
       </div>
       <div

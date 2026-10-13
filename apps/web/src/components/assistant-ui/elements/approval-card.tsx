@@ -4,11 +4,11 @@
  * See UPSTREAM.md for source paths and local adaptations; license in LICENSE.
  */
 
-import { CheckIcon, Loader2Icon, TerminalIcon, XIcon } from 'lucide-react'
 import { type ComponentProps, type ReactNode, useId } from 'react'
 import { cn } from '../../../lib/utils'
 import { Button } from '../../ui/button'
-import { field, ghostButton, inkButton, mono, paper } from './surfaces'
+import { Icon } from '../../ui/icon'
+import { field, mono, paper } from './surfaces'
 
 export type ApprovalState = 'request' | 'running' | 'done' | 'denied'
 
@@ -95,13 +95,13 @@ export function ApprovalCard({
             'flex size-9 shrink-0 items-center justify-center rounded-xl',
             variant === 'destructive'
               ? 'bg-destructive/10 text-destructive'
-              : 'bg-foreground/[0.05] text-foreground/45',
+              : 'bg-foreground/[0.05] text-muted-foreground',
           )}
         >
-          {icon ?? <TerminalIcon className="size-4" />}
+          {icon ?? <Icon name="terminal" size="sm" />}
         </span>
         <div className="flex min-w-0 flex-1 flex-col">
-          <p id={titleId} className="text-[13.5px] font-medium">
+          <p id={titleId} className="text-sm font-medium">
             {title}
           </p>
           <p className="line-clamp-2 break-words text-xs text-muted-foreground" title={subtitle}>
@@ -111,13 +111,13 @@ export function ApprovalCard({
       </div>
 
       {description ? (
-        <p id={descriptionId} className="text-foreground/60 text-body-sm">
+        <p id={descriptionId} className="text-muted-foreground text-body-sm">
           {description}
         </p>
       ) : null}
 
       {command ? (
-        <div className={cn(field, 'text-foreground/70 rounded-xl px-3.5 py-2.5 font-mono text-xs')}>
+        <div className={cn(field, 'text-foreground rounded-xl px-3.5 py-2.5 font-mono text-xs')}>
           {command}
         </div>
       ) : null}
@@ -129,8 +129,8 @@ export function ApprovalCard({
               key={`${detail.label}-${index}`}
               className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 text-xs"
             >
-              <dt className={cn(mono, 'text-foreground/40')}>{detail.label}</dt>
-              <dd className="text-foreground/80 break-words">{detail.value}</dd>
+              <dt className={cn(mono, 'text-muted-foreground')}>{detail.label}</dt>
+              <dd className="text-foreground break-words">{detail.value}</dd>
             </div>
           ))}
         </dl>
@@ -141,13 +141,7 @@ export function ApprovalCard({
         {state === 'request' ? (
           <>
             {onDeny && (
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={onDeny}
-                disabled={disabled}
-                className={cn(ghostButton, 'h-8 px-3.5 text-xs font-medium whitespace-nowrap')}
-              >
+              <Button variant="ghost" type="button" onClick={onDeny} disabled={disabled} size="sm">
                 {denyLabel}
               </Button>
             )}
@@ -157,23 +151,18 @@ export function ApprovalCard({
                 type="button"
                 onClick={onAlwaysAllow}
                 disabled={disabled}
-                className={cn(ghostButton, 'h-8 px-3.5 text-xs font-medium whitespace-nowrap')}
+                size="sm"
               >
                 {alwaysAllowLabel}
               </Button>
             )}
             {onAllowOnce && (
               <Button
-                variant="ghost"
+                variant={variant}
                 type="button"
                 onClick={onAllowOnce}
                 disabled={disabled}
-                className={cn(
-                  variant === 'destructive'
-                    ? 'bg-destructive text-destructive-foreground transition-[background-color,scale] duration-150 hover:bg-destructive/90 active:scale-[0.97] motion-reduce:transition-none'
-                    : inkButton,
-                  'flex h-8 items-center rounded-full px-3.5 text-xs font-medium whitespace-nowrap',
-                )}
+                size="sm"
               >
                 {allowOnceLabel}
               </Button>
@@ -183,21 +172,25 @@ export function ApprovalCard({
           <div
             key={state}
             role="status"
-            className="fade-in animate-in text-foreground/55 flex items-center gap-2 text-xs duration-300 motion-reduce:animate-none"
+            className="fade-in animate-in text-muted-foreground flex items-center gap-2 text-xs duration-300 motion-reduce:animate-none"
           >
             {state === 'running' ? (
               <>
-                <Loader2Icon className="text-foreground/45 size-3.5 animate-spin motion-reduce:animate-none" />
+                <Icon
+                  name="loading"
+                  size="xs"
+                  className="text-muted-foreground animate-spin motion-reduce:animate-none"
+                />
                 {statusLabel ?? receiptText.running}
               </>
             ) : state === 'denied' ? (
               <>
-                <XIcon className="text-foreground/45 size-3.5" />
+                <Icon name="close" size="xs" className="text-muted-foreground" />
                 {statusLabel ?? receiptText.denied}
               </>
             ) : (
               <>
-                <CheckIcon className="size-3.5 text-primary" />
+                <Icon name="check" size="xs" className="text-primary" />
                 {statusLabel ?? receiptText.done}
               </>
             )}

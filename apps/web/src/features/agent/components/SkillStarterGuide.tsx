@@ -1,14 +1,7 @@
 import { type AgentSkillScene, localizedText } from '@image-playground/shared'
-import {
-  ChevronLeft,
-  CornerDownRight,
-  LayoutGrid,
-  type LucideIcon,
-  Presentation,
-  Store,
-  UserRound,
-} from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon, type IconName } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../lib/composerFill'
 import {
@@ -21,11 +14,11 @@ import { useAgentSkills } from '../lib/useAgentSkills'
 import AgentSkillBadge from './AgentSkillBadge'
 import { AssetSlotFace } from './AssetSlotChip'
 
-const SCENE_ICONS: Readonly<Record<AgentSkillScene, LucideIcon>> = {
-  ecommerce: Store,
-  poster: Presentation,
-  'scene-character': UserRound,
-  look: LayoutGrid,
+const SCENE_ICONS: Readonly<Record<AgentSkillScene, IconName>> = {
+  ecommerce: 'shop',
+  poster: 'poster',
+  'scene-character': 'character',
+  look: 'palette',
 }
 
 /**
@@ -51,12 +44,14 @@ export default function SkillStarterGuide() {
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           {starters.map((entry, at) => (
             <li key={`${entry.skill.name}-${at}`}>
-              <button
+              <Button
                 type="button"
                 onClick={() => pick(entry)}
-                className="flex w-full flex-wrap items-center gap-y-1 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60 hover:text-foreground"
+                variant="ghost"
+                size="sm"
+                className="h-auto min-h-8 w-full flex-wrap justify-start gap-x-0 gap-y-1 whitespace-normal py-1.5 text-left font-normal"
               >
-                <CornerDownRight className="mr-2 h-4 w-4 shrink-0" />
+                <Icon name="starter" className="mr-2" />
                 {t('starters.use')}
                 <AgentSkillBadge className="mx-1" skill={entry.skill} />
                 {starterSegments(entry.starter, entry.skill.inputs, i18n.language).map(
@@ -69,35 +64,32 @@ export default function SkillStarterGuide() {
                       </span>
                     ),
                 )}
-              </button>
+              </Button>
             </li>
           ))}
           <li>
-            <button
-              type="button"
-              onClick={() => setOpen(null)}
-              className="flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors hover:text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" />
+            <Button type="button" onClick={() => setOpen(null)} variant="ghost" size="sm">
+              <Icon name="chevronLeft" />
               {t('starters.back')}
-            </button>
+            </Button>
           </li>
         </ul>
       ) : (
         <div className="flex flex-wrap items-center justify-center gap-2">
           <span className="mr-1 text-sm text-muted-foreground">{t('starters.lead')}</span>
           {[...groups.keys()].map((scene) => {
-            const Icon = SCENE_ICONS[scene]
+            const icon = SCENE_ICONS[scene]
             return (
-              <button
+              <Button
                 key={scene}
                 type="button"
                 onClick={() => setOpen(scene)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/60 px-3.5 py-1.5 text-sm transition-colors hover:border-primary/60 hover:text-primary"
+                variant="outline"
+                size="sm"
               >
-                <Icon className="h-4 w-4" />
+                <Icon name={icon} />
                 {t(`starters.scene.${scene}`)}
-              </button>
+              </Button>
             )
           })}
         </div>

@@ -5,9 +5,9 @@ import type {
   AgentSaveCardView,
   LookPurpose,
 } from '@image-playground/shared'
-import { Check, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { useLibraryStore } from '../../library/store'
@@ -134,7 +134,7 @@ function NameRow({
 function Saved({ text }: { text: string }) {
   return (
     <div className={`${CARD_TITLE} flex items-center gap-1.5`}>
-      <Check className="h-3.5 w-3.5 text-success" />
+      <Icon name="check" size="xs" className="text-success" />
       {text}
     </div>
   )
@@ -208,14 +208,15 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
               ? t(SOURCE_KEY[view.source])
               : `${t(VIEW_KEY[view.label])} · ${t(SOURCE_KEY[view.source])}`
           return (
-            <button
+            <Button
               key={view.imageId}
               type="button"
               title={badge}
               aria-label={out ? t('save.keep') : t('save.drop')}
               aria-pressed={!out}
               disabled={saving}
-              className={`${THUMBNAIL_STATIC} ${out ? 'border-dashed opacity-35' : ''}`}
+              variant="outline"
+              className={`p-0 ${THUMBNAIL_STATIC} ${out ? 'border-dashed opacity-35' : ''}`}
               onClick={() =>
                 setDropped((before) => {
                   const { [view.imageId]: already, ...rest } = before
@@ -228,9 +229,12 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
                 {badge}
               </span>
               {out && (
-                <X className="absolute right-1 top-1 h-3.5 w-3.5 rounded bg-black/60 text-white" />
+                <Icon
+                  name="close"
+                  className="absolute right-1 top-1 rounded bg-black/60 text-white"
+                />
               )}
-            </button>
+            </Button>
           )
         })}
       </div>
