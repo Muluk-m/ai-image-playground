@@ -55,7 +55,8 @@
     "configureApiFirst": "Configure the API first",
     "apiNotConfigured": "Configure the API in Settings first",
     "startCanvas": "Start creating",
-    "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send"
+    "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send",
+    "promptRequired": "Enter a prompt to generate"
   },
   "search": {
     "favoriteOnly": "Favorites only",

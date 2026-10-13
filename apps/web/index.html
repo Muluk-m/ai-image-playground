@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="幕芽 Muvloom，AI 图片与视频创作工作台。让灵感，长成画面。" />
     <meta name="application-name" content="幕芽 Muvloom" />
     <meta property="og:type" content="website" />
@@ -18,10 +18,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" sizes="180x180" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/brand/muvloom-icon.svg" type="image/svg+xml" />
     <!-- 启动配置与首屏 JS 并行拉：它是整条启动链的第一环，晚一个往返首帧就晚一个往返。 -->
     <link rel="preload" href="/runtime-config.json" as="fetch" crossorigin="anonymous" />
-    <link rel="preload" href="/hero/hero-8.webp" as="image" fetchpriority="low" />
     <title>幕芽 Muvloom · AI 图片与视频创作工作台</title>
     <style>
       /* 启动闪屏：HTML 一到就画，避免整条启动链（配置 → 会话 → 能力）期间是一片黑。
