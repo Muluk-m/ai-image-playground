@@ -105,6 +105,7 @@ import {
   uploadCanvasReference,
 } from '../lib/nodeCanvasReferences'
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
+import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
@@ -710,6 +711,10 @@ function Flow({
   const [history, setHistory] = useState({ undo: false, redo: false })
   const copied = useRef<CanvasSnapshot | null>(null)
   const selectedIds = useRef<string[]>([])
+  useEffect(() => {
+    setNodeCanvasSelection(editor, canvas, selectedIds.current)
+    return () => clearNodeCanvasSelection(editor, canvas)
+  }, [editor, canvas])
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
@@ -785,6 +790,7 @@ function Flow({
   const selectNode = (next: string | null) => {
     selectedRef.current = next
     selectedIds.current = next ? [next] : []
+    setNodeCanvasSelection(editor, canvas, selectedIds.current)
     setSelectedCount(next ? 1 : 0)
     setSelectedId(next)
     setSelectedEdges([])
@@ -839,6 +845,7 @@ function Flow({
     const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
     selectNode(null)
     selectedIds.current = ids
+    setNodeCanvasSelection(editor, canvas, ids)
     setSelectedCount(ids.length)
     setNodes((current) => [
       ...current
@@ -1454,6 +1461,7 @@ function Flow({
                             .filter((n) => n.data.node || n.data.group)
                             .map((n) => n.id)
                           selectedIds.current = ids
+                          setNodeCanvasSelection(editor, canvas, ids)
                           if (ids.length)
                             setSelectedEdges((current) => (current.length ? [] : current))
                           setSelectedCount(ids.length)

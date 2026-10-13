@@ -580,3 +580,137 @@ it('drops the conversation claim when the conversation goes', async () => {
     .from(schema.media_references)
   expect(remaining.map((one) => one.ownerKind)).toEqual(['project'])
 })
+
+it('reads full selected text, edges and groups from the server Y.Doc instead of a stale client excerpt', async () => {
+  const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
+  const {
+    insertCanvasNode,
+    connectCanvasNodes,
+    createCanvasGroup,
+    canvasOrigin,
+    updateCanvasNode,
+  } = await import('@image-playground/shared')
+  const Y = await import('yjs')
+  await conversation('conv-graph', USER)
+  await project({
+    id: 'proj-graph',
+    userId: USER,
+    conversationId: 'conv-graph',
+    document: { version: 1, elements: [] },
+  })
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument(USER, 'proj-graph'))
+  const origin = canvasOrigin('user', 'graph-fixture')
+  const fullText = `${'完整剧本正文。'.repeat(300)}最后一场的独有关键词`
+  for (const [id, text] of [
+    ['script', fullText],
+    ['other', '未选中的秘密剧情'],
+  ]) {
+    insertCanvasNode(
+      doc,
+      {
+        id: id!,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 200,
+        data: { text: text!, fontSize: 16, fill: '#fff' },
+      },
+      origin,
+    )
+  }
+  expect(connectCanvasNodes(doc, { source: 'script', target: 'other' }, origin)).toBe(true)
+  createCanvasGroup(doc, 'act-one', ['script', 'other'], '第一幕', origin)
+  await accessCanvasDocument(USER, 'proj-graph', Y.encodeStateAsUpdate(doc))
+  doc.destroy()
+  const toolContext = {
+    ...context('conv-graph', USER),
+    canvas: {
+      selectedNodeIds: ['script'],
+      elements: [
+        { id: 'script', type: 'text' as const, text: 'stale', x: 0, y: 0, width: 10, height: 10 },
+      ],
+    },
+  }
+  const read = async (params: Record<string, unknown> = {}, ids: string[] = ['script']) => {
+    const result = await readCanvas
+      .create({ ...toolContext, canvas: { ...toolContext.canvas, selectedNodeIds: ids } })
+      .execute('graph-call', params, undefined, undefined)
+    const text = result.content[0]
+    if (text?.type !== 'text') throw new Error('expected text')
+    return { graph: JSON.parse(text.text), result }
+  }
+  const selected = await read()
+  expect(selected.graph.nodes.map((node: { id: string }) => node.id)).toEqual(['script'])
+  expect(selected.graph.nodes[0].data.text).toBe(fullText)
+  expect(selected.graph.edges).toMatchObject([{ source: 'script', target: 'other' }])
+  expect(selected.graph.groups[0].name).toBe('第一幕')
+  expect(JSON.stringify(selected.graph)).not.toContain('未选中的秘密剧情')
+  expect(selected.result.details.canvasRead).toMatchObject([{ id: 'script' }])
+  expect((await read({}, [])).graph.nodes).toEqual([])
+  expect((await read({}, ['act-one'])).graph.nodes).toHaveLength(2)
+  expect((await read({ query: '独有关键词' }, [])).graph.nodes[0].data.text).toBe(fullText)
+  const expanded = await read({ groupId: 'act-one', limit: 1 }, [])
+  expect(expanded.graph.scope).toBe('expanded')
+  expect(expanded.graph.usedNodes).toMatchObject([{ id: 'script' }])
+  expect(expanded.graph.nextOffset).toBe(1)
+  expect((await read({ scope: 'all', offset: 1 }, [])).graph.nodes[0].id).toBe('other')
+  expect((await read({ groupId: 'missing' })).graph.nodes).toEqual([])
+  const large = new Y.Doc()
+  Y.applyUpdate(large, await accessCanvasDocument(USER, 'proj-graph'))
+  const largeText = '很长的完整剧本。'.repeat(1000)
+  updateCanvasNode(
+    large,
+    'script',
+    { data: { text: largeText, fontSize: 16, fill: '#fff' } },
+    origin,
+  )
+  await accessCanvasDocument(USER, 'proj-graph', Y.encodeStateAsUpdate(large))
+  for (let index = 0; index < 3; index++)
+    insertCanvasNode(
+      large,
+      {
+        id: `long-${index}`,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 200,
+        data: { text: largeText, fontSize: 16, fill: '#fff' },
+      },
+      origin,
+    )
+  await accessCanvasDocument(USER, 'proj-graph', Y.encodeStateAsUpdate(large))
+  let part = (await read({ scope: 'all' })).graph
+  expect(part.contentLength).toBeGreaterThan(24_000)
+  const version = part.contentVersion
+  let reconstructed = part.fragment
+  while (part.nextContentOffset !== undefined) {
+    part = (
+      await read({ scope: 'all', contentOffset: part.nextContentOffset, contentVersion: version })
+    ).graph
+    expect(part.fragment.length).toBeLessThanOrEqual(24_000)
+    reconstructed += part.fragment
+  }
+  expect(JSON.parse(reconstructed).nodes[0].data.text).toBe(largeText)
+  updateCanvasNode(
+    large,
+    'script',
+    { data: { text: 'A concurrent edit', fontSize: 16, fill: '#fff' } },
+    origin,
+  )
+  await accessCanvasDocument(USER, 'proj-graph', Y.encodeStateAsUpdate(large))
+  await expect(
+    read({ scope: 'all', contentOffset: 24_000, contentVersion: version }),
+  ).rejects.toThrow('画布已改变')
+  large.destroy()
+})
+
+it('does not replace unavailable node documents with a truncated legacy snapshot', async () => {
+  const tool = readCanvas.create({
+    ...context('missing', USER),
+    canvas: { elements: [], selectedNodeIds: [] },
+  })
+  await expect(tool.execute('call', {}, undefined, undefined)).rejects.toThrow('尚未同步')
+})

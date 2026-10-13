@@ -639,6 +639,15 @@ function StandardAgentToolCard({
             <ToolStatus label={statusLabel} status={status} />
           )}
           {note && <p className={CARD_NOTE}>{note}</p>}
+          {message.canvasRead && (
+            <p className={CARD_NOTE}>
+              {t('tool.canvasReadNodes', {
+                nodes:
+                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
+                  t('tool.canvasReadNone'),
+              })}
+            </p>
+          )}
           {message.sources?.map((source) => (
             <a
               key={source.url}

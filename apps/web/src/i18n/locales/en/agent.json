@@ -54,6 +54,8 @@
     "copyFailed": "Copy failed. Select the reply text and copy it manually."
   },
   "tool": {
+    "canvasReadNodes": "Read nodes: {{nodes}}",
+    "canvasReadNone": "None",
     "background": "Generating in the background; the result will appear here",
     "preparing": "Preparing",
     "notFinished": "Did not finish",

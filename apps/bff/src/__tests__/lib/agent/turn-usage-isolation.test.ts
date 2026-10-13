@@ -12,23 +12,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
-// 窗口要落在一条实测出来的带里：太低时固定开销（系统说明 + 工具清单，见 `request-budget.ts`）
-// 装不下，出站硬闸把每一轮都拒掉，这个文件要测的用量无从产生；太高时留给消息的预算装得下
-// 整段历史，压缩根本不触发，同样测不到东西。阈值 = 窗口 − 1500，所以带的下沿约等于
-// 固定开销 + 1500。**每加一个工具，这一条都要跟着抬**：
-// 2026-09-22 saveAsset / saveLook / viewImage.region 把开销抬到约 4000（窗口 5750）；
-// 2026-09-23 editCanvasObject 抬到 4127，带随之上移到约 5630–6030，取中；
-// 2026-09-23 生图美术指导（含「直出」判断）与取网图的描述再抬约 250；
-// 2026-09-24 搜索网页与读取网页不再由能力开关控制，它们随每一轮发出去，开销再抬约 550；
-// 2026-09-28 设计意图说明与 generateImage 参数扩大了固定开销，重建后的输入约 5429，
-// 窗口至少要到 6930 才装得下。
-// 同日 arrangeCanvas 的声明和指引，加上 readCanvas 目录那两句，再抬约 548。
-// 下沿约 7478，按原先约 350 的带宽上沿约 7828，取中。
-// 2026-09-30 多区域编辑与具体执行说明扩大固定上下文约 400 tokens，保持摘要重建测试的余量。
-// 2026-10-12 viewVideo 的声明和指引把固定开销抬了约 283。压缩后的请求约 6932，
-// 窗口 8483（阈值 6983）留出不到一条历史消息的空隙，压缩仍会触发。
-// 2026-10-13 unified canvas adds arrangeTimeline in image-mode turns; compacted input is ~7140.
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '8700'
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '128000'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
@@ -50,6 +34,17 @@ const { turnExecution } = await import('../../../lib/agent/execution')
 const { ANONYMOUS_AUDIENCE } = await import('../../../lib/agent/skills')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../../db/client')
+
+const { config } = await import('../../../config')
+const { systemPrompt } = await import('../../../lib/agent/turn-input')
+const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { requestOverheadTokens } = await import('../../../lib/agent/request-budget')
+// Reserve 1500 output/buffer tokens and 300 for compacted history; catalog growth must not change this fixture's purpose.
+config.agent.contextWindow =
+  requestOverheadTokens({
+    systemPrompt: systemPrompt('image', false, ANONYMOUS_AUDIENCE),
+    tools: agentToolDeclarations('image', ANONYMOUS_AUDIENCE),
+  }) + 1800
 
 type PreparedAgentTurn = import('../../../lib/agent/turn').PreparedAgentTurn
 
