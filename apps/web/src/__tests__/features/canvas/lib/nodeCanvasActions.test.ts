@@ -55,12 +55,12 @@ describe('node canvas editing transactions', () => {
     const right = nodes.find((n) => n.id === rightId)!
     const left = nodes.find((n) => n.id === leftId)!
     const branch = nodes.find((n) => n.id === branchId)!
-    expect(right.x - (parent.x + parent.width)).toBe(96)
-    expect(parent.x - (left.x + left.width)).toBe(96)
+    expect(right.x - (parent.x + parent.width)).toBe(168)
+    expect(parent.x - (left.x + left.width)).toBe(168)
     expect(right.y).toBe(parent.y)
     expect(left.y).toBe(parent.y)
     expect(branch.x).toBe(right.x)
-    expect(branch.y).toBe(right.y + right.height + 96)
+    expect(branch.y).toBe(right.y + right.height + 168)
     expect(nodes.find((n) => n.id === parentId)).toEqual(parent)
     canvas.undo.undo()
     expect(readCanvasDocument(canvas.doc).nodes.map((n) => n.id)).not.toContain(branchId)

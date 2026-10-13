@@ -28,13 +28,11 @@ import {
   Background,
   BackgroundVariant,
   getViewportForBounds,
-  Handle,
   MiniMap,
   type Node,
   type NodeChange,
   type NodeProps,
   NodeResizer,
-  Position,
   ReactFlow,
   ReactFlowProvider,
   type Rect,
@@ -106,7 +104,9 @@ import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
 import NodeAssetTools from './NodeAssetTools'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
+import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
+import NodePorts, { SpawnContext } from './NodePorts'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeResultPicker from './NodeResultPicker'
 import NodeSliceMenu from './NodeSliceMenu'
@@ -117,12 +117,12 @@ import VideoNodeComposer from './VideoNodeComposer'
 const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
+const edgeTypes = { reference: NodeFlowEdge }
 const legacyOrigin = canvasOrigin('system', 'legacy-update')
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
 const FillImageContext = createContext<(id: string, file: File) => void>(() => {})
-const SpawnContext = createContext<(nodeId: string, side: 'left' | 'right') => void>(() => {})
 const EditNodeContext = createContext<
   (
     id: string,
@@ -288,77 +288,6 @@ function nodeIdAtPoint(x: number, y: number): string | null {
     if (id) return id
   }
   return null
-}
-
-/** 左右两个加号。点一下就在这一侧新建节点；按住拖动仍是连到已有节点。 */
-function NodePorts({ nodeId }: { nodeId: string }) {
-  const { t } = useTranslation('canvas')
-  const spawn = useContext(SpawnContext)
-  const pointer = useRef<{ x: number; y: number } | null>(null)
-  const activate =
-    (side: 'left' | 'right') =>
-    (event: { clientX: number; clientY: number; stopPropagation: () => void }) => {
-      const origin = pointer.current
-      if (origin) {
-        const dx = event.clientX - origin.x
-        const dy = event.clientY - origin.y
-        if (dx * dx + dy * dy > 16) return
-      }
-      event.stopPropagation()
-      spawn(nodeId, side)
-    }
-  return (
-    <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="studio-node-handle"
-        aria-label={t('nodes.connectIn')}
-        title={t('nodes.connectIn')}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            spawn(nodeId, 'left')
-          }
-        }}
-        onPointerDownCapture={(event) => {
-          pointer.current = { x: event.clientX, y: event.clientY }
-        }}
-        onClick={activate('left')}
-      >
-        <span className="studio-node-port-button">
-          <Icon name="add" size="xs" className="pointer-events-none" />
-        </span>
-      </Handle>
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="studio-node-handle"
-        aria-label={t('nodes.connectOut')}
-        title={t('nodes.connectOut')}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            event.stopPropagation()
-            spawn(nodeId, 'right')
-          }
-        }}
-        onPointerDownCapture={(event) => {
-          pointer.current = { x: event.clientX, y: event.clientY }
-        }}
-        onClick={activate('right')}
-      >
-        <span className="studio-node-port-button">
-          <Icon name="add" size="xs" className="pointer-events-none" />
-        </span>
-      </Handle>
-    </>
-  )
 }
 
 function Pending({ pending }: { pending: PendingGeneration }) {
@@ -1295,6 +1224,13 @@ function Flow({
     )
   }
   const [litEdgeIds, setLitEdgeIds] = useState<ReadonlySet<string> | null>(null)
+  const highlightedEdges =
+    litEdgeIds ??
+    new Set(
+      snapshot.edges
+        .filter((edge) => edge.source === selectedId || edge.target === selectedId)
+        .map((edge) => edge.id),
+    )
   const litRef = useRef(litEdgeIds)
   litRef.current = litEdgeIds
   const connectDrop = (
@@ -1356,13 +1292,14 @@ function Flow({
                     elementsSelectable={!arrangementActive}
                     edges={snapshot.edges.map((edge) => ({
                       id: edge.id,
+                      type: 'reference',
                       source: edge.source,
                       target: edge.target,
                       interactionWidth: 22,
                       hidden: !connections,
                       selected: selectedEdges.includes(edge.id),
-                      className: litEdgeIds?.has(edge.id) ? 'studio-edge-lit' : undefined,
-                      zIndex: litEdgeIds?.has(edge.id) ? 1 : 0,
+                      className: highlightedEdges.has(edge.id) ? 'studio-edge-lit' : undefined,
+                      zIndex: highlightedEdges.has(edge.id) ? 1 : 0,
                     }))}
                     onEdgeMouseEnter={(_event, edge) => {
                       setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
@@ -1376,6 +1313,7 @@ function Flow({
                       if (nextId && litRef.current?.has(nextId)) return
                       setLitEdgeIds(null)
                     }}
+                    edgeTypes={edgeTypes}
                     nodeTypes={nodeTypes}
                     zoomOnDoubleClick={false}
                     selectionOnDrag={mode === 'select'}

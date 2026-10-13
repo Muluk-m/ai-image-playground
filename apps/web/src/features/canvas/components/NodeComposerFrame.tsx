@@ -42,7 +42,7 @@ export default function NodeComposerFrame({
       aria-label={label}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="studio-direct-card">
+      <div className="studio-direct-card flex flex-col border bg-card">
         {references.length > 0 && (
           <div className="flex flex-wrap gap-1.5" aria-label={t('nodes.contextLabel')}>
             {references.map((ref) => {

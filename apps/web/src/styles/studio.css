@@ -928,26 +928,34 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-empty { display: grid; width: 100%; height: 100%; place-items: center; border: 1px dashed hsl(var(--border)); border-radius: 12px; color: hsl(var(--muted-foreground)); }
 .studio-node-canvas .react-flow__handle.studio-node-handle {
   width: 6px; height: 6px; z-index: 4; border: 0; background: transparent;
+  transform: translateY(-50%);
 }
-/* Connection geometry stays on the card; the visible action floats outside it. */
 .studio-node-canvas .studio-node-handle.react-flow__handle-left { left: 0; }
 .studio-node-canvas .studio-node-handle.react-flow__handle-right { right: 0; }
+.studio-node-port-range { position: absolute; top: 50%; width: 64px; height: 64px; transform: translateY(-50%); pointer-events: auto; cursor: crosshair; }
+.studio-node-handle.react-flow__handle-left .studio-node-port-range { right: 6px; }
+.studio-node-handle.react-flow__handle-right .studio-node-port-range { left: 6px; }
 .studio-node-port-button {
-  position: absolute; top: 50%; display: grid; place-items: center; width: 28px; height: 28px;
+  position: absolute; top: 18px; left: 18px; display: grid; place-items: center; width: 28px; height: 28px;
   border-radius: 9999px; border: 1px solid hsl(var(--border));
   background: hsl(var(--card)); color: hsl(var(--muted-foreground));
-  opacity: 0; pointer-events: none; cursor: crosshair; transform: translateY(-50%);
-  transition: opacity 140ms ease-out, background-color 140ms ease-out, color 140ms ease-out;
+  opacity: 0; pointer-events: none;
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), opacity 140ms ease-out, background-color 140ms ease-out;
 }
-.studio-node-handle.react-flow__handle-left .studio-node-port-button { right: 20px; }
-.studio-node-handle.react-flow__handle-right .studio-node-port-button { left: 20px; }
-.studio-node-port-button::before { content: ""; position: absolute; inset: -8px -20px; }
 .studio-node-canvas .react-flow__node:hover .studio-node-port-button,
 .studio-node-canvas .react-flow__node.selected .studio-node-port-button,
+.studio-node-port-range:hover .studio-node-port-button,
 .studio-node-handle:focus-visible .studio-node-port-button,
-.studio-node-handle.connectingfrom .studio-node-port-button { opacity: 1; pointer-events: auto; }
-.studio-node-port-button:hover { background: hsl(var(--muted)); color: hsl(var(--primary)); border-color: hsl(var(--primary) / .5); }
+.studio-node-handle.connectingfrom .studio-node-port-button { opacity: 1; }
+.studio-node-port-button[data-following="true"] { background: hsl(var(--muted)); color: hsl(var(--primary)); border-color: hsl(var(--primary) / .6); }
 .studio-node-handle:focus-visible .studio-node-port-button { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
+.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 4px hsl(var(--primary) / .8)); }
+.studio-edge-lit .studio-node-edge-energy, .react-flow__edge.selected .studio-node-edge-energy { opacity: 1; animation: studio-node-flow-energy 1800ms linear infinite; }
+@keyframes studio-node-flow-energy { to { stroke-dashoffset: -100; } }
+@media (prefers-reduced-motion: reduce) {
+  .studio-node-port-button { transition: none; }
+  .studio-node-edge-energy { animation: none !important; }
+}
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
   stroke: hsl(var(--foreground) / .72);
