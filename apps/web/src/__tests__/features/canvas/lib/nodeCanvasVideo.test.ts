@@ -161,3 +161,34 @@ it('resumes a newly confirmed cloud video once after an earlier unconfirmed scan
   expect(mocks.job).toHaveBeenCalledTimes(1)
   doc.destroy()
 })
+it('sends the node-specific parameters and selected voices in the actual queue request', async () => {
+  const { doc, editor } = fixture()
+  expect(
+    submitNodeVideo(
+      editor,
+      doc,
+      'video',
+      'a spoken story',
+      [],
+      {},
+      {},
+      {
+        model: 'model',
+        duration: 8,
+        aspectRatio: '9:16',
+        resolution: '720p',
+        voices: ['voice-test'],
+      },
+    ),
+  ).toBe(true)
+  await expect(mocks.job.mock.calls[0]![0]()).rejects.toThrow()
+  expect(mocks.submit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      video: expect.objectContaining({
+        duration_seconds: 8,
+        aspect_ratio: '9:16',
+        voices: ['voice-test'],
+      }),
+    }),
+  )
+})

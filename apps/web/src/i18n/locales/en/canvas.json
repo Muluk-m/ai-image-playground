@@ -532,6 +532,14 @@
     "groupName": "Group name",
     "groupDefault": "Untitled group",
     "temporaryReferences": "Temporary references",
-    "estimatedCost": "Estimated cost"
+    "estimatedCost": "Estimated cost",
+    "videoMode": "Generation mode",
+    "videoModeText": "Text to video",
+    "videoModeFirst": "First frame",
+    "videoModeFrames": "First and last frames",
+    "videoModeReference": "All references",
+    "chooseFrame": "Choose image",
+    "swapFrames": "Swap frames",
+    "tooManyVideoReferences": "This model supports up to {{max}} reference images"
   }
 }

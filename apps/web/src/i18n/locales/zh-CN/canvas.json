@@ -514,6 +514,14 @@
     "groupName": "分组名称",
     "groupDefault": "未命名分组",
     "temporaryReferences": "临时参考图",
-    "estimatedCost": "预估消耗"
+    "estimatedCost": "预估消耗",
+    "videoMode": "生成方式",
+    "videoModeText": "文生视频",
+    "videoModeFirst": "首帧生视频",
+    "videoModeFrames": "首尾帧",
+    "videoModeReference": "全能参考",
+    "chooseFrame": "选择图片",
+    "swapFrames": "对调首尾帧",
+    "tooManyVideoReferences": "当前模型最多支持 {{max}} 张参考图"
   }
 }

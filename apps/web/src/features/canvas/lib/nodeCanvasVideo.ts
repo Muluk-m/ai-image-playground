@@ -19,6 +19,7 @@ import { videoOutputFrame } from '../../agent/lib/artifactSource'
 import { blankVideoPoster } from '../../agent/lib/videoPoster'
 import { videoRejectionText } from '../../video/lib/labels'
 import { useVideoStore } from '../../video/store'
+import type { VideoDraft } from '../../video/types'
 import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import type { NodeReference } from './nodeCanvasFlow'
@@ -100,6 +101,7 @@ export function submitNodeVideo(
   refs: readonly NodeReference[],
   roles: Record<string, string>,
   files: Readonly<Record<string, string>>,
+  nodeDraft?: VideoDraft,
 ): boolean {
   const node = mediaNode(doc, id)
   if (!node) return false
@@ -111,7 +113,7 @@ export function submitNodeVideo(
   }
   if (refs.some((ref) => ref.kind === 'video'))
     return reject(i18next.t('nodes.videoInputUnsupported', { ns: 'canvas' }))
-  const draft = useVideoStore.getState().draft
+  const draft = nodeDraft ?? useVideoStore.getState().draft
   const option = videoModelOptions().find((o) => o.modelId === draft.model)
   if (!option) return reject(i18next.t('nodes.noVideoModel', { ns: 'canvas' }))
   if (!prompt.trim()) return reject(i18next.t('store.emptyPrompt', { ns: 'video' }))
@@ -126,6 +128,7 @@ export function submitNodeVideo(
     duration: draft.duration,
     aspectRatio: draft.aspectRatio,
     resolution: draft.resolution,
+    ...(draft.voices?.length ? { voices: draft.voices } : {}),
     ...(first ? { firstFrameId: first.id } : {}),
     ...(last ? { lastFrameId: last.id } : {}),
     ...(referenceIds.length ? { referenceIds } : {}),
@@ -135,6 +138,7 @@ export function submitNodeVideo(
     aspect_ratio: generation.aspectRatio,
     resolution: generation.resolution,
     ...inputIndices(generation),
+    ...(generation.voices?.length ? { voices: [...generation.voices] } : {}),
   }
   const invalid = videoOptionRejection(option.modelId, video, images.length)
   if (invalid) return reject(videoRejectionText(invalid))

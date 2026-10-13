@@ -26,7 +26,9 @@ function createDraft() {
       update({ uploading: true })
       try {
         const url = await fileToDataUrl(file)
-        update({ items: [...snapshot.items, { id: crypto.randomUUID(), name: file.name, url }] })
+        const item = { id: crypto.randomUUID(), name: file.name, url }
+        update({ items: [...snapshot.items, item] })
+        return item
       } finally {
         update({ uploading: false })
       }

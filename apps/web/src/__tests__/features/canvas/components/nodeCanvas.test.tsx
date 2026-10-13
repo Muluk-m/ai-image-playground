@@ -404,3 +404,24 @@ it('places a dropped image where the pointer is', async () => {
   act(() => canvas.undo.undo())
   expect(readCanvasDocument(canvas.doc).nodes.some((n) => n.id === created.id)).toBe(false)
 })
+
+it('leaves selection intact when Escape closes a model listbox', async () => {
+  await render()
+  act(() =>
+    host
+      .querySelector('.studio-node-canvas')!
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 48, clientY: 64 })),
+  )
+  act(() =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((el) => el.textContent?.trim() === '图片')!
+      .click(),
+  )
+  const listbox = document.createElement('div')
+  listbox.setAttribute('role', 'listbox')
+  document.body.append(listbox)
+  expect(host.querySelector('.studio-node-composer')).not.toBeNull()
+  act(() => listbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(host.querySelector('.studio-node-composer')).not.toBeNull()
+  listbox.remove()
+})
