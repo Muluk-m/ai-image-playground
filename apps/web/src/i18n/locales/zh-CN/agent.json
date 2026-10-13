@@ -498,7 +498,9 @@
     "lookMeta": "{{purpose}} · {{size}} · {{slots}} 个素材位",
     "kind": {
       "product": "产品",
-      "person": "人物"
+      "person": "人物",
+      "location": "地点",
+      "prop": "道具"
     },
     "background": {
       "transparent": "透明底",

@@ -523,7 +523,9 @@
     "lookMeta": "{{purpose}} · {{size}} · {{slots}} asset slots",
     "kind": {
       "product": "Product",
-      "person": "Person"
+      "person": "Person",
+      "location": "Location",
+      "prop": "Prop"
     },
     "background": {
       "transparent": "Transparent",

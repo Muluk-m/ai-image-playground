@@ -41,6 +41,8 @@ const SOURCE_KEY = {
 const KIND_KEY = {
   product: 'save.kind.product',
   person: 'save.kind.person',
+  location: 'save.kind.location',
+  prop: 'save.kind.prop',
 } as const satisfies Record<AgentAssetSaveCard['assetKind'], string>
 
 const BACKGROUND_KEY = {

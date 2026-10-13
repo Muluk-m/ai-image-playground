@@ -51,6 +51,7 @@ export function uploadAssetImage(imageId: string): Promise<AssetImageUpload> {
 
 /** 本机有图片本体就直接算数；没有才去服务端取一张回来。 */
 export function ensureAssetImage(imageId: string): Promise<boolean> {
+  if (!imageId) return Promise.resolve(false)
   const running = fetches.get(imageId)
   if (running) return running
   const task = fetchQueue.then(() => fetchIfMissing(imageId)).finally(() => fetches.delete(imageId))

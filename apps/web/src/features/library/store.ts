@@ -45,6 +45,8 @@ export interface ImportAssetOptions {
 
 /** 落库用的素材内容。带 `id` 就是就地更新那一条，`createdAt` 不动。 */
 export interface AssetRecordInput {
+  description?: string
+  voiceId?: string
   id?: string
   name: string
   kind?: AssetKind
@@ -179,6 +181,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       name: input.name.trim(),
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.background ? { background: input.background } : {}),
+      description: input.description ?? existing?.description,
+      voiceId: input.voiceId ?? existing?.voiceId,
       views: input.views,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,

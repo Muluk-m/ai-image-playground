@@ -442,6 +442,13 @@
       "when": 1790853000015,
       "tag": "0063_canvas_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790853000016,
+      "tag": "0064_asset_details",
+      "breakpoints": true
     }
   ]
 }
