@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH } from '../../lib/appPaths'
+import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH, PRICING_PATH } from '../../lib/appPaths'
 import { PROJECT_ROUTE_PATTERN, pagesRedirects } from '../../lib/pagesRedirects'
 
 const root = resolve(__dirname, '../../../../..')
@@ -85,6 +85,7 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     ...Object.values(APP_MODE_PATHS),
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
+    PRICING_PATH,
   ]) {
     expect(rules).toContain(`${path} / 200\n`)
     if (path !== '/assets') expect(rules).toContain(`${path}/ / 200\n`)
