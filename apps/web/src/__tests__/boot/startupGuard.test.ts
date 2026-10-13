@@ -2,10 +2,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
+import type { IndexHtmlTransformContext } from 'vite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   BOOT_READY_EVENT,
   PRELOAD_RELOAD_STORAGE_KEY,
+  PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
 } from '../../boot/constants'
 import { BOOT_REPORT_PATH, STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
@@ -43,7 +45,7 @@ const locationMock = {
   },
   replace,
 }
-function installGuard() {
+function installGuard(script = STARTUP_GUARD_SCRIPT) {
   for (const remove of installed.splice(0)) remove()
 
   // The guard listens for the page's lifetime; record its listeners so each test gets a fresh guard.
@@ -62,7 +64,7 @@ function installGuard() {
   const onDocumentAdd = record(document)
   const onWindow = vi.spyOn(window, 'addEventListener').mockImplementation(onWindowAdd)
   const onDocument = vi.spyOn(document, 'addEventListener').mockImplementation(onDocumentAdd)
-  window.Function('location', STARTUP_GUARD_SCRIPT)(locationMock)
+  window.Function('location', script)(locationMock)
   onWindow.mockRestore()
   onDocument.mockRestore()
 }
@@ -78,8 +80,9 @@ beforeEach(() => {
   vi.useFakeTimers()
   localStorage.setItem(LOCALE_STORAGE_KEY, 'zh-CN')
   document.body.innerHTML = bodyHtml
-  // Existing failure-panel cases exercise the page after its automatic retry.
+  // Existing failure-panel cases exercise the page after both automatic recovery attempts.
   sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now()))
+  sessionStorage.setItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY, String(Date.now()))
   installGuard()
 })
 afterEach(() => {
@@ -88,6 +91,8 @@ afterEach(() => {
   document.body.innerHTML = ''
   localStorage.removeItem(LOCALE_STORAGE_KEY)
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  vi.unstubAllGlobals()
   history.replaceState(null, '', '/')
   for (const remove of installed.splice(0)) remove()
   if (workerDescriptor) Object.defineProperty(navigator, 'serviceWorker', workerDescriptor)
@@ -157,10 +162,10 @@ it('reloads once when stale HTML references a deleted chunk, then asks instead o
   expect(second.defaultPrevented).toBe(false)
   expect(errorPanelVisible()).toBe(true)
 })
-it('retries a chunk failure again once the previous reload is old', () => {
+it('keeps a spent automatic reload budget until the user explicitly retries', () => {
   sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now() - 120000))
-  expect(preloadError().defaultPrevented).toBe(true)
-  expect(errorPanelVisible()).toBe(false)
+  expect(preloadError().defaultPrevented).toBe(false)
+  expect(errorPanelVisible()).toBe(true)
 })
 
 it('unregisters legacy workers without depending on the app module or deleting user storage', async () => {
@@ -354,4 +359,276 @@ it('waits for manual recovery when the browser is offline', () => {
   } finally {
     online.mockRestore()
   }
+})
+
+function failEntry() {
+  const script = document.createElement('script')
+  script.type = 'module'
+  script.src = '/assets/main-transition.js'
+  document.body.append(script)
+  script.dispatchEvent(new Event('error'))
+  return script
+}
+
+it('waits for the ordinary entry URL to recover after the first reload, then spends its last retry', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+    .mockResolvedValueOnce(
+      new Response('export {}', { headers: { 'content-type': 'application/javascript' } }),
+    )
+  vi.stubGlobal('fetch', fetchMock)
+  const script = failEntry()
+  script.dispatchEvent(new Event('error'))
+  expect(errorPanelVisible()).toBe(false)
+  expect(replace).not.toHaveBeenCalled()
+
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(script.src, {
+    cache: 'reload',
+    signal: expect.any(AbortSignal),
+  })
+  expect(replace).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(errorPanelVisible()).toBe(false)
+
+  // A fresh document at the same tab keeps the budget, even if its resource still fails.
+  document.body.innerHTML = bodyHtml
+  installGuard()
+  failEntry()
+  expect(errorPanelVisible()).toBe(true)
+  await vi.advanceTimersByTimeAsync(20000)
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/assets/'))).toHaveLength(2)
+})
+
+it('waits for every failed required resource and does not hide the splash on an early React render', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  let cssAvailable = false
+  const fetchMock = vi.fn(async (url: string) =>
+    url.endsWith('.css')
+      ? new Response(cssAvailable ? 'body{}' : 'missing', {
+          status: cssAvailable ? 200 : 404,
+          headers: { 'content-type': 'text/css; charset=utf-8' },
+        })
+      : new Response('export {}', { headers: { 'content-type': 'text/javascript' } }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  failEntry()
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = '/assets/main-transition.css'
+  document.head.append(link)
+  try {
+    link.dispatchEvent(new Event('error'))
+    ready()
+    expect(document.getElementById('boot')).not.toBeNull()
+    expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
+    expect(sessionStorage.getItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)).not.toBeNull()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(replace).not.toHaveBeenCalled()
+    cssAvailable = true
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  } finally {
+    link.remove()
+  }
+})
+
+it.each([
+  { status: 200, mime: 'text/html', body: '<html>fallback</html>' },
+  { status: 200, mime: 'application/javascript', body: '' },
+  { status: 404, mime: 'application/javascript', body: 'missing' },
+])('stops after 20 seconds for an unusable entry response: $status / $mime / $body', async ({
+  status,
+  mime,
+  body,
+}) => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const fetchMock = vi.fn(
+    async () => new Response(body, { status, headers: { 'content-type': mime } }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  failEntry()
+  await vi.advanceTimersByTimeAsync(19999)
+  expect(errorPanelVisible()).toBe(false)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(errorPanelVisible()).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
+  const probes = fetchMock.mock.calls.length
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(fetchMock).toHaveBeenCalledTimes(probes)
+})
+
+it('aborts a hung resource probe and still exposes manual recovery within the overall deadline', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const fetchMock = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>(() => {}))
+  vi.stubGlobal('fetch', fetchMock)
+  failEntry()
+  await vi.advanceTimersByTimeAsync(7000)
+  expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+  expect(errorPanelVisible()).toBe(false)
+  await vi.advanceTimersByTimeAsync(13000)
+  expect(errorPanelVisible()).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
+})
+
+it('uses the bounded propagation wait even when the initial render deadline was almost reached', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>(() => {})),
+  )
+  await vi.advanceTimersByTimeAsync(29000)
+  failEntry()
+  await vi.advanceTimersByTimeAsync(19999)
+  expect(errorPanelVisible()).toBe(false)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(errorPanelVisible()).toBe(true)
+})
+
+it('ends the propagation wait if the browser goes offline', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+  vi.stubGlobal('fetch', fetchMock)
+  failEntry()
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  try {
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(errorPanelVisible()).toBe(true)
+    expect(replace).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/assets/'))).toBe(false)
+  } finally {
+    online.mockRestore()
+  }
+})
+
+it('does not start resource recovery unless its cross-reload budget can be persisted', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+  vi.stubGlobal('fetch', fetchMock)
+  const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  try {
+    failEntry()
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(errorPanelVisible()).toBe(true)
+    expect(replace).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/assets/'))).toBe(false)
+  } finally {
+    setItem.mockRestore()
+  }
+})
+
+it('never renews automatic recovery just because failures arrive more than a minute apart', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')))
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  await vi.advanceTimersByTimeAsync(61000)
+  failEntry()
+  expect(errorPanelVisible()).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
+
+  // Even across documents, old timestamps remain spent until an explicit user retry.
+  sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now() - 120000))
+  sessionStorage.setItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY, String(Date.now() - 120000))
+  document.body.innerHTML = bodyHtml
+  installGuard()
+  failEntry()
+  expect(errorPanelVisible()).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
+  document.getElementById('boot-retry')!.click()
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).toBeNull()
+  expect(sessionStorage.getItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)).toBeNull()
+})
+
+it('does not renew spent recovery when each document commits a loading screen before a lazy chunk fails', () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  ready()
+  expect(preloadError().defaultPrevented).toBe(true)
+  expect(replace).toHaveBeenCalledTimes(1)
+
+  document.body.innerHTML = bodyHtml
+  installGuard()
+  ready()
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
+  expect(preloadError().defaultPrevented).toBe(false)
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(errorPanelVisible()).toBe(true)
+})
+
+function buildChunk(
+  fileName: string,
+  imports: string[] = [],
+  dynamicImports: string[] = [],
+): NonNullable<IndexHtmlTransformContext['chunk']> {
+  return {
+    type: 'chunk',
+    fileName,
+    preliminaryFileName: fileName,
+    name: fileName,
+    isEntry: fileName === 'assets/main-transition.js',
+    isDynamicEntry: false,
+    isImplicitEntry: false,
+    facadeModuleId: '/app/index.html',
+    moduleIds: [],
+    exports: [],
+    imports,
+    dynamicImports,
+    importedBindings: {},
+    implicitlyLoadedBefore: [],
+    referencedFiles: [],
+    modules: {},
+    code: '',
+    map: null,
+    sourcemapFileName: null,
+    viteMetadata: { importedCss: new Set<string>(), importedAssets: new Set<string>() },
+  }
+}
+
+it('probes the built static graph when the entry is 200 but a transitive import is still missing', async () => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const entry = buildChunk('assets/main-transition.js', ['assets/vendor.js'], ['assets/lazy.js'])
+  const vendor = buildChunk('assets/vendor.js', ['assets/shared.js'])
+  vendor.viteMetadata?.importedCss.add('assets/vendor.css')
+  const shared = buildChunk('assets/shared.js', ['assets/vendor.js'])
+  const lazy = buildChunk('assets/lazy.js')
+  const html = startupGuardPlugin().transformIndexHtml.handler(sourceHtml, {
+    path: '/index.html',
+    filename: '/app/index.html',
+    chunk: entry,
+    bundle: Object.fromEntries(
+      [entry, vendor, shared, lazy].map((chunk) => [chunk.fileName, chunk]),
+    ),
+  })!
+  const scriptStart =
+    html.indexOf('<script id="startup-guard">') + '<script id="startup-guard">'.length
+  installGuard(html.slice(scriptStart, html.indexOf('</script>', scriptStart)))
+  let sharedAvailable = false
+  const fetchMock = vi.fn(
+    async (url: string) =>
+      new Response(url.endsWith('.css') ? 'body{}' : 'export {}', {
+        status: url.endsWith('/shared.js') && !sharedAvailable ? 404 : 200,
+        headers: { 'content-type': url.endsWith('.css') ? 'text/css' : 'application/javascript' },
+      }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  failEntry()
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(replace).not.toHaveBeenCalled()
+  expect(fetchMock.mock.calls.map(([url]) => new URL(url).pathname).sort()).toEqual([
+    '/assets/main-transition.js',
+    '/assets/shared.js',
+    '/assets/vendor.css',
+    '/assets/vendor.js',
+  ])
+  sharedAvailable = true
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(replace).toHaveBeenCalledTimes(1)
 })
