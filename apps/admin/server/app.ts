@@ -2,7 +2,7 @@ import { extname } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config, getAdminCapabilities } from './config'
-import { appVersion } from './lib/app-version'
+import { appRelease, appVersion } from './lib/app-version'
 import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
 import { clientErrorsRoutes } from './routes/client-errors'
@@ -30,7 +30,7 @@ const STATIC_DIR = config.staticDir
 
 const apiApp = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
-  .get('/health', () => ({ ok: true, version: appVersion() }))
+  .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))
   .use(authRoutes)
   .use(googleAuthRoutes)
   .use(devicesRoutes)
