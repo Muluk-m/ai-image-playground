@@ -1,7 +1,8 @@
 // Adapted from assistant-ui Elements (MIT): elements-stopped-run.json.
-import { SquareIcon } from 'lucide-react'
+
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '../../../lib/utils'
+import { Icon } from '../../ui/icon'
 import { field } from './surfaces'
 
 export function StoppedRun({
@@ -29,7 +30,7 @@ export function StoppedRun({
             'inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs text-muted-foreground',
           )}
         >
-          <SquareIcon aria-hidden className="size-2.5 fill-current" />
+          <Icon name="stop" size="xs" className="fill-current" />
           {reason}
         </span>
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}

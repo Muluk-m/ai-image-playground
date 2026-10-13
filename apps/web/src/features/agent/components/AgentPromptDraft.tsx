@@ -1,6 +1,7 @@
-import { ImageIcon, VideoIcon } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import ProductionDraftCard from '../../production/components/ProductionDraftCard'
@@ -80,9 +81,9 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
       subtitle={message.title}
       icon={
         message.toolName === 'generateVideo' ? (
-          <VideoIcon className="size-4" />
+          <Icon name="video" size="sm" />
         ) : (
-          <ImageIcon className="size-4" />
+          <Icon name="image" size="sm" />
         )
       }
       onAllowOnce={confirm}
@@ -126,9 +127,11 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
         </p>
       )}
       {refused && action && (
-        <button
+        <Button
           type="button"
-          className={`self-start ${GHOST_LINK}`}
+          variant="link"
+          size="xs"
+          className="self-start"
           onClick={() =>
             runAgentToolFailureAction(action, {
               code: refused,
@@ -138,7 +141,7 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
           }
         >
           {agentToolFailureActionLabel(action, refused)}
-        </button>
+        </Button>
       )}
     </ApprovalCard>
   )

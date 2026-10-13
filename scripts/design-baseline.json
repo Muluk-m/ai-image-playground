@@ -80,65 +80,6 @@
   "apps/web/src/components/UpdateBanner.tsx": {
     "native-control": 2
   },
-  "apps/web/src/components/assistant-ui/elements/approval-card.tsx": {
-    "arbitrary-font": 1,
-    "lucide-import": 1,
-    "opacity-text": 8
-  },
-  "apps/web/src/components/assistant-ui/elements/attachment.tsx": {
-    "arbitrary-font": 1,
-    "arbitrary-radius": 1,
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/composer.tsx": {
-    "inline-svg": 1,
-    "native-control": 2,
-    "opacity-text": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/error-state.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/image-generation.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/message-actions.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/option-list.tsx": {
-    "arbitrary-font": 1,
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/stopped-run.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/surfaces.tsx": {
-    "arbitrary-font": 1,
-    "inline-svg": 1,
-    "opacity-text": 2
-  },
-  "apps/web/src/components/assistant-ui/elements/thinking-indicator.tsx": {
-    "arbitrary-font": 1,
-    "opacity-text": 2
-  },
-  "apps/web/src/components/assistant-ui/elements/tool-call.tsx": {
-    "arbitrary-spacing": 2,
-    "lucide-import": 1,
-    "native-control": 1,
-    "opacity-text": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/tool-error.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/tool-status.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/video-generation.tsx": {
-    "lucide-import": 1,
-    "opacity-text": 1
-  },
-  "apps/web/src/components/assistant-ui/elements/video-player.tsx": {
-    "lucide-import": 1
-  },
   "apps/web/src/components/chipIcons.tsx": {
     "inline-svg": 14
   },
@@ -157,71 +98,6 @@
   },
   "apps/web/src/components/panelStyles.ts": {
     "focus-not-visible": 4
-  },
-  "apps/web/src/features/agent/agentStyles.ts": {
-    "focus-not-visible": 3
-  },
-  "apps/web/src/features/agent/components/AgentArtifactEditDialog.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/agent/components/AgentAssetDrawer.tsx": {
-    "arbitrary-radius": 1,
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentBatchItemResult.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentBatchPlanCard.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/agent/components/AgentCanvasHandoffDialog.tsx": {
-    "lucide-import": 1,
-    "native-control": 3
-  },
-  "apps/web/src/features/agent/components/AgentClarification.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentCopyDiagnostic.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentCreations.tsx": {
-    "native-control": 3
-  },
-  "apps/web/src/features/agent/components/AgentCreationsGallery.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentMarkdown.tsx": {
-    "palette-class": 1
-  },
-  "apps/web/src/features/agent/components/AgentParamsChip.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AgentPromptDialog.tsx": {
-    "native-control": 5
-  },
-  "apps/web/src/features/agent/components/AgentPromptDraft.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/agent/components/AgentSaveCard.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/agent/components/AgentVideoDetails.tsx": {
-    "lucide-import": 1
-  },
-  "apps/web/src/features/agent/components/AssetSlotChip.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/agent/components/SkillStarterGuide.tsx": {
-    "lucide-import": 1,
-    "native-control": 3
-  },
-  "apps/web/src/features/agent/lib/agentSkillIcons.tsx": {
-    "lucide-import": 1
   },
   "apps/web/src/features/canvas/components/CanvasMode.tsx": {
     "lucide-import": 1,
