@@ -351,91 +351,218 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   .studio-header-float button[aria-haspopup="menu"] { width: 40px; height: 40px; }
 }
 
-/* 细点阵平时几乎看不见，往下淡出，不压到作品区；细纹始终在。 */
+/* 首页壳层改成黑白灰。芽绿只留在发送按钮、选中和少量高亮上，不铺进背景。 */
+.dark[data-home='true'] {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 7%;
+  --card-foreground: var(--foreground);
+  --popover: 0 0% 7%;
+  --popover-foreground: var(--foreground);
+  --secondary: 0 0% 11%;
+  --secondary-foreground: var(--foreground);
+  --muted-foreground: 0 0% 54%;
+  --accent: 0 0% 14%;
+  --accent-foreground: var(--foreground);
+  --border: 0 0% 16%;
+  --sidebar: 0 0% 3%;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: 0 0% 12%;
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: 0 0% 14%;
+}
+
+@property --home-rim-angle {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+@keyframes studio-home-rim { to { --home-rim-angle: 360deg; } }
+@keyframes studio-hero-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+@keyframes studio-home-drift {
+  0% { transform: translate(-60px, 0) scale(1); opacity: .8; }
+  50% { opacity: 1; }
+  100% { transform: translate(70px, 30px) scale(1.12); opacity: .85; }
+}
+@keyframes studio-home-drift-b { to { transform: translate(120px, -30px) scale(1.15); } }
+@keyframes studio-home-breathe {
+  50% { transform: scale(1.2) translateX(-40px); opacity: .45; }
+}
+
+/* 中性光晕和细纹只盖住首屏，往下淡出，不压到作品区。 */
 .studio-home-backdrop {
   --dot-gap: 22px;
-  --dot-alpha: .045;
+  --dot-alpha: .06;
   position: absolute;
   inset: 0 0 auto;
-  height: max(680px, 100vh);
+  height: 1100px;
   overflow: hidden;
   pointer-events: none;
-  background: hsl(var(--background));
 }
-.dark .studio-home-backdrop { background: hsl(var(--card)); }
 :root:not(.dark) .studio-home-backdrop { --dot-alpha: .07; }
 .studio-home-backdrop::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, transparent 72%, hsl(var(--background)) 100%);
+  background: linear-gradient(to bottom, transparent 55%, hsl(var(--background)) 100%);
   content: '';
 }
+.studio-home-backdrop__glow,
 .studio-home-backdrop__grain,
-.studio-home-backdrop__grid,
-.studio-home-backdrop__hover {
+.studio-home-backdrop__grid {
   position: absolute;
   inset: 0;
+}
+.studio-home-backdrop__glow {
+  inset: auto;
+  border-radius: 50%;
+  filter: blur(70px);
+  background: radial-gradient(closest-side, hsl(var(--foreground) / .05), transparent);
+}
+.dark .studio-home-backdrop__glow {
+  background: radial-gradient(closest-side, hsl(var(--on-media) / .07), transparent);
+}
+.studio-home-backdrop__glow--a {
+  width: 720px;
+  height: 360px;
+  left: calc(50% - 360px);
+  top: -120px;
+  animation: studio-home-drift 14s ease-in-out infinite alternate;
+}
+.studio-home-backdrop__glow--b {
+  width: 520px;
+  height: 300px;
+  left: calc(50% - 480px);
+  top: 60px;
+  opacity: .7;
+  animation: studio-home-drift-b 18s ease-in-out infinite alternate;
+}
+.studio-home-backdrop__glow--c {
+  width: 560px;
+  height: 280px;
+  left: calc(50% + 40px);
+  top: 120px;
+  opacity: .55;
+  animation: studio-home-breathe 9s ease-in-out infinite;
 }
 .studio-home-backdrop__grain {
   background-image: url('/textures/home-grain.svg');
   background-size: 180px 180px;
-  opacity: .045;
+  opacity: .07;
 }
 .studio-home-backdrop__grid {
   background-image: radial-gradient(circle, hsl(var(--foreground) / var(--dot-alpha)) .8px, transparent 1.2px);
   background-size: var(--dot-gap) var(--dot-gap);
-  mask-image: linear-gradient(to bottom, hsl(var(--scrim)) 30%, transparent 92%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 22%, hsl(var(--scrim)) 0%, transparent 75%);
 }
 
-/* 光透点阵：鼠标照到的地方，细点浮现成淡绿色，从中心往外分段变暗；底下托一层很薄的绿光。 */
-.studio-home-backdrop__hover {
-  opacity: 0;
-  transition: opacity .45s ease;
-}
-.studio-home-backdrop__hover::before,
-.studio-home-backdrop__hover::after {
-  position: absolute;
-  inset: 0;
-  content: '';
-}
-.studio-home-backdrop__hover::before {
-  background: radial-gradient(
-    circle 160px at var(--pointer-x, 50%) var(--pointer-y, 40%),
-    hsl(var(--primary) / 0.06),
-    hsl(var(--primary) / 0.042) 18%,
-    hsl(var(--primary) / 0.025) 38%,
-    hsl(var(--primary) / 0.011) 60%,
-    hsl(var(--primary) / 0.003) 80%,
-    transparent
-  );
-}
-.studio-home-backdrop__hover::after {
-  background-image: radial-gradient(circle, hsl(var(--primary) / .6) .8px, transparent 1.3px);
-  background-size: var(--dot-gap) var(--dot-gap);
-  mask-image: radial-gradient(
-    circle 150px at var(--pointer-x, 50%) var(--pointer-y, 40%),
-    hsl(var(--scrim)) 0%,
-    hsl(var(--scrim) / .7) 20%,
-    hsl(var(--scrim) / .4) 42%,
-    hsl(var(--scrim) / .15) 66%,
-    transparent 100%
-  );
-}
-.studio-home-backdrop[data-pointer-active="true"] .studio-home-backdrop__hover { opacity: 1; }
-@media (prefers-reduced-motion: reduce) {
-  .studio-home-backdrop__hover { display: none; }
-}
-
-/* 首屏品牌色保留渐变，不向背景投射光晕。 */
+/* 标题后半段是慢银光，不是芽绿渐变。 */
 .studio-hero-accent {
-  background: linear-gradient(100deg, color-mix(in srgb, hsl(var(--primary)), hsl(var(--on-media)) 40%), hsl(var(--primary)) 45%, color-mix(in srgb, hsl(var(--primary)), hsl(var(--scrim)) 20%));
+  background-image: linear-gradient(
+    100deg,
+    hsl(var(--foreground)) 0%,
+    hsl(var(--foreground)) 38%,
+    hsl(var(--muted-foreground)) 46%,
+    hsl(var(--foreground)) 56%,
+    hsl(var(--foreground)) 100%
+  );
+  background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: studio-hero-shimmer 10s linear infinite;
 }
-:root:not(.dark) .studio-hero-accent {
-  background-image: linear-gradient(100deg, color-mix(in srgb, hsl(var(--primary)), hsl(var(--scrim)) 15%), hsl(var(--primary)) 55%, color-mix(in srgb, hsl(var(--primary)), hsl(var(--scrim)) 10%));
-  text-shadow: none;
+.dark .studio-hero-accent {
+  background-image: linear-gradient(
+    100deg,
+    hsl(var(--foreground)) 0%,
+    hsl(var(--foreground)) 38%,
+    hsl(var(--on-media)) 46%,
+    hsl(var(--foreground)) 56%,
+    hsl(var(--foreground)) 100%
+  );
+}
+
+/* 提示卡边上一道很暗的银光，大约 13 秒绕一圈，峰值约 0.16。聚焦时收起。 */
+[data-home-main] .studio-history-composer { animation: studio-home-rim 13s linear infinite; }
+[data-home-main] .studio-history-composer::before {
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: 17px;
+  background: conic-gradient(
+    from var(--home-rim-angle),
+    transparent 0deg,
+    transparent 290deg,
+    hsl(var(--on-media) / .1) 330deg,
+    hsl(var(--on-media) / .16) 355deg,
+    transparent 360deg
+  );
+  filter: blur(14px);
+  opacity: .12;
+  pointer-events: none;
+  content: '';
+}
+[data-home-main] .creation-composer {
+  position: relative;
+  z-index: 1;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box,
+    conic-gradient(
+      from var(--home-rim-angle),
+      transparent 0deg,
+      transparent 325deg,
+      hsl(var(--on-media) / .06) 345deg,
+      hsl(var(--on-media) / .16) 357deg,
+      transparent 360deg
+    ) border-box,
+    linear-gradient(hsl(var(--border)), hsl(var(--border))) border-box;
+}
+[data-home-main] .studio-history-composer:focus-within { animation: none; }
+[data-home-main] .studio-history-composer:focus-within::before { opacity: 0; }
+[data-home-main] .creation-composer:focus-within {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+  box-shadow: none;
+}
+[data-home-main] .creation-prompt { caret-color: hsl(var(--primary)); }
+[data-home-main] .creation-mode-trigger {
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+  box-shadow: inset 0 0 0 1px hsl(var(--border));
+}
+[data-home-main] .creation-mode-trigger:hover,
+[data-home-main] .creation-mode-trigger[data-state='open'] {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+}
+[data-home-main] .creation-send:not(:disabled) {
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+[data-home-main] .creation-send:hover:not(:disabled) {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-hero-accent,
+  .studio-home-backdrop__glow,
+  [data-home-main] .studio-history-composer { animation: none; }
+  [data-home-main] .studio-history-composer::before { opacity: 0; }
+  [data-home-main] .creation-composer {
+    border-color: hsl(var(--border));
+    background: hsl(var(--card));
+  }
+  .studio-hero-accent {
+    background-image: none;
+    color: hsl(var(--foreground));
+    -webkit-text-fill-color: hsl(var(--foreground));
+  }
 }
 
 /* 模式切与主按钮复用主色与前景色，亮暗主题保持对比度。 */
