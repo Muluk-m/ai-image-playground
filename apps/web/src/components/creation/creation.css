@@ -176,3 +176,10 @@
   .creation-toolbar[data-has-mode] { grid-template-columns: minmax(0, 1fr) 44px; }
  }
 }
+
+/* The gallery already shows the references. Keep the prompt to one line until the text grows,
+   instead of reserving another empty writing well under the thumbnails. */
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 8px; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 4px; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 4px; }
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-prompt { min-height: calc(1.75em + 2px); }
