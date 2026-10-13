@@ -131,7 +131,11 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
       url=new URL(source,location.href);
       if(url.origin!==location.origin||!url.pathname.startsWith('/assets/'))return false;
     }catch{return false}
-    if(recovery){recovery.sources.set(url.href,detail.tag);return true}
+    if(recovery){
+      recovery.sources.set(url.href,detail.tag);
+      if(detail.tag==='stylesheet')recovery.failedStyles.add(url.href);
+      return true;
+    }
     try{
       if(sessionStorage.getItem(${JSON.stringify(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)})!==null)return false;
       sessionStorage.setItem(${JSON.stringify(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)},String(Date.now()));
@@ -140,7 +144,7 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     // not only the entry URL, before consuming the last navigation. Dynamic imports stay lazy.
     const sources=new Map(requiredAssets.map(([src,tag])=>[new URL(src,location.href).href,tag]));
     sources.set(url.href,detail.tag);
-    const state={sources,timer:null,deadline:null,controller:null};
+    const state={sources,failedStyles:new Set(detail.tag==='stylesheet'?[url.href]:[]),timer:null,deadline:null,controller:null};
     recovery=state;
     clearTimeout(timer);
     const finish=(available)=>{
@@ -191,7 +195,17 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     note({type:'rejection',message:clip(reason&&reason.message,300)||clip(String(reason),300),stack:clip(reason&&reason.stack,1200)});
   };
   const onPreloadError=(event)=>{
-    if(!retry()){fail('preload',{message:clip(event.payload&&event.payload.message,300)});return}
+    const message=event.payload&&event.payload.message;
+    // Vite reports a failed CSS link again after its DOM error. Only join the recovery for
+    // that exact captured stylesheet; unrelated JS import/evaluation errors must still fail.
+    const cssPrefix='Unable to preload CSS for ';
+    if(recovery&&typeof message==='string'&&message.startsWith(cssPrefix)){
+      try{
+        const url=new URL(message.slice(cssPrefix.length),location.href);
+        if(recovery.failedStyles.has(url.href)){event.preventDefault();return}
+      }catch{}
+    }
+    if(!retry()){fail('preload',{message:clip(message,300)});return}
     event.preventDefault();
   };
   const onReady=()=>{

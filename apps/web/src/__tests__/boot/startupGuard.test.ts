@@ -111,8 +111,9 @@ it('offers recovery when the entry script fails before React exists', () => {
 })
 const ready = () => document.dispatchEvent(new Event(BOOT_READY_EVENT))
 const errorPanelVisible = () => document.getElementById('boot-error')?.hidden === false
-const preloadError = () => {
+const preloadError = (message?: string) => {
   const event = new Event('vite:preloadError', { cancelable: true })
+  if (message) Object.defineProperty(event, 'payload', { value: new Error(message) })
   window.dispatchEvent(event)
   return event
 }
@@ -631,4 +632,74 @@ it('probes the built static graph when the entry is 200 but a transitive import 
   sharedAvailable = true
   await vi.advanceTimersByTimeAsync(2000)
   expect(replace).toHaveBeenCalledTimes(1)
+})
+
+it.each([
+  true,
+  false,
+])('keeps one bounded recovery for a stylesheet error followed by its Vite error (recovers: %s)', async (recovers) => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  let available = false
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(available ? 'body{}' : 'missing', {
+        status: available ? 200 : 404,
+        headers: { 'content-type': 'text/css' },
+      }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = '/assets/lazy-canvas.css'
+  document.head.append(link)
+  try {
+    link.dispatchEvent(new Event('error'))
+    expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(true)
+    expect(errorPanelVisible()).toBe(false)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(replace).not.toHaveBeenCalled()
+    if (recovers) {
+      available = true
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(replace).toHaveBeenCalledTimes(1)
+      expect(errorPanelVisible()).toBe(false)
+    } else {
+      await vi.advanceTimersByTimeAsync(8000)
+      // Duplicate reports must neither cancel the wait nor extend its original deadline.
+      expect(
+        preloadError('Unable to preload CSS for /assets/lazy-canvas.css').defaultPrevented,
+      ).toBe(true)
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(errorPanelVisible()).toBe(true)
+      expect(replace).not.toHaveBeenCalled()
+      const requests = fetchMock.mock.calls.length
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(fetchMock).toHaveBeenCalledTimes(requests)
+    }
+  } finally {
+    link.remove()
+  }
+})
+
+it.each([
+  'Failed to fetch dynamically imported module: /assets/unrelated.js',
+  'Unable to preload CSS for /assets/unrelated.css',
+])('does not swallow an unrelated preload error during CSS recovery: %s', async (message) => {
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+  vi.stubGlobal('fetch', fetchMock)
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = '/assets/lazy-canvas.css'
+  document.head.append(link)
+  try {
+    link.dispatchEvent(new Event('error'))
+    expect(preloadError(message).defaultPrevented).toBe(false)
+    expect(errorPanelVisible()).toBe(true)
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(replace).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/assets/'))).toBe(false)
+  } finally {
+    link.remove()
+  }
 })
