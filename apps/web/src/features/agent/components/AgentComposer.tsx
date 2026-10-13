@@ -1037,6 +1037,16 @@ export default function AgentComposer({
           references={
             <CreationReferenceStack
               count={draft.references.length}
+              disabled={loading}
+              onClear={() =>
+                setDraft((current) => {
+                  let next = current
+                  for (let index = current.references.length - 1; index >= 0; index--) {
+                    next = removeReference(next, index)
+                  }
+                  return next
+                })
+              }
               failed={Boolean(failedReference)}
               uploading={uploadingCount > 0}
               status={referenceStatus}

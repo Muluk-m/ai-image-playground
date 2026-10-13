@@ -117,15 +117,17 @@
 .creation-stack-add { position: relative; flex-shrink: 0; }
 .creation-stack-expand { position: absolute; left: 0; bottom: 100%; opacity: 0; pointer-events: none; z-index: 2; }
 .creation-stack-entry:hover .creation-stack-expand, .creation-stack-entry:focus-within .creation-stack-expand { opacity: 1; pointer-events: auto; }
+.creation-reference-hover { width: max-content; min-width: 240px; max-width: min(640px, calc(100vw - 24px)); padding: 12px; border-radius: 12px; @apply shadow-popover; }
 .creation-reference-panel { width: 100%; min-width: 0; }
 .creation-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
-.creation-reference-list { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding-block: 4px; scrollbar-width: thin; }
+.creation-reference-list { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding: 8px; scrollbar-width: thin; }
 .creation-reference-list > * { flex-shrink: 0; }
 .creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; gap: 8px; }
 .creation-reference-list > [data-slot="composer-attachments"] > div { flex-shrink: 0; }
 .creation-reference-list .creation-add { width: 72px; height: 72px; }
-.creation-reference-preview { padding: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); border-radius: 12px; }
-.creation-reference-preview img { display: block; width: 288px; max-width: calc(100vw - 48px); height: 240px; object-fit: contain; border-radius: 8px; }
+[data-radix-popper-content-wrapper]:has(> .creation-reference-preview) { pointer-events: none; }
+.creation-reference-preview { pointer-events: none; max-height: var(--radix-tooltip-content-available-height); padding: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); border-radius: 12px; }
+.creation-reference-preview img { display: block; width: 288px; max-width: calc(100vw - 48px); height: min(240px, calc(var(--radix-tooltip-content-available-height, 288px) - 48px)); object-fit: contain; border-radius: 8px; }
 .creation-reference-preview > span { display: block; margin-top: 8px; max-width: 288px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .creation-reference-stack[data-failed=true] .creation-stack-count { background: hsl(var(--destructive)); color: hsl(var(--on-media)); }
