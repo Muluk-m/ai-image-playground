@@ -85,7 +85,7 @@ C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才�
 
 ```sh
 AGENT_CHAT_MODEL=gpt-6-luna
-# 只作未登记旧模型的窗口兜底；三档模型用 thinking.config.json 的统一预算窗口
+# 以下两个参数只作未登记旧模型的兜底；已登记模型以 models.config.json 为准
 AGENT_CHAT_CONTEXT_WINDOW=128000
 AGENT_CHAT_MAX_TOKENS=8000
 AGENT_SUMMARY_MODEL=gpt-5.6-luna
@@ -95,11 +95,14 @@ AGENT_IMAGE_MODEL=gpt-image-2.5-flare
 AGENT_VIDEO_MODEL=grok-imagine-video
 ```
 
-`AGENT_CHAT_CONTEXT_WINDOW` 只供未登记在 `thinking.config.json` 的旧模型兜底。
+`AGENT_CHAT_CONTEXT_WINDOW` 与 `AGENT_CHAT_MAX_TOKENS` 只供未登记在
+`apps/bff/src/lib/agent/models.config.json` 的旧模型兜底，不能覆盖已核实的模型额度。
 三档模型的压缩、出站硬闸与预扣都读取本轮所选模型的 `contextWindow`。
 
 三档模型分别是低 `gpt-6-luna`、中 `gpt-6.1-sol`、深 `claude-opus-5-5`。
-三档模型统一按 100 万 token 的预算窗口处理。Claude 对话、摘要或搜索模型用
+三档模型和旧默认模型 `gpt-5.6-luna` 按 100 万 token 的预算窗口、128000 token
+最大输出处理。压缩与出站硬闸预留完整的模型输出额度；旧 output reserve 配置兼容读取但不再参与计算。摘要任务仍使用自己的小输出预算。依据与中转验收见
+[输出额度核验](../research/agent-model-output-limits-2026-10-13.md)。Claude 对话、摘要或搜索模型用
 `UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
 
 生图与生视频模型必须是 `channels.json` 里的模型，且在单价表里 active，否则工具提交会被拒。
@@ -117,7 +120,8 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 ## 五、开能力，同时把阈值写死
 
 `operator-config.json` 的 `capabilities` 加 `"agent:chat": true`，`quotas` 补齐八项。
-这些阈值控制输出预留、缓冲和摘要保留量；三档模型的窗口本身不在这里覆盖。
+这些阈值控制缓冲和摘要保留量；模型窗口与输出预留都来自模型登记表。
+`agent:compaction-output-reserve-tokens` 已废弃，保留兼容读取，不再控制输出预留。
 
 ```json
 "agent:compaction-output-reserve-tokens": 8000,
@@ -153,13 +157,13 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 
 ### 模型窗口与压缩触发点
 
-压缩触发点 = `contextWindow − min(maxOutputTokens, outputReserveTokens) − bufferTokens`。
+压缩触发点 = `contextWindow − maxOutputTokens − bufferTokens`。
 
-按上面的 8000 token 输出预留和 8000 token 缓冲，三档模型的触发点为：
+按模型的 128000 token 最大输出和上面的 8000 token 缓冲，三档模型的触发点为：
 
 | 模型 | 窗口 | 压缩触发点 |
 | --- | ---: | ---: |
-| gpt-6-luna / gpt-6.1-sol / claude-opus-5-5 | 1000000 | 984000 |
+| gpt-6-luna / gpt-6.1-sol / claude-opus-5-5 | 1000000 | 864000 |
 
 每轮实际计费仍按上游真实用量结算；长会话接近窗口时，输入消耗可能显著增加。
 摘要模型独立于对话模型，摘要每段不超过 32000 token，并按实际序列化文本及摘要模型的
