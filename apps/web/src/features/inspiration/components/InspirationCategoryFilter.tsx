@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useInspirationStore } from '../store'
 
@@ -48,14 +49,15 @@ function CategoryButton({
   onClick: () => void
 }) {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-left text-sm transition ${
-        active ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted'
-      }`}
+      variant={active ? 'secondary' : 'ghost'}
+      aria-pressed={active}
+      size="sm"
+      className="h-auto min-h-8 justify-start whitespace-normal break-words text-left"
     >
-      {label}
-    </button>
+      <span className="min-w-0 flex-1">{label}</span>
+    </Button>
   )
 }

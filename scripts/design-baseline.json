@@ -2,12 +2,6 @@
   "apps/web/src/App.tsx": {
     "arbitrary-font": 1
   },
-  "apps/web/src/components/ConfirmDialog.tsx": {
-    "arbitrary-font": 1,
-    "font-weight": 1,
-    "inline-svg": 1,
-    "native-control": 2
-  },
   "apps/web/src/components/CreateTargetSwitch.tsx": {
     "lucide-import": 1,
     "native-control": 1
@@ -15,28 +9,8 @@
   "apps/web/src/components/Credits.tsx": {
     "inline-svg": 1
   },
-  "apps/web/src/components/Header.tsx": {
-    "native-control": 5
-  },
-  "apps/web/src/components/HeaderMembershipChip.tsx": {
-    "native-control": 2
-  },
-  "apps/web/src/components/Lightbox.tsx": {
-    "inline-svg": 2,
-    "lucide-import": 1,
-    "native-control": 3
-  },
-  "apps/web/src/components/LogoutDialog.tsx": {
-    "native-control": 2
-  },
   "apps/web/src/components/LookChips.tsx": {
     "native-control": 4
-  },
-  "apps/web/src/components/MaskEditorModal.tsx": {
-    "arbitrary-font": 1,
-    "arbitrary-spacing": 2,
-    "inline-svg": 8,
-    "native-control": 10
   },
   "apps/web/src/components/ModelCombobox.tsx": {
     "native-control": 3
@@ -122,36 +96,6 @@
   },
   "apps/web/src/features/canvas/components/canvasPanelStyles.ts": {
     "focus-not-visible": 1
-  },
-  "apps/web/src/features/inspiration/components/ExplorePage.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/inspiration/components/InspirationCard.tsx": {
-    "lucide-import": 1,
-    "native-control": 1
-  },
-  "apps/web/src/features/inspiration/components/InspirationCategoryFilter.tsx": {
-    "native-control": 1
-  },
-  "apps/web/src/features/inspiration/components/InspirationChips.tsx": {
-    "lucide-import": 1,
-    "native-control": 2
-  },
-  "apps/web/src/features/inspiration/components/InspirationDetail.tsx": {
-    "font-weight": 1,
-    "inline-svg": 1,
-    "lucide-import": 1,
-    "native-control": 4
-  },
-  "apps/web/src/features/library/components/CreateRecordDialog.tsx": {
-    "offscale-font": 1
-  },
-  "apps/web/src/features/library/components/LookDetail.tsx": {
-    "arbitrary-font": 1
-  },
-  "apps/web/src/features/library/components/TemplateDetail.tsx": {
-    "font-weight": 1,
-    "offscale-font": 1
   },
   "apps/web/src/features/video/components/DeriveVideoPopover.tsx": {
     "native-control": 2

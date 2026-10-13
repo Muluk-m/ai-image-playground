@@ -4,8 +4,6 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
-import { useInspirationStore } from '../features/inspiration/store'
-import { useLibraryStore } from '../features/library/store'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { isInFloatingLayer } from '../lib/dropdown'
@@ -19,8 +17,9 @@ import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import HeaderMembershipChip from './HeaderMembershipChip'
-import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 export default function Header() {
   const { t } = useTranslation('shell')
@@ -102,7 +101,10 @@ export default function Header() {
         style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
-        <div className="studio-header-float flex items-center gap-2">
+        <div
+          className="flex items-center gap-2 rounded-full bg-background/55 backdrop-blur-md ring-1 ring-hairline max-md:[&_button]:min-h-10 max-md:[&_button]:min-w-10"
+          style={{ padding: 'var(--studio-account-cluster-pad)' }}
+        >
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
           {auth.user ? (
@@ -117,13 +119,14 @@ export default function Header() {
           {/* 访客也要能切主题与语言；登录后若私有 overlay 接管了账号簇，这份菜单让位。 */}
           {!auth.user || !PrivateWebReplacesAuthActions ? (
             <div ref={accountMenuRef} className="relative">
-              <button
+              <Button
                 type="button"
                 onClick={() => setAccountMenuOpen((open) => !open)}
                 aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
-                className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                size="icon-sm"
+                className="relative rounded-full"
               >
                 <BrandAvatar />
                 {syncPending ? (
@@ -133,11 +136,11 @@ export default function Header() {
                     className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-white dark:ring-border"
                   />
                 ) : null}
-              </button>
+              </Button>
               {accountMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl"
+                  className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-popover"
                 >
                   <div className="truncate px-3 py-2 font-medium text-foreground">
                     {auth.user?.username ??
@@ -145,15 +148,16 @@ export default function Header() {
                   </div>
                   <DisplaySettingsMenuItems
                     itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
-                    iconClassName="h-[18px] w-[18px]"
+                    iconClassName="size-4"
                   />
-                  <button
+                  <Button
                     type="button"
                     role="menuitem"
                     onClick={openSettings}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                    variant="ghost"
+                    className="w-full justify-start text-muted-foreground"
                   >
-                    <SettingsIcon className="h-[18px] w-[18px]" aria-hidden="true" />
+                    <Icon name="settings" />
                     <span>{t('header.settings')}</span>
                     {syncPending ? (
                       <span
@@ -162,21 +166,22 @@ export default function Header() {
                         className="ml-auto h-1.5 w-1.5 rounded-full bg-warning"
                       />
                     ) : null}
-                  </button>
+                  </Button>
                   {auth.enabled && auth.user ? (
                     <>
-                      <button
+                      <Button
                         type="button"
                         role="menuitem"
                         onClick={() => {
                           setAccountMenuOpen(false)
                           setLoginMethodsOpen(true)
                         }}
-                        className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                        variant="ghost"
+                        className="w-full justify-start text-muted-foreground"
                       >
                         {t('header.loginMethods')}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         role="menuitem"
                         disabled={loggingOut}
@@ -184,10 +189,11 @@ export default function Header() {
                           setAccountMenuOpen(false)
                           setLogoutOpen(true)
                         }}
-                        className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-50"
+                        variant="ghost"
+                        className="w-full justify-start text-muted-foreground disabled:cursor-wait"
                       >
                         {loggingOut ? t('header.loggingOut') : t('logout.title')}
-                      </button>
+                      </Button>
                     </>
                   ) : null}
                 </div>
@@ -196,13 +202,9 @@ export default function Header() {
           ) : null}
           {/* 未登录访客的入口。放在最右：它是这一簇里唯一一个「现在该点」的按钮。 */}
           {auth.enabled && !auth.user ? (
-            <button
-              type="button"
-              onClick={auth.login}
-              className="h-8 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
+            <Button type="button" onClick={auth.login} size="sm">
               {t('header.login')}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

@@ -1,6 +1,5 @@
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { describeError, i18next, useTranslation } from '../i18n'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
@@ -24,6 +23,8 @@ import {
 import { ensureImageCached, useStore } from '../store'
 import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
+import { Icon } from './ui/icon'
+import { Slider } from './ui/slider'
 
 type Tool = 'lasso' | 'brush' | 'eraser'
 
@@ -952,31 +953,33 @@ export default function MaskEditorModal() {
 
   return (
     <>
-      <Overlay onClose={close} tier="raised" backdrop="none" layout="fill">
+      <Overlay
+        onClose={close}
+        tier="raised"
+        backdrop="none"
+        layout="fill"
+        label={t('mask.panelTitle')}
+      >
         <div className="relative flex h-full w-full flex-col bg-card animate-modal-in">
           {/* Header */}
           <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-border bg-card z-20">
             <div className="flex items-center gap-3">
-              <button
+              <Button
                 onClick={close}
                 disabled={isSaving}
-                className="p-2 -ml-2 text-muted-foreground hover:bg-muted rounded-lg transition"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground"
+                aria-label={t('common:action.cancel')}
                 title={t('common:action.cancel')}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
+                <Icon name="close" />
+              </Button>
               <div className="relative flex items-center gap-1.5">
-                <h2 className="text-sm font-medium text-foreground" id="mask-editor-title">
+                <h2 className="text-xl font-semibold text-foreground" id="mask-editor-title">
                   {t('mask.panelTitle')}
                 </h2>
-                <button
+                <Button
                   type="button"
                   onClick={showMaskInfoPopover}
                   onMouseEnter={showMaskInfoPopover}
@@ -984,19 +987,14 @@ export default function MaskEditorModal() {
                   onTouchStart={startMaskInfoTouch}
                   onTouchEnd={clearMaskInfoTimer}
                   onTouchCancel={hideMaskInfoPopover}
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
                   aria-label={t('mask.infoLabel')}
                   title={t('mask.infoLabel')}
                 >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </button>
+                  <Icon name="info" />
+                </Button>
                 {showMaskInfo && (
                   <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs leading-5 text-muted-foreground shadow-lg">
                     <div className="absolute -top-1.5 left-16 h-3 w-3 rotate-45 border-l border-t border-border/80 bg-card" />
@@ -1007,20 +1005,13 @@ export default function MaskEditorModal() {
             </div>
             <div className="flex items-center gap-2">
               {removeMask && (
-                <button
-                  onClick={handleRemoveMask}
-                  className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-lg transition"
-                >
+                <Button onClick={handleRemoveMask} variant="destructive" size="sm">
                   {t('mask.remove')}
-                </button>
+                </Button>
               )}
-              <button
-                onClick={handleSave}
-                disabled={!isReady || isSaving}
-                className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg disabled:opacity-50 transition"
-              >
+              <Button onClick={handleSave} disabled={!isReady || isSaving} size="sm">
                 {isSaving ? t('mask.saving') : t('common:action.save')}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1040,7 +1031,7 @@ export default function MaskEditorModal() {
           )}
           <div
             ref={stageRef}
-            className="flex-1 relative flex items-center justify-center overflow-hidden bg-muted/50 dark:bg-black/50 p-0 pb-[76px] sm:p-6 sm:pb-[100px]"
+            className="flex-1 relative flex items-center justify-center overflow-hidden bg-muted/50 dark:bg-black/50 p-0 pb-20 sm:p-6 sm:pb-24"
             style={{ containerType: 'size' }}
           >
             {isLoading && (
@@ -1099,7 +1090,7 @@ export default function MaskEditorModal() {
 
           {/* Footer Toolbar */}
           <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 flex items-center justify-center z-20 pointer-events-none w-full px-2 sm:px-4">
-            <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-card/95 backdrop-blur-md border border-border/80 rounded-2xl sm:rounded-2xl shadow-2xl pointer-events-auto">
+            <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-card/95 backdrop-blur-md border border-border/80 rounded-2xl sm:rounded-2xl shadow-popover pointer-events-auto">
               <div className="flex items-center gap-1.5 sm:gap-3">
                 <div className="flex items-center bg-muted/80 p-1 rounded-xl sm:rounded-2xl">
                   {!session?.keepSemantics && (
@@ -1120,15 +1111,9 @@ export default function MaskEditorModal() {
                     onClick={() => setTool('brush')}
                     disabled={!isReady || isSaving}
                     title={session?.keepSemantics ? t('mask.brushKeep') : t('mask.brush')}
+                    aria-label={session?.keepSemantics ? t('mask.brushKeep') : t('mask.brush')}
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                      />
-                    </svg>
+                    <Icon name="brush" />
                     <span className="hidden sm:inline">
                       {session?.keepSemantics ? t('mask.brushKeepLabel') : t('mask.brush')}
                     </span>
@@ -1140,22 +1125,9 @@ export default function MaskEditorModal() {
                     onClick={() => setTool('eraser')}
                     disabled={!isReady || isSaving}
                     title={session?.keepSemantics ? t('mask.eraserKeep') : t('mask.eraser')}
+                    aria-label={session?.keepSemantics ? t('mask.eraserKeep') : t('mask.eraser')}
                   >
-                    <svg
-                      className="w-5 h-5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <g transform="translate(0, 1) rotate(-45 12 12)">
-                        <path fill="currentColor" d="M4 10a2 2 0 0 1 2-2h7v8H6a2 2 0 0 1-2-2z" />
-                        <rect x="4" y="8" width="16" height="8" rx="2" />
-                      </g>
-                      <path d="M8 21h12" />
-                    </svg>
+                    <Icon name="erase" />
                     <span className="hidden sm:inline">{t('mask.eraserLabel')}</span>
                   </Button>
                 </div>
@@ -1164,130 +1136,92 @@ export default function MaskEditorModal() {
                   ref={brushSizeControlRef}
                   className="relative flex items-center justify-center"
                 >
-                  <button
+                  <Button
                     ref={brushSizeButtonRef}
                     onClick={toggleBrushControls}
-                    className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-2xl transition-all border ${showBrushControls ? 'bg-primary/10 border-primary text-primary bg-card dark:text-primary' : 'bg-card hover:bg-card dark:bg-transparent border-border text-muted-foreground dark:hover:border-border'}`}
+                    variant={showBrushControls ? 'secondary' : 'outline'}
+                    size="icon-sm"
+                    aria-label={t('mask.brushSize')}
+                    aria-expanded={showBrushControls}
                     disabled={!isReady || isSaving || tool === 'lasso'}
                     title={t('mask.brushSize')}
                   >
-                    <span className="text-[14px] sm:text-title font-semibold tracking-tight">
-                      {brushSize}
-                    </span>
-                  </button>
+                    <span className="text-sm font-semibold tracking-tight">{brushSize}</span>
+                  </Button>
                 </div>
               </div>
 
               <div className="flex items-center gap-0.5 sm:gap-2 sm:ml-1">
-                <button
+                <Button
                   onClick={handleUndo}
                   disabled={!canUndo}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
                   title={t('mask.undo')}
+                  aria-label={t('mask.undo')}
                 >
-                  <svg
-                    className="w-5 h-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M3 7v6h6" />
-                    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
-                  </svg>
-                </button>
-                <button
+                  <Icon name="undo" />
+                </Button>
+                <Button
                   onClick={handleRedo}
                   disabled={!canRedo}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
                   title={t('mask.redo')}
+                  aria-label={t('mask.redo')}
                 >
-                  <svg
-                    className="w-5 h-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 7v6h-6" />
-                    <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
-                  </svg>
-                </button>
+                  <Icon name="redo" />
+                </Button>
                 <div className="w-px h-4 sm:h-5 bg-muted mx-1"></div>
-                <button
+                <Button
                   onClick={resetViewTransform}
                   disabled={!isReady || isSaving || !isZoomed}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
                   title={t('mask.resetView')}
+                  aria-label={t('mask.resetView')}
                 >
-                  <svg
-                    className="w-5 h-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M4 14h6v6" />
-                    <path d="M20 10h-6V4" />
-                    <path d="M14 10l7-7" />
-                    <path d="M3 21l7-7" />
-                  </svg>
-                </button>
-                <button
+                  <Icon name="fit" />
+                </Button>
+                <Button
                   onClick={handleClear}
                   disabled={!isReady || isSaving}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
                   title={t('mask.clear')}
+                  aria-label={t('mask.clear')}
                 >
-                  <svg
-                    className="w-5 h-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-                </button>
+                  <Icon name="clear" />
+                </Button>
               </div>
             </div>
           </div>
         </div>
-      </Overlay>
-      {showBrushControls &&
-        sliderAnchor &&
-        createPortal(
+        {showBrushControls && sliderAnchor && (
           <div
             ref={brushSizePanelRef}
-            className="fixed z-[100] h-44 w-14 -translate-x-1/2 bg-card rounded-xl shadow-xl border border-border"
+            className="fixed z-[100] h-44 w-14 -translate-x-1/2 px-4 py-6 bg-card rounded-xl shadow-popover border border-border"
             style={{ left: sliderAnchor.left, bottom: sliderAnchor.bottom }}
           >
-            <input
-              type="range"
+            <Slider
+              orientation="vertical"
+              aria-label={t('mask.brushSize')}
               min={8}
               max={220}
-              value={brushSize}
-              onChange={(e) => {
-                const nextSize = Number(e.target.value)
+              value={[brushSize]}
+              onValueChange={([nextSize]) => {
                 setBrushSize(nextSize)
                 if (!isPointerOverCanvas && size) updateCursor(getViewportCenterCanvasPoint())
               }}
-              className="absolute left-1/2 top-1/2 h-5 w-32 -translate-x-1/2 -translate-y-1/2 -rotate-90 accent-primary cursor-ns-resize"
               disabled={!isReady || isSaving}
             />
-          </div>,
-          document.body,
+          </div>
         )}
+      </Overlay>
     </>
   )
 }
