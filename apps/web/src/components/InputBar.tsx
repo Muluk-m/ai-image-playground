@@ -69,6 +69,7 @@ import {
   CreationBody,
   CreationFrame,
   CreationModePicker,
+  CreationSend,
   CreationToolbar,
 } from './creation/CreationFrame'
 import { CreationReferenceStack } from './creation/CreationReferenceStack'
@@ -258,7 +259,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? t('submit.maskEditShortcut')
           : t('submit.generateShortcut')
         : t('submit.configureApiFirst'))
-  const stopIcon = <Icon name="stop" size="xs" filled />
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
   // 模型由服务端定，所以只剩条的上限管着。
@@ -984,6 +984,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     return (
       <Hint
         key={img.id}
+        sideOffset={16}
+        disableHoverableContent
         tooltip={
           imageHintText || (
             <img
@@ -1092,7 +1094,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             variant="destructive"
             size="icon-xs"
             aria-label={t('common:action.remove')}
-            className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute right-1 top-1 z-30 opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1209,6 +1211,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             references={
               <CreationReferenceStack
                 count={inputImages.length}
+                onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
                   .map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}
@@ -1321,29 +1324,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             </div>
           </CreationBody>
           <CreationToolbar
-            action={
-              <Hint tooltip={submitBlockedTip}>
-                <div className="flex shrink-0 items-center gap-2">
-                  <SubmissionBillingAction
-                    blockedAction={submissionGuard.blockedAction}
-                    className="text-xs"
-                  />
-                  <Button
-                    className="creation-send"
-                    size="icon"
-                    onClick={onSubmitClick}
-                    disabled={submitDisabled}
-                    title={submitTitle}
-                    aria-label={submitLabel}
-                  >
-                    {lookSubmitting ? stopIcon : <Icon name="send" />}
-                  </Button>
-                </div>
-              </Hint>
-            }
-          >
-            {inline && (
-              <>
+            mode={
+              inline ? (
                 <CreationModePicker
                   value={creationMode}
                   modes={[
@@ -1359,20 +1341,37 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       )
                   }
                 />
-                <span className="creation-tool-divider" aria-hidden="true" />
-              </>
+              ) : undefined
+            }
+            status={
+              <SubmissionBillingAction
+                blockedAction={submissionGuard.blockedAction}
+                className="text-xs"
+              />
+            }
+            action={
+              <Hint tooltip={submitBlockedTip}>
+                <span className="inline-flex">
+                  <CreationSend
+                    streaming={lookSubmitting}
+                    onClick={onSubmitClick}
+                    disabled={submitDisabled}
+                    title={submitTitle}
+                    aria-label={submitLabel}
+                  />
+                </span>
+              </Hint>
+            }
+          >
+            {creationMode === 'video' ? (
+              <CanvasVideoParams hasFirstFrame={false}>
+                <AgentExecutionSettings />
+              </CanvasVideoParams>
+            ) : creationMode === 'agent' ? (
+              <AgentParamsChip />
+            ) : (
+              <ParamControls showCount />
             )}
-            <div className="creation-tools creation-live-controls">
-              {creationMode === 'video' ? (
-                <CanvasVideoParams hasFirstFrame={false}>
-                  <AgentExecutionSettings />
-                </CanvasVideoParams>
-              ) : creationMode === 'agent' ? (
-                <AgentParamsChip />
-              ) : (
-                <ParamControls showCount />
-              )}
-            </div>
           </CreationToolbar>
           <input
             ref={fileInputRef}

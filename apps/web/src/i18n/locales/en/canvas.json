@@ -51,10 +51,7 @@
     "previewPending": "Building preview…",
     "annotationHint": "Text markup → change request: {{text}}",
     "promptPlaceholder": "Describe the image you want, or drop in a reference",
-    "promptAria": "Creation prompt",
-    "modeAria": "Generation type",
-    "modeImage": "Image",
-    "modeVideo": "Video"
+    "promptAria": "Creation prompt"
   },
   "batch": {
     "aria": "Batch actions",

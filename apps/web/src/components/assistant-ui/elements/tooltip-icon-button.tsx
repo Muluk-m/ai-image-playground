@@ -26,6 +26,8 @@ export function closeTooltips(): void {
 export function Hint({
   tooltip,
   side = 'top',
+  sideOffset = 6,
+  disableHoverableContent,
   open,
   onOpenChange,
   className,
@@ -33,6 +35,8 @@ export function Hint({
 }: {
   tooltip?: ReactNode
   side?: Side
+  sideOffset?: number
+  disableHoverableContent?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
   className?: string
@@ -41,12 +45,16 @@ export function Hint({
   // 没有提示时也保持同一层结构：提示文字随状态出现或消失时，子元素不会被卸载重挂。
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={200}>
-      <Tooltip open={open} onOpenChange={onOpenChange}>
+      <Tooltip
+        open={open}
+        onOpenChange={onOpenChange}
+        disableHoverableContent={disableHoverableContent}
+      >
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         {tooltip ? (
           <TooltipContent
             side={side}
-            sideOffset={6}
+            sideOffset={sideOffset}
             className={cn(
               'z-[1000] max-w-xs bg-foreground px-2.5 text-background motion-reduce:animate-none',
               className,

@@ -13,15 +13,12 @@ import {
   AttachmentLoading,
   AttachmentTile,
 } from '../../../components/assistant-ui/elements/attachment'
-import {
-  Composer,
-  ComposerAttachments,
-  ComposerSend,
-} from '../../../components/assistant-ui/elements/composer'
+import { Composer, ComposerAttachments } from '../../../components/assistant-ui/elements/composer'
 import {
   CreationBody,
   CreationFrame,
   CreationModePicker,
+  CreationSend,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
 import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
@@ -1037,6 +1034,16 @@ export default function AgentComposer({
           references={
             <CreationReferenceStack
               count={draft.references.length}
+              disabled={loading}
+              onClear={() =>
+                setDraft((current) => {
+                  let next = current
+                  for (let index = current.references.length - 1; index >= 0; index--) {
+                    next = removeReference(next, index)
+                  }
+                  return next
+                })
+              }
               failed={Boolean(failedReference)}
               uploading={uploadingCount > 0}
               status={referenceStatus}
@@ -1231,88 +1238,80 @@ export default function AgentComposer({
           </div>
         </CreationBody>
         <CreationToolbar
+          mode={
+            <CreationModePicker
+              value={productionMode ? 'video' : creationMode}
+              modes={
+                productionMode
+                  ? ['video']
+                  : ['agent', 'image', ...(videoAvailable ? ['video' as const] : [])]
+              }
+              onChange={(next) => {
+                const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
+                useStore.setState((state) => ({
+                  projectCreationTargets: {
+                    ...state.projectCreationTargets,
+                    [session.key]: target,
+                  },
+                }))
+                useStore.getState().setCreateTarget(target)
+              }}
+            />
+          }
+          status={
+            referenceStatus && (
+              <span className={failedReference ? 'text-destructive' : 'text-muted-foreground'}>
+                {referenceStatus}
+              </span>
+            )
+          }
           action={
-            <div className="flex items-center gap-3">
-              {referenceStatus && (
-                <span
-                  className={`max-w-40 text-label-sm ${failedReference ? 'text-destructive' : 'text-muted-foreground'}`}
-                >
-                  {referenceStatus}
-                </span>
-              )}
-              <ComposerSend
-                className="creation-send"
-                busy={!stopMode && (uploadingCount > 0 || submitting)}
-                streaming={stopMode}
-                idle={
-                  !historyBlocked &&
-                  !loading &&
-                  !submitting &&
-                  !uploadsBlocked &&
-                  Boolean(draft.prompt.trim())
-                }
-                aria-label={
-                  stopMode
-                    ? t('composer.abort')
-                    : submitting
-                      ? t('composer.sending')
-                      : uploadsBlocked
-                        ? referenceStatus
-                        : running
-                          ? t('composer.queue')
-                          : t('composer.sendAndCreate')
-                }
-                title={
-                  stopMode
-                    ? t('composer.abortTitle')
+            <CreationSend
+              busy={!stopMode && (uploadingCount > 0 || submitting)}
+              streaming={stopMode}
+              aria-label={
+                stopMode
+                  ? t('composer.abort')
+                  : submitting
+                    ? t('composer.sending')
                     : uploadsBlocked
                       ? referenceStatus
                       : running
                         ? t('composer.queue')
-                        : t('composer.sendAndCreateTitle')
-                }
-                disabled={
-                  stopMode
-                    ? false
-                    : historyBlocked ||
-                      loading ||
-                      submitting ||
-                      uploadsBlocked ||
-                      !draft.prompt.trim()
-                }
-                onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
-              />
-            </div>
+                        : t('composer.sendAndCreate')
+              }
+              title={
+                stopMode
+                  ? t('composer.abortTitle')
+                  : uploadsBlocked
+                    ? referenceStatus
+                    : running
+                      ? t('composer.queue')
+                      : t('composer.sendAndCreateTitle')
+              }
+              disabled={
+                stopMode
+                  ? false
+                  : historyBlocked ||
+                    loading ||
+                    submitting ||
+                    uploadsBlocked ||
+                    !draft.prompt.trim()
+              }
+              onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
+            />
           }
         >
-          <CreationModePicker
-            value={productionMode ? 'video' : creationMode}
-            modes={
-              productionMode
-                ? ['video']
-                : ['agent', 'image', ...(videoAvailable ? ['video' as const] : [])]
-            }
-            onChange={(next) => {
-              const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
-              useStore.setState((state) => ({
-                projectCreationTargets: { ...state.projectCreationTargets, [session.key]: target },
-              }))
-              useStore.getState().setCreateTarget(target)
-            }}
-          />
-          <span className="creation-tool-divider" aria-hidden="true" />
-          <div className="creation-tools creation-live-controls">
-            {mode === 'video' && !productionMode ? (
-              <CanvasVideoParams hasFirstFrame={false}>
-                <AgentExecutionSettings />
-              </CanvasVideoParams>
-            ) : (
-              <AgentParamsChip
-                generationControls={!productionMode}
-                thinkingControls={creationMode !== 'image'}
-              />
-            )}
-          </div>
+          {mode === 'video' && !productionMode ? (
+            <CanvasVideoParams hasFirstFrame={false}>
+              <AgentExecutionSettings />
+            </CanvasVideoParams>
+          ) : (
+            <AgentParamsChip
+              generationControls={!productionMode}
+              thinkingControls={creationMode !== 'image'}
+            />
+          )}
         </CreationToolbar>
         <input
           ref={fileInputRef}

@@ -105,6 +105,7 @@ const GLYPHS = {
   pause: ['solar', 'pause'],
   volume: ['solar', 'volume-loud'],
   fullscreen: ['solar', 'full-screen'],
+  minimize: ['solar', 'minimize'],
   download: ['solar', 'download-minimalistic'],
   upload: ['solar', 'upload-minimalistic'],
   share: ['solar', 'share'],
