@@ -15,7 +15,9 @@ export default function NodeAddMenu({
   onUpload,
   onAssets,
   onClose,
+  disabledKinds = [],
 }: {
+  disabledKinds?: readonly ('text' | 'image' | 'video')[]
   x: number
   y: number
   onText: () => void
@@ -35,7 +37,7 @@ export default function NodeAddMenu({
       left: Math.max(8, Math.min(x, window.innerWidth - (rect?.width ?? 248) - 8)),
       top: Math.max(8, Math.min(y, window.innerHeight - (rect?.height ?? 280) - 8)),
     })
-    menu.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
   }, [x, y])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -45,7 +47,9 @@ export default function NodeAddMenu({
       }
       if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault()
-        const items = [...(menu.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+        const items = [
+          ...(menu.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []),
+        ]
         const current = items.indexOf(document.activeElement as HTMLButtonElement)
         const next =
           event.key === 'Home'
@@ -80,9 +84,26 @@ export default function NodeAddMenu({
         <MenuItem key={action.label} {...action} />
       ))}
       <p className="studio-node-menu-title text-xs">{t('nodes.addTitle')}</p>
-      <MenuItem icon="text" label={t('nodes.addText')} onClick={onText} />
-      <MenuItem icon="image" label={t('nodes.addImage')} onClick={onImage} />
-      {onVideo && <MenuItem icon="video" label={t('nodes.addVideo')} onClick={onVideo} />}
+      <MenuItem
+        disabled={disabledKinds.includes('text')}
+        icon="text"
+        label={t('nodes.addText')}
+        onClick={onText}
+      />
+      <MenuItem
+        disabled={disabledKinds.includes('image')}
+        icon="image"
+        label={t('nodes.addImage')}
+        onClick={onImage}
+      />
+      {onVideo && (
+        <MenuItem
+          disabled={disabledKinds.includes('video')}
+          icon="video"
+          label={t('nodes.addVideo')}
+          onClick={onVideo}
+        />
+      )}
       <p className="studio-node-menu-section text-xs">{t('nodes.addResources')}</p>
       {onAssets && <MenuItem icon="folder" label={t('nodes.assets')} onClick={onAssets} />}
       <MenuItem icon="upload" label={t('nodes.addUpload')} onClick={onUpload} />
@@ -95,7 +116,9 @@ function MenuItem({
   icon,
   label,
   onClick,
+  disabled,
 }: {
+  disabled?: boolean
   icon: IconName
   label: string
   onClick: () => void
@@ -106,6 +129,7 @@ function MenuItem({
       variant="ghost"
       className="studio-node-menu-item h-auto w-full justify-start font-normal"
       role="menuitem"
+      disabled={disabled}
       onClick={(event) => {
         event.stopPropagation()
         onClick()
