@@ -83,6 +83,27 @@ export class S3ObjectStore implements ObjectStore {
     await this.client.write(this.keyPrefix + key, bytes, { type: contentType })
   }
 
+  async writeStream(
+    key: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    size: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted()
+    const url = this.client
+      .file(this.keyPrefix + key)
+      .presign({ method: 'PUT', expiresIn: 180, type: contentType })
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { 'content-type': contentType, 'content-length': String(size) },
+      body: stream,
+      signal,
+    })
+    await response.body?.cancel()
+    if (!response.ok) throw new Error(`Object upload failed (${response.status})`)
+  }
+
   async read(key: string): Promise<Uint8Array<ArrayBuffer>> {
     return new Uint8Array(await this.client.file(this.keyPrefix + key).arrayBuffer())
   }
