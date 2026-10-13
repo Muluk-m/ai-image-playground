@@ -4,8 +4,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AuthContextProvider } from '../../../auth/AuthContext'
 import {
+  effectivePriceCents,
   imagesPerMonth,
   monthlyEquivalentCents,
+  PLAN_DISCOUNT_ENDS_AT,
   PRICING_PLANS,
   rechargeCredits,
 } from '../../../features/pricing/catalog'
@@ -41,14 +43,18 @@ function renderPage(): void {
 }
 
 describe('定价目录', () => {
-  it('按种子价折算张数，季付和年付折回每月原价', () => {
+  it('按后台现价折算张数，折扣在截止前生效、过后回到原价', () => {
     expect(PRICING_PLANS.map((plan) => imagesPerMonth(plan.monthlyCredits))).toEqual([
       660, 2200, 6000,
     ])
-    for (const plan of PRICING_PLANS) {
-      expect(monthlyEquivalentCents(plan.prices[3], 3)).toBe(plan.prices[1])
-      expect(monthlyEquivalentCents(plan.prices[12], 12)).toBe(plan.prices[1])
-    }
+    expect(
+      PRICING_PLANS.map((plan) => effectivePriceCents(plan.prices[1], PLAN_DISCOUNT_ENDS_AT)),
+    ).toEqual([3900, 7900, 15900])
+    expect(
+      PRICING_PLANS.map((plan) => effectivePriceCents(plan.prices[1], PLAN_DISCOUNT_ENDS_AT + 1)),
+    ).toEqual([4900, 9900, 19900])
+    expect(effectivePriceCents(PRICING_PLANS[0].prices[12], PLAN_DISCOUNT_ENDS_AT)).toBe(34800)
+    expect(monthlyEquivalentCents(34800, 12)).toBe(2900)
     expect(rechargeCredits(10)).toBe(4000)
     expect(rechargeCredits(100)).toBe(40000)
   })
@@ -82,8 +88,8 @@ describe('定价页', () => {
     const prices = [...host.querySelectorAll('[aria-live="polite"]')].map(
       (node) => node.textContent,
     )
-    expect(prices).toEqual(['¥588/年', '¥1,548/年', '¥3,588/年'])
-    expect(host.textContent ?? '').toContain('折合 ¥49/月')
+    expect(prices).toEqual(['¥348/年', '¥708/年', '¥1,428/年'])
+    expect(host.textContent ?? '').toContain('折合 ¥29/月')
   })
 
   it('未登录时点升级打开登录，而不是离开定价页', () => {
