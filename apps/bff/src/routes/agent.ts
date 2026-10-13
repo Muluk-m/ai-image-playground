@@ -66,6 +66,7 @@ import {
   sealAbandonedTurns,
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
+import { readAgentFollowUps } from '../lib/agent/follow-ups'
 import {
   readConversationMedia,
   readyCanvasMediaIds,
@@ -428,6 +429,22 @@ export const agentRoutes = new Elysia()
       return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  .get(
+    '/api/agent/conversations/:id/follow-ups/:turnId',
+    async ({ params, headers, authUser, status }) => {
+      const conversation = await findAgentConversation(
+        params.id,
+        ownerOf(authUser, headers[DEVICE_ID_HEADER]),
+      )
+      if (!conversation) return status(404, NOT_FOUND)
+      // 终帧已经把事件流关上了，句子落在轮的事实表上，这里单独读。
+      return { followUps: await readAgentFollowUps(conversation.id, params.turnId) }
+    },
+    {
+      params: t.Object({ id: t.String(), turnId: t.String() }),
+      headers: deviceIdHeaderSchema(),
+    },
   )
   .get(
     '/api/agent/conversations/:id/messages/:messageId/references/:index',

@@ -114,4 +114,6 @@ export interface AgentTurnFooter {
   readonly failure?: AgentTurnFailure
   readonly error?: AgentTurnErrorCode
   readonly cost?: AgentTurnCost
+  /** 这一轮结束后可以接着发的完整句子。直播里会晚几秒才到。 */
+  readonly followUps?: readonly string[]
 }
