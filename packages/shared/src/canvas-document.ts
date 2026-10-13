@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { type CanvasGroup, readCanvasGroups } from './canvas-groups'
 import { canvasLinkAllowed } from './canvas-registry'
 
 export { CANVAS_NODE_TYPES, type CanvasNodeType } from './canvas-registry'
@@ -87,6 +88,7 @@ export interface CanvasEdge {
 }
 
 export interface CanvasSnapshot {
+  groups?: CanvasGroup[]
   nodes: CanvasNode[]
   annotations: CanvasAnnotation[]
   edges: CanvasEdge[]
@@ -134,7 +136,8 @@ export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
   const nodes = [...nodesOf(doc).values()].map((map) => map.toJSON() as CanvasNode)
   const annotations = [...annotationsOf(doc).values()].sort((a, b) => a.z - b.z)
   const edges = [...edgesOf(doc).values()]
-  return { nodes, annotations, edges }
+  const groups = readCanvasGroups(doc)
+  return { nodes, annotations, edges, ...(groups.length ? { groups } : {}) }
 }
 
 function nextZ(doc: Y.Doc): number {
@@ -416,7 +419,14 @@ export function moveCanvasNodes(
 /** 只撤销 `origin` 自己的改动；一次调用是一步，连续拖动在合并窗口内也算一步。 */
 export function createCanvasUndoManager(doc: Y.Doc, origin: CanvasOrigin): Y.UndoManager {
   return new Y.UndoManager(
-    [nodesOf(doc), annotationsOf(doc), edgesOf(doc), doc.getMap('deletedNodes')],
+    [
+      nodesOf(doc),
+      annotationsOf(doc),
+      edgesOf(doc),
+      doc.getMap('deletedNodes'),
+      doc.getMap('groups'),
+      doc.getMap('groupMembers'),
+    ],
     {
       trackedOrigins: new Set([origin]),
       captureTimeout: 300,

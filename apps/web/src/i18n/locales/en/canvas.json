@@ -510,6 +510,10 @@
     "generationFailed": "Generation failed. Try again.",
     "videoInputUnsupported": "Video nodes currently accept text and image references only",
     "assets": "Add from assets",
-    "assetsEmpty": "No matching assets"
+    "assetsEmpty": "No matching assets",
+    "group": "Group selected nodes",
+    "ungroup": "Ungroup",
+    "groupName": "Group name",
+    "groupDefault": "Untitled group"
   }
 }

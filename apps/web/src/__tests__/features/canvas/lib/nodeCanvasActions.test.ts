@@ -1,9 +1,11 @@
 import {
   canvasOrigin,
   connectCanvasNodes,
+  createCanvasGroup,
   createCanvasUndoManager,
   importLegacyElements,
   readCanvasDocument,
+  readCanvasGroups,
   reconcileLegacyElements,
 } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
@@ -134,4 +136,50 @@ describe('node canvas editing transactions', () => {
     canvas.undo.redo()
     expect(readCanvasDocument(canvas.doc).nodes[0]?.id).toBe(id)
   })
+})
+
+it('copies a group with fresh member identities and disbands without deleting cards', () => {
+  const canvas = setup()
+  const a = createNode(canvas, 'text', { x: 0, y: 0 }, '#fff'),
+    b = createNode(canvas, 'image', { x: 500, y: 0 }, '#fff')
+  connectCanvasNodes(canvas.doc, { source: a, target: b }, canvas.origin)
+  createCanvasGroup(canvas.doc, 'scene', [a, b], '海边', canvas.origin)
+  const ids = pasteNodes(canvas, copyNodes(readCanvasDocument(canvas.doc), ['scene']), {
+    x: 0,
+    y: 500,
+  })
+  const groups = readCanvasGroups(canvas.doc)
+  expect(groups).toHaveLength(2)
+  expect(groups[1]?.members).toEqual(ids.slice(1).sort())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(2)
+  removeNodes(canvas, ['scene'])
+  expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(4)
+  expect(readCanvasGroups(canvas.doc)).toHaveLength(1)
+  canvas.undo.undo()
+  expect(readCanvasGroups(canvas.doc)).toHaveLength(2)
+})
+
+it('duplicates an empty group frame and undoes only that copy', () => {
+  const canvas = setup()
+  createCanvasGroup(canvas.doc, 'empty', [], '空场景', canvas.origin, {
+    x: 50,
+    y: 70,
+    width: 600,
+    height: 400,
+  })
+  const ids = pasteNodes(canvas, copyNodes(readCanvasDocument(canvas.doc), ['empty']), {
+    x: 800,
+    y: 300,
+  })
+  expect(ids).toHaveLength(1)
+  expect(readCanvasGroups(canvas.doc)[1]).toMatchObject({
+    name: '空场景',
+    x: 800,
+    y: 300,
+    width: 600,
+    height: 400,
+    members: [],
+  })
+  canvas.undo.undo()
+  expect(readCanvasGroups(canvas.doc)).toHaveLength(1)
 })
