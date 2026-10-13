@@ -117,6 +117,7 @@
 .creation-stack-add { position: relative; flex-shrink: 0; }
 .creation-stack-expand { position: absolute; left: 0; bottom: 100%; opacity: 0; pointer-events: none; z-index: 2; }
 .creation-stack-entry:hover .creation-stack-expand, .creation-stack-entry:focus-within .creation-stack-expand { opacity: 1; pointer-events: auto; }
+.creation-reference-hover { z-index: 600; width: max-content; min-width: 240px; max-width: min(640px, calc(100vw - 24px)); padding: 12px; border-radius: 12px; @apply shadow-popover; }
 .creation-reference-panel { width: 100%; min-width: 0; }
 .creation-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
 .creation-reference-list { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding: 8px; scrollbar-width: thin; }
