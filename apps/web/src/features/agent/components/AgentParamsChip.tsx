@@ -98,7 +98,7 @@ export default function AgentParamsChip({
   if (!generationControls) {
     return (
       <SettingsPopover
-        size="sm"
+        size="md"
         summary={t('params.thinkingSummary', { label: labels[depth] })}
         title={t('params.thinkingLegend')}
         dirty={depth !== 'medium'}
@@ -111,9 +111,9 @@ export default function AgentParamsChip({
 
   return (
     <>
-      <ModelSelector size="sm" label={byok ? t('params.builtinModel') : undefined} />
+      <ModelSelector size="md" label={byok ? t('params.builtinModel') : undefined} />
       <ImageSettings
-        size="sm"
+        size="md"
         unsupported={UNSUPPORTED}
         extra={{
           dirty: thinkingControls && depth !== 'medium',
