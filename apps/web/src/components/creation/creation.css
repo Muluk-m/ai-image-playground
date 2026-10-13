@@ -206,6 +206,6 @@
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 0; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 0; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list [data-input-image-index],
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list [data-input-image-index] > div,
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-reference-frame,
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list .creation-add { width: 56px; height: 56px; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-prompt { min-height: calc(1.75em + 2px); }
