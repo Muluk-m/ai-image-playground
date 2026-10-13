@@ -5,11 +5,10 @@ const OVERLOAD = /\b(?:overloaded|overloaded_error|server_overloaded|overload_er
 /** 只采集上游明确返回的拒绝；底层断流抛出的同名错误不是拒绝证据。 */
 export function observeOverloadResponse(response: Response) {
   let explicitOverload = false
-  const isRejected = (message: string) =>
+  const isRejected = () =>
     response.status === 503 ||
     response.status === 529 ||
-    ((response.ok || response.status === 429 || response.status >= 500) &&
-      (explicitOverload || (!response.ok && OVERLOAD.test(message))))
+    ((response.ok || response.status === 429 || response.status >= 500) && explicitOverload)
   if (!response.body) return { response, isRejected }
 
   const inspect = (data: string) => {
@@ -32,8 +31,8 @@ export function observeOverloadResponse(response: Response) {
   const parser = createParser({
     maxBufferSize: 64 * 1024,
     onEvent: ({ data }) => inspect(data),
-    onError: () => {
-      observing = false
+    onError: (error) => {
+      if (error.type === 'max-buffer-size-exceeded') observing = false
     },
   })
   const feed = (text: string) => {

@@ -133,8 +133,8 @@ export function agentStreamFn(
           ) as typeof globalThis.fetch,
         })
       },
-      (message) => {
-        const rejected = rejection?.isRejected(message.errorMessage ?? '') ?? false
+      () => {
+        const rejected = rejection?.isRejected() ?? false
         if (rejected)
           log.warn(
             {

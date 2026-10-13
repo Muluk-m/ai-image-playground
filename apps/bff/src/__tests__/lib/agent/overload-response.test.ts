@@ -14,24 +14,27 @@ it('passes oversized and malformed frames through without treating ordinary text
     )
     expect(await observed.response.text()).toBe(data)
     expect(observed.response.headers.get('x-request-id')).toBe('fixture')
-    expect(observed.isRejected('overloaded connection reset')).toBe(false)
+    expect(observed.isRejected()).toBe(false)
   }
 })
 
 it('propagates cancellation to the upstream body', async () => {
-  let reason: unknown
+  let cancelled!: (reason: unknown) => void
+  const cancellation = new Promise<unknown>((resolve) => {
+    cancelled = resolve
+  })
   const observed = observeOverloadResponse(
     new Response(
       new ReadableStream({
         cancel(value) {
-          reason = value
+          cancelled(value)
         },
       }),
       { headers: { 'content-type': 'text/event-stream' } },
     ),
   )
   await observed.response.body!.cancel('user stopped')
-  expect(reason).toBe('user stopped')
+  expect(await cancellation).toBe('user stopped')
 })
 
 it('recognizes multiline CRLF error events split across chunks', async () => {
@@ -49,5 +52,5 @@ it('recognizes multiline CRLF error events split across chunks', async () => {
     ),
   )
   expect(await observed.response.text()).toBe(data)
-  expect(observed.isRejected('Busy')).toBe(true)
+  expect(observed.isRejected()).toBe(true)
 })

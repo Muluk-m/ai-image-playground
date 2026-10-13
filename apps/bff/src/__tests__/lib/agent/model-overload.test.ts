@@ -149,6 +149,11 @@ it('recovers HTTP 200 SSE overload errors and gateway overload status variants',
     () => wireError({ type: 'overloaded_error', message: 'Please try again later.' }),
     () =>
       wireError(
+        { type: 'overloaded_error', message: 'Busy' },
+        'retry: invalid\n\nunknown: ignored\n\n',
+      ),
+    () =>
+      wireError(
         { code: 'server_overloaded', message: 'Busy' },
         'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}\n\n',
       ),
@@ -221,5 +226,24 @@ it('bounds SSE overload retries and does not reuse rejection evidence for a late
     expect((await stream.result()).stopReason).toBe('error')
     expect(calls).toBe(networkFailure ? 2 : 3)
     expect(events.filter((event) => event.type === 'error')).toHaveLength(1)
+  }
+})
+
+it('does not retry a 429 or 5xx body transport failure based on exception text', async () => {
+  for (const status of [429, 500, 502, 504]) {
+    let calls = 0
+    setAgentFetchForTesting(async () => {
+      calls++
+      return new Response(
+        new ReadableStream({
+          pull(controller) {
+            controller.error(new Error('overloaded connection reset'))
+          },
+        }),
+        { status, headers: { 'content-type': 'application/json' } },
+      )
+    })
+    expect((await (await agentStreamFn()(agentModel(), context)).result()).stopReason).toBe('error')
+    expect(calls).toBe(1)
   }
 })
