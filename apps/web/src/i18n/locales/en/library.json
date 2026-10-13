@@ -33,7 +33,9 @@
     "viewCount_other": "{{count}} views",
     "kind": {
       "product": "Product",
-      "person": "Person"
+      "person": "Person",
+      "location": "Location",
+      "prop": "Prop"
     },
     "background": {
       "transparent": "Transparent",

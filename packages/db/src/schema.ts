@@ -295,6 +295,8 @@ export const user_assets = pgTable(
     image_id: text('image_id'),
     /** 产品或人物；`views` 之前建的素材没有类别。 */
     kind: text('kind'),
+    description: text('description'),
+    voice_id: text('voice_id'),
     /** 透明或纯色。 */
     background: text('background'),
     /** 有序视角 `[{ imageId, label, source }]`，第一条是封面。旧行为 null，读路径按封面补一条。 */

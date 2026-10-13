@@ -135,7 +135,7 @@ function templateChange(row: UserTemplateRow): SyncTemplateChange {
 /** `views` 之前写下的行没有视角，读回来仍是封面那一张视角。 */
 function assetViews(row: UserAssetRow): SyncAssetView[] {
   if (row.views && row.views.length > 0) return row.views
-  return [{ imageId: row.image_id!, label: 'none', source: 'upload' }]
+  return row.image_id ? [{ imageId: row.image_id, label: 'none', source: 'upload' }] : []
 }
 
 function assetChange(row: UserAssetRow): SyncAssetChange {
@@ -145,6 +145,8 @@ function assetChange(row: UserAssetRow): SyncAssetChange {
     name: row.name!,
     imageId: row.image_id!,
     ...(row.kind ? { kind: row.kind } : {}),
+    ...(row.description !== null ? { description: row.description } : {}),
+    ...(row.voice_id !== null ? { voiceId: row.voice_id } : {}),
     ...(row.background ? { background: row.background } : {}),
     views: assetViews(row),
     createdAt: row.created_at!,
@@ -286,6 +288,8 @@ async function mergeAssets(
               name: null,
               image_id: null,
               kind: null,
+              description: null,
+              voice_id: null,
               background: null,
               views: null,
               created_at: null,
@@ -295,6 +299,8 @@ async function mergeAssets(
               // 封面这一列永远等于第一条视角，`views` 之前的客户端只读它。
               image_id: change.imageId,
               kind: change.kind ?? null,
+              description: change.description ?? null,
+              voice_id: change.voiceId ?? null,
               background: change.background ?? null,
               views: [...incomingViews(change)],
               created_at: change.createdAt,
@@ -303,7 +309,21 @@ async function mergeAssets(
       await tx
         .insert(table)
         .values(values)
-        .onConflictDoUpdate({ target: [table.user_id, table.id], set: values })
+        .onConflictDoUpdate({
+          target: [table.user_id, table.id],
+          set: {
+            ...values,
+            // Older clients do not know these fields; omit means preserve, empty means clear.
+            description:
+              !isSyncTombstone(change) && change.description === undefined
+                ? table.description
+                : values.description,
+            voice_id:
+              !isSyncTombstone(change) && change.voiceId === undefined
+                ? table.voice_id
+                : values.voice_id,
+          },
+        })
     },
     async touch(id, version, lastUsedAt) {
       await tx
@@ -316,8 +336,9 @@ async function mergeAssets(
 
 /** `views` 之前的客户端只推封面，落库时补成唯一那条视角。 */
 function incomingViews(change: SyncAssetRecord): readonly SyncAssetView[] {
-  if (change.views && change.views.length > 0) return change.views
-  return [{ imageId: change.imageId, label: 'none', source: 'upload' }]
+  const views = change.views?.filter((view) => view.imageId)
+  if (views?.length) return views
+  return change.imageId ? [{ imageId: change.imageId, label: 'none', source: 'upload' }] : []
 }
 
 async function mergeLooks(
