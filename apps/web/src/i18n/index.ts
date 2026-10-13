@@ -64,10 +64,19 @@ export function detectLocale(): AppLocale {
  * 标签页标题也才是用户读得懂的那一种。必须在 `changeLanguage` 之后调，标题取的是当前语料。
  * 静态 meta 与 manifest 不动，那是给爬虫看的。
  */
+/** 某个整页路由要自己的标题时挂上。`setLocale` 收尾仍会改标题，这里让它改回这条，而不是工作台标题。 */
+let documentTitleOverride: (() => string) | null = null
+
+export function setDocumentTitleOverride(next: (() => string) | null): void {
+  documentTitleOverride = next
+  if (typeof document === 'undefined') return
+  document.title = next ? next() : i18next.t('documentTitle')
+}
+
 function applyDocumentLocale(locale: AppLocale): void {
   if (typeof document === 'undefined') return
   document.documentElement.lang = locale
-  document.title = i18next.t('documentTitle')
+  document.title = documentTitleOverride ? documentTitleOverride() : i18next.t('documentTitle')
 }
 
 /**

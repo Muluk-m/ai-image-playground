@@ -4,7 +4,9 @@ import {
   bootstrapLocale,
   brandNeedsWordmark,
   detectLocale,
+  i18next,
   normalizeLocale,
+  setDocumentTitleOverride,
   setLocale,
 } from '../../i18n'
 
@@ -26,6 +28,20 @@ describe('标签页标题随界面语言', () => {
 
     await setLocale('zh-CN')
     expect(document.title).toBe('幕芽 Muvloom · AI 图片与视频创作工作台')
+  })
+
+  it('定价页占住标题时，切换语言仍用定价页标题，放开后回到工作台标题', async () => {
+    setDocumentTitleOverride(() => i18next.t('documentTitle', { ns: 'pricing' }))
+    try {
+      await setLocale('en')
+      expect(document.title).toBe('Pricing · Muvloom')
+      await setLocale('zh-CN')
+      expect(document.title).toBe('定价 · 幕芽 Muvloom')
+      setDocumentTitleOverride(null)
+      expect(document.title).toBe('幕芽 Muvloom · AI 图片与视频创作工作台')
+    } finally {
+      setDocumentTitleOverride(null)
+    }
   })
 
   it('启动时探测到英文，标题取的是英文语料而不是还没切过去的中文', async () => {

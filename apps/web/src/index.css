@@ -948,6 +948,12 @@ html {
   overflow-y: scroll;
 }
 
+html.pricing-route,
+html.pricing-route body {
+  background: #070709;
+  color: #f4f4f5;
+}
+
 body {
   padding: 0;
   -webkit-user-select: none;
