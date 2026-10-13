@@ -54,7 +54,7 @@ function readyTurn(
   messages: readonly AgentPanelMessage[],
   turns: Readonly<Record<string, AgentTurnFooter>>,
 ): string | null {
-  const last = messages.at(-1)
+  const last = messages[messages.length - 1]
   if (!last) return null
   if (answerableClarificationId(messages)) return null
   if (
