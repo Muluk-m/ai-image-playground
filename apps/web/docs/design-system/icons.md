@@ -56,6 +56,16 @@ import { Icon } from '@/components/ui/icon'
 | `sidebar` | 收起 / 展开侧栏 | sidebar |
 | `light` | 浅色主题 | sun |
 | `dark` | 深色主题 | moon |
+| `language` | 界面语言 | global |
+
+**会员等级**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `membershipFree` | Free 会员等级 | sprout（lucide） |
+| `membershipBasic` | Basic 会员等级 | stars |
+| `membershipPlus` | Plus 会员等级 | star |
+| `membershipMax` | Max 会员等级 | crown-line |
 
 **创作**
 
@@ -74,6 +84,9 @@ import { Icon } from '@/components/ui/icon'
 | `clear` | 清空输入 | text-cross |
 | `stop` | 停止生成 | stop |
 | `refresh` | 重试、重新生成 | refresh |
+| `speed` | 速度 | bolt |
+| `security` | 安全保障 | shield-check |
+| `back` | 返回 | arrow-left |
 | `upscale` | 高清放大 | maximize-square |
 | `removeBg` | 抠图 | scissors |
 | `brush` | 遮罩、局部重绘 | paint-brush |
@@ -85,6 +98,24 @@ import { Icon } from '@/components/ui/icon'
 | `reuse` | 复用配置 | undo-left-round |
 | `prompt` | 提示词 | document-text |
 | `sendToCanvas` | 送入画布 | gallery-send |
+
+**生产面板**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `script` | 剧本 | document-text |
+| `storyboard` | 分镜 | clapperboard |
+| `clip` | 片段 | video-frame |
+| `character` | 角色 | user-rounded |
+| `location` | 场景地点 | map-point |
+| `exportPackage` | 导出素材包 | box |
+| `quote` | 引用原文 | chat-square-call |
+| `compare` | 对照修改 | transfer-horizontal |
+| `history` | 修订历史 | history |
+| `collapseAll` | 折叠章节 | list-up |
+| `moveUp` | 上移排序 | arrow-up |
+| `moveDown` | 下移排序 | arrow-down |
+| `imageUnavailable` | 图片不可用 | gallery-remove |
 
 **画布工具**
 
@@ -116,6 +147,7 @@ import { Icon } from '@/components/ui/icon'
 | `pause` | 暂停 | pause |
 | `volume` | 声音 | volume-loud |
 | `fullscreen` | 全屏 | full-screen |
+| `minimize` | 收起展开的内容区域 | minimize |
 | `download` | 下载、导出 | download-minimalistic |
 | `upload` | 上传 | upload-minimalistic |
 | `share` | 分享 | share |
@@ -159,6 +191,7 @@ import { Icon } from '@/components/ui/icon'
 | `info` | 提示 | info-circle |
 | `blocked` | 不可用、已达上限 | forbidden-circle |
 | `lock` | 锁定、会员可用 | lock |
+| `unlock` | 解锁比例、独立调整 | lock-unlocked |
 | `key` | API 密钥 | key |
 | `visible` | 显示 | eye |
 | `hidden` | 隐藏 | eye-closed |
@@ -176,3 +209,58 @@ import { Icon } from '@/components/ui/icon'
 4. 在上表补一行，到陈列页（`/design.html`）深浅色各看一眼。
 
 品牌 Logo（模型厂商标识）在 `components/assistant-ui/elements/logos.tsx`，不属于图标体系。
+
+**工具箱与指南**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `resize` | 调整图片尺寸 | maximize |
+| `compress` | 压缩图片 | minimize-square |
+| `convertFormat` | 转换图片格式 | transfer-horizontal |
+| `rotate` | 旋转图片 | rotate-cw |
+| `flipHorizontal` | 水平翻转 | flip-horizontal-2 |
+| `flipVertical` | 垂直翻转 | flip-vertical-2 |
+| `collage` | 拼图 | widget |
+| `stitch` | 拼接长图 | gallery-vertical |
+| `slice` | 切图 | grid-3x3 |
+| `sendToComposer` | 送入创作页 | gallery-send |
+| `gettingStarted` | 快速上手 | rocket |
+| `tip` | 使用提示 | lightbulb |
+| `help` | 常见问题 | question-circle |
+
+**Agent 交互与技能**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `terminal` | 执行命令 | terminal |
+| `diagnostic` | 错误诊断 | bug |
+| `selectLasso` | 套索选区 | lasso |
+| `selectRectangle` | 矩形选区 | square |
+| `starter` | 使用起手句 | corner-down-right |
+| `poster` | 海报场景 | presentation-graph |
+| `shop` | 电商场景 | shop |
+| `resolution` | 视频分辨率 | monitor |
+| `firstFrame` | 视频首帧 | skip-back |
+| `lastFrame` | 视频尾帧 | skip-forward |
+| `keyframes` | 视频关键帧 | video-frame |
+| `audio` | 音频与声音 | soundwave |
+| `aperture` | 光圈技能 | aperture |
+| `camera` | 摄影技能 | camera |
+| `flame` | 火焰效果技能 | fire |
+| `focus` | 聚焦技能 | focus |
+| `home` | 室内场景技能 | home-2 |
+| `imageAnimate` | 图片动效技能 | image-play |
+| `translate` | 语言翻译 | languages |
+| `layoutTemplate` | 版式模板 | layout-template |
+| `advertise` | 广告创作 | megaphone |
+| `landscape` | 自然场景 | mountain |
+| `notebook` | 笔记创作 | notebook-pen |
+| `productAdd` | 创建产品素材 | package-plus |
+| `palette` | 视觉风格 | palette |
+| `replace` | 内容替换 | replace |
+| `imageInspect` | 图片分析 | scan-search |
+| `product` | 产品素材 | bag-4 |
+| `cart` | 购物商品 | cart-large |
+| `sprout` | 植物技能 | sprout |
+| `waves` | 波纹技能 | waves |
+| `agentActivity` | 智能体步骤状态 | sparkle |

@@ -1,7 +1,7 @@
-import { Bug, Copy, X } from 'lucide-react'
 import { useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { currentLocale, useTranslation } from '../../../i18n'
 import { formatDateTime, formatNumber } from '../../../i18n/format'
@@ -83,12 +83,11 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="size-8 hover:bg-foreground/5 focus-visible:ring-foreground"
+          size="icon-sm"
           aria-label={t('diagnostic.title')}
           title={t('diagnostic.title')}
         >
-          <Bug className="size-4" aria-hidden="true" />
+          <Icon name="diagnostic" />
           <span className="sr-only">{t('diagnostic.title')}</span>
         </Button>
       </PopoverTrigger>
@@ -102,7 +101,7 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
             tooltip={t('action.close', { ns: 'common' })}
             onClick={() => setOpen(false)}
           >
-            <X aria-hidden="true" />
+            <Icon name="close" />
           </TooltipIconButton>
         </div>
         <p className="mb-3 leading-relaxed">{summary}</p>
@@ -127,7 +126,7 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
         </details>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Button type="button" variant="secondary" size="sm" onClick={() => void copy(readable)}>
-            <Copy aria-hidden="true" />
+            <Icon name="copy" />
             {t('diagnostic.copyDetails')}
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => void copy(raw)}>

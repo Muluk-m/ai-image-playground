@@ -31,6 +31,7 @@ import {
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { reportClientError } from '../../lib/errorReporting'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
+import { getRuntimeConfig } from '../../lib/runtimeConfig'
 import { useStore } from '../../store'
 import {
   autoNameProject,
@@ -85,7 +86,10 @@ import {
 } from './lib/artifactDelivery'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
+import { conversationCache } from './lib/conversationCache'
+import { browserConversationPrefetch } from './lib/conversationPrefetch'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
+import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -207,6 +211,8 @@ export interface AgentState {
   error: string | null
   errorDiagnostic: Record<string, unknown> | null
   loaded: boolean
+  /** The displayed history has not yet been reconciled with the server. */
+  historyCached: boolean
   historyLoading: boolean
   historyFailed: boolean
   returnedMessagesPending: boolean
@@ -462,6 +468,7 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
   activeTurn: null,
   error: null,
   errorDiagnostic: null,
+  historyCached: false,
   historyLoading: false,
   historyFailed: false,
   returnedMessagesPending: false,
@@ -474,6 +481,67 @@ function readPanelWidth(): number {
 }
 
 export const useAgentStore = create<AgentState>((set, get, store) => {
+  let prefetch: ReturnType<typeof browserConversationPrefetch> | undefined
+  store.subscribe((state, previous) => {
+    if (prefetch && !prefetch.isCurrent()) {
+      prefetch.dispose()
+      prefetch = undefined
+    }
+    if (state.conversations !== previous.conversations && state.conversations.length && !prefetch)
+      prefetch = browserConversationPrefetch()
+    prefetch?.update(
+      state.conversations,
+      state.historyLoading || state.turn === 'running',
+      state.conversationId,
+    )
+  })
+  let cache: ReturnType<typeof conversationCache> | null = null
+  let pendingCacheWrite: (() => void) | undefined
+  let cacheTimer: ReturnType<typeof setTimeout> | undefined
+  const flushCache = () => {
+    clearTimeout(cacheTimer)
+    cacheTimer = undefined
+    pendingCacheWrite?.()
+    pendingCacheWrite = undefined
+  }
+  const forgetHistory = async (conversationId: string) => {
+    flushCache()
+    await conversationCache(conversationId).remove()
+  }
+  store.subscribe((state, previous) => {
+    if (state.conversationId !== previous.conversationId) {
+      flushCache()
+      cache = state.conversationId ? conversationCache(state.conversationId) : null
+      return
+    }
+    if (
+      !state.messages.length ||
+      !cache?.isCurrent() ||
+      state.historyCached ||
+      state.historyLoading ||
+      state.historyFailed ||
+      (state.messages === previous.messages && state.turns === previous.turns)
+    )
+      return
+    const owner = cache
+    pendingCacheWrite = () => {
+      const panel = {
+        messages: state.messages
+          .filter((message) => message.kind !== 'text' || !message.pending)
+          .map((message) => (message.kind === 'text' ? { ...message, streaming: false } : message)),
+        turns: state.turns,
+      }
+      void owner.write(panel)
+    }
+    if (state.turn === 'running') {
+      if (!cacheTimer)
+        cacheTimer = setTimeout(() => {
+          cacheTimer = undefined
+          flushCache()
+        }, 500)
+    } else flushCache()
+  })
+  globalThis.addEventListener?.('pagehide', flushCache)
   const delivery = createArtifactDelivery((messageId, status) =>
     set((state) => ({
       messages: state.messages.map((message) =>
@@ -485,7 +553,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   )
   // 画布挂回来（切回创作模式、画布重挂）就把它不在时错过的产物补落上去。
   onAgentCanvasSinkChange((sink) => {
-    if (sink) void delivery.redeliverUnavailable(get().messages)
+    if (sink && !get().historyCached) void delivery.redeliverUnavailable(get().messages)
   })
 
   /** 后台任务经这几个口子读写面板；别的都在 `lib/backgroundJobs` 里面。 */
@@ -698,6 +766,28 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       await turnDelivery.settled()
       if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
     }
+    if (
+      turnId &&
+      turnDelivery.isCurrent() &&
+      get().conversationId === conversationId &&
+      get().turn === 'idle' &&
+      shouldPollFollowUps({ turnId, messages: get().messages, turns: get().turns })
+    ) {
+      const watched = conversationId
+      const watchedTurn = turnId
+      void pollFollowUps(watched, watchedTurn, () => get().conversationId === watched).then(
+        (lines) => {
+          if (!lines?.length || get().conversationId !== watched) return
+          set((state) => {
+            const footer = state.turns[watchedTurn]
+            if (!footer) return state
+            return {
+              turns: { ...state.turns, [watchedTurn]: { ...footer, followUps: lines } },
+            }
+          })
+        },
+      )
+    }
     if (recoveredQueue && turnDelivery.isCurrent())
       await openConversation(conversationId, recoveredQueue.turnId)
     else if (pickUp) void followQueuedTurn(conversationId, turnId)
@@ -751,7 +841,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     taken: AgentConversationState,
     options: { readonly join?: string; readonly keepPending?: boolean } = {},
   ) => {
-    const shown = new Map(get().messages.map((message) => [message.id, message]))
+    // Cached cards are only a preview; their old confirmation/delivery state cannot override the server.
+    const shown = new Map(
+      (get().historyCached ? [] : get().messages).map((message) => [message.id, message]),
+    )
     const history = panelStateFromHistory(taken)
     const pending = options.keepPending
       ? get().messages.filter((message) => message.kind === 'text' && message.pending)
@@ -840,7 +933,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
    * 刚好跑完——续播端点对已经结束的轮同样重放，用户照样看得到它的内容。
    */
   const openConversation = async (conversationId: string, turnId?: string) => {
-    const isCurrent = resetDelivery()
+    flushCache()
+    const currentDelivery = resetDelivery()
+    const owner = conversationCache(conversationId)
+    cache = owner
+    const isCurrent = () => currentDelivery() && owner.isCurrent()
     const same = get().conversationId === conversationId
     set({
       // 换会话：草稿卡上改过的字、任务进度这些都跟着那个会话走，不带进新的。
@@ -851,15 +948,22 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       stopping: false,
       reconnecting: false,
       activeTurn: null,
+      historyCached: same && get().historyCached,
       historyLoading: true,
       historyFailed: false,
       returnedMessagesPending: false,
       returnedMessagesError: null,
     })
     selectCanvasWorkspace(conversationSceneKey(conversationId))
+    let remoteSettled = false
+    void owner.read().then((panel) => {
+      if (!panel || !isCurrent() || remoteSettled || get().messages.length > 0) return
+      set({ ...panel, historyCached: true })
+    })
     let state: AgentConversationState
     try {
       state = await fetchMessages(conversationId)
+      remoteSettled = true
       if (!isCurrent()) return
     } catch (thrown) {
       if (!isCurrent()) return
@@ -869,6 +973,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         thrown instanceof AgentRequestError && (thrown.status === 404 || thrown.status === 403)
       if (!gone) set({ historyLoading: false, historyFailed: true })
       const project = currentCanvasProject()
+      if (gone) {
+        remoteSettled = true
+        set({ messages: [], turns: {}, historyCached: false })
+        void forgetHistory(conversationId)
+      }
       if (gone && project?.conversationId === conversationId) {
         try {
           await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
@@ -885,8 +994,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       else fail(CONVERSATION_UNREADABLE())
       return
     }
-    set({ historyLoading: false, historyFailed: false })
     adoptSnapshot(conversationId, state)
+    set({ historyCached: false, historyLoading: false, historyFailed: false })
+    void owner.write({ messages: get().messages, turns: get().turns })
     await recoverReturnedMessages(conversationId)
     if (!isCurrent()) return
     const active = state.activeTurn?.turnId ?? turnId
@@ -1522,6 +1632,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     error: null,
     errorDiagnostic: null,
     loaded: false,
+    historyCached: false,
     historyLoading: false,
     historyFailed: false,
     returnedMessagesPending: false,
@@ -1547,6 +1658,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
 
     followBatchWake(conversationId, batchId, version) {
+      if (get().historyCached || get().historyLoading || get().historyFailed) return
       jobs.followBatch(conversationId, batchId, version)
     },
     setOpen: (open) => set({ open }),
@@ -1575,9 +1687,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       cancelPendingConversationImport = undefined
       const revision = conversationListRevision
       const request = ++conversationListRequest
+      const sameAccount = accountScope()
+      const backend = getRuntimeConfig().bff.baseUrl
       try {
         const conversations = await fetchConversations()
         if (
+          !sameAccount() ||
+          getRuntimeConfig().bff.baseUrl !== backend ||
           changingProject ||
           revision !== conversationListRevision ||
           request !== conversationListRequest
@@ -1653,6 +1769,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         conversations: state.conversations.filter((one) => one.id !== conversationId),
       }))
       if (get().conversationId === conversationId) get().startNewConversation()
+      await forgetHistory(conversationId)
     },
 
     startNewConversation() {
@@ -2281,6 +2398,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
 
     async placeOnCanvas(messageId) {
+      if (get().historyCached) return
       const message = get().messages.find((one) => one.id === messageId)
       if (message?.kind !== 'tool') return
       if (message.status === 'succeeded' && deliverable(message))
@@ -2288,11 +2406,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
 
     async cancelJob(messageId) {
+      if (get().historyCached) return
       const conversationId = get().conversationId
       if (conversationId) await jobs.cancel(conversationId, messageId)
     },
 
     async retry(messageId, placeholderId, generationId) {
+      if (get().historyCached) return false
       const conversationId = get().conversationId
       if (!conversationId) return false
       let view: AgentMessageView
@@ -2404,6 +2524,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
 
     async confirmPrompt(messageId, prompt) {
+      if (get().historyCached) return { ok: false, reason: 'failed' }
       const conversationId = get().conversationId
       const draft = get().messages.find((one) => one.id === messageId)
       const text = prompt.trim()

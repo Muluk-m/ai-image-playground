@@ -12,6 +12,7 @@ vi.mock('../../features/agent/lib/useAgentSkills', () => ({
 }))
 
 import InputBar from '../../components/InputBar'
+import { fillAgentComposer } from '../../features/agent/lib/composerFill'
 import { useActiveLook } from '../../features/library/lib/activeLook'
 import { cancelLookSubmission, useLookSubmission } from '../../features/library/lib/lookSubmit'
 import { useLibraryStore } from '../../features/library/store'
@@ -25,6 +26,7 @@ import type { PublicChannel } from '../../lib/channels/types'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { getAllImageIds, putImage } from '../../lib/db'
 import { getContentEditablePlainText, setContentEditableCursor } from '../../lib/promptEditorDom'
+import * as storeModule from '../../store'
 import { useStore } from '../../store'
 
 declare global {
@@ -56,6 +58,28 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+it('does not reattach a pending import after an inspiration clears references', async () => {
+  remount('canvas')
+  let finish!: (value: Awaited<ReturnType<typeof storeModule.storeImageFromFile>>) => void
+  vi.spyOn(storeModule, 'storeImageFromFile').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [new File(['image'], 'old.png', { type: 'image/png' })],
+  })
+  act(() => input.dispatchEvent(new Event('change', { bubbles: true })))
+  act(() => fillAgentComposer({ text: 'New inspiration', replace: true, clearReferences: true }))
+  await act(async () => finish({ id: 'old', dataUrl: 'data:image/png;base64,old' }))
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().prompt).toBe('New inspiration')
 })
 
 /** 生成设置 chip：aria-label 是「生成设置: 摘要」。 */
@@ -282,7 +306,9 @@ describe('首屏「画布」档的参考图', () => {
   /** 附图入口：能点时标题是「添加参考图……」，被拒时标题换成拒绝的理由。 */
   function attachButton(): HTMLButtonElement {
     const found = Array.from(host.querySelectorAll('button')).find(
-      (button) => button.title.startsWith('添加参考图') || button.title.includes('不支持参考图'),
+      (button) =>
+        (button.getAttribute('aria-description') ?? '').startsWith('添加参考图') ||
+        (button.getAttribute('aria-description') ?? '').includes('不支持参考图'),
     )
     if (!found) throw new Error('没找到附图入口')
     return found
@@ -318,7 +344,7 @@ describe('首屏「画布」档的参考图', () => {
   it('直出档同一个模型仍然拦着：附图入口自己说明为什么点不了', () => {
     remount('generate')
 
-    expect(attachButton().title).toContain('不支持参考图')
+    expect(attachButton().getAttribute('aria-description')).toContain('不支持参考图')
   })
 
   it('这一把文件进不去就一张都不落盘：写进去的图谁也不会再用，只占地方', async () => {
@@ -415,7 +441,9 @@ it('template preparation turns the send button into a click-only stop, even with
     })
     const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) =>
-        button.title.includes('生成') && !button.hasAttribute('aria-haspopup') && !button.disabled,
+        (button.getAttribute('aria-description') ?? '').includes('生成') &&
+        !button.hasAttribute('aria-haspopup') &&
+        !button.disabled,
     )
     expect(send).toBeDefined()
     await act(async () => {
@@ -502,7 +530,7 @@ it('does not resurrect a model removed while another creation mode is selected',
   })
 })
 
-it('removes a masked reference from the stack without a clear-all tile', () => {
+it('removes a masked reference from the expanded stack', () => {
   act(() =>
     useStore.setState({
       inputImages: [{ id: 'masked', dataUrl: 'data:image/png;base64,AA' }],
@@ -510,9 +538,51 @@ it('removes a masked reference from the stack without a clear-all tile', () => {
     }),
   )
   const panel = openReferenceStack(host)
-  expect(panel.textContent).not.toContain('清空')
-  act(() => panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!.click())
+  expect(panel.querySelector('.creation-reference-heading')?.textContent).toContain('清空参考素材')
+  const remove = panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!
+  expect(remove.className).toContain('creation-reference-remove')
+  expect(remove.className).not.toContain('bg-destructive')
+  act(() => remove.click())
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
   expect(host.querySelector('.creation-stack-trigger')).toBeNull()
+})
+
+it('replaces a canvas prompt and clears references and masks from inspiration', () => {
+  remount('canvas')
+  act(() => {
+    useStore.setState({
+      createTarget: 'canvas',
+      prompt: '旧提示词',
+      inputImages: [{ id: 'old', dataUrl: 'data:image/png;base64,AA' }],
+      maskDraft: { targetImageId: 'old', maskDataUrl: 'data:image/png;base64,AA', updatedAt: 1 },
+    })
+  })
+  act(() => fillAgentComposer({ text: '新的灵感', replace: true, clearReferences: true }))
+  expect(useStore.getState().prompt).toBe('新的灵感')
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().maskDraft).toBeNull()
+})
+
+it('clears references and their masks while preserving prompt text', () => {
+  act(() =>
+    useStore.setState({
+      prompt: '保留这段文字',
+      inputImages: [{ id: 'clear-test', dataUrl: 'data:image/png;base64,AA' }],
+      maskDraft: {
+        targetImageId: 'clear-test',
+        maskDataUrl: 'data:image/png;base64,AA',
+        updatedAt: 1,
+      },
+    }),
+  )
+  const panel = openReferenceStack(host)
+  act(() =>
+    Array.from(panel.querySelectorAll('button'))
+      .find((b) => b.textContent === '清空参考素材')!
+      .click(),
+  )
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().maskDraft).toBeNull()
+  expect(useStore.getState().prompt).toBe('保留这段文字')
 })

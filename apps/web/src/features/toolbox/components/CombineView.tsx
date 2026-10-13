@@ -1,5 +1,6 @@
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { CanvasLimitError } from '../lib/canvasLimits'
 import { formatBytes } from '../lib/naming'
@@ -110,24 +111,34 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
               <img src={item.url} alt={item.name} className="h-10 w-10 rounded-lg object-cover" />
               <span className="min-w-0 flex-1 truncate text-xs">{item.name}</span>
               <span className="flex flex-col">
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
                   type="button"
                   onClick={() => move(item.id, -1)}
                   aria-label={t('combine.up')}
                 >
-                  <ChevronUp className="h-3.5 w-3.5" />
-                </button>
-                <button
+                  <Icon name="moveUp" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
                   type="button"
                   onClick={() => move(item.id, 1)}
                   aria-label={t('combine.down')}
                 >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
+                  <Icon name="moveDown" />
+                </Button>
               </span>
-              <button type="button" onClick={() => remove(item.id)} aria-label={t('result.remove')}>
-                <X className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                type="button"
+                onClick={() => remove(item.id)}
+                aria-label={t('result.remove')}
+              >
+                <Icon name="close" className="text-muted-foreground" />
+              </Button>
             </div>
           ))}
         </aside>

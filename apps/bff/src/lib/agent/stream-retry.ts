@@ -31,7 +31,6 @@ export function retryOverloadedStream(
               !emitted &&
               event.error.content.length === 0 &&
               isOverloadRejected() &&
-              /\b(overloaded|server_overloaded)\b/i.test(event.error.errorMessage ?? '') &&
               !options?.signal?.aborted &&
               attempt < 2
             ) {

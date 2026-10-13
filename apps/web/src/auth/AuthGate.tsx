@@ -1,12 +1,16 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { RefreshCw, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { signalBootReady } from '../boot/ready'
+import { Button } from '../components/ui/button'
+import { Icon } from '../components/ui/icon'
+import PricingSheet from '../features/pricing/PricingSheet'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
   getCurrentUser,
   logoutUser,
+  shouldProbeSession,
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
@@ -28,13 +32,9 @@ type Phase = 'checking' | 'ready' | 'reconnecting'
 export function LoadingScreen() {
   const { t } = useTranslation('auth')
   return (
-    <main className="auth-status-screen" aria-live="polite">
-      <img src="/brand/muvloom-mark.svg" alt="" width="40" height="40" />
-      <div className="auth-status-line">
-        <span />
-      </div>
-      <p>{t('status.preparing')}</p>
-    </main>
+    <p className="sr-only" aria-live="polite">
+      {t('status.preparing')}
+    </p>
   )
 }
 
@@ -48,19 +48,25 @@ export function ProblemScreen({
   retry?: () => void
 }) {
   const { t } = useTranslation('auth')
+  useEffect(() => {
+    signalBootReady()
+  }, [])
   return (
     <main className="auth-status-screen auth-status-screen--problem">
-      <section className="auth-recovery-card" aria-live="polite">
+      <section
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-left"
+        aria-live="polite"
+      >
         <div className="auth-recovery-icon" aria-hidden="true">
-          <WifiOff size={19} strokeWidth={1.8} />
+          <Icon name="error" size="md" />
         </div>
-        <h1>{title}</h1>
-        <p>{description}</p>
+        <h1 className="text-xl font-semibold">{title}</h1>
+        <p className="mt-2 text-body-sm text-muted-foreground">{description}</p>
         {retry ? (
-          <button type="button" onClick={retry}>
-            <RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
+          <Button type="button" variant="secondary" className="mt-6" onClick={retry}>
+            <Icon name="refresh" />
             {t('status.retry')}
-          </button>
+          </Button>
         ) : null}
       </section>
     </main>
@@ -96,10 +102,13 @@ export function AuthGate() {
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
-        const currentUser = await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
-          if (err instanceof AuthRequestError && err.status === 401) return null
-          throw err
-        })
+        // 没有提示 cookie、也没有记住的用户时不请求 /api/auth/me，避免匿名打开就 401。
+        const currentUser = shouldProbeSession()
+          ? await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
+              if (err instanceof AuthRequestError && err.status === 401) return null
+              throw err
+            })
+          : null
         if (cancelled) return
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)
@@ -221,6 +230,7 @@ export function AuthGate() {
           }}
         />
       ) : null}
+      <PricingSheet />
     </AuthContextProvider>
   )
 }

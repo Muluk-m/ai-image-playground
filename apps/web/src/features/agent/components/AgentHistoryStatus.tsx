@@ -5,6 +5,7 @@ import { useAgentStore } from '../store'
 export default function AgentHistoryStatus() {
   const { t } = useTranslation('agent')
   const loading = useAgentStore((state) => state.historyLoading)
+  const cached = useAgentStore((state) => state.historyCached)
   const failed = useAgentStore((state) => state.historyFailed)
   if (!loading && !failed) return null
   return (
@@ -19,7 +20,11 @@ export default function AgentHistoryStatus() {
           <i />
         </span>
       )}
-      <span>{loading ? t('history.loading') : t('history.failed')}</span>
+      <span>
+        {loading
+          ? t(cached ? 'history.syncing' : 'history.loading')
+          : t(cached ? 'history.syncFailed' : 'history.failed')}
+      </span>
       {failed && (
         <Button
           type="button"

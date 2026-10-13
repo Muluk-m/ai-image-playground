@@ -64,6 +64,7 @@ export default function Sidebar() {
   // 宽度由一个变量说了算：主区、画布与输入框都照它让位。
   useEffect(() => {
     document.documentElement.style.setProperty('--app-sidebar-size', expanded ? '13rem' : '0px')
+    document.documentElement.style.setProperty('--app-nav-toggle-space', expanded ? '0px' : '4rem')
   }, [expanded])
   const catalog = projectCatalog(projects, cloudCatalog)
   const selectedId = catalogProjectId(activeProject, catalog)
@@ -147,9 +148,13 @@ export default function Sidebar() {
               className="h-auto min-w-0 flex-1 justify-start gap-2 px-1.5 py-1"
             >
               <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
-              <span className="truncate text-title font-semibold">
-                {t('header.brandName')}
-                {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
+              <span className="min-w-0 text-left leading-tight">
+                <span className="block text-sm font-semibold">{t('header.brandName')}</span>
+                {brandNeedsWordmark() ? (
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {BRAND_WORDMARK}
+                  </span>
+                ) : null}
               </span>
             </Button>
             <Button
@@ -158,7 +163,7 @@ export default function Sidebar() {
               size="icon-sm"
               onClick={toggleSidebar}
               aria-label={t('nav.collapse')}
-              className="text-muted-foreground"
+              className="shrink-0 text-muted-foreground"
             >
               <Icon name="sidebar" />
             </Button>
@@ -256,6 +261,14 @@ export default function Sidebar() {
             <Icon name="guide" size="xs" />
             {t('nav.guide')}
           </a>
+          <div className="flex items-center gap-3 px-3 pb-1 text-label-sm text-muted-foreground">
+            <a href="/terms" target="_blank" rel="noopener" className="hover:text-foreground">
+              {t('nav.terms')}
+            </a>
+            <a href="/privacy" target="_blank" rel="noopener" className="hover:text-foreground">
+              {t('nav.privacy')}
+            </a>
+          </div>
         </nav>
       ) : null}
 

@@ -12,10 +12,12 @@ import {
   videoRateMultiplier,
   videoRequestRejection,
 } from '@image-playground/shared'
-import { Film, Plus, X } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
+import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
+import { Label } from '../../../components/ui/label'
 import {
   Select,
   SelectContent,
@@ -45,7 +47,7 @@ function Choice({
   onChange: (value: string) => void
 }) {
   return (
-    <label>
+    <Label>
       {label}
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger aria-label={label}>
@@ -62,7 +64,7 @@ function Choice({
           ))}
         </SelectContent>
       </Select>
-    </label>
+    </Label>
   )
 }
 
@@ -171,31 +173,50 @@ export default function ProductionClipPane({
     <aside className="production-document" aria-label={t('clip.title')}>
       <header className="production-pane-header">
         <span>
-          <Film size={17} />
+          <Icon name="clip" />
           {t('clip.title')}
         </span>
-        <button type="button" aria-label={t('close')} onClick={onClose}>
-          <X size={17} />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+        >
+          <Icon name="close" />
+        </Button>
       </header>
       <div className="production-document-tools">
-        <button type="button" onClick={add} disabled={edit.saving || clips.length >= 40}>
-          <Plus size={14} />
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          onClick={add}
+          disabled={edit.saving || clips.length >= 40}
+        >
+          <Icon name="add" />
           {t('clip.add')}
-        </button>
+        </Button>
         {edit.draft && (
           <>
-            <button
+            <Button
+              variant="default"
+              size="sm"
               type="button"
-              className="production-primary"
               disabled={!canSave || edit.saving}
               onClick={() => void edit.save()}
             >
               {t('asset.save')}
-            </button>
-            <button type="button" disabled={edit.saving} onClick={edit.discard}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={edit.saving}
+              onClick={edit.discard}
+            >
               {t('discard')}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -206,14 +227,16 @@ export default function ProductionClipPane({
       )}
       <nav className="production-look-tabs production-clip-tabs">
         {clips.map((one) => (
-          <button
+          <Button
+            variant={one.id === selected?.id ? 'secondary' : 'ghost'}
+            size="xs"
             key={one.id}
             type="button"
             aria-pressed={one.id === selected?.id}
             onClick={() => setSelectedId(one.id)}
           >
             {one.name}
-          </button>
+          </Button>
         ))}
       </nav>
       <div className="production-document-scroll">
@@ -228,18 +251,18 @@ export default function ProductionClipPane({
                 onSaved={onSaved}
               />
             )}
-            <label>
+            <Label>
               {t('clip.name')}
               <Input
                 aria-label={t('clip.name')}
                 value={selected.name}
                 onChange={(event) => update({ ...selected, name: event.target.value })}
               />
-            </label>
+            </Label>
             <fieldset className="production-clip-shots">
               <legend>{t('clip.shots')}</legend>
               {shots.map((shot, index) => (
-                <label key={shot.id}>
+                <Label key={shot.id}>
                   <Checkbox
                     checked={selected.shotIds.includes(shot.id)}
                     onCheckedChange={(checked) =>
@@ -255,7 +278,7 @@ export default function ProductionClipPane({
                   <span>
                     {index + 1}. {shot.description}
                   </span>
-                </label>
+                </Label>
               ))}
               {!shots.length && <p>{t('clip.noShots')}</p>}
             </fieldset>
@@ -265,7 +288,9 @@ export default function ProductionClipPane({
                   <span>
                     {shots.find((one) => one.id === id)?.description ?? t('clip.missingShot')}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     disabled={index === 0}
                     aria-label={`${t('asset.up')} ${index + 1}`}
@@ -276,20 +301,22 @@ export default function ProductionClipPane({
                     }}
                   >
                     {t('asset.up')}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     type="button"
                     aria-label={`${t('clip.removeShot')} ${index + 1}`}
                     onClick={() =>
                       update({ ...selected, shotIds: selected.shotIds.filter((one) => one !== id) })
                     }
                   >
-                    <X size={14} />
-                  </button>
+                    <Icon name="close" />
+                  </Button>
                 </li>
               ))}
             </ol>
-            <label>
+            <Label>
               {t('clip.prompt')}
               <Textarea
                 aria-label={t('clip.prompt')}
@@ -297,7 +324,7 @@ export default function ProductionClipPane({
                 value={selected.prompt}
                 onChange={(event) => update({ ...selected, prompt: event.target.value })}
               />
-            </label>
+            </Label>
             <Choice
               label={tv('field.model')}
               value={selected.model}
@@ -342,7 +369,9 @@ export default function ProductionClipPane({
             <section className="production-clip-references">
               <h3>{t('clip.references')}</h3>
               {uniqueReferences.map((one) => (
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   key={JSON.stringify(one.reference)}
                   disabled={selected.references.some(
@@ -358,9 +387,9 @@ export default function ProductionClipPane({
                     })
                   }
                 >
-                  <Plus size={14} />
+                  <Icon name="add" />
                   {one.name}
-                </button>
+                </Button>
               ))}
               {selected.references.map((one, index) => (
                 <div
@@ -388,7 +417,9 @@ export default function ProductionClipPane({
                       })
                     }
                   />
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     type="button"
                     aria-label={`${t('asset.removeReference')} ${index + 1}`}
                     onClick={() =>
@@ -398,8 +429,8 @@ export default function ProductionClipPane({
                       })
                     }
                   >
-                    <X size={14} />
-                  </button>
+                    <Icon name="close" />
+                  </Button>
                 </div>
               ))}
             </section>
@@ -432,7 +463,9 @@ export default function ProductionClipPane({
               {deleteId === selected.id ? (
                 <>
                   <p>{t('clip.deleteImpact')}</p>
-                  <button
+                  <Button
+                    variant="destructive"
+                    size="sm"
                     type="button"
                     onClick={() => {
                       edit.update({
@@ -443,15 +476,20 @@ export default function ProductionClipPane({
                     }}
                   >
                     {t('asset.deleteConfirm')}
-                  </button>
-                  <button type="button" onClick={() => setDeleteId(null)}>
+                  </Button>
+                  <Button variant="ghost" size="sm" type="button" onClick={() => setDeleteId(null)}>
                     {t('cancel')}
-                  </button>
+                  </Button>
                 </>
               ) : (
-                <button type="button" onClick={() => setDeleteId(selected.id)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => setDeleteId(selected.id)}
+                >
                   {t('asset.delete')}
-                </button>
+                </Button>
               )}
             </div>
           </div>

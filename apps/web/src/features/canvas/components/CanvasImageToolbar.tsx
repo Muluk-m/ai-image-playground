@@ -337,7 +337,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           />
           <CanvasToolbarButton
             compact
-            icon={<Icon name="fullscreen" />}
+            icon={<Icon name="outpaint" />}
             label={t('outpaint.action')}
             reason={outpaintReason}
             disabled={pending}

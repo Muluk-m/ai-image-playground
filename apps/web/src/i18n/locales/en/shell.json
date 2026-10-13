@@ -22,6 +22,9 @@
     "newCanvas": "New canvas",
     "immersive": "Open immersive",
     "guide": "User guide",
+    "plans": "Plans & pricing",
+    "terms": "Terms",
+    "privacy": "Privacy",
     "viewAll": "View all"
   },
   "logout": {
@@ -72,9 +75,9 @@
     "canvas": "Canvas"
   },
   "hero": {
-    "titleLead": "Imagine it, ",
-    "titleAccent": "make it real",
-    "subtitle": "Turn a sentence into work you can see"
+    "titleLead": "Images and videos, ",
+    "titleAccent": "all in one place",
+    "subtitle": "Start with a prompt or reference image. Keep editing from there."
   },
   "createTarget": {
     "aria": "Where this prompt goes",

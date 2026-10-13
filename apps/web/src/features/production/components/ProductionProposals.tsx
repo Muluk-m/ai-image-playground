@@ -1,6 +1,7 @@
 import type { ProductionDocument, ProductionProposal } from '@image-playground/shared'
-import { Check, GitCompareArrows, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import {
   adoptProductionProposal,
@@ -76,15 +77,15 @@ export default function ProductionProposals({
   return (
     <section className="production-proposals" aria-label={t('proposals')}>
       <header>
-        <GitCompareArrows size={16} />
+        <Icon name="compare" />
         <strong>{t('proposals')}</strong>
       </header>
       {error && (
         <p role="alert">
           {t(error)}{' '}
-          <button type="button" onClick={() => setRetry((v) => v + 1)}>
+          <Button variant="ghost" size="sm" type="button" onClick={() => setRetry((v) => v + 1)}>
             {t('retry')}
-          </button>
+          </Button>
         </p>
       )}
       {pending.map((proposal) => (
@@ -103,23 +104,26 @@ export default function ProductionProposals({
             <p role="status">{t('proposalConflict')}</p>
           )}
           <footer>
-            <button
+            <Button
+              variant="default"
+              size="sm"
               type="button"
-              className="production-primary"
               disabled={Boolean(busy) || editing || proposal.baseRevision !== document.revision}
               onClick={() => void apply(proposal, true)}
             >
-              <Check size={14} />
+              <Icon name="check" />
               {t('adoptProposal')}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               disabled={Boolean(busy)}
               onClick={() => void apply(proposal, false)}
             >
-              <X size={14} />
+              <Icon name="close" />
               {t('discardProposal')}
-            </button>
+            </Button>
           </footer>
         </article>
       ))}

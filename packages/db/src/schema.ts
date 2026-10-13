@@ -747,6 +747,12 @@ export const agent_turns = pgTable(
     /** 结算后的实际消耗；不计费的部署里是 null，那里的页脚只有耗时。 */
     cost: bunJsonb('cost').$type<AgentTurnCost>(),
     failure: bunJsonb('failure').$type<AgentTurnFailure>(),
+    /**
+     * 这一轮结束后建议用户接着发的完整句子。null 是还没问，或这一轮不该问
+     * （失败、中止、澄清、待确认都留着 null）。空数组是问过但没有可用的句子，
+     * 或整段对话都没有用户原话。只问一次。页脚重写不碰这一列。
+     */
+    follow_ups: bunJsonb('follow_ups').$type<readonly string[]>(),
     created_at: epochMs('created_at').notNull(),
   },
   (t) => [

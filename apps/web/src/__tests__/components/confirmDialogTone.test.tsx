@@ -15,10 +15,12 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 
-/** 确认按钮是唯一一个白字实心的，取消按钮是描边的。 */
+/** 按动作文案识别确认，避免依赖按钮原语的共享样式。 */
 function confirmButton(): HTMLButtonElement {
   const buttons = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
-  const found = buttons.find((button) => button.className.includes('font-medium'))
+  const found = buttons.find((button) =>
+    ['确认', '确认删除', 'Delete'].includes(button.textContent ?? ''),
+  )
   if (!found) throw new Error('missing confirm button')
   return found
 }

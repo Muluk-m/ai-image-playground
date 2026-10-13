@@ -163,6 +163,15 @@ export function toolResultBlock(
     }
   }
   const details = piToolResult<AgentToolDetails>(result).details
+  if (details?.clarification)
+    return {
+      type: 'toolResult',
+      toolCallId: start.toolCallId,
+      toolName: start.toolName,
+      status: 'succeeded',
+      title: '等待确认图片组合',
+      message: '尚未创建生成任务。',
+    }
   if (details?.awaitingConfirmation) {
     // 只拟了稿：卡片停在这里等用户确认，锚点先记下，确认提交后产出照它落位。
     return {

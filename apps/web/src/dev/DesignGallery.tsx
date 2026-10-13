@@ -1,6 +1,8 @@
-import { type ReactNode, useState } from 'react'
+import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
 import { CreationReferenceStack } from '../components/creation/CreationReferenceStack'
+import { ModelLogo } from '../components/ModelIdentity'
 import Badge from '../components/patterns/Badge'
 import { Checkbox } from '../components/patterns/Checkbox'
 import ContextMenu, { ContextMenuItem } from '../components/patterns/ContextMenu'
@@ -28,6 +30,8 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../components/ui/sheet'
 import { Slider } from '../components/ui/slider'
 import { Textarea } from '../components/ui/textarea'
+import VideoPresetRows from '../features/video/components/VideoPresetRows'
+import { useVideoStore } from '../features/video/store'
 import { useTheme } from '../theme/useTheme'
 
 /**
@@ -55,6 +59,7 @@ export default function DesignGallery() {
         <Forms />
         <Patterns />
         <ReferenceStacks />
+        <VideoSettings />
         <Floating />
       </main>
     </div>
@@ -80,6 +85,10 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const COLORS = [
+  ['membership-free', 'bg-membership-free'],
+  ['membership-basic', 'bg-membership-basic'],
+  ['membership-plus', 'bg-membership-plus'],
+  ['membership-max', 'bg-membership-max'],
   ['background', 'bg-background'],
   ['card', 'bg-card'],
   ['secondary', 'bg-secondary'],
@@ -251,6 +260,15 @@ function Forms() {
           control={<Switch checked={on} onChange={setOn} aria-label="一行设置" />}
         />
         <Slider defaultValue={[40]} max={100} step={1} aria-label="滑块" />
+        <div className="h-32 w-8">
+          <Slider
+            orientation="vertical"
+            defaultValue={[40]}
+            max={100}
+            step={1}
+            aria-label="竖向滑块"
+          />
+        </div>
       </div>
     </Section>
   )
@@ -369,6 +387,8 @@ function ReferenceStacks() {
           <CreationReferenceStack
             key={count}
             count={count}
+            uploading={count === 3}
+            status={count === 3 ? '上传中 1/3' : undefined}
             previews={Array.from({ length: Math.min(count, 3) }, (_, index) => (
               <span
                 key={index}
@@ -391,6 +411,42 @@ function ReferenceStacks() {
             ))}
           </CreationReferenceStack>
         ))}
+      </div>
+    </Section>
+  )
+}
+
+function VideoSettings() {
+  const draft = useVideoStore((state) => state.draft)
+  useEffect(() => {
+    const previous = useVideoStore.getState().draft
+    useVideoStore.getState().setModel('grok-imagine-video-1.5-lite')
+    return () => useVideoStore.setState({ draft: previous })
+  }, [])
+  const support = VIDEO_MODEL_SUPPORT[draft.model]
+  if (!support) return null
+  return (
+    <Section title="视频模型与时长">
+      <div className="max-w-sm space-y-4 rounded-2xl border border-border bg-card p-4">
+        <Select
+          value={draft.model}
+          onValueChange={(model) => useVideoStore.getState().setModel(model)}
+        >
+          <SelectTrigger aria-label="视频模型">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {['grok-imagine-video-1.5-lite', 'agnes-video-2.5-flash'].map((id) => (
+              <SelectItem key={id} value={id}>
+                <span className="flex items-center gap-2">
+                  <ModelLogo model={id} />
+                  {VIDEO_MODEL_SUPPORT[id]!.label}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <VideoPresetRows support={support} draft={draft} aspectFollowsFirstFrame={false} />
       </div>
     </Section>
   )

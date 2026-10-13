@@ -28,6 +28,8 @@ import {
 } from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
+import { scheduleAgentFollowUps } from './follow-ups'
+import { createImageCombinationGuard } from './image-combinations'
 import {
   type AgentImageReference,
   archiveAgentReferences,
@@ -68,6 +70,7 @@ import { agentTurnFailure } from './turn-failure'
 import {
   type AgentTurnInput,
   expandSkillInvocation,
+  requestAgentReferences,
   turnInitialStateOf,
   turnModelPrompt,
   turnPromptBody,
@@ -187,10 +190,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     history: history.messages,
     prompt: prepared.wake?.authorizationPrompt ?? input.text,
     references: images.references,
-    attached: input.references.length > 0,
+    attached: requestAgentReferences(input).length > 0,
     ...(prepared.wake?.plan ? { carried: prepared.wake.plan.authorization } : {}),
   })
   let clarified = false
+  let combinationClarified = false
   /** 这一轮已经拟出待确认的稿：接下来该说话的是用户，再问一次模型只是白花钱。 */
   let drafted = false
   const maskedEditPlan = createMaskedEditPlan(
@@ -202,6 +206,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const visualWorkset = createVisualWorkset()
   const toolFailures = createToolFailureLog()
   const initialState = turnInitialStateOf(input)
+  const imageCombinations = createImageCombinationGuard({
+    history: history.messages,
+    references: requestAgentReferences(input),
+    text: input.text,
+    hasNewReferences: input.references.length > 0,
+  })
   const turnTools = agentTurnTools(
     {
       mode,
@@ -212,6 +222,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       deviceId: prepared.deviceId,
       images,
       visualWorkset,
+      imageCombinations,
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
@@ -478,6 +489,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (steering) {
         maskedEditPlan.interjected()
         images.attach(steering.references)
+        imageCombinations.interjected(steering.references)
+        combinationClarified = false
         if (images.masked) maskedEditPlan.protect()
         authorization.amend(steering.text, steering.active, steering.references.length > 0)
       }
@@ -596,6 +609,14 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
       if (block.status === 'awaiting_confirmation') drafted = true
+      const combinationQuestion = event.isError ? null : clarificationFromResult(event.result)
+      if (combinationQuestion && !combinationClarified) {
+        const messageId = crypto.randomUUID()
+        events.emit({ ...combinationQuestion, messageId })
+        await storeBlock(combinationQuestion, messageId)
+        clarified = true
+        combinationClarified = true
+      }
       if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'
         failure = agentTurnFailure(error, block.message, model.id)
@@ -741,9 +762,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   }
   const unregister = registerRunningTurn(turn)
 
-  // 视觉证据只带本轮真的附上的那几张：沿用下来的引用、以及张数多到只上清单的那批都不发字节，
-  // 模型要看内容自己调 viewImage（规则见 `shownTurnReferences`）。
-  void requireAgentImages(images, shownImageRequests(input.references))
+  // 未完成澄清链仍是同一请求；实发与预扣共享附图范围及张数限制。
+  void requireAgentImages(images, shownImageRequests(requestAgentReferences(input)))
     .then(async (references) => {
       if (aborted) return
       // Stop before reading the rest of an oversized review batch; missing evidence cannot count as reviewed.
@@ -815,6 +835,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       )
       const durationMs = Date.now() - startedAt
       const stopReason = outcome === 'cancelled' ? 'aborted' : outcome
+      let summaryStored = false
       try {
         // 先落持久事实再发终帧：终帧要过保留窗口就没了，页脚不能只靠它。
         await recordAgentTurnSummary({
@@ -825,12 +846,29 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           ...(cost ? { cost } : {}),
           ...(error ? { failure: failure ?? agentTurnFailure(error, error, model.id) } : {}),
         })
+        summaryStored = true
       } catch (thrown) {
         // 页脚丢一轮不该把已经流给用户的这一轮拖成报错。
         log.error(
           { event: 'agent.turn_summary_failed', turnId, err: thrown },
           'agent turn summary not stored',
         )
+      }
+      // 下一句是终帧之后的旁路：不进这一轮的账单，也不让用户多等终帧。
+      // 失败、中止、澄清、待确认都不问——那些轮下一句该由用户自己接。
+      if (
+        summaryStored &&
+        stopReason === 'completed' &&
+        !error &&
+        !aborted &&
+        !clarified &&
+        !drafted
+      ) {
+        scheduleAgentFollowUps({
+          conversationId,
+          turnId,
+          messages: [...storedMessages.values()],
+        })
       }
       events.emit({
         type: 'turnEnd',

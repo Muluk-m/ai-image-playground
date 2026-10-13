@@ -5,8 +5,10 @@ import common from './common.json'
 import composer from './composer.json'
 import errors from './errors.json'
 import inspiration from './inspiration.json'
+import legal from './legal.json'
 import lib from './lib.json'
 import library from './library.json'
+import pricing from './pricing.json'
 import production from './production.json'
 import settings from './settings.json'
 import shell from './shell.json'
@@ -29,12 +31,14 @@ export const en = {
   shell,
   store,
   lib,
+  pricing,
   production,
   video,
   library,
   canvas,
   agent,
   inspiration,
+  legal,
   toolbox,
 }
 

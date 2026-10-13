@@ -1,4 +1,3 @@
-import { Scan, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
 import {
@@ -8,6 +7,7 @@ import {
 } from '../lib/promptImageMentions'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
 import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 /** The editor's mention slots are stable region identities, never current array positions. */
 export function useRegionPrompt({
@@ -66,12 +66,12 @@ export function useRegionPrompt({
       const id = [...numbers.current].find((entry) => entry[1] === number)?.[0]
       return (
         <span className="region-prompt-chip" data-invalid={!active.has(number) || undefined}>
-          <Scan size={12} aria-hidden="true" />
+          <Icon name="focus" size="xs" />
           <span>{labels(index)}</span>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-6 w-5 rounded p-0 [&_svg]:size-3"
+            size="icon-xs"
+            className="shrink-0"
             type="button"
             aria-label={t('inpaint.removeRegion', { no: number })}
             onPointerDown={(event) => event.preventDefault()}
@@ -86,7 +86,7 @@ export function useRegionPrompt({
               }
             }}
           >
-            <X size={12} aria-hidden="true" />
+            <Icon name="close" />
           </Button>
         </span>
       )

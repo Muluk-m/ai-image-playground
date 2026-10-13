@@ -12,7 +12,16 @@ import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { optionalFontsPlugin } from './src/styles/fontPlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
-const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+const rootPkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf-8')) as {
+  version: string
+}
+
+/** Production deploys set APP_RELEASE from the git tag. Local builds use MAJOR.MINOR.0 in the root package.json. */
+function displayedVersion(): string {
+  const fromEnv = process.env.APP_RELEASE?.trim()
+  if (fromEnv && /^\d+\.\d+\.\d+$/.test(fromEnv)) return fromEnv
+  return rootPkg.version
+}
 
 /** 最低支持的浏览器内核。Chrome 80 覆盖仍在使用的国产浏览器旧内核；Safari 14 覆盖 iOS 14。 */
 const BROWSER_TARGET = ['es2020', 'chrome80', 'edge80', 'firefox78', 'safari14']
@@ -89,7 +98,7 @@ export default defineConfig(({ command }) => {
     ],
     base: '/',
     define: {
-      __APP_VERSION__: JSON.stringify(pkg.version),
+      __APP_VERSION__: JSON.stringify(displayedVersion()),
       __DEV_PROXY_CONFIG__: JSON.stringify(devProxyConfig),
     },
     resolve: {

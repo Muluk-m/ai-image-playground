@@ -5,11 +5,11 @@ import type {
   AgentToolArtifact,
   AgentVisualEvidence,
 } from '@image-playground/shared'
-import { Ban, CheckCircle2, Clock3, Image, Loader2, TriangleAlert } from 'lucide-react'
 import { useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import { ImagePreview } from '../../../components/Lightbox'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { accountScope } from '../../../lib/authScope'
 import { previewArtifactBitmap } from '../lib/artifactSource'
@@ -54,19 +54,19 @@ export function AgentBatchItemStatus({
 }) {
   const { t } = useTranslation('agent')
   const status = progress ?? execution?.status ?? 'pending'
-  const Icon =
+  const icon =
     status === 'completed'
-      ? CheckCircle2
+      ? 'success'
       : status === 'failed' || status === 'reconciling' || status === 'blocked'
-        ? TriangleAlert
+        ? 'warning'
         : status === 'cancelled'
-          ? Ban
+          ? 'blocked'
           : status === 'in_progress' || status === 'in_flight'
-            ? Loader2
-            : Clock3
+            ? 'loading'
+            : 'clock'
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
-      <Icon aria-hidden className="h-3 w-3" />
+      <Icon name={icon} size="xs" />
       {t(`batch.itemStatus.${status}`)}
     </span>
   )
@@ -154,7 +154,7 @@ export default function AgentBatchItemResult({
               disabled={busy}
               onClick={() => void show(artifact)}
             >
-              <Image aria-hidden className="mr-1 h-3 w-3" />
+              <Icon name="image" className="mr-1" />
               {t('batch.viewResult', { index: index + 1 })}
             </Button>
           ))}

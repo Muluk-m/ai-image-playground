@@ -1,3 +1,5 @@
+import { Button } from '../components/ui/button'
+import { Icon } from '../components/ui/icon'
 import { useTranslation } from '../i18n'
 
 interface SessionExpiredCardProps {
@@ -22,30 +24,19 @@ export function SessionExpiredCard({ onRelogin, onDismiss }: SessionExpiredCardP
           {t('expired.description')}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onRelogin}
-        className="shrink-0 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
+      <Button type="button" onClick={onRelogin} size="sm" className="shrink-0">
         {t('expired.relogin')}
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         onClick={onDismiss}
         aria-label={t('expired.dismiss')}
-        className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 text-muted-foreground"
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.9"
-          className="h-4 w-4"
-          aria-hidden
-        >
-          <path d="m6 6 12 12M18 6 6 18" />
-        </svg>
-      </button>
+        <Icon name="close" />
+      </Button>
     </div>
   )
 }

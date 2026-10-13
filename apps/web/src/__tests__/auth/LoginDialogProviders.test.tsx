@@ -20,7 +20,9 @@ let root: Root
 
 /** 弹框 portal 到 body，断言一律从 document 找，不看 host 子树。 */
 function providerButtons(): HTMLButtonElement[] {
-  return Array.from(document.body.querySelectorAll<HTMLButtonElement>('.auth-providers button'))
+  return Array.from(
+    document.body.querySelectorAll<HTMLButtonElement>('[data-auth-providers] button'),
+  )
 }
 
 function dialogText(): string {
@@ -72,7 +74,7 @@ describe('LoginDialog third-party providers', () => {
     stubProviders({ providers: [] })
     await render()
 
-    expect(document.body.querySelector('.auth-providers')).toBeNull()
+    expect(document.body.querySelector('[data-auth-providers]')).toBeNull()
     expect(dialogText()).not.toContain('或使用邮箱登录')
     expect(document.body.querySelector('input[name="username"]')).not.toBeNull()
   })
@@ -100,7 +102,7 @@ describe('LoginDialog third-party providers', () => {
       root.render(<LoginDialog onClose={onClose} />)
     })
 
-    const close = document.body.querySelector<HTMLButtonElement>('.auth-dialog-close')
+    const close = document.body.querySelector<HTMLButtonElement>('button[aria-label="关闭登录框"]')
     act(() => close?.click())
 
     expect(onClose).toHaveBeenCalledTimes(1)

@@ -1,7 +1,8 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { i18next, useTranslation } from '../i18n'
+import { isHistoryReady, subscribeHistoryReady } from '../lib/historyReady'
 import {
   type LegacyProductJob,
   legacyActionLabels,
@@ -13,6 +14,22 @@ import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } 
 import type { TaskRecord } from '../types'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
+
+/** 首页作品区在本机记录落地前的占位。侧栏、标题和输入框已经是真的，这里只盖网格。 */
+function HomeWorksSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+      {Array.from({ length: 3 }, (_, index) => (
+        <div key={index}>
+          <div className="aspect-[4/3] animate-pulse rounded-2xl bg-muted" />
+          <div className="mt-3 h-3 w-2/5 animate-pulse rounded-full bg-muted" />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /** 套的名字要落在它自己的记录上；记录还没加载时至少不能把分镜说成商品图。 */
 function setFallbackName(task: TaskRecord | undefined): string {
@@ -28,8 +45,19 @@ function setFallbackName(task: TaskRecord | undefined): string {
  * 给了 `limit` 就是生图入口的「最近生成」：只摆最近几条，且不受作品入口留下的搜索与筛选影响——
  * 那一页没有清除它们的入口。
  */
-export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boolean } = {}) {
+export default function TaskGrid({
+  limit,
+  hero,
+  hasMore = false,
+  onExpand,
+}: {
+  limit?: number
+  hero?: boolean
+  hasMore?: boolean
+  onExpand?: () => void
+} = {}) {
   const { t } = useTranslation('task')
+  const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
   const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
@@ -358,6 +386,8 @@ export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boole
     </div>
   )
 
+  if (hero && !historyReady) return <HomeWorksSkeleton />
+
   if (!filteredTasks.length) {
     if (!unfiltered && (searchQuery || filterFavorite || filterStatus !== 'all')) {
       return (
@@ -419,6 +449,19 @@ export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boole
       <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
         {visibleRows.flatMap((row) => row.nodes)}
       </div>
+      {limit !== undefined && onExpand && (rows.length > limit || hasMore) && (
+        <div className="flex justify-center pb-8">
+          <Button
+            variant="ghost"
+            className="h-10 gap-1 px-3 text-body-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg]:size-3.5"
+            onClick={onExpand}
+            aria-expanded={false}
+          >
+            {t('grid.expandMore')}
+            <Icon name="chevronDown" />
+          </Button>
+        </div>
+      )}
       {selectionBox && (
         <div
           className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"

@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
+import { markHistoryReady } from '../../lib/historyReady'
 import { readLegacyProductJobs, readLegacyStoryboardTitles } from '../../lib/legacyProductHistory'
 
 vi.mock('../../lib/legacyProductHistory', async (original) => ({
@@ -45,6 +46,7 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  markHistoryReady()
   useStore.setState({
     tasks: [task('task-1', 'job-1', 'done'), task('task-2', 'job-1', 'error')],
     searchQuery: '',
@@ -75,6 +77,16 @@ afterEach(() => {
 })
 
 describe('folding a product shot job in the history', () => {
+  it('counts folded sets rather than tasks when deciding whether more works exist', async () => {
+    useStore.setState({
+      tasks: Array.from({ length: 4 }, (_, index) => task(`task-${index}`, 'job-1', 'done')),
+      platformGenerations: [],
+    })
+    await act(async () => root.render(<TaskGrid hero limit={3} onExpand={vi.fn()} />))
+    expect(host.querySelectorAll('[data-set-history-card]')).toHaveLength(1)
+    expect(host.textContent).not.toContain('展开更多作品')
+  })
+
   it('shows one card named after the job instead of every task', async () => {
     await act(async () => root.render(<TaskGrid />))
 

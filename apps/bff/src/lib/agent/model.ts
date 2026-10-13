@@ -8,8 +8,10 @@ import {
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
+import { log } from '../logger'
 import { resolveChatApiKey } from '../resolveApiKey'
 import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget'
+import { observeOverloadResponse } from './overload-response'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { retryOverloadedStream } from './stream-retry'
 import { agentThinking } from './thinking'
@@ -56,7 +58,7 @@ function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     // 当前档位配置的预算窗口；压缩、硬闸和预扣都从这里读同一个值。
     contextWindow: profile.contextWindow,
-    maxTokens: config.agent.maxTokens,
+    maxTokens: profile.maxTokens,
     compat: {
       supportsStore: false,
       supportsReasoningEffort: true,
@@ -114,24 +116,36 @@ export function agentStreamFn(
   const { models } = runtime(depth)
   return (model, context, options) => {
     // 证据属于这一份请求、这一轮尝试；网络异常的文本不能替代上游拒绝响应。
-    let overloadRejected = false
+    let rejection: ReturnType<typeof observeOverloadResponse> | undefined
     return retryOverloadedStream(
       (streamModel, context, options) => {
-        overloadRejected = false
+        rejection = undefined
         return models.streamSimple(streamModel, context, {
           ...options,
           maxRetries: 0,
           fetch: guardedAgentFetch(
             withIdleTimeout(async (input, init) => {
               const response = await (fetchImpl ?? globalThis.fetch)(input, init)
-              overloadRejected = response.status === 429 || response.status === 503
-              return response
+              rejection = observeOverloadResponse(response)
+              return rejection.response
             }, idleMs),
             observer,
           ) as typeof globalThis.fetch,
         })
       },
-      () => overloadRejected,
+      () => {
+        const rejected = rejection?.isRejected() ?? false
+        if (rejected)
+          log.warn(
+            {
+              event: 'agent.upstream_overload',
+              model: model.id,
+              httpStatus: rejection?.response.status,
+            },
+            'upstream explicitly rejected model request due to overload',
+          )
+        return rejected
+      },
       observer.onRetry,
       retryBackoffMs,
     )(model, context, options)

@@ -1,4 +1,5 @@
-import type { ComponentType, ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import type { IconName } from '../../../components/ui/icon'
 
 /** 已经实现的工具。加一件就在这里加一个 id、写一个模块、登记进 `registry.ts`，目录页自己会长出卡片。 */
 export type ToolId =
@@ -73,7 +74,7 @@ export interface CombineController {
 interface ToolBase {
   id: ToolId
   group: ToolGroup
-  icon: ComponentType<{ className?: string }>
+  icon: IconName
 }
 
 /**

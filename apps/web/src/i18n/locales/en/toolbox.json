@@ -150,12 +150,21 @@
     "progress": "Exporting {{done}} / {{total}}",
     "action_one": "Export {{count}} file",
     "action_other": "Export {{count}} files",
+    "addToExport": "Add images to export",
     "zipHint": "Multiple files download as one ZIP",
     "jpegHint": "JPG has no transparency; transparent areas become white",
     "videoHint": "Videos export as the original file; size and format apply to images only",
     "undecodable": "Unsupported image format",
     "select": "Select",
     "downloadOriginal": "Download original",
-    "export": "Export"
+    "export": "Export",
+    "ratioUnlock": "Unlock aspect ratio",
+    "ratioLocked": "Aspect ratio locked",
+    "ratioUnlocked": "Unlocked · Independent dimensions",
+    "multipleValues": "Mixed",
+    "preview": "Output preview",
+    "invalidSize": "Enter a whole number greater than 0",
+    "pendingSize": "Awaiting size",
+    "unknownSize": "Calculated on export"
   }
 }

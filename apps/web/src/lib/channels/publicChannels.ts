@@ -39,3 +39,21 @@ export function getPublicChannel(id: string): PublicChannel | undefined {
   view()
   return imageById.get(id)
 }
+
+/**
+ * 展示用的模型名。内置模型用渠道下发的 label；同一 id 出现在多条渠道上时，
+ * 先认任务记下的 profile（内置 profile 的 id 就是 channel id）。
+ * 认不出的（BYOK 自填、清单还没到）退回 id，不另造一个名字。
+ */
+export function modelLabel(modelId: string, channelId?: string): string {
+  if (!modelId) return ''
+  const channels = getPublicChannels()
+  const preferred = channelId ? channels.find((channel) => channel.id === channelId) : undefined
+  const fromPreferred = preferred?.models.find((model) => model.id === modelId)?.label
+  if (fromPreferred) return fromPreferred
+  for (const channel of channels) {
+    const label = channel.models.find((model) => model.id === modelId)?.label
+    if (label) return label
+  }
+  return modelId
+}

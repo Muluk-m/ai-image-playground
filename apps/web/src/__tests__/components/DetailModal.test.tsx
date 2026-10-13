@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import DetailModal from '../../components/DetailModal'
+import { setChannels } from '../../lib/channels/channelStore'
 import { useStore } from '../../store'
 import { DEFAULT_PARAMS, type TaskRecord } from '../../types'
 
@@ -46,6 +47,7 @@ const task: TaskRecord = {
 }
 
 beforeEach(() => {
+  setChannels([])
   loadImagePreview.mockResolvedValue({ url: THUMBNAIL, width: 4000, height: 3000 })
   // 原图读多久由测试自己决定：这段时间就是用户盯着面板的那段时间。
   loadImageOriginal.mockImplementation(
@@ -130,4 +132,44 @@ it('云端镜下来的卡：来源写 provider 与模型，不拿「未知」凑
   const text = document.body.textContent ?? ''
   expect(text).toContain('OpenAI · gpt-image-2.5-flare')
   expect(text).not.toContain('未知')
+})
+
+it('来源里的模型写渠道 label，不写模型 id', async () => {
+  setChannels([
+    {
+      id: 'openai-images',
+      kind: 'openai-queue',
+      label: 'OpenAI',
+      models: [
+        {
+          id: 'gpt-image-2.5-flare',
+          label: 'GPT Image 2.5 Flare',
+          capabilities: ['generate'],
+        },
+      ],
+      defaults: {},
+    },
+  ])
+  useStore.setState({
+    tasks: [
+      {
+        ...task,
+        apiProvider: 'openai',
+        apiProfileId: 'openai-images',
+        apiProfileName: 'OpenAI',
+        apiModel: 'gpt-image-2.5-flare',
+      },
+    ],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('OpenAI · OpenAI · GPT Image 2.5 Flare')
+  expect(text).not.toContain('gpt-image-2.5-flare')
+  const sourceLabel = Array.from(document.querySelectorAll('span')).find(
+    (el) => el.textContent === '来源',
+  )
+  expect(sourceLabel?.parentElement?.querySelector('svg')).not.toBeNull()
 })

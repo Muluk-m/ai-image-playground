@@ -10,6 +10,7 @@ import {
   logoutUser,
   oauthStartUrl,
   registerUser,
+  shouldProbeSession,
 } from '../../lib/authClient'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
@@ -147,6 +148,74 @@ describe('auth client', () => {
     await authenticatedBffFetch('/v1/queue/requests/id/status')
 
     expect(expired).not.toHaveBeenCalled()
+  })
+
+  it('does not request the billing account for a visitor who never signed in', async () => {
+    setSignedIn(false)
+    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const response = await authenticatedBffFetch('https://bff.example.com/api/billing/account')
+
+    expect(response.status).toBe(401)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('still requests the billing account under bun, where the billing store tests run', async () => {
+    vi.stubGlobal('Bun', {})
+    setSignedIn(false)
+    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const response = await authenticatedBffFetch('/api/billing/account')
+
+    expect(response.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('still requests the billing account when this deployment has no accounts', async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
+    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const response = await authenticatedBffFetch('/api/billing/account')
+
+    expect(response.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('still requests the billing account after sign-in', async () => {
+    setSignedIn(true)
+    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const response = await authenticatedBffFetch('/api/billing/account')
+
+    expect(response.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    setSignedIn(false)
+  })
+
+  it('probes the session only when a hint cookie or a remembered user is present', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    })
+    vi.stubGlobal('document', { cookie: '' })
+    expect(shouldProbeSession()).toBe(false)
+
+    store.set('image-playground.last-storage-user', 'null')
+    expect(shouldProbeSession()).toBe(false)
+
+    store.set('image-playground.last-storage-user', JSON.stringify('alice'))
+    expect(shouldProbeSession()).toBe(true)
+
+    store.clear()
+    vi.stubGlobal('document', { cookie: 'image_playground_signed_in=1' })
+    expect(shouldProbeSession()).toBe(true)
   })
 
   it('points the OAuth start route at the configured BFF origin', () => {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { projectRouteSegment } from '../../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
-import { pathAppMode } from '../../lib/appPaths'
+import { isPricingPath, isPrivacyPath, isTermsPath, pathAppMode } from '../../lib/appPaths'
 import { installAppRouting } from '../../lib/appRoute'
 import { useStore } from '../../store'
 
@@ -29,6 +29,12 @@ describe('pathAppMode', () => {
     expect(pathAppMode('/projects/')).toBe('library')
     expect(pathAppMode('/')).toBeNull()
     expect(pathAppMode('/p/abc')).toBeNull()
+    expect(pathAppMode('/pricing')).toBeNull()
+    expect(pathAppMode('/pricing/')).toBeNull()
+    expect(isPricingPath('/pricing/')).toBe(true)
+    expect(pathAppMode('/terms')).toBeNull()
+    expect(isTermsPath('/terms/')).toBe(true)
+    expect(isPrivacyPath('/privacy')).toBe(true)
   })
 })
 
@@ -59,6 +65,20 @@ describe('installAppRouting', () => {
     expect(useStore.getState().appMode).toBe('library')
     popTo('/')
     expect(useStore.getState().appMode).toBe('image')
+  })
+
+  it('keeps the pricing address when the workspace mode changes', () => {
+    history.replaceState(null, '', '/pricing')
+    cleanup = installAppRouting()
+    useStore.getState().setAppMode('explore')
+    expect(location.pathname).toBe('/pricing')
+  })
+
+  it('keeps the terms address when the workspace mode changes', () => {
+    history.replaceState(null, '', '/terms')
+    cleanup = installAppRouting()
+    useStore.getState().setAppMode('explore')
+    expect(location.pathname).toBe('/terms')
   })
 
   it('opens the page named by the address on load', () => {

@@ -1,6 +1,6 @@
-import { Download, SquareArrowOutUpRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { type DeliverableImage, downloadImages, sendImagesToComposer } from '../lib/deliver'
 import type { ToolDefinition } from '../lib/tool'
@@ -28,13 +28,12 @@ export default function ToolShell({
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
-  const Icon = tool.icon
   const name = t(`tool.${tool.id}.name`)
 
   return (
     <main
       {...dropZoneProps}
-      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col"
+      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col"
     >
       {inputs}
       <ToolboxHeader
@@ -43,7 +42,7 @@ export default function ToolShell({
         onAddFolder={openFolder}
         title={
           <>
-            <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+            <Icon name={tool.icon} className="text-primary" />
             {name}
           </>
         }
@@ -58,7 +57,7 @@ export default function ToolShell({
               dragging ? 'border-primary bg-primary/5' : 'border-border'
             }`}
           >
-            <Icon className="h-10 w-10 text-muted-foreground" />
+            <Icon name={tool.icon} size="lg" className="text-muted-foreground" />
             <div className="text-sm text-muted-foreground">{t('intake.hint')}</div>
             <div className="flex gap-2">
               <Button onClick={openFiles}>{t('intake.chooseImages')}</Button>
@@ -80,7 +79,7 @@ export default function ToolShell({
             disabled={deliverables.length === 0}
             onClick={() => void sendImagesToComposer(deliverables)}
           >
-            <SquareArrowOutUpRight />
+            <Icon name="sendToComposer" />
             {t('footer.sendToComposer')}
           </Button>
           <Button
@@ -88,7 +87,7 @@ export default function ToolShell({
             disabled={deliverables.length === 0}
             onClick={() => void downloadImages(deliverables, `${name}.zip`)}
           >
-            <Download />
+            <Icon name="download" />
             {deliverables.length > 1
               ? t('footer.downloadAll', { count: deliverables.length })
               : t('footer.download')}

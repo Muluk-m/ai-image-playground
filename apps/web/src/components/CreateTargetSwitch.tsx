@@ -1,8 +1,8 @@
-import { Bot, LayoutDashboard } from 'lucide-react'
 import { useTranslation } from '../i18n'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { useStore } from '../store'
-import { SparkleIcon } from './icons'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 /** 首屏的三条创作路径：对话、直出与画布各有独立入口，对话排在最前。 */
 export default function CreateTargetSwitch() {
@@ -16,19 +16,19 @@ export default function CreateTargetSwitch() {
           {
             id: 'chat' as const,
             label: t('createTarget.chat'),
-            icon: <Bot className="h-4 w-4" aria-hidden="true" />,
+            icon: <Icon name="chat" />,
           },
         ]
       : []),
     {
       id: 'generate',
       label: t('createTarget.generate'),
-      icon: <SparkleIcon className="h-4 w-4" />,
+      icon: <Icon name="generate" />,
     },
     {
       id: 'canvas',
       label: agentEnabled ? t('createTarget.canvas') : t('mode.canvas'),
-      icon: <LayoutDashboard className="h-4 w-4" />,
+      icon: <Icon name="canvas" />,
     },
   ] as const
   return (
@@ -40,19 +40,23 @@ export default function CreateTargetSwitch() {
       {options.map((one) => {
         const active = one.id === target || (one.id === 'generate' && target === 'video')
         return (
-          <button
+          <Button
+            variant="ghost"
+            size="default"
             key={one.id}
             type="button"
             role="tab"
             aria-selected={active}
             onClick={() => setTarget(one.id)}
-            className={`inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
-              active ? 'studio-generate-button' : 'text-muted-foreground hover:text-foreground'
+            className={`max-md:h-11 min-w-0 gap-1.5 rounded-full px-3 text-xs sm:min-w-[7.5rem] sm:gap-2 sm:px-5 sm:text-sm ${
+              active
+                ? 'studio-create-target-active'
+                : 'text-muted-foreground hover:bg-transparent hover:text-foreground'
             }`}
           >
             {one.icon}
             {one.label}
-          </button>
+          </Button>
         )
       })}
     </div>

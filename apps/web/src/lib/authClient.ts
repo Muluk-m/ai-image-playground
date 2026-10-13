@@ -1,6 +1,12 @@
-import type { AuthUserView, LoginMethodsView, OAuthProviderView } from '@image-playground/shared'
-import { isSignedIn } from '../auth/loginPrompt'
+import {
+  type AuthUserView,
+  type LoginMethodsView,
+  type OAuthProviderView,
+  USER_SESSION_HINT_COOKIE,
+} from '@image-playground/shared'
+import { accountRequired, isSignedIn } from '../auth/loginPrompt'
 import { isClientCapabilityEnabled } from './clientCapabilities'
+import { hasRememberedSignedInUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 
@@ -161,10 +167,39 @@ export async function unlinkOAuthProvider(provider: string): Promise<void> {
  * 只有「本来登着」才算会话失效：未登录访客也能进工作台，他们的 401 是正常的权限边界，
  * 由动作自己在发请求前调 requireAccount() 弹登录框，这里再喊一次只会冒出第二个弹窗。
  */
+function requestPath(input: string): string {
+  try {
+    return new URL(input, 'https://bff.local').pathname
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 匿名访客没有可读的登录痕迹时，跳过 /api/auth/me。
+ * HttpOnly 会话脚本读不到；提示 cookie 或上次记住的用户 id 才说明值得探测。
+ */
+export function shouldProbeSession(): boolean {
+  if (typeof document !== 'undefined') {
+    const hinted = document.cookie.split(';').some((part) => {
+      const [name, value] = part.trim().split('=')
+      return name === USER_SESSION_HINT_COOKIE && Boolean(value)
+    })
+    if (hinted) return true
+  }
+  return hasRememberedSignedInUser()
+}
+
 export async function authenticatedBffFetch(
   input: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  // 浏览器里，开了账号且未登录时不拉积分账户：overlay 会无条件请求，匿名打开就会 401。
+  // bun 下不挡。私有计费 store 的单测跑在 bun test 里，未登录也要拿到 mock 的账户响应。
+  const underBun = typeof globalThis !== 'undefined' && 'Bun' in globalThis
+  if (!underBun && accountRequired() && requestPath(input) === '/api/billing/account') {
+    return new Response(null, { status: 401 })
+  }
   const res = await fetch(input, { ...init, credentials: 'include' })
   if (
     res.status === 401 &&

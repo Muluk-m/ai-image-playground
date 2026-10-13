@@ -1,4 +1,3 @@
-import { Zap } from 'lucide-react'
 import { useMemo } from 'react'
 import { ReasoningEffort } from '../../../components/assistant-ui/elements/reasoning-effort'
 import { ModelSelector } from '../../../components/composer/ModelSelector'
@@ -8,6 +7,7 @@ import {
   SettingsToggle,
 } from '../../../components/composer/SettingsPanel'
 import { ImageSettings, type UnsupportedParam } from '../../../components/ParamControls'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useStore } from '../../../store'
@@ -98,7 +98,7 @@ export default function AgentParamsChip({
   if (!generationControls) {
     return (
       <SettingsPopover
-        size="sm"
+        size="md"
         summary={t('params.thinkingSummary', { label: labels[depth] })}
         title={t('params.thinkingLegend')}
         dirty={depth !== 'medium'}
@@ -111,9 +111,9 @@ export default function AgentParamsChip({
 
   return (
     <>
-      <ModelSelector size="sm" label={byok ? t('params.builtinModel') : undefined} />
+      <ModelSelector size="md" label={byok ? t('params.builtinModel') : undefined} />
       <ImageSettings
-        size="sm"
+        size="md"
         unsupported={UNSUPPORTED}
         extra={{
           dirty: thinkingControls && depth !== 'medium',
@@ -121,7 +121,12 @@ export default function AgentParamsChip({
             if (thinkingControls) setDepth('medium')
           },
           badge: autoSubmit ? (
-            <Zap aria-label={t('params.autoSubmitLabel')} className="h-3.5 w-3.5 text-primary" />
+            <Icon
+              name="speed"
+              size="xs"
+              label={t('params.autoSubmitLabel')}
+              className="text-primary"
+            />
           ) : undefined,
           section: (
             <>

@@ -16,6 +16,11 @@ export interface PromptHeightInput {
   innerHeight: number
   /** 同卡片其它固定元素占的高度（图片 thumbs + 参数行 + padding 等）。 */
   fixedOverhead: number
+  /**
+   * 内容很短时的下限。默认 {@link PROMPT_MIN_H}。
+   * 参考图展开后改由样式的一行高兜底，这里传 0，避免再垫出一块空写区。
+   */
+  minH?: number
 }
 
 export interface PromptHeightOutput {
@@ -27,7 +32,7 @@ export interface PromptHeightOutput {
 
 export function computePromptHeight(input: PromptHeightInput): PromptHeightOutput {
   const maxH = Math.max(input.innerHeight * 0.4 - input.fixedOverhead, 80)
-  const desired = Math.max(input.scrollH, PROMPT_MIN_H)
+  const desired = Math.max(input.scrollH, input.minH ?? PROMPT_MIN_H)
   return {
     targetH: Math.min(desired, maxH),
     scroll: desired > maxH,

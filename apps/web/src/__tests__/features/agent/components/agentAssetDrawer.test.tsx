@@ -148,7 +148,9 @@ it('loads only the visible page and fetches older conversation histories as the 
       />,
     )
   })
-  const all = [...document.querySelectorAll<HTMLButtonElement>('.studio-assets-tabs button')][1]!
+  const all = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="group"] button[aria-pressed]'),
+  ][1]!
   await act(async () => all.click())
   expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(24)
   expect(fixture.fetchConversations).not.toHaveBeenCalled()
@@ -212,7 +214,9 @@ it('retries the same older conversation when its history fails to load', async (
       />,
     )
   })
-  const all = [...document.querySelectorAll<HTMLButtonElement>('.studio-assets-tabs button')][1]!
+  const all = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="group"] button[aria-pressed]'),
+  ][1]!
   await act(async () => all.click())
   await scrollToEnd()
   expect(document.body.textContent).toContain('部分对话加载失败')

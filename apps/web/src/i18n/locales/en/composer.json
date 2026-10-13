@@ -55,7 +55,8 @@
     "configureApiFirst": "Configure the API first",
     "apiNotConfigured": "Configure the API in Settings first",
     "startCanvas": "Start creating",
-    "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send"
+    "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send",
+    "promptRequired": "Enter a prompt to generate"
   },
   "search": {
     "favoriteOnly": "Favorites only",
@@ -182,6 +183,15 @@
     "projectActions": "Project actions",
     "start": "Start creating",
     "newProject": "New project",
-    "references": "References ({{count}})"
+    "references": "References ({{count}})",
+    "uploadProgress": "Uploading {{ready}}/{{total}}",
+    "viewAllReferences": "View all",
+    "clearReferences": "Clear references",
+    "collapseReferences": "Collapse references",
+    "shortModes": {
+      "agent": "Agent",
+      "image": "Image",
+      "video": "Video"
+    }
   }
 }

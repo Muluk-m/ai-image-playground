@@ -2,7 +2,7 @@
 import './boot/polyfills'
 import { type ReactNode, StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BOOT_READY_EVENT } from './boot/constants'
+import { signalBootReady } from './boot/ready'
 import { bootstrapLocale, i18next } from './i18n'
 import './index.css'
 import {
@@ -20,14 +20,14 @@ installMobileViewportGuards()
 /**
  * 启动链原本是串的：JS → 运行时配置 → 分片 → 能力/频道 → 首帧。每一环都是一个往返，
  * 冷启动整屏黑 3.8s。这里把不依赖配置的两件事（首帧分片、语料）在第一行就发出去，
- * 与配置请求并行；闪屏由 index.html 负责，挂载时摘掉。
+ * 与配置请求并行。闪屏由 index.html 画芽，一直盖到工作台或故障页，再淡出。
  */
 const localeReady = bootstrapLocale()
 
-/** Any screen React commits (gate, login, problem, workspace) owns loading and errors from here on. */
+/** Dev-only screens have no App or ProblemScreen to dismiss the splash. */
 function BootReady({ children }: { children: ReactNode }) {
   useEffect(() => {
-    document.dispatchEvent(new Event(BOOT_READY_EVENT))
+    signalBootReady()
   }, [])
   return children
 }
@@ -72,12 +72,7 @@ async function start(): Promise<void> {
       console.error(error)
     },
   })
-  const render = (node: ReactNode) =>
-    root.render(
-      <StrictMode>
-        <BootReady>{node}</BootReady>
-      </StrictMode>,
-    )
+  const render = (node: ReactNode) => root.render(<StrictMode>{node}</StrictMode>)
   async function mountAfterCapabilities(): Promise<void> {
     try {
       // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。

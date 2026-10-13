@@ -11,7 +11,10 @@ import { activateProduction } from '../../../features/production/lib/productionC
 
 const request = vi.hoisted(() => vi.fn())
 vi.mock('../../../lib/authClient', () => ({ authenticatedBffFetch: request }))
-vi.mock('../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.local' }))
+vi.mock('../../../lib/runtimeConfig', () => ({
+  bffBaseUrl: () => 'http://test.local',
+  getRuntimeConfig: () => ({ bff: { enabled: true, baseUrl: 'http://test.local' } }),
+}))
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 afterEach(() => request.mockReset())
 const message: AgentToolMessage = {

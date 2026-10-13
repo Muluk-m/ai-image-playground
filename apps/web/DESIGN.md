@@ -18,6 +18,18 @@ colors:
   on-warning: "#2a1c07"
   scrim: "#000000"
   on-media: "#ffffff"
+  transparency-grid-dark: "#666666"
+  transparency-grid-light: "#737373"
+  canvas-annotation: "#159cf6"
+  brand-google: "#4285f4"
+  creation-selected-start: "#d9ffba"
+  creation-selected-middle: "#93e46f"
+  creation-selected-end: "#63c455"
+  creation-selected-foreground: "#0b1a08"
+  membership-free: "#9aa4a0"
+  membership-basic: "#8fe06a"
+  membership-plus: "#4fd2e8"
+  membership-max: "#f2c75c"
   light-background: "#f8f8f7"
   light-surface: "#ffffff"
   light-primary: "#436c28"
@@ -235,6 +247,8 @@ components:
 历史、画布工具都要在一屏里），所以靠统一的字阶、控件高度和圆角建立秩序，而不是靠留白或
 装饰。首页 hero 是唯一允许出现品牌表情（光晕、渐变强调字）的地方，工作区一律素净。
 
+首页创作路径切换保留圆形胶囊：选中项使用 `creation-selected-*` 芽绿渐变和深色字，未选中项悬停只提亮文字，不能出现第二个选中块。右上角账户区不加整体胶囊或描边；积分按钮采用 28px 高的扁平小圆角，头像保持圆形，菜单内部使用标准控件圆角。
+
 PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容区，两者同底色，靠导航栏右侧 1px `border` 分界，与页头底部分割线相接。内容区没有全局顶栏，
 每个页面自带一条 56px 的页头；账号簇浮在右上角，页头按它的实际宽度让位。
 
@@ -253,6 +267,13 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `amber-*`、`red-*`、`emerald-*` 调色板类代替。
 - **Scrim / On-media**：盖在图片、视频上的角标与遮罩固定用黑底白字，不随主题变；
   不透明度只用两档：角标 55%、全屏遮罩 70%。画笔色、二维码白底同样不随主题变。
+- **Transparency-grid-dark / light**：透明图预览的两档中性棋盘灰，固定于主题之外，让纯黑与纯白
+  的透明素材都能辨认；不用于页面、卡片或文字。
+- **Canvas-annotation**：区域编辑框与其编号使用的固定蓝色，与画布标注图层保持一致，不作界面强调色。
+- **Brand-google**：登录提供商 Google 标识的品牌蓝，只用于该标识。
+- **Membership-free / basic / plus / max**：会员等级的身份色，只用于等级徽标与对应套餐。
+  暗色保留灰绿、芽绿、青、金四档；亮色分别使用 muted-foreground、primary、深青与 warning，
+  不把等级色用于普通按钮或成功、失败状态。
 
 ## Typography
 
@@ -271,6 +292,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 | label-md | 12 | `text-xs` | 按钮、chip、元数据 |
 | label-sm | 11 | `text-label-sm` | 计数、次要标注 |
 | mono-sm | 11 | `font-mono text-label-sm` | 媒体角标上的比例与尺寸 |
+
+手写 CSS 用 `theme('fontSize.body-sm')` 等引用同一份 Tailwind 字阶；不另建字号表。
 
 `text-lg`、`text-2xl`、`text-3xl` 等不在字阶里，不要用。
 
@@ -336,6 +359,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 组件怎么分层、何时用哪个、变体与配方，写在 [`docs/design-system/`](./docs/design-system/README.md)：
 先查那里的「我要做 X → 用哪个」速查表，找不到再按它的流程新增组件，不在业务里手搭控件。
 
+图标统一使用 `Icon` 语义名，来源及规格见 [`icons.md`](./docs/design-system/icons.md)；
+不在业务组件直接引入 lucide 或写 SVG。
+
 下面只记产品专属、不属于任何通用组件的规则。
 
 - **Composer 参数**：每个创作输入框底部只有「附件 · 模型 chip · 参数摘要 chip · 生成」。
@@ -345,6 +371,12 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   一个点。卡片里的互斥档位一律用 `SettingsSegmented`（比例用 `RatioGrid`），开关用
   `SettingsToggle`。图片（`ParamControls`）与视频（`CanvasVideoParams`）共用这一个外壳，
   不要再在输入框里平铺一排参数 chip。
+- **Composer 底栏**：首页、智能创作与画布直接生成统一用 `CreationToolbar` 和 `CreationSend`。
+  宽栏和窄栏都按「模式 · 模型 · 参数 · 发送」一行排列。宽栏控件高 40px、间隔 8px；
+  输入框宽度不超过 520px 时间隔 6px、控件高 32px。选择器按输入框容器宽度响应：大于 600px 显示完整名称，401–600px 创作类型显示短名称、模型保留最多 164px 的名称区域，400px 及以下两者收为 52px 的图标加下拉箭头；悬停与键盘聚焦显示完整标签，展开菜单始终保留完整名称。触屏控件至少高 44px，
+  仍然留在同一行。上传状态和充值入口另占一行，不挤占发送位置；长模型名截断，
+  具体模型仍可打开菜单查看。参考图上的移除是 16px 深色角标，不用危险色。
+- 展开的参考素材统一使用紧凑缩略条：首页、画布、Agent 输入框的单张缩略图固定 **48 × 64px**，间距 **4px**，添加入口同尺寸；不随容器拉伸，超出横向滚动。图片用 `object-fit: cover`，完整内容通过预览查看。缩略图圆角统一 4px，配低对比度 1px 内描边，内部图片不再叠加圆角；悬浮预览按原图比例贴合显示，不加额外边框或留白；标题到素材条间距 12px，素材条与输入区间距 12px。遮罩入口只占缩略图角落，不用整图蒙层遮住图片，也不与图片预览争抢悬停；展开素材不能压缩书写区，首页输入区桌面至少 96px、窄屏至少 84px。
 
 ## Do's and Don'ts
 
@@ -373,3 +405,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `bun run scripts/check-design.ts --adopt <rule>` 登记它的存量，其他规则不受影响。
 - 确属例外（画布热区、第三方挂载点等）在该行行尾或紧邻上方的注释行写
   `design-allow <rule>: 理由`；不要靠改 baseline 放行新代码。
+
+### 纯图标按钮的标签
+
+所有纯图标按钮必须有简短、可本地化的 `aria-label`，说明动作（如“编辑素材”“删除素材”）。鼠标悬停与键盘聚焦都必须展示可见标签；不能只给读屏名称。共用 `Button` 将 `aria-label`（或明确的 `title` 提示）显示为 Portal Tooltip，避免被卡片、侧栏或弹窗裁切；已有 `Hint` / `TooltipIconButton` 不重复生成提示。禁用的图标按钮仍可悬停查看含义，不能因此变成可点击。
+
+动态按钮的标签必须跟随当前动作更新。组合件必须要求调用方传入标签并透传；仅有 `sr-only` 文本不能代替可见提示。`icon-button-label` 门禁阻止新增无标签的图标按钮，覆盖公开 Web、Admin 与私有 overlay。

@@ -116,6 +116,8 @@ const DYNAMIC_PREFIXES = [
   'production:export.cancelled',
   'production:export.complete',
   'production:historySource.',
+  // features/legal/LegalPage.tsx：按条款小节 id 拼 `sections.${id}.title` / `.body`。
+  'legal:sections.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/

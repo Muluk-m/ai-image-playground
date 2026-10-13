@@ -2,7 +2,8 @@ import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '../../lib/utils'
+import { Hint } from './tooltip'
 
 const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
@@ -26,6 +27,9 @@ const buttonVariants = cva(
         'icon-sm': 'size-8',
         'icon-xs': 'size-7 [&_svg]:size-3.5',
         'icon-lg': 'size-10 [&_svg]:size-5',
+        'chip-lg':
+          'h-10 rounded-xl px-3 text-xs [@container_creation-composer_(max-width:520px)]:h-8 [@container_creation-composer_(max-width:520px)]:rounded-lg [@container_creation-composer_(max-width:520px)]:px-2 [@container_creation-composer_(max-width:520px)]:text-label-sm',
+        'chip-sm': 'h-8 rounded-lg px-2.5 text-label-sm',
       },
     },
     defaultVariants: {
@@ -39,14 +43,29 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  /** Disable when an ancestor trigger supplies the tooltip through an intermediary element. */
+  autoTooltip?: boolean
+  'data-tooltip-trigger'?: boolean
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, autoTooltip = true, title, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
-    return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+    const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
+    const label = title || props['aria-label']
+    const button = (
+      <Comp
+        className={cn(
+          buttonVariants({ variant, size, className }),
+          label && !asChild && 'disabled:pointer-events-auto',
+        )}
+        ref={ref}
+        aria-description={title}
+        {...props}
+      />
     )
+    // 已有 Hint 的组合件沿用它自己的文案，避免双重提示。Portal 不改变按钮的布局层级。
+    return hasTooltip ? button : <Hint tooltip={label}>{button}</Hint>
   },
 )
 Button.displayName = 'Button'

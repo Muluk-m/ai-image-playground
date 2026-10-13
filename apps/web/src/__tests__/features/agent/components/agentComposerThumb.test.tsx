@@ -129,7 +129,11 @@ it.each([
         panel.querySelector('img')!.dispatchEvent(new Event('load'))
       })
       expect(panel.querySelector('img')?.className).not.toContain('opacity-0')
-      expect(panel.querySelector('[data-slot="attachment-loading"]')).toBeNull()
+      expect(panel.querySelector('[data-slot="attachment-loading"]')).not.toBeNull()
+      expect(host.querySelector('[data-slot="composer-send"]')?.getAttribute('aria-busy')).toBe(
+        'true',
+      )
+      expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).not.toBeNull()
       expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
         true,
       )

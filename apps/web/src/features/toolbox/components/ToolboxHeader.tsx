@@ -1,7 +1,7 @@
-import { ArrowLeft, FolderOpen, ImagePlus, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import PageHeader from '../../../components/patterns/PageHeader'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useToolboxStore } from '../store'
 
@@ -28,7 +28,7 @@ export default function ToolboxHeader({
       <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-3 md:px-6">
         {back && (
           <Button variant="ghost" size="sm" onClick={closeTool}>
-            <ArrowLeft />
+            <Icon name="back" />
             {t('page.returnToTools')}
           </Button>
         )}
@@ -39,16 +39,16 @@ export default function ToolboxHeader({
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={busy} onClick={onAddImages}>
-            <ImagePlus />
+            <Icon name="imageAdd" />
             {t('intake.addImages')}
           </Button>
           <Button variant="outline" size="sm" disabled={busy} onClick={onAddFolder}>
-            <FolderOpen />
+            <Icon name="folder" />
             {t('intake.addFolder')}
           </Button>
           {count > 0 && (
             <Button variant="ghost" size="sm" disabled={busy} onClick={clear}>
-              <Trash2 />
+              <Icon name="delete" />
               {t('intake.clearAll')}
             </Button>
           )}
