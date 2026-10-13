@@ -95,6 +95,11 @@ it('opens on hover without saving, supports quick removal, and closes after leav
   )
   act(() => host.querySelector('.creation-stack-trigger')!.dispatchEvent(pointer('pointerover')))
   expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
+  expect(document.querySelector('[aria-label="收起参考图"]')).toBeNull()
+  const headingActions = [...document.querySelectorAll('.creation-reference-heading button')].map(
+    (button) => button.textContent,
+  )
+  expect(headingActions[headingActions.length - 1]).toBe('查看全部')
   expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBeNull()
   expect(document.querySelectorAll('.creation-stack-add')).toHaveLength(1)
   act(() => document.querySelector<HTMLButtonElement>('[data-remove]')!.click())
