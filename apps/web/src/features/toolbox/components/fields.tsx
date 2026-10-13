@@ -1,13 +1,17 @@
 import type { ReactNode } from 'react'
+import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
+import { Label } from '../../../components/ui/label'
 
 /** 参数行里的一格：标签在上、控件在下。工具页那一行只放该工具自己的参数。 */
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+    <fieldset className="min-w-0 space-y-1.5">
+      <Label asChild className="text-xs text-muted-foreground">
+        <legend>{label}</legend>
+      </Label>
       {children}
-    </div>
+    </fieldset>
   )
 }
 
@@ -30,20 +34,18 @@ export function Segmented<T extends string | number>({
       className="inline-flex flex-wrap rounded-lg border border-border bg-muted/40 p-0.5"
     >
       {options.map((option) => (
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           key={String(option.value)}
           type="button"
           role="radio"
           aria-checked={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`h-8 rounded-md px-3 text-body-sm transition-colors ${
-            value === option.value
-              ? 'bg-background font-medium text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          className="text-muted-foreground aria-checked:bg-accent aria-checked:text-accent-foreground"
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </div>
   )
@@ -74,7 +76,7 @@ export function NumberField({
           const next = Math.round(Number(event.target.value))
           if (Number.isFinite(next) && next >= min) onChange(next)
         }}
-        className="h-8 pr-9 text-body-sm"
+        className="pr-9"
       />
       <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
         {unit}

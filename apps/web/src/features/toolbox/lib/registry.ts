@@ -1,4 +1,3 @@
-import { Scaling } from 'lucide-react'
 import { collageTool } from '../tools/collage'
 import { compressTool } from '../tools/compress'
 import { convertTool } from '../tools/convert'
@@ -13,7 +12,7 @@ import type { ToolDefinition, ToolGroup } from './tool'
  * 目录页和工具页都不用改。
  */
 export const TOOLS: readonly ToolDefinition[] = [
-  { id: 'export', group: 'process', icon: Scaling, kind: 'custom' },
+  { id: 'export', group: 'process', icon: 'resize', kind: 'custom' },
   compressTool,
   convertTool,
   cropTool,
