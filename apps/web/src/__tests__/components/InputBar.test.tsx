@@ -526,7 +526,7 @@ it('does not resurrect a model removed while another creation mode is selected',
   })
 })
 
-it('removes a masked reference from the stack without a clear-all tile', () => {
+it('removes a masked reference from the expanded stack', () => {
   act(() =>
     useStore.setState({
       inputImages: [{ id: 'masked', dataUrl: 'data:image/png;base64,AA' }],
@@ -534,7 +534,7 @@ it('removes a masked reference from the stack without a clear-all tile', () => {
     }),
   )
   const panel = openReferenceStack(host)
-  expect(panel.textContent).not.toContain('清空')
+  expect(panel.querySelector('.creation-reference-heading')?.textContent).toContain('清空参考素材')
   act(() => panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!.click())
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
@@ -555,4 +555,27 @@ it('replaces a canvas prompt and clears references and masks from inspiration', 
   expect(useStore.getState().prompt).toBe('新的灵感')
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
+})
+
+it('clears references and their masks while preserving prompt text', () => {
+  act(() =>
+    useStore.setState({
+      prompt: '保留这段文字',
+      inputImages: [{ id: 'clear-test', dataUrl: 'data:image/png;base64,AA' }],
+      maskDraft: {
+        targetImageId: 'clear-test',
+        maskDataUrl: 'data:image/png;base64,AA',
+        updatedAt: 1,
+      },
+    }),
+  )
+  const panel = openReferenceStack(host)
+  act(() =>
+    Array.from(panel.querySelectorAll('button'))
+      .find((b) => b.textContent === '清空参考素材')!
+      .click(),
+  )
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().maskDraft).toBeNull()
+  expect(useStore.getState().prompt).toBe('保留这段文字')
 })

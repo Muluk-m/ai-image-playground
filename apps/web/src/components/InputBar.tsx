@@ -984,6 +984,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     return (
       <Hint
         key={img.id}
+        sideOffset={16}
+        disableHoverableContent
         tooltip={
           imageHintText || (
             <img
@@ -1092,7 +1094,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             variant="destructive"
             size="icon-xs"
             aria-label={t('common:action.remove')}
-            className="absolute right-0 top-0 z-30 size-5 translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute right-1 top-1 z-30 opacity-0 shadow-md transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1209,6 +1211,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             references={
               <CreationReferenceStack
                 count={inputImages.length}
+                onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
                   .map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}
