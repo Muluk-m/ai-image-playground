@@ -31,12 +31,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-async function loadTab() {
+async function loadTab(account = ACCOUNT) {
   // Each tab owns its module-local mutation guards, but both tabs use the same browser DB.
   vi.resetModules()
   const { setClientStorageScope } = await import('../../../../lib/authScope')
   const { _setRuntimeConfigForTesting } = await import('../../../../lib/runtimeConfig')
-  setClientStorageScope(ACCOUNT)
+  setClientStorageScope(account)
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: BACKEND } })
   return import('../../../../features/agent/lib/conversationCache')
 }
@@ -74,6 +74,13 @@ it.each(races)("does not let a $mode quota retry undo another tab's $action", as
   expect(secondTab.conversationCache).not.toBe(firstTab.conversationCache)
   const second = secondTab.conversationCache('shared-conversation')
   await second.read()
+
+  const neighborTab = await loadTab('neighbor-cache-account')
+  expect(neighborTab.conversationCache).not.toBe(firstTab.conversationCache)
+  expect(neighborTab.conversationCache).not.toBe(secondTab.conversationCache)
+  const neighbor = neighborTab.conversationCache('unrelated-conversation')
+  const neighborPanel = panel('Unrelated account history must survive a stale retry')
+  await neighbor.write(neighborPanel)
 
   const newerPanel = panel('Newer snapshot from the other tab')
   const put = IDBObjectStore.prototype.put
@@ -118,6 +125,7 @@ it.each(races)("does not let a $mode quota retry undo another tab's $action", as
   expect(concurrentMutation).toBeDefined()
   await concurrentMutation
   expect(await first.read()).toEqual(action === 'update' ? newerPanel : null)
+  expect(await neighbor.read()).toEqual(neighborPanel)
 })
 
 function opened(request: IDBOpenDBRequest): Promise<IDBDatabase> {
