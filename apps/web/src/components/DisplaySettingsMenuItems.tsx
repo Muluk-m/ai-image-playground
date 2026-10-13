@@ -1,4 +1,4 @@
-import { openPricingSheet } from '../features/pricing/pricingSheet'
+import { openPricingSheet } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
 import DisplaySettingsFields from './DisplaySettingsFields'
 import { Button } from './ui/button'

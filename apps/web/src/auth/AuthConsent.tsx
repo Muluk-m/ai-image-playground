@@ -1,5 +1,5 @@
 import { Button } from '../components/ui/button'
-import { openPricingSheet } from '../features/pricing/pricingSheet'
+import { openPricingSheet } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
 
 /**

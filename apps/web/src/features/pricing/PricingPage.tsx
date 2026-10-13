@@ -20,7 +20,7 @@ import {
   REFERRAL_REGISTRATION_CREDITS,
   rechargeCredits,
 } from './catalog'
-import { closePricingSheet } from './pricingSheet'
+import { closePricingSheet } from './pricingSheetState'
 
 const PLAN_NAME = {
   starter: 'plan.starterName',

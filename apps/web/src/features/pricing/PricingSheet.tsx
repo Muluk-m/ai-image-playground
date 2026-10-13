@@ -1,7 +1,7 @@
 import Overlay from '../../components/patterns/Overlay'
 import { useTranslation } from '../../i18n'
 import PricingPage from './PricingPage'
-import { closePricingSheet, usePricingSheetOpen } from './pricingSheet'
+import { closePricingSheet, usePricingSheetOpen } from './pricingSheetState'
 
 /** 复用 `/pricing` 的正文，装进工作台里的一层弹层。 */
 export default function PricingSheet() {
