@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
 import * as historyCache from '../../../features/agent/lib/conversationCache'
 import { conversationCache } from '../../../features/agent/lib/conversationCache'
+import { setFollowUpReaderForTesting } from '../../../features/agent/lib/followUps'
 import {
   agentActivityPhase,
   answerableClarificationId,
@@ -121,6 +122,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setFollowUpReaderForTesting(null)
   setClientStorageScope(null)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -853,6 +855,46 @@ describe('会话列表', () => {
     expect(state().conversationId).toBeNull()
     expect(state().messages).toEqual([])
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('下一句', () => {
+  it('这一轮说完后把句子写到这一轮上', async () => {
+    setFollowUpReaderForTesting(async () => ['再出一版夜景。', '换成方形。'])
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        ASSISTANT_START,
+        { type: 'textDelta', messageId: 'assistant-1', delta: '好' },
+        TURN_END,
+      )
+
+    await state().send('画一张海报')
+
+    await vi.waitFor(() =>
+      expect(state().turns['turn-1']?.followUps).toEqual(['再出一版夜景。', '换成方形。']),
+    )
+  })
+
+  it('澄清收尾不问下一句', async () => {
+    const read = vi.fn(async () => ['不该出现'])
+    setFollowUpReaderForTesting(read)
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        {
+          type: 'clarification',
+          messageId: 'clarify-1',
+          question: '要哪种？',
+          options: ['夜景'],
+        },
+        TURN_END,
+      )
+
+    await state().send('画一张')
+
+    expect(state().turn).toBe('idle')
+    expect(read).not.toHaveBeenCalled()
   })
 })
 

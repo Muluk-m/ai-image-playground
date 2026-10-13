@@ -28,6 +28,7 @@ import {
 } from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
+import { scheduleAgentFollowUps } from './follow-ups'
 import { createImageCombinationGuard } from './image-combinations'
 import {
   type AgentImageReference,
@@ -834,6 +835,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       )
       const durationMs = Date.now() - startedAt
       const stopReason = outcome === 'cancelled' ? 'aborted' : outcome
+      let summaryStored = false
       try {
         // 先落持久事实再发终帧：终帧要过保留窗口就没了，页脚不能只靠它。
         await recordAgentTurnSummary({
@@ -844,12 +846,29 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           ...(cost ? { cost } : {}),
           ...(error ? { failure: failure ?? agentTurnFailure(error, error, model.id) } : {}),
         })
+        summaryStored = true
       } catch (thrown) {
         // 页脚丢一轮不该把已经流给用户的这一轮拖成报错。
         log.error(
           { event: 'agent.turn_summary_failed', turnId, err: thrown },
           'agent turn summary not stored',
         )
+      }
+      // 下一句是终帧之后的旁路：不进这一轮的账单，也不让用户多等终帧。
+      // 失败、中止、澄清、待确认都不问——那些轮下一句该由用户自己接。
+      if (
+        summaryStored &&
+        stopReason === 'completed' &&
+        !error &&
+        !aborted &&
+        !clarified &&
+        !drafted
+      ) {
+        scheduleAgentFollowUps({
+          conversationId,
+          turnId,
+          messages: [...storedMessages.values()],
+        })
       }
       events.emit({
         type: 'turnEnd',
