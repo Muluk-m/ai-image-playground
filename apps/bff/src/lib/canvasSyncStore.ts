@@ -1,6 +1,8 @@
 import {
   canvasOrigin,
   canvasProjectDocument,
+  canvasResultMediaIds,
+  canvasResults,
   importLegacyElements,
   initializeCanvasConnectionRules,
   initializeCanvasTexts,
@@ -105,7 +107,12 @@ export async function syncLegacyCanvasWrite(
 }
 
 function referencedTasks(doc: Y.Doc): Set<string> {
-  const tasks = new Set<string>()
+  const tasks = new Set<string>(
+    canvasResults(doc).flatMap((result) => [
+      ...(result.source.type === 'queue' ? [result.source.taskId] : []),
+      ...(result.display?.video ? [result.display.video.taskId] : []),
+    ]),
+  )
   for (const node of readCanvasDocument(doc).nodes) {
     if ('video' in node.data) tasks.add(node.data.video.taskId)
     if ('pending' in node.data && node.data.pending?.type === 'placeholder') {
@@ -126,9 +133,10 @@ async function validateOwnership(
 ) {
   const { nodes } = readCanvasDocument(doc)
   const mediaIds = [
-    ...new Set(
-      nodes.flatMap((n) => ('mediaId' in n.data && n.data.mediaId ? [n.data.mediaId] : [])),
-    ),
+    ...new Set([
+      ...nodes.flatMap((n) => ('mediaId' in n.data && n.data.mediaId ? [n.data.mediaId] : [])),
+      ...canvasResultMediaIds(doc),
+    ]),
   ]
   if (mediaIds.length) {
     const owned = await tx
@@ -143,7 +151,7 @@ async function validateOwnership(
       )
     if (owned.length !== mediaIds.length) throw new CanvasSyncError(403, 'canvas_media_not_owned')
   }
-  const tasks = new Set<string>()
+  const tasks = referencedTasks(doc)
   const generationIds = new Set<string>()
   for (const node of nodes) {
     if ('video' in node.data) tasks.add(node.data.video.taskId)
@@ -253,9 +261,10 @@ export async function accessCanvasDocument(
           await persist(tx, projectId, loaded, Y.encodeStateAsUpdate(doc, vector))
           const document = canvasProjectDocument(doc, project.document)
           const mediaIds = [
-            ...new Set(
-              document.elements.flatMap((el) => (el.type === 'image' ? [el.mediaId] : [])),
-            ),
+            ...new Set([
+              ...document.elements.flatMap((el) => (el.type === 'image' ? [el.mediaId] : [])),
+              ...canvasResultMediaIds(doc),
+            ]),
           ]
           // Retain old media references for the migration archive; active references are additive.
           if (mediaIds.length)

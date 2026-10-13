@@ -1,12 +1,15 @@
 import {
   canvasOrigin,
   canvasProjectDocument,
+  canvasResults,
   canvasSyncStep1,
   canvasSyncStep2,
   createCanvasUndoManager,
   importLegacyElements,
   type LegacyCanvasElement,
   type ProjectDocument,
+  promoteCanvasResultMedia,
+  promoteCanvasStoredResult,
   readCanvasDocument,
   readCanvasSyncMessage,
   synchronizeLegacyElements,
@@ -411,12 +414,27 @@ export class CloudNodeProjectSession {
       this.bindings.set(source, mediaId)
       const current = readCanvasDocument(this.canvas.doc).nodes.find((n) => n.id === node.id)
       if (current && 'fileId' in current.data && current.data.fileId === node.data.fileId)
-        updateCanvasNode(
-          this.canvas.doc,
-          node.id,
-          { data: { ...current.data, mediaId, fileId: `cloud-${mediaId}` } },
-          legacyOrigin,
-        )
+        promoteCanvasResultMedia(this.canvas.doc, node.id, node.data.fileId, mediaId, legacyOrigin)
+    }
+    // Previously chosen candidates remain durable even after another candidate becomes main.
+    for (const result of canvasResults(this.canvas.doc)) {
+      const fileId =
+        result.source.type === 'file'
+          ? result.source.fileId
+          : !result.display?.mediaId
+            ? result.display?.fileId
+            : undefined
+      if (!fileId) continue
+      const source = this.record.editor.doc.files[fileId]
+      if (!source) throw new Error('canvas_media_missing')
+      const mediaId =
+        mediaIdentity(source) ??
+        this.bindings.get(source) ??
+        (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
+      this.current()
+      if (!mediaId) throw new Error('canvas_media_missing')
+      this.bindings.set(source, mediaId)
+      promoteCanvasStoredResult(this.canvas.doc, result.id, fileId, mediaId, legacyOrigin)
     }
   }
   requestSync = () => {
