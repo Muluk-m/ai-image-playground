@@ -71,6 +71,7 @@ export type AgentToolName =
   | 'deleteNodes'
   | 'arrangeNodes'
   | 'runNodes'
+  | 'applyScriptPlan'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'

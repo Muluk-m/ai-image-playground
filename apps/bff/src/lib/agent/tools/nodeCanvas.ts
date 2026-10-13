@@ -1,4 +1,5 @@
 import {
+  appendScriptEpisode,
   type CanvasNode,
   type CanvasOrigin,
   canvasNodeKind,
@@ -7,9 +8,11 @@ import {
   connectCanvasNodes,
   deleteCanvasNode,
   insertCanvasNode,
+  isCanvasStoryboardData,
   layoutCanvasArrange,
   moveCanvasNodes,
   readCanvasDocument,
+  replaceStoryboardShots,
   ungroupCanvasNodes,
   updateCanvasNode,
 } from '@image-playground/shared'
@@ -364,4 +367,147 @@ export const runNodes = defineAgentTool({
       doc.destroy()
     }
   },
+})
+
+export const applyScriptPlan = defineAgentTool({
+  name: 'applyScriptPlan',
+  label: '拆分剧本',
+  modes,
+  available,
+  onError: 'continue',
+  guidance:
+    '用户要求拆剧本或续写第 N 集时使用。把已有文本节点拆成无图素材和分镜表并连线；续写只追加该集，不覆盖已有集。不生成媒体，不计费。',
+  description:
+    '把一个文本剧本拆成没有图片的人物、地点、道具节点和一张分镜表，按引用连到分镜表。可以同时把下一集追加到原剧本。不会提交生图或生视频。',
+  parameters: Type.Object({
+    scriptNodeId: id,
+    storyboardId: id,
+    assets: Type.Array(
+      Type.Object({
+        id,
+        kind: Type.Union([
+          Type.Literal('person'),
+          Type.Literal('location'),
+          Type.Literal('prop'),
+          Type.Literal('product'),
+        ]),
+        name: Type.String({ minLength: 1, maxLength: 120 }),
+        description: Type.String({ maxLength: 4000 }),
+      }),
+      { maxItems: 40 },
+    ),
+    shots: Type.Array(
+      Type.Object({
+        id,
+        description: Type.String({ minLength: 1, maxLength: 10000 }),
+        dialogue: Type.Optional(Type.String({ maxLength: 10000 })),
+        camera: Type.Optional(Type.String({ maxLength: 200 })),
+        durationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
+        lookIds: Type.Array(id, { maxItems: 8 }),
+        locationId: Type.Optional(id),
+      }),
+      { minItems: 1, maxItems: 200 },
+    ),
+    episode: Type.Optional(
+      Type.Object({
+        number: Type.Integer({ minimum: 2, maximum: 200 }),
+        text: Type.String({ minLength: 1, maxLength: 100000 }),
+      }),
+    ),
+  }),
+  call: () => ({ title: '拆分剧本' }),
+  execute: (context) => async (callId, params) =>
+    write(context, callId, '拆分剧本', params, (doc, origin) => {
+      const script = getNode(doc, params.scriptNodeId)
+      if (script.type !== 'text') invalid('只能拆分文本剧本节点。')
+      const taken = new Set(readCanvasDocument(doc).nodes.map((node) => node.id))
+      if (taken.has(params.storyboardId)) invalid(`节点 id 已存在：${params.storyboardId}`)
+      for (const asset of params.assets) {
+        if (taken.has(asset.id)) invalid(`节点 id 已存在：${asset.id}`)
+        taken.add(asset.id)
+      }
+      const kinds = new Map(params.assets.map((asset) => [asset.id, asset.kind]))
+      for (const node of readCanvasDocument(doc).nodes)
+        if (
+          node.type === 'image' &&
+          node.data.meta?.nodeKind === 'asset' &&
+          node.data.meta.assetKind
+        )
+          kinds.set(node.id, node.data.meta.assetKind as (typeof params.assets)[number]['kind'])
+      for (const shot of params.shots) {
+        for (const look of shot.lookIds)
+          if (kinds.get(look) !== 'person') invalid(`人物引用不存在：${look}`)
+        if (shot.locationId && kinds.get(shot.locationId) !== 'location')
+          invalid(`地点引用不存在：${shot.locationId}`)
+      }
+      const shots = params.shots.map((shot) => ({
+        id: shot.id,
+        description: shot.description,
+        ...(shot.dialogue ? { dialogue: shot.dialogue } : {}),
+        ...(shot.camera ? { camera: shot.camera } : {}),
+        ...(shot.durationSeconds !== undefined ? { durationSeconds: shot.durationSeconds } : {}),
+        lookIds: [...shot.lookIds],
+        ...(shot.locationId ? { locationId: shot.locationId } : {}),
+      }))
+      if (!isCanvasStoryboardData({ shots })) invalid('分镜表不合法。')
+      if (params.episode) {
+        const next = appendScriptEpisode(
+          script.data.text,
+          params.episode.number,
+          params.episode.text,
+        )
+        if (!next) invalid(`第 ${params.episode.number} 集已经在剧本里，或正文是空的。`)
+        const { richText: _rich, ...data } = script.data
+        updateCanvasNode(doc, script.id, { data: { ...data, text: next } }, origin)
+      }
+      const existing = readCanvasDocument(doc).nodes
+      const right = Math.max(...existing.map((node) => node.x + node.width)) + 168
+      const board = canvasNodeRegistry.storyboard.size
+      insertCanvasNode(
+        doc,
+        {
+          id: params.storyboardId,
+          type: 'storyboard',
+          x: right + canvasNodeRegistry.image.size.width + 168,
+          y: script.y,
+          width: board.width,
+          height: board.height,
+          data: { shots: [] },
+        },
+        origin,
+      )
+      replaceStoryboardShots(doc, params.storyboardId, shots, origin)
+      const written = readCanvasDocument(doc).nodes.find((node) => node.id === params.storyboardId)
+      if (written?.type !== 'storyboard' || written.data.shots.length !== shots.length)
+        invalid('分镜表没有写入。')
+      let nextY = script.y
+      for (const asset of params.assets) {
+        const size = canvasNodeRegistry.image.size
+        insertCanvasNode(
+          doc,
+          {
+            id: asset.id,
+            type: 'image',
+            x: right,
+            y: nextY,
+            width: size.width,
+            height: size.height,
+            data: {
+              name: asset.name,
+              meta: {
+                nodeKind: 'asset',
+                assetKind: asset.kind,
+                assetDescription: asset.description,
+              },
+            },
+          },
+          origin,
+        )
+        if (!connectCanvasNodes(doc, { source: asset.id, target: params.storyboardId }, origin))
+          invalid(`素材无法连接到分镜表：${asset.id}`)
+        nextY += size.height + 48
+      }
+      if (!connectCanvasNodes(doc, { source: script.id, target: params.storyboardId }, origin))
+        invalid('剧本无法连接到分镜表。')
+    }),
 })

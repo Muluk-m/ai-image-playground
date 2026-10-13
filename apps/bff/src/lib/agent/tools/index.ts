@@ -27,6 +27,7 @@ import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import {
+  applyScriptPlan,
   arrangeNodes,
   connectNodes,
   createNodes,
@@ -95,6 +96,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   deleteNodes,
   arrangeNodes,
   runNodes,
+  applyScriptPlan,
   generateVideo,
   arrangeTimeline,
   editCanvasObject,
@@ -124,6 +126,7 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'deleteNodes',
   'arrangeNodes',
   'runNodes',
+  'applyScriptPlan',
   'editCanvasObject',
   'arrangeCanvas',
   'arrangeTimeline',

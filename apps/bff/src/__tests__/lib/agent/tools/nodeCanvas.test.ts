@@ -24,6 +24,7 @@ const {
   updateNodes,
   connectNodes,
   deleteNodes,
+  applyScriptPlan,
   arrangeNodes,
   runNodes,
   patchAgentCanvasNode,
@@ -99,6 +100,7 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'deleteNodes',
     'arrangeNodes',
     'runNodes',
+    'applyScriptPlan',
   ])
     expect(names).toContain(name)
   for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'])
@@ -248,4 +250,61 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('splits a script into imageless assets and a storyboard, and appends the next episode', async () => {
+  const { run, graph } = await fixture()
+  await run(createNodes, { nodes: [{ id: 'script', type: 'text', text: '## 第 1 集\n窗台。\n' }] })
+  const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+  await run(applyScriptPlan, {
+    scriptNodeId: 'script',
+    storyboardId: 'board',
+    assets: [
+      { id: 'lin', kind: 'person', name: '林夏', description: '插画师' },
+      { id: 'sill', kind: 'location', name: '窗台', description: '朝东窄窗' },
+    ],
+    shots: [
+      {
+        id: 'shot-1',
+        description: '林夏蹲在窗台前',
+        lookIds: ['lin'],
+        locationId: 'sill',
+        durationSeconds: 5,
+      },
+    ],
+    episode: { number: 2, text: '第二天，新叶又展开一片。' },
+  })
+  const document = await graph()
+  const script = document.nodes.find((node) => node.id === 'script')
+  const board = document.nodes.find((node) => node.id === 'board')
+  const lin = document.nodes.find((node) => node.id === 'lin')
+  expect(script?.type).toBe('text')
+  if (script?.type === 'text') expect(script.data.text).toContain('## 第 2 集')
+  if (script?.type === 'text') expect(script.data.text).toContain('## 第 1 集')
+  expect(board?.type).toBe('storyboard')
+  if (board?.type === 'storyboard')
+    expect(board.data.shots.map((shot) => shot.id)).toEqual(['shot-1'])
+  expect(lin?.type).toBe('image')
+  if (lin?.type === 'image') {
+    expect(lin.data.meta).toMatchObject({ nodeKind: 'asset', assetKind: 'person' })
+    expect(lin.data).not.toHaveProperty('fileId')
+  }
+  expect(document.edges).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ source: 'script', target: 'board' }),
+      expect.objectContaining({ source: 'lin', target: 'board' }),
+      expect.objectContaining({ source: 'sill', target: 'board' }),
+    ]),
+  )
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
+  await expect(
+    run(applyScriptPlan, {
+      scriptNodeId: 'script',
+      storyboardId: 'board-2',
+      assets: [],
+      shots: [{ id: 'shot-2', description: '重复的一集', lookIds: ['lin'] }],
+      episode: { number: 2, text: '再写一次' },
+    }),
+  ).rejects.toThrow('已经在剧本里')
+  expect((await graph()).nodes.some((node) => node.id === 'board-2')).toBe(false)
 })

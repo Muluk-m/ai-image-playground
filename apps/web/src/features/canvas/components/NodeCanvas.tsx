@@ -20,6 +20,8 @@ import {
   reconcileCanvasGroupMembership,
   reconcileLegacyElements,
   renameCanvasGroup,
+  renderScriptDocument,
+  type ScriptBrief,
   synchronizeLegacyElements,
   ungroupCanvasNodes,
   updateCanvasNode,
@@ -132,6 +134,7 @@ import NodeStoryboard, { NodeStoryboardContext } from './NodeStoryboard'
 import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import NodeTimeline, { NodeTimelineContext } from './NodeTimeline'
 import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
+import ScriptBriefDialog from './ScriptBriefDialog'
 import TimelineEditorHost from './TimelineEditor'
 import VideoNodeComposer from './VideoNodeComposer'
 
@@ -672,6 +675,7 @@ function Flow({
   } | null>(null)
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
+  const [scriptPoint, setScriptPoint] = useState<{ x: number; y: number } | null>(null)
   const [addingAsset, setAddingAsset] = useState(false)
   const assetTarget = useRef<string | undefined>(undefined)
   const [referencePick, setReferencePick] = useState<{
@@ -1024,6 +1028,14 @@ function Flow({
     setMenu({ x: (rect?.left ?? 0) + 80, y: (rect?.top ?? 0) + 140 })
   }
   const textFill = theme === 'dark' ? '#f4f4f5' : '#18181b'
+  const placeScript = (brief: ScriptBrief) => {
+    const id = createNode(canvas, 'text', scriptPoint ?? placeAt.current, textFill, undefined, {
+      name: brief.title,
+      text: renderScriptDocument(brief),
+    })
+    setScriptPoint(null)
+    selectNode(id)
+  }
   const placeFiles = (files: File[]) => {
     const images = acceptImageFiles(files)
     if (images.length === 0) return
@@ -1803,6 +1815,12 @@ function Flow({
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
+                      {scriptPoint && (
+                        <ScriptBriefDialog
+                          onClose={() => setScriptPoint(null)}
+                          onConfirm={placeScript}
+                        />
+                      )}
                       {assetsOpen && (
                         <NodeAssetPicker
                           onClose={() => {
@@ -2087,23 +2105,38 @@ function Flow({
                                   },
                                   { icon: 'delete', label: t('nodes.delete'), onClick: remove },
                                 ]
-                              : copied.current
-                                ? [
-                                    {
-                                      icon: 'copy',
-                                      label: t('nodes.paste'),
-                                      onClick: () => {
-                                        const ids = pasteNodes(
-                                          canvas,
-                                          copied.current!,
-                                          placeAt.current,
-                                        )
-                                        selectNode(ids[0] ?? null)
-                                        closeMenu()
-                                      },
-                                    },
-                                  ]
-                                : undefined
+                              : [
+                                  ...(!menu.beside
+                                    ? [
+                                        {
+                                          icon: 'notebook' as const,
+                                          label: t('scriptBrief.open'),
+                                          onClick: () => {
+                                            const point = placeAt.current
+                                            closeMenu()
+                                            setScriptPoint(point)
+                                          },
+                                        },
+                                      ]
+                                    : []),
+                                  ...(copied.current
+                                    ? [
+                                        {
+                                          icon: 'copy' as const,
+                                          label: t('nodes.paste'),
+                                          onClick: () => {
+                                            const ids = pasteNodes(
+                                              canvas,
+                                              copied.current!,
+                                              placeAt.current,
+                                            )
+                                            selectNode(ids[0] ?? null)
+                                            closeMenu()
+                                          },
+                                        },
+                                      ]
+                                    : []),
+                                ]
                           }
                           onUpload={() => {
                             closeMenu()

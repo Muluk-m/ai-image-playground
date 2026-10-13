@@ -29,6 +29,7 @@ export function createNode(
     side: 'left' | 'right'
     size?: { width: number; height: number }
   },
+  text?: { name?: string; text: string },
 ): string {
   const id = newElementId()
   const { width, height } = beside?.size ?? canvasNodeRegistry[kind].size
@@ -74,7 +75,12 @@ export function createNode(
           : kind === 'timeline'
             ? { clips: [] }
             : kind === 'text'
-              ? { text: '', fontSize: 16, fill }
+              ? {
+                  text: text?.text ?? '',
+                  fontSize: 16,
+                  fill,
+                  ...(text?.name ? { name: text.name } : {}),
+                }
               : { meta: { nodeKind: kind } },
     },
     canvas.origin,
