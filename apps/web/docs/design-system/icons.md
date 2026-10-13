@@ -58,6 +58,15 @@ import { Icon } from '@/components/ui/icon'
 | `dark` | 深色主题 | moon |
 | `language` | 界面语言 | global |
 
+**会员等级**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `membershipFree` | Free 会员等级 | sprout（lucide） |
+| `membershipBasic` | Basic 会员等级 | stars |
+| `membershipPlus` | Plus 会员等级 | star |
+| `membershipMax` | Max 会员等级 | crown-line |
+
 **创作**
 
 | 名字 | 含义 | 图形 |

@@ -40,6 +40,10 @@
   --warning: 35 90% 35%;
   --warning-foreground: 0 0% 100%;
   --info: var(--primary);
+  --membership-free: var(--muted-foreground);
+  --membership-basic: var(--primary);
+  --membership-plus: 192 75% 30%;
+  --membership-max: var(--warning);
   /* 1px 发丝描边与两档浮层阴影，见 DESIGN.md「Elevation & Depth」。 */
   --hairline: rgb(0 0 0 / 0.05);
   --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.12);
@@ -69,6 +73,10 @@
   --success: 142 55% 65%;
   --warning: 40 90% 65%;
   --warning-foreground: 35 60% 10%;
+  --membership-free: 156 5.21% 62.35%;
+  --membership-basic: 101.19 65.56% 64.71%;
+  --membership-plus: 188.63 76.88% 60.98%;
+  --membership-max: 42.8 85.23% 65.49%;
   --hairline: rgb(255 255 255 / 0.1);
   --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.3);
   --shadow-dialog: 0 8px 40px rgb(0 0 0 / 0.4);
