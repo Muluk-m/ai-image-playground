@@ -16,8 +16,10 @@ import { useStore } from '../../../store'
  */
 export interface ComposerFill {
   readonly text: string
-  /** Explicit re-edit actions replace the current text; suggestions preserve typed drafts. */
+  /** Explicit replace actions overwrite text; ordinary fill requests preserve typed drafts. */
   readonly replace?: boolean
+  /** Inspiration cards explicitly replace both the prompt and its attached context. */
+  readonly clearReferences?: boolean
   /** 技能的 kebab-case 标识；缺席即一句普通的话。 */
   readonly skill?: string
   /** 填好后选中的那一段，按 `text` 里的下标算。 */

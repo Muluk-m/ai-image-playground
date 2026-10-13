@@ -183,6 +183,8 @@
     "start": "Start creating",
     "newProject": "New project",
     "references": "References ({{count}})",
-    "uploadProgress": "Uploading {{ready}}/{{total}}"
+    "uploadProgress": "Uploading {{ready}}/{{total}}",
+    "viewAllReferences": "View all",
+    "collapseReferences": "Collapse references"
   }
 }

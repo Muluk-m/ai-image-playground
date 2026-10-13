@@ -780,8 +780,12 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     expect(new Set(registrations).size).toBe(100)
     await act(async () => {
       send.click()
-      await vi.waitFor(() =>
-        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+      // Sending first retains and journals all 100 local sources. The default
+      // one-second wait measures runner throughput rather than send correctness.
+      await vi.waitFor(
+        () =>
+          expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+        { timeout: 10_000 },
       )
     })
     const request = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))!

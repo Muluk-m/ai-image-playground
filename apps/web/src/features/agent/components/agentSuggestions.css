@@ -1,0 +1,15 @@
+.agent-inspiration-suggestions { min-width: 0; margin-top: 16px; }
+.agent-inspiration-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
+.agent-inspiration-cards { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; scrollbar-width: thin; }
+.agent-inspiration-card { flex: 0 0 84%; min-width: 0; max-width: 320px; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); scroll-snap-align: start; }
+.agent-inspiration-cover { position: relative; height: 144px; background: hsl(var(--muted)); }
+.agent-inspiration-cover > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.agent-inspiration-caption { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 8px; padding: 12px; background: linear-gradient(transparent 25%, hsl(var(--scrim) / .7)); color: hsl(var(--on-media)); }
+.agent-inspiration-caption > div { flex: 1; min-width: 0; }
+.agent-inspiration-caption span { @apply text-label-sm; }
+.agent-inspiration-caption h4 { margin: 4px 0 0; @apply text-body-sm; font-weight: 500; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.agent-inspiration-caption > button { flex-shrink: 0; border-color: hsl(var(--on-media) / .55); background: hsl(var(--scrim) / .55); color: hsl(var(--on-media)); }
+.agent-inspiration-caption > button:hover { background: hsl(var(--scrim) / .7); }
+.agent-inspiration-card .agent-inspiration-description { margin: 0; padding: 12px; height: 60px; overflow: hidden; color: hsl(var(--muted-foreground)); @apply text-xs; line-height: 1.5; }
+.studio-sidebar--page .agent-inspiration-card { flex-basis: calc((100% - 24px) / 3); max-width: none; }
+@media (max-width: 700px) { .studio-sidebar--page .agent-inspiration-card { flex-basis: 84%; } }

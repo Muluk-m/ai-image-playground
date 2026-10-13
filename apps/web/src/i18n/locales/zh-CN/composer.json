@@ -177,6 +177,8 @@
     "start": "开始创作",
     "newProject": "新建项目",
     "references": "参考素材（{{count}}）",
-    "uploadProgress": "上传中 {{ready}}/{{total}}"
+    "uploadProgress": "上传中 {{ready}}/{{total}}",
+    "viewAllReferences": "查看全部",
+    "collapseReferences": "收起参考图"
   }
 }

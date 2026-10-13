@@ -12,6 +12,7 @@ vi.mock('../../features/agent/lib/useAgentSkills', () => ({
 }))
 
 import InputBar from '../../components/InputBar'
+import { fillAgentComposer } from '../../features/agent/lib/composerFill'
 import { useActiveLook } from '../../features/library/lib/activeLook'
 import { cancelLookSubmission, useLookSubmission } from '../../features/library/lib/lookSubmit'
 import { useLibraryStore } from '../../features/library/store'
@@ -25,6 +26,7 @@ import type { PublicChannel } from '../../lib/channels/types'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { getAllImageIds, putImage } from '../../lib/db'
 import { getContentEditablePlainText, setContentEditableCursor } from '../../lib/promptEditorDom'
+import * as storeModule from '../../store'
 import { useStore } from '../../store'
 
 declare global {
@@ -56,6 +58,28 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+it('does not reattach a pending import after an inspiration clears references', async () => {
+  remount('canvas')
+  let finish!: (value: Awaited<ReturnType<typeof storeModule.storeImageFromFile>>) => void
+  vi.spyOn(storeModule, 'storeImageFromFile').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [new File(['image'], 'old.png', { type: 'image/png' })],
+  })
+  act(() => input.dispatchEvent(new Event('change', { bubbles: true })))
+  act(() => fillAgentComposer({ text: 'New inspiration', replace: true, clearReferences: true }))
+  await act(async () => finish({ id: 'old', dataUrl: 'data:image/png;base64,old' }))
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().prompt).toBe('New inspiration')
 })
 
 /** 生成设置 chip：aria-label 是「生成设置: 摘要」。 */
@@ -515,4 +539,20 @@ it('removes a masked reference from the stack without a clear-all tile', () => {
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
   expect(host.querySelector('.creation-stack-trigger')).toBeNull()
+})
+
+it('replaces a canvas prompt and clears references and masks from inspiration', () => {
+  remount('canvas')
+  act(() => {
+    useStore.setState({
+      createTarget: 'canvas',
+      prompt: '旧提示词',
+      inputImages: [{ id: 'old', dataUrl: 'data:image/png;base64,AA' }],
+      maskDraft: { targetImageId: 'old', maskDataUrl: 'data:image/png;base64,AA', updatedAt: 1 },
+    })
+  })
+  act(() => fillAgentComposer({ text: '新的灵感', replace: true, clearReferences: true }))
+  expect(useStore.getState().prompt).toBe('新的灵感')
+  expect(useStore.getState().inputImages).toEqual([])
+  expect(useStore.getState().maskDraft).toBeNull()
 })
