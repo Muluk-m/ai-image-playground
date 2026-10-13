@@ -811,7 +811,9 @@ describe('AgentPanel', () => {
 
     // 点标题把这一次的产物全部定位、选中。
     focused.length = 0
-    const title = host.querySelector('button[title="在画布上定位这些产物"]') as HTMLButtonElement
+    const title = host.querySelector(
+      'button[aria-description="在画布上定位这些产物"]',
+    ) as HTMLButtonElement
     act(() => title.click())
     expect(focused).toEqual(['agent_image_1'])
   })

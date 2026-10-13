@@ -11,6 +11,23 @@ import {
 const rulesIn = (path: string, source: string) => scanSource(path, source).map((hit) => hit.rule)
 
 describe('scanSource', () => {
+  it('requires visible tooltip labels on icon buttons, including conditional icons', () => {
+    const path = 'apps/web/src/features/x/Panel.tsx'
+    expect(rulesIn(path, '<Button size="icon"><Icon name="close" /></Button>')).toEqual([
+      'icon-button-label',
+    ])
+    expect(
+      rulesIn(path, '<Button>{busy ? <Icon name="loading" /> : <Icon name="send" />}</Button>'),
+    ).toEqual(['icon-button-label'])
+    expect(
+      rulesIn(path, '<Button size="icon" aria-label=""><Icon name="close" /></Button>'),
+    ).toEqual(['icon-button-label'])
+    expect(
+      rulesIn(path, '<Button size="icon" aria-label={t("close")}><Icon name="close" /></Button>'),
+    ).toEqual([])
+    expect(rulesIn(path, '<Button><Icon name="edit" />Edit</Button>')).toEqual([])
+  })
+
   it('flags native controls outside components/ui but not inside', () => {
     const source = '<button onClick={go}>Go</button>\n<textarea />'
     expect(rulesIn('apps/web/src/features/x/Panel.tsx', source)).toEqual([

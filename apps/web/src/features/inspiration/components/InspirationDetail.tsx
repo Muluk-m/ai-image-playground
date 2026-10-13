@@ -68,6 +68,7 @@ export default function InspirationDetail() {
         <Button
           type="button"
           onClick={closeDetail}
+          aria-label={t('detail.back')}
           variant="ghost"
           size="sm"
           className="shrink-0 text-muted-foreground"
@@ -258,6 +259,7 @@ export default function InspirationDetail() {
         <Button
           type="button"
           onClick={closeDetail}
+          aria-label={t('detail.back')}
           variant="outline"
           size="sm"
           className="hidden md:inline-flex"
