@@ -102,7 +102,7 @@ export default function Header() {
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div
-          className="flex items-center gap-2 rounded-full bg-background/55 backdrop-blur-md ring-1 ring-hairline"
+          className="flex items-center gap-2 rounded-full bg-background/55 backdrop-blur-md ring-1 ring-hairline max-md:[&_button]:min-h-10 max-md:[&_button]:min-w-10"
           style={{ padding: 'var(--studio-account-cluster-pad)' }}
         >
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}

@@ -55,9 +55,9 @@ function CategoryButton({
       variant={active ? 'secondary' : 'ghost'}
       aria-pressed={active}
       size="sm"
-      className="justify-start"
+      className="h-auto min-h-8 justify-start whitespace-normal break-words text-left"
     >
-      {label}
+      <span className="min-w-0 flex-1">{label}</span>
     </Button>
   )
 }
