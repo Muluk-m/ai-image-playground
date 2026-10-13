@@ -36,7 +36,6 @@ import {
 } from '../lib/activeProject'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
-import { shouldUseNodeCanvas } from '../lib/nodeCanvasGate'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import { projectExperience } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
@@ -201,10 +200,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
-  const nodeCanvas = shouldUseNodeCanvas(project, {
-    capability: isClientCapabilityEnabled('canvas:nodes'),
-    cloudProjects: cloudProjectsEnabled(),
-  })
+  // 云端会话在加载里异步挂上，按项目记录判，免得云端项目先被当成本机项目转换一遍。
+  const nodeCanvas =
+    isClientCapabilityEnabled('canvas:nodes') && !(project?.cloud && cloudProjectsEnabled())
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)
@@ -553,7 +551,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             className="studio-layout"
             data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
-            data-node-canvas={!hasAgent && nodeCanvas ? 'true' : undefined}
             data-mobile-view={projectView}
             data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
             inert={loadFailed}
@@ -706,7 +703,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       onPreviewProduction={previewProduction}
                     />
                   )
-                ) : nodeCanvas ? null : (
+                ) : (
                   <aside
                     className="studio-sidebar studio-sidebar--direct"
                     style={{ width: 380 }}
@@ -731,9 +728,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       <h3>{t('sidebar.emptyTitle')}</h3>
                       <p>{t('sidebar.emptyBody')}</p>
                       {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
-                      <AgentSuggestions className="studio-suggestions mt-5" />
+                      {!nodeCanvas && <AgentSuggestions className="studio-suggestions mt-5" />}
                     </div>
-                    <CanvasGenerateBar editor={editor} />
+                    {/* 侧栏输入框只会写进旧画布；节点画布里的生成随节点输入框（#1140）上线。 */}
+                    {nodeCanvas ? (
+                      <p className="m-4 rounded-xl border border-border p-3 text-sm text-muted-foreground">
+                        {t('nodes.generateUnavailable')}
+                      </p>
+                    ) : (
+                      <CanvasGenerateBar editor={editor} />
+                    )}
                   </aside>
                 )}
               </div>
