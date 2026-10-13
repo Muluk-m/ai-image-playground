@@ -1,5 +1,6 @@
-import { ArrowRight } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { applyInspiration } from '../lib/applyInspiration'
 import { openInspiration } from '../lib/navigate'
@@ -35,11 +36,13 @@ export default function InspirationChips() {
   return (
     <div className="-mx-4 flex items-center gap-2.5 overflow-x-auto px-4 pt-5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:justify-center sm:overflow-visible sm:px-0">
       {picked.map((item) => (
-        <button
+        <Button
           key={item.id}
           type="button"
           onClick={() => applyInspiration(item)}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card/70 py-1.5 pl-1.5 pr-3.5 text-body-sm text-muted-foreground backdrop-blur-sm transition-colors hover:border-primary/50 hover:text-foreground"
+          variant="outline"
+          size="lg"
+          className="shrink-0 px-2 text-body-sm text-muted-foreground"
         >
           <img
             src={item.thumbnailUrl}
@@ -48,19 +51,18 @@ export default function InspirationChips() {
             className="h-7 w-10 rounded-lg object-cover"
           />
           <span className="max-w-[12rem] truncate">{item.title}</span>
-        </button>
+        </Button>
       ))}
-      <button
+      <Button
         type="button"
         onClick={openInspiration}
-        className="group inline-flex shrink-0 items-center gap-1 rounded-xl border border-border px-3.5 py-2.5 text-body-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        variant="outline"
+        size="lg"
+        className="group shrink-0 px-3 text-body-sm text-muted-foreground"
       >
         {t('hero.viewAll')}
-        <ArrowRight
-          className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
-          aria-hidden="true"
-        />
-      </button>
+        <Icon name="arrowRight" className="transition-transform group-hover:translate-x-0.5" />
+      </Button>
     </div>
   )
 }
