@@ -1,7 +1,7 @@
-import { ArrowUp, Check, ChevronDown, CircleHelp, PencilLine } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { OptionList } from '../../../components/assistant-ui/elements/option-list'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { CARD_CONTROL } from '../agentStyles'
@@ -31,9 +31,9 @@ function AnsweredClarification({
         title={chosen}
         onClick={() => setExpanded((value) => !value)}
       >
-        <Check size={15} aria-hidden="true" />
+        <Icon name="check" />
         <span>{chosen}</span>
-        <ChevronDown size={14} className={expanded ? 'rotate-180' : ''} aria-hidden="true" />
+        <Icon name="chevronDown" className={expanded ? 'rotate-180' : ''} />
       </Button>
       {expanded && (
         <div className="studio-clarification-answered-detail">
@@ -80,7 +80,7 @@ export default function AgentClarification({
   if (answered)
     return (
       <div className="studio-clarification-answered studio-clarification-answered--unknown">
-        <Check size={15} aria-hidden="true" />
+        <Icon name="check" size="sm" />
         <span>
           {t('clarification.answered')} · {message.question}
         </span>
@@ -90,11 +90,7 @@ export default function AgentClarification({
   return (
     <section className="flex w-full max-w-md flex-col gap-3" aria-label={message.question}>
       <h3 className="flex items-start gap-2 text-sm font-medium leading-relaxed">
-        <CircleHelp
-          size={16}
-          className="mt-0.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
+        <Icon name="help" size="sm" className="mt-0.5 text-muted-foreground" />
         {message.question}
       </h3>
       <OptionList
@@ -122,11 +118,12 @@ export default function AgentClarification({
             />
             <Button
               variant="ghost"
+              size="icon-sm"
               type="submit"
               disabled={locked || !written}
               aria-label={t('composer.send')}
             >
-              <ArrowUp size={17} aria-hidden="true" />
+              <Icon name="send" />
             </Button>
           </form>
         ) : (
@@ -134,10 +131,11 @@ export default function AgentClarification({
             variant="ghost"
             type="button"
             disabled={locked}
-            className="h-8 justify-start self-start rounded-lg px-3 text-xs text-muted-foreground"
+            size="sm"
+            className="justify-start self-start text-muted-foreground"
             onClick={() => setWriting(true)}
           >
-            <PencilLine size={16} aria-hidden="true" />
+            <Icon name="edit" />
             <span>{t('clarification.other')}</span>
           </Button>
         )}

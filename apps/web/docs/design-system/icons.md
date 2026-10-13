@@ -216,3 +216,40 @@ import { Icon } from '@/components/ui/icon'
 | `gettingStarted` | 快速上手 | rocket |
 | `tip` | 使用提示 | lightbulb |
 | `help` | 常见问题 | question-circle |
+
+**Agent 交互与技能**
+
+| 名字 | 含义 | 图形 |
+|---|---|---|
+| `terminal` | 执行命令 | terminal |
+| `diagnostic` | 错误诊断 | bug |
+| `selectLasso` | 套索选区 | lasso |
+| `selectRectangle` | 矩形选区 | square |
+| `starter` | 使用起手句 | corner-down-right |
+| `poster` | 海报场景 | presentation-graph |
+| `shop` | 电商场景 | shop |
+| `resolution` | 视频分辨率 | monitor |
+| `firstFrame` | 视频首帧 | skip-back |
+| `lastFrame` | 视频尾帧 | skip-forward |
+| `keyframes` | 视频关键帧 | video-frame |
+| `audio` | 音频与声音 | soundwave |
+| `aperture` | 光圈技能 | aperture |
+| `camera` | 摄影技能 | camera |
+| `flame` | 火焰效果技能 | fire |
+| `focus` | 聚焦技能 | focus |
+| `home` | 室内场景技能 | home-2 |
+| `imageAnimate` | 图片动效技能 | image-play |
+| `translate` | 语言翻译 | languages |
+| `layoutTemplate` | 版式模板 | layout-template |
+| `advertise` | 广告创作 | megaphone |
+| `landscape` | 自然场景 | mountain |
+| `notebook` | 笔记创作 | notebook-pen |
+| `productAdd` | 创建产品素材 | package-plus |
+| `palette` | 视觉风格 | palette |
+| `replace` | 内容替换 | replace |
+| `imageInspect` | 图片分析 | scan-search |
+| `product` | 产品素材 | bag-4 |
+| `cart` | 购物商品 | cart-large |
+| `sprout` | 植物技能 | sprout |
+| `waves` | 波纹技能 | waves |
+| `agentActivity` | 智能体步骤状态 | sparkle |

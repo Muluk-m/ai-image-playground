@@ -36,7 +36,7 @@ export const JUMP_TO_LATEST =
   'absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-label-sm text-foreground shadow-[var(--studio-shadow)] transition hover:bg-muted'
 
 export const FIELD =
-  'w-full resize-none rounded-xl border border-border bg-muted px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none'
+  'w-full resize-none rounded-xl border border-border bg-muted px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none'
 
 export const SEND_BUTTON =
   'h-9 rounded-lg bg-primary text-primary-foreground px-3 text-xs font-semibold transition hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50'
@@ -58,28 +58,28 @@ export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
 export const CARD_NOTE = `text-label-sm ${INK_3}`
 
 /**
- * 对话卡片里的控件。字号跟卡片正文一样，不再套表单默认的 36px 输入框和 80px 文本域。
+ * 对话卡片里的控件。字号跟卡片正文一样；输入框 32px，文本域至少 80px。
  * 多行内容默认三行，更长的在框里滚，不把整张卡撑满对话。
  */
 export const CARD_CONTROL =
   'h-8 rounded-lg border border-border bg-background px-2 text-xs shadow-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
 
 export const CARD_TEXT =
-  'min-h-[4.5rem] w-full resize-y overflow-y-auto rounded-lg border border-border bg-background px-2 py-1.5 text-xs leading-relaxed shadow-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+  'min-h-20 w-full resize-y overflow-y-auto rounded-lg border border-border bg-background px-2 py-1.5 text-xs leading-relaxed shadow-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
 
 /**
  * 草稿卡里那块提示词：卡本身是 `bg-muted`，输入框用底色分出来，一眼看得出这段字可以改。
  * 高度由内容给，长到放不下再滚动。
  */
 export const DRAFT_FIELD =
-  'w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs leading-relaxed text-foreground focus:border-primary focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
+  'w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs leading-relaxed text-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
 
 export const CHOICE =
   'w-full rounded-lg border border-border px-2.5 py-1.5 text-left text-xs text-foreground transition enabled:hover:border-primary enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
 
 /** 澄清卡片里「其他」的输入框与发送键，和选项同高，读起来还是一列。 */
 export const CHOICE_FIELD =
-  'min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50'
+  'min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none disabled:opacity-50'
 
 export const CHOICE_SUBMIT =
   'shrink-0 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground transition disabled:cursor-not-allowed disabled:opacity-50'

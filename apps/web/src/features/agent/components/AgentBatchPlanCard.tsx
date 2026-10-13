@@ -4,26 +4,12 @@ import type {
   AgentBatchPage,
   AgentBatchUpdate,
 } from '@image-playground/shared'
-import {
-  Ban,
-  CheckCircle2,
-  ChevronRight,
-  Clock3,
-  Download,
-  Layers,
-  Loader2,
-  MessageSquare,
-  PauseCircle,
-  PlayCircle,
-  RotateCcw,
-  Scan,
-  TriangleAlert,
-} from 'lucide-react'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
 import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
@@ -57,11 +43,11 @@ import AgentBatchItemResult, {
 } from './AgentBatchItemResult'
 
 function statusIcon(status: BatchDisplayStatus) {
-  if (status === 'in_flight' || status === 'in_progress') return Loader2
-  if (status === 'completed') return CheckCircle2
-  if (status === 'failed' || status === 'reconciling' || status === 'blocked') return TriangleAlert
-  if (status === 'cancelled') return Ban
-  return Clock3
+  if (status === 'in_flight' || status === 'in_progress') return 'loading'
+  if (status === 'completed') return 'success'
+  if (status === 'failed' || status === 'reconciling' || status === 'blocked') return 'warning'
+  if (status === 'cancelled') return 'blocked'
+  return 'clock'
 }
 
 function readReviewPage(key: string): number {
@@ -546,7 +532,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           )}
           {item.kind === 'analysis' && (
             <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
-              <Scan aria-hidden className="h-3 w-3" />
+              <Icon name="imageInspect" size="xs" />
               {t('batch.analysisKind')}
             </span>
           )}
@@ -557,7 +543,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           )}
           {page.batch.retryItemKeys?.includes(item.key) && (
             <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
-              <RotateCcw aria-hidden className="h-3 w-3" />
+              <Icon name="refresh" size="xs" />
               {t('batch.retryItem')}
             </span>
           )}
@@ -758,7 +744,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   )
 
   const displayError = restorationFailed ? 'storage_restore_failed' : error
-  const TargetIcon = page.batch.experience === 'canvas' ? Layers : MessageSquare
+  const targetIcon = page.batch.experience === 'canvas' ? 'canvas' : 'chat'
   return (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -772,7 +758,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               disabled={exportProgress !== null}
               onClick={() => void runExport()}
             >
-              <Download aria-hidden className="h-3 w-3" />
+              <Icon name="download" />
               {exportProgress
                 ? t('batch.exporting', { done: exportProgress.done, total: exportProgress.total })
                 : t('batch.exportResults', { count: resultFiles.length })}
@@ -783,7 +769,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
-          <TargetIcon aria-hidden className="h-3 w-3" />
+          <Icon name={targetIcon} size="xs" />
           {page.batch.experience === 'canvas' ? t('batch.targetCanvas') : t('batch.targetChat')}
         </span>
         {page.batch.status === 'running' ||
@@ -797,7 +783,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         ) : null}
         {page.batch.status === 'paused' && (
           <span className="inline-flex items-center gap-1">
-            <PauseCircle aria-hidden className="h-3 w-3" />
+            <Icon name="pause" size="xs" />
             {t('batch.paused')}
           </span>
         )}
@@ -896,7 +882,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               ),
             ]
             const showPager = open && groupPageCount > 1
-            const Icon = statusIcon(group.status)
+            const icon = statusIcon(group.status)
             const live = group.status === 'in_flight' || group.status === 'in_progress'
             const urgent =
               group.status === 'failed' ||
@@ -908,27 +894,29 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                 data-batch-group={group.status}
                 className={`${groupAt === 0 ? '' : 'mt-1'} overflow-hidden border border-border bg-background ${open ? 'rounded-t-lg border-b-0' : 'rounded-lg'}`}
               >
-                <button
+                <Button
                   type="button"
-                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs text-foreground hover:bg-muted/60"
+                  variant="ghost"
+                  size="xs"
+                  className="w-full justify-start text-left"
                   aria-expanded={open}
                   onClick={() =>
                     setGroupOverride((current) => ({ ...current, [group.status]: !open }))
                   }
                 >
-                  <ChevronRight
-                    aria-hidden
-                    className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+                  <Icon
+                    name="chevronRight"
+                    className={` text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
                   />
                   <Icon
-                    aria-hidden
-                    className={`h-3 w-3 shrink-0 ${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
+                    name={icon}
+                    className={`${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
                   />
                   <span>{t(`batch.itemStatus.${group.status}`)}</span>
                   <span className="ml-auto tabular-nums text-muted-foreground">
                     {group.items.length}
                   </span>
-                </button>
+                </Button>
               </div>
             )
             if (!open) return [header]
@@ -1124,7 +1112,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           disabled={busy || !restored || Boolean(pending)}
           onClick={() => void command('pause')}
         >
-          <PauseCircle aria-hidden className="mr-1 h-3 w-3" />
+          <Icon name="pause" className="mr-1" />
           {t('batch.pause')}
         </Button>
       ) : priceChanged ? (
@@ -1144,7 +1132,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         )
       ) : page.batch.status === 'paused' ? (
         <Button size="sm" disabled={!confirmable} onClick={() => void command('resume')}>
-          <PlayCircle aria-hidden className="mr-1 h-3 w-3" />
+          <Icon name="play" className="mr-1" />
           {t('batch.resume')}
         </Button>
       ) : page.batch.status === 'draft' ? (

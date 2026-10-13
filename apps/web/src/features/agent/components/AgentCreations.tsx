@@ -7,7 +7,9 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { VideoIcon } from '../../../components/icons'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
+
 import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
 import { canvasElementCreatedAt, canvasImageName } from '../../canvas/lib/imageInfo'
@@ -164,20 +166,21 @@ const WorkCard = memo(function WorkCard({
   const loading = element.type === 'placeholder' && element.status === 'loading'
   const pending = element.type === 'image' && src === undefined
   return (
-    <button
+    <Button
       type="button"
       aria-label={t('creations.locateAria', { name })}
       aria-current={selected ? 'true' : undefined}
       onClick={() => onSelect(element.id)}
-      className={`group mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-card`}
+      variant="outline"
+      className={`h-auto whitespace-normal p-0 font-normal group mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-card`}
     >
       {element.type === 'image' && src ? (
         <div className="relative">
           <img src={src} alt="" loading="lazy" className="block h-auto w-full" />
           {element.video && (
-            <VideoIcon
-              className="absolute bottom-2 right-2 h-5 w-5 rounded bg-black/60 p-0.5 text-white"
-              aria-hidden="true"
+            <Icon
+              name="video"
+              className="absolute bottom-2 right-2 rounded bg-black/60 p-0.5 text-white"
             />
           )}
         </div>
@@ -194,7 +197,10 @@ const WorkCard = memo(function WorkCard({
           className="flex min-h-24 flex-col items-center justify-center gap-2 bg-muted px-3 text-xs text-muted-foreground"
         >
           <span className={loading ? 'animate-pulse text-xl' : 'text-xl'} aria-hidden="true">
-            {loading ? '✧' : '!'}
+            <Icon
+              name={loading ? 'loading' : 'error'}
+              className={loading ? 'animate-spin motion-reduce:animate-none' : undefined}
+            />
           </span>
           <span>
             {loading
@@ -213,7 +219,7 @@ const WorkCard = memo(function WorkCard({
           {element.naturalWidth} × {element.naturalHeight}
         </span>
       )}
-    </button>
+    </Button>
   )
 })
 
@@ -266,13 +272,9 @@ export default function AgentCreations({
           <span className="text-label-sm text-muted-foreground">
             {t('creations.itemCount', { count: works.length })}
           </span>
-          <button
-            type="button"
-            onClick={() => setGallery(true)}
-            className="rounded-lg border border-border px-2.5 py-1.5 text-label-sm font-medium text-foreground transition-colors hover:border-primary/60 hover:bg-muted"
-          >
+          <Button type="button" onClick={() => setGallery(true)} variant="outline" size="xs">
             {t('creations.viewAll')}
-          </button>
+          </Button>
         </div>
       )}
       {gallery && (
@@ -318,11 +320,13 @@ export default function AgentCreations({
           </summary>
           <div className="mt-2 flex flex-wrap gap-2">
             {marks.map((element) => (
-              <button
+              <Button
                 key={element.id}
                 type="button"
                 onClick={() => onSelect(element.id)}
-                className="max-w-full truncate rounded-md bg-muted px-2 py-1.5"
+                variant="secondary"
+                size="xs"
+                className="max-w-full truncate"
                 aria-current={doc.selection.has(element.id) ? 'true' : undefined}
               >
                 {element.type === 'text'
@@ -330,7 +334,7 @@ export default function AgentCreations({
                   : element.type === 'arrow'
                     ? t('creations.markArrow')
                     : t('creations.markPen')}
-              </button>
+              </Button>
             ))}
           </div>
         </details>

@@ -3,9 +3,10 @@
  * Upstream: assistant-ui/assistant-ui@4fffd182971380758dcda062ea076f7bc9257fee
  * See UPSTREAM.md for source paths and local adaptations; license in LICENSE.
  */
-import { CheckIcon, CopyIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
+
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '../../../lib/utils'
+import { Icon } from '../../ui/icon'
 import { iconSwap, iconSwapIn, iconSwapOut } from './surfaces'
 import { TooltipIconButton } from './tooltip-icon-button'
 
@@ -44,14 +45,8 @@ export function MessageActions({
           onClick={onCopy}
           className={cn('grid place-items-center', copied && 'text-foreground')}
         >
-          <CopyIcon
-            aria-hidden
-            className={cn(iconSwap, 'size-3.5', copied ? iconSwapOut : iconSwapIn)}
-          />
-          <CheckIcon
-            aria-hidden
-            className={cn(iconSwap, 'size-3.5', copied ? iconSwapIn : iconSwapOut)}
-          />
+          <Icon name="copy" className={cn(iconSwap, copied ? iconSwapOut : iconSwapIn)} />
+          <Icon name="check" className={cn(iconSwap, copied ? iconSwapIn : iconSwapOut)} />
           {copied && (
             <span className="sr-only" role="status">
               {copyLabel}
@@ -61,7 +56,7 @@ export function MessageActions({
       )}
       {onEdit && (
         <TooltipIconButton tooltip={editLabel ?? ''} onClick={onEdit}>
-          <PencilIcon aria-hidden />
+          <Icon name="edit" />
         </TooltipIconButton>
       )}
       {onRegenerate && (
@@ -70,8 +65,8 @@ export function MessageActions({
           disabled={regenerating}
           onClick={onRegenerate}
         >
-          <RefreshCwIcon
-            aria-hidden
+          <Icon
+            name="refresh"
             className={cn(regenerating && 'animate-spin motion-reduce:animate-none')}
           />
         </TooltipIconButton>
