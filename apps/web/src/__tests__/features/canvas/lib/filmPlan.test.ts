@@ -74,8 +74,8 @@ describe('planFilm', () => {
   })
 
   it('refuses a film longer than the limit', () => {
-    const elements = [video('a', 100), video('b', 100)]
-    const clips = elements.map((el) => ({ elementId: el.id, in: 0, out: 100 }))
+    const elements = [video('a', FILM_MAX_SECONDS), video('b', 1)]
+    const clips = elements.map((el) => ({ elementId: el.id, in: 0, out: FILM_MAX_SECONDS }))
     expect(planFilm(clips, lookupOf(elements))).toEqual({
       ok: false,
       refusal: { kind: 'tooLong', maxSeconds: FILM_MAX_SECONDS },
@@ -118,4 +118,10 @@ it('retains the durable original when resolving a timeline clip', () => {
     ok: true,
     clips: [{ mediaId: source.video.mediaId, in: 1, out: 4 }],
   })
+})
+
+it('accepts 64 clips spanning ten minutes', () => {
+  const elements = Array.from({ length: 64 }, (_, i) => video(`v${i}`, 9.375))
+  const clips = elements.map((el) => ({ elementId: el.id, in: 0, out: 9.375 }))
+  expect(planFilm(clips, lookupOf(elements)).ok).toBe(true)
 })

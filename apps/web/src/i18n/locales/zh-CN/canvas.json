@@ -316,6 +316,7 @@
     "unsupported": "这个浏览器不能编码 H.264 视频，可以先下载全部片段",
     "downloadClips": "下载全部片段",
     "zipping": "正在打包片段",
+    "zipTooLarge": "这些原片超过了 ZIP 的 4 GB 上限，请分批下载。",
     "zipFailed": "片段打包失败，请重试",
     "fileName": "成片",
     "clipsFileName": "时间线片段"
