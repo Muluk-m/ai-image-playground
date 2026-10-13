@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { originalBlob } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
 import { loadImageOriginal } from '../lib/imageSource'
 import { useStore } from '../store'
@@ -260,8 +258,6 @@ function LightboxInner({
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const originalUnavailable = originalPending || originalFailed
-  // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
-  const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
   // 用 ref 追踪最新变换，避免闭包过期
   const scaleRef = useRef(1)
@@ -686,19 +682,6 @@ function LightboxInner({
         )}
 
         <div className="absolute top-4 right-4 left-4 z-10 flex flex-wrap items-center justify-end gap-2">
-          {videoAvailable && (
-            <Button
-              variant="secondary"
-              onClick={(e) => {
-                e.stopPropagation()
-                void startVideoFromImage(imageId)
-              }}
-              size="sm"
-            >
-              <Icon name="video" />
-              {t('menu.makeVideo')}
-            </Button>
-          )}
           <Button
             data-save-image
             variant="secondary"

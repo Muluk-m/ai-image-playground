@@ -1,5 +1,6 @@
 import { VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
 import { type ReactNode, useEffect } from 'react'
+import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import {
   type ComposerControlSize,
   composerModelChipClass,
@@ -55,13 +56,20 @@ export default function CanvasVideoParams({
         value={draft.model}
         onValueChange={(model) => useVideoStore.getState().setModel(model)}
       >
-        <SelectTrigger aria-label={t('field.model')} className={composerModelChipClass(size)}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
+        <Hint tooltip={`${t('field.model')}：${option.label}`}>
+          <SelectTrigger aria-label={t('field.model')} className={composerModelChipClass(size)}>
+            <SelectValue>
+              <span className="creation-model-value">
+                <ModelLogo model={option.modelId} />
+                <span className="creation-model-name">{option.label}</span>
+              </span>
+            </SelectValue>
+          </SelectTrigger>
+        </Hint>
+        <SelectContent className="max-w-[calc(100vw-24px)]">
           {options.map((one) => (
             <SelectItem key={one.modelId} value={one.modelId}>
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 whitespace-normal break-words">
                 <ModelLogo model={one.modelId} />
                 {one.label}
               </span>

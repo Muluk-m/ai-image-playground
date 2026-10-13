@@ -152,14 +152,14 @@ export function ModelList({
               aria-label={`${option.label} · ${option.description}`}
               onClick={() => onPick(option.value)}
               className={cn(
-                'w-full justify-start px-3 text-left text-body-sm focus-visible:bg-accent',
+                'h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
                 selected && 'bg-accent',
               )}
             >
               <span className="flex shrink-0">
                 <ModelLogo model={option.model} />
               </span>
-              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+              <span className="min-w-0 flex-1 break-words font-medium text-foreground">
                 {option.label}
               </span>
               <span className="max-w-20 truncate text-label-sm text-muted-foreground">
@@ -215,7 +215,7 @@ export function ModelSelector({
           <span className="flex shrink-0 items-center text-muted-foreground">
             {!label && current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
           </span>
-          <span className="min-w-0 truncate">{shown}</span>
+          <span className="creation-model-name min-w-0 truncate">{shown}</span>
           <Icon
             name="chevronDown"
             aria-hidden="true"

@@ -20,7 +20,7 @@ export default function PageHeader({
   return (
     <div
       className={cn(
-        'flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b py-2.5 border-border pl-4 pr-4 md:pl-6 md:pr-[max(1.5rem,calc(var(--studio-header-actions-width,0px)+2rem))]',
+        'flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b py-2.5 border-border pl-4 pr-4 md:pl-[max(1.5rem,var(--app-nav-toggle-space,0px))] md:pr-[max(1.5rem,calc(var(--studio-header-actions-width,0px)+2rem))]',
         className,
       )}
     >
