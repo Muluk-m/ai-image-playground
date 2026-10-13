@@ -1,5 +1,5 @@
 import { type AgentMessageView, agentMessageText } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { askChatModel } from '../chatCompletion'
@@ -7,7 +7,7 @@ import { log } from '../logger'
 import { isObject } from '../type-guards'
 
 const FOLLOW_UP_MAX_TOKENS = 180
-const FOLLOW_UP_TIMEOUT_MS = 4_000
+const FOLLOW_UP_TIMEOUT_MS = 15_000
 const FOLLOW_UP_INPUT_CHARS = 2_000
 const FOLLOW_UP_MAX_CHARS = 80
 const FOLLOW_UP_MIN_LINES = 2
@@ -26,8 +26,8 @@ function clip(text: string): string {
   return trimmed.length <= FOLLOW_UP_INPUT_CHARS ? trimmed : trimmed.slice(0, FOLLOW_UP_INPUT_CHARS)
 }
 
-/** 这一轮里最后一句用户的话，和最后一段助手文字。没有用户原话（系统唤醒）就不问。 */
-export function followUpSource(messages: readonly AgentMessageView[]): FollowUpSource | null {
+/** 这一轮里最后一句用户的话，和最后一段助手文字。这一轮没有用户原话时用户那侧是空的。 */
+export function followUpTexts(messages: readonly AgentMessageView[]): FollowUpSource {
   let userText = ''
   let assistantText = ''
   for (const message of [...messages].sort((a, b) => a.createdAt - b.createdAt)) {
@@ -36,8 +36,14 @@ export function followUpSource(messages: readonly AgentMessageView[]): FollowUpS
     if (message.role === 'user') userText = text
     else if (message.role === 'assistant') assistantText = text
   }
-  if (!userText) return null
   return { userText, assistantText }
+}
+
+/** 这一轮自己带了用户原话才返回。出图后的复查没有新的用户消息，调用方再去会话里找上一句。 */
+export function followUpSource(messages: readonly AgentMessageView[]): FollowUpSource | null {
+  const texts = followUpTexts(messages)
+  if (!texts.userText) return null
+  return texts
 }
 
 export function followUpPrompt(userText: string, assistantText: string): string {
@@ -173,13 +179,52 @@ export function scheduleAgentFollowUps(
       )
     })
   }
-  const source = followUpSource(input.messages)
-  if (!source) {
-    write([])
-    return
-  }
-  // bun test 会把 NODE_ENV 设成 test。没注入 ask 就不问模型：别的用例把同一条 chat fetch
-  // 当成自己的计数器，旁路再打一次会把次数和重试预算打乱。列保持 null，那些用例不用认识它。
-  if (!ask && process.env.NODE_ENV === 'test') return
-  void suggestFollowUps(source, ask).then(write)
+  const draft = followUpTexts(input.messages)
+  void (async () => {
+    // 出图完成后的复查往往只有助手的话。沿用会话里上一句用户的话，否则胶囊出不来。
+    let userText = draft.userText
+    if (!userText) {
+      try {
+        userText = await previousUserText(input.conversationId)
+      } catch (err) {
+        log.warn(
+          { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
+          'follow-up suggestions were not generated',
+        )
+        write([])
+        return
+      }
+    }
+    if (!userText) {
+      write([])
+      return
+    }
+    // bun test 会把 NODE_ENV 设成 test。没注入 ask 就不问模型：别的用例把同一条 chat fetch
+    // 当成自己的计数器，旁路再打一次会把次数和重试预算打乱。列保持 null，那些用例不用认识它。
+    if (!ask && process.env.NODE_ENV === 'test') return
+    write(await suggestFollowUps({ userText, assistantText: draft.assistantText }, ask))
+  })()
+}
+
+/** 会话里最近一句用户的话。这一轮自己没有时用它。 */
+async function previousUserText(conversationId: string): Promise<string> {
+  const [row] = await db
+    .select({ content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        eq(schema.agent_messages.role, 'user'),
+      ),
+    )
+    .orderBy(desc(schema.agent_messages.created_at))
+    .limit(1)
+  if (!row) return ''
+  return agentMessageText({
+    id: '',
+    turnId: '',
+    role: 'user',
+    content: row.content,
+    createdAt: 0,
+  }).trim()
 }
