@@ -34,7 +34,7 @@ export function createNode(
   const { width, height } = beside?.size ?? canvasNodeRegistry[kind].size
   const occupied = readCanvasDocument(canvas.doc).nodes
   const anchors = beside?.nodes ?? []
-  const gap = 96
+  const gap = 168
   const x = anchors.length
     ? beside?.side === 'left'
       ? Math.min(...anchors.map((n) => n.x)) - gap - width
