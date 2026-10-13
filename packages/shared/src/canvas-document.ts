@@ -4,6 +4,12 @@ import { canvasPendingJob } from './canvas-jobs'
 import { canvasLinkAllowed } from './canvas-registry'
 import { canvasMainResult, refreshCanvasResultDisplay } from './canvas-results'
 import {
+  type CanvasStoryboardData,
+  initializeStoryboard,
+  readStoryboard,
+  replaceStoryboardShots,
+} from './canvas-storyboard'
+import {
   type CanvasTextRun,
   canvasText,
   initializeNodeText,
@@ -88,6 +94,7 @@ export type CanvasNode = CanvasNodeBase &
     | { type: 'video'; data: VideoNodeData }
     | { type: 'text'; data: TextNodeData }
     | { type: 'timeline'; data: TimelineNodeData }
+    | { type: 'storyboard'; data: CanvasStoryboardData }
   )
 
 export interface CanvasAnnotation {
@@ -153,8 +160,9 @@ function edgesOf(doc: Y.Doc): Y.Map<CanvasEdge> {
 /** 节点按写入顺序给出；叠放看 `z`。标注按 `z` 排好，绘制层直接按序画。 */
 export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
   const nodes = [...nodesOf(doc).values()].map((map) => {
-    const { richText: _rich, ...raw } = map.toJSON()
+    const { richText: _rich, storyboardShots: _shots, ...raw } = map.toJSON()
     const node = raw as CanvasNode
+    if (node.type === 'storyboard') node.data = { ...node.data, shots: readStoryboard(map) }
     const text = canvasText(doc, node.id)
     if (node.type === 'text' && text) {
       const delta = text.toDelta() as CanvasTextRun[]
@@ -247,6 +255,20 @@ export function updateCanvasNode(
   if (!node) return
   doc.transact(() => {
     for (const [key, value] of Object.entries(patch)) {
+      if (
+        key === 'data' &&
+        node.get('type') === 'storyboard' &&
+        value &&
+        typeof value === 'object' &&
+        'shots' in value
+      ) {
+        if (!sameField(readStoryboard(node), value.shots))
+          replaceStoryboardShots(doc, id, value.shots, origin)
+        const data = { ...value, shots: [] }
+        if (!sameField(node.get('data'), data)) node.set('data', data)
+        continue
+      }
+
       if (
         key === 'data' &&
         node.get('type') === 'timeline' &&
@@ -394,6 +416,10 @@ function writeNode(doc: Y.Doc, node: CanvasNode): void {
   const map = new Y.Map<unknown>()
   for (const [key, value] of Object.entries(node)) map.set(key, value)
   nodesOf(doc).set(node.id, map)
+  if (node.type === 'storyboard') {
+    initializeStoryboard(map, node.data.shots)
+    map.set('data', { ...node.data, shots: [] })
+  }
   if (node.type === 'text') {
     initializeNodeText(map, node.data.richText)
     const { richText: _rich, ...data } = node.data
@@ -417,9 +443,10 @@ function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnn
       const { id, x, y, width, height, type: _type, ...data } = element
       return { id, x, y, width, height, z, type: 'text', data }
     }
+    case 'storyboard':
     case 'timeline': {
       const { id, x, y, width, height, type: _type, ...data } = element
-      return { id, x, y, width, height, z, type: 'timeline', data }
+      return { id, x, y, width, height, z, type: element.type, data } as CanvasNode
     }
     case 'placeholder':
     case 'generation': {
@@ -522,7 +549,7 @@ export function synchronizeLegacyElements(
           (!beforeNode || !sameField(beforeNode[field], item[field])) &&
           !sameField(current.get(field), item[field])
         ) {
-          if (field === 'data' && item.type === 'timeline') {
+          if (field === 'data' && (item.type === 'timeline' || item.type === 'storyboard')) {
             updateCanvasNode(doc, id, { data: item.data }, origin)
             continue
           }

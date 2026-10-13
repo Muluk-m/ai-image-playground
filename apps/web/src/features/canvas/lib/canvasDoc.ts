@@ -1,4 +1,4 @@
-import type { ProjectVideoRef } from '@image-playground/shared'
+import type { ProjectStoryboard, ProjectVideoRef } from '@image-playground/shared'
 import type { CanvasTaskMeta, CanvasTaskStatus } from './editor'
 
 /**
@@ -101,7 +101,14 @@ export interface TimelineEl {
   clips: TimelineClip[]
 }
 
-export type CanvasEl = ImageEl | FreedrawEl | ArrowEl | TextEl | PlaceholderEl | TimelineEl
+export type CanvasEl =
+  | ImageEl
+  | FreedrawEl
+  | ArrowEl
+  | TextEl
+  | PlaceholderEl
+  | TimelineEl
+  | ProjectStoryboard
 
 export interface Camera {
   /** 视口左上角的页面坐标。 */

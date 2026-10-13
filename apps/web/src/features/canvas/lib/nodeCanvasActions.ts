@@ -15,7 +15,7 @@ import {
 import { newElementId } from './canvasDoc'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
-export type CreateNodeKind = 'text' | 'image' | 'video' | 'timeline'
+export type CreateNodeKind = 'text' | 'image' | 'video' | 'timeline' | 'storyboard'
 export function nodeKind(node: CanvasNode): CreateNodeKind | 'timeline' {
   return canvasNodeKind(node)
 }
@@ -56,17 +56,26 @@ export function createNode(
     canvas.doc,
     {
       id,
-      type: kind === 'timeline' ? 'timeline' : kind === 'text' ? 'text' : 'image',
+      type:
+        kind === 'storyboard'
+          ? 'storyboard'
+          : kind === 'timeline'
+            ? 'timeline'
+            : kind === 'text'
+              ? 'text'
+              : 'image',
       x,
       y,
       width,
       height,
       data:
-        kind === 'timeline'
-          ? { clips: [] }
-          : kind === 'text'
-            ? { text: '', fontSize: 16, fill }
-            : { meta: { nodeKind: kind } },
+        kind === 'storyboard'
+          ? { shots: [] }
+          : kind === 'timeline'
+            ? { clips: [] }
+            : kind === 'text'
+              ? { text: '', fontSize: 16, fill }
+              : { meta: { nodeKind: kind } },
     },
     canvas.origin,
   )
@@ -121,6 +130,14 @@ export function pasteNodes(
           ...clip,
           elementId: ids.get(clip.elementId) ?? clip.elementId,
         }))
+      if ('shots' in data) {
+        data.shots = data.shots.map((shot) => ({
+          ...shot,
+          lookIds: shot.lookIds.map((id) => ids.get(id) ?? id),
+          ...(shot.locationId ? { locationId: ids.get(shot.locationId) ?? shot.locationId } : {}),
+        }))
+        delete data.confirmed
+      }
       if ('pending' in data) delete data.pending
       if ('meta' in data && data.meta) {
         const meta = { ...data.meta }
@@ -153,6 +170,19 @@ export function pasteNodes(
     }
     // A timeline copied alone still references its original shots; rebuild those visible links.
     for (const node of copied.nodes) {
+      if (node.type === 'storyboard') {
+        for (const source of new Set(
+          node.data.shots.flatMap((shot) => [
+            ...shot.lookIds,
+            ...(shot.locationId ? [shot.locationId] : []),
+          ]),
+        ))
+          connectCanvasNodes(
+            canvas.doc,
+            { source: ids.get(source) ?? source, target: ids.get(node.id)! },
+            canvas.origin,
+          )
+      }
       if (node.type !== 'timeline') continue
       for (const clip of node.data.clips)
         connectCanvasNodes(

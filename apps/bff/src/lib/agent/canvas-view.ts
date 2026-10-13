@@ -107,6 +107,8 @@ function describeElement(element: ProjectElement): string {
     }
     case 'freedraw':
       return `${head}：手绘，${element.points.length / 2} 个点`
+    case 'storyboard':
+      return `${head}：分镜表，${element.shots.length} 镜：${preview(JSON.stringify(element.shots))}，${box(element)}`
     case 'timeline': {
       const clips = element.clips
         .map(

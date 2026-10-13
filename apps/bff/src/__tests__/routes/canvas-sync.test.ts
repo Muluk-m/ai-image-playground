@@ -24,6 +24,7 @@ import {
   recordCanvasResult,
   setCanvasNodeJob,
   updateCanvasNode,
+  updateStoryboardShot,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -803,6 +804,51 @@ it('persists concurrent timeline slots and trims through the server and legacy p
       { elementId: 'a', in: 1, out: 3 },
       { elementId: 'b', in: 0 },
     ],
+  })
+  a.destroy()
+  b.destroy()
+  restored.destroy()
+})
+
+it('persists independent storyboard field updates and projects the merged table for old archives', async () => {
+  const id = await create(),
+    a = new Y.Doc(),
+    b = new Y.Doc()
+  Y.applyUpdate(a, await accessCanvasDocument('owner', id))
+  const seed = Y.encodeStateVector(a)
+  insertCanvasNode(
+    a,
+    {
+      id: 'board',
+      type: 'storyboard',
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 340,
+      data: { shots: [{ id: 'shot', description: 'scene', lookIds: [] }] },
+    },
+    origin,
+  )
+  Y.applyUpdate(a, await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(a, seed)))
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+  const va = Y.encodeStateVector(a),
+    vb = Y.encodeStateVector(b)
+  updateStoryboardShot(a, 'board', 'shot', { description: 'updated scene' }, origin)
+  updateStoryboardShot(b, 'board', 'shot', { dialogue: 'hello' }, origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(a, va))
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(b, vb))
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, await accessCanvasDocument('owner', id))
+  expect(readCanvasDocument(restored).nodes.find((n) => n.id === 'board')?.data).toEqual({
+    shots: [{ id: 'shot', description: 'updated scene', dialogue: 'hello', lookIds: [] }],
+  })
+  const [project] = await db
+    .select()
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.id, id))
+  expect(project!.document.elements.find((el) => el.id === 'board')).toMatchObject({
+    type: 'storyboard',
+    shots: [{ id: 'shot', description: 'updated scene', dialogue: 'hello', lookIds: [] }],
   })
   a.destroy()
   b.destroy()

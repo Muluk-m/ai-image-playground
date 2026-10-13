@@ -92,6 +92,7 @@ export async function insertAssetNode(
       target &&
       target.type !== 'text' &&
       target.type !== 'timeline' &&
+      target.type !== 'storyboard' &&
       targetPrompt !== undefined
     )
       updateCanvasNode(
