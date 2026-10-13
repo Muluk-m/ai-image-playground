@@ -184,14 +184,22 @@ async function save(db: IDBDatabase, write: CacheWrite, retry = false): Promise<
   }
 }
 
-function reclaim(db: IDBDatabase, key: string, bytes: number): Promise<void> {
+async function reclaim(db: IDBDatabase, write: CacheWrite): Promise<boolean> {
   const tx = db.transaction(STORES, 'readwrite')
-  const request = tx.objectStore(USAGE).get('bytes')
-  request.onsuccess = () => {
-    const total = request.result ?? 0
-    trim(tx, total, Math.max(0, total - Math.max(bytes, total * 0.1)), key)
+  const usage = tx.objectStore(USAGE)
+  const revision = usage.get('revision')
+  let canRetry = false
+  revision.onsuccess = () => {
+    if (write.revision === undefined || (revision.result ?? null) !== write.revision) return
+    canRetry = true
+    const request = usage.get('bytes')
+    request.onsuccess = () => {
+      const total = request.result ?? 0
+      trim(tx, total, Math.max(0, total - Math.max(write.bytes, total * 0.1)), write.key)
+    }
   }
-  return complete(tx)
+  await complete(tx)
+  return canRetry
 }
 
 function remove(db: IDBDatabase, key: string): Promise<void> {
@@ -288,7 +296,7 @@ export function conversationCache(conversationId: string) {
           if (!canWrite()) return
           // The origin also stores artwork. On real disk pressure reclaim only history,
           // commit that reclamation, then retry once; a failed write otherwise rolls it back.
-          await reclaim(db, key, bytes)
+          if (!(await reclaim(db, write))) return
           // A single durable revision also covers deletes of absent keys and scope clears,
           // without retaining per-conversation tombstones. Unrelated writes may cancel a retry.
           if (canWrite()) await save(db, write, true)
