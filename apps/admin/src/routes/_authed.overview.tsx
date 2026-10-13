@@ -16,7 +16,12 @@ import {
 import { shortId } from '@/lib/format'
 import { useTodayOverview } from '@/lib/queries'
 import { cn } from '@/lib/utils'
-import type { GenerationActor, TimeWindow, TodayOverviewResult } from '../../contracts'
+import type {
+  GenerationActor,
+  TimeWindow,
+  TodayModelStat,
+  TodayOverviewResult,
+} from '../../contracts'
 
 export const Route = createFileRoute('/_authed/overview')({ component: OverviewPage })
 
@@ -62,6 +67,7 @@ function OverviewPage() {
             </p>
           ) : null}
           <TodayUsers overview={query.data} />
+          <TodayModels overview={query.data} />
         </>
       ) : query.isError ? (
         <ErrorState label="今日任务加载失败" error={query.error} />
@@ -202,5 +208,86 @@ function TodayUsers({ overview }: { overview: TodayOverviewResult }) {
         </CardContent>
       </Card>
     </>
+  )
+}
+
+/** 终态不足这么多个时失败率不稳定，只显示数字，不标红。 */
+const MIN_FAILURE_SAMPLE = 20
+
+function failureRate(completed: number, failed: number): { label: string; alert: boolean } {
+  const finished = completed + failed
+  if (finished === 0) return { label: '—', alert: false }
+  return {
+    label: `${((failed / finished) * 100).toFixed(1)}%`,
+    alert: finished >= MIN_FAILURE_SAMPLE && failed > 0,
+  }
+}
+
+function TodayModels({ overview }: { overview: TodayOverviewResult }) {
+  const { models, window } = overview
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="p-4">
+        <CardTitle className="text-sm">今天按模型</CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto p-0">
+        {models.length ? (
+          <Table className="min-w-[640px]" aria-label="今天按模型">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-4">模型</TableHead>
+                <TableHead className="text-right">任务</TableHead>
+                <TableHead className="text-right">成功</TableHead>
+                <TableHead className="text-right">失败</TableHead>
+                <TableHead className="text-right">上游调用</TableHead>
+                <TableHead className="pr-4 text-right">失败率</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {models.map((row) => (
+                <ModelRow key={row.model} row={row} window={window} />
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <div className="p-6">
+            <EmptyState label="今天还没有生成任务" />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ModelRow({ row, window }: { row: TodayModelStat; window: TimeWindow }) {
+  const rate = failureRate(row.completed, row.failed)
+  return (
+    <TableRow>
+      <TableCell className="max-w-64 truncate pl-4 font-mono text-xs">{row.model}</TableCell>
+      <TableCell className="text-right font-mono tabular-nums">{row.tasks}</TableCell>
+      <TableCell className="text-right font-mono tabular-nums">{row.completed}</TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
+        {row.failed ? (
+          <Link
+            to="/tasks"
+            search={{ ...window, status: 'failed', model: row.model }}
+            className="text-danger hover:underline"
+            aria-label={`${row.model}的失败任务`}
+          >
+            {row.failed}
+          </Link>
+        ) : (
+          '0'
+        )}
+      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
+        {row.upstream_invocations}
+      </TableCell>
+      <TableCell
+        className={cn('pr-4 text-right font-mono tabular-nums', rate.alert && 'text-danger')}
+      >
+        {rate.label}
+      </TableCell>
+    </TableRow>
   )
 }

@@ -6,6 +6,7 @@ import {
   type TimeWindow,
   type TodayErrorItem,
   type TodayErrorsResult,
+  type TodayModelStat,
   type TodayOverviewResult,
   todayWindow,
 } from '../../contracts'
@@ -22,7 +23,10 @@ const PAGE_SIZE = 100
 
 export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewResult> {
   const window = todayWindow(now)
-  const rows = (await getDbHandle().db.execute(sql`
+  const from = new Date(window.from)
+  const to = new Date(window.to)
+  const [actorRows, modelRows] = await Promise.all([
+    getDbHandle().db.execute(sql`
     WITH actors AS (
       SELECT CASE WHEN t.user_id IS NOT NULL THEN 'user'
         WHEN t.device_id IS NOT NULL THEN 'device' ELSE 'unassigned' END AS kind,
@@ -35,7 +39,7 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
         COUNT(*) FILTER (WHERE status = 'reconciling') AS reconciling,
         MAX(submitted_at) AS last_submitted_at
       FROM queue_tasks t
-      WHERE submitted_at >= ${new Date(window.from)} AND submitted_at <= ${new Date(window.to)}
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
       GROUP BY 1, 2
     )
     SELECT a.*, u.username, n.note, COUNT(*) OVER() AS actor_count,
@@ -49,10 +53,32 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
     LEFT JOIN admin_user_notes n ON n.user_id = u.id
     ORDER BY a.last_submitted_at DESC, a.kind, a.actor_id
     LIMIT ${ACTOR_LIMIT}
-  `)) as unknown as Row[]
+  `),
+    getDbHandle().db.execute(sql`
+      SELECT model,
+        COUNT(*) AS tasks,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
+      FROM queue_tasks
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
+      GROUP BY model
+      ORDER BY COUNT(*) DESC, model
+    `),
+  ])
+  const rows = actorRows as unknown as Row[]
   const totals = rows[0] ?? {}
   return {
     window,
+    models: (modelRows as unknown as Row[]).map(
+      (row): TodayModelStat => ({
+        model: String(row.model),
+        tasks: Number(row.tasks),
+        completed: Number(row.completed),
+        failed: Number(row.failed),
+        upstream_invocations: Number(row.upstream_invocations),
+      }),
+    ),
     summary: {
       users: Number(totals.users ?? 0),
       devices: Number(totals.devices ?? 0),
@@ -185,6 +211,7 @@ export async function getGenerationTasks(
     conditions.push(sql`t.user_id IS NULL AND t.device_id = ${filters.deviceId}`)
   if (filters.unassigned) conditions.push(sql`t.user_id IS NULL AND t.device_id IS NULL`)
   if (filters.status) conditions.push(sql`t.status = ${filters.status}`)
+  if (filters.model) conditions.push(sql`t.model = ${filters.model}`)
   if (cursor) {
     const separator = cursor.indexOf('_')
     const at = Number(cursor.slice(0, separator))
