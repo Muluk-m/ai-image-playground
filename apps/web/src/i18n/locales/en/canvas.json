@@ -331,6 +331,7 @@
     "unsupported": "This browser can't encode H.264 video. You can download all clips instead.",
     "downloadClips": "Download all clips",
     "zipping": "Packing clips",
+    "zipTooLarge": "These original clips exceed the 4 GB ZIP limit. Download them in smaller batches.",
     "zipFailed": "Couldn't pack the clips. Please try again.",
     "fileName": "film",
     "clipsFileName": "timeline-clips"

@@ -1,8 +1,10 @@
+import { PROJECT_TIMELINE_MAX_CLIPS } from '@image-playground/shared'
+
 /** 成片规格与纯计算，不引应用代码：Worker 也要用它。 */
 
-/** 成片上限（ADR 0010）：成片整段放在内存里，超出就不保证浏览器扛得住。 */
-export const FILM_MAX_CLIPS = 8
-export const FILM_MAX_SECONDS = 180
+/** 与时间线统一：逐段解码、成片流式写入磁盘（ADR 0010）。 */
+export const FILM_MAX_CLIPS = PROJECT_TIMELINE_MAX_CLIPS
+export const FILM_MAX_SECONDS = 600
 /** 成片规格：固定 30 fps，音频 48 kHz 双声道。 */
 export const FILM_FPS = 30
 export const FILM_SAMPLE_RATE = 48000
