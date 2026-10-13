@@ -494,6 +494,11 @@
     "assets": "从资产库添加",
     "assetsEmpty": "没有匹配的资产",
     "group": "选中节点成组",
+    "slice": "宫格切图",
+    "slicing": "正在切图…",
+    "sliceHint": "本地切图，保留原图比例",
+    "sliceGrid": "{{grid}} × {{grid}} · {{count}} 张",
+    "sliceFailed": "切图失败，请重试或换一张图片",
     "ungroup": "解除分组",
     "groupName": "分组名称",
     "groupDefault": "未命名分组"

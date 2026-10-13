@@ -100,6 +100,7 @@ import NodeAssetPicker from './NodeAssetPicker'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodeReferenceEditor from './NodeReferenceEditor'
+import NodeSliceMenu from './NodeSliceMenu'
 import VideoNodeComposer from './VideoNodeComposer'
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
@@ -798,6 +799,24 @@ function Flow({
           : undefined
       return group ? [...updated, toGroupFlowNode(group, true)] : updated
     })
+  }
+  const selectCreatedBatch = (ids: string[]) => {
+    const chosen = new Set(ids)
+    const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
+    selectNode(null)
+    selectedIds.current = ids
+    setSelectedCount(ids.length)
+    setNodes((current) => [
+      ...current
+        .filter((node) => !chosen.has(node.id))
+        .map((node) => ({ ...node, selected: false })),
+      ...created.map((node) => toFlowNode(node, true)),
+    ])
+    const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
+    if (bounds && frame.width && frame.height)
+      flowRef.current?.setViewport(
+        getViewportForBounds(bounds, frame.width, frame.height, 0.1, Math.min(1, frame.zoom), 0.3),
+      )
   }
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
@@ -1565,6 +1584,15 @@ function Flow({
                           }
                         }}
                       />
+                      {composerNode.type === 'image' && nodeKind(composerNode) === 'image' && (
+                        <NodeSliceMenu
+                          key={composerNode.id}
+                          editor={editor}
+                          canvas={canvas}
+                          nodeId={composerNode.id}
+                          onCreated={selectCreatedBatch}
+                        />
+                      )}
                       <NodeTool icon="duplicate" label={t('nodes.duplicate')} onClick={duplicate} />
                       <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                     </div>

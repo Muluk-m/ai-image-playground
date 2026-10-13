@@ -512,6 +512,11 @@
     "assets": "Add from assets",
     "assetsEmpty": "No matching assets",
     "group": "Group selected nodes",
+    "slice": "Slice image",
+    "slicing": "Slicing…",
+    "sliceHint": "Local slices, original proportions",
+    "sliceGrid": "{{grid}} × {{grid}} · {{count}} images",
+    "sliceFailed": "Could not slice this image. Try again or choose another image.",
     "ungroup": "Ungroup",
     "groupName": "Group name",
     "groupDefault": "Untitled group"
