@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
+import { signalBootReady } from './boot/ready'
 import ConfirmDialog from './components/ConfirmDialog'
 import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
@@ -53,6 +54,10 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
+  // 会话检查和懒加载期间闪屏继续盖着；工作台这一帧才淡出。
+  useEffect(() => {
+    signalBootReady()
+  }, [])
 
   // 匿名设备没有同步；能力关不关由引擎自己判断。
   useEffect(() => (user ? startSyncEngine() : undefined), [user])

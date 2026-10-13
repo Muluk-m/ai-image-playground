@@ -15,8 +15,12 @@ import {
 const RESOURCE_RECOVERY_TIMEOUT_MS = 20_000
 const RESOURCE_PROBE_TIMEOUT_MS = 5_000
 const RESOURCE_PROBE_INTERVAL_MS = 2_000
-/** Only consulted while React has never rendered; afterwards the app owns every loading state. */
+/** Only consulted while the shell or a failure screen has not painted; afterwards the app owns loading. */
 const UNRENDERED_TIMEOUT_MS = 30_000
+/** Last petal ends around 950ms. A fast shell waits out the unfurl instead of fading mid-bloom. */
+export const SPROUT_HOLD_MS = 1_000
+/** Matches `#boot[data-state="done"]`'s fade, plus a little slack when animationend does not fire. */
+export const BOOT_FADE_MS = 700
 
 // Must execute independently of the module graph: a failed entry script cannot render React UI.
 // Resource failures and the startup deadline own this panel; runtime exceptions belong to React.
@@ -39,6 +43,7 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   }}catch{}
   let rendered=false;
   let fatal=false;
+  const sproutStarted=performance.now();
   let cause=null;
   let reported=false;
   let reloading=false;
@@ -80,6 +85,7 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(!element)return;
     if(!element.isConnected)document.body.append(element);
     element.dataset.state='error';
+    element.setAttribute('aria-busy','false');
     document.getElementById('boot-error').hidden=false;
     report();
     let locale;try{locale=localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)})}catch{}
@@ -218,10 +224,28 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
       }
     }catch{}
     clearTimeout(timer);
-    if(fatal&&cause?.reason!=='timeout')show();
-    // First React commit may only be an auth/loading screen; lazy chunks can still fail later.
+    if(fatal&&cause?.reason!=='timeout'){show();return}
+    // First paint may only be an auth check. The shell signals when it can actually be seen.
     // Keep spent navigation budgets across documents until an explicit user retry.
-    else if(!recovery&&!reloading){fatal=false;boot()?.remove()}
+    if(recovery||reloading)return;
+    fatal=false;
+    const element=boot();
+    if(!element)return;
+    // A timeout panel is already the failure UI. A late render withdraws it at once.
+    if(element.dataset.state==='error'){element.remove();return}
+    const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const wait=reduce?0:Math.max(0,${SPROUT_HOLD_MS}-(performance.now()-sproutStarted));
+    const reveal=()=>{
+      if(!element.isConnected)return;
+      element.dataset.state='done';
+      element.setAttribute('aria-busy','false');
+      let removed=false;
+      const remove=()=>{if(removed)return;removed=true;element.remove()};
+      // Petal animations bubble. Only the splash's own fade may dismiss it.
+      element.addEventListener('animationend',(event)=>{if(event.target===element)remove()});
+      setTimeout(remove,${BOOT_FADE_MS});
+    };
+    if(wait===0)reveal();else setTimeout(reveal,wait);
   };
   const timer=setTimeout(()=>{if(!rendered)fail('timeout')},${UNRENDERED_TIMEOUT_MS});
   window.addEventListener('error',onError,true);
