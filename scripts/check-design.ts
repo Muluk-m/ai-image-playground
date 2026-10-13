@@ -151,15 +151,13 @@ function iconButtonLabels(file: ts.SourceFile): number[] {
           node.children.some((one) => !ts.isJsxText(one)) &&
           node.children.every(isIcon)
         const label = attr('aria-label')
+        const value = label && ts.isJsxExpression(label) ? label.expression : label
         const named =
-          label &&
-          !(ts.isStringLiteral(label) && !label.text.trim()) &&
-          !(
-            ts.isJsxExpression(label) &&
-            label.expression &&
-            ts.isStringLiteral(label.expression) &&
-            !label.expression.text.trim()
-          )
+          value &&
+          !(ts.isStringLiteralLike(value) && !value.text.trim()) &&
+          value.kind !== ts.SyntaxKind.NullKeyword &&
+          !(ts.isIdentifier(value) && value.text === 'undefined') &&
+          !ts.isVoidExpression(value)
         if ((iconSize || iconContent) && !named) hits.push(opening.getStart(file))
       }
     }
