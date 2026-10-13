@@ -190,13 +190,21 @@ export interface AgentConversationState {
 export async function fetchMessages(
   conversationId: string,
   fetcher: Fetcher = authenticatedBffFetch,
+  cancellation?: AbortSignal,
 ): Promise<AgentConversationState> {
-  const response = await fetcher(url(`/conversations/${conversationId}/messages`), {
-    headers: deviceHeaders(),
-    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
-  })
-  if (!response.ok) throw await requestError(response)
-  return (await response.json()) as AgentConversationState
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
+  signal.throwIfAborted()
+  const response = await withSignal(
+    fetcher(url(`/conversations/${conversationId}/messages`), {
+      headers: deviceHeaders(),
+      signal,
+      ...(cancellation ? { priority: 'low' as const } : {}),
+    }),
+    signal,
+  )
+  if (!response.ok) throw await withSignal(requestError(response), signal)
+  return (await withSignal(response.json(), signal)) as AgentConversationState
 }
 export async function fetchSubmissionReceipt(
   conversationId: string,

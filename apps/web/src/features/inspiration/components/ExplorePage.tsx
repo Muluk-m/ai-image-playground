@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import PageHeader from '../../../components/patterns/PageHeader'
 import SearchField from '../../../components/patterns/SearchField'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
 import { useInspirationStore } from '../store'
@@ -27,18 +28,16 @@ export default function ExplorePage() {
     <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col">
       <PageHeader title={APP_MODE_LABELS.explore}>
         <InspirationProviderTabs />
-        <button
+        <Button
           type="button"
           aria-pressed={onlyImageEdits}
           onClick={() => setOnlyImageEdits(!onlyImageEdits)}
-          className={`ml-auto h-7 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-            onlyImageEdits
-              ? 'border-primary/60 bg-primary/10 text-primary'
-              : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
-          }`}
+          variant={onlyImageEdits ? 'secondary' : 'outline'}
+          size="xs"
+          className="ml-auto shrink-0"
         >
           {t('filter.imageEdit')}
-        </button>
+        </Button>
         <SearchField
           value={searchKeyword}
           onChange={(event) => setSearch(event.target.value)}

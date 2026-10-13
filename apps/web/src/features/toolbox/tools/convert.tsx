@@ -1,4 +1,3 @@
-import { ArrowRightLeft } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
@@ -25,7 +24,7 @@ export const convertTool: EachTool = {
   id: 'convert',
   group: 'process',
   kind: 'each',
-  icon: ArrowRightLeft,
+  icon: 'convertFormat',
   useController() {
     const { t } = useTranslation('toolbox')
     const [params, setParams] = useState<ConvertParams>({ format: 'image/webp', quality: 90 })
@@ -42,7 +41,7 @@ export const convertTool: EachTool = {
           </Field>
           {params.format !== 'image/png' && (
             <Field label={t('params.quality')}>
-              <div className="flex h-8 w-56 items-center gap-3">
+              <div className="flex h-9 w-56 items-center gap-3">
                 <Slider
                   min={5}
                   max={100}

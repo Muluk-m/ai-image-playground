@@ -18,6 +18,10 @@ colors:
   on-warning: "#2a1c07"
   scrim: "#000000"
   on-media: "#ffffff"
+  transparency-grid-dark: "#666666"
+  transparency-grid-light: "#737373"
+  canvas-annotation: "#159cf6"
+  brand-google: "#4285f4"
   light-background: "#f8f8f7"
   light-surface: "#ffffff"
   light-primary: "#436c28"
@@ -253,6 +257,10 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `amber-*`、`red-*`、`emerald-*` 调色板类代替。
 - **Scrim / On-media**：盖在图片、视频上的角标与遮罩固定用黑底白字，不随主题变；
   不透明度只用两档：角标 55%、全屏遮罩 70%。画笔色、二维码白底同样不随主题变。
+- **Transparency-grid-dark / light**：透明图预览的两档中性棋盘灰，固定于主题之外，让纯黑与纯白
+  的透明素材都能辨认；不用于页面、卡片或文字。
+- **Canvas-annotation**：区域编辑框与其编号使用的固定蓝色，与画布标注图层保持一致，不作界面强调色。
+- **Brand-google**：登录提供商 Google 标识的品牌蓝，只用于该标识。
 
 ## Typography
 
@@ -271,6 +279,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 | label-md | 12 | `text-xs` | 按钮、chip、元数据 |
 | label-sm | 11 | `text-label-sm` | 计数、次要标注 |
 | mono-sm | 11 | `font-mono text-label-sm` | 媒体角标上的比例与尺寸 |
+
+手写 CSS 用 `theme('fontSize.body-sm')` 等引用同一份 Tailwind 字阶；不另建字号表。
 
 `text-lg`、`text-2xl`、`text-3xl` 等不在字阶里，不要用。
 
@@ -335,6 +345,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 组件怎么分层、何时用哪个、变体与配方，写在 [`docs/design-system/`](./docs/design-system/README.md)：
 先查那里的「我要做 X → 用哪个」速查表，找不到再按它的流程新增组件，不在业务里手搭控件。
+
+图标统一使用 `Icon` 语义名，来源及规格见 [`icons.md`](./docs/design-system/icons.md)；
+不在业务组件直接引入 lucide 或写 SVG。
 
 下面只记产品专属、不属于任何通用组件的规则。
 

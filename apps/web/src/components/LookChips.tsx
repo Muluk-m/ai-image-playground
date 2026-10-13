@@ -7,11 +7,11 @@ import { type LookItem, lookNeedsRetune, mergeLookItems } from '../features/libr
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { useStore } from '../store'
-import { ChevronRightIcon, CloseIcon } from './icons'
 import Badge from './patterns/Badge'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
-const PILL =
-  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background py-0.5 pl-1 pr-3 text-xs text-foreground transition hover:border-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
+const PILL = 'shrink-0 gap-1.5 pl-1 pr-3'
 
 const COLLAPSED_LIMIT = 5
 
@@ -39,7 +39,9 @@ export default function LookChips({ onPick }: { onPick: (look: LookItem) => void
       {shown.map((look) => {
         const retune = lookNeedsRetune(look, models)
         return (
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             key={look.skillName}
             type="button"
             disabled={retune}
@@ -55,16 +57,24 @@ export default function LookChips({ onPick }: { onPick: (look: LookItem) => void
             </span>
             {look.name}
             {retune && <Badge tone="warning">{t('look.needsRetune')}</Badge>}
-          </button>
+          </Button>
         )
       })}
       {items.length > COLLAPSED_LIMIT && !expanded ? (
-        <button type="button" onClick={() => setExpanded(true)} className={PILL}>
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          onClick={() => setExpanded(true)}
+          className={PILL}
+        >
           {t('look.more')}
-          <ChevronRightIcon className="h-3 w-3" />
-        </button>
+          <Icon name="chevronRight" />
+        </Button>
       ) : (
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           type="button"
           onClick={() => {
             setTab('looks')
@@ -73,8 +83,8 @@ export default function LookChips({ onPick }: { onPick: (look: LookItem) => void
           className={`${PILL} text-muted-foreground`}
         >
           {t('look.more')}
-          <ChevronRightIcon className="h-3 w-3" />
-        </button>
+          <Icon name="chevronRight" />
+        </Button>
       )}
     </div>
   )
@@ -103,14 +113,16 @@ export function LookCapsule({
           <LookImage source={look.cover} alt="" />
         </span>
         <span className="truncate">{look.name}</span>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           type="button"
           onClick={onRemove}
           aria-label={t('common:action.close')}
-          className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
         >
-          <CloseIcon className="h-3 w-3" />
-        </button>
+          <Icon name="close" />
+        </Button>
       </span>
       {issue && <Badge tone="warning">{t('look.slotMismatch', { count: issue.expected })}</Badge>}
     </div>

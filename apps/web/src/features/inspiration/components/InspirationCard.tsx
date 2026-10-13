@@ -1,6 +1,6 @@
-import { ArrowRight } from 'lucide-react'
 import type { KeyboardEvent, MouseEvent } from 'react'
-import { StarIcon } from '../../../components/icons'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { InspirationItem } from '../types'
@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * 外层用 div+role="button" 而不是 <button>，因为内部含 pin 按钮（嵌套 <button>
+ * 外层用 div+role="button" 而不是 <Button>，因为内部含 pin 按钮（嵌套 <Button>
  * 是 invalid HTML，浏览器会扁平化，accessibility tree 会错乱）。键盘 Enter/Space
  * 手动触发 onClick 维持原有 a11y 行为。
  */
@@ -42,7 +42,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       onClick={onClick}
       onKeyDown={handleKeyDown}
       title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
-      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div
         className={`relative overflow-hidden bg-muted ${reference ? 'aspect-[4/3]' : 'aspect-[3/4]'}`}
@@ -56,7 +56,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-label-sm font-medium text-white">
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-label-sm font-medium text-white">
                 {t('card.before')}
               </span>
             </div>
@@ -67,7 +67,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-label-sm font-medium text-white">
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-label-sm font-medium text-white">
                 {t('card.after')}
               </span>
             </div>
@@ -81,23 +81,21 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           />
         )}
 
-        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/60 px-2.5 py-1 text-label-sm font-medium text-white backdrop-blur-sm">
+        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/55 px-2.5 py-1 text-label-sm font-medium text-white backdrop-blur-sm">
           {reference ? t('card.imageEdit') : item.category}
         </span>
 
-        <button
+        <Button
           type="button"
           onClick={handlePinClick}
           aria-pressed={pinned}
           aria-label={pinned ? t('card.unpin') : t('card.pin')}
-          className={`absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
-            pinned
-              ? 'bg-warning/90 text-white opacity-100 shadow-sm'
-              : 'bg-black/45 text-white opacity-0 hover:bg-black/65 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
-          }`}
+          variant="secondary"
+          size="icon-xs"
+          className={`absolute right-2 top-2 ${pinned ? 'text-primary' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'}`}
         >
-          <StarIcon width={14} height={14} filled={pinned} aria-hidden />
-        </button>
+          <Icon name="favorite" filled={pinned} />
+        </Button>
       </div>
 
       <div className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3">
@@ -116,7 +114,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           </span>
           <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-primary">
             {t('card.viewCase')}
-            <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            <Icon name="arrowRight" size="xs" />
           </span>
         </div>
       </div>

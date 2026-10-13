@@ -1,8 +1,9 @@
-.creation-composer { --creation-space: 24px; container: creation-composer / inline-size; position: relative; display: flex; flex-direction: column; border: 1px solid hsl(var(--border) / .65); border-radius: 20px; background: hsl(var(--card)); box-shadow: 0 2px 8px hsl(var(--scrim) / .06); transition: border-color .15s, box-shadow .15s; }
+.creation-composer { --creation-space: 16px; container: creation-composer / inline-size; position: relative; display: flex; flex-direction: column; border: 1px solid hsl(var(--border) / .65); border-radius: 16px; background: hsl(var(--card)); box-shadow: 0 2px 8px hsl(var(--scrim) / .06); transition: border-color .15s, box-shadow .15s; }
 .creation-composer:focus-within { border-color: hsl(var(--primary) / .25); box-shadow: 0 0 0 3px hsl(var(--primary) / .035); }
-.creation-body { position: relative; display: flex; gap: var(--creation-space); padding: var(--creation-space); min-height: 0; }
-.creation-references { width: 72px; height: 72px; flex: 0 0 72px; }
-.creation-add { display: flex; flex-direction: column; gap: 8px; width: 72px; height: 72px; padding: 10px; border-radius: 14px; border: 1px solid hsl(var(--border) / .8); background: hsl(var(--secondary) / .55); color: hsl(var(--muted-foreground)); @apply text-label-sm; font-weight: 400; }
+.creation-body { position: relative; display: flex; flex-direction: column; gap: 12px; padding: var(--creation-space); min-height: 0; }
+.creation-references { width: 100%; min-width: 0; flex: 0 0 auto; }
+.creation-add { display: flex; flex-direction: column; gap: 8px; width: 48px; height: 48px; padding: 0; border-radius: 8px; border: 1px solid hsl(var(--border) / .8); background: hsl(var(--secondary) / .55); color: hsl(var(--muted-foreground)); @apply text-label-sm; font-weight: 400; }
+.creation-add > span { display: none; }
 .creation-add > svg { width: 20px; height: 20px; }
 .creation-add:hover, .creation-add[data-state=open] { background: hsl(var(--accent)); border-color: hsl(var(--primary) / .3); color: hsl(var(--foreground)); }
 .creation-reference { position: relative; width: 72px; height: 72px; }
@@ -14,7 +15,7 @@
 .creation-prompt:empty::before { content: attr(data-placeholder); display: block; max-width: 64ch; pointer-events: none; color: hsl(var(--muted-foreground) / .85); }
 .creation-mention { display: inline-flex; align-items: center; gap: 5px; background: hsl(var(--muted)); border-radius: 7px; padding: 1px 5px; @apply text-body-sm; vertical-align: middle; }
 :where(.creation-mention) img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; }
-.creation-toolbar { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 0 var(--creation-space) var(--creation-space); }
+.creation-toolbar { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 0 var(--creation-space) var(--creation-space); }
 .creation-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .creation-mode-trigger { width: auto; height: 40px; gap: 8px; padding: 0 12px; border: 0; box-shadow: none; color: hsl(var(--primary)); background: hsl(var(--primary) / .06); border-radius: 10px; font-weight: 500; @apply text-sm; }
 .creation-mode-trigger:hover, .creation-mode-trigger[data-state=open] { background: hsl(var(--primary) / .12); }
@@ -66,12 +67,12 @@
 .creation-asset-tile[data-selected=true] .creation-asset-select { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border-color: transparent; }
 .creation-play-badge { position: absolute; left: 10px; bottom: 10px; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: hsl(var(--scrim) / .7); color: hsl(var(--on-media)); }
 @media (max-width: 700px) {
- .creation-composer { --creation-space: 20px; }
+ .creation-composer { --creation-space: 16px; }
  .creation-top-tabs { padding: 10px 10px 0; }
  .creation-top-tabs > button { flex: 1; min-width: 0; padding-inline: 6px; gap: 5px; @apply text-xs; }
  .creation-body { flex-direction: column; }
  .creation-references { max-width: none; }
- .creation-prompt { @apply text-title; min-height: 56px; }
+ .creation-prompt { @apply text-base; min-height: 56px; }
  .creation-toolbar { align-items: flex-end; }
  .creation-control, .creation-mode-trigger { @apply text-body-sm; }
  .creation-tool-divider { display: none; }
@@ -84,8 +85,6 @@
  .creation-asset-select { opacity: 1; }
 }
 
-.creation-parameter-summary > button { height: 40px; border: 0; border-radius: 10px; padding: 0 12px; background: transparent; font-weight: 400; color: hsl(var(--muted-foreground)); @apply text-sm; }
-.creation-parameter-summary > button:hover, .creation-parameter-summary > button[data-state=open] { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .creation-side-parameters .creation-parameter-fields { padding: 8px 0; }
 
 .creation-mode-menu { min-width: 200px; padding: 6px; border-radius: 16px; }
@@ -97,62 +96,60 @@
 
 .creation-editor { position: relative; flex: 1; min-width: 0; }
 .creation-live-controls { gap: 4px; }
-.creation-live-controls > button { height: 40px; width: auto; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; box-shadow: none; font-weight: 400; @apply text-sm; }
-.creation-live-controls > button:hover, .creation-live-controls > button[data-state=open] { background: hsl(var(--accent)); }
-.creation-live-controls > button[aria-haspopup=dialog] { color: hsl(var(--muted-foreground)); }
+:where(.creation-live-controls) > button { width: auto; }
 .creation-references [data-input-image-index] { width: 72px; height: 72px; }
 .creation-references [data-input-image-index] img { object-fit: cover; }
 
 @media (hover: none) { .creation-project-menu, .creation-asset-select { opacity: 1; } }
 
-.creation-reference-stack { position: relative; width: 72px; height: 72px; }
-.creation-stack-trigger { position: absolute; inset: 0; width: 72px; height: 72px; padding: 0; background: transparent; border-radius: 12px; }
+/* The complete stack silhouette shares the add tile's 48px box, including rear cards. */
+.creation-reference-stack { position: relative; display: flex; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; }
+.creation-stack-entry { position: relative; width: 48px; height: 48px; flex-shrink: 0; }
+.creation-stack-trigger { position: relative; width: 48px; height: 48px; padding: 0; background: transparent; border-radius: 8px; }
 .creation-stack-trigger:hover { background: transparent; }
-.creation-stack-cards { position: absolute; inset: 4px; pointer-events: none; }
-.creation-stack-card { position: absolute; inset: 0; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--secondary)); box-shadow: 0 2px 6px hsl(var(--scrim) / .18); transform: rotate(-8deg); }
-.creation-stack-card:nth-child(even) { transform: rotate(8deg); }
+.creation-stack-cards { position: absolute; inset: 0; pointer-events: none; }
+.creation-stack-card { position: absolute; left: 8px; top: 0; width: 40px; height: 40px; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--secondary)); }
+.creation-stack-card:nth-child(2):not(:last-child) { left: 4px; top: 4px; }
+.creation-stack-card:last-child { left: 0; top: 8px; }
+.creation-stack-card:only-child { left: 0; top: 0; width: 48px; height: 48px; }
 :where(.creation-stack-card) img { width: 100%; height: 100%; object-fit: cover; }
-.creation-stack-count { position: absolute; left: 4px; bottom: 3px; padding: 1px 5px; border-radius: 6px; background: hsl(var(--scrim) / .7); color: hsl(var(--on-media)); @apply text-label-sm; }
-.creation-stack-add { position: relative; }
-.creation-reference-stack[data-filled=true] .creation-stack-add { position: absolute; right: -4px; bottom: -4px; }
-.creation-reference-stack[data-filled=true] .creation-add { width: 28px; height: 28px; padding: 0; border-radius: 50%; background: hsl(var(--secondary)); box-shadow: 0 0 0 2px hsl(var(--card)); }
-.creation-reference-stack[data-filled=true] .creation-add > span { display: none; }
-.creation-reference-panel { width: max-content; max-width: min(640px, calc(100vw - 32px)); max-height: min(360px, 50dvh); overflow-y: auto; overscroll-behavior: contain; border-radius: 16px; padding: 16px; }
-.creation-reference-list { display: flex; flex-wrap: nowrap; align-items: start; gap: 12px; overflow-x: auto; padding: 4px; }
-.creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; }
+.creation-stack-count { position: absolute; left: 2px; bottom: 2px; padding: 0 4px; border-radius: 4px; background: hsl(var(--scrim) / .7); color: hsl(var(--on-media)); @apply text-label-sm; }
+.creation-stack-add { position: relative; flex-shrink: 0; }
+.creation-stack-expand { position: absolute; left: 0; bottom: 100%; opacity: 0; pointer-events: none; z-index: 2; }
+.creation-stack-entry:hover .creation-stack-expand, .creation-stack-entry:focus-within .creation-stack-expand { opacity: 1; pointer-events: auto; }
+.creation-reference-panel { width: 100%; min-width: 0; }
+.creation-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
+.creation-reference-list { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding-block: 4px; scrollbar-width: thin; }
+.creation-reference-list > * { flex-shrink: 0; }
+.creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; gap: 8px; }
 .creation-reference-list > [data-slot="composer-attachments"] > div { flex-shrink: 0; }
+.creation-reference-list .creation-add { width: 72px; height: 72px; }
+.creation-reference-preview { padding: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); border-radius: 12px; }
+.creation-reference-preview img { display: block; width: 288px; max-width: calc(100vw - 48px); height: 240px; object-fit: contain; border-radius: 8px; }
+.creation-reference-preview > span { display: block; margin-top: 8px; max-width: 288px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .creation-reference-stack[data-failed=true] .creation-stack-count { background: hsl(var(--destructive)); color: hsl(var(--on-media)); }
 
-.creation-stack-upload { position: absolute; inset: 20px; display: grid; place-items: center; border-radius: 50%; background: hsl(var(--scrim) / .72); color: hsl(var(--on-media)); }
+.creation-stack-upload { position: absolute; inset: 16px; display: grid; place-items: center; border-radius: 50%; background: hsl(var(--scrim) / .72); color: hsl(var(--on-media)); }
 .creation-reference-status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: hsl(var(--muted-foreground)); @apply text-xs; }
 .creation-reference-status[data-failed=true] { color: hsl(var(--destructive)); }
 .creation-send[aria-busy=true] { color: hsl(var(--primary)); }
 
 /* A desktop canvas sidebar can be narrower than a phone; use the composer width. */
 @container creation-composer (max-width: 520px) {
- .creation-body { flex-direction: column; gap: 12px; padding: 14px; }
- .creation-references { width: auto; height: 44px; flex: 0 0 auto; }
- .creation-reference-stack { display: flex; align-items: center; gap: 8px; width: auto; height: 44px; }
- .creation-stack-trigger { position: relative; inset: auto; width: 44px; height: 44px; flex-shrink: 0; }
- .creation-reference-stack[data-filled=true] .creation-stack-add { position: static; }
- .creation-references .creation-add,
- .creation-reference-stack[data-filled=true] .creation-add { width: 40px; height: 40px; padding: 0; border-radius: 10px; box-shadow: none; }
- .creation-references .creation-add > span { display: none; }
- .creation-stack-upload { inset: 10px; }
  .creation-body .creation-editor { width: 100%; }
- .creation-body .creation-prompt { min-height: 108px; @apply text-base; }
- .creation-toolbar:has(.creation-live-controls) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 0 14px 14px; }
+ .creation-body .creation-prompt { min-height: 72px; @apply text-sm; }
+ .creation-toolbar:has(.creation-live-controls) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 0 16px 16px; }
  .creation-toolbar:has(.creation-live-controls) > .creation-tools { display: contents; }
  .creation-toolbar:has(.creation-live-controls) > :last-child { grid-column: 2; grid-row: 1; min-width: 0; }
- .creation-toolbar .creation-mode-trigger { grid-column: 1; grid-row: 1; justify-self: start; width: auto; max-width: 100%; height: 40px; padding-inline: 8px; @apply text-body-sm; }
+ .creation-toolbar .creation-mode-trigger { grid-column: 1; grid-row: 1; justify-self: start; width: auto; max-width: 100%; height: 32px; padding-inline: 8px; @apply text-body-sm; }
  .creation-tool-divider { display: none; }
  .creation-live-controls { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: nowrap; width: 100%; gap: 4px; }
- .creation-live-controls > button { flex: 1 1 0; min-width: 0; max-width: none; height: 40px; gap: 5px; padding-inline: 6px; @apply text-body-sm; }
- .creation-live-controls > button[aria-haspopup=dialog] { flex: 0 1 auto; max-width: 60%; }
- .creation-live-controls > button[role=combobox] > span { min-width: 0; }
- .creation-live-controls > button[role=combobox] > span > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
- .creation-live-controls > button[role=combobox] > span > span > :is(img, svg) { display: inline-block; margin-right: 4px; vertical-align: middle; }
- .creation-live-controls > button > svg { flex-shrink: 0; }
+ :where(.creation-live-controls) > button[aria-haspopup] { flex: 1 1 0; min-width: 0; max-width: none; }
+ :where(.creation-live-controls) > button[aria-haspopup=dialog] { flex: 0 1 auto; max-width: 60%; }
+ :where(.creation-live-controls) > button[role=combobox] > span { min-width: 0; }
+ :where(.creation-live-controls) > button[role=combobox] > span > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ :where(.creation-live-controls) > button[role=combobox] > span > span > :is(img, svg) { display: inline-block; margin-right: 4px; vertical-align: middle; }
+ :where(.creation-live-controls) > button > svg { flex-shrink: 0; }
  .creation-toolbar:not(:has(.creation-mode-trigger)) .creation-live-controls { grid-column: 1; grid-row: 1; }
 }

@@ -1,9 +1,8 @@
-import { Check, Download, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { VideoIcon } from '../../../components/icons'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
@@ -108,7 +107,7 @@ export default function AgentCreationsGallery({
         className="flex max-h-[84vh] w-[min(920px,94vw)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
       >
         <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-sm font-medium text-foreground">{t('creations.galleryTitle')}</h2>
+          <h2 className="text-xl font-semibold text-foreground">{t('creations.galleryTitle')}</h2>
           <span className="text-label-sm text-muted-foreground">
             {t('creations.itemCount', { count: works.length })}
           </span>
@@ -118,9 +117,10 @@ export default function AgentCreationsGallery({
             type="button"
             onClick={onClose}
             aria-label={t('common:action.close')}
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            size="icon-sm"
+            className="text-muted-foreground"
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <Icon name="close" />
           </Button>
         </header>
 
@@ -158,16 +158,16 @@ export default function AgentCreationsGallery({
                     </div>
                   )}
                   {work.video && (
-                    <VideoIcon
-                      className="absolute left-2 top-2 h-5 w-5 rounded bg-black/60 p-0.5 text-white"
-                      aria-hidden="true"
+                    <Icon
+                      name="video"
+                      className="absolute left-2 top-2 rounded bg-black/60 p-0.5 text-white"
                     />
                   )}
                   <span
                     aria-hidden="true"
                     className={`absolute right-2 top-2 grid h-5 w-5 place-items-center rounded-full border ${isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background/80 text-transparent'}`}
                   >
-                    <Check className="h-3.5 w-3.5" />
+                    <Icon name="check" />
                   </span>
                   <span className="block truncate px-2 py-1.5 text-label-sm text-foreground">
                     {name}
@@ -190,14 +190,8 @@ export default function AgentCreationsGallery({
             {t('creations.selectedCount', { count: live.length })}
           </span>
           <div className="flex-1" />
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={() => void runExport()}
-            disabled={live.length === 0}
-            className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
+          <Button type="button" onClick={() => void runExport()} disabled={live.length === 0}>
+            <Icon name="download" />
             {t('creations.exportSelected', { count: live.length })}
           </Button>
         </footer>

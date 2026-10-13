@@ -1,110 +1,78 @@
 // @vitest-environment jsdom
 import { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { CreationReferenceStack } from '../../components/creation/CreationReferenceStack'
+import { REFERENCE_DISPLAY_KEY } from '../../components/creation/referenceDisplay'
 import { Button } from '../../components/ui/button'
-import { pointer, stubPointerApis } from '../helpers/radix'
 
-it('keeps bulk references behind one stack and preserves individual removal and adding', () => {
+let host: HTMLDivElement
+let root: ReturnType<typeof createRoot>
+beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
-  stubPointerApis()
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+    callback()
+    return 0
+  })
+  localStorage.clear()
+  host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+})
+afterEach(() => {
+  act(() => root.unmount())
+  host.remove()
+  vi.unstubAllGlobals()
+})
+
+it('expands inline, preserves adding and removal, and remembers collapse', () => {
   const add = vi.fn()
   function Fixture() {
     const [count, setCount] = useState(100)
     return (
-      <CreationReferenceStack
-        count={count}
-        previews={[<span key="a">A</span>, <span key="b">B</span>, <span key="c">C</span>]}
-        add={<Button onClick={add}>添加</Button>}
-      >
-        <Button onClick={() => setCount(count - 1)}>移除一张</Button>
+      <CreationReferenceStack count={count} previews={[]} add={<Button onClick={add}>添加</Button>}>
+        <Button data-remove onClick={() => setCount(count - 1)}>
+          移除一张
+        </Button>
       </CreationReferenceStack>
     )
   }
-  const host = document.createElement('div')
-  document.body.append(host)
-  const root = createRoot(host)
-  try {
-    act(() => root.render(<Fixture />))
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
-    act(() => host.querySelector<HTMLButtonElement>('.creation-stack-trigger')!.click())
-    const dialog = document.querySelector('[role="dialog"]')!
-    expect(dialog.textContent).toContain('移除一张')
-    act(() => dialog.querySelector<HTMLButtonElement>('button')!.click())
-    expect(host.querySelector('.creation-stack-trigger')!.getAttribute('aria-label')).toContain(
-      '99',
-    )
-    act(() => host.querySelector<HTMLButtonElement>('.creation-stack-add button')!.click())
-    expect(add).toHaveBeenCalledOnce()
-  } finally {
-    act(() => root.unmount())
-    host.remove()
-    vi.unstubAllGlobals()
-  }
+  act(() => root.render(<Fixture />))
+  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('.creation-stack-expand')!.click())
+  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
+  expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBe('true')
+  act(() => host.querySelector<HTMLButtonElement>('[data-remove]')!.click())
+  expect(host.querySelector('.creation-reference-heading')!.textContent).toContain('99')
+  act(() => host.querySelector<HTMLButtonElement>('.creation-stack-add button')!.click())
+  expect(add).toHaveBeenCalledOnce()
+  act(() => host.querySelector<HTMLButtonElement>('.creation-reference-heading button')!.click())
+  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBe('false')
 })
 
-it('opens on mouse hover without stealing focus, bridges the gap, and keeps clicks available', async () => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
-  stubPointerApis()
-  vi.useFakeTimers()
-  const host = document.createElement('div')
-  document.body.append(host)
-  const root = createRoot(host)
-  try {
-    act(() =>
-      root.render(
-        <>
-          <input aria-label="prompt" />
-          <CreationReferenceStack count={8} previews={[]} add={<Button>添加</Button>}>
-            <Button>一张参考图</Button>
-          </CreationReferenceStack>
-        </>,
-      ),
-    )
-    const prompt = host.querySelector('input')!
-    prompt.focus()
-    const trigger = host.querySelector<HTMLButtonElement>('.creation-stack-trigger')!
-    act(() => trigger.dispatchEvent(pointer('pointerover')))
-    const panel = document.querySelector<HTMLElement>('.creation-reference-panel')!
-    expect(panel).not.toBeNull()
-    expect(document.activeElement).toBe(prompt)
-    act(() => trigger.dispatchEvent(pointer('pointerout')))
-    act(() => vi.advanceTimersByTime(100))
-    act(() => panel.dispatchEvent(pointer('pointerover')))
-    act(() => vi.advanceTimersByTime(300))
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    act(() => panel.dispatchEvent(pointer('pointerout')))
-    act(() => vi.advanceTimersByTime(300))
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    expect(document.activeElement).toBe(prompt)
-    act(() => trigger.dispatchEvent(pointer('pointerover')))
-    const menu = document.createElement('div')
-    menu.setAttribute('role', 'menu')
-    document.body.append(menu)
-    act(() => trigger.dispatchEvent(pointer('pointerout')))
-    act(() => vi.advanceTimersByTime(300))
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    menu.remove()
-    act(() => vi.advanceTimersByTime(300))
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    act(() => trigger.dispatchEvent(pointer('pointerover')))
-    act(() => trigger.click())
-    act(() => trigger.dispatchEvent(pointer('pointerout')))
-    act(() => vi.advanceTimersByTime(300))
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    act(() => trigger.click())
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    const touch = new MouseEvent('pointerover', { bubbles: true })
-    Object.defineProperty(touch, 'pointerType', { value: 'touch' })
-    act(() => trigger.dispatchEvent(touch))
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    act(() => trigger.click())
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
-  } finally {
-    act(() => root.unmount())
-    host.remove()
-    vi.useRealTimers()
-    vi.unstubAllGlobals()
-  }
+it('restores the view after remount and synchronizes mounted composers and other tabs', () => {
+  const fixture = (
+    <CreationReferenceStack count={2} previews={[]} add={<Button>添加</Button>}>
+      <span>图片</span>
+    </CreationReferenceStack>
+  )
+  localStorage.setItem(REFERENCE_DISPLAY_KEY, 'true')
+  act(() =>
+    root.render(
+      <>
+        {fixture}
+        {fixture}
+      </>,
+    ),
+  )
+  expect(host.querySelectorAll('.creation-reference-panel')).toHaveLength(2)
+  act(() => host.querySelector<HTMLButtonElement>('.creation-reference-heading button')!.click())
+  expect(host.querySelectorAll('.creation-reference-panel')).toHaveLength(0)
+  act(() => root.render(null))
+  act(() => root.render(fixture))
+  expect(host.querySelector('.creation-reference-panel')).toBeNull()
+  localStorage.setItem(REFERENCE_DISPLAY_KEY, 'true')
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: REFERENCE_DISPLAY_KEY })))
+  expect(host.querySelector('.creation-reference-panel')).not.toBeNull()
 })

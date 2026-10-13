@@ -104,23 +104,23 @@ export default function CreateRecordDialog(props: Props) {
   }
 
   return (
-    <Overlay onClose={props.onClose} tier="raised">
+    <Overlay onClose={props.onClose} tier="raised" label={t(`${ns}.title`)}>
       <form
         onSubmit={(e) => {
           e.preventDefault()
           void submit()
         }}
-        className="relative z-10 max-h-[90dvh] overflow-y-auto w-[min(94vw,680px)] rounded-3xl border border-border bg-card p-6 shadow-2xl ring-1 ring-hairline animate-modal-in"
+        className="relative z-10 max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-border bg-card p-6 shadow-dialog ring-1 ring-hairline animate-modal-in"
       >
         <div className="mb-5 flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-foreground">{t(`${ns}.title`)}</h3>
+          <h3 className="text-xl font-semibold text-foreground">{t(`${ns}.title`)}</h3>
           {props.agentReady && (
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => handoffToAgent(command)}
-              className="ml-auto h-9 gap-1.5 border-primary/50 bg-primary/10 px-3 text-body-sm font-medium text-primary hover:bg-primary/15 hover:text-primary"
+              className="ml-auto"
             >
               <Icon name="generate" />
               {isAsset ? t('asset.createWithAgent') : t('look.createWithAgent')}
@@ -170,13 +170,13 @@ export default function CreateRecordDialog(props: Props) {
                   />
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
                     size="icon-xs"
                     onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
                     aria-label={t('common:action.delete')}
-                    className="absolute -right-1.5 -top-1.5 size-5 rounded-full bg-black/70 p-0 text-white hover:bg-black/80 hover:text-white"
+                    className="absolute -right-1.5 -top-1.5"
                   >
-                    <Icon name="close" size="xs" />
+                    <Icon name="close" />
                   </Button>
                 </li>
               ))}
@@ -190,7 +190,6 @@ export default function CreateRecordDialog(props: Props) {
               variant="outline"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
-              className="h-9 border-border bg-card px-4 font-normal text-foreground hover:bg-muted"
             >
               <Icon name="add" />
               {t(`${ns}.fromLocal`)}
@@ -201,7 +200,6 @@ export default function CreateRecordDialog(props: Props) {
                 variant="outline"
                 size="sm"
                 onClick={() => folderInputRef.current?.click()}
-                className="h-9 border-border bg-card px-4 font-normal text-foreground hover:bg-muted"
               >
                 <Icon name="folder" />
                 {t('createAsset.fromFolder')}
@@ -247,7 +245,7 @@ export default function CreateRecordDialog(props: Props) {
                 onChange={(e) => setName(e.target.value.slice(0, NAME_MAX))}
                 placeholder={t(`${ns}.namePlaceholder`)}
                 maxLength={NAME_MAX}
-                className="rounded-xl border-border bg-muted/60 pr-14 shadow-none"
+                className="border-border bg-muted/60 pr-14 shadow-none"
               />
               <span className="pointer-events-none absolute right-3 top-3 text-label-sm text-muted-foreground">
                 {name.length}/{NAME_MAX}
@@ -268,7 +266,7 @@ export default function CreateRecordDialog(props: Props) {
                       role="radio"
                       aria-checked={assetKind === one}
                       onClick={() => setAssetKind(one)}
-                      className={`h-10 flex-1 rounded-xl font-normal ${assetKind === one ? CHOICE_ON : CHOICE_OFF}`}
+                      className={`flex-1 ${assetKind === one ? CHOICE_ON : CHOICE_OFF}`}
                     >
                       {t(`asset.kind.${one}`)}
                     </Button>
@@ -281,7 +279,7 @@ export default function CreateRecordDialog(props: Props) {
                       role="radio"
                       aria-checked={purpose === one}
                       onClick={() => setPurpose(one)}
-                      className={`h-10 flex-1 rounded-xl font-normal ${purpose === one ? CHOICE_ON : CHOICE_OFF}`}
+                      className={`flex-1 ${purpose === one ? CHOICE_ON : CHOICE_OFF}`}
                     >
                       {t(`look.purpose.${one}`)}
                     </Button>
@@ -305,7 +303,7 @@ export default function CreateRecordDialog(props: Props) {
                   : t('createLook.descriptionPlaceholder')
               }
               maxLength={20000}
-              className="min-h-0 resize-none rounded-xl border-border bg-muted/60 shadow-none"
+              className="resize-none border-border bg-muted/60 shadow-none"
             />
           </label>
         }

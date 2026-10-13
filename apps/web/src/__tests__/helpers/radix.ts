@@ -61,6 +61,8 @@ export function triggerText(label: string): string {
 
 export function openReferenceStack(host: ParentNode = document): HTMLElement {
   stubPointerApis()
+  const existing = host.querySelector<HTMLElement>('.creation-reference-panel')
+  if (existing) return existing
   const trigger = host.querySelector<HTMLButtonElement>('.creation-stack-trigger')
   if (!trigger) throw new Error('no reference stack')
   if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())

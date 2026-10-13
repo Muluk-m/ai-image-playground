@@ -1,6 +1,6 @@
 // Adapted from assistant-ui Elements tool-call (MIT), retrieved 2026-09-24.
 // https://r.assistant-ui.com/elements-tool-call.json
-import { Check, CircleAlert, Clock3, LoaderCircle } from 'lucide-react'
+import { Icon } from '../../ui/icon'
 
 export function ToolStatus({
   label,
@@ -10,14 +10,14 @@ export function ToolStatus({
   status: 'running' | 'queued' | 'succeeded' | 'failed' | 'waiting'
 }) {
   const active = status === 'running'
-  const Icon =
+  const icon =
     status === 'succeeded'
-      ? Check
+      ? 'check'
       : status === 'failed'
-        ? CircleAlert
+        ? 'error'
         : status === 'queued' || status === 'waiting'
-          ? Clock3
-          : LoaderCircle
+          ? 'clock'
+          : 'loading'
   return (
     <span
       data-slot="tool-status"
@@ -25,8 +25,9 @@ export function ToolStatus({
       className="inline-flex shrink-0 items-center gap-1 rounded-md bg-foreground/5 px-1.5 py-0.5 text-label-sm font-medium text-muted-foreground"
     >
       <Icon
-        aria-hidden="true"
-        className={`h-3 w-3 ${active ? 'animate-spin motion-reduce:animate-none' : ''}`}
+        name={icon}
+        size="xs"
+        className={`${active ? 'animate-spin motion-reduce:animate-none' : ''}`}
       />
       <span className={active ? 'agent-shimmer relative' : ''}>{label}</span>
     </span>

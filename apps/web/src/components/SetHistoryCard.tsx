@@ -1,6 +1,7 @@
 import AssetThumb from '../features/library/components/AssetThumb'
 import { useTranslation } from '../i18n'
 import type { TaskRecord } from '../types'
+import { Button } from './ui/button'
 
 const PREVIEW_LIMIT = 4
 
@@ -49,14 +50,16 @@ export default function SetHistoryCard({
             {failed > 0 ? ` · ${t('set.failedCount', { failed })}` : ''}
           </p>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          className="shrink-0 rounded-lg px-2 py-1 text-xs text-primary transition hover:bg-primary/10"
+          className="shrink-0 text-primary"
         >
           {expanded ? t('common:action.collapse') : t('set.expandToView')}
-        </button>
+        </Button>
       </div>
 
       {previews.length > 0 && (

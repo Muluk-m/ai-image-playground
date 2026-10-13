@@ -1,4 +1,5 @@
 import type { PrivateSubmissionBlockedAction } from '../lib/privateOverlay'
+import { Button } from './ui/button'
 
 interface SubmissionBillingActionProps {
   className?: string
@@ -11,12 +12,14 @@ export default function SubmissionBillingAction({
 }: SubmissionBillingActionProps) {
   if (!blockedAction) return null
   return (
-    <button
+    <Button
+      variant="link"
+      size="xs"
       type="button"
       onClick={blockedAction.run}
-      className={`shrink-0 font-semibold text-primary underline decoration-blue-300 underline-offset-2 hover:text-primary dark:decoration-blue-700 ${className}`}
+      className={`h-auto shrink-0 whitespace-normal p-0 font-semibold underline ${className}`}
     >
       {blockedAction.label}
-    </button>
+    </Button>
   )
 }

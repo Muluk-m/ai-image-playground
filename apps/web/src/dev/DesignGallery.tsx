@@ -256,6 +256,15 @@ function Forms() {
           control={<Switch checked={on} onChange={setOn} aria-label="一行设置" />}
         />
         <Slider defaultValue={[40]} max={100} step={1} aria-label="滑块" />
+        <div className="h-32 w-8">
+          <Slider
+            orientation="vertical"
+            defaultValue={[40]}
+            max={100}
+            step={1}
+            aria-label="竖向滑块"
+          />
+        </div>
       </div>
     </Section>
   )

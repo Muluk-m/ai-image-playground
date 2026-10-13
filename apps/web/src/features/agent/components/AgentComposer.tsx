@@ -24,6 +24,7 @@ import {
   CreationModePicker,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
+import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
 import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
@@ -393,7 +394,9 @@ export default function AgentComposer({
 
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：整组读取 → 进引用区。
   // 一次进来的图多了先问一声：整份文件夹误拖进来时，确认框比事后逐张删引用便宜。
+  const attachmentRevision = useRef(0)
   const attachFiles = (files: File[]) => {
+    const revision = attachmentRevision.current
     if (loading) {
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
@@ -415,7 +418,7 @@ export default function AgentComposer({
     }
     const currentAccount = accountScope()
     confirmImageBatch(images.length, () => {
-      if (!currentAccount()) return
+      if (!currentAccount() || revision !== attachmentRevision.current) return
       const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
       if (
         limits &&
@@ -437,6 +440,7 @@ export default function AgentComposer({
       } else {
         void added
           .then((references) => {
+            if (!currentAccount() || revision !== attachmentRevision.current) return
             setDraft((current) => attachReferences(current, references, transportRef.current))
           })
           .catch((error: unknown) =>
@@ -483,7 +487,15 @@ export default function AgentComposer({
     },
     write: (content) => {
       const { prompt, selection } = agentComposerFillPrompt(content)
-      setDraft((current) => ({ ...current, prompt }))
+      if (content.clearReferences) {
+        attachmentRevision.current += 1
+        doc.setSelection([])
+      }
+      setDraft((current) => ({
+        ...current,
+        prompt,
+        ...(content.clearReferences ? { references: [], submission: undefined } : {}),
+      }))
       promptEditor.select(selection.start, selection.end)
       return prompt
     },
@@ -1102,63 +1114,65 @@ export default function AgentComposer({
                     )
                     return (
                       <div key={reference.id} className="group flex max-w-full items-start gap-2">
-                        <AttachmentTile
-                          name={label}
-                          title={label}
-                          failed={uploadState === 'failed'}
-                          className="size-[72px]"
-                        >
-                          <ComposerAttachmentThumb
-                            src={reference.dataUrl}
-                            uploading={isUploading}
+                        <CreationReferencePreview src={reference.dataUrl} label={label}>
+                          <AttachmentTile
+                            name={label}
+                            title={label}
                             failed={uploadState === 'failed'}
-                            frameClassName="h-full w-full"
-                            className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
-                            alt={label}
-                            retryPreview
-                          />
-                          {masked && (
-                            <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
-                              MASK
-                            </span>
-                          )}
-                          {uploadState === 'failed' && (
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                            className="size-[72px]"
+                          >
+                            <ComposerAttachmentThumb
+                              src={reference.dataUrl}
+                              uploading={isUploading}
+                              failed={uploadState === 'failed'}
+                              frameClassName="h-full w-full"
+                              className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                              alt={label}
+                              retryPreview
+                            />
+                            {masked && (
+                              <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
+                                MASK
+                              </span>
+                            )}
+                            {uploadState === 'failed' && (
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                              >
+                                <Icon name="error" size="lg" />
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={
+                                masked
+                                  ? t('composer.editMaskAria', { label })
+                                  : t('composer.drawMaskAria', { label })
+                              }
+                              className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                              onClick={() => editMask(reference)}
                             >
-                              <Icon name="error" size="lg" />
-                            </span>
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={
-                              masked
-                                ? t('composer.editMaskAria', { label })
-                                : t('composer.drawMaskAria', { label })
-                            }
-                            className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                            onClick={() => editMask(reference)}
-                          >
-                            <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                              <Icon name="brush" />
-                            </span>
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t('composer.removeReferenceAria', { label })}
-                            className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                            onClick={() => setDraft(removeReference(draft, index))}
-                          >
-                            <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                              <Icon name="close" />
-                            </span>
-                          </Button>
-                        </AttachmentTile>
+                              <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                                <Icon name="brush" />
+                              </span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={t('composer.removeReferenceAria', { label })}
+                              className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                              onClick={() => setDraft(removeReference(draft, index))}
+                            >
+                              <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                                <Icon name="close" />
+                              </span>
+                            </Button>
+                          </AttachmentTile>
+                        </CreationReferencePreview>
                         {uploadState && (
                           <span
                             role={uploadState === 'failed' ? 'alert' : 'status'}

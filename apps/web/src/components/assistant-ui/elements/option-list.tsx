@@ -3,10 +3,11 @@
  * Upstream: assistant-ui/assistant-ui@4fffd182971380758dcda062ea076f7bc9257fee
  * See UPSTREAM.md for source paths and local adaptations; license in LICENSE.
  */
-import { CheckIcon } from 'lucide-react'
+
 import type { ComponentProps } from 'react'
 import { cn } from '../../../lib/utils'
 import { Button } from '../../ui/button'
+import { Icon } from '../../ui/icon'
 import { paper } from './surfaces'
 
 export interface OptionListOption {
@@ -26,7 +27,7 @@ const row =
 function OptionText({ option }: { option: OptionListOption }) {
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="break-words text-[13.5px] leading-5">{option.label}</span>
+      <span className="break-words text-sm leading-5">{option.label}</span>
       {option.description && (
         <span className="break-words text-xs leading-4 text-muted-foreground">
           {option.description}
@@ -65,7 +66,7 @@ export function OptionList({
             )}
           >
             {choice?.includes(option.id) && (
-              <CheckIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
+              <Icon name="check" size="sm" className="mt-0.5 text-primary" />
             )}
             <OptionText option={option} />
           </div>

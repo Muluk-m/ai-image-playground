@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { SparkleIcon } from '../../../components/icons'
 import SectionHeader from '../../../components/patterns/SectionHeader'
+import { Icon } from '../../../components/ui/icon'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
@@ -48,7 +48,7 @@ export default function InspirationEmptyHero() {
     <div className="py-8 sm:py-10">
       <SectionHeader
         className="mb-4"
-        icon={<SparkleIcon className="h-4 w-4 text-primary" aria-hidden />}
+        icon={<Icon name="explore" className="text-primary" />}
         title={t('hero.title')}
         action={{ label: t('hero.viewAll'), onClick: openInspiration }}
       />
