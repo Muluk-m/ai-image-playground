@@ -46,6 +46,23 @@ await writer.db.insert(writer.schema.tasks).values([
     user_id: 'today-user',
     status: 'failed',
     error_type: 'upstream_error',
+    upstream_invocation_count: 2,
+  },
+  {
+    ...task,
+    id: 'seedream',
+    model: 'doubao-seedream',
+    user_id: 'today-user',
+    status: 'completed',
+    upstream_invocation_count: 3,
+  },
+  {
+    ...task,
+    id: 'chat-hidden',
+    kind: 'chat',
+    user_id: 'today-user',
+    status: 'failed',
+    upstream_invocation_count: 9,
   },
   {
     ...task,
@@ -137,18 +154,34 @@ describe('today generation overview', () => {
     expect(data.summary).toMatchObject({
       users: 1,
       devices: 1,
-      tasks: 104,
-      completed: 102,
+      tasks: 105,
+      completed: 103,
       failed: 1,
       queued: 1,
       in_progress: 0,
     })
+    expect(data.models).toEqual([
+      {
+        model: 'gpt-image-2',
+        tasks: 104,
+        completed: 102,
+        failed: 1,
+        upstream_invocations: 2,
+      },
+      {
+        model: 'doubao-seedream',
+        tasks: 1,
+        completed: 1,
+        failed: 0,
+        upstream_invocations: 3,
+      },
+    ])
     expect(data.actors).toHaveLength(3)
     expect(data.actors.find((actor) => actor.kind === 'user')).toMatchObject({
       id: 'today-user',
       username: 'alice',
       note: '设计师',
-      tasks: 102,
+      tasks: 103,
       failed: 1,
     })
     expect(data.actors.find((actor) => actor.kind === 'device')).toMatchObject({
@@ -161,6 +194,7 @@ describe('today generation overview', () => {
     })
     expect(await getTodayOverview(from - 86400_000)).toMatchObject({
       actors: [],
+      models: [],
       summary: { tasks: 0 },
     })
   })
@@ -170,15 +204,25 @@ describe('today generation overview', () => {
     expect(first.tasks).toHaveLength(100)
     expect(first.nextCursor).not.toBeNull()
     const second = await getGenerationTasks({ from, to, userId: 'today-user' }, first.nextCursor!)
-    expect(second.tasks).toHaveLength(2)
+    expect(second.tasks).toHaveLength(3)
     expect(second.nextCursor).toBeNull()
-    expect(new Set([...first.tasks, ...second.tasks].map((task) => task.id)).size).toBe(102)
+    expect(new Set([...first.tasks, ...second.tasks].map((task) => task.id)).size).toBe(103)
     expect(JSON.stringify(first)).not.toContain('sensitive-base64')
     expect(
       (await getGenerationTasks({ from, to, deviceId: 'shared-device' })).tasks[0]?.prompt,
     ).toBe('first\nsecond')
     expect(
       (await getGenerationTasks({ from, to, userId: 'today-user', status: 'failed' })).tasks.map(
+        (task) => task.id,
+      ),
+    ).toEqual(['today-failed'])
+    expect(
+      (await getGenerationTasks({ from, to, model: 'doubao-seedream' })).tasks.map(
+        (task) => task.id,
+      ),
+    ).toEqual(['seedream'])
+    expect(
+      (await getGenerationTasks({ from, to, model: 'gpt-image-2', status: 'failed' })).tasks.map(
         (task) => task.id,
       ),
     ).toEqual(['today-failed'])
@@ -336,6 +380,7 @@ describe('today generation overview', () => {
       'status=nope',
       `from=${from}&to=${to}&cursor=bad`,
       'unassigned=2',
+      `model=${'m'.repeat(129)}`,
     ])
       expect((await request(`/api/tasks?${suffix}`)).status).toBe(400)
     expect(
