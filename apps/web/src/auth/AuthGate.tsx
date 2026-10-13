@@ -8,6 +8,7 @@ import {
   AuthRequestError,
   getCurrentUser,
   logoutUser,
+  shouldProbeSession,
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
@@ -100,10 +101,13 @@ export function AuthGate() {
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
-        const currentUser = await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
-          if (err instanceof AuthRequestError && err.status === 401) return null
-          throw err
-        })
+        // 没有提示 cookie、也没有记住的用户时不请求 /api/auth/me，避免匿名打开就 401。
+        const currentUser = shouldProbeSession()
+          ? await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
+              if (err instanceof AuthRequestError && err.status === 401) return null
+              throw err
+            })
+          : null
         if (cancelled) return
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)

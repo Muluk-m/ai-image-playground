@@ -7,6 +7,18 @@ export function rememberStorageUser(id: string | null): void {
   safeLocalStorage.setItem(LAST_USER_KEY, JSON.stringify(id))
 }
 
+/** 上次成功登录留下的本地命名空间。匿名确认写成 JSON null，不算已登录。 */
+export function hasRememberedSignedInUser(): boolean {
+  const remembered = safeLocalStorage.getItem(LAST_USER_KEY)
+  if (!remembered) return false
+  try {
+    const id: unknown = JSON.parse(remembered)
+    return typeof id === 'string' && id.length > 0
+  } catch {
+    return false
+  }
+}
+
 export async function recoverStorageUser(): Promise<string | null> {
   const remembered = safeLocalStorage.getItem(LAST_USER_KEY)
   if (remembered !== null) {

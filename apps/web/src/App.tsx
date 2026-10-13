@@ -116,7 +116,10 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     <>
       <Header />
       <Sidebar />
-      <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
+      <div
+        style={{ paddingLeft: 'var(--app-sidebar-width)' }}
+        className={appMode === 'canvas' ? undefined : 'mobile-topbar-offset'}
+      >
         {appMode === 'canvas' ? (
           <CanvasMode />
         ) : appMode === 'explore' ? (

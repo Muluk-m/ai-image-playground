@@ -1,6 +1,6 @@
 {
   "panel": {
-    "searchPlaceholder": "搜索标题 / 提示词 / 标签"
+    "searchPlaceholder": "搜索案例"
   },
   "filter": {
     "provider": "模型",
@@ -9,7 +9,8 @@
   },
   "list": {
     "loading": "加载中…",
-    "empty": "没有符合条件的灵感"
+    "empty": "没有符合条件的灵感",
+    "resetFilters": "重置筛选"
   },
   "card": {
     "titleHint": "{{title}}\n推荐模型：{{model}}",
