@@ -113,6 +113,7 @@ import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
+import { clearNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
@@ -143,6 +144,7 @@ const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const edgeTypes = { reference: NodeFlowEdge }
 const legacyOrigin = canvasOrigin('system', 'legacy-update')
+const BLANK_IMAGE_DRAFT = '__blank-image__'
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
@@ -676,6 +678,7 @@ function Flow({
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [scriptPoint, setScriptPoint] = useState<{ x: number; y: number } | null>(null)
+  const [blankPrompt, setBlankPrompt] = useState('')
   const [addingAsset, setAddingAsset] = useState(false)
   const assetTarget = useRef<string | undefined>(undefined)
   const [referencePick, setReferencePick] = useState<{
@@ -1035,6 +1038,17 @@ function Flow({
     })
     setScriptPoint(null)
     selectNode(id)
+  }
+  const submitBlankImage = (temporaryReferences: string[]) => {
+    const prompt = blankPrompt.trim()
+    if (!prompt && temporaryReferences.length === 0) return
+    const id = createNode(canvas, 'image', center(), textFill, undefined, {
+      ...(prompt ? { prompt } : {}),
+    })
+    setBlankPrompt('')
+    clearNodeReferenceDraft(canvas.doc, BLANK_IMAGE_DRAFT)
+    selectNode(id)
+    submitNodeImage(editor, canvas.doc, id, prompt, temporaryReferences)
   }
   const placeFiles = (files: File[]) => {
     const images = acceptImageFiles(files)
@@ -2153,6 +2167,22 @@ function Flow({
                         >
                           {referenceTools}
                         </NodeComposerFrame>
+                      )}
+                      {selectedCount === 0 && !scriptPoint && (
+                        <ImageNodeComposer
+                          document={canvas.doc}
+                          nodeId={BLANK_IMAGE_DRAFT}
+                          references={[]}
+                          files={files}
+                          value={blankPrompt}
+                          busy={false}
+                          position={{
+                            left: frame.width > 0 ? frame.width / 2 : 280,
+                            top: frame.height > 0 ? frame.height - 16 : 480,
+                          }}
+                          onChange={setBlankPrompt}
+                          onSubmit={submitBlankImage}
+                        />
                       )}
                       {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
                         <ImageNodeComposer

@@ -87,6 +87,15 @@ describe('node canvas editing transactions', () => {
     canvas.undo.undo()
     expect(readCanvasDocument(canvas.doc).nodes).toEqual([])
   })
+  it('stores a blank-canvas prompt on the new image node', () => {
+    const canvas = setup()
+    const id = createNode(canvas, 'image', { x: 10, y: 10 }, '#fff', undefined, {
+      prompt: '窗台新叶',
+    })
+    const node = readCanvasDocument(canvas.doc).nodes.find((one) => one.id === id)
+    expect(node?.type).toBe('image')
+    if (node?.type === 'image') expect(node.data.meta?.nodePrompt).toBe('窗台新叶')
+  })
   it('undoes creation and inline editing without a second editor history', () => {
     const canvas = setup()
     const id = createNode(canvas, 'text', { x: 0, y: 0 }, '#fff')

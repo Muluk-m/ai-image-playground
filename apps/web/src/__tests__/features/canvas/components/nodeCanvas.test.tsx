@@ -18,14 +18,18 @@ import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCan
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 import { stubPointerApis } from '../../../helpers/radix'
 
-const mocks = vi.hoisted(() => ({ open: vi.fn(), importImages: vi.fn(async () => 1) }))
+const mocks = vi.hoisted(() => ({
+  open: vi.fn(),
+  importImages: vi.fn(async () => 1),
+  submitImage: vi.fn(() => true),
+}))
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
   openNodeCanvasDocument: mocks.open,
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
   fillImageNode: mocks.importImages,
   resumeNodeGenerations: vi.fn(),
-  submitNodeImage: vi.fn(),
+  submitNodeImage: mocks.submitImage,
 }))
 vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
   ARROW_POINTER: { length: 12, width: 10 },
@@ -167,6 +171,7 @@ function createCanvas(): NodeCanvasDocument {
 beforeEach(() => {
   stubPointerApis()
   mocks.open.mockReset()
+  mocks.submitImage.mockClear()
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
   old = new CanvasDoc()
@@ -335,7 +340,9 @@ it('puts the workspace image controls under a new image card and keeps the card'
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
   expect(added).toMatchObject({ type: 'image', data: {} })
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
-  expect(host.querySelector('.studio-node-composer')).toBeNull()
+  expect(host.querySelector('.studio-node-composer')?.getAttribute('aria-label')).toBe(
+    '描述你想生成的图片',
+  )
   expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image', added!.id])
 })
 
@@ -575,4 +582,37 @@ it('places a popular script brief from the blank canvas menu', async () => {
     expect(script.data.text).toContain('## 第 1 集')
   }
   expect(document.querySelector('[role=dialog]')).toBeNull()
+})
+
+it('creates an image node from the canvas prompt when nothing is selected', async () => {
+  await render()
+  const input = document.querySelector(
+    'textarea[aria-label="描述你想生成的图片"]',
+  ) as HTMLTextAreaElement
+  expect(input).not.toBeNull()
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  await act(async () => {
+    setValue.call(input, '窗台新叶')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () =>
+    [...document.querySelectorAll('button')]
+      .find((button) => button.getAttribute('aria-label') === '生成')!
+      .click(),
+  )
+  const created = readCanvasDocument(canvas.doc).nodes.find(
+    (node) => node.type === 'image' && node.data.meta?.nodePrompt === '窗台新叶',
+  )
+  expect(created?.type).toBe('image')
+  expect(mocks.submitImage).toHaveBeenCalledWith(
+    expect.anything(),
+    canvas.doc,
+    created && created.type === 'image' ? created.id : '',
+    '窗台新叶',
+    [],
+  )
+  canvas.undo.undo()
+  expect(
+    readCanvasDocument(canvas.doc).nodes.some((node) => node.data.meta?.nodePrompt === '窗台新叶'),
+  ).toBe(false)
 })
