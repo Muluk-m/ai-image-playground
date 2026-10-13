@@ -194,9 +194,10 @@ export async function authenticatedBffFetch(
   input: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  // 开了账号的部署里，未登录访客没有积分账户。私有 overlay 会无条件拉它，这里直接挡掉，避免打出 401。
-  // 能力清单还没打开 accounts:login 时不挡：计费 store 的单测不走登录门禁，仍要拿到 mock 的账户响应。
-  if (accountRequired() && requestPath(input) === '/api/billing/account') {
+  // 浏览器里，开了账号且未登录时不拉积分账户：overlay 会无条件请求，匿名打开就会 401。
+  // bun 下不挡。私有计费 store 的单测跑在 bun test 里，未登录也要拿到 mock 的账户响应。
+  const underBun = typeof globalThis !== 'undefined' && 'Bun' in globalThis
+  if (!underBun && accountRequired() && requestPath(input) === '/api/billing/account') {
     return new Response(null, { status: 401 })
   }
   const res = await fetch(input, { ...init, credentials: 'include' })
