@@ -96,6 +96,7 @@ it('opens on hover without saving, supports quick removal, and closes after leav
   act(() => host.querySelector('.creation-stack-trigger')!.dispatchEvent(pointer('pointerover')))
   expect(document.querySelector('.creation-reference-panel')).not.toBeNull()
   expect(localStorage.getItem(REFERENCE_DISPLAY_KEY)).toBeNull()
+  expect(document.querySelectorAll('.creation-stack-add')).toHaveLength(1)
   act(() => document.querySelector<HTMLButtonElement>('[data-remove]')!.click())
   expect(remove).toHaveBeenCalledOnce()
   act(() => host.querySelector('.creation-reference-stack')!.dispatchEvent(pointer('pointerout')))

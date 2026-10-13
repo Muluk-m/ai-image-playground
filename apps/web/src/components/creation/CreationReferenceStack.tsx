@@ -115,7 +115,7 @@ export function CreationReferenceStack({
       )}
       <div className="creation-reference-list">
         {children}
-        <div className="creation-stack-add">{add}</div>
+        {expanded && <div className="creation-stack-add">{add}</div>}
       </div>
     </section>
   )
@@ -210,7 +210,7 @@ export function CreationReferenceStack({
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          {panel}
+          {expanded ? null : panel}
         </PopoverContent>
         {status && (
           <span role={failed ? 'alert' : 'status'} className="sr-only">
