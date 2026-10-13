@@ -1100,3 +1100,25 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 @media (max-width: 640px) {
   .studio-node-selection-bar { top: 76px; left: 16px; transform: none; }
 }
+
+.studio-node-text-tools { position: absolute; top: 4px; right: 4px; z-index: 1; }
+.studio-node-text-editor { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
+.studio-node-text-format { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--card)); }
+.studio-node-text-format button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / .12); }
+.studio-node-quill { flex: 1; min-height: 0; overflow: auto; }
+.studio-node-quill .ql-container { font-family: inherit; font-size: inherit; height: 100%; }
+.studio-node-quill .ql-editor { padding: 14px 16px; color: hsl(var(--foreground)); font-size: theme('fontSize.sm'); line-height: 1.5; overflow-wrap: anywhere; }
+.studio-node-quill .ql-editor.ql-blank::before { color: hsl(var(--muted-foreground)); font-style: normal; }
+.studio-node-rich-content { overflow-wrap: anywhere; }
+.studio-node-rich-content h1, .studio-node-quill .ql-editor h1 { font-size: 1.5em; font-weight: 600; line-height: 1.4; }
+.studio-node-rich-content h2, .studio-node-quill .ql-editor h2 { font-size: 1.25em; font-weight: 600; line-height: 1.4; }
+.studio-node-rich-content h3, .studio-node-quill .ql-editor h3 { font-size: 1.1em; font-weight: 600; line-height: 1.4; }
+.studio-node-rich-content p, .studio-node-rich-content h1, .studio-node-rich-content h2, .studio-node-rich-content h3 { margin: 0; }
+.studio-node-rich-content ul, .studio-node-rich-content ol { margin-block: 0; padding-left: 1.5em; }
+.studio-node-rich-content ul { list-style: disc; }
+.studio-node-rich-content ol { list-style: decimal; }
+.studio-node-rich-content hr, .studio-node-quill .ql-editor hr { margin: 12px 0; border: 0; border-top: 1px solid hsl(var(--border)); }
+.studio-node-script-sheet { display: flex; flex-direction: column; height: 100dvh; }
+.studio-node-script-sheet > .studio-node-text-editor { min-height: 0; height: auto; flex: 1; }
+.studio-node-script-sheet .studio-node-text-format { justify-content: center; padding: 8px; }
+.studio-node-script-sheet .ql-editor { max-width: 800px; margin-inline: auto; padding: 32px 24px; font-size: theme('fontSize.base'); }

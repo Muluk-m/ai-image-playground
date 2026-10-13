@@ -1,6 +1,13 @@
 import * as Y from 'yjs'
 import { type CanvasGroup, readCanvasGroups } from './canvas-groups'
 import { canvasLinkAllowed } from './canvas-registry'
+import {
+  type CanvasTextRun,
+  canvasText,
+  initializeNodeText,
+  plainCanvasText,
+  replaceCanvasText,
+} from './canvas-text'
 
 export { CANVAS_NODE_TYPES, type CanvasNodeType } from './canvas-registry'
 
@@ -43,6 +50,7 @@ export interface VideoNodeData extends ImageNodeData {
 }
 
 export interface TextNodeData {
+  richText?: CanvasTextRun[]
   name?: string
   text: string
   fontSize: number
@@ -133,7 +141,22 @@ function edgesOf(doc: Y.Doc): Y.Map<CanvasEdge> {
 
 /** 节点按写入顺序给出；叠放看 `z`。标注按 `z` 排好，绘制层直接按序画。 */
 export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
-  const nodes = [...nodesOf(doc).values()].map((map) => map.toJSON() as CanvasNode)
+  const nodes = [...nodesOf(doc).values()].map((map) => {
+    const { richText: _rich, ...raw } = map.toJSON()
+    const node = raw as CanvasNode
+    const text = canvasText(doc, node.id)
+    if (node.type === 'text' && text) {
+      const delta = text.toDelta() as CanvasTextRun[]
+      const formatted = delta.some((run) => run.attributes || typeof run.insert !== 'string')
+      const { richText: _previous, ...data } = node.data
+      node.data = {
+        ...data,
+        text: plainCanvasText(text),
+        ...(formatted ? { richText: delta } : {}),
+      }
+    }
+    return node
+  })
   const annotations = [...annotationsOf(doc).values()].sort((a, b) => a.z - b.z)
   const edges = [...edgesOf(doc).values()]
   const groups = readCanvasGroups(doc)
@@ -183,7 +206,18 @@ export function updateCanvasNode(
   if (!node) return
   doc.transact(() => {
     for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined && !sameField(node.get(key), value)) node.set(key, value)
+      if (value !== undefined && !sameField(node.get(key), value)) {
+        if (
+          key === 'data' &&
+          node.get('type') === 'text' &&
+          typeof value === 'object' &&
+          'text' in value
+        ) {
+          const text = canvasText(doc, id)
+          if (text) replaceCanvasText(text, value.text)
+        }
+        node.set(key, value)
+      }
     }
   }, origin)
 }
@@ -232,6 +266,11 @@ function writeNode(doc: Y.Doc, node: CanvasNode): void {
   const map = new Y.Map<unknown>()
   for (const [key, value] of Object.entries(node)) map.set(key, value)
   nodesOf(doc).set(node.id, map)
+  if (node.type === 'text') {
+    initializeNodeText(map, node.data.richText)
+    const { richText: _rich, ...data } = node.data
+    map.set('data', data)
+  }
 }
 
 function toNode(element: LegacyCanvasElement, z: number): CanvasNode | CanvasAnnotation {
@@ -353,8 +392,18 @@ export function synchronizeLegacyElements(
         if (
           (!beforeNode || !sameField(beforeNode[field], item[field])) &&
           !sameField(current.get(field), item[field])
-        )
+        ) {
+          if (
+            field === 'data' &&
+            item.type === 'text' &&
+            beforeNode?.type === 'text' &&
+            beforeNode.data.text !== item.data.text
+          ) {
+            const text = canvasText(doc, id)
+            if (text) replaceCanvasText(text, item.data.text)
+          }
           current.set(field, item[field])
+        }
       }
     }
   }, origin)

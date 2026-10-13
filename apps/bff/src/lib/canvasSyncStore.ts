@@ -3,6 +3,7 @@ import {
   canvasProjectDocument,
   importLegacyElements,
   initializeCanvasConnectionRules,
+  initializeCanvasTexts,
   type ProjectDocument,
   readCanvasDocument,
   synchronizeLegacyElements,
@@ -232,7 +233,8 @@ export async function accessCanvasDocument(
     const { doc } = loaded
     try {
       const policyVector = Y.encodeStateVector(doc)
-      if (initializeCanvasConnectionRules(doc))
+      const textMigrated = initializeCanvasTexts(doc)
+      if (initializeCanvasConnectionRules(doc) || textMigrated)
         await persist(tx, projectId, loaded, Y.encodeStateAsUpdate(doc, policyVector))
       const legacyConnections = doc.getMap<string>('legacyConnections').toJSON()
       if (update) {
