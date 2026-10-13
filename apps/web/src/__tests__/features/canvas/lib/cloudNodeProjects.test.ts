@@ -2,14 +2,17 @@
 import 'fake-indexeddb/auto'
 import {
   canvasOrigin,
+  canvasResults,
   canvasSyncAck,
   canvasSyncStep1,
   canvasSyncUpdate,
+  chooseCanvasResult,
   importLegacyElements,
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
   readCanvasSyncMessage,
+  recordCanvasResult,
 } from '@image-playground/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -17,6 +20,7 @@ import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNo
 import { getCloudProject, ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
+import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
 
 const origin = canvasOrigin('user', 'fixture')
@@ -255,5 +259,46 @@ it.each([
     await reopened.load()
     expect(readCanvasDocument(reopened.canvas!.doc).nodes[0]).toMatchObject({ id: 'text' })
   } else await expect(reopened.load()).rejects.toThrow('unavailable')
+  record.dispose()
+})
+
+it('uploads only chosen candidates, including a previous main switched before the sync flush', async () => {
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource).mockClear()
+  const { doc, origin } = session.canvas!
+  record.editor.doc.files = { a: 'data:image/png;base64,YQ==', b: 'data:image/png;base64,Yg==' }
+  insertCanvasNode(
+    doc,
+    { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+    origin,
+  )
+  for (const id of ['a', 'b', 'unchosen'])
+    recordCanvasResult(
+      doc,
+      {
+        id,
+        nodeId: 'image',
+        kind: 'image',
+        source: { type: 'queue', taskId: id, outputIndex: 0 },
+        createdAt: 1,
+      },
+      origin,
+    )
+  chooseCanvasResult(doc, 'image', 'a', { data: { fileId: 'a' } }, origin)
+  chooseCanvasResult(doc, 'image', 'b', { data: { fileId: 'b' } }, origin)
+  await vi.waitFor(() => {
+    expect(canvasResults(doc).filter((r) => r.display?.mediaId)).toHaveLength(2)
+  })
+  expect(
+    vi
+      .mocked(uploadMediaSource)
+      .mock.calls.map(([source]) => source)
+      .sort(),
+  ).toEqual(['data:image/png;base64,YQ==', 'data:image/png;base64,Yg=='])
+  expect(canvasResults(doc).find((r) => r.id === 'unchosen')?.display).toBeUndefined()
+  expect(record.editor.doc.elements.find((e) => e.id === 'image')).toMatchObject({
+    fileId: 'cloud-11111111-1111-4111-8111-111111111111',
+  })
   record.dispose()
 })

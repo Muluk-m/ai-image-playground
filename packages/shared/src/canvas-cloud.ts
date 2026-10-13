@@ -46,6 +46,9 @@ const object = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 const id = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 256
+const isMediaId = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
 const allowed = (value: object, fields: string[]) =>
@@ -67,6 +70,8 @@ export function validateCloudCanvas(
     'legacyConnections',
     'groups',
     'groupMembers',
+    'nodeResults',
+    'mainResults',
   ]
   if ([...doc.share.keys()].some((key) => !roots.includes(key)))
     throw new Error('invalid_canvas_document')
@@ -76,6 +81,8 @@ export function validateCloudCanvas(
     throw new Error('canvas_document_too_large')
   for (const [key, value] of doc.getMap('nodes')) {
     if (!(value instanceof Y.Map) || value.get('id') !== key) throw new Error('invalid_canvas_node')
+    if (JSON.stringify(value.get('data')).includes('data:image/'))
+      throw new Error('invalid_canvas_node')
     if (value.has('richText')) {
       const text = value.get('richText')
       if (
@@ -212,6 +219,85 @@ export function validateCloudCanvas(
       throw new Error('invalid_canvas_node')
     if (JSON.stringify(data).length > 100_000 || JSON.stringify(data).includes('data:image/'))
       throw new Error('invalid_canvas_node')
+  }
+  const results = doc.getMap('nodeResults')
+  if (results.size > 10000) throw new Error('canvas_document_too_large')
+  for (const [key, result] of results) {
+    if (
+      !object(result) ||
+      !id(key) ||
+      result.id !== key ||
+      !id(result.nodeId) ||
+      (result.kind !== 'image' && result.kind !== 'video') ||
+      !allowed(result, [
+        'id',
+        'nodeId',
+        'kind',
+        'source',
+        'createdAt',
+        'inputFingerprint',
+        'display',
+      ]) ||
+      typeof result.createdAt !== 'number' ||
+      !Number.isSafeInteger(result.createdAt) ||
+      result.createdAt < 0 ||
+      (result.inputFingerprint !== undefined &&
+        (typeof result.inputFingerprint !== 'string' ||
+          !/^v1:[0-9]+:[a-f0-9]+:[a-f0-9]+$/.test(result.inputFingerprint))) ||
+      !object(result.source)
+    )
+      throw new Error('invalid_canvas_result')
+    if (result.display !== undefined) {
+      const display = result.display
+      const { fileId: _cache, ...persistedDisplay } = object(display) ? display : {}
+      if (
+        !object(display) ||
+        !allowed(display, ['fileId', 'mediaId', 'naturalWidth', 'naturalHeight', 'video']) ||
+        (display.mediaId !== undefined && !isMediaId(display.mediaId)) ||
+        (display.fileId !== undefined &&
+          (!display.mediaId || display.fileId !== `cloud-${display.mediaId}`)) ||
+        (result.kind === 'video' ? !object(display.video) : display.video !== undefined) ||
+        !isProjectDocument({
+          version: 1,
+          elements: [
+            {
+              ...persistedDisplay,
+              id: key,
+              type: 'image',
+              x: 0,
+              y: 0,
+              width: 1,
+              height: 1,
+              rotation: 0,
+              mediaId: display.mediaId ?? '00000000-0000-0000-0000-000000000000',
+            },
+          ],
+        })
+      )
+        throw new Error('invalid_canvas_result')
+    }
+    const source = result.source
+    if (source.type === 'queue' || source.type === 'local') {
+      if (
+        !allowed(source, ['type', 'taskId', 'outputIndex']) ||
+        !id(source.taskId) ||
+        !Number.isSafeInteger(source.outputIndex) ||
+        Number(source.outputIndex) < 0 ||
+        Number(source.outputIndex) > 1000
+      )
+        throw new Error('invalid_canvas_result')
+    } else if (
+      source.type !== 'media' ||
+      !allowed(source, ['type', 'mediaId']) ||
+      !isMediaId(source.mediaId)
+    ) {
+      throw new Error('invalid_canvas_result')
+    }
+  }
+  for (const [nodeId, resultId] of doc.getMap('mainResults')) {
+    const result = typeof resultId === 'string' ? results.get(resultId) : undefined
+    if (!id(nodeId) || !object(result) || result.nodeId !== nodeId)
+      throw new Error('invalid_canvas_result')
   }
   const groups = doc.getMap<Y.Map<unknown>>('groups')
   if (groups.size > 1000 || doc.getMap('groupMembers').size > 10000)

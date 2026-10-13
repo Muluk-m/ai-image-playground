@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
   canvasOrigin,
+  canvasResults,
   canvasSyncStep1,
   canvasSyncStep2,
   canvasSyncUpdate,
@@ -17,6 +18,7 @@ import {
   readCanvasDocument,
   readCanvasGroups,
   readCanvasSyncMessage,
+  recordCanvasResult,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
@@ -493,4 +495,93 @@ it('persists concurrent rich text edits and keeps the legacy read model in sync'
   a.destroy()
   b.destroy()
   restored.destroy()
+})
+
+it('authorizes candidate tasks without charging media storage and preserves references after expiry', async () => {
+  const id = await create()
+  const taskId = crypto.randomUUID(),
+    otherTaskId = crypto.randomUUID()
+  for (const [task, user] of [
+    [taskId, 'owner'],
+    [otherTaskId, 'other'],
+  ])
+    await db.insert(schema.tasks).values({
+      id: task!,
+      user_id: user!,
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: 'completed',
+      request_payload: { prompt: 'fixture' },
+      submitted_at: Date.now(),
+    })
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const vector = Y.encodeStateVector(doc)
+  insertCanvasNode(
+    doc,
+    { id: 'candidate-node', type: 'image', x: 300, y: 0, width: 300, height: 200, data: {} },
+    origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'owned-result',
+      nodeId: 'candidate-node',
+      kind: 'image',
+      source: { type: 'queue', taskId, outputIndex: 0 },
+      createdAt: Date.now(),
+    },
+    origin,
+  )
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, vector))
+  expect(
+    await db.select().from(schema.media_references).where(eq(schema.media_references.owner_id, id)),
+  ).toHaveLength(0)
+  await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId))
+  const saved = new Y.Doc()
+  Y.applyUpdate(saved, await accessCanvasDocument('owner', id))
+  expect(canvasResults(saved)).toHaveLength(1)
+  const before = Y.encodeStateVector(saved)
+  moveCanvasNodes(saved, [{ id: 'candidate-node', x: 400, y: 10 }], origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(saved, before))
+  const hidden = new Y.Doc()
+  Y.applyUpdate(hidden, Y.encodeStateAsUpdate(saved))
+  const hiddenVector = Y.encodeStateVector(hidden)
+  recordCanvasResult(
+    hidden,
+    {
+      id: 'hidden-video',
+      nodeId: 'candidate-node',
+      kind: 'video',
+      source: { type: 'local', taskId: 'local-history', outputIndex: 0 },
+      createdAt: Date.now(),
+      display: { video: { taskId: otherTaskId, outputIndex: 0 } },
+    },
+    origin,
+  )
+  await expect(
+    accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(hidden, hiddenVector)),
+  ).rejects.toThrow('canvas_task_not_owned')
+  hidden.destroy()
+  const unauthorized = Y.encodeStateVector(saved)
+  recordCanvasResult(
+    saved,
+    {
+      id: 'stolen-result',
+      nodeId: 'candidate-node',
+      kind: 'image',
+      source: { type: 'queue', taskId: otherTaskId, outputIndex: 0 },
+      createdAt: Date.now(),
+    },
+    origin,
+  )
+  await expect(
+    accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(saved, unauthorized)),
+  ).rejects.toThrow('canvas_task_not_owned')
+  const reloaded = new Y.Doc()
+  Y.applyUpdate(reloaded, await accessCanvasDocument('owner', id))
+  expect(canvasResults(reloaded)).toHaveLength(1)
+  doc.destroy()
+  saved.destroy()
+  reloaded.destroy()
 })

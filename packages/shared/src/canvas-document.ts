@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import { type CanvasGroup, readCanvasGroups } from './canvas-groups'
 import { canvasLinkAllowed } from './canvas-registry'
+import { canvasMainResult, refreshCanvasResultDisplay } from './canvas-results'
 import {
   type CanvasTextRun,
   canvasText,
@@ -153,6 +154,28 @@ export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
         ...data,
         text: plainCanvasText(text),
         ...(formatted ? { richText: delta } : {}),
+      }
+    }
+    if (node.type === 'image' || node.type === 'video') {
+      const result = canvasMainResult(doc, node.id)
+      if (result?.display) {
+        const {
+          fileId: _file,
+          mediaId: _media,
+          naturalWidth: _width,
+          naturalHeight: _height,
+          ...data
+        } = node.data
+        const { video: _video, ...rest } = data as typeof data & { video?: ProjectVideoRef }
+        return {
+          ...node,
+          type: result.kind,
+          data: {
+            ...rest,
+            ...result.display,
+            ...(result.display.mediaId ? { fileId: `cloud-${result.display.mediaId}` } : {}),
+          },
+        } as CanvasNode
       }
     }
     return node
@@ -402,7 +425,38 @@ export function synchronizeLegacyElements(
             const text = canvasText(doc, id)
             if (text) replaceCanvasText(text, item.data.text)
           }
-          current.set(field, item[field])
+          if (
+            field === 'data' &&
+            beforeNode &&
+            (item.type === 'image' || item.type === 'video') &&
+            (beforeNode.type === 'image' || beforeNode.type === 'video') &&
+            (item.data.fileId !== beforeNode.data.fileId ||
+              item.data.mediaId !== beforeNode.data.mediaId ||
+              !sameField(
+                'video' in item.data ? item.data.video : undefined,
+                'video' in beforeNode.data ? beforeNode.data.video : undefined,
+              ))
+          ) {
+            const sameVideo =
+              item.type === 'video' &&
+              beforeNode.type === 'video' &&
+              item.data.video.taskId === beforeNode.data.video.taskId &&
+              item.data.video.outputIndex === beforeNode.data.video.outputIndex
+            if (sameVideo) refreshCanvasResultDisplay(doc, id, item.data, origin)
+            else doc.getMap('mainResults').delete(id)
+          }
+          if (
+            field === 'data' &&
+            'fileId' in item.data &&
+            beforeNode &&
+            'fileId' in beforeNode.data &&
+            item.data.fileId !== beforeNode.data.fileId
+          ) {
+            current.set(field, {
+              ...item.data,
+              meta: { ...item.data.meta, contentIdentity: item.data.mediaId ?? item.data.fileId },
+            })
+          } else current.set(field, item[field])
         }
       }
     }
@@ -475,6 +529,7 @@ export function createCanvasUndoManager(doc: Y.Doc, origin: CanvasOrigin): Y.Und
       doc.getMap('deletedNodes'),
       doc.getMap('groups'),
       doc.getMap('groupMembers'),
+      doc.getMap('mainResults'),
     ],
     {
       trackedOrigins: new Set([origin]),
