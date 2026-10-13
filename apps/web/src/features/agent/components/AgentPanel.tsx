@@ -403,7 +403,7 @@ export default function AgentPanel({
             className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
             onClick={() => setOpen(false)}
           >
-            <Icon name={dock === 'right' ? 'chevronRight' : 'sidebar'} />
+            <Icon name={dock === 'right' ? 'minimize' : 'sidebar'} />
           </Button>
         </div>
       )}

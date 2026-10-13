@@ -91,7 +91,11 @@ export function CreationModePicker({
   const icons = { agent: 'chat', image: 'imageAdd', video: 'video' } as const
   return (
     <Select value={value} onValueChange={(mode) => onChange(mode as CreationMode)}>
-      <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
+      <SelectTrigger
+        aria-label={t('studio.type')}
+        title={t(`studio.modes.${value}`)}
+        className="creation-mode-trigger"
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent side="top" align="start" sideOffset={10} className="creation-mode-menu">
@@ -99,7 +103,7 @@ export function CreationModePicker({
           <SelectItem key={mode} value={mode} className="creation-mode-option">
             <span className="flex items-center gap-3">
               <Icon name={icons[mode]} />
-              {t(`studio.modes.${mode}`)}
+              <span className="creation-mode-label">{t(`studio.modes.${mode}`)}</span>
             </span>
           </SelectItem>
         ))}

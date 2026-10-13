@@ -1092,15 +1092,22 @@ body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) +
 .studio-layout[data-node-canvas="true"] .studio-agent-composer .creation-prompt { font-size: theme('fontSize.sm'); line-height: 1.5; min-height: 72px; max-height: 160px; }
 .studio-layout[data-node-canvas="true"] .creation-mode-trigger { grid-column: 1; grid-row: 1; height: 32px; min-height: 32px; padding: 0 8px; font-size: theme('fontSize.xs'); }
 .studio-layout[data-node-canvas="true"] .creation-mode-trigger > span > span { gap: 6px; }
-.studio-layout[data-node-canvas="true"] .creation-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
+/* Keep the dock footer on one baseline; settings details remain in their popover. */
+.studio-layout[data-node-canvas="true"] .creation-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px 32px; align-items: center; gap: 6px; }
 .studio-layout[data-node-canvas="true"] .creation-toolbar :is(.creation-tools, .creation-live-controls) { display: contents; }
 .studio-layout[data-node-canvas="true"] .creation-toolbar-mode { grid-column: 1; grid-row: 1; }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button { height: 32px; min-height: 32px; min-width: 0; padding: 0 8px; font-size: theme('fontSize.xs'); }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button { height: 32px; min-height: 32px; min-width: 0; padding: 0 6px; font-size: theme('fontSize.xs'); border-color: transparent; background: transparent; box-shadow: none; }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button:hover { background: hsl(var(--muted)); }
 .studio-layout[data-node-canvas="true"] .creation-live-controls > button[role="combobox"] { grid-column: 2; grid-row: 1; width: 100%; max-width: 100%; }
-.studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) { grid-column: 1 / -1; grid-row: 2; justify-self: start; max-width: calc(100% - 44px); }
-.studio-layout[data-node-canvas="true"] .creation-toolbar > :last-child { grid-column: 2; grid-row: 2; justify-self: end; }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) { grid-column: 3; grid-row: 1; width: 32px; max-width: none; justify-content: center; padding: 0; }
+.studio-layout[data-node-canvas="true"] .creation-live-controls > button:not([role="combobox"]) > .truncate { display: none; }
+.studio-layout[data-node-canvas="true"] .creation-toolbar > .creation-toolbar-action { grid-column: 4; grid-row: 1; justify-self: end; }
 .studio-layout[data-node-canvas="true"] .creation-tool-divider { display: none; }
 .studio-layout[data-node-canvas="true"] .creation-send { width: 32px; height: 32px; min-width: 32px; min-height: 32px; border-radius: 9999px; }
+@container creation-composer (max-width: 400px) {
+  .studio-layout[data-node-canvas="true"] .creation-mode-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .studio-layout[data-node-canvas="true"] .creation-mode-trigger { gap: 4px; }
+}
 
 /* Group frames stay behind cards; only their header takes pointer input. */
 .studio-node-canvas .react-flow__node-canvasGroup { pointer-events: none; }
