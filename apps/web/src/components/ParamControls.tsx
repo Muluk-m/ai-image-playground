@@ -1,5 +1,4 @@
 import { parseImageSize } from '@image-playground/shared'
-import { Ruler } from 'lucide-react'
 import { memo, type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
@@ -33,6 +32,7 @@ import {
   SettingsSegmented,
   SettingsToggle,
 } from './composer/SettingsPanel'
+import { Icon } from './ui/icon'
 
 /** 某条提交路径做不到的参数。开关直接不出现——显示了却不生效，比没有这个开关更糟。 */
 export type UnsupportedParam = 'transparent' | 'noRewrite'
@@ -209,7 +209,7 @@ export function ImageSettings({
           {
             value: 'custom',
             label: t('settings.custom'),
-            icon: <Ruler aria-hidden="true" className="h-4 w-4" />,
+            icon: <Icon name="resize" />,
           },
         ]
     const pickRatio = (value: string) => {

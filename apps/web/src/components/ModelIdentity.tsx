@@ -1,5 +1,5 @@
 import { GeminiLogo, OpenAILogo } from './assistant-ui/elements/logos'
-import { ChipIcons } from './chipIcons'
+import { Icon } from './ui/icon'
 
 const COMPACT_MODEL_NAMES: Readonly<Record<string, string>> = {
   'gpt-image-2': 'Image 2',
@@ -34,7 +34,7 @@ export function ModelLogo({ model }: { model: string }) {
           ? 'agnes'
           : null
 
-  if (!brand) return ChipIcons.model
+  if (!brand) return <Icon name="model" />
   // OpenAI / Gemini 用 assistant-ui 的矢量 logo：OpenAI 跟随文字色，Gemini 保留品牌渐变。
   if (brand === 'openai') return <OpenAILogo className="h-4 w-4 shrink-0" />
   if (brand === 'gemini') return <GeminiLogo className="h-4 w-4 shrink-0" />

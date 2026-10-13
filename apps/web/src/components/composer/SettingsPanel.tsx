@@ -1,11 +1,11 @@
-import { X } from 'lucide-react'
 import { type InputHTMLAttributes, type ReactNode, useId, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { parseRatio } from '../../lib/size'
 import { cn } from '../../lib/utils'
 import { field, paper } from '../assistant-ui/elements/surfaces'
 import { Switch } from '../patterns/Switch'
-import { Button } from '../ui/button'
+import { Button, buttonVariants } from '../ui/button'
+import { Icon } from '../ui/icon'
 import { Input } from '../ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 
@@ -18,11 +18,8 @@ export type ComposerControlSize = 'md' | 'sm'
  */
 export function composerChipClass(size: ComposerControlSize = 'md') {
   return cn(
-    'relative inline-flex w-auto min-w-0 items-center gap-1.5 border border-input bg-background font-medium text-foreground shadow-none transition-colors duration-150 hover:border-ring/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:border-transparent data-[state=open]:bg-accent',
-    size === 'md'
-      ? 'h-10 shrink-0 rounded-xl px-3 text-xs'
-      : // 窄输入框里让模型 chip 去截断，参数摘要只有几个字，压扁了就只剩「智.」。
-        'h-8 shrink-0 rounded-lg px-2.5 text-label-sm',
+    buttonVariants({ variant: 'outline', size: size === 'md' ? 'chip-lg' : 'chip-sm' }),
+    'relative w-auto min-w-0 shrink-0 justify-start gap-1.5 text-foreground shadow-none data-[state=open]:border-transparent data-[state=open]:bg-accent',
   )
 }
 
@@ -32,14 +29,6 @@ export function composerModelChipClass(size: ComposerControlSize = 'md') {
     composerChipClass(size),
     'shrink',
     size === 'md' ? 'min-w-[11.5rem] max-w-[14rem] pr-8' : 'max-w-[11rem] pr-7',
-  )
-}
-
-/** 附件这类方形图标按钮，和 chip 同高。 */
-export function composerIconButtonClass(size: ComposerControlSize = 'md') {
-  return cn(
-    'grid shrink-0 place-items-center border border-input bg-background text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:bg-accent hover:text-foreground',
-    size === 'md' ? 'h-10 w-10 rounded-xl' : 'h-8 w-8 rounded-lg',
   )
 }
 
@@ -80,7 +69,9 @@ export function SettingsPopover({
       }}
     >
       <PopoverTrigger asChild>
-        <button
+        <Button
+          variant="outline"
+          size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
           title={`${title}: ${summary}`}
           aria-label={`${title}: ${summary}`}
@@ -90,7 +81,7 @@ export function SettingsPopover({
           {icon && <span className="flex shrink-0 text-muted-foreground">{icon}</span>}
           <span className="truncate tabular-nums">{summary}</span>
           {badge && <span className="flex shrink-0">{badge}</span>}
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -100,21 +91,23 @@ export function SettingsPopover({
         aria-labelledby={titleId}
         className={cn(
           paper,
-          'flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-[20px] p-0 shadow-popover',
+          'flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-xl p-0 shadow-popover',
         )}
       >
         <div className="flex items-center justify-between px-4 pb-1 pt-3">
           <h2 id={titleId} className="text-title font-semibold text-foreground">
             {title}
           </h2>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             type="button"
             aria-label={t('settings.close')}
             onClick={() => setOpen(false)}
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="text-muted-foreground hover:text-foreground"
           >
-            <X aria-hidden="true" className="h-4 w-4" />
-          </button>
+            <Icon name="close" />
+          </Button>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4 pt-2">{children()}</div>
         <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
@@ -150,7 +143,7 @@ export function SettingsSection({
     <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <h3 className="text-muted-foreground">{title}</h3>
-        {value != null && <span className="tabular-nums text-muted-foreground/80">{value}</span>}
+        {value != null && <span className="tabular-nums text-muted-foreground">{value}</span>}
       </div>
       {children}
       {hint && <p className="text-label-sm leading-relaxed text-muted-foreground">{hint}</p>}
@@ -167,7 +160,7 @@ interface SegmentOption<T extends string | number> {
 const SEGMENT_TRACK = cn(field, 'rounded-full p-0.5')
 const GRID_TRACK = cn(field, 'rounded-2xl p-0.5')
 const SEGMENT_ITEM =
-  'rounded-full text-xs text-muted-foreground transition-[background-color,color] duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:font-medium aria-pressed:text-foreground/90 aria-pressed:shadow-sm'
+  'text-xs font-normal text-muted-foreground transition-[background-color,color] duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:font-medium aria-pressed:text-foreground aria-pressed:shadow-sm'
 
 /** 分段选择：互斥的几档并排，选中项浮起来。 */
 export function SettingsSegmented<T extends string | number>({
@@ -193,21 +186,23 @@ export function SettingsSegmented<T extends string | number>({
       )}
     >
       {options.map((option) => (
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           key={String(option.value)}
           type="button"
           aria-pressed={option.value === value}
           disabled={option.disabled}
           onClick={() => onChange(option.value)}
           className={cn(
-            'h-7 min-w-0 flex-1 truncate tabular-nums',
+            'min-w-0 flex-1 truncate rounded-full tabular-nums',
             // 档位多（数量 1–10）时收窄内边距，两位数也放得下。
             options.length > 6 ? 'px-0.5' : 'px-2',
             SEGMENT_ITEM,
           )}
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </div>
   )
@@ -258,7 +253,7 @@ export function RatioShape({ ratio, className }: { ratio: string; className?: st
   return (
     <span aria-hidden="true" className={cn('flex h-4 w-4 items-center justify-center', className)}>
       <span
-        className={cn('rounded-[3px] border-[1.5px] border-current', !parsed && 'border-dashed')}
+        className={cn('rounded-sm border-[1.5px] border-current', !parsed && 'border-dashed')}
         style={{
           width: w >= h ? '100%' : `${(w / h) * 100}%`,
           height: h >= w ? '100%' : `${(h / w) * 100}%`,
@@ -288,19 +283,18 @@ export function RatioGrid({
       style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 5)}, minmax(0, 1fr))` }}
     >
       {options.map((option) => (
-        <button
+        <Button
+          variant="ghost"
+          size="lg"
           key={option.value}
           type="button"
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={cn(
-            'flex h-14 min-w-0 flex-col items-center justify-center gap-1.5 !rounded-xl !text-label-sm',
-            SEGMENT_ITEM,
-          )}
+          className={cn(SEGMENT_ITEM, 'min-w-0 flex-col gap-0 px-2 py-1 text-label-sm')}
         >
           {option.icon ?? <RatioShape ratio={option.value} />}
           <span className="max-w-full truncate">{option.label}</span>
-        </button>
+        </Button>
       ))}
     </div>
   )

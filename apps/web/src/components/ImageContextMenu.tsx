@@ -6,8 +6,8 @@ import { describeError, useTranslation } from '../i18n'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { editImageInComposer, ensureImageCached, storeImageFromUrl, useStore } from '../store'
-import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon, VideoIcon } from './icons'
 import ContextMenu, { ContextMenuItem } from './patterns/ContextMenu'
+import { Icon } from './ui/icon'
 
 export default function ImageContextMenu() {
   const { t } = useTranslation(['task', 'common'])
@@ -151,22 +151,22 @@ export default function ImageContextMenu() {
       }}
     >
       <ContextMenuItem
-        icon={<CopyIcon className="w-4 h-4 flex-shrink-0" />}
+        icon={<Icon name="copy" />}
         label={t('common:action.copy')}
         onClick={handleCopy}
       />
       <ContextMenuItem
-        icon={<DownloadIcon className="w-4 h-4 flex-shrink-0" />}
+        icon={<Icon name="download" />}
         label={t('common:action.download')}
         onClick={handleDownload}
       />
       <ContextMenuItem
-        icon={<EditIcon className="w-4 h-4 flex-shrink-0" />}
+        icon={<Icon name="edit" />}
         label={t('common:action.edit')}
         onClick={handleEdit}
       />
       <ContextMenuItem
-        icon={<LibraryIcon className="w-4 h-4 flex-shrink-0" />}
+        icon={<Icon name="assets" />}
         label={t('menu.saveAsAsset')}
         onClick={withStoredImage(
           (reason) => t('menu.saveAsAssetFailed', { reason }),
@@ -175,7 +175,7 @@ export default function ImageContextMenu() {
       />
       {isVideoModeAvailable() && (
         <ContextMenuItem
-          icon={<VideoIcon className="w-4 h-4 flex-shrink-0" />}
+          icon={<Icon name="video" />}
           label={t('menu.makeVideo')}
           onClick={withStoredImage(
             (reason) => t('menu.makeVideoFailed', { reason }),

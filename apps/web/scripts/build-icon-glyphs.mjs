@@ -25,6 +25,7 @@ const GLYPHS = {
   sidebar: ['solar', 'sidebar'],
   light: ['solar', 'sun'],
   dark: ['solar', 'moon'],
+  language: ['solar', 'global'],
   // 创作
   generate: ['solar', 'stars'],
   wand: ['solar', 'magic-wand'],
