@@ -249,6 +249,7 @@ export function validateCloudCanvas(
         'params',
         'generation',
         'inputFingerprint',
+        'adopted',
         'initialResultId',
       ]) ||
       (job.meta.nodeGeneration !== true && job.meta.nodeVideo !== true) ||
@@ -288,8 +289,10 @@ export function validateCloudCanvas(
         'source',
         'createdAt',
         'inputFingerprint',
+        'adopted',
         'display',
       ]) ||
+      (result.adopted !== undefined && result.adopted !== true) ||
       typeof result.createdAt !== 'number' ||
       !Number.isSafeInteger(result.createdAt) ||
       result.createdAt < 0 ||

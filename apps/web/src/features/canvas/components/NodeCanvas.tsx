@@ -61,7 +61,7 @@ import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
@@ -484,7 +484,7 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
             }
           >
             <CanvasVideoPlayer
-              src={queueOutputUrl(video.taskId, video.outputIndex)}
+              src={videoOutputUrl(video)}
               poster={poster}
               onEnded={() => setPlaying(false)}
               onTimeChange={(seconds) => playheads.set(node.id, seconds)}
@@ -1526,10 +1526,7 @@ function Flow({
                             if (composerNode.type === 'video') {
                               setVideoPreview({
                                 id: composerNode.id,
-                                src: queueOutputUrl(
-                                  composerNode.data.video.taskId,
-                                  composerNode.data.video.outputIndex,
-                                ),
+                                src: videoOutputUrl(composerNode.data.video),
                               })
                             } else {
                               const source = files[composerNode.data.fileId!]
@@ -1547,10 +1544,7 @@ function Flow({
                           onClick={() => {
                             const source =
                               composerNode.type === 'video'
-                                ? queueOutputUrl(
-                                    composerNode.data.video.taskId,
-                                    composerNode.data.video.outputIndex,
-                                  )
+                                ? videoOutputUrl(composerNode.data.video)
                                 : files[composerNode.data.fileId!]
                             if (source) {
                               void resolveMediaSource(source, 'original', true)

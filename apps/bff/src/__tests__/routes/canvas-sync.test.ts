@@ -653,3 +653,97 @@ it('checks every fan-out job task, not only the visible pending job', async () =
   doc.destroy()
   saved.destroy()
 })
+
+it('persists durable video references after task expiry and rejects foreign or image originals', async () => {
+  const id = await create(),
+    now = Date.now()
+  const videoId = crypto.randomUUID(),
+    foreignId = crypto.randomUUID(),
+    imageId = crypto.randomUUID()
+  for (const [mediaId, user, mime] of [
+    [videoId, 'owner', 'video/mp4'],
+    [foreignId, 'other', 'video/mp4'],
+    [imageId, 'owner', 'image/png'],
+  ])
+    await db.insert(schema.media_objects).values({
+      id: mediaId!,
+      user_id: user!,
+      sha256: mediaId!,
+      bytes: 1,
+      content_type: mime!,
+      status: 'ready',
+      reserved_bytes: 1,
+      staging_key: mediaId!,
+      object_key: mediaId!,
+      expires_at: now + 86400000,
+      created_at: now,
+      updated_at: now,
+    })
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const before = Y.encodeStateVector(doc)
+  insertCanvasNode(
+    doc,
+    {
+      id: 'retained',
+      type: 'video',
+      x: 300,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: {
+        mediaId: imageId,
+        video: { taskId: 'no-longer-in-queue', outputIndex: 0, mediaId: videoId },
+      },
+    },
+    origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'retained-result',
+      nodeId: 'retained',
+      kind: 'video',
+      createdAt: now,
+      adopted: true,
+      source: { type: 'queue', taskId: 'no-longer-in-queue', outputIndex: 0 },
+      display: { video: { taskId: 'no-longer-in-queue', outputIndex: 0, mediaId: videoId } },
+    },
+    origin,
+  )
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, before))
+  const refs = await db
+    .select()
+    .from(schema.media_references)
+    .where(eq(schema.media_references.owner_id, id))
+  expect(refs.map((r) => r.media_id).sort()).toEqual([imageId, videoId].sort())
+  const [project] = await db
+    .select()
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.id, id))
+  expect(project!.cover_media_id).toBe(imageId)
+  for (const [mediaId, error] of [
+    [foreignId, 'canvas_media_not_owned'],
+    [imageId, 'canvas_video_media_invalid'],
+  ]) {
+    const bad = new Y.Doc()
+    Y.applyUpdate(bad, Y.encodeStateAsUpdate(doc))
+    const vector = Y.encodeStateVector(bad)
+    updateCanvasNode(
+      bad,
+      'retained',
+      {
+        data: {
+          mediaId: imageId,
+          video: { taskId: 'no-longer-in-queue', outputIndex: 0, mediaId: mediaId! },
+        },
+      },
+      origin,
+    )
+    await expect(
+      accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(bad, vector)),
+    ).rejects.toThrow(error)
+    bad.destroy()
+  }
+  doc.destroy()
+})

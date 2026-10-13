@@ -110,13 +110,22 @@ export async function syncLegacyCanvasWrite(
 function referencedTasks(doc: Y.Doc): Set<string> {
   const tasks = new Set<string>(
     canvasResults(doc).flatMap((result) => [
-      ...(result.source.type === 'queue' ? [result.source.taskId] : []),
-      ...(result.display?.video ? [result.display.video.taskId] : []),
+      ...(result.source.type === 'queue' &&
+      !(
+        result.display?.video?.mediaId &&
+        result.display.video.taskId === result.source.taskId &&
+        result.display.video.outputIndex === result.source.outputIndex
+      )
+        ? [result.source.taskId]
+        : []),
+      ...(result.display?.video && !result.display.video.mediaId
+        ? [result.display.video.taskId]
+        : []),
     ]),
   )
   for (const job of canvasNodeJobs(doc)) if (job.meta.bffRequestId) tasks.add(job.meta.bffRequestId)
   for (const node of readCanvasDocument(doc).nodes) {
-    if ('video' in node.data) tasks.add(node.data.video.taskId)
+    if ('video' in node.data && !node.data.video.mediaId) tasks.add(node.data.video.taskId)
     if ('pending' in node.data && node.data.pending?.type === 'placeholder') {
       const meta = node.data.pending.meta
       if ('bffRequestId' in meta && typeof meta.bffRequestId === 'string')
@@ -134,15 +143,26 @@ async function validateOwnership(
   acceptedTasks: ReadonlySet<string>,
 ) {
   const { nodes } = readCanvasDocument(doc)
+  const videoMediaIds = new Set([
+    ...nodes.flatMap((n) =>
+      'video' in n.data && n.data.video.mediaId ? [n.data.video.mediaId] : [],
+    ),
+    ...canvasResults(doc).flatMap((r) =>
+      r.display?.video?.mediaId ? [r.display.video.mediaId] : [],
+    ),
+  ])
   const mediaIds = [
     ...new Set([
-      ...nodes.flatMap((n) => ('mediaId' in n.data && n.data.mediaId ? [n.data.mediaId] : [])),
+      ...nodes.flatMap((n) => [
+        ...('mediaId' in n.data && n.data.mediaId ? [n.data.mediaId] : []),
+        ...('video' in n.data && n.data.video.mediaId ? [n.data.video.mediaId] : []),
+      ]),
       ...canvasResultMediaIds(doc),
     ]),
   ]
   if (mediaIds.length) {
     const owned = await tx
-      .select({ id: schema.media_objects.id })
+      .select({ id: schema.media_objects.id, contentType: schema.media_objects.content_type })
       .from(schema.media_objects)
       .where(
         and(
@@ -152,11 +172,13 @@ async function validateOwnership(
         ),
       )
     if (owned.length !== mediaIds.length) throw new CanvasSyncError(403, 'canvas_media_not_owned')
+    if (owned.some((media) => videoMediaIds.has(media.id) && media.contentType !== 'video/mp4'))
+      throw new CanvasSyncError(400, 'canvas_video_media_invalid')
   }
   const tasks = referencedTasks(doc)
   const generationIds = new Set<string>()
   for (const node of nodes) {
-    if ('video' in node.data) tasks.add(node.data.video.taskId)
+    if ('video' in node.data && !node.data.video.mediaId) tasks.add(node.data.video.taskId)
     if ('pending' in node.data && node.data.pending) {
       const pending = node.data.pending
       if (pending.type === 'generation') generationIds.add(pending.generationId)
@@ -264,7 +286,11 @@ export async function accessCanvasDocument(
           const document = canvasProjectDocument(doc, project.document)
           const mediaIds = [
             ...new Set([
-              ...document.elements.flatMap((el) => (el.type === 'image' ? [el.mediaId] : [])),
+              ...document.elements.flatMap((el) =>
+                el.type === 'image'
+                  ? [el.mediaId, ...(el.video?.mediaId ? [el.video.mediaId] : [])]
+                  : [],
+              ),
               ...canvasResultMediaIds(doc),
             ]),
           ]
@@ -288,7 +314,8 @@ export async function accessCanvasDocument(
               document,
               revision: project.revision + 1,
               element_count: readCanvasDocument(doc).nodes.length,
-              cover_media_id: mediaIds.at(-1) ?? null,
+              cover_media_id:
+                document.elements.filter((el) => el.type === 'image').at(-1)?.mediaId ?? null,
               updated_at: Date.now(),
               receipts: [],
             })

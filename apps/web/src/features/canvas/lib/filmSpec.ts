@@ -9,6 +9,7 @@ export const FILM_SAMPLE_RATE = 48000
 
 /** 成片里的一段：源片是哪个任务的第几个产物，从哪一秒播到哪一秒。出点缺省播到结尾。 */
 export interface FilmClip {
+  mediaId?: string
   taskId: string
   outputIndex: number
   in: number

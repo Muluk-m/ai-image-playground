@@ -1,11 +1,12 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
-import { fetchImageDataUrl, queueOutputUrl } from '../../../lib/channels/queueClient'
+import { fetchImageDataUrl, videoOutputUrl } from '../../../lib/channels/queueClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { blankVideoPoster, captureVideoPoster } from './videoPoster'
 
 /** 队列里的一份产出。视频的封面与播放都打这个地址，图片的原图在它隔壁的 `/image/`。 */
 export interface QueueOutputRef {
+  readonly mediaId?: string
   readonly taskId: string
   readonly outputIndex: number
 }
@@ -54,7 +55,7 @@ export function rememberVideoOutputFrame(output: QueueOutputRef, frame: string):
 /** 队列里那份视频的真首帧，抓不到就是 null——画布上的封面该不该动由调用方决定。 */
 export function videoOutputFrame(output: QueueOutputRef): Promise<string | null> {
   return cached(`frame:${output.taskId}/${output.outputIndex}`, () =>
-    captureVideoPoster(queueOutputUrl(output.taskId, output.outputIndex)),
+    captureVideoPoster(videoOutputUrl(output)),
   )
 }
 

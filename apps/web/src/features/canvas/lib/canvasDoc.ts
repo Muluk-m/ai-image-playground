@@ -1,4 +1,4 @@
-import type { VideoGenerationRecord } from '@image-playground/shared'
+import type { ProjectVideoRef } from '@image-playground/shared'
 import type { CanvasTaskMeta, CanvasTaskStatus } from './editor'
 
 /**
@@ -33,11 +33,7 @@ export interface ImageEl {
 }
 
 /** 画布上一段视频的来源。`generation` 是它实际按什么生成的，早于它的存档没有。 */
-export interface CanvasVideoRef {
-  taskId: string
-  outputIndex: number
-  generation?: VideoGenerationRecord
-}
+export type CanvasVideoRef = ProjectVideoRef
 
 export interface FreedrawEl {
   id: string

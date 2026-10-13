@@ -18,6 +18,8 @@ export interface CanvasResult {
     | { type: 'file'; fileId: string }
   createdAt: number
   inputFingerprint?: string
+  /** Chosen or spread at least once; unchosen video metadata alone is not adoption. */
+  adopted?: true
   /** Display cache for a result that has been chosen; cloud preparation promotes its bitmap. */
   display?: CanvasResultDisplay
 }
@@ -33,6 +35,7 @@ export function canvasResultMediaIds(doc: Y.Doc): string[] {
     ...new Set(
       canvasResults(doc).flatMap((result) => [
         ...(result.display?.mediaId ? [result.display.mediaId] : []),
+        ...(result.display?.video?.mediaId ? [result.display.video.mediaId] : []),
         ...(result.source.type === 'media' ? [result.source.mediaId] : []),
       ]),
     ),
@@ -80,19 +83,33 @@ export function chooseCanvasResult(
     return false
   doc.transact(() => {
     const data = projection.data as ImageNodeData & { video?: ProjectVideoRef }
+    const video = retainOriginal(result.display?.video, data.video)
     const display: CanvasResultDisplay = {
       ...(data.fileId ? { fileId: data.fileId } : {}),
       ...(data.mediaId ? { mediaId: data.mediaId } : {}),
       ...(data.naturalWidth ? { naturalWidth: data.naturalWidth } : {}),
       ...(data.naturalHeight ? { naturalHeight: data.naturalHeight } : {}),
-      ...(data.video ? { video: data.video } : {}),
+      ...(video ? { video } : {}),
     }
-    doc.getMap<CanvasResult>('nodeResults').set(resultId, { ...result, display })
+    doc.getMap<CanvasResult>('nodeResults').set(resultId, { ...result, adopted: true, display })
     doc.getMap<string>('mainResults').set(nodeId, resultId)
     if (projection.width !== undefined) node.set('width', projection.width)
     if (projection.height !== undefined) node.set('height', projection.height)
   }, origin)
   return true
+}
+
+/** A late poster decode must not replace a permanent original with its old queue address. */
+function retainOriginal(
+  previous: ProjectVideoRef | undefined,
+  next: ProjectVideoRef | undefined,
+): ProjectVideoRef | undefined {
+  return next &&
+    previous?.mediaId &&
+    previous.taskId === next.taskId &&
+    previous.outputIndex === next.outputIndex
+    ? { ...next, mediaId: previous.mediaId }
+    : next
 }
 
 /** Stable across layout, thumbnails, labels, and local/cloud cache identifiers. */
@@ -205,7 +222,7 @@ export function refreshCanvasResultDisplay(
     ...(data.mediaId ? { mediaId: data.mediaId } : {}),
     ...(data.naturalWidth ? { naturalWidth: data.naturalWidth } : {}),
     ...(data.naturalHeight ? { naturalHeight: data.naturalHeight } : {}),
-    ...(data.video ? { video: data.video } : {}),
+    ...(data.video ? { video: retainOriginal(result.display?.video, data.video) } : {}),
   }
   doc.transact(
     () => doc.getMap<CanvasResult>('nodeResults').set(result.id, { ...result, display }),
@@ -222,7 +239,41 @@ export function cacheCanvasResultDisplay(
   const result = doc.getMap<CanvasResult>('nodeResults').get(resultId)
   if (result)
     doc.transact(
-      () => doc.getMap<CanvasResult>('nodeResults').set(resultId, { ...result, display }),
+      () =>
+        doc.getMap<CanvasResult>('nodeResults').set(resultId, {
+          ...result,
+          adopted: true,
+          display: {
+            ...display,
+            ...(display.video
+              ? { video: retainOriginal(result.display?.video, display.video) }
+              : {}),
+          },
+        }),
       origin,
     )
+}
+
+/** Promote every retained reference to this immutable output without changing selection/history. */
+export function promoteCanvasVideoMedia(
+  doc: Y.Doc,
+  video: ProjectVideoRef,
+  mediaId: string,
+  origin: CanvasOrigin,
+): void {
+  const matches = (ref: ProjectVideoRef | undefined) =>
+    ref?.taskId === video.taskId && ref.outputIndex === video.outputIndex && !ref.mediaId
+  doc.transact(() => {
+    for (const node of doc.getMap<Y.Map<unknown>>('nodes').values()) {
+      const data = node.get('data') as ImageNodeData & { video?: ProjectVideoRef }
+      if (matches(data.video)) node.set('data', { ...data, video: { ...data.video, mediaId } })
+    }
+    for (const result of canvasResults(doc)) {
+      if (matches(result.display?.video))
+        doc.getMap<CanvasResult>('nodeResults').set(result.id, {
+          ...result,
+          display: { ...result.display, video: { ...result.display!.video!, mediaId } },
+        })
+    }
+  }, origin)
 }

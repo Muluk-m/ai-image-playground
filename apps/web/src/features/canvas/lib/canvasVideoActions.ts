@@ -6,7 +6,7 @@ import {
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import {
   isVideoModeAvailable,
   type VideoModelOption,
@@ -337,7 +337,7 @@ export function captureCanvasVideoFrame(
     )
     element.addEventListener('seeked', () => settle(framePng(element)), { signal })
     element.addEventListener('error', () => settle(null), { signal })
-    element.src = queueOutputUrl(video.taskId, video.outputIndex)
+    element.src = videoOutputUrl(video)
     element.load()
   })
 }
@@ -385,9 +385,7 @@ export async function placeCanvasVideoFrame(
 /** 下载这段视频的 mp4。播放地址要带登录态，不能直接给 `<a href>`。 */
 export async function downloadCanvasVideo(node: CanvasVideoNode): Promise<void> {
   try {
-    const res = await authenticatedBffFetch(
-      queueOutputUrl(node.video.taskId, node.video.outputIndex),
-    )
+    const res = await authenticatedBffFetch(videoOutputUrl(node.video))
     if (!res.ok)
       throw new Error(i18next.t('download.fetchFailed', { ns: 'video', status: res.status }))
     downloadBlob(await res.blob(), `video-${node.video.taskId}-${node.video.outputIndex}.mp4`)

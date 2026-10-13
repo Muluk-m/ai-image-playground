@@ -12,7 +12,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useStore } from '../../../store'
 import type { TimelineClip, TimelineEl } from '../lib/canvasDoc'
@@ -113,9 +113,7 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
 
   const urlOf = (list: readonly TimelineClip[], index: number) => {
     const el = editor.getElement(list[index]?.elementId ?? '')
-    return el?.type === 'image' && el.video
-      ? queueOutputUrl(el.video.taskId, el.video.outputIndex)
-      : null
+    return el?.type === 'image' && el.video ? videoOutputUrl(el.video) : null
   }
 
   /** 把预览放到全局 target 秒（按给定的片段表）：换段就换源，同一段直接定位。 */
@@ -390,7 +388,7 @@ function useProbeUnknownDurations(
         if (Number.isFinite(probe.duration))
           setMeasured((current) => ({ ...current, [id]: probe.duration }))
       }
-      probe.src = queueOutputUrl(el.video.taskId, el.video.outputIndex)
+      probe.src = videoOutputUrl(el.video)
       probes.push(probe)
     }
     return () => {

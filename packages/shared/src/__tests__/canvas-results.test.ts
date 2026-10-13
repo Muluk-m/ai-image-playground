@@ -14,13 +14,16 @@ import {
 } from '../canvas-document'
 import {
   type CanvasResult,
+  cacheCanvasResultDisplay,
   canvasInputFingerprint,
   canvasMainResult,
   canvasResultIsStale,
   canvasResults,
   chooseCanvasResult,
   promoteCanvasResultMedia,
+  promoteCanvasVideoMedia,
   recordCanvasResult,
+  refreshCanvasResultDisplay,
 } from '../canvas-results'
 
 const origin = canvasOrigin('user', 'results')
@@ -282,4 +285,35 @@ describe('canvas result references', () => {
     validateCloudCanvas(doc, { version: 1, elements: [] })
     doc.destroy()
   })
+})
+
+it('retains adopted videos across main selection undo and delayed poster decoding', () => {
+  const doc = fixture()
+  deleteCanvasNode(doc, 'downstream', origin)
+  const mediaId = '11111111-1111-4111-8111-111111111111'
+  const one = { taskId: 'old-task', outputIndex: 0 }
+  const two = { taskId: 'new-task', outputIndex: 0 }
+  for (const [id, video] of [
+    ['one', one],
+    ['two', two],
+  ] as const)
+    recordCanvasResult(doc, { ...result(doc, id), kind: 'video', display: { video } }, origin)
+  chooseCanvasResult(doc, 'image', 'one', { data: { video: one } }, origin)
+  const undo = createCanvasUndoManager(doc, origin)
+  chooseCanvasResult(doc, 'image', 'two', { data: { video: two } }, origin)
+  promoteCanvasVideoMedia(doc, one, mediaId, canvasOrigin('system', 'promotion'))
+  expect(canvasMainResult(doc, 'image')?.id).toBe('two')
+  undo.undo()
+  expect(canvasMainResult(doc, 'image')?.display?.video?.mediaId).toBe(mediaId)
+  // An in-flight decode began before promotion and must not drop the permanent original.
+  chooseCanvasResult(doc, 'image', 'one', { data: { video: one } }, origin)
+  expect(canvasMainResult(doc, 'image')?.display?.video?.mediaId).toBe(mediaId)
+  cacheCanvasResultDisplay(doc, 'one', { video: one }, origin)
+  refreshCanvasResultDisplay(doc, 'image', { video: one }, origin)
+  expect(canvasMainResult(doc, 'image')?.display?.video?.mediaId).toBe(mediaId)
+  expect(canvasMainResult(doc, 'image')?.adopted).toBe(true)
+  expect(canvasResults(doc).find((r) => r.id === 'two')?.display?.video?.mediaId).toBeUndefined()
+  validateCloudCanvas(doc, { version: 1, elements: [] })
+  undo.destroy()
+  doc.destroy()
 })

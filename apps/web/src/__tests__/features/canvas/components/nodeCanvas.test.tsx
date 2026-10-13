@@ -28,7 +28,6 @@ vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
   ARROW_POINTER: { length: 12, width: 10 },
   freedrawOutline: () => [0, 0, 1, 1],
 }))
-vi.mock('../../../../lib/channels/queueClient', () => ({ queueOutputUrl: () => '/clip.mp4' }))
 vi.mock('../../../../theme/useTheme', () => ({ useTheme: () => ({ theme: 'dark' }) }))
 vi.mock('@xyflow/react', () => ({
   applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
