@@ -111,7 +111,8 @@ for edition in $editions; do
     registry_tag=$edition-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
     set -- --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true
   fi
-  build_image "$image" "$registry_tag" "$snapshot/public" --build-arg "APP_VERSION=$version" "$@"
+  build_image "$image" "$registry_tag" "$snapshot/public" \
+    --build-arg "APP_VERSION=$version" --build-arg "APP_RELEASE=${APP_RELEASE:-}" "$@"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$edition" "$image" "$image_id" "$public_sha" "$private_sha" \
     "$repo_digest" >> "$output/images.tsv"
   images="$images $image"

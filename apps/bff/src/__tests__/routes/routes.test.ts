@@ -111,7 +111,11 @@ describe('BFF queue routes', () => {
     try {
       const { status, json } = await jsonReq('GET', '/health')
       expect(status).toBe(200)
-      expect(json).toEqual({ ok: true, version: `${'a'.repeat(40)}+${'b'.repeat(40)}` })
+      expect(json).toEqual({
+        ok: true,
+        version: `${'a'.repeat(40)}+${'b'.repeat(40)}`,
+        release: 'unknown',
+      })
     } finally {
       if (previous === undefined) delete process.env.APP_VERSION
       else process.env.APP_VERSION = previous
