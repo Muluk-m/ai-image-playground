@@ -70,7 +70,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     const button = host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
     expect(button.disabled).toBe(true)
     // Looks disabled too, and says why, instead of a ready-colored button with a not-allowed cursor.
-    expect(button.className).toContain('bg-muted')
+    expect(button.className).toContain('bg-secondary')
     expect(button.title).toMatch(/上传失败|重新上传|重试/)
     const retry = [...openReferenceStack(host).querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent?.includes('重试'),
@@ -82,7 +82,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     })
     expect(button.disabled).toBe(true)
     expect(button.getAttribute('aria-busy')).toBe('true')
-    expect(host.querySelector('.creation-stack-upload')).not.toBeNull()
+    expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).not.toBeNull()
     expect(host.textContent).toContain('上传中 0/1')
     expect(send).not.toHaveBeenCalled()
     await act(async () => {
@@ -90,9 +90,9 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
       await confirmation
     })
     await vi.waitFor(() => expect(button.disabled).toBe(false))
-    expect(button.className).not.toContain('bg-muted')
+    expect(button.className).not.toContain('bg-secondary')
     expect(button.getAttribute('aria-busy')).toBeNull()
-    expect(host.querySelector('.creation-stack-upload')).toBeNull()
+    expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).toBeNull()
     await act(async () => {
       button.click()
     })

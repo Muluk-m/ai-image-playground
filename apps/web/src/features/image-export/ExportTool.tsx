@@ -1,7 +1,7 @@
-import { Plus, Scaling, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { TooltipIconButton } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../components/ui/button'
+import { Icon } from '../../components/ui/icon'
 import { useTranslation } from '../../i18n'
 import ToolboxHeader from '../toolbox/components/ToolboxHeader'
 import { useToolboxIntake } from '../toolbox/components/useToolboxIntake'
@@ -42,7 +42,7 @@ export default function ExportTool() {
       <ToolboxHeader
         title={
           <>
-            <Scaling className="h-4 w-4 text-primary" aria-hidden="true" />
+            <Icon name="resize" className="text-primary" />
             {t('tool.export.name')}
           </>
         }
@@ -79,7 +79,7 @@ export default function ExportTool() {
                       tooltip={t('intake.clear')}
                       onClick={() => remove(item.id)}
                     >
-                      <Trash2 />
+                      <Icon name="delete" />
                     </TooltipIconButton>
                   </div>
                 </div>
@@ -89,7 +89,7 @@ export default function ExportTool() {
             <div className="grid min-h-64 place-content-center gap-4 text-center">
               <p className="text-sm text-muted-foreground">{t('intake.hint')}</p>
               <Button onClick={intake.openFiles}>
-                <Plus />
+                <Icon name="add" />
                 {t('intake.chooseImages')}
               </Button>
             </div>

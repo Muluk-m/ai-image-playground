@@ -55,12 +55,12 @@ export default function LookDetail({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 flex h-[min(90vh,900px)] w-[min(96vw,1200px)] flex-col overflow-hidden md:flex-row rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-hairline animate-modal-in">
+      <div className="relative z-10 flex h-[min(90vh,900px)] w-[min(96vw,1200px)] flex-col overflow-hidden md:flex-row rounded-3xl border border-border bg-card shadow-dialog ring-1 ring-hairline animate-modal-in">
         {/* 窄屏改成上图下文：并排时 400px 的信息栏会把图片区挤到没有宽度。 */}
         <div className="flex min-w-0 shrink-0 flex-col bg-black/5 md:flex-[3] md:shrink dark:bg-black/40">
           <div className="relative flex min-h-0 flex-1 items-center justify-center p-3 md:p-6">
             {current ? (
-              <div className="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-2xl">
+              <div className="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-dialog">
                 <LookImage
                   source={current.source}
                   alt={look.name}
@@ -98,7 +98,7 @@ export default function LookDetail({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 {draftName === null ? (
-                  <h3 className="min-w-0 truncate text-base font-semibold text-foreground">
+                  <h3 className="min-w-0 truncate text-xl font-semibold text-foreground">
                     {look.name}
                   </h3>
                 ) : (
@@ -187,7 +187,7 @@ export default function LookDetail({
                 <section key={section.title || section.body.slice(0, 24)}>
                   {section.title && (
                     <h4
-                      className={`mb-1 text-[12px] font-medium ${
+                      className={`mb-1 text-xs font-medium ${
                         section.title === t('lookDetail.inputsSection')
                           ? 'text-primary'
                           : 'text-muted-foreground'
@@ -215,20 +215,20 @@ export default function LookDetail({
           <div className="flex gap-2 border-t border-border px-5 py-4">
             <Button
               type="button"
-              size="lg"
+              size="sm"
               disabled={needsRetune || !canGenerate}
               onClick={() => onGenerate(look)}
-              className="flex-1 rounded-xl px-3"
+              className="flex-1"
             >
               {t('look.generate')}
             </Button>
             <Button
               type="button"
               variant="outline"
-              size="lg"
+              size="sm"
               disabled={!canGenerate}
               onClick={() => onTune(look)}
-              className="flex-1 rounded-xl border-border px-3 font-normal text-foreground hover:bg-muted"
+              className="flex-1"
             >
               {look.origin === 'user' ? t('look.tune') : t('look.fork')}
             </Button>

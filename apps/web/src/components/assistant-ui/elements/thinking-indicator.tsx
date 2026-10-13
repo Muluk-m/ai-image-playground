@@ -20,7 +20,10 @@ export function ThinkingIndicator({
   return (
     <div
       data-slot="thinking-indicator"
-      className={cn('text-foreground/55 flex items-center gap-2 text-[13px] leading-5', className)}
+      className={cn(
+        'text-muted-foreground flex items-center gap-2 text-body-sm leading-5',
+        className,
+      )}
       {...props}
     >
       <AgentSpark active />
@@ -31,7 +34,7 @@ export function ThinkingIndicator({
         {label}
       </ShimmerLabel>
       {elapsed !== undefined && (
-        <span className={cn(mono, 'text-foreground/30 tabular-nums')}>{elapsed}</span>
+        <span className={cn(mono, 'text-muted-foreground tabular-nums')}>{elapsed}</span>
       )}
     </div>
   )

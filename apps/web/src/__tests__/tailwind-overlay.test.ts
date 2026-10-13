@@ -20,7 +20,10 @@ function compileStyles(edition: 'public' | 'private' | 'explicit') {
   symlinkSync(join(webRoot, 'node_modules'), join(web, 'node_modules'), 'dir')
   writeFileSync(join(web, 'package.json'), '{"type":"module"}')
   writeFileSync(join(web, 'tailwind.config.js'), readFileSync(join(webRoot, 'tailwind.config.js')))
-  writeFileSync(join(web, 'index.html'), '<div class="bg-white"></div>')
+  writeFileSync(
+    join(web, 'index.html'),
+    '<div class="bg-white bg-canvas-annotation border-on-media text-on-media"></div>',
+  )
 
   const entry = join(
     root,
@@ -71,4 +74,11 @@ it('builds public styles when the overlay is absent', () => {
   expect(css).toContain('.bg-white')
   expect(css).not.toContain('.text-gray-950')
   expect(css).not.toContain('background-color: rgb(16 16 18 /')
+})
+
+it('generates the contrasting canvas region label colors', () => {
+  const css = compileStyles('public')
+  expect(css).toContain('.bg-canvas-annotation')
+  expect(css).toMatch(/\.border-on-media\s*\{[^}]*border-color: hsl\(var\(--on-media\)/)
+  expect(css).toMatch(/\.text-on-media\s*\{[^}]*color: hsl\(var\(--on-media\)/)
 })

@@ -1,12 +1,3 @@
-import {
-  Check,
-  ChevronDown,
-  FolderOpen,
-  LayoutDashboard,
-  LoaderCircle,
-  MessageCircle,
-  Plus,
-} from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { renameProject } from '../features/canvas/lib/activeProject'
@@ -28,12 +19,15 @@ import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import MediaImage from './MediaImage'
 import SearchField from './patterns/SearchField'
+import { Button } from './ui/button'
+import { Icon } from './ui/icon'
+import { Input } from './ui/input'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from './ui/popover'
 
 const INITIAL_VISIBLE = { chat: RECENT_PROJECT_COUNT, canvas: RECENT_PROJECT_COUNT }
 
 const rowClass =
-  'flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-60'
+  'h-auto min-h-8 w-full justify-start gap-3 px-2 py-1.5 text-left text-sm text-foreground'
 
 const footerIcon = 'grid h-8 w-10 shrink-0 place-items-center text-muted-foreground'
 
@@ -133,7 +127,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
               </>
             )}
             {renaming ? (
-              <input
+              <Input
                 autoFocus
                 defaultValue={renaming.name}
                 aria-label={t('navigation.renameAria')}
@@ -151,19 +145,23 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                 }}
               />
             ) : (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
-                className="studio-project-pill-name"
+                className="studio-project-pill-name justify-start"
                 title={t('navigation.renameHint')}
                 aria-label={t('navigation.renameAria')}
                 disabled={!selectedId || busy}
                 onClick={() => selectedId && setEditing({ id: selectedId, name })}
               >
                 <span className="truncate">{name}</span>
-              </button>
+              </Button>
             )}
             <PopoverTrigger asChild>
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 type="button"
                 className="studio-project-pill-toggle"
                 aria-label={t('navigation.switchAria', { name })}
@@ -171,11 +169,11 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                 disabled={busy}
               >
                 {busy ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <Icon name="loading" className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                  <Icon name="chevronDown" className="h-4 w-4" aria-hidden="true" />
                 )}
-              </button>
+              </Button>
             </PopoverTrigger>
           </div>
         </PopoverAnchor>
@@ -194,7 +192,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
             }}
             placeholder={t('navigation.search')}
             aria-label={t('navigation.search')}
-            className="h-10 max-w-none shrink-0 rounded-xl border-transparent bg-muted focus-within:border-foreground/15 focus-within:ring-0"
+            className="max-w-none shrink-0"
           />
           <div className="mt-1 min-h-0 overflow-y-auto" aria-busy={busy}>
             {groups
@@ -212,7 +210,9 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                   {group.visible.map((project) => {
                     const active = project.id === selectedId
                     return (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         key={project.id}
                         type="button"
                         data-project-row=""
@@ -224,9 +224,9 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                         {/* 云端封面是要换签名 URL 的 `aip-media:` 引用，交给 MediaImage；取不到就露出底下的图标。 */}
                         <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
                           {projectExperience(project) === 'chat' ? (
-                            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                            <Icon name="chat" className="h-4 w-4" aria-hidden="true" />
                           ) : (
-                            <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+                            <Icon name="canvas" className="h-4 w-4" aria-hidden="true" />
                           )}
                           {project.cover && (
                             <MediaImage
@@ -239,22 +239,27 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                         </span>
                         <span className="min-w-0 flex-1 truncate">{projectEntryName(project)}</span>
                         {project.id === pending ? (
-                          <LoaderCircle
+                          <Icon
+                            name="loading"
                             className="h-4 w-4 shrink-0 animate-spin text-muted-foreground"
                             aria-hidden="true"
                           />
                         ) : (
-                          active && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          active && (
+                            <Icon name="check" className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          )
                         )}
-                      </button>
+                      </Button>
                     )
                   })}
                   {group.items.length > RECENT_PROJECT_COUNT && (
                     <div className="flex items-center gap-1 px-1">
                       {group.visible.length < group.items.length && (
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           type="button"
-                          className="rounded-lg px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                          className="text-muted-foreground hover:text-foreground"
                           onClick={() =>
                             setVisibleCounts((value) => ({
                               ...value,
@@ -268,12 +273,14 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                               group.items.length - group.visible.length,
                             ),
                           })}
-                        </button>
+                        </Button>
                       )}
                       {visibleCounts[group.experience] > RECENT_PROJECT_COUNT && (
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           type="button"
-                          className="rounded-lg px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                          className="text-muted-foreground hover:text-foreground"
                           onClick={() =>
                             setVisibleCounts((value) => ({
                               ...value,
@@ -282,7 +289,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
                           }
                         >
                           {t('navigation.collapse')}
-                        </button>
+                        </Button>
                       )}
                     </div>
                   )}
@@ -301,19 +308,23 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
             {cloudError && (
               <div role="alert" className="px-3 py-2 text-xs text-muted-foreground">
                 {cloudError}{' '}
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   className="text-foreground underline-offset-2 hover:underline"
                   disabled={cloudLoading}
                   onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
                 >
                   {t('canvas:grid.retryCloud')}
-                </button>
+                </Button>
               </div>
             )}
           </div>
           <div className="mt-1 shrink-0 border-t border-border pt-1">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               className={rowClass}
               disabled={busy}
@@ -321,30 +332,39 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
             >
               <span className={footerIcon}>
                 {pending === 'new' ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <Icon name="loading" className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  <Icon name="add" className="h-4 w-4" aria-hidden="true" />
                 )}
               </span>
               {t('navigation.newChat')}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               className={rowClass}
               disabled={busy}
               onClick={() => void enter(undefined, 'canvas')}
             >
               <span className={footerIcon}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
+                <Icon name="add" className="h-4 w-4" aria-hidden="true" />
               </span>
               {t('navigation.newCanvas')}
-            </button>
-            <button type="button" className={rowClass} disabled={busy} onClick={allProjects}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className={rowClass}
+              disabled={busy}
+              onClick={allProjects}
+            >
               <span className={footerIcon}>
-                <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                <Icon name="folder" className="h-4 w-4" aria-hidden="true" />
               </span>
               {t('navigation.all')}
-            </button>
+            </Button>
           </div>
         </PopoverContent>
       </Popover>

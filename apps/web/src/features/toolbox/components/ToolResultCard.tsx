@@ -1,4 +1,5 @@
-import { X } from 'lucide-react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { formatLabel } from '../lib/encode'
 import { formatBytes, sizeDeltaLabel } from '../lib/naming'
@@ -33,14 +34,16 @@ export default function ToolResultCard({
     <div className="group overflow-hidden rounded-2xl border border-border bg-card">
       <div className="relative aspect-square bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:16px_16px]">
         <img src={done?.url ?? item.url} alt={item.name} className="h-full w-full object-contain" />
-        <button
+        <Button
+          variant="outline"
+          size="icon-xs"
           type="button"
           onClick={onRemove}
           aria-label={t('result.remove')}
-          className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-background/80 opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+          className="absolute right-2 top-2 opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         >
-          <X className="h-3.5 w-3.5" />
-        </button>
+          <Icon name="close" />
+        </Button>
       </div>
       <div className="space-y-1 p-3 text-xs">
         <div className="truncate font-medium" title={item.name}>

@@ -1,4 +1,3 @@
-import { LayoutGrid } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { GapAndBackground } from '../components/BackgroundField'
@@ -26,7 +25,7 @@ export const collageTool: CombineTool = {
   id: 'collage',
   group: 'compose',
   kind: 'combine',
-  icon: LayoutGrid,
+  icon: 'collage',
   useController() {
     const { t } = useTranslation('toolbox')
     const [params, setParams] = useState<CollageParams>({

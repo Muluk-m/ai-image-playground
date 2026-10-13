@@ -1,6 +1,6 @@
-import { RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../ui/button'
+import { Icon } from '../../ui/icon'
 
 const PLAYER_MAX_HEIGHT = 'min(24rem, 46vh)'
 
@@ -233,7 +233,7 @@ export function VideoPlayer({
               setAttempt((value) => value + 1)
             }}
           >
-            <RotateCcw className="mr-1.5 size-4" aria-hidden="true" />
+            <Icon name="refresh" className="mr-1.5" />
             {retryLabel}
           </Button>
         </div>

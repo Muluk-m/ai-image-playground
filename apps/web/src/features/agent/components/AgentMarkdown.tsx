@@ -28,7 +28,7 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   ),
   a: ({ node: _node, ...props }) => (
     <a
-      className="text-primary underline decoration-blue-300/40 hover:text-primary"
+      className="text-primary underline decoration-primary/40 hover:text-primary"
       target="_blank"
       rel="noreferrer"
       {...props}

@@ -13,6 +13,7 @@ import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
 import { type MaskStroke, type Point, pageToMaskPixel, renderMask } from '../lib/inpaintMask'
 
+// 遮罩像素始终使用画布标注蓝，和主题无关；UI 手柄使用同色的 canvas-annotation token。
 const SELECTION_COLOR = 'rgba(21, 156, 246, 0.34)'
 
 function extendStroke(stroke: MaskStroke, point: Point): MaskStroke {
@@ -185,8 +186,11 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
                   top: top * camera.zoom,
                   width: end ? Math.abs(start.x - end.x) * camera.zoom : 0,
                   height: end ? Math.abs(start.y - end.y) * camera.zoom : 0,
-                  borderColor: end ? '#159cf6' : 'transparent',
-                  boxShadow: end && selectedStroke === index ? '0 0 0 2px #d5f3ff80' : undefined,
+                  borderColor: end ? 'hsl(var(--canvas-annotation))' : 'transparent',
+                  boxShadow:
+                    end && selectedStroke === index
+                      ? '0 0 0 2px hsl(var(--canvas-annotation) / 0.5)'
+                      : undefined,
                 }}
               >
                 {/* design-allow native-control: 遮罩笔画上的序号手柄，位置跟着笔画坐标走 */}
@@ -194,7 +198,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
                   type="button"
                   aria-label={t('inpaint.regionName', { no: strokeIds[index] })}
                   aria-pressed={selectedStroke === index}
-                  className="pointer-events-auto absolute -left-3 -top-3 grid h-6 w-6 place-items-center rounded-full border-2 border-white bg-[#159cf6] text-xs font-semibold text-white shadow-md"
+                  className="pointer-events-auto absolute -left-3 -top-3 grid h-6 w-6 place-items-center rounded-full border-2 border-on-media bg-canvas-annotation text-xs font-semibold text-on-media shadow-md"
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => selectStroke(index)}
                 >
@@ -207,7 +211,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
       {ring && tool !== 'rect' && (
         <span
           aria-hidden="true"
-          className={`pointer-events-none fixed rounded-full border-2 ${kind === 'inpaint' ? 'border-[#159cf6]/80' : 'border-primary/80'}`}
+          className={`pointer-events-none fixed rounded-full border-2 ${kind === 'inpaint' ? 'border-canvas-annotation/80' : 'border-primary/80'}`}
           style={{
             left: ring.x - effectiveBrushPx / 2,
             top: ring.y - effectiveBrushPx / 2,

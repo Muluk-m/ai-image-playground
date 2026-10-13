@@ -433,11 +433,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }
 
   // 首页对话 / 画布档的输入框就是智能体的第一轮：起手句点进来，技能变成开头的胶囊，示例词选中。
+  const attachmentRevision = useRef(0)
   useComposerFillTarget(
     {
       read: () => useStore.getState().prompt,
       write: (content) => {
         const { prompt, selection } = agentComposerFillPrompt(content)
+        if (content.clearReferences) {
+          attachmentRevision.current += 1
+          useStore.getState().clearInputImages()
+        }
         setPrompt(prompt)
         promptEditor.select(selection.start, selection.end)
         return prompt
@@ -615,6 +620,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }
 
   const handleFiles = (files: FileList | File[]) => {
+    const revision = attachmentRevision.current
     const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
     if (accepted.length === 0) return
     // 这一把文件是一组：放不下就一张都不落，免得用户拖进去十张只见前几张、还得自己数少了哪几张。
@@ -630,9 +636,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       return
     }
     const importAll = async () => {
+      if (revision !== attachmentRevision.current) return
       try {
         const images: InputImage[] = []
         for (const file of accepted) images.push(await storeImageFromFile(file))
+        if (revision !== attachmentRevision.current) return
         useStore.getState().attachInputImages(images, admission)
       } catch (err) {
         useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
@@ -976,8 +984,17 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     return (
       <Hint
         key={img.id}
-        tooltip={imageHintText}
-        open={imageHintId === img.id && Boolean(imageHintText) && (!isMobile || isMaskTarget)}
+        tooltip={
+          imageHintText || (
+            <img
+              src={displaySrc}
+              alt={mentionLabels(idx) ?? ''}
+              className="creation-reference-preview-image"
+            />
+          )
+        }
+        className={imageHintText ? undefined : 'creation-reference-preview'}
+        open={imageHintText ? imageHintId === img.id && (!isMobile || isMaskTarget) : undefined}
       >
         <div
           key={img.id}

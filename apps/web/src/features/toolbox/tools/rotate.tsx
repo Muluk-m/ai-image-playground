@@ -1,6 +1,6 @@
-import { FlipHorizontal2, FlipVertical2, RotateCw } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { Field, Segmented } from '../components/fields'
 import { type Orientation, plan, type Rotation, UPRIGHT } from '../lib/geometry'
@@ -18,7 +18,7 @@ export const rotateTool: EachTool = {
   id: 'rotate',
   group: 'process',
   kind: 'each',
-  icon: RotateCw,
+  icon: 'rotate',
   useController() {
     const { t } = useTranslation('toolbox')
     const [orientation, setOrientation] = useState<Orientation>({ ...UPRIGHT, rotate: 90 })
@@ -37,21 +37,19 @@ export const rotateTool: EachTool = {
           <Field label={t('params.flip')}>
             <div className="flex gap-1.5">
               <Button
-                size="sm"
                 variant={orientation.flipH ? 'secondary' : 'outline'}
                 aria-pressed={orientation.flipH}
                 onClick={() => patch({ flipH: !orientation.flipH })}
               >
-                <FlipHorizontal2 />
+                <Icon name="flipHorizontal" />
                 {t('params.flipH')}
               </Button>
               <Button
-                size="sm"
                 variant={orientation.flipV ? 'secondary' : 'outline'}
                 aria-pressed={orientation.flipV}
                 onClick={() => patch({ flipV: !orientation.flipV })}
               >
-                <FlipVertical2 />
+                <Icon name="flipVertical" />
                 {t('params.flipV')}
               </Button>
             </div>

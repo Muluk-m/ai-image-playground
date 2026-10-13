@@ -4,6 +4,11 @@
   --background: 60 9% 97%;
   --scrim: 0 0% 0%;
   --on-media: 0 0% 100%;
+  /* Media inspection and provider identity stay fixed across light and dark themes. */
+  --transparency-grid-dark: 0.0000 0.0000% 40.0000%;
+  --transparency-grid-light: 0.0000 0.0000% 45.0980%;
+  --canvas-annotation: 204.0000 92.5926% 52.3529%;
+  --brand-google: 217.4157 89.0000% 60.7843%;
   --foreground: 120 5% 12%;
   --card: 0 0% 100%;
   --card-foreground: var(--foreground);

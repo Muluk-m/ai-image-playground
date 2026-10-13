@@ -1,6 +1,7 @@
 import { i18next, useTranslation } from '../i18n'
 import { syncNow } from '../lib/sync/engine'
 import { type AssetUploadProgress, useSyncStatus } from '../lib/sync/status'
+import { Button } from './ui/button'
 
 /** 设置页「数据管理」里的同步状态。只标状态，不解释规则。 */
 export default function SyncStatusPanel() {
@@ -16,9 +17,9 @@ export default function SyncStatusPanel() {
 
   const failed = status === 'error'
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm flex items-center justify-between gap-3">
+    <div className="rounded-2xl border border-border bg-card p-4 flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <h4 className="text-sm font-bold text-foreground">{t('sync.title')}</h4>
+        <h4 className="text-sm font-semibold text-foreground">{t('sync.title')}</h4>
         <p
           className={`mt-1 text-body-sm ${failed ? 'text-destructive dark:text-destructive' : 'text-muted-foreground dark:text-muted-foreground'}`}
         >
@@ -32,13 +33,15 @@ export default function SyncStatusPanel() {
         )}
       </div>
       {failed ? (
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
           onClick={() => void syncNow()}
-          className="shrink-0 rounded-xl bg-muted/80 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-muted hover:text-foreground dark:hover:text-white"
+          className="shrink-0"
         >
           {t('sync.retryNow')}
-        </button>
+        </Button>
       ) : null}
     </div>
   )

@@ -119,7 +119,7 @@ function AgentPlaceholderLabel({ placeholder }: { placeholder: PlaceholderView }
 /** 生成中那句话：与对话里的状态行同一道流光，等宽数字让秒数走起来不晃。 */
 function GeneratingLabel({ children }: { children: string }) {
   return (
-    <ShimmerLabel className="relative z-[1] text-[13px] tabular-nums leading-5">
+    <ShimmerLabel className="relative z-[1] text-body-sm tabular-nums leading-5">
       {children}
     </ShimmerLabel>
   )
