@@ -1,4 +1,3 @@
-import { Grid3x3 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { Field, Segmented } from '../components/fields'
@@ -41,7 +40,7 @@ export const sliceTool: CombineTool = {
   id: 'slice',
   group: 'compose',
   kind: 'combine',
-  icon: Grid3x3,
+  icon: 'slice',
   useController() {
     const { t } = useTranslation('toolbox')
     const [params, setParams] = useState<SliceParams>({ grid: '3x3', squareFirst: true })
@@ -54,6 +53,7 @@ export const sliceTool: CombineTool = {
             <Segmented
               label={t('params.sliceInto')}
               value={params.grid}
+              // design-allow glyph-icon: multiplication sign describes rows by columns, not an icon.
               options={GRIDS.map((value) => ({ value, label: value.replace('x', '×') }))}
               onChange={(grid) => setParams((prev) => ({ ...prev, grid }))}
             />
