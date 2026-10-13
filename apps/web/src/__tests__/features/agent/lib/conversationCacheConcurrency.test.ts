@@ -162,7 +162,7 @@ it.each([
   const tab = await loadTab()
   const cache = tab.conversationCache('blocked-conversation')
   const pending = action === 'clear' ? tab.clearConversationCache() : cache[action]()
-  const upgrade = requests.at(-1)!
+  const upgrade = requests[requests.length - 1]!
   const lateOpen = opened(upgrade)
   try {
     expect(await settlesPromptly(pending)).toBe(true)
@@ -178,7 +178,7 @@ it('closes an abandoned late open and can retry after the old tab releases its c
   const tab = await loadTab()
   const cache = tab.conversationCache('retry-after-upgrade')
   const pending = cache.read()
-  const upgrade = requests.at(-1)!
+  const upgrade = requests[requests.length - 1]!
   const lateOpen = opened(upgrade)
   try {
     expect(await settlesPromptly(pending)).toBe(true)
@@ -240,7 +240,7 @@ it('settles repeated cache operations without queuing more opens while an old ta
   const tab = await loadTab()
   const cache = tab.conversationCache('blocked-operations')
   const pending = cache.read()
-  const upgrade = requests.at(-1)!
+  const upgrade = requests[requests.length - 1]!
   const lateOpen = opened(upgrade)
   const openedCount = requests.length
   try {
