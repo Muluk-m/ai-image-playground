@@ -540,5 +540,27 @@
     "spreadCandidates": "将全部候选摊开到画布",
     "candidateStorageFailed": "浏览器未能保存这些结果，刷新前请重试保存或先下载。",
     "retryCandidateStorage": "重试保存"
+  },
+  "pixelEdit": {
+    "title": "编辑图片",
+    "close": "返回画布",
+    "mode": "编辑方式",
+    "inpaint": "局部重绘",
+    "annotate": "圈画改图",
+    "draw": "手绘",
+    "tools": "绘图工具",
+    "brush": "画笔",
+    "eraser": "橡皮",
+    "rect": "框选",
+    "width": "笔宽",
+    "color": "画笔颜色",
+    "prompt": "描述希望修改的内容…",
+    "save": "保存为新候选",
+    "generate": "生成新候选",
+    "saving": "处理中…",
+    "inpaintHint": "涂亮需要修改的区域，其余区域保留原样。",
+    "annotateHint": "在图片上圈画并描述修改要求，生成时会去掉标记。",
+    "drawHint": "笔画将保存到这张图片的新候选，原图保留。",
+    "sourceChanged": "原图已切换或删除，请返回画布重新打开编辑。"
   }
 }
