@@ -20,6 +20,7 @@ import {
   REFERRAL_REGISTRATION_CREDITS,
   rechargeCredits,
 } from './catalog'
+import { closePricingSheet } from './pricingSheet'
 
 const PLAN_NAME = {
   starter: 'plan.starterName',
@@ -55,7 +56,13 @@ function money(cents: number): string {
   return `¥${yuanText(cents)}`
 }
 
-export default function PricingPage() {
+export default function PricingPage({
+  presentation = 'page',
+}: {
+  /** `sheet` 把同一份定价正文放进工作台弹层，不改地址。 */
+  presentation?: 'page' | 'sheet'
+}) {
+  const embedded = presentation === 'sheet'
   const { t } = useTranslation('pricing')
   const { t: tCommon } = useTranslation('common')
   const { locale, change } = useLocalePicker()
@@ -65,18 +72,33 @@ export default function PricingPage() {
   const [openFaq, setOpenFaq] = useState<string>('faq.grantQ')
 
   useEffect(() => {
+    if (embedded) return
     document.documentElement.classList.add('pricing-route')
     return () => document.documentElement.classList.remove('pricing-route')
-  }, [])
+  }, [embedded])
 
   useEffect(() => {
+    if (embedded) return
     setDocumentTitleOverride(() => i18next.t('documentTitle', { ns: 'pricing' }))
     return () => setDocumentTitleOverride(null)
-  }, [])
+  }, [embedded])
 
   const enter = () => {
+    if (embedded) {
+      closePricingSheet()
+      if (auth.enabled && !auth.user) auth.login()
+      return
+    }
     if (auth.enabled && !auth.user) {
       auth.login()
+      return
+    }
+    navigate('/')
+  }
+
+  const leave = () => {
+    if (embedded) {
+      closePricingSheet()
       return
     }
     navigate('/')
@@ -88,7 +110,11 @@ export default function PricingPage() {
   return (
     <div
       data-selectable-text
-      className="min-h-svh bg-[var(--pricing-bg)] font-sans text-[var(--pricing-fg)]"
+      className={
+        embedded
+          ? 'h-full overflow-y-auto font-sans text-[var(--pricing-fg)]'
+          : 'min-h-svh bg-[var(--pricing-bg)] font-sans text-[var(--pricing-fg)]'
+      }
     >
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[var(--pricing-bg)]/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-5 sm:px-8">
@@ -96,7 +122,7 @@ export default function PricingPage() {
             href="/"
             onClick={(event) => {
               event.preventDefault()
-              navigate('/')
+              leave()
             }}
             className="flex items-center gap-2.5 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
           >
@@ -107,7 +133,18 @@ export default function PricingPage() {
             className="flex items-center gap-5 text-sm text-white/70"
             aria-label={t('nav.pricing')}
           >
-            <a href="/pricing" aria-current="page" className="text-white">
+            <a
+              href="/pricing"
+              aria-current="page"
+              className="text-white"
+              onClick={
+                embedded
+                  ? (event) => {
+                      event.preventDefault()
+                    }
+                  : undefined
+              }
+            >
               {t('nav.pricing')}
             </a>
             <a
@@ -137,13 +174,24 @@ export default function PricingPage() {
                 </button>
               ))}
             </div>
-            <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-              type="button"
-              onClick={enter}
-              className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
-            >
-              {auth.enabled && !auth.user ? t('nav.login') : t('nav.workspace')}
-            </button>
+            {embedded ? (
+              <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                type="button"
+                onClick={closePricingSheet}
+                aria-label={tCommon('action.close')}
+                className="grid h-9 w-9 place-items-center rounded-full text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+              >
+                <Icon name="close" />
+              </button>
+            ) : (
+              <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                type="button"
+                onClick={enter}
+                className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+              >
+                {auth.enabled && !auth.user ? t('nav.login') : t('nav.workspace')}
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -396,7 +444,7 @@ export default function PricingPage() {
               href="/"
               onClick={(event) => {
                 event.preventDefault()
-                navigate('/')
+                leave()
               }}
               className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >

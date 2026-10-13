@@ -17,6 +17,7 @@ import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import HeaderMembershipChip from './HeaderMembershipChip'
+import LocaleGlobe from './LocaleGlobe'
 import LogoutDialog from './LogoutDialog'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
@@ -116,6 +117,7 @@ export default function Header() {
         >
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
+          <LocaleGlobe />
           {auth.user ? (
             <PrivateWebHeaderAccountActions
               username={auth.user.username}

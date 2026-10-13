@@ -33,9 +33,38 @@ html {
   mask-image: radial-gradient(70% 60% at 50% 20%, black, transparent 75%);
   pointer-events: none;
 }
-/* 产品截图下半截淡进背景，首屏不必展示整张图。 */
+/* 产品截图下半截淡进背景，首屏不必展示整张图。窄屏整张都要能读，淡出关掉。 */
 .guide-hero-fade {
   mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+@media (max-width: 767px) {
+  .guide-hero-fade {
+    mask-image: none;
+  }
+  .guide-hero-shot img {
+    aspect-ratio: 393 / 852;
+    object-fit: cover;
+    object-position: top;
+  }
+}
+.guide-zoom {
+  width: min(100vw - 1.5rem, 1100px);
+  max-height: calc(100dvh - 1.5rem);
+  margin: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.guide-zoom::backdrop {
+  background: hsl(var(--background) / 0.88);
+}
+.guide-zoom img {
+  display: block;
+  max-height: calc(100dvh - 1.5rem);
+  width: auto;
+  max-width: 100%;
+  margin: auto;
+  border-radius: 0.75rem;
 }
 .guide-cta {
   background:

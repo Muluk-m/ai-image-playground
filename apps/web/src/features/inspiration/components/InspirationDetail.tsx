@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { type PointerEvent, useMemo, useRef } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
+import { inspirationFacetLabel } from '../lib/labels'
 import { useInspirationStore } from '../store'
 
 export default function InspirationDetail() {
@@ -22,10 +23,26 @@ export default function InspirationDetail() {
   )
 
   const promptDisplay = useMemo(() => formatPrompt(item?.prompt ?? ''), [item?.prompt])
+  const swipe = useRef<{ x: number; y: number } | null>(null)
+  const scrollerRef = useRef<HTMLDivElement>(null)
 
   if (!item) return null
   const outputUrl = item.imageUrl ?? item.thumbnailUrl
   const reference = item.referenceImages?.[0]
+
+  const onSwipeStart = (event: PointerEvent) => {
+    if (event.pointerType === 'mouse') return
+    swipe.current = { x: event.clientX, y: event.clientY }
+  }
+  const onSwipeEnd = (event: PointerEvent) => {
+    const start = swipe.current
+    swipe.current = null
+    if (!start) return
+    if ((scrollerRef.current?.scrollTop ?? 0) > 8) return
+    const dy = event.clientY - start.y
+    const dx = event.clientX - start.x
+    if (dy > 72 && dy > Math.abs(dx)) closeDetail()
+  }
 
   const handleCopy = async () => {
     try {
@@ -36,26 +53,39 @@ export default function InspirationDetail() {
     }
   }
 
+  const categoryLabel = inspirationFacetLabel(item.category)
+
   return (
-    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-3xl bg-card animate-modal-in">
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0 border-b border-border p-5">
+    <div
+      className="absolute inset-0 z-10 flex flex-col overflow-hidden bg-background animate-modal-in md:rounded-3xl md:bg-card"
+      onPointerDown={onSwipeStart}
+      onPointerUp={onSwipeEnd}
+      onPointerCancel={() => {
+        swipe.current = null
+      }}
+    >
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5 md:gap-2 md:p-5">
         <Button
           type="button"
           onClick={closeDetail}
           variant="ghost"
           size="sm"
-          className="text-muted-foreground"
+          className="shrink-0 text-muted-foreground"
         >
           <Icon name="back" />
-          {t('detail.back')}
+          <span className="max-md:sr-only">{t('detail.back')}</span>
         </Button>
-        <div className="text-xs text-muted-foreground">{item.category}</div>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold md:hidden">{item.title}</h2>
+        <div className="hidden min-w-0 truncate text-xs text-muted-foreground md:ml-auto md:block">
+          {categoryLabel}
+        </div>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="grid grid-cols-1 gap-6 p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,1fr)]">
+      <div
+        ref={scrollerRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar md:overflow-hidden"
+      >
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:overflow-y-auto md:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,1fr)] lg:gap-8">
           {/* 只在确实保存了输入图时才显示前后对比。 */}
           <div className="min-w-0">
             {reference ? (
@@ -65,7 +95,7 @@ export default function InspirationDetail() {
                     href={reference.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="group relative flex h-60 items-center justify-center overflow-hidden rounded-xl bg-muted sm:h-[min(62vh,560px)]"
+                    className="group relative flex h-36 items-center justify-center overflow-hidden bg-muted sm:h-60 sm:rounded-xl md:h-[min(62vh,560px)]"
                     aria-label={t('detail.openBefore')}
                   >
                     <img
@@ -82,7 +112,7 @@ export default function InspirationDetail() {
                     href={outputUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="group relative flex h-60 items-center justify-center overflow-hidden rounded-xl bg-muted sm:h-[min(62vh,560px)]"
+                    className="group relative flex h-36 items-center justify-center overflow-hidden bg-muted sm:h-60 sm:rounded-xl md:h-[min(62vh,560px)]"
                     aria-label={t('detail.openAfter')}
                   >
                     <img
@@ -123,13 +153,13 @@ export default function InspirationDetail() {
                 href={outputUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group relative flex min-h-72 items-center justify-center overflow-hidden rounded-2xl bg-muted"
+                className="group relative flex h-[min(32vh,280px)] items-center justify-center overflow-hidden bg-muted md:h-auto md:min-h-72 md:rounded-2xl"
                 title={t('detail.openOriginalHint')}
               >
                 <img
                   src={outputUrl}
                   alt={item.title}
-                  className="max-h-[min(70vh,680px)] w-full object-contain transition-transform duration-200 group-hover:scale-[1.01]"
+                  className="h-full max-h-[min(32vh,280px)] w-full object-contain transition-transform duration-200 group-hover:scale-[1.01] md:max-h-[min(70vh,680px)]"
                   loading="lazy"
                 />
                 <span className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-label-sm font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
@@ -141,38 +171,11 @@ export default function InspirationDetail() {
           </div>
 
           {/* 右：信息 */}
-          <div className="flex min-w-0 flex-col gap-4">
-            <div>
-              <h4 className="text-xl font-semibold text-foreground">{item.title}</h4>
+          <div className="flex min-w-0 flex-col gap-3 px-4 py-3 md:gap-4 md:px-0 md:py-0">
+            <div className="hidden md:block">
+              <h4 className="text-xl font-semibold tracking-tight text-foreground">{item.title}</h4>
               {item.description && (
                 <p className="mt-1.5 text-sm text-muted-foreground">{item.description}</p>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2 text-xs">
-              {reference && (
-                <span className="rounded-md bg-primary/15 px-2 py-1 text-primary">
-                  {t('card.imageEdit')}
-                </span>
-              )}
-              <span className="rounded-md bg-primary/10 px-2 py-1 text-primary">
-                {item.category}
-              </span>
-              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                {item.recommendedModel}
-              </span>
-              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                {item.params.size}
-              </span>
-              {item.params.quality && (
-                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                  quality: {item.params.quality}
-                </span>
-              )}
-              {item.params.n && item.params.n > 1 && (
-                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                  n: {item.params.n}
-                </span>
               )}
             </div>
 
@@ -193,17 +196,44 @@ export default function InspirationDetail() {
               </div>
               <pre
                 data-selectable-text
-                className="max-h-[40vh] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-border/60 bg-card/80 p-3 text-xs leading-relaxed text-foreground"
+                className="overflow-auto whitespace-pre-wrap break-words rounded-xl border border-border/60 bg-card/80 p-3 text-sm leading-relaxed text-foreground md:max-h-[40vh] md:text-xs"
               >
                 <code>{promptDisplay}</code>
               </pre>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-xs">
+              {reference && (
+                <span className="rounded-md bg-primary/15 px-2 py-1 text-primary">
+                  {t('card.imageEdit')}
+                </span>
+              )}
+              <span className="rounded-md bg-primary/10 px-2 py-1 text-primary">
+                {categoryLabel}
+              </span>
+              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
+                {item.recommendedModel}
+              </span>
+              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
+                {item.params.size}
+              </span>
+              {item.params.quality && (
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
+                  quality: {item.params.quality}
+                </span>
+              )}
+              {item.params.n && item.params.n > 1 && (
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
+                  n: {item.params.n}
+                </span>
+              )}
             </div>
 
             {item.tags && item.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 text-label-sm text-muted-foreground">
                 {item.tags.map((tag) => (
                   <span key={tag} className="rounded-full bg-muted px-2 py-0.5">
-                    #{tag}
+                    #{inspirationFacetLabel(tag)}
                   </span>
                 ))}
               </div>
@@ -224,12 +254,22 @@ export default function InspirationDetail() {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 shrink-0 border-t border-border p-4">
-        <Button type="button" onClick={closeDetail} variant="outline" size="sm">
+      <div className="flex shrink-0 items-center gap-3 border-t border-border p-3 md:justify-end md:p-4">
+        <Button
+          type="button"
+          onClick={closeDetail}
+          variant="outline"
+          size="sm"
+          className="hidden md:inline-flex"
+        >
           {t('common:action.close')}
         </Button>
-        <Button type="button" onClick={() => applyInspiration(item)} size="sm">
+        <Button
+          type="button"
+          onClick={() => applyInspiration(item)}
+          size="sm"
+          className="h-11 w-full md:h-8 md:w-auto"
+        >
           <Icon name="generate" />
           {reference ? t('detail.applyWithReference') : t('detail.apply')}
         </Button>

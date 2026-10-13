@@ -3,6 +3,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
+import { inspirationFacetLabel } from '../lib/labels'
 import type { InspirationItem } from '../types'
 
 interface Props {
@@ -79,7 +80,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
 
         <div className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3">
           <span className="mb-2 inline-flex w-fit max-w-full truncate rounded-full bg-secondary px-2.5 py-1 text-label-sm font-medium text-secondary-foreground">
-            {reference ? t('card.imageEdit') : item.category}
+            {reference ? t('card.imageEdit') : inspirationFacetLabel(item.category)}
           </span>
           <div className="line-clamp-2 text-sm font-semibold leading-snug text-foreground transition group-hover:text-primary">
             {item.title}
@@ -91,7 +92,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           )}
           <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-label-sm text-muted-foreground">
             <span className="truncate">
-              {item.category}
+              {inspirationFacetLabel(item.category)}
               {referenceCount > 0 && ` · ${t('card.referenceCount', { count: referenceCount })}`}
             </span>
             <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-primary max-md:min-h-11">

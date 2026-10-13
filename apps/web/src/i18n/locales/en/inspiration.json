@@ -5,7 +5,8 @@
   "filter": {
     "provider": "Model",
     "all": "All",
-    "imageEdit": "Image edits · Before & after"
+    "imageEdit": "Image edits · Before & after",
+    "imageEditShort": "Before & after"
   },
   "list": {
     "loading": "Loading…",

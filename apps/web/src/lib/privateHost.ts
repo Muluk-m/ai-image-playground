@@ -23,6 +23,7 @@ export { Icon, type IconName } from '../components/ui/icon'
 export { SettingsIcon } from '../components/ui/icon/settings'
 export { Input } from '../components/ui/input'
 export { Label } from '../components/ui/label'
+export { openPricingSheet } from '../features/pricing/pricingSheet'
 export {
   BRAND_WORDMARK,
   brandNeedsWordmark,

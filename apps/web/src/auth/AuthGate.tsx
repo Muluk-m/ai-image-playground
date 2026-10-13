@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { signalBootReady } from '../boot/ready'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
+import PricingSheet from '../features/pricing/PricingSheet'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
@@ -229,6 +230,7 @@ export function AuthGate() {
           }}
         />
       ) : null}
+      <PricingSheet />
     </AuthContextProvider>
   )
 }

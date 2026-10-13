@@ -150,6 +150,7 @@
     "progress": "Exporting {{done}} / {{total}}",
     "action_one": "Export {{count}} file",
     "action_other": "Export {{count}} files",
+    "addToExport": "Add images to export",
     "zipHint": "Multiple files download as one ZIP",
     "jpegHint": "JPG has no transparency; transparent areas become white",
     "videoHint": "Videos export as the original file; size and format apply to images only",
