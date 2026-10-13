@@ -72,6 +72,7 @@ import { useTheme } from '../../../theme/useTheme'
 import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
+import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
 import { newElementId } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
@@ -719,6 +720,17 @@ function Flow({
   const [addingAsset, setAddingAsset] = useState(false)
   const assetOperation = useRef(false)
   const [minimap, setMinimap] = useState(false)
+  const [connections, setConnections] = useState(true)
+  const [arrangement, setArrangement] = useState<{
+    key: string
+    positions: CanvasPlacement[]
+    viewport: { x: number; y: number; zoom: number }
+  } | null>(null)
+  const layoutKey = useMemo(() => arrangementKey(snapshot), [snapshot])
+  const arrangementActive = arrangement?.key === layoutKey
+  const arrangementPositions = new Map(
+    arrangementActive ? arrangement.positions.map((p) => [p.id, p]) : [],
+  )
   const [imageEditId, setImageEditId] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const showPreview = (source: string) => {
@@ -746,6 +758,12 @@ function Flow({
     zoomTo: (zoom: number) => unknown
     flowToScreenPosition: (point: { x: number; y: number }) => { x: number; y: number }
   } | null>(null)
+  useEffect(() => {
+    if (arrangement && arrangement.key !== layoutKey) {
+      flowRef.current?.setViewport(arrangement.viewport)
+      setArrangement(null)
+    }
+  }, [layoutKey, arrangement])
   const placeAt = useRef({ x: 0, y: 0 })
   const fileInput = useRef<HTMLInputElement>(null)
   const fileDepth = useRef(0)
@@ -871,6 +889,48 @@ function Flow({
   }
   const fit = () => {
     void flowRef.current?.fitView({ padding: 0.25, duration: 250 })
+  }
+  const revertArrangement = () => {
+    if (arrangement) flowRef.current?.setViewport(arrangement.viewport)
+    setArrangement(null)
+  }
+  const arrange = () => {
+    if (arrangementActive) {
+      revertArrangement()
+      return
+    }
+    selectNode(null)
+    const positions = arrangeNodes(snapshot)
+    setArrangement({ key: layoutKey, positions, viewport: flowRef.current?.getViewport() ?? frame })
+    const placement = new Map(positions.map((p) => [p.id, p]))
+    const bounds = contentBounds({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => ({ ...node, ...placement.get(node.id) })),
+    })
+    if (bounds && frame.width && frame.height)
+      flowRef.current?.setViewport(
+        getViewportForBounds(bounds, frame.width, frame.height, 0.05, 1, 0.25),
+      )
+  }
+  const keepArrangement = () => {
+    if (!arrangementActive) return
+    canvas.undo.stopCapturing()
+    const groups = new Set(snapshot.groups?.map((g) => g.id))
+    const members = new Set(snapshot.groups?.flatMap((g) => g.members))
+    canvas.doc.transact(() => {
+      moveCanvasGroups(
+        canvas.doc,
+        arrangement.positions.filter((p) => groups.has(p.id)),
+        canvas.origin,
+      )
+      moveCanvasNodes(
+        canvas.doc,
+        arrangement.positions.filter((p) => !groups.has(p.id) && !members.has(p.id)),
+        canvas.origin,
+      )
+    }, canvas.origin)
+    canvas.undo.stopCapturing()
+    setArrangement(null)
   }
   const duplicate = () => {
     const content = copyNodes(readCanvasDocument(canvas.doc), selectedIds.current)
@@ -1000,6 +1060,10 @@ function Flow({
       )
         return
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      if (arrangementActive) {
+        if (event.key === 'Escape') revertArrangement()
+        return
+      }
       const command = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (command && key === 'z') {
@@ -1278,12 +1342,24 @@ function Flow({
               <FillImageContext.Provider value={uploadInto}>
                 <SpawnContext.Provider value={spawnBeside}>
                   <ReactFlow<FlowNode>
-                    nodes={nodes}
+                    nodes={
+                      arrangementActive
+                        ? nodes.map((n) => ({
+                            ...n,
+                            position: arrangementPositions.get(n.id) ?? n.position,
+                          }))
+                        : nodes
+                    }
+                    className={arrangementActive ? 'studio-node-arranging' : undefined}
+                    nodesDraggable={!arrangementActive}
+                    nodesConnectable={!arrangementActive}
+                    elementsSelectable={!arrangementActive}
                     edges={snapshot.edges.map((edge) => ({
                       id: edge.id,
                       source: edge.source,
                       target: edge.target,
                       interactionWidth: 22,
+                      hidden: !connections,
                       selected: selectedEdges.includes(edge.id),
                       className: litEdgeIds?.has(edge.id) ? 'studio-edge-lit' : undefined,
                       zIndex: litEdgeIds?.has(edge.id) ? 1 : 0,
@@ -1309,6 +1385,7 @@ function Flow({
                     zoomOnScroll={false}
                     multiSelectionKeyCode="Shift"
                     onSelectionChange={({ nodes: selected }) => {
+                      if (arrangementActive) return
                       const ids = selected
                         .filter((n) => n.data.node || n.data.group)
                         .map((n) => n.id)
@@ -1329,10 +1406,12 @@ function Flow({
                       setMenu({ x: event.clientX, y: event.clientY })
                     }}
                     onNodeClick={(event, node) => {
+                      if (arrangementActive) return
                       if (!event.shiftKey && node.data.node) revealNode(node.data.node)
                     }}
                     onNodeContextMenu={(event, node) => {
                       event.preventDefault()
+                      if (arrangementActive) return
                       if (!selectedIds.current.includes(node.id)) selectNode(node.id)
                       placeAt.current = center()
                       setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
@@ -1499,6 +1578,13 @@ function Flow({
                     onFit={fit}
                     minimap={minimap}
                     onMinimap={() => setMinimap(!minimap)}
+                    connections={connections}
+                    onConnections={() => setConnections(!connections)}
+                    onArrange={arrange}
+                    canArrange={snapshot.nodes.length > 1}
+                    arranging={arrangementActive}
+                    onKeepArrangement={keepArrangement}
+                    onRevertArrangement={revertArrangement}
                     onUndo={() => canvas.undo.undo()}
                     onRedo={() => canvas.undo.redo()}
                     canUndo={history.undo}
