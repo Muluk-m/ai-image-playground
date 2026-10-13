@@ -161,6 +161,18 @@ describe('auth client', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('still requests the billing account under bun, where the billing store tests run', async () => {
+    vi.stubGlobal('Bun', {})
+    setSignedIn(false)
+    const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const response = await authenticatedBffFetch('/api/billing/account')
+
+    expect(response.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
   it('still requests the billing account when this deployment has no accounts', async () => {
     await bootstrapClientCapabilities(false, '')
     setSignedIn(false)
