@@ -1,6 +1,6 @@
-import { Eye } from 'lucide-react'
 import { useMemo } from 'react'
-import { CopyIcon, SparkleIcon } from '../../../components/icons'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
@@ -40,22 +40,16 @@ export default function InspirationDetail() {
     <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-3xl bg-card animate-modal-in">
       {/* Header */}
       <div className="flex items-center justify-between shrink-0 border-b border-border p-5">
-        <button
+        <Button
           type="button"
           onClick={closeDetail}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
         >
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
+          <Icon name="back" />
           {t('detail.back')}
-        </button>
+        </Button>
         <div className="text-xs text-muted-foreground">{item.category}</div>
       </div>
 
@@ -80,7 +74,7 @@ export default function InspirationDetail() {
                       className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
                       loading="lazy"
                     />
-                    <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2.5 py-1 text-xs font-medium text-white">
+                    <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2.5 py-1 text-xs font-medium text-white">
                       {t('card.before')}
                     </span>
                   </a>
@@ -97,7 +91,7 @@ export default function InspirationDetail() {
                       className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
                       loading="lazy"
                     />
-                    <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2.5 py-1 text-xs font-medium text-white">
+                    <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2.5 py-1 text-xs font-medium text-white">
                       {t('card.after')}
                     </span>
                   </a>
@@ -138,8 +132,8 @@ export default function InspirationDetail() {
                   className="max-h-[min(70vh,680px)] w-full object-contain transition-transform duration-200 group-hover:scale-[1.01]"
                   loading="lazy"
                 />
-                <span className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/50 px-2 py-1 text-label-sm font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                  <Eye className="h-3 w-3" aria-hidden="true" />
+                <span className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-label-sm font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                  <Icon name="visible" size="xs" />
                   {t('detail.openOriginal')}
                 </span>
               </a>
@@ -147,9 +141,9 @@ export default function InspirationDetail() {
           </div>
 
           {/* 右：信息 */}
-          <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             <div>
-              <h4 className="text-xl font-bold text-foreground">{item.title}</h4>
+              <h4 className="text-xl font-semibold text-foreground">{item.title}</h4>
               {item.description && (
                 <p className="mt-1.5 text-sm text-muted-foreground">{item.description}</p>
               )}
@@ -185,15 +179,17 @@ export default function InspirationDetail() {
             <div>
               <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
                 <span>{t('detail.promptLabel')}</span>
-                <button
+                <Button
                   type="button"
                   onClick={handleCopy}
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
                   aria-label={t('detail.copyPrompt')}
                 >
-                  <CopyIcon className="h-3.5 w-3.5" />
+                  <Icon name="copy" />
                   {t('common:action.copy')}
-                </button>
+                </Button>
               </div>
               <pre
                 data-selectable-text
@@ -218,10 +214,10 @@ export default function InspirationDetail() {
                 href={item.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-fit text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+                className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
               >
                 {item.author ? `${item.author} · ` : ''}
-                {t('detail.source')} ↗
+                {t('detail.source')} <Icon name="external" size="xs" />
               </a>
             )}
           </div>
@@ -230,21 +226,13 @@ export default function InspirationDetail() {
 
       {/* Footer */}
       <div className="flex items-center justify-end gap-3 shrink-0 border-t border-border p-4">
-        <button
-          type="button"
-          onClick={closeDetail}
-          className="rounded-xl px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
-        >
+        <Button type="button" onClick={closeDetail} variant="outline" size="sm">
           {t('common:action.close')}
-        </button>
-        <button
-          type="button"
-          onClick={() => applyInspiration(item)}
-          className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
-        >
-          <SparkleIcon className="h-4 w-4" />
+        </Button>
+        <Button type="button" onClick={() => applyInspiration(item)} size="sm">
+          <Icon name="generate" />
           {reference ? t('detail.applyWithReference') : t('detail.apply')}
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -76,7 +76,8 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 ## Checkbox / Slider
 
 原语本身只有方框和滑轨。带标签的勾选框用 patterns 的 `Checkbox`；`Slider` 直接用，数值显示在旁边
-用 `font-mono` 或 `tabular-nums`。
+用 `font-mono` 或 `tabular-nums`。竖向滑块传 `orientation="vertical"`，由父容器给出高度，
+不要用旋转水平滑块替代，否则指针坐标与轨道方向不一致。
 
 ## Popover
 

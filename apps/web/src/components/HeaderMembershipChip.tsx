@@ -1,4 +1,5 @@
 import { type PrivateMembershipSlot, PrivateWebMembership } from '../lib/privateOverlay'
+import { Button } from './ui/button'
 
 /**
  * 右上角账号簇里的会员位：已订阅显示 overlay 给的徽标 + 套餐名，未订阅显示开通引导。
@@ -11,28 +12,29 @@ function MembershipChip({ slot }: { slot: PrivateMembershipSlot }) {
 
   if (!membership.subscribed) {
     return (
-      <button
+      <Button
         type="button"
         onClick={membership.open}
         title={membership.hint ?? undefined}
-        className="studio-generate-button inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium"
+        size="sm"
       >
         {membership.label}
-      </button>
+      </Button>
     )
   }
 
   return (
-    <button
+    <Button
       type="button"
       onClick={membership.open}
       title={membership.hint ?? undefined}
-      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 text-xs hover:bg-white/[0.1]"
+      variant="secondary"
+      size="sm"
       style={{ color: membership.accent }}
     >
       <Badge size={14} />
       {membership.label}
-    </button>
+    </Button>
   )
 }
 
