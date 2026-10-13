@@ -201,8 +201,9 @@
 }
 
 /* 展开后的参考区只留一行标题和一排更小的缩略图，提示词在字数长起来之前保持一行。
-   收起态仍是 72px 写区和 48px 叠放，不跟着变。 */
-.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 4px; }
+   这一行上面是 4px 区块间距，下面原来吃的是卡片 16px 底内边距，字会贴着缩略图、底下却空一截。
+   上下都收成 4px。收起态仍是 72px 写区和 48px 叠放，不跟着变。 */
+.creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 4px; padding-bottom: 4px; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-heading { margin-bottom: 0; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list { padding-block: 0; }
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) .creation-reference-list [data-input-image-index],
