@@ -948,10 +948,79 @@ html {
   overflow-y: scroll;
 }
 
-html.pricing-route,
+html.pricing-route {
+  /* 定价页是独立营销页，颜色和展示字号钉死，不跟工作台主题与字阶走。 */
+  --pricing-bg: #070709; /* design-allow css-color: 定价页固定底色 */
+  --pricing-fg: #f4f4f5; /* design-allow css-color: 定价页固定前景 */
+  --pricing-lime: #dbffa0; /* design-allow css-color: 品牌强调色 */
+  --pricing-lime-hover: #e7ffc4; /* design-allow css-color: 品牌强调色的悬停 */
+  --pricing-ink: #161618; /* design-allow css-color: 浅色按钮上的字 */
+  --pricing-ink-strong: #23282b; /* design-allow css-color: 品牌按钮上的字 */
+  --pricing-hover: #ececee; /* design-allow css-color: 浅色按钮的悬停 */
+  --pricing-panel: #101013; /* design-allow css-color: 对比表底 */
+  --pricing-card: #121214; /* design-allow css-color: 方案卡底 */
+  --pricing-featured: #14140f; /* design-allow css-color: 重点方案卡底 */
+  background: var(--pricing-bg);
+  color: var(--pricing-fg);
+}
+
 html.pricing-route body {
-  background: #070709;
-  color: #f4f4f5;
+  background: var(--pricing-bg);
+  color: var(--pricing-fg);
+}
+
+.pricing-title {
+  font-size: 3.75rem; /* design-allow css-font-size: 定价页主标题 */
+  line-height: 1;
+}
+
+.pricing-section {
+  font-size: 1.875rem; /* design-allow css-font-size: 定价页章节标题 */
+  line-height: 2.25rem;
+}
+
+.pricing-close {
+  font-size: 2.25rem; /* design-allow css-font-size: 定价页收尾标题 */
+  line-height: 2.5rem;
+}
+
+.pricing-price {
+  font-size: 3rem; /* design-allow css-font-size: 方案价格 */
+  line-height: 1;
+}
+
+.pricing-pack {
+  font-size: 1.5rem; /* design-allow css-font-size: 充值档积分 */
+  line-height: 2rem;
+}
+
+.pricing-name {
+  font-size: 1.125rem; /* design-allow css-font-size: 方案名和规则标题 */
+  line-height: 1.75rem;
+}
+
+.pricing-copy {
+  font-size: 15px; /* design-allow css-font-size: 定价页导航和问题标题 */
+}
+
+.pricing-badge {
+  font-size: 11px; /* design-allow css-font-size: 重点方案角标 */
+}
+
+@media (min-width: 640px) {
+  .pricing-title {
+    font-size: 6rem; /* design-allow css-font-size: 定价页主标题 */
+  }
+
+  .pricing-section {
+    font-size: 2.25rem; /* design-allow css-font-size: 定价页章节标题 */
+    line-height: 2.5rem;
+  }
+
+  .pricing-close {
+    font-size: 3rem; /* design-allow css-font-size: 定价页收尾标题 */
+    line-height: 1;
+  }
 }
 
 body {
