@@ -485,6 +485,7 @@
     "fit": "Fit to content",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
+    "historyFull": "Canvas undo history is full. This action was not applied; your content is preserved.",
     "undo": "Undo",
     "redo": "Redo",
     "copy": "Copy",
