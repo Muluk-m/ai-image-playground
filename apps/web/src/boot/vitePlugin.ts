@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { IndexHtmlTransformContext } from 'vite'
 
 import { LOCALE_STORAGE_KEY } from '../i18n/storageKey'
 import {
@@ -6,16 +7,19 @@ import {
   BUILD_META_NAME,
   DEVICE_ID_STORAGE_KEY,
   PRELOAD_RELOAD_STORAGE_KEY,
+  PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
 } from './constants'
 
-/** A second required resource failure inside this window leaves recovery to the user. */
-const PRELOAD_RELOAD_WINDOW_MS = 60_000
+/** Allow one short asset-propagation wait after the immediate stale-HTML refresh. */
+const RESOURCE_RECOVERY_TIMEOUT_MS = 20_000
+const RESOURCE_PROBE_TIMEOUT_MS = 5_000
+const RESOURCE_PROBE_INTERVAL_MS = 2_000
 /** Only consulted while React has never rendered; afterwards the app owns every loading state. */
 const UNRENDERED_TIMEOUT_MS = 30_000
 
 // Must execute independently of the module graph: a failed entry script cannot render React UI.
-// Only resource failures are fatal; runtime exceptions belong to the screens React renders.
+// Resource failures and the startup deadline own this panel; runtime exceptions belong to React.
 // The error panel also reports itself to the BFF, carrying the exceptions buffered before it:
 // when it shows, the app bundle may never have run, so nothing else would report the failure.
 /**
@@ -24,7 +28,11 @@ const UNRENDERED_TIMEOUT_MS = 30_000
  */
 export const BOOT_REPORT_PATH = '/api/client-errors'
 
-export const STARTUP_GUARD_SCRIPT = `(()=>{
+type BootAsset = readonly [src: string, tag: 'script' | 'stylesheet']
+
+function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
+  return `(()=>{
+  const requiredAssets=${JSON.stringify(requiredAssets)};
   // Remove legacy cache-first workers even if the application entry cannot execute.
   try{if('serviceWorker' in navigator){
     navigator.serviceWorker.getRegistrations().then(registrations=>Promise.all(registrations.map(registration=>registration.unregister()))).catch(()=>{});
@@ -34,6 +42,7 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
   let cause=null;
   let reported=false;
   let reloading=false;
+  let recovery=null;
   // Kept small: the whole report must fit the server's context limit.
   const early=[];
   const clip=(value,max)=>typeof value==='string'?value.slice(0,max):undefined;
@@ -80,33 +89,102 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
       document.getElementById('boot-retry').textContent='Reload';
     }
   };
-  const fail=(reason,detail)=>{fatal=true;cause=cause||{reason,detail};show()};
+  const stopRecovery=()=>{
+    if(!recovery)return;
+    clearTimeout(recovery.timer);
+    clearTimeout(recovery.deadline);
+    recovery.controller?.abort();
+    recovery=null;
+  };
+  const fail=(reason,detail)=>{stopRecovery();fatal=true;if(!cause||cause.reason==='timeout')cause={reason,detail};show()};
+  const resetBudget=()=>{
+    try{
+      sessionStorage.removeItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)});
+      sessionStorage.removeItem(${JSON.stringify(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)});
+    }catch{}
+  };
   const refresh=()=>{
+    if(reloading)return;
+    stopRecovery();
     const next=new URL(location.href);
     next.searchParams.set(${JSON.stringify(RELOAD_QUERY_PARAM)},String(Date.now()));
-    try{sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()))}catch{}
     reloading=true;
     location.replace(next.href);
   };
   const retry=()=>{
     if(reloading)return true;
-    if(navigator.onLine===false)return false;
+    if(fatal||navigator.onLine===false)return false;
     try{
-      const last=Number(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)}))||0;
-      if(Date.now()-last<=${PRELOAD_RELOAD_WINDOW_MS})return false;
+      if(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)})!==null)return false;
       // Without persistent storage an automatic navigation could loop forever.
       sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()));
     }catch{return false}
     refresh();
     return true;
   };
+  // A release can expose new HTML before its entry assets reach this edge. The first reload
+  // fixes stale HTML; a second failure gets one bounded wait for the ordinary asset URLs.
+  const recoverResource=(detail,source)=>{
+    if(fatal||navigator.onLine===false)return false;
+    let url;
+    try{
+      url=new URL(source,location.href);
+      if(url.origin!==location.origin||!url.pathname.startsWith('/assets/'))return false;
+    }catch{return false}
+    if(recovery){recovery.sources.set(url.href,detail.tag);return true}
+    try{
+      if(sessionStorage.getItem(${JSON.stringify(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)})!==null)return false;
+      sessionStorage.setItem(${JSON.stringify(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)},String(Date.now()));
+    }catch{return false}
+    // The entry's error also fires when one of its static imports fails. Probe the build graph,
+    // not only the entry URL, before consuming the last navigation. Dynamic imports stay lazy.
+    const sources=new Map(requiredAssets.map(([src,tag])=>[new URL(src,location.href).href,tag]));
+    sources.set(url.href,detail.tag);
+    const state={sources,timer:null,deadline:null,controller:null};
+    recovery=state;
+    clearTimeout(timer);
+    const finish=(available)=>{
+      if(recovery!==state)return;
+      stopRecovery();
+      if(available)refresh();
+      else fail('resource',detail);
+    };
+    state.deadline=setTimeout(()=>finish(false),${RESOURCE_RECOVERY_TIMEOUT_MS});
+    const probe=async()=>{
+      if(recovery!==state)return;
+      if(navigator.onLine===false){finish(false);return}
+      const controller=new AbortController();
+      state.controller=controller;
+      const timeout=setTimeout(()=>controller.abort(),${RESOURCE_PROBE_TIMEOUT_MS});
+      const sources=[...state.sources];
+      try{
+        const available=await Promise.all(sources.map(async([src,tag])=>{
+          // Reload refreshes the ordinary URL's cache entry, so the next document can reuse it.
+          const response=await fetch(src,{cache:'reload',signal:controller.signal});
+          const mime=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
+          const validMime=tag==='script'?['text/javascript','application/javascript','text/ecmascript','application/ecmascript'].includes(mime):mime==='text/css';
+          if(response.status!==200||!validMime)return false;
+          return (await response.arrayBuffer()).byteLength>0;
+        }));
+        if(recovery!==state)return;
+        if(sources.length===state.sources.size&&available.every(Boolean)){finish(true);return}
+      }catch{}finally{clearTimeout(timeout);controller.abort()}
+      if(recovery===state)state.timer=setTimeout(probe,${RESOURCE_PROBE_INTERVAL_MS});
+    };
+    state.timer=setTimeout(probe,${RESOURCE_PROBE_INTERVAL_MS});
+    return true;
+  };
   const onError=(event)=>{
     const target=event.target;
     let detail;
-    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet')&&!target.hasAttribute('data-optional-style'))detail={tag:'stylesheet',src:clip(target.href,300)};
-    else if(target instanceof HTMLScriptElement&&target.type==='module')detail={tag:'script',src:clip(target.src,300)};
+    let source;
+    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet')&&!target.hasAttribute('data-optional-style')){source=target.href;detail={tag:'stylesheet',src:clip(source,300)}}
+    else if(target instanceof HTMLScriptElement&&target.type==='module'){source=target.src;detail={tag:'script',src:clip(source,300)}}
     else if(event instanceof ErrorEvent)note({type:'error',message:clip(event.message,300),stack:clip(event.error&&event.error.stack,1200),source:clip(event.filename,200)});
-    if(detail&&!retry())fail('resource',detail);
+    if(detail){
+      if(recovery){if(!recoverResource(detail,source))fail('resource',detail);return}
+      if(!retry()&&!recoverResource(detail,source))fail('resource',detail);
+    }
   };
   const onRejection=(event)=>{
     const reason=event.reason;
@@ -126,28 +204,47 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
       }
     }catch{}
     clearTimeout(timer);
-    if(fatal)show();
-    else boot()?.remove();
+    if(fatal&&cause?.reason!=='timeout')show();
+    // First React commit may only be an auth/loading screen; lazy chunks can still fail later.
+    // Keep spent navigation budgets across documents until an explicit user retry.
+    else if(!recovery&&!reloading){fatal=false;boot()?.remove()}
   };
-  const timer=setTimeout(()=>{if(!rendered)show()},${UNRENDERED_TIMEOUT_MS});
+  const timer=setTimeout(()=>{if(!rendered)fail('timeout')},${UNRENDERED_TIMEOUT_MS});
   window.addEventListener('error',onError,true);
   window.addEventListener('unhandledrejection',onRejection);
   window.addEventListener('vite:preloadError',onPreloadError);
-  document.addEventListener('click',(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry'))refresh()});
+  document.addEventListener('click',(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry')){resetBudget();refresh()}});
   document.addEventListener('DOMContentLoaded',()=>{if(fatal)show()},{once:true});
   document.addEventListener(${JSON.stringify(BOOT_READY_EVENT)},onReady,{once:true});
 })()`
+}
+
+export const STARTUP_GUARD_SCRIPT = createStartupGuardScript()
 
 export function startupGuardPlugin() {
   return {
     name: 'startup-guard',
     transformIndexHtml: {
       order: 'post' as const,
-      handler(html: string) {
+      handler(html: string, context?: IndexHtmlTransformContext) {
         if (!html.includes('id="boot"')) return
+        const assets = new Map<string, 'script' | 'stylesheet'>()
+        const visit = (fileName: string) => {
+          if (assets.has(`/${fileName}`)) return
+          const chunk = context?.bundle?.[fileName]
+          if (!chunk || chunk.type !== 'chunk') return
+          // vite.config uses base: '/'. Only walk the selected HTML entry's static graph.
+          assets.set(`/${fileName}`, 'script')
+          for (const css of chunk.viteMetadata?.importedCss ?? []) {
+            assets.set(`/${css}`, 'stylesheet')
+          }
+          for (const dependency of chunk.imports) visit(dependency)
+        }
+        if (context?.chunk) visit(context.chunk.fileName)
+        const script = createStartupGuardScript([...assets])
         const guardedHtml = html.replace(
           '<head>',
-          `<head><script id="startup-guard">${STARTUP_GUARD_SCRIPT}</script>`,
+          `<head><script id="startup-guard">${script}</script>`,
         )
         const identity = createHash('sha256').update(guardedHtml).digest('hex')
         return guardedHtml.replace(
