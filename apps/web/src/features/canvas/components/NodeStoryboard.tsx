@@ -36,10 +36,12 @@ import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
 import NodePorts from './NodePorts'
+import StoryboardProductionActions from './StoryboardProductionActions'
 
 export const NodeStoryboardContext = createContext<{
   canvas: NodeCanvasDocument
   snapshot: CanvasSnapshot
+  onRun?: (ids: string[]) => void
 } | null>(null)
 type StoryboardNode = Extract<CanvasNode, { type: 'storyboard' }>
 export default function NodeStoryboard({ node }: { node: StoryboardNode }) {
@@ -111,12 +113,14 @@ function StoryboardEditor({
   node,
   canvas,
   snapshot,
+  onRun,
   onClose,
 }: {
   node: StoryboardNode
   canvas: NodeCanvasDocument
   snapshot: CanvasSnapshot
   onClose: () => void
+  onRun?: (ids: string[]) => void
 }) {
   const { t } = useTranslation('canvas')
   const surface = useRef<HTMLElement>(null)
@@ -221,6 +225,17 @@ function StoryboardEditor({
           >
             {t('storyboard.finalize')}
           </Button>
+          {onRun && (
+            <StoryboardProductionActions
+              canvas={canvas}
+              id={node.id}
+              ready={ready && confirmed}
+              onRun={(ids) => {
+                close()
+                onRun(ids)
+              }}
+            />
+          )}
           <Button size="icon-sm" variant="ghost" aria-label={t('storyboard.close')} onClick={close}>
             <Icon name="close" />
           </Button>

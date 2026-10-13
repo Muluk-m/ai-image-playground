@@ -353,3 +353,44 @@ it('round-trips character-sheet provenance and rejects unknown view labels', () 
     'invalid_canvas_result',
   )
 })
+
+it('binds storyboard output to its reviewed revision without changing ordinary node fingerprints', () => {
+  const doc = fixture(),
+    ordinary = canvasInputFingerprint(doc, 'image')
+  updateCanvasNode(doc, 'image', { data: { meta: { nodePrompt: 'ordinary edit' } } }, origin)
+  expect(canvasInputFingerprint(doc, 'image')).toBe(ordinary)
+  updateCanvasNode(
+    doc,
+    'image',
+    {
+      data: {
+        meta: {
+          storyboardId: 'board',
+          storyboardRole: 'frame',
+          storyboardFingerprint: 'revision1',
+          nodePrompt: 'shot',
+        },
+      },
+    },
+    origin,
+  )
+  recordCanvasResult(doc, result(doc, 'first-frame'), origin)
+  choose(doc, 'first-frame')
+  expect(canvasResultIsStale(doc, 'image')).toBe(false)
+  updateCanvasNode(
+    doc,
+    'image',
+    {
+      data: {
+        meta: {
+          storyboardId: 'board',
+          storyboardRole: 'frame',
+          storyboardFingerprint: 'revision2',
+          nodePrompt: 'shot',
+        },
+      },
+    },
+    origin,
+  )
+  expect(canvasResultIsStale(doc, 'image')).toBe(true)
+})

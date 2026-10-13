@@ -144,7 +144,7 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       roles: Record<string, string> = {},
       draft: VideoDraft | undefined,
       model = imageProfile.model,
-      quantity = params.n,
+      quantity = ['frame', 'grid'].includes(meta.storyboardRole ?? '') ? 1 : params.n,
       unitMultiplier: number | undefined
     if (kind === 'video') {
       const config = nodeVideoConfiguration(meta, refs, input.videoDraft, input.options)
@@ -383,7 +383,7 @@ export async function runNodeBatch(
               referenceFileIds(current.refs, files).map((id) => files[id]!),
               undefined,
               undefined,
-              { settings: plan.settings, params: plan.params },
+              { settings: plan.settings, params: { ...plan.params, n: job.quantity } },
             )
           : submitNodeVideo(
               editor,

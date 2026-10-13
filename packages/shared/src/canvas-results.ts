@@ -144,6 +144,18 @@ export function canvasInputFingerprint(doc: Y.Doc, nodeId: string): string {
           : []),
       ]
     })
+  const target = nodes.get(nodeId)
+  const meta = target && 'meta' in target.data ? target.data.meta : undefined
+  // Storyboard outputs also belong to the reviewed shot revision, not just its asset inputs.
+  if (meta?.storyboardId && meta.storyboardRole)
+    inputs.push([
+      'storyboard',
+      meta.storyboardFingerprint ?? null,
+      meta.nodePrompt ?? '',
+      meta.storyboardGrid ?? null,
+      meta.storyboardFrameIds ?? null,
+      meta.storyboardFrameInputs ?? null,
+    ])
   return canvasFingerprint(JSON.stringify(inputs))
 }
 
