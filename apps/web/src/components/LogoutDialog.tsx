@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from '../i18n'
 import { Checkbox } from './patterns/Checkbox'
-import Overlay from './patterns/Overlay'
+import Dialog from './patterns/Dialog'
+import { Button } from './ui/button'
 
 interface LogoutDialogProps {
   onCancel: () => void
@@ -14,39 +15,33 @@ export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps)
   const [clearLocalData, setClearLocalData] = useState(false)
 
   return (
-    <Overlay onClose={onCancel} tier="alert" label={t('logout.title')}>
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
-        <h3 className="text-base font-semibold text-foreground">{t('logout.title')}</h3>
-
-        <Checkbox
-          checked={clearLocalData}
-          onChange={setClearLocalData}
-          label={t('logout.clearLocalData')}
-          tone="danger"
-          className="mt-4"
-        />
-
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-xl px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
-          >
+    <Dialog
+      title={t('logout.title')}
+      onClose={onCancel}
+      tier="alert"
+      className="max-w-sm"
+      footer={
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
             {t('common:action.cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant={clearLocalData ? 'destructive' : 'default'}
             onClick={() => onConfirm(clearLocalData)}
-            className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition ${
-              clearLocalData
-                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            }`}
           >
             {t('logout.confirm')}
-          </button>
-        </div>
-      </div>
-    </Overlay>
+          </Button>
+        </>
+      }
+    >
+      <Checkbox
+        checked={clearLocalData}
+        onChange={setClearLocalData}
+        label={t('logout.clearLocalData')}
+        tone="danger"
+      />
+    </Dialog>
   )
 }

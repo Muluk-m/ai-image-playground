@@ -335,3 +335,24 @@ it.each([
   )
   expect(document.querySelector('[role="menu"]')).not.toBeNull()
 })
+
+describe('Lightbox explicit close control', () => {
+  it('closes a loaded preview without triggering media actions', async () => {
+    await renderLightbox()
+    const close = document.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')
+    expect(close).not.toBeNull()
+    act(() => close!.click())
+    expect(useStore.getState().lightboxImageId).toBeNull()
+    expect(downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('allows closing while the original and thumbnail are still loading', async () => {
+    ensureImageCached.mockReturnValue(new Promise(() => {}))
+    ensureImageThumbnailCached.mockReturnValue(new Promise(() => {}))
+    await renderLightbox()
+    const close = document.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')
+    expect(close).not.toBeNull()
+    act(() => close!.click())
+    expect(useStore.getState().lightboxImageId).toBeNull()
+  })
+})
