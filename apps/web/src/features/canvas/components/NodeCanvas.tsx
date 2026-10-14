@@ -72,6 +72,8 @@ import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
+import { useActiveLook } from '../../library/lib/activeLook'
+import { checkLookSubmission } from '../../library/lib/lookSubmit'
 import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
@@ -110,6 +112,7 @@ import {
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
+import { commitNodeLook, prepareNodeLook, submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
@@ -1040,8 +1043,23 @@ function Flow({
     selectNode(id)
   }
   const submitBlankImage = (temporaryReferences: string[]) => {
+    const look = useActiveLook.getState().look
     const prompt = blankPrompt.trim()
-    if (!prompt && temporaryReferences.length === 0) return
+    if (!look && !prompt && temporaryReferences.length === 0) return
+    if (look && !checkLookSubmission(look, [], useLibraryStore.getState().assets).ok) return
+    if (look) {
+      void prepareNodeLook(look, prompt, [], files).then((prepared) => {
+        if (!prepared) return
+        const id = createNode(canvas, 'image', center(), textFill, undefined, {
+          ...(prompt ? { prompt } : {}),
+        })
+        setBlankPrompt('')
+        clearNodeReferenceDraft(canvas.doc, BLANK_IMAGE_DRAFT)
+        selectNode(id)
+        commitNodeLook(editor, canvas.doc, id, look, prepared)
+      })
+      return
+    }
     const id = createNode(canvas, 'image', center(), textFill, undefined, {
       ...(prompt ? { prompt } : {}),
     })
@@ -2228,6 +2246,19 @@ function Flow({
                             setMeta({ nodePrompt: value })
                           }}
                           onSubmit={(temporaryReferences) => {
+                            const look = useActiveLook.getState().look
+                            if (look) {
+                              void submitNodeWithLook(
+                                editor,
+                                canvas.doc,
+                                composerNode.id,
+                                look,
+                                draftValue,
+                                references,
+                                files,
+                              )
+                              return
+                            }
                             const value = draftValue
                             const urls = referenceFileIds(references, files).flatMap((id) => {
                               const source = files[id]
