@@ -40,7 +40,9 @@
   },
   "suggestions": {
     "aria": "Example prompts",
-    "followUpsAria": "Next messages",
+    "followUpHint": "Suggested next line: {{text}}. Press Tab or Right Arrow to insert it without sending. Press Escape to dismiss.",
+    "followUpAccept": "Insert the suggested next line",
+    "followUpTap": "Insert",
     "draftKeptToast": "The input already has text; clear it to use an example",
     "inspirationTitle": "Inspiration",
     "shuffle": "Shuffle",

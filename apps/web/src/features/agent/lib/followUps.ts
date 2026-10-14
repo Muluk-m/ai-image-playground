@@ -36,7 +36,8 @@ export function shouldPollFollowUps(input: {
 }
 
 /**
- * 输入框上方要显示的句子。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
+ * 可以显示的下一句。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
+ * 界面只拿第一句当输入框里的灰色幽灵文字；后面的句子留在数据里，不排成胶囊。
  * 返回的空数组是稳定引用，避免订阅每次都拿到新数组。
  */
 export function visibleFollowUps(input: {
@@ -73,6 +74,29 @@ function readyTurn(
   const footer = turns[last.turnId]
   if (!footer || footer.stopReason !== 'completed' || footer.error) return null
   return last.turnId
+}
+
+/**
+ * 空输入框上的幽灵文字怎么响应按键。Tab，以及光标已在末尾时的右方向键，把句子填进输入框。
+ * Esc 只关掉这一次，不发送。带修饰键或正在组字时不拦截。
+ */
+export function followUpGhostAction(
+  event: {
+    readonly key: string
+    readonly shiftKey: boolean
+    readonly altKey: boolean
+    readonly ctrlKey: boolean
+    readonly metaKey: boolean
+    readonly isComposing: boolean
+  },
+  caretAtEnd: boolean,
+): 'accept' | 'dismiss' | null {
+  if (event.isComposing || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+    return null
+  }
+  if (event.key === 'Escape') return 'dismiss'
+  if (event.key === 'Tab' || (event.key === 'ArrowRight' && caretAtEnd)) return 'accept'
+  return null
 }
 
 /**
