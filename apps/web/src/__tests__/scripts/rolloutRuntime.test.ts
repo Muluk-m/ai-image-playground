@@ -32,6 +32,11 @@ C=$M/containers
 cmd=$1
 shift
 if [ "$cmd" = exec ]; then
+  case " $* " in
+    *' nginx -t '*)
+      [ "\${TEST_NGINX_TEST_EXIT:-0}" = 0 ] || { printf 'nginx -t refused\\n' >> "\$M/log"; exit 1; }
+      ;;
+  esac
   name=$1
   while [ $# -gt 4 ]; do shift; done
   port=$1 method=$2 path=$3 field=$4
@@ -426,6 +431,19 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(result.log).not.toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
     )
+  })
+
+  it('does not replace the live proxy config when nginx rejects the new one', () => {
+    currentGeneration()
+    container('fixture-admin-1', { image: 'fixture:old' })
+    const result = run({ TEST_NGINX_TEST_EXIT: '1' })
+
+    expect(result.status).not.toBe(0)
+    expect(result.log).toContain('nginx -t refused')
+    const live = readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')
+    expect(live).toContain('set $upstream fixture-admin-1;')
+    expect(live).not.toMatch(/set \$upstream fixture-r\d+-\d+-admin;/)
+    expect(exists('fixture-admin-1')).toBe(true)
   })
 
   it('counts a previous executor that already exited as down rather than drained', () => {
