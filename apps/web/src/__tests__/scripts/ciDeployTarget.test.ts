@@ -138,6 +138,18 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`API tree unchanged since ${previous}`)
   })
 
+  it('ships the API when the release receiver changes, so the VPS actually runs the new copy', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('scripts/vps-deploy.sh', '#!/bin/sh\n')
+    serve({
+      [internalApi]: health(previous),
+      [paidApi]: health(previous),
+    })
+    const { decision, log } = decide(tip)
+    expect(decision).toBe('deploy_api=true\ndeploy_pages=false\ndeploy=true\n')
+    expect(log).toContain(`web bundle unchanged since ${previous}`)
+  })
+
   it('ships the API without Pages when only the API tree changed', () => {
     const previous = commits[2]
     const tip = commitOnTip('apps/bff/src/index.ts', 'export {}\n')
