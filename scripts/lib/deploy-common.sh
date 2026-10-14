@@ -184,14 +184,17 @@ prune_dangling_images() {
   docker image prune -f || echo "could not prune dangling images; leaving them" >&2
 }
 
-# reclaim_deploy_disk <current-release-directory> [protected-tags]
+# reclaim_deploy_disk <current-release-directory> [protected-tags] [keep]
 #
 # Runs before the free-space check and again after rollout. All four editions share this disk;
 # a test receive used to leave backup images and release archives for the next production
 # deploy, and a full disk is exactly when that deploy is refused. Protected tags are the images
 # this release is about to use and the ones just rolled out. Containers still running are
-# always protected. set -u is on in the receiver, so the tag list may be empty.
+# always protected. set -u is on in the receiver, so the tag list may be empty. keep defaults
+# to DEPLOY_KEEP_IMAGES (2). A short disk passes 1 so the rollback generation can be dropped
+# to make room for the pull; the running image is still protected.
 reclaim_deploy_disk() {
+  keep=${3:-${DEPLOY_KEEP_IMAGES:-2}}
   running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
   protected="${2:-} $running"
   for alias in \
@@ -200,7 +203,7 @@ reclaim_deploy_disk() {
     ai-image-playground:test \
     ai-image-playground:backup
   do
-    prune_edition_images "$alias" "${DEPLOY_KEEP_IMAGES:-2}" "$protected"
+    prune_edition_images "$alias" "$keep" "$protected"
   done
   prune_dangling_images
   if ! docker builder prune -f; then
