@@ -2,6 +2,7 @@ import { type ReactNode, useRef, useState } from 'react'
 import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
@@ -159,7 +160,6 @@ export default function AssetSlotChip({
           data-asset-slot-chip={slot.key}
           data-filled={filled ? '' : undefined}
           aria-label={t('slot.fillAria', { label: slot.label })}
-          title={slot.label}
           variant={filled ? 'secondary' : 'outline'}
           size="xs"
           className={`mx-0.5 max-w-56 align-middle ${
@@ -182,7 +182,7 @@ export default function AssetSlotChip({
           ) : (
             <Icon name="imageAdd" />
           )}
-          <span className="truncate">{name}</span>
+          <OverflowText text={name} className="truncate" />
           {images.length > 1 && (
             <span className="text-xs text-muted-foreground">×{images.length}</span>
           )}

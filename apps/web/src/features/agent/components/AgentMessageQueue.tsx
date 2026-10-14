@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { ICON_BUTTON, INK, INK_3 } from '../agentStyles'
 import { hasWaitingMessages } from '../lib/messageQueue'
@@ -48,9 +49,7 @@ export default function AgentMessageQueue() {
             key={message.id}
             className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-xs"
           >
-            <span className={`min-w-0 flex-1 truncate ${INK}`} title={message.text}>
-              {message.text}
-            </span>
+            <OverflowText text={message.text} className={`min-w-0 flex-1 truncate ${INK}`} />
             {message.failure && (
               <span role="status" className="shrink-0 text-label-sm text-destructive">
                 {t(`queue.failure.${message.failure}`)}

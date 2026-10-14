@@ -7,6 +7,7 @@ import { Switch } from '../patterns/Switch'
 import { Button, buttonVariants } from '../ui/button'
 import { Icon } from '../ui/icon'
 import { Input } from '../ui/input'
+import { useOverflowTitle } from '../ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 
 /** 输入框底部一排控件的两档高度：首页 40px，侧栏宽度（380px）的输入框 32px。 */
@@ -65,6 +66,7 @@ export function SettingsPopover({
   const [open, setOpen] = useState(false)
   const titleId = useId()
   const accessible = detail ? `${summary} · ${detail}` : summary
+  const summaryText = useOverflowTitle<HTMLSpanElement>(summary)
   return (
     <Popover
       open={open}
@@ -77,13 +79,15 @@ export function SettingsPopover({
           variant="outline"
           size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
-          title={`${title}: ${accessible}`}
+          title={detail ? `${title}: ${accessible}` : summaryText.title}
           aria-label={`${title}: ${accessible}`}
           data-dirty={dirty || undefined}
           className={composerChipClass(size)}
         >
           {icon && <span className="flex shrink-0 text-muted-foreground">{icon}</span>}
-          <span className="truncate tabular-nums">{summary}</span>
+          <span ref={summaryText.ref} className="truncate tabular-nums">
+            {summary}
+          </span>
           {badge && <span className="flex shrink-0">{badge}</span>}
         </Button>
       </PopoverTrigger>
