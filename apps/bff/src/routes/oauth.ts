@@ -3,6 +3,7 @@ import {
   OAUTH_ERROR_QUERY_PARAM,
   OAUTH_LINK_ERROR_QUERY_PARAM,
   OAUTH_LINK_QUERY_PARAM,
+  OAUTH_SESSION_QUERY_PARAM,
   type OAuthProvidersResponse,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
@@ -76,6 +77,12 @@ function redirectUri(request: Request, provider: string): string {
 
 function redirectTo(target: string): Response {
   return new Response(null, { status: 302, headers: { location: target } })
+}
+
+function successRedirect(request: Request): Response {
+  const url = new URL(`${frontendOrigin(request)}/`)
+  url.searchParams.set(OAUTH_SESSION_QUERY_PARAM, '1')
+  return redirectTo(url.toString())
 }
 
 function failureRedirect(
@@ -278,7 +285,7 @@ export const oauthRoutes = new Elysia()
       }
 
       setUserSessionCookie(cookie, result.sessionToken)
-      return redirectTo(`${frontendOrigin(request)}/`)
+      return successRedirect(request)
     },
     {
       params: t.Object({ provider: t.String() }),

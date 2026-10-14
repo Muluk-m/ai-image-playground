@@ -269,7 +269,7 @@ describe('oauth callback', () => {
     const response = await callback('google', { code: 'code-alpha', state }, cookie)
 
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('https://app.example.com/')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
 
     const exchange = new URLSearchParams(calls[0]?.body ?? '')
     expect(exchange.get('grant_type')).toBe('authorization_code')
@@ -325,7 +325,7 @@ describe('oauth callback', () => {
       second.cookie,
     )
 
-    expect(response.headers.get('location')).toBe('https://app.example.com/')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
     expect(await db.select().from(schema.users)).toHaveLength(1)
     expect(await db.select().from(schema.user_identities)).toHaveLength(1)
     expect(createdUserIds).toHaveLength(1)
