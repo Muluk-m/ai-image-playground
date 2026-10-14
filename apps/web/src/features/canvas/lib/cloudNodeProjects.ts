@@ -89,6 +89,9 @@ export class CloudNodeProjectSession {
       sourceProjectId: project.sourceProjectId,
     }
   }
+  get projectId() {
+    return this.project.id
+  }
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)

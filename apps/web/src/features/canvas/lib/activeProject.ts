@@ -12,6 +12,7 @@ import type { CanvasCloudSession } from './cloudNodeProjects'
 import { readPersistedScene } from './persistence'
 import {
   cloudProjectsEnabled,
+  copyCloudProject,
   getCloudProject,
   PROJECT_REQUEST_TIMEOUT_MS,
   restoreDeletedCloudProject,
@@ -383,4 +384,18 @@ export async function copyDeletedProjectLocally(id: string): Promise<CanvasProje
   if (!isCurrent()) throw new Error('account_changed')
   useCanvasProjectStore.getState().updateListed(copy)
   return copy
+}
+
+/** 把已提交的节点画布复制成一个新项目。正在编辑的那一份先推上去，副本不带走会话。 */
+export async function copyCloudCanvasProject(id: string): Promise<CanvasProject> {
+  const isCurrent = accountScope()
+  const session: CanvasCloudSession | undefined = openCanvasCloudSession()
+  if (session?.projectId === id) await session.sync()
+  if (!isCurrent()) throw new Error('account_changed')
+  const summary = await copyCloudProject(id)
+  if (!isCurrent()) throw new Error('account_changed')
+  const project = await restoreCloudProject(summary)
+  if (!isCurrent()) throw new Error('account_changed')
+  useCanvasProjectStore.getState().updateListed(project)
+  return project
 }

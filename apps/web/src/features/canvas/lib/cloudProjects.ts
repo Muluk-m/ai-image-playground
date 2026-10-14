@@ -202,6 +202,9 @@ export class CloudProjectSession implements CloudSceneStrategy {
     this.editor = record.editor
     record.useCloud(this)
   }
+  get projectId() {
+    return this.project.id
+  }
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)

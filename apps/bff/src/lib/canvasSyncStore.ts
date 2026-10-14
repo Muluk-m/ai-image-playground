@@ -1,4 +1,5 @@
 import {
+  type CloudProjectSummary,
   canvasNodeJobs,
   canvasOrigin,
   canvasProjectDocument,
@@ -7,13 +8,15 @@ import {
   importLegacyElements,
   initializeCanvasConnectionRules,
   initializeCanvasTexts,
+  PROJECT_NAME_MAX_LENGTH,
   type ProjectDocument,
   readCanvasDocument,
   synchronizeLegacyElements,
   validateCloudCanvas,
 } from '@image-playground/shared'
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, lte, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import type { BffTransaction } from './private-overlay'
 
@@ -326,6 +329,122 @@ export async function accessCanvasDocument(
       return Y.encodeStateAsUpdate(doc)
     } finally {
       doc.destroy()
+    }
+  })
+}
+
+const COPY_SUFFIX = ' 副本'
+
+function copiedProjectName(name: string): string {
+  const trimmed = name.trim()
+  const room = PROJECT_NAME_MAX_LENGTH - COPY_SUFFIX.length
+  return `${trimmed.slice(0, Math.max(0, room))}${COPY_SUFFIX}`
+}
+
+function referencedMediaIds(doc: Y.Doc, document: ProjectDocument): string[] {
+  return [
+    ...new Set([
+      ...document.elements.flatMap((element) =>
+        element.type === 'image'
+          ? [element.mediaId, ...(element.video?.mediaId ? [element.video.mediaId] : [])]
+          : [],
+      ),
+      ...canvasResultMediaIds(doc),
+    ]),
+  ]
+}
+
+/** Point-in-time copy of the committed canvas. The new project does not share history or conversation. */
+export async function copyCanvasProject(
+  userId: string,
+  sourceId: string,
+): Promise<CloudProjectSummary> {
+  await accessCanvasDocument(userId, sourceId)
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .for('update')
+    const [project] = await tx
+      .select()
+      .from(schema.canvas_projects)
+      .where(
+        and(eq(schema.canvas_projects.id, sourceId), eq(schema.canvas_projects.user_id, userId)),
+      )
+    if (!project) throw new CanvasSyncError(404, 'project_not_found')
+    if (project.deleted_at !== null) throw new CanvasSyncError(410, 'project_deleted')
+    const [total] = await tx
+      .select({ count: count() })
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.user_id, userId))
+    if ((total?.count ?? 0) >= config.operator.quotas['sync:user-projects'])
+      throw new CanvasSyncError(413, 'project_quota_exceeded')
+    const loaded = await load(tx, sourceId)
+    if (!loaded) throw new CanvasSyncError(404, 'project_not_found')
+    const copy = new Y.Doc()
+    try {
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(loaded.doc))
+      const now = Date.now()
+      const id = crypto.randomUUID()
+      const document = canvasProjectDocument(copy, {
+        ...project.document,
+        sourceProjectId: sourceId,
+      })
+      const snapshot = readCanvasDocument(copy)
+      const summary: CloudProjectSummary = {
+        id,
+        name: copiedProjectName(project.name),
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+        elementCount: snapshot.nodes.length,
+        coverMediaId:
+          document.elements.filter((element) => element.type === 'image').at(-1)?.mediaId ?? null,
+        conversationId: null,
+        ...(document.experience ? { experience: document.experience } : {}),
+        sourceProjectId: sourceId,
+      }
+      await tx.insert(schema.canvas_projects).values({
+        id,
+        user_id: userId,
+        name: summary.name,
+        revision: summary.revision,
+        document,
+        element_count: summary.elementCount,
+        cover_media_id: summary.coverMediaId,
+        conversation_id: null,
+        receipts: [],
+        created_at: now,
+        updated_at: now,
+      })
+      await tx.insert(documents).values({
+        project_id: id,
+        snapshot: base64(Y.encodeStateAsUpdate(copy)),
+        sequence: 0,
+        compacted_sequence: 0,
+        compacted_at: now,
+        legacy_document: document,
+        migrated_at: now,
+      })
+      const mediaIds = referencedMediaIds(copy, document)
+      if (mediaIds.length)
+        await tx
+          .insert(schema.media_references)
+          .values(
+            mediaIds.map((media_id) => ({
+              user_id: userId,
+              media_id,
+              owner_kind: 'project' as const,
+              owner_id: id,
+              created_at: now,
+            })),
+          )
+          .onConflictDoNothing()
+      return summary
+    } finally {
+      copy.destroy()
+      loaded.doc.destroy()
     }
   })
 }
