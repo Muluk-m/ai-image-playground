@@ -12,6 +12,7 @@ import { useTranslation } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useStore } from '../../../store'
 import { useAgentStore } from '../store'
+import { ThinkingDepthMark } from './ThinkingDepthMark'
 
 /**
  * 智能体这条路做不到的两项，开关不出现。理由见 `lib/turnParams.ts`：
@@ -20,6 +21,18 @@ import { useAgentStore } from '../store'
 const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRewrite'])
 
 const DEPTHS = ['fast', 'medium', 'deep'] as const
+
+function depthLevels(labels: Record<(typeof DEPTHS)[number], string>) {
+  return DEPTHS.map((key) => ({
+    key,
+    label: (
+      <span className="inline-flex items-center justify-center gap-1.5">
+        <ThinkingDepthMark depth={key} />
+        {labels[key]}
+      </span>
+    ),
+  }))
+}
 
 /** Execution controls remain visible for video turns as well as image turns. */
 export function AgentExecutionSettings() {
@@ -36,7 +49,7 @@ export function AgentExecutionSettings() {
       <SettingsSection title={t('params.thinkingLegend')}>
         <ReasoningEffort
           label={t('params.thinkingLegend')}
-          levels={DEPTHS.map((key) => ({ key, label: labels[key] }))}
+          levels={depthLevels(labels)}
           selectedKey={depth}
           onSelect={(key) => {
             if (key === 'fast' || key === 'medium' || key === 'deep')
@@ -86,7 +99,7 @@ export default function AgentParamsChip({
     <SettingsSection title={t('params.thinkingLegend')}>
       <ReasoningEffort
         label={t('params.thinkingLegend')}
-        levels={DEPTHS.map((key) => ({ key, label: labels[key] }))}
+        levels={depthLevels(labels)}
         selectedKey={depth}
         onSelect={(key) => {
           if (key === 'fast' || key === 'medium' || key === 'deep') setDepth(key)
@@ -100,6 +113,7 @@ export default function AgentParamsChip({
       <SettingsPopover
         size="md"
         summary={t('params.thinkingSummary', { label: labels[depth] })}
+        icon={<ThinkingDepthMark depth={depth} />}
         title={t('params.thinkingLegend')}
         dirty={depth !== 'medium'}
         onReset={() => setDepth('medium')}
@@ -116,18 +130,28 @@ export default function AgentParamsChip({
         size="md"
         unsupported={UNSUPPORTED}
         extra={{
-          dirty: thinkingControls && depth !== 'medium',
+          // 刻度已经标在按钮上，深度本身不再算「摘要里看不到」。
+          dirty: false,
+          detail: thinkingControls
+            ? t('params.thinkingSummary', { label: labels[depth] })
+            : undefined,
           reset: () => {
             if (thinkingControls) setDepth('medium')
           },
-          badge: autoSubmit ? (
-            <Icon
-              name="speed"
-              size="xs"
-              label={t('params.autoSubmitLabel')}
-              className="text-primary"
-            />
-          ) : undefined,
+          badge:
+            thinkingControls || autoSubmit ? (
+              <span className="flex items-center gap-1">
+                {thinkingControls && <ThinkingDepthMark depth={depth} />}
+                {autoSubmit && (
+                  <Icon
+                    name="speed"
+                    size="xs"
+                    label={t('params.autoSubmitLabel')}
+                    className="text-primary"
+                  />
+                )}
+              </span>
+            ) : undefined,
           section: (
             <>
               {thinkingControls && thinking}
