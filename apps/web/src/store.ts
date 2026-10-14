@@ -1729,85 +1729,93 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
     },
 
     async delivered(job, result) {
-      // 输入图已持久化到 IndexedDB，内存里这份可以放了（后续按需从 DB 加载）。
-      for (const imgId of job.inputImageIds) imageCache.delete(imgId)
-      const task = useStore.getState().tasks.find((t) => t.id === job.taskId)
-      if (!task || task.status !== 'running') return
+      try {
+        // 输入图已持久化到 IndexedDB，内存里这份可以放了（后续按需从 DB 加载）。
+        for (const imgId of job.inputImageIds) imageCache.delete(imgId)
+        const task = useStore.getState().tasks.find((t) => t.id === job.taskId)
+        if (!task || task.status !== 'running') return
 
-      const { outputIds, transparentOriginalImageIds } = await storeGeneratedImages(
-        result.images,
-        task,
-      )
-      const actualParamsList = result.actualParamsList
-      const actualParams = { ...result.actualParams, n: outputIds.length }
-      const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
-      const revisedPromptByImage = result.revisedPrompts?.reduce<Record<string, string>>(
-        (acc, revisedPrompt, index) => {
-          const imgId = outputIds[index]
-          if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
-          return acc
-        },
-        {},
-      )
-
-      // 写图那段里用户可能已经把这条任务删了 / 中止了：再确认一次才写终局。
-      const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
-      if (!latest || latest.status !== 'running') return
-      updateTaskInStore(job.taskId, {
-        outputImages: outputIds,
-        transparentOriginalImages: transparentOriginalImageIds,
-        rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
-        actualParams,
-        actualParamsByImage,
-        revisedPromptByImage:
-          revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0
-            ? revisedPromptByImage
-            : undefined,
-        status: 'done',
-        finishedAt: Date.now(),
-        elapsed: Date.now() - job.createdAt,
-        customRecoverable: false,
-      })
-
-      useStore
-        .getState()
-        .showToast(
-          i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
-          'success',
+        const { outputIds, transparentOriginalImageIds } = await storeGeneratedImages(
+          result.images,
+          task,
         )
-      const currentMask = useStore.getState().maskDraft
-      if (
-        job.maskDataUrl &&
-        currentMask &&
-        currentMask.targetImageId === task.maskTargetImageId &&
-        currentMask.maskDataUrl === job.maskDataUrl
-      ) {
-        useStore.getState().clearMaskDraft()
+        const actualParamsList = result.actualParamsList
+        const actualParams = { ...result.actualParams, n: outputIds.length }
+        const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
+        const revisedPromptByImage = result.revisedPrompts?.reduce<Record<string, string>>(
+          (acc, revisedPrompt, index) => {
+            const imgId = outputIds[index]
+            if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
+            return acc
+          },
+          {},
+        )
+
+        // 写图那段里用户可能已经把这条任务删了 / 中止了：再确认一次才写终局。
+        const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
+        if (!latest || latest.status !== 'running') return
+        updateTaskInStore(job.taskId, {
+          outputImages: outputIds,
+          transparentOriginalImages: transparentOriginalImageIds,
+          rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
+          actualParams,
+          actualParamsByImage,
+          revisedPromptByImage:
+            revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0
+              ? revisedPromptByImage
+              : undefined,
+          status: 'done',
+          finishedAt: Date.now(),
+          elapsed: Date.now() - job.createdAt,
+          customRecoverable: false,
+        })
+
+        useStore
+          .getState()
+          .showToast(
+            i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
+            'success',
+          )
+        const currentMask = useStore.getState().maskDraft
+        if (
+          job.maskDataUrl &&
+          currentMask &&
+          currentMask.targetImageId === task.maskTargetImageId &&
+          currentMask.maskDataUrl === job.maskDataUrl
+        ) {
+          useStore.getState().clearMaskDraft()
+        }
+      } finally {
+        releaseGenerationTask(job.taskId)
       }
     },
 
     failed(job, failure) {
-      for (const imgId of job.inputImageIds) imageCache.delete(imgId)
-      const latestTask = useStore.getState().tasks.find((t) => t.id === job.taskId)
-      if (!latestTask || latestTask.status !== 'running') return
-      // 自己挂的超时 abort 只有这里知道秒数；其余照 module 按错误码映射好的那句。
-      let errorMessage = isOwnTimeoutAbortError(failure.error)
-        ? createOpenAITimeoutError(job.timeoutSeconds)
-        : failure.text
-      const networkErrorHint = getApiRequestNetworkErrorHint(failure.error, latestTask)
-      if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
-        errorMessage += `\n${networkErrorHint}`
+      try {
+        for (const imgId of job.inputImageIds) imageCache.delete(imgId)
+        const latestTask = useStore.getState().tasks.find((t) => t.id === job.taskId)
+        if (!latestTask || latestTask.status !== 'running') return
+        // 自己挂的超时 abort 只有这里知道秒数；其余照 module 按错误码映射好的那句。
+        let errorMessage = isOwnTimeoutAbortError(failure.error)
+          ? createOpenAITimeoutError(job.timeoutSeconds)
+          : failure.text
+        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error, latestTask)
+        if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
+          errorMessage += `\n${networkErrorHint}`
+        }
+        updateTaskInStore(job.taskId, {
+          status: 'error',
+          error: errorMessage,
+          errorCode: failure.code,
+          ...getRawErrorPayload(failure.error),
+          customRecoverable: false,
+          finishedAt: Date.now(),
+          elapsed: Date.now() - job.createdAt,
+        })
+        useStore.getState().setDetailTaskId(job.taskId)
+      } finally {
+        releaseGenerationTask(job.taskId)
       }
-      updateTaskInStore(job.taskId, {
-        status: 'error',
-        error: errorMessage,
-        errorCode: failure.code,
-        ...getRawErrorPayload(failure.error),
-        customRecoverable: false,
-        finishedAt: Date.now(),
-        elapsed: Date.now() - job.createdAt,
-      })
-      useStore.getState().setDetailTaskId(job.taskId)
     },
   }
 }
@@ -1847,6 +1855,8 @@ function workbenchSink(
       const tasks = useStore.getState().tasks
       useStore.getState().setTasks([...tasks.slice(0, inserted), task, ...tasks.slice(inserted)])
       inserted++
+      // 这次会话正在提交。清单稍后到达时不能再把它当启动恢复任务重交一次。
+      activeGenerationTaskIds.add(task.id)
       // 队列路径由 queueClient 的 POLL_MAX_MS (30 min) 兜底超时，不走前端 watchdog；
       // 否则 BFF 端 retry（Bun socket idle ~300s × 2 + backoff > 600s）会被提前标失败。
       return {
@@ -1862,97 +1872,121 @@ function workbenchSink(
   }
 }
 
+/** initStore 当时还在跑、要等清单再续的任务。清单到达后只动这一集合，随后移除。 */
+const pendingCatalogResumeIds = new Set<string>()
+/** 正在提交或正在恢复的任务。同一 taskId 不再开第二条提交或第二条轮询。 */
+const activeGenerationTaskIds = new Set<string>()
+
+function releaseGenerationTask(taskId: string): void {
+  activeGenerationTaskIds.delete(taskId)
+  pendingCatalogResumeIds.delete(taskId)
+}
+
+function resumePendingCatalogTasks(): void {
+  const tasks = useStore.getState().tasks
+  for (const id of [...pendingCatalogResumeIds]) {
+    const task = tasks.find((item) => item.id === id)
+    if (!task || !isResumablePlatformTask(task)) {
+      pendingCatalogResumeIds.delete(id)
+      continue
+    }
+    void resumeStoredTask(task)
+  }
+}
+
+/** 启动恢复：先记下当时的任务，再等清单。失败不把任务标错，清单到达后只续这一批。 */
+async function resumePlatformTasksAfterCatalog(): Promise<void> {
+  for (const task of useStore.getState().tasks) {
+    if (isResumablePlatformTask(task)) pendingCatalogResumeIds.add(task.id)
+  }
+  if (pendingCatalogResumeIds.size === 0) return
+  if (!channelsSettled()) await ensureChannelsLoaded()
+  if (!channelsSettled()) return
+  resumePendingCatalogTasks()
+}
+
 /**
  * 接着跑一条刷新前没跑完的任务：有队列号就跳过 submit 续 poll（不重传输入图），
  * 只有幂等键就照原样重提交，BFF 按键去重、不会双份消耗上游配额。
+ * 同一 taskId 已在提交或恢复中就直接跳过；结束（成功、失败或中断）时才从两个集合里拿掉。
  */
-let resumePlatformTasksOnCatalog = false
-
-function resumeLoadedPlatformTasks(): void {
-  for (const task of useStore.getState().tasks) {
-    if (isResumablePlatformTask(task)) void resumeStoredTask(task)
-  }
-}
-
-/** 启动恢复：先等这一次清单。失败不把任务标错，清单之后到达时再续。 */
-async function resumePlatformTasksAfterCatalog(): Promise<void> {
-  if (!channelsSettled()) await ensureChannelsLoaded()
-  if (!channelsSettled()) {
-    resumePlatformTasksOnCatalog = true
-    return
-  }
-  resumeLoadedPlatformTasks()
-}
-
 async function resumeStoredTask(task: TaskRecord): Promise<void> {
-  if (!isResumablePlatformTask(task)) return
-  // 清单还没到时，Gemini 档案会被暂时看成 openai，跟任务上的 provider 对不上。
-  // 这不是档案被删了，先留着，等清单订阅再续。
-  if (!channelsSettled()) {
-    resumePlatformTasksOnCatalog = true
+  if (!isResumablePlatformTask(task)) {
+    pendingCatalogResumeIds.delete(task.id)
     return
   }
-  const { settings } = useStore.getState()
-  const taskProfile = getTaskApiProfile(settings, task)
-  if (!taskProfile && task.apiProfileId) {
-    updateTaskInStore(task.id, {
-      status: 'error',
-      error: i18next.t('task.profileMissing', { ns: 'store' }),
-      customRecoverable: false,
-      finishedAt: Date.now(),
-      elapsed: Date.now() - task.createdAt,
-    })
-    return
-  }
-  const savedProfile = taskProfile ?? getActiveApiProfile(settings)
-  const profile = task.apiModel ? { ...savedProfile, selectedModelId: task.apiModel } : savedProfile
-  const view = clientProfileToApiProfile(profile)
-  const requestSettings = createSettingsForApiProfile(settings, profile)
-  const report = workbenchReport()
-  const job: WorkbenchJob = {
-    taskId: task.id,
-    createdAt: task.createdAt,
-    inputImageIds: task.inputImageIds,
-    provider: task.apiProvider ?? view.provider,
-    timeoutSeconds: view.timeout,
-    stored: Promise.resolve(),
-  }
+  // 清单还没到时先留在待恢复集合里。Gemini 档案这时会被暂时看成 openai。
+  if (!channelsSettled()) return
+  if (activeGenerationTaskIds.has(task.id)) return
+  activeGenerationTaskIds.add(task.id)
+  try {
+    const { settings } = useStore.getState()
+    const taskProfile = getTaskApiProfile(settings, task)
+    if (!taskProfile && task.apiProfileId) {
+      updateTaskInStore(task.id, {
+        status: 'error',
+        error: i18next.t('task.profileMissing', { ns: 'store' }),
+        customRecoverable: false,
+        finishedAt: Date.now(),
+        elapsed: Date.now() - task.createdAt,
+      })
+      return
+    }
+    const savedProfile = taskProfile ?? getActiveApiProfile(settings)
+    const profile = task.apiModel
+      ? { ...savedProfile, selectedModelId: task.apiModel }
+      : savedProfile
+    const view = clientProfileToApiProfile(profile)
+    const requestSettings = createSettingsForApiProfile(settings, profile)
+    const report = workbenchReport()
+    const job: WorkbenchJob = {
+      taskId: task.id,
+      createdAt: task.createdAt,
+      inputImageIds: task.inputImageIds,
+      provider: task.apiProvider ?? view.provider,
+      timeoutSeconds: view.timeout,
+      stored: Promise.resolve(),
+    }
 
-  if (task.bffRequestId) {
-    return resumeGeneration(
+    if (task.bffRequestId) {
+      await resumeGeneration(
+        {
+          settings: requestSettings,
+          prompt: task.prompt,
+          params: task.params,
+          requestId: task.bffRequestId,
+        },
+        job,
+        report,
+      )
+      return
+    }
+
+    await resumeGeneration(
       {
         settings: requestSettings,
         prompt: task.prompt,
         params: task.params,
-        requestId: task.bffRequestId,
+        ...(task.clientRequestId ? { clientRequestId: task.clientRequestId } : {}),
+        // 输入图只存了 id，位图现从 IndexedDB 读回来。**交给 module 在受监管的范围内读**：
+        // 读不回来也是这一次提交失败，要与请求失败一样标错、一样发结算通知。
+        resend: async () => {
+          const inputs = await loadTaskInputs(task)
+          // 遮罩位图记到句柄上：出片后据它判断草稿还是不是这次用的那张。
+          if (inputs.maskDataUrl) job.maskDataUrl = inputs.maskDataUrl
+          return {
+            prompt: requestPromptOf(task, inputs.inputDataUrls.length),
+            inputImageDataUrls: inputs.inputDataUrls,
+            ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+          }
+        },
       },
       job,
       report,
     )
+  } finally {
+    releaseGenerationTask(task.id)
   }
-
-  return resumeGeneration(
-    {
-      settings: requestSettings,
-      prompt: task.prompt,
-      params: task.params,
-      ...(task.clientRequestId ? { clientRequestId: task.clientRequestId } : {}),
-      // 输入图只存了 id，位图现从 IndexedDB 读回来。**交给 module 在受监管的范围内读**：
-      // 读不回来也是这一次提交失败，要与请求失败一样标错、一样发结算通知。
-      resend: async () => {
-        const inputs = await loadTaskInputs(task)
-        // 遮罩位图记到句柄上：出片后据它判断草稿还是不是这次用的那张。
-        if (inputs.maskDataUrl) job.maskDataUrl = inputs.maskDataUrl
-        return {
-          prompt: requestPromptOf(task, inputs.inputDataUrls.length),
-          inputImageDataUrls: inputs.inputDataUrls,
-          ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
-        }
-      },
-    },
-    job,
-    report,
-  )
 }
 
 export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
@@ -2821,9 +2855,8 @@ subscribeChannels(() => {
   const current = useStore.getState().settings
   const next = normalizeSettings(current)
   if (next !== current) useStore.setState({ settings: next })
-  if (!resumePlatformTasksOnCatalog) return
-  resumePlatformTasksOnCatalog = false
-  resumeLoadedPlatformTasks()
+  if (pendingCatalogResumeIds.size === 0) return
+  resumePendingCatalogTasks()
 })
 
 export function blobToDataUrl(blob: Blob): Promise<string> {
