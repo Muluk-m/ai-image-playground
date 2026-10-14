@@ -5,19 +5,13 @@
 # `--build-arg PRIVATE_OVERLAY_PRESENT=true`.
 FROM scratch AS private-overlay
 
-# The public lockfile carries the private/apps/* importers, so pnpm fetches their
-# dependencies only when the overlay manifests are present at install time.
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS private-manifests
-COPY --from=private-overlay / /overlay/private
-RUN mkdir -p /overlay/private \
-  && find /overlay/private ! -type d ! -name package.json -delete \
-  && find /overlay/private -mindepth 1 -type d -empty -delete
-
 # One release image runs every application role. Compose selects nginx, BFF,
 # worker, or Admin with APP_ROLE and command; both deployment projects reuse the
 # same immutable image and the web role writes its runtime config at startup.
+# The admin proxy during rollout also starts this image with `--entrypoint nginx`.
 
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS deps
+# Shared toolchain. internal, paid, and test all start here.
+FROM --platform=$BUILDPLATFORM oven/bun:1-slim AS pnpm-base
 WORKDIR /app
 
 # packageManager is the source of truth for pnpm. @pnpm/exe supplies a native
@@ -27,6 +21,9 @@ RUN --mount=type=bind,source=package.json,target=/tmp/root-package.json \
   bun install -g \
   "@pnpm/exe@$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' /tmp/root-package.json)"
 
+# Public workspace install. No overlay files and no PRIVATE_OVERLAY_PRESENT, so
+# the three environments reuse this layer. The overlay install is a later stage.
+FROM pnpm-base AS public-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/bff/package.json ./apps/bff/
@@ -34,9 +31,6 @@ COPY apps/admin/package.json ./apps/admin/
 COPY packages/db/package.json ./packages/db/
 COPY packages/node-kit/package.json ./packages/node-kit/
 COPY packages/shared/package.json ./packages/shared/
-COPY --from=private-manifests /overlay/private ./private
-ARG PRIVATE_OVERLAY_PRESENT=false
-RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private; fi
 
 # Compile with the builder's native CPU (Bun/JSC cannot reliably run under QEMU).
 # Also install the target optional binaries, especially sharp, for the runtime image.
@@ -44,6 +38,25 @@ ARG TARGETARCH
 RUN case "$TARGETARCH" in amd64) cpu=x64 ;; arm64) cpu=arm64 ;; *) exit 1 ;; esac \
   && printf '\nsupportedArchitectures:\n  os: [linux]\n  cpu: [current, %s]\n  libc: [glibc]\n' "$cpu" >> pnpm-workspace.yaml \
   && pnpm install --frozen-lockfile
+
+# The public lockfile carries the private/apps/* importers, so pnpm fetches their
+# dependencies only when the overlay manifests are present at install time.
+FROM pnpm-base AS private-manifests
+COPY --from=private-overlay / /overlay/private
+RUN mkdir -p /overlay/private \
+  && find /overlay/private ! -type d ! -name package.json -delete \
+  && find /overlay/private -mindepth 1 -type d -empty -delete
+
+FROM public-deps AS deps
+COPY --from=private-manifests /overlay/private ./private
+ARG PRIVATE_OVERLAY_PRESENT=false
+# Online on purpose: the public install above did not see these manifests, so
+# their tarballs are not in the store yet. Everything else stays cached.
+RUN if [ "$PRIVATE_OVERLAY_PRESENT" = "true" ]; then \
+      pnpm install --frozen-lockfile; \
+    else \
+      rm -rf /app/private; \
+    fi
 
 FROM deps AS web-build
 WORKDIR /app
@@ -70,42 +83,160 @@ RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkd
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/admin build
 
-FROM oven/bun:1 AS runtime
+# Production tree for the processes this image actually runs. Frontend packages
+# stay in the build stages above; pnpm deploy --prod does not copy them.
+FROM deps AS runtime-deps
 WORKDIR /app
-
-# ffmpeg extracts a few scaled stills for viewVideo. It does not re-encode films (ADR 0010).
-RUN apt-get update \
-  && apt-get install --yes --no-install-recommends nginx ffmpeg \
-  && rm -rf /var/lib/apt/lists/* /usr/share/nginx/html/* \
-  && rm -f /etc/nginx/sites-enabled/default
-
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/bff/node_modules ./apps/bff/node_modules
-COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
-COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
-COPY --from=deps /app/packages/node-kit/node_modules ./packages/node-kit/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
-
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY LICENSE ./
 COPY apps/bff ./apps/bff
-COPY apps/admin/package.json ./apps/admin/package.json
 COPY apps/admin/server ./apps/admin/server
 COPY apps/admin/contracts.ts ./apps/admin/contracts.ts
 COPY packages/db ./packages/db
 COPY packages/node-kit ./packages/node-kit
 COPY packages/shared ./packages/shared
+COPY --from=private-overlay / /tmp/private-overlay
+# pnpm 10 refuses to deploy a workspace unless dependencies are injected, so the
+# output is a real copy instead of a symlink back into this stage. The setting
+# stays in this stage: the build installs above keep the normal workspace links.
+# Elysia peers typescript and drizzle-orm peers bun-types; both are type-only
+# and optional. They are removed after deploy. sharp's optional native binaries
+# stay, so this is not a global --no-optional install.
+RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
+  && mkdir -p /app/private /out/private-src /out/private-bff/node_modules \
+  && if [ -n "$(find /tmp/private-overlay -mindepth 1 -print -quit)" ]; then \
+       cp -a /tmp/private-overlay/. /app/private/; \
+     fi \
+  && pnpm --filter @image-playground/bff --prod deploy /out/bff \
+  && pnpm --filter @image-playground/admin --prod deploy /out/admin \
+  && if [ -f /app/private/apps/bff/package.json ]; then \
+       pnpm --filter ./private/apps/bff --prod deploy /out/private-bff; \
+     fi \
+  && if [ -d /app/private ]; then cp -a /app/private/. /out/private-src/; fi \
+  && find /out/private-src -type d -name node_modules -print0 | xargs -0r rm -rf \
+  && find /out \( -type d -o -type l \) \( \
+       -name typescript -o -name bun-types -o -path '*/node_modules/@types/bun' \
+     \) -print0 | xargs -0r rm -rf \
+  && for path in \
+       /out/bff/src/index.ts \
+       /out/bff/channels.json \
+       /out/bff/skills \
+       /out/bff/node_modules/sharp \
+       /out/bff/node_modules/@image-playground/db/drizzle/meta/_journal.json \
+       /out/admin/server/index.ts \
+       /out/admin/contracts.ts; do \
+       test -e "$path" || { echo "missing $path" >&2; exit 1; }; \
+     done \
+  && for root in /out/bff /out/admin /out/private-bff; do \
+       [ -d "$root" ] || continue; \
+       find "$root" -type l > /tmp/deploy-links; \
+       while IFS= read -r link; do \
+         target=$(readlink -f "$link") || { echo "dangling symlink $link" >&2; exit 1; }; \
+         case "$target" in \
+           "$root"/*) ;; \
+           *) echo "symlink escapes $root: $link -> $target" >&2; exit 1 ;; \
+         esac; \
+       done < /tmp/deploy-links; \
+     done \
+  && find /out -path '*/node_modules/*' -type d \( \
+       -name workerd -o -name miniflare -o -name wrangler -o -name drizzle-kit \
+       -o -name lucide-react -o -name date-fns -o -name date-fns-jalali \
+       -o -name '@biomejs' -o -name turbo -o -name typescript \
+     \) > /tmp/banned-packages \
+  && if [ -s /tmp/banned-packages ]; then \
+       echo "dev or frontend packages in the runtime deploy:" >&2; \
+       cat /tmp/banned-packages >&2; \
+       exit 1; \
+     fi \
+  && echo "sharp-libvips:" \
+  && find /out -path '*/node_modules/.pnpm/*' -prune -name '*sharp-libvips*' -printf '%f\n' | sort -u \
+  && echo "esbuild:" \
+  && find /out -path '*/node_modules/.pnpm/*' -prune -name 'esbuild@*' -printf '%f\n' | sort -u \
+  && libvips=$(find /out -path '*/node_modules/.pnpm/*' -prune -name '*sharp-libvips*' -printf '%f\n' | sed 's/.*@//' | sort -u | grep -c . || true) \
+  && esbuilds=$(find /out -path '*/node_modules/.pnpm/*' -prune -name 'esbuild@*' -printf '%f\n' | sed 's/.*@//' | sort -u | grep -c . || true) \
+  && [ "$libvips" -le 1 ] && [ "$esbuilds" -le 1 ]
+
+# viewVideo only demuxes a local mp4/matroska/avi and writes a scaled JPEG.
+# Debian's ffmpeg package pulls the full codec library stack (~hundreds of MB).
+# FFmpeg's own libraries are linked statically. AV1 still needs dav1d, which
+# Debian ships only as a shared library, so that one .so is copied into the runtime.
+FROM debian:trixie-slim AS ffmpeg-build
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends \
+    build-essential ca-certificates curl nasm pkg-config xz-utils zlib1g-dev libdav1d-dev \
+  && rm -rf /var/lib/apt/lists/*
+ARG FFMPEG_VERSION=8.0
+ARG FFMPEG_SHA256=b2751fccb6cc4c77708113cd78b561059b6fa904b24162fa0be2d60273d27b8e
+WORKDIR /src
+RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+  && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - \
+  && tar -xf ffmpeg.tar.xz
+WORKDIR /src/ffmpeg-${FFMPEG_VERSION}
+RUN ./configure \
+    --prefix=/opt/ffmpeg \
+    --disable-shared \
+    --enable-static \
+    --disable-debug \
+    --disable-doc \
+    --disable-ffplay \
+    --disable-gpl \
+    --disable-nonfree \
+    --enable-small \
+    --enable-libdav1d \
+    --extra-cflags=-Os \
+    --disable-encoders \
+    --enable-encoder=mjpeg \
+    --disable-muxers \
+    --enable-muxer=mjpeg \
+    --enable-muxer=image2 \
+    --disable-devices \
+    --disable-protocols \
+    --enable-protocol=file \
+    --enable-protocol=pipe \
+    --enable-protocol=crypto \
+  && make -j2 \
+  && make install \
+  && strip /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe \
+  && mkdir -p /opt/ffmpeg/lib \
+  && cp -a /usr/lib/x86_64-linux-gnu/libdav1d.so.7 /usr/lib/x86_64-linux-gnu/libdav1d.so.7.0.0 /opt/ffmpeg/lib/ \
+  && ldd /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe \
+  && unexpected=$(ldd /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe | awk '/=>/ {print $1}' | grep -Ev '^(libdav1d\.so\.7|libz\.so\.1|libm\.so\.6|libc\.so\.6|libdl\.so\.2|libpthread\.so\.0|ld-linux-x86-64\.so\.2)$' || true) \
+  && if [ -n "$unexpected" ]; then echo "$unexpected" >&2; exit 1; fi \
+  && ls -lh /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /opt/ffmpeg/lib
+
+FROM oven/bun:1-slim AS runtime
+WORKDIR /app
+
+# nginx serves the web role and the rollout admin proxy (`--entrypoint nginx`).
+# ca-certificates keeps Bun's outbound HTTPS working on the slim base.
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates nginx \
+  && rm -rf /var/lib/apt/lists/* /usr/share/nginx/html/* /usr/share/doc /usr/share/man \
+  && rm -f /etc/nginx/sites-enabled/default
+
+COPY --from=ffmpeg-build /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /usr/local/bin/
+COPY --from=ffmpeg-build /usr/lib/x86_64-linux-gnu/libdav1d.so.7.0.0 /usr/local/lib/libdav1d.so.7.0.0
+RUN ln -s libdav1d.so.7.0.0 /usr/local/lib/libdav1d.so.7 \
+  && echo /usr/local/lib > /etc/ld.so.conf.d/dav1d.conf \
+  && ldconfig
+
+COPY --from=runtime-deps /out/bff ./apps/bff
+COPY --from=runtime-deps /out/admin ./apps/admin
+COPY --from=runtime-deps /out/private-src ./private
+COPY --from=runtime-deps /out/private-bff/node_modules ./private/apps/bff/node_modules
+
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
-# `private-overlay` is empty by default and populated only by an explicit private-overlay build.
-COPY --from=web-build /app/private ./private
 
+COPY package.json LICENSE ./
 # Both ingress shapes ship in the image; the entrypoint installs the one APP_INGRESS_MODE selects.
 COPY deploy/nginx.conf deploy/nginx.api-only.conf deploy/nginx.proxy.conf ./deploy/
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY scripts/check-dependencies.ts ./scripts/check-dependencies.ts
 COPY scripts/release-router.ts ./scripts/release-router.ts
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+  && nginx -v \
+  && ffmpeg -version \
+  && ffprobe -version \
+  && test -e /etc/ssl/certs/ca-certificates.crt
 
 LABEL app.execution-protocol="1"
 ENV APP_ROLE=bff

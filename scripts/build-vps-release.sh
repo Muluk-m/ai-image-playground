@@ -74,6 +74,17 @@ build_image() {
   remote=$ghcr_repository:$2
   context=$3
   shift 3
+  # internal, paid, and test are separate workflow runs. A registry cache of the
+  # intermediate stages lets the next run reuse the public install and, when the
+  # overlay matches, the private stages. The backup image uses another Dockerfile;
+  # exporting it would replace this cache, so only the last application edition
+  # writes it. Archive transport has no registry credentials.
+  if [ "$transport" = registry ]; then
+    set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache" "$@"
+    if [ "${export_build_cache:-0}" = 1 ]; then
+      set -- --cache-to "type=registry,ref=${ghcr_repository}:buildcache,mode=max" "$@"
+    fi
+  fi
   if [ "$transport" = registry ]; then
     docker buildx build --builder "$builder" --platform linux/amd64 \
       --provenance=false --sbom=false --metadata-file "$snapshot/metadata.json" \
@@ -100,10 +111,18 @@ cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
 cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
 : > "$output/images.tsv"
 images=
+last_edition=
+for edition in $editions; do
+  last_edition=$edition
+done
 for edition in $editions; do
   version=$public_sha
   image=ai-image-playground:vps-main-$(printf %.12s "$public_sha")
   registry_tag=internal-$(printf %.12s "$public_sha")
+  export_build_cache=0
+  if [ "$edition" = "$last_edition" ]; then
+    export_build_cache=1
+  fi
   set --
   if [ "$edition" = paid ] || [ "$edition" = test ]; then
     version=$public_sha+$private_sha
@@ -118,6 +137,8 @@ for edition in $editions; do
   images="$images $image"
 done
 # The backup sidecar is also prebuilt; production Compose has no build context.
+# Do not export its layers into the application build cache.
+export_build_cache=0
 backup_image=ai-image-playground:backup-$(printf %.12s "$public_sha")
 build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/backup" \
   --build-arg "APP_VERSION=$public_sha"
