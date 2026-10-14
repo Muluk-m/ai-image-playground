@@ -8,6 +8,7 @@ import { useState } from 'react'
 import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { cn } from '../../../lib/utils'
 
@@ -67,12 +68,13 @@ export default function ScriptBriefDialog({
       <p className="mb-3 text-sm text-muted-foreground">{t('scriptBrief.hint')}</p>
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         {SCRIPT_BRIEFS.map((item) => (
-          <button
+          <Button
             key={item.id}
             type="button"
+            variant="ghost"
             aria-pressed={brief.id === item.id}
             className={cn(
-              'w-28 shrink-0 overflow-hidden rounded-xl text-left ring-1',
+              'h-auto w-28 shrink-0 flex-col items-stretch justify-start gap-0 overflow-hidden whitespace-normal rounded-xl p-0 text-left font-normal ring-1 hover:bg-transparent',
               brief.id === item.id ? 'ring-primary' : 'ring-hairline',
             )}
             onClick={() => setBrief(copyBrief(item))}
@@ -81,7 +83,7 @@ export default function ScriptBriefDialog({
               <img src={item.coverUrl} alt="" className="h-16 w-full object-cover" />
             )}
             <span className="block px-2 py-1.5 text-sm font-medium">{item.title}</span>
-          </button>
+          </Button>
         ))}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -96,23 +98,23 @@ export default function ScriptBriefDialog({
           <label key={field} className="flex flex-col gap-1 text-xs text-muted-foreground">
             <span className="flex items-center justify-between gap-2">
               {labels[field]}
-              <button
+              <Button
                 type="button"
-                className="text-primary"
+                variant="link"
+                className="h-auto px-0 text-xs"
                 onClick={() => setField(field, SCRIPT_BRIEF_AUTO)}
               >
                 {t('scriptBrief.auto')}
-              </button>
+              </Button>
             </span>
             <Input value={brief[field]} onChange={(event) => setField(field, event.target.value)} />
           </label>
         ))}
         <label className="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
           {t('scriptBrief.outline')}
-          <textarea
+          <Textarea
             value={brief.outline}
             rows={4}
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm text-foreground"
             onChange={(event) =>
               setBrief((current) => ({ ...current, outline: event.target.value }))
             }
@@ -137,10 +139,9 @@ export default function ScriptBriefDialog({
         </div>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
           {t('scriptBrief.episode1')}
-          <textarea
+          <Textarea
             value={brief.episode1}
             rows={4}
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm text-foreground"
             onChange={(event) =>
               setBrief((current) => ({ ...current, episode1: event.target.value }))
             }
