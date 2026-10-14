@@ -290,12 +290,17 @@ it('仅支持比例的模型在自定义里填预设比例：仍回显实际比�
 it('selects and remembers thinking depth independently of the image model', () => {
   render()
   toggle()
+  expect(trigger().querySelector('[data-thinking-depth="medium"]')).not.toBeNull()
+
   act(() => option('思考深度', '深度').click())
   expect(option('思考深度', '深度').getAttribute('aria-pressed')).toBe('true')
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
-  // 思考深度不进摘要；偏离默认时保留状态标记。
-  expect(trigger().hasAttribute('data-dirty')).toBe(true)
+  // 侧栏放不下「思考：深度」，收起后用刻度标在画幅后面；读屏名仍带上这一档。
+  expect(trigger().querySelector('[data-thinking-depth="deep"]')).not.toBeNull()
+  expect(trigger().textContent).not.toContain('深度')
+  expect(trigger().getAttribute('aria-label')).toContain('思考：深度')
+  expect(trigger().hasAttribute('data-dirty')).toBe(false)
 })
 
 it('制作模式仅调整思考深度，不显示图片摘要或修改全局图片参数', () => {
@@ -305,6 +310,7 @@ it('制作模式仅调整思考深度，不显示图片摘要或修改全局图�
   const buttons = host.querySelectorAll<HTMLButtonElement>('button')
   expect(buttons).toHaveLength(1)
   expect(buttons[0]!.textContent).toContain('思考：')
+  expect(buttons[0]!.querySelector('[data-thinking-depth="medium"]')).not.toBeNull()
   expect(buttons[0]!.textContent).not.toContain('自动尺寸')
   act(() => buttons[0]!.click())
   expect(group('思考深度')).not.toBeNull()
