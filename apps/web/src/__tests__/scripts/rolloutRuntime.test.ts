@@ -278,7 +278,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     const args = readFileSync(join(root, 'args'), 'utf8').split('\n')
     expect(
       args.filter((arg) => arg === `fluentd-address=unix://${socketDir}/forward.sock`),
-    ).toHaveLength(4)
+    ).toHaveLength(3)
     expect(args).not.toContain(`fluentd-address=unix://${root}/path`)
   })
   it('does not leave a rollout lock when its log directory cannot be created', () => {
@@ -382,21 +382,37 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
   })
 
-  it('keeps the admin name resolving while the new admin starts, and leaves a running tunnel up', () => {
+  it('publishes a new admin only after it is healthy, and leaves a running tunnel up', () => {
     currentGeneration()
     container('fixture-admin-1', { image: 'fixture:old' })
     container('fixture-cloudflared-1')
     const result = run()
 
     expect(result.status).toBe(0)
-    const started = indexOf(result.log, /^run .*--name fixture-admin-next /)
-    const swapped = indexOf(result.log, /^compose .* up --detach --no-deps --wait admin$/)
-    const removed = indexOf(result.log, /^rm -f fixture-admin-next$/)
+    const started = indexOf(result.log, /^run .*--name fixture-r\d+-\d+-admin /)
+    const ready = indexOf(result.log, /^exec fixture-r\d+-\d+-admin GET \/health/)
+    const joined = indexOf(
+      result.log,
+      /^network connect fixture_application fixture-r\d+-\d+-admin$/,
+    )
+    const proxy = indexOf(result.log, /^run .*--name fixture-admin-proxy /)
+    const switched = indexOf(result.log, /^exec fixture-admin-proxy nginx -s reload$/)
+    const detached = indexOf(result.log, /^network disconnect fixture_application fixture-admin-1$/)
+    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-1$/)
     expect(started).toBeGreaterThan(-1)
-    expect(started).toBeLessThan(swapped)
-    expect(removed).toBeGreaterThan(swapped)
-    expect(result.log[started]).toContain('--network-alias admin')
-    expect(exists('fixture-admin-next')).toBe(false)
+    expect(result.log[started]).toContain('--network image-playground-infra')
+    expect(result.log[started]).not.toContain('--network-alias admin')
+    expect(result.log[proxy]).toContain('--network-alias admin')
+    expect(ready).toBeGreaterThan(started)
+    expect(joined).toBeGreaterThan(ready)
+    expect(proxy).toBeGreaterThan(ready)
+    expect(switched).toBeGreaterThan(proxy)
+    expect(switched).toBeGreaterThan(joined)
+    expect(detached).toBeGreaterThan(switched)
+    expect(stopped).toBeGreaterThan(detached)
+    expect(result.log).not.toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
+    )
     expect(result.log).not.toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
     )
