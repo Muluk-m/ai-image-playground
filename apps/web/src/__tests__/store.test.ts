@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const failTaskPuts = vi.hoisted(() => new Set<string>())
+
 import type { AssetRecord, LookRecord, TemplateRecord } from '../features/library/types'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
@@ -18,6 +21,7 @@ vi.mock('../lib/db', () => {
     CURRENT_THUMBNAIL_VERSION: 2,
     getAllTasks: async () => [...tasks.values()],
     putTask: async (task: TaskRecord) => {
+      if (failTaskPuts.has(task.id)) throw new Error('quota')
       tasks.set(task.id, task)
       return task.id
     },
@@ -156,10 +160,18 @@ import { IDBFactory } from 'fake-indexeddb'
 import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
 import { resumePendingSubmission } from '../auth/resumePendingSubmission'
 import { useLibraryStore } from '../features/library/store'
-import { callImageApi } from '../lib/api'
-import { setChannels } from '../lib/channels/channelStore'
+import { callImageApi, resumeQueueImageApi } from '../lib/api'
+import { resetChannelCatalog, setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
-import { clearImages, getAllImages, getAllTasks, getImage, putImage } from '../lib/db'
+import {
+  clearImages,
+  clearTasks,
+  getAllImages,
+  getAllTasks,
+  getImage,
+  putImage,
+  putTask,
+} from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -809,10 +821,203 @@ describe('interrupted OpenAI running tasks', () => {
     })
     expect(result.tasks.find((item) => item.id === 'custom-running')).toMatchObject({
       status: 'error',
-      error: expect.stringContaining('请求中断'),
+      error: expect.stringContaining('自带密钥'),
+      customRecoverable: false,
       finishedAt: now,
     })
     expect(result.tasks.find((item) => item.id === 'done-task')).toEqual(doneTask)
+  })
+
+  it('marks a stored bring-your-own-key task unrecoverable and still resumes a platform task', () => {
+    const now = 10_000
+    const byok = task({
+      id: 'byok-sync',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      clientRequestId: 'old-byok-key',
+      status: 'running',
+      createdAt: 1_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const platform = task({
+      id: 'platform-running',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      bffRequestId: 'req-platform',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const inflight = task({
+      id: 'platform-inflight',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      clientRequestId: 'idempotent-key',
+      platformTask: true,
+      status: 'running',
+      createdAt: 3_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+
+    const result = markInterruptedOpenAIRunningTasks([byok, platform, inflight], now)
+
+    expect(result.interruptedTasks.map((item) => item.id)).toEqual(['byok-sync'])
+    expect(result.tasks.find((item) => item.id === 'byok-sync')).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('自带密钥'),
+    })
+    expect(result.tasks.find((item) => item.id === 'platform-running')?.status).toBe('running')
+    expect(result.tasks.find((item) => item.id === 'platform-inflight')?.status).toBe('running')
+  })
+})
+
+describe('startup task migration', () => {
+  const channel: PublicChannel = {
+    id: 'default-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(async () => {
+    failTaskPuts.clear()
+    await clearTasks()
+    setChannels([channel])
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      tasks: [],
+    })
+  })
+
+  it('continues platform recovery when retiring an old task cannot be written', async () => {
+    const byok = task({
+      id: 'fail-write-byok',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      clientRequestId: 'old-byok-key',
+      status: 'running',
+      createdAt: 1_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const platform = task({
+      id: 'platform-running',
+      apiProvider: 'openai',
+      apiProfileId: channel.id,
+      apiModel: 'gpt-image-2',
+      bffRequestId: 'req-platform',
+      prompt: 'keep going',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    await putTask(byok)
+    await putTask(platform)
+    failTaskPuts.add(byok.id)
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(resumeQueueImageApi).mockReset()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await initStore()
+      expect(
+        errorSpy.mock.calls.some((call) => String(call[0]).includes('failed to persist')),
+      ).toBe(true)
+    } finally {
+      errorSpy.mockRestore()
+      failTaskPuts.clear()
+    }
+
+    expect(vi.mocked(callImageApi)).not.toHaveBeenCalled()
+    expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'keep going' }),
+      'req-platform',
+    )
+    expect(useStore.getState().tasks.find((item) => item.id === byok.id)).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('自带密钥'),
+    })
+  })
+})
+
+describe('saved creation selections before the channel catalog loads', () => {
+  it('keeps the saved model and parameters until the catalog settles', () => {
+    resetChannelCatalog()
+    useStore.setState({
+      createTarget: 'generate',
+      settings: { ...DEFAULT_SETTINGS, profiles: [], activeProfileId: '' },
+      creationSelections: {
+        chat: {
+          params: { ...DEFAULT_PARAMS, size: '1280x720', n: 2 },
+          profileId: 'openai-images',
+          model: 'gpt-image-2.5-sunburst',
+        },
+      },
+      params: { ...DEFAULT_PARAMS },
+    })
+
+    useStore.getState().setCreateTarget('chat')
+
+    expect(useStore.getState().creationSelections.chat).toMatchObject({
+      profileId: 'openai-images',
+      model: 'gpt-image-2.5-sunburst',
+    })
+    expect(useStore.getState().params).toMatchObject({ size: '1280x720', n: 2 })
+  })
+
+  it('drops a saved profile that is gone once the catalog has loaded', () => {
+    setChannels([
+      {
+        id: 'openai-images',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [{ id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
+    useStore.setState({
+      createTarget: 'generate',
+      params: { ...DEFAULT_PARAMS, size: '1024x1024' },
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: 'openai-images',
+            source: 'builtin-edge',
+            channelId: 'openai-images',
+            selectedModelId: 'gpt-image-2.5-flare',
+          },
+        ],
+        activeProfileId: 'openai-images',
+      }),
+      creationSelections: {
+        chat: {
+          params: { ...DEFAULT_PARAMS, size: '1280x720', n: 2 },
+          profileId: 'missing-byok',
+          model: 'gpt-image-2',
+        },
+      },
+    })
+
+    useStore.getState().setCreateTarget('chat')
+
+    expect(useStore.getState().creationSelections.chat).toBeUndefined()
+    expect(useStore.getState().params.size).toBe('1024x1024')
   })
 })
 

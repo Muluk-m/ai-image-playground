@@ -8,6 +8,7 @@
   },
   "task": {
     "interrupted": "请求中断",
+    "byokUnrecoverable": "这条自带密钥的任务无法再恢复，请重新生成",
     "timeout": "请求超时：超过 {{timeoutSeconds}} 秒仍未完成，请稍后重试或提高超时时间。",
     "profileMissing": "找不到此任务所使用的 API 配置。",
     "inputImageMissing": "输入图片已不存在",

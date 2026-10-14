@@ -2,12 +2,15 @@ import { applyPromptRewriteGuard, buildAspectInstruction } from '@image-playgrou
 import { i18next } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
+import { ensureChannelsLoaded } from './channels/bootstrapChannels'
+import { channelsSettled } from './channels/channelStore'
 import { modelSupportsNativeMask } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import { compressInputImageDataUrls } from './compressInputImage'
 import type { CallApiOptions, CallApiResult } from './imageApiShared'
 import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
+import { getRuntimeConfig } from './runtimeConfig'
 
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
 
@@ -47,13 +50,28 @@ function withNormalizedParams(opts: CallApiOptions): CallApiOptions {
   }
 }
 
+async function resolveDispatchChannel(channelId: string) {
+  if (!channelId) {
+    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: channelId }))
+  }
+  if (!getPublicChannel(channelId) && !channelsSettled() && getRuntimeConfig().bff.enabled) {
+    await ensureChannelsLoaded()
+  }
+  const channel = getPublicChannel(channelId)
+  if (channel) return channel
+  throw new Error(
+    i18next.t(channelsSettled() ? 'dispatch.channelNotFound' : 'dispatch.channelsUnavailable', {
+      ns: 'lib',
+      id: channelId,
+    }),
+  )
+}
+
 export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
   opts = withNormalizedParams(opts)
 
   const profile = getActiveApiProfile(opts.settings)
-  if (!profile.channelId) {
-    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
-  }
+  const channel = await resolveDispatchChannel(profile.channelId)
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
   // n>1 时上层已 fan-out 成多条 task，各自合成同一张标注图（输入相同、开销可接受），
@@ -85,9 +103,6 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
     }
   }
 
-  const channel = getPublicChannel(profile.channelId)
-  if (!channel)
-    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
   // 全部走 queue：浏览器 → BFF 都是 < 1s 短请求，永远绕开 CF Edge ~60s 死线。
   // 生成 / 编辑 / mask 编辑都靠 BFF worker 调上游区分。
   if (toQueueProvider(channel.kind) === null) {
@@ -110,9 +125,7 @@ export async function resumeQueueImageApi(
   if (!profile.channelId) {
     throw new Error(i18next.t('dispatch.resumeProfileMissing', { ns: 'lib' }))
   }
-  const channel = getPublicChannel(profile.channelId)
-  if (!channel)
-    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
+  const channel = await resolveDispatchChannel(profile.channelId)
   if (toQueueProvider(channel.kind) === null) {
     throw new Error(i18next.t('dispatch.resumeKindNotQueue', { ns: 'lib', kind: channel.kind }))
   }

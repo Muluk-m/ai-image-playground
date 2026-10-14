@@ -139,6 +139,11 @@ export interface TaskRecord {
   customTaskId?: string
   /** 旧版自带密钥任务的自动重连标记。读到就清掉，避免界面停在重连中。 */
   customRecoverable?: boolean
+  /**
+   * 这条任务是平台队列任务。旧的自带密钥记录没有这个标记，也没有
+   * `bffRequestId`，刷新后不能当成平台任务重提交。
+   */
+  platformTask?: true
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
   /** Server-reported durable queue phase; absent for older BFFs. */

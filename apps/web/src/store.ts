@@ -21,6 +21,7 @@ import {
 import { pathAppMode } from './lib/appPaths'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
+import { channelsSettled, subscribeChannels } from './lib/channels/channelStore'
 import { getProfileModels, updateSelectedModel } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
@@ -903,12 +904,15 @@ export const useStore = create<AppState>()(
         const candidate = createTarget === 'video' ? undefined : selections[nextKey]
         const savedProfile =
           candidate?.profileId && state.settings.profiles.find((p) => p.id === candidate.profileId)
-        // 还没有平台渠道时，这个模式只记住了参数。渠道清单还没到时也不能把参数丢掉。
-        // 清单到了、模型已经不在上面，才算这次选择作废。
+        // 清单还没到时，档案可能还没注入，这次选择先留着。
+        // 清单到了、档案不在了或模型已经不在上面，才算这次选择作废。
+        const catalogPending = !channelsSettled()
+        const waitingForCatalog = Boolean(candidate?.profileId && !savedProfile && catalogPending)
         const models = savedProfile ? clientProfileToApiProfile(savedProfile).models : undefined
         const saved =
           candidate &&
-          (!candidate.profileId ||
+          (waitingForCatalog ||
+            !candidate.profileId ||
             (savedProfile && (models === undefined || models.includes(candidate.model))))
             ? candidate
             : undefined
@@ -917,7 +921,7 @@ export const useStore = create<AppState>()(
           createTarget,
           creationSelections: selections,
           ...(saved ? { params: saved.params } : {}),
-          ...(saved?.profileId
+          ...(saved?.profileId && savedProfile
             ? {
                 settings: {
                   ...state.settings,
@@ -1016,26 +1020,33 @@ function genId(): string {
   return Date.now().toString(36) + (++uid).toString(36) + Math.random().toString(36).slice(2, 6)
 }
 
-function isOpenAITask(_task: TaskRecord) {
-  return true
+/**
+ * 能接着跑的只有平台队列任务：已经有队列号，或是这次版本写下的平台任务
+ * （带幂等键）。旧的自带密钥任务只有 clientRequestId / customTaskId，没有这两样。
+ */
+function isResumablePlatformTask(task: TaskRecord): boolean {
+  if (task.status !== 'running') return false
+  if (task.bffRequestId || task.queuePhase) return true
+  return task.platformTask === true && Boolean(task.clientRequestId) && !task.customTaskId
 }
 
-function isRunningOpenAITask(task: TaskRecord) {
-  return task.status === 'running' && isOpenAITask(task)
+function isRetiredByokTask(task: TaskRecord): boolean {
+  if (task.bffRequestId || task.queuePhase || task.platformTask) return false
+  return Boolean(task.customTaskId || task.customRecoverable || task.clientRequestId)
 }
 
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
   const interruptedTasks: TaskRecord[] = []
   const updatedTasks = tasks.map((task) => {
-    // 有 bffRequestId → 续 poll。只有幂等键、且不是旧自带密钥任务 → 重提交。
-    // 旧的自带密钥异步任务已经无法续上，标成中断。
-    if (!isRunningOpenAITask(task) || task.bffRequestId) return task
-    if (task.clientRequestId && !task.customTaskId) return task
+    if (task.status !== 'running' || isResumablePlatformTask(task)) return task
 
     const updated: TaskRecord = {
       ...task,
       status: 'error',
-      error: createOpenAIInterruptedError(),
+      error: isRetiredByokTask(task)
+        ? i18next.t('task.byokUnrecoverable', { ns: 'store' })
+        : createOpenAIInterruptedError(),
+      customRecoverable: false,
       finishedAt: now,
       elapsed: Math.max(0, now - task.createdAt),
     }
@@ -1230,6 +1241,16 @@ async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>>
   return ids
 }
 
+/** 迁移写入失败不能挡住后面的平台任务恢复。 */
+async function persistTaskMigration(tasks: readonly TaskRecord[]): Promise<void> {
+  const results = await Promise.allSettled(tasks.map((task) => putTask(task)))
+  for (const [index, result] of results.entries()) {
+    if (result.status === 'rejected') {
+      console.error('[tasks] failed to persist task migration', tasks[index]?.id, result.reason)
+    }
+  }
+}
+
 /** 初始化：从 IndexedDB 加载任务与平台记录缓存，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   let tasks: TaskRecord[]
@@ -1237,7 +1258,7 @@ export async function initStore() {
     const storedTasks = await getAllTasks()
     const marked = markInterruptedOpenAIRunningTasks(storedTasks)
     tasks = marked.tasks
-    await Promise.all(marked.interruptedTasks.map((task) => putTask(task)))
+    await persistTaskMigration(marked.interruptedTasks)
     useStore.getState().setTasks(tasks)
   } finally {
     // 读盘失败也结束骨架，后面的清理仍不跑。
@@ -1252,17 +1273,12 @@ export async function initStore() {
     )
     tasks = cleared
     useStore.getState().setTasks(cleared)
-    await Promise.all(retiredCustom.map((task) => putTask({ ...task, customRecoverable: false })))
+    await persistTaskMigration(retiredCustom.map((task) => ({ ...task, customRecoverable: false })))
   }
   for (const task of tasks) {
-    // 刷新前没跑完的任务：持有 request_id 就续 poll；只有幂等键（submit 还没返回就刷新了）
-    // 就照原样重提交，BFF 端去重，不会重复消耗上游配额。
-    // 只有旧自带密钥任务号、没有队列号的，前面已经标成中断，这里不再续。
-    if (
-      task.status === 'running' &&
-      (task.bffRequestId || (task.clientRequestId && !task.customTaskId))
-    )
-      void resumeStoredTask(task)
+    // 刷新前没跑完的平台任务：持有 request_id 就续 poll；这次版本写下的平台任务
+    // 只有幂等键时照原样重提交，BFF 端去重。旧自带密钥任务已经标成不可恢复，这里不再续。
+    if (isResumablePlatformTask(task)) void resumeStoredTask(task)
   }
 
   const referencedIds = await imageIdsInUse(tasks)
@@ -1827,6 +1843,7 @@ function workbenchSink(
         finishedAt: null,
         elapsed: null,
         clientRequestId: unit.clientRequestId,
+        platformTask: true,
       }
       const tasks = useStore.getState().tasks
       useStore.getState().setTasks([...tasks.slice(0, inserted), task, ...tasks.slice(inserted)])
@@ -1851,6 +1868,7 @@ function workbenchSink(
  * 只有幂等键就照原样重提交，BFF 按键去重、不会双份消耗上游配额。
  */
 async function resumeStoredTask(task: TaskRecord): Promise<void> {
+  if (!isResumablePlatformTask(task)) return
   const { settings } = useStore.getState()
   const taskProfile = getTaskApiProfile(settings, task)
   if (!taskProfile && task.apiProfileId) {
@@ -2774,6 +2792,13 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file)
   })
 }
+
+subscribeChannels(() => {
+  if (!channelsSettled()) return
+  const current = useStore.getState().settings
+  const next = normalizeSettings(current)
+  if (next !== current) useStore.setState({ settings: next })
+})
 
 export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

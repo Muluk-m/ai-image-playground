@@ -1,5 +1,6 @@
 import { i18next } from '../i18n'
 import type { ApiMode, AppSettings } from '../types'
+import { channelsSettled } from './channels/channelStore'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from './channels/types'
 
@@ -60,6 +61,9 @@ export function normalizeClientProfile(input: unknown): ClientProfile | null {
 
 function injectBuiltinEdgeProfiles(stored: ClientProfile[]): ClientProfile[] {
   const channels = getPublicChannels()
+  // 清单还在路上时，留下已经存好的平台档案。空数组这时不是「没有渠道」，
+  // 不能把用户选的模型清掉；清单到达后再校验、再回退。
+  if (!channelsSettled()) return stored
   const existingByChannelId = new Map(stored.map((profile) => [profile.channelId, profile]))
 
   const builtinProfiles: BuiltinEdgeProfile[] = []

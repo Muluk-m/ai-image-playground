@@ -11,7 +11,7 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from '../../lib/apiProfiles'
-import { setChannels } from '../../lib/channels/channelStore'
+import { resetChannelCatalog, setChannels } from '../../lib/channels/channelStore'
 import type { PublicChannel } from '../../lib/channels/types'
 
 const CHANNEL: PublicChannel = {
@@ -131,7 +131,27 @@ describe('normalizeSettings migration', () => {
     expect(validateClientProfile(getActiveApiProfile(settings))).toMatch(/模型/)
   })
 
-  it('recomputes after channels arrive instead of reusing the empty normalization', () => {
+  it('keeps a saved platform model until the catalog settles, then validates it', () => {
+    resetChannelCatalog()
+    const saved = createBuiltinEdgeProfile('openai-images', 'gpt-image-2.5-sunburst')
+    const pending = normalizeSettings({ profiles: [saved], activeProfileId: saved.id })
+    expect(pending.profiles).toEqual([saved])
+    expect(pending.activeProfileId).toBe(saved.id)
+
+    setChannels([CHANNEL])
+    try {
+      const ready = normalizeSettings(pending)
+      expect(ready.profiles[0]?.selectedModelId).toBe('gpt-image-2.5-sunburst')
+
+      setChannels([{ ...CHANNEL, models: [CHANNEL.models[0]!] }])
+      const dropped = normalizeSettings(ready)
+      expect(dropped.profiles[0]?.selectedModelId).toBe('gpt-image-2.5-flare')
+    } finally {
+      setChannels([])
+    }
+  })
+
+  it('recomputes after a settled empty catalog gains channels', () => {
     setChannels([])
     const hydrated = normalizeSettings({
       profiles: [createBuiltinEdgeProfile('openai-images', 'gpt-image-2.5-sunburst')],
