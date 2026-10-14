@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {
   canvasOrigin,
+  connectCanvasNodes,
   createCanvasUndoManager,
   importLegacyElements,
   insertCanvasNode,
@@ -16,6 +17,15 @@ import NodeCanvas from '../../../../features/canvas/components/NodeCanvas'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
+import { useActiveLook } from '../../../../features/library/lib/activeLook'
+import { useLibraryStore } from '../../../../features/library/store'
+import type { AssetRecord, LookRecord } from '../../../../features/library/types'
+import {
+  createDefaultOpenAIByokProfile,
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+} from '../../../../lib/apiProfiles'
+import { useStore } from '../../../../store'
 import { stubPointerApis } from '../../../helpers/radix'
 
 const mocks = vi.hoisted(() => ({
@@ -615,4 +625,101 @@ it('creates an image node from the canvas prompt when nothing is selected', asyn
   expect(
     readCanvasDocument(canvas.doc).nodes.some((node) => node.data.meta?.nodePrompt === '窗台新叶'),
   ).toBe(false)
+})
+
+it('sends a preset template through the selected image node', async () => {
+  const params = useStore.getState().params
+  const settings = useStore.getState().settings
+  const noteLookUsed = useLibraryStore.getState().noteLookUsed
+  const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+  useStore.setState({
+    settings: normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [profile],
+      activeProfileId: profile.id,
+    }),
+  })
+  const look: LookRecord = {
+    id: 'amber',
+    name: '暖光窗台',
+    description: '暖光商品图',
+    purpose: 'hero',
+    body: '暖光商品图\n',
+    model: profile.selectedModelId,
+    size: '1024x1024',
+    slotCount: 1,
+    referenceImageIds: [],
+    coverImageId: null,
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+  }
+  const asset: AssetRecord = {
+    id: 'cup-asset',
+    name: '茶杯',
+    kind: 'product',
+    views: [{ imageId: 'cup', label: 'front', source: 'upload' }],
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+  }
+  useLibraryStore.setState({
+    looks: [look],
+    assets: [asset],
+    noteLookUsed: async () => {},
+  })
+  old.files = { ...old.files, cup: 'data:image/png;base64,CUP' }
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'cup',
+      type: 'image',
+      x: 220,
+      y: 20,
+      width: 100,
+      height: 100,
+      data: { fileId: 'cup', name: '茶杯', meta: { nodeKind: 'asset' } },
+    },
+    canvas.origin,
+  )
+  connectCanvasNodes(canvas.doc, { source: 'cup', target: 'image' }, canvas.origin)
+  try {
+    await render()
+    await act(async () => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+    const chip = [...host.querySelectorAll('[data-look-chips] button')].find((button) =>
+      button.textContent?.includes('暖光窗台'),
+    )
+    expect(chip).toBeTruthy()
+    await act(async () => chip!.click())
+    expect(host.querySelector('[data-look-capsule]')?.textContent).toContain('暖光窗台')
+    const input = host.querySelector(
+      'textarea[aria-label="描述你想生成的图片"]',
+    ) as HTMLTextAreaElement
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => {
+      setValue.call(input, '再亮一点')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.getAttribute('aria-label') === '生成')!
+        .click(),
+    )
+    expect(mocks.submitImage).toHaveBeenCalledWith(
+      expect.anything(),
+      canvas.doc,
+      'image',
+      '暖光商品图\n\n输入 1 = 素材「茶杯」\n\n再亮一点',
+      ['data:image/png;base64,CUP'],
+      undefined,
+      undefined,
+      expect.objectContaining({
+        params: expect.objectContaining({ size: '1024x1024' }),
+      }),
+    )
+  } finally {
+    useActiveLook.getState().set(null)
+    useLibraryStore.setState({ looks: [], assets: [], noteLookUsed })
+    useStore.setState({ params, settings })
+  }
 })

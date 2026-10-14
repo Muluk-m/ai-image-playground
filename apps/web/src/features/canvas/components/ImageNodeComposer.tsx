@@ -1,11 +1,12 @@
 import type { ChangeEvent, ReactNode } from 'react'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import Credits from '../../../components/Credits'
 import {
   CreationBody,
   CreationSend,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
+import LookChips, { LookCapsule } from '../../../components/LookChips'
 import ParamControls from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -14,6 +15,9 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/api
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import { applyLookToComposer, useActiveLook } from '../../library/lib/activeLook'
+import { checkLookSubmission } from '../../library/lib/lookSubmit'
+import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import { type NodeReference, referenceFileIds } from '../lib/nodeCanvasFlow'
 import { useNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
@@ -67,8 +71,22 @@ export default function ImageNodeComposer({
     model: clientProfileToApiProfile(profile).model,
     quantity: Math.max(1, count),
   })
+  const activeLook = useActiveLook((state) => state.look)
+  const libraryAssets = useLibraryStore((state) => state.assets)
+  const lookImages = useMemo(
+    () => references.flatMap((reference) => (reference.fileId ? [{ id: reference.fileId }] : [])),
+    [references],
+  )
+  const lookCheck = useMemo(
+    () => (activeLook ? checkLookSubmission(activeLook, lookImages, libraryAssets) : null),
+    [activeLook, lookImages, libraryAssets],
+  )
   const hasContext = references.some((ref) => ref.text || ref.fileId) || temporary.length > 0
-  const canSend = !busy && !uploading && (value.trim().length > 0 || hasContext)
+  const canSend =
+    !busy &&
+    !uploading &&
+    (lookCheck?.ok ?? true) &&
+    (value.trim().length > 0 || hasContext || Boolean(activeLook))
   const submit = () => {
     if (canSend) onSubmit(temporary.map((item) => item.url))
   }
@@ -125,6 +143,17 @@ export default function ImageNodeComposer({
             ))}
           </div>
         )}
+        {activeLook && (
+          <LookCapsule
+            look={activeLook}
+            issue={
+              lookCheck && !lookCheck.ok
+                ? { reason: 'slot_mismatch', expected: lookCheck.expected }
+                : null
+            }
+            onRemove={() => useActiveLook.getState().set(null)}
+          />
+        )}
         <NodePromptInput
           value={value}
           onChange={onChange}
@@ -165,6 +194,7 @@ export default function ImageNodeComposer({
         )}
         <ParamControls showCount />
       </CreationToolbar>
+      <LookChips onPick={applyLookToComposer} />
       <input
         ref={uploadInput}
         type="file"
