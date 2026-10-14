@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
+import { OverflowText } from '../../components/ui/overflowTitle'
 import {
   Select,
   SelectContent,
@@ -289,9 +290,7 @@ export default function ExportForm({
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs" title={source.name}>
-                        {source.name}
-                      </p>
+                      <OverflowText as="p" text={source.name} className="truncate text-xs" />
                       {originals[index] && (
                         <p className="text-label-sm text-muted-foreground tabular-nums">
                           {originals[index].width} × {originals[index].height} px

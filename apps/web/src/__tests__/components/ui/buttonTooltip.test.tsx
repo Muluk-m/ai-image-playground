@@ -110,8 +110,28 @@ it('preserves an asChild link when its label appears and disappears', async () =
     await act(async () => root.render(render(label)))
     expect(host.querySelector('a')).toBe(link)
     expect(document.activeElement).toBe(link)
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(label)
+    expect(link.getAttribute('aria-label')).toBe(label ?? null)
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
   }
+})
+
+it('does not turn a visible label into a tooltip', async () => {
+  act(() =>
+    root.render(
+      <>
+        <Button aria-label="编辑">编辑</Button>
+        <Button size="icon" aria-label="关闭">
+          <Icon name="close" />
+        </Button>
+      </>,
+    ),
+  )
+  const buttons = host.querySelectorAll('button')
+  await act(async () => buttons[0].focus())
+  expect(buttons[0].getAttribute('aria-label')).toBe('编辑')
+  expect(document.querySelector('[role="tooltip"]')).toBeNull()
+  await act(async () => buttons[1].focus())
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('关闭')
 })
 
 it('lets an intermediary trigger own the disabled reason and normal action label', async () => {
@@ -138,8 +158,12 @@ it('closes the previous tooltip across independent providers', async () => {
   act(() =>
     root.render(
       <>
-        <Button aria-label="编辑">编辑</Button>
-        <Button aria-label="保存">保存</Button>
+        <Button size="icon" aria-label="编辑">
+          <Icon name="edit" />
+        </Button>
+        <Button size="icon" aria-label="保存">
+          <Icon name="close" />
+        </Button>
       </>,
     ),
   )

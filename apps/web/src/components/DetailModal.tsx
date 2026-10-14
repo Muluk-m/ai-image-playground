@@ -28,6 +28,7 @@ import { ModelLogo } from './ModelIdentity'
 import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+import { OverflowText } from './ui/overflowTitle'
 
 export default function DetailModal() {
   const { t } = useTranslation(['task', 'common'])
@@ -856,9 +857,11 @@ export default function DetailModal() {
                       <div className="text-xs font-medium text-muted-foreground">
                         {t('rawUrls.imageIndex', { n: i + 1 })}
                       </div>
-                      <div className="text-sm text-foreground truncate select-text" title={url}>
-                        {url}
-                      </div>
+                      <OverflowText
+                        as="div"
+                        text={url}
+                        className="text-sm text-foreground truncate select-text"
+                      />
                     </div>
                     <Button
                       type="button"
