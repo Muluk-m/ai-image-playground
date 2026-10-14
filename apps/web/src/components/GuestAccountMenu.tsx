@@ -129,16 +129,17 @@ function MenuRow({
   onClick: () => void
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-left hover:bg-muted"
+      className="h-auto w-full justify-start px-2 py-2.5 font-normal"
     >
       <Icon name={icon} className="text-muted-foreground" />
-      <span className="flex-1">{label}</span>
+      <span className="flex-1 text-left">{label}</span>
       {trailing ? <span className="text-xs text-muted-foreground">{trailing}</span> : null}
       <Icon name="chevronRight" className="text-muted-foreground" />
-    </button>
+    </Button>
   )
 }
 
@@ -189,21 +190,23 @@ function Segment<T extends string>({
       </span>
       <div role="group" aria-label={label} className="flex rounded-lg bg-muted p-0.5">
         {options.map((option) => (
-          <button
+          <Button
             key={option.value}
             type="button"
+            size="xs"
+            variant="ghost"
             lang={option.lang}
             aria-pressed={value === option.value}
             className={cn(
-              'rounded-md px-2.5 py-1 text-xs',
+              'h-7 px-2.5 font-normal',
               value === option.value
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground',
+                ? 'bg-card text-foreground shadow-sm hover:bg-card'
+                : 'text-muted-foreground hover:bg-transparent',
             )}
             onClick={() => onChange(option.value)}
           >
             {option.label}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
