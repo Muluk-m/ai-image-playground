@@ -202,4 +202,10 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
   坐标是百分比，重新截图后要一起更新。
 - `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 由 `scripts/pages-release.sh` 按版本传给构建：有源才写 canonical、
   hreflang、JSON-LD 与 `sitemap.xml`；`SEARCH_INDEXING=false`（内部站、测试站）时 `robots.txt` 整站
-  Disallow 并给页面加 noindex。首页仍是 SPA，只在 head 里补元信息，社交分享图是 `public/og/muvloom-og.jpg`。
+  Disallow、给页面加 noindex，并且不产出 `sitemap.xml` 与 `llms.txt`。首页仍是 SPA，只在 head 里补元信息，
+  社交分享图是 `public/og/muvloom-og.jpg`。
+- `llms.txt` 的源稿是 [`src/seo/llms.txt`](./src/seo/llms.txt)。构建时丢掉含 `{{…}}` 占位符的句子，
+  以及指向尚未登记页面的链接；有 `PUBLIC_ORIGIN` 才把生产域名换成绝对地址。不要把未在页面上可见的 FAQ 写进 JSON-LD。
+- 公开页面登记在 [`src/seo/pages.ts`](./src/seo/pages.ts)。工作台路由、指南（由内容推导）和
+  `PRERENDERED_PAGES`（以后的着陆页、`/blog`）合进同一份 sitemap。指南有可靠的构建日期才写 `lastmod`，
+  有独立语言地址才写 hreflang。`/image` 与 `/` 是同一份文档，sitemap 只列根地址。
