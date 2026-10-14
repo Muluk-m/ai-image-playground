@@ -457,7 +457,8 @@ ensure_admin_proxy() {
 }
 
 # Start the new layout beside the old proxy, both answering the admin name,
-# then stop the old one. The name is never absent.
+# then stop the old one. The name is never absent. docker run returning does
+# not mean nginx is listening, so the old proxy stays until this one answers.
 replace_admin_proxy() {
   proxy=$project-admin-proxy
   next=$project-admin-proxy-next
@@ -468,21 +469,43 @@ replace_admin_proxy() {
     --entrypoint nginx \
     --mount "type=bind,source=$state_dir/admin-proxy,target=/etc/admin-proxy,readonly" \
     "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
+  if ! wait_proxy_answers "$next"; then
+    docker rm -f "$next" >/dev/null 2>&1 || true
+    return 1
+  fi
   docker stop -t 30 "$proxy" >/dev/null 2>&1 || true
   docker rm "$proxy" >/dev/null 2>&1 || true
   docker rename "$next" "$proxy" || return 1
 }
 
+proxy_answers() {
+  docker exec "$1" bun -e '
+    const response = await fetch("http://127.0.0.1:37378/health", { signal: AbortSignal.timeout(4000) })
+    if (!response.ok) process.exit(1)
+  ' >/dev/null 2>&1
+}
+
+wait_proxy_answers() {
+  name=$1
+  remaining=${ADMIN_PROXY_WAIT_SECONDS:-30}
+  while [ "$remaining" -gt 0 ]; do
+    proxy_answers "$name" && return 0
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+  return 1
+}
+
 reload_admin_proxy() {
-  # Called from `if !`, which disables set -e for the whole function. Each step
-  # has to stop the function itself, or a failed nginx -t still replaces the
-  # file the running master will read on the next reload.
+  # Called from an OR list, which disables set -e for the whole function.
+  # 1: the live file was not replaced. 2: it was replaced, but the reload
+  # signal may or may not have landed.
   write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf.next" || return 1
   docker exec "$project-admin-proxy" nginx -t -c /etc/admin-proxy/nginx.conf.next >/dev/null || return 1
   mv "$state_dir/admin-proxy/nginx.conf.next" "$state_dir/admin-proxy/nginx.conf" || return 1
   # -c selects this proxy's config, whose pid path is /tmp/admin-proxy.pid.
   # Without it, nginx signals the default master and this process never reloads.
-  docker exec "$project-admin-proxy" nginx -s reload -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
+  docker exec "$project-admin-proxy" nginx -s reload -c /etc/admin-proxy/nginx.conf >/dev/null || return 2
 }
 
 # Prints how many worker processes the nginx master still has.
@@ -576,17 +599,28 @@ replace_admin() {
     return 1
   fi
   docker network connect "$network" "$new"
-  if ! admin_running "$proxy"; then
-    previous=$current
-    if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); fi
-    if ! admin_running "$previous"; then previous=$new; fi
-    ensure_admin_proxy "$previous"
-  fi
-  if ! reload_admin_proxy "$new"; then
-    # nginx -t failed, or the signal was not delivered. The live config was
-    # not replaced, so this process is not what the proxy is using.
+  previous=$current
+  if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); fi
+  if ! admin_running "$previous"; then previous=$new; fi
+  # Also when a proxy is already up: an older build mounted a single file and
+  # cannot see the directory this reload uses. ensure replaces that container
+  # only after the new one answers.
+  if ! ensure_admin_proxy "$previous"; then
     stop_admin "$new"
     rm -f "$pending_file"
+    return 1
+  fi
+  reload_status=0
+  reload_admin_proxy "$new" || reload_status=$?
+  if [ "$reload_status" = 1 ]; then
+    # nginx -t failed before the live file changed. This process is not in use.
+    stop_admin "$new"
+    rm -f "$pending_file"
+    return 1
+  fi
+  if [ "$reload_status" != 0 ]; then
+    # The live file already names this process. Removing it would leave the
+    # proxy, including after its next start, aimed at a container that is gone.
     return 1
   fi
   if ! wait_proxy_switched; then
