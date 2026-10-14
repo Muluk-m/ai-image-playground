@@ -793,3 +793,97 @@ describe('发送与中止共用一颗按钮', () => {
     expect(send).not.toHaveBeenCalled()
   })
 })
+
+describe('下一句幽灵文字', () => {
+  const FIRST = '再出一版夜景。'
+  const SECOND = '换成方形。'
+
+  function showFollowUp(): void {
+    agentDraft(null).update(EMPTY_DRAFT)
+    useAgentStore.setState({
+      turn: 'idle',
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画一张',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'assistant-1',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '好',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          stopReason: 'completed',
+          followUps: [FIRST, SECOND],
+        },
+      },
+    })
+    render()
+  }
+
+  function press(key: string): void {
+    act(() => {
+      editor().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    })
+  }
+
+  it('空输入框里只显示第一句，Tab 填入但不发送', () => {
+    showFollowUp()
+
+    expect(editor().getAttribute('data-follow-up')).toBe('')
+    expect(editor().hasAttribute('data-placeholder')).toBe(false)
+    expect(host.textContent).toContain(FIRST)
+    expect(host.textContent).not.toContain(SECOND)
+    const hintId = editor().getAttribute('aria-describedby')
+    expect(hintId).toBeTruthy()
+    expect(document.getElementById(hintId!)?.textContent).toContain(FIRST)
+    expect(document.getElementById(hintId!)?.textContent).toContain('Tab')
+
+    press('Tab')
+
+    expect(editor().textContent).toBe(FIRST)
+    expect(editor().hasAttribute('data-follow-up')).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('右方向键填入，打字或 Esc 都把幽灵文字收起来', () => {
+    showFollowUp()
+    press('ArrowRight')
+    expect(editor().textContent).toBe(FIRST)
+    expect(send).not.toHaveBeenCalled()
+
+    showFollowUp()
+    type('夜')
+    expect(host.textContent).not.toContain(FIRST)
+    expect(editor().textContent).toBe('夜')
+
+    showFollowUp()
+    press('Escape')
+    expect(editor().textContent).toBe('')
+    expect(host.textContent).not.toContain(FIRST)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('点填入按钮只把第一句放进输入框', () => {
+    showFollowUp()
+    const button = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="把建议的下一句填进输入框"]',
+    )
+    expect(button?.getAttribute('type')).toBe('button')
+    act(() => {
+      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(editor().textContent).toBe(FIRST)
+    expect(send).not.toHaveBeenCalled()
+  })
+})
