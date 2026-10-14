@@ -423,11 +423,13 @@ EOF
 start_admin_instance() {
   deployments_log=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/deployments.log
   [ -f "$deployments_log" ] || deployments_log=/dev/null
-  # Database network only. The ingress alias is the proxy's, so this process is
-  # invisible to cloudflared until it is healthy and the proxy is reloaded.
+  # Database network only at create. The application network is attached before
+  # start, still without the admin alias: Admin asks release-router for
+  # /api/capabilities before it listens, and cloudflared must not see this
+  # process until the proxy is reloaded onto it.
   # The health command is the same one Compose runs: after repeated failures it
   # kills the application process so restart policy can bring it back.
-  logged_docker run -d --name "$1" --init --restart unless-stopped \
+  logged_docker create --name "$1" --init --restart unless-stopped \
     --network "$infra" \
     --health-cmd "bun run /app/apps/bff/src/container-healthcheck.ts http://127.0.0.1:37378/health /tmp/admin-health.json 12 3 60000" \
     --health-interval 10s --health-timeout 5s --health-retries 12 --health-start-period 15s \
@@ -437,7 +439,15 @@ start_admin_instance() {
     -e BFF_INTERNAL_URL=http://release-router:37377 \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
     --mount "type=bind,source=$deployments_log,target=/host/deployments.log,readonly" \
-    "$image" bun run /app/apps/admin/server/index.ts >/dev/null
+    "$image" bun run /app/apps/admin/server/index.ts >/dev/null || return 1
+  if ! docker network connect "$network" "$1"; then
+    docker rm -f "$1" >/dev/null 2>&1 || true
+    return 1
+  fi
+  docker start "$1" >/dev/null || {
+    docker rm -f "$1" >/dev/null 2>&1 || true
+    return 1
+  }
 }
 
 # An earlier build of this proxy bind-mounted one file at /etc/admin-proxy.conf.
@@ -742,13 +752,15 @@ replace_admin() {
   # Always start a new process. app.env (CORS, auth, frontend origin) changes
   # without an image change, and Compose's config hash is what used to notice.
   printf '%s\n' "$new" > "$pending_file"
-  start_admin_instance "$new"
+  start_admin_instance "$new" || {
+    rm -f "$pending_file"
+    return 1
+  }
   if ! healthy "$new" 37378; then
     stop_admin "$new"
     rm -f "$pending_file"
     return 1
   fi
-  docker network connect "$network" "$new"
   previous=$current
   if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); fi
   if ! admin_running "$previous"; then previous=$new; fi

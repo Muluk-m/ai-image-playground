@@ -438,12 +438,13 @@ describe('rollout-runtime.sh: finite drain', () => {
     const result = run()
 
     expect(result.status).toBe(0)
-    const started = indexOf(result.log, /^run .*--name fixture-r\d+-\d+-admin /)
+    const started = indexOf(result.log, /^create .*--name fixture-r\d+-\d+-admin /)
     const ready = indexOf(result.log, /^exec fixture-r\d+-\d+-admin GET \/health/)
     const joined = indexOf(
       result.log,
       /^network connect fixture_application fixture-r\d+-\d+-admin$/,
     )
+    const running = indexOf(result.log, /^start fixture-r\d+-\d+-admin$/)
     const proxy = indexOf(result.log, /^run .*--name fixture-admin-proxy /)
     // The fake docker keeps the container name and the last three arguments.
     const checked = indexOf(
@@ -466,8 +467,9 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
     expect(result.log[started]).not.toContain('--network-alias admin')
     expect(result.log[proxy]).not.toContain('--network-alias admin')
-    expect(ready).toBeGreaterThan(started)
-    expect(joined).toBeGreaterThan(ready)
+    expect(joined).toBeGreaterThan(started)
+    expect(running).toBeGreaterThan(joined)
+    expect(ready).toBeGreaterThan(running)
     expect(proxy).toBeGreaterThan(ready)
     expect(proxyReady).toBeGreaterThan(proxy)
     expect(published).toBeGreaterThan(proxyReady)
