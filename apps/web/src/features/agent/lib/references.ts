@@ -9,7 +9,6 @@ import {
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import {
-  createMentionLabels,
   insertImageMentionAtVisibleRange,
   type MentionLabelResolver,
   replaceImageMentionsForApi,
@@ -24,11 +23,12 @@ import {
 } from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
 import { attachmentUploadsEnabled } from './attachmentUploads'
+import { agentImageMentionLabel } from './imageMentions'
 import type { UnsentTurnSubmission } from './turnSubmission'
 
 /** 输入框附上的一张参考图。`id` 是画布对象 id 或素材的图片 id，模型据此指认要改哪一张。 */
 export interface AgentReference extends InputImage {
-  /** 素材名；有名字时胶囊显示名字而不是序号。 */
+  /** 素材名。发给模型，让回复能说人话；界面胶囊按序号显示，不把名字或图片 id 画出来。 */
   readonly name?: string
   readonly maskDataUrl?: string
   readonly editAction?: AgentImageEditAction
@@ -58,9 +58,8 @@ export function hasDraftContent(draft: AgentDraft): boolean {
 }
 
 /**
- * 每张参考图在胶囊与 @ 引用里显示的名字。同名的（连传三张都叫 image 的文件很常见）
- * 按出现顺序编号成「image 1 / image 2」，否则用户分不清正文里的 @image 指哪一张。
- * 没名字的不在这里管，仍走序号标签。
+ * 附件瓦片上人读得懂的名字。同名的（连传三张都叫 image 的文件很常见）
+ * 按出现顺序编号成「image 1 / image 2」。胶囊与气泡不走这里，一律用序号标签。
  */
 export function referenceDisplayNames(
   references: readonly { readonly name?: string }[],
@@ -78,14 +77,9 @@ export function referenceDisplayNames(
   })
 }
 
+/** 输入框胶囊的可见标签：按这条草稿里的参考图序号，不随素材名或图片 id 变化。 */
 export function referenceLabels(references: readonly AgentReference[]): MentionLabelResolver {
-  const named: Record<string, string> = {}
-  const names = referenceDisplayNames(references)
-  references.forEach((reference, index) => {
-    const name = names[index]
-    if (name) named[reference.id] = name
-  })
-  return createMentionLabels([...references], named)
+  return (index) => (references[index] ? agentImageMentionLabel(index) : null)
 }
 
 /**

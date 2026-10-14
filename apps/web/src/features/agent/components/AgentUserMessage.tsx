@@ -14,18 +14,21 @@ import {
   localAttachmentFailure,
   localAttachmentIdentity,
 } from '../../../lib/localAttachmentSources'
-import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { USER_BUBBLE } from '../agentStyles'
 import { fetchMessageReference } from '../lib/agentClient'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
 import { fillAgentComposer } from '../lib/composerFill'
+import {
+  agentImageMentionLabel,
+  editableImageMentionText,
+  imageMentionSpans,
+} from '../lib/imageMentions'
 import {
   fitReferenceRow,
   REFERENCE_ROW_FALLBACK,
   referenceChipChrome,
   referenceFoldChrome,
 } from '../lib/referenceStrip'
-import { referenceDisplayNames } from '../lib/references'
 import { useAgentStore } from '../store'
 import type { AgentTextMessage } from '../types'
 import AgentSkillBadge from './AgentSkillBadge'
@@ -115,14 +118,11 @@ function ReferenceThumbnail({
   reference,
   messageId,
   index,
-  name,
   pending,
 }: {
   reference: NonNullable<AgentTextMessage['references']>[number]
   messageId: string
   index: number
-  /** 同名参考图编号后的显示名；没名字的传 undefined，走序号标签。 */
-  name: string | undefined
   pending: boolean
 }) {
   const { t } = useTranslation('agent')
@@ -210,7 +210,7 @@ function ReferenceThumbnail({
       : undefined
     : local
   const source = localPreview ?? (preview?.identity === identity ? preview.source : undefined)
-  const label = name || getImageMentionLabel(index)
+  const label = agentImageMentionLabel(index)
   const failed =
     (!local && preview?.identity === identity && !preview.source) ||
     Boolean(local && mask && markedPreview?.identity === identity && !markedPreview.source)
@@ -241,7 +241,7 @@ function ReferenceThumbnail({
         ) : (
           <Icon name="image" className="size-6 shrink-0 p-1" />
         )}
-        <span className="max-w-36 truncate">{name ? `@${name}` : label}</span>
+        <span className="max-w-36 truncate">{label}</span>
       </Button>
       {openIdentity === identity && (
         <ReferencePreview
@@ -259,12 +259,10 @@ function ReferenceThumbnail({
 function ReferenceStrip({
   messageId,
   pending,
-  names,
   attached,
 }: {
   messageId: string
   pending: boolean
-  names: readonly (string | undefined)[]
   attached: readonly {
     reference: NonNullable<AgentTextMessage['references']>[number]
     index: number
@@ -329,7 +327,7 @@ function ReferenceStrip({
     if (!(box.available > 0)) return Math.min(REFERENCE_ROW_FALLBACK, attached.length)
     const font = box.font || '500 13px sans-serif'
     const chipWidths = attached.map(({ index }) => {
-      const label = names[index] ? `@${names[index]}` : getImageMentionLabel(index)
+      const label = agentImageMentionLabel(index)
       return Math.min(box.root * 9, referenceTextWidth(label, font)) + referenceChipChrome(box.root)
     })
     return fitReferenceRow(
@@ -342,7 +340,7 @@ function ReferenceStrip({
       REFERENCE_ROW_FALLBACK,
     )
     // fontsLoaded 只用来在字体就绪后让这里重算。
-  }, [attached, box, names, t, fontsLoaded])
+  }, [attached, box, t, fontsLoaded])
 
   const folded = fitted < attached.length
   const shown = expanded ? attached : attached.slice(0, fitted)
@@ -357,7 +355,6 @@ function ReferenceStrip({
           reference={reference}
           messageId={messageId}
           index={index}
-          name={names[index]}
           pending={pending}
         />
       ))}
@@ -411,30 +408,24 @@ export default memo(function AgentUserMessage({
   const text = invocation ? invocation.rest : visible
   const content: ReactNode[] = []
   const inlined = new Set<number>()
-  const names = referenceDisplayNames(message.references ?? [])
-  const editableText = visible.replace(/\[image ([1-9]\d*)\]/g, (marker, number: string) => {
-    const index = Number(number) - 1
-    if (!message.references?.[index]) return marker
-    return names[index] ? `@${names[index]}` : getImageMentionLabel(index)
-  })
+  const references = message.references ?? []
+  const editableText = editableImageMentionText(visible, references)
   let from = 0
-  for (const match of text.matchAll(/\[image ([1-9]\d*)\]/g)) {
-    const index = Number(match[1]) - 1
-    const reference = message.references?.[index]
+  for (const span of imageMentionSpans(text, references)) {
+    const reference = references[span.index]
     if (!reference) continue
-    inlined.add(index)
-    content.push(text.slice(from, match.index))
+    inlined.add(span.index)
+    content.push(text.slice(from, span.start))
     content.push(
       <ReferenceThumbnail
-        key={match.index}
+        key={span.start}
         reference={reference}
         messageId={message.id}
-        index={index}
-        name={names[index]}
+        index={span.index}
         pending={Boolean(message.pending)}
       />,
     )
-    from = match.index + match[0].length
+    from = span.end
   }
   content.push(text.slice(from))
   // 画布选区自动带上的参考图在提示词里没有胶囊，正文因此没有 `[image N]` 可挂。它们照样是
@@ -449,7 +440,6 @@ export default memo(function AgentUserMessage({
         <ReferenceStrip
           messageId={message.id}
           pending={Boolean(message.pending)}
-          names={names}
           attached={attached}
         />
       )}

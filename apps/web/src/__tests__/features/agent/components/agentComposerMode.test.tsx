@@ -274,7 +274,7 @@ it('inspiration replaces a typed draft and clears references without submitting'
 })
 
 describe('用户消息重新编辑', () => {
-  it('图片引用回填为可读名称，不把传输标记绑定到草稿中的其他图片', async () => {
+  it('图片引用回填为序号标签，不把传输标记或图片 id 绑定到草稿中的其他图片', async () => {
     const message: AgentTextMessage = {
       kind: 'text',
       id: 'user-reference',
@@ -299,7 +299,7 @@ describe('用户消息重新编辑', () => {
     })
     await settle()
     click('重新编辑')
-    expect(session.getSnapshot().draft.prompt).toBe('把 @产品图 的背景改白')
+    expect(session.getSnapshot().draft.prompt).toBe('把 图片 1 的背景改白')
     expect(editor().querySelector('[data-image-index]')).toBeNull()
     expect(session.getSnapshot().draft.references.map((reference) => reference.id)).toEqual([
       'new-image',
