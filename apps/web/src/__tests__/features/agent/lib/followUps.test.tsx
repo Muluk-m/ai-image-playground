@@ -126,6 +126,46 @@ describe('下一句什么时候出现', () => {
       ),
     ).toBeNull()
   })
+
+  it('空数组是问完了，不再把失败当成还在生成', async () => {
+    const read = vi.fn(async () => [] as const)
+    const waits: number[] = []
+    expect(
+      await pollFollowUps(
+        'conversation',
+        'turn-1',
+        () => true,
+        read,
+        async (ms) => {
+          waits.push(ms)
+        },
+      ),
+    ).toBeNull()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(waits).toEqual([])
+  })
+
+  it('一直还在生成就退避问到 45 秒', async () => {
+    const waits: number[] = []
+    let reads = 0
+    expect(
+      await pollFollowUps(
+        'conversation',
+        'turn-1',
+        () => true,
+        async () => {
+          reads += 1
+          return null
+        },
+        async (ms) => {
+          waits.push(ms)
+        },
+      ),
+    ).toBeNull()
+    expect(reads).toBe(10)
+    expect(waits).toEqual([2_000, 2_000, 3_000, 4_000, 5_000, 6_000, 7_000, 8_000, 8_000])
+    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBe(45_000)
+  })
 })
 
 it('点下一句只把整句填进输入框', async () => {
