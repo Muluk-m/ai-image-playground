@@ -189,6 +189,14 @@ describe('build-vps-release.sh, registry transport (default)', () => {
       )
       expect(build).toContain('--provenance=false --sbom=false')
       expect(build).not.toContain('--load')
+      // Shared stages are reused across workflows. Only the last application
+      // edition writes the cache; the backup Dockerfile must not replace it.
+      expect(build).toContain(`--cache-from type=registry,ref=${repoName}:buildcache`)
+      if (remote === `${repoName}:paid-${p}-${q}`) {
+        expect(build).toContain(`--cache-to type=registry,ref=${repoName}:buildcache,mode=max`)
+      } else {
+        expect(build).not.toContain('--cache-to')
+      }
     }
     // Nothing goes through the local Docker store any more.
     expect(all.some((c) => /^(tag|push|image inspect) /.test(c))).toBe(false)
