@@ -16,6 +16,7 @@ import { useSyncStatus } from '../lib/sync/status'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
+import GuestAccountMenu from './GuestAccountMenu'
 import HeaderMembershipChip from './HeaderMembershipChip'
 import LocaleGlobe from './LocaleGlobe'
 import LogoutDialog from './LogoutDialog'
@@ -134,9 +135,14 @@ export default function Header() {
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
                 size="icon-sm"
-                className="relative rounded-full"
+                variant={auth.user ? 'default' : 'ghost'}
+                className="relative rounded-full text-muted-foreground"
               >
-                <BrandAvatar />
+                {auth.user ? (
+                  <BrandAvatar />
+                ) : (
+                  <Icon name="user" className="size-6 text-muted-foreground" />
+                )}
                 {syncPending ? (
                   <span
                     role="img"
@@ -145,7 +151,17 @@ export default function Header() {
                   />
                 ) : null}
               </Button>
-              {accountMenuOpen ? (
+              {accountMenuOpen && !auth.user ? (
+                <GuestAccountMenu
+                  authEnabled={auth.enabled}
+                  onLogin={() => {
+                    setAccountMenuOpen(false)
+                    auth.login()
+                  }}
+                  onClose={() => setAccountMenuOpen(false)}
+                />
+              ) : null}
+              {accountMenuOpen && auth.user ? (
                 <div
                   role="menu"
                   className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-popover"

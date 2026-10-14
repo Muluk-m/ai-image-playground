@@ -8,7 +8,16 @@
     "settings": "Settings",
     "loginMethods": "Account settings",
     "login": "Sign in",
-    "loggingOut": "Signing out"
+    "loggingOut": "Signing out",
+    "guest": {
+      "signedOut": "Signed out",
+      "syncHint": "Sign in to sync your works and credits",
+      "trialTitle": "Free trial",
+      "trialBody": "New accounts get trial credits and can start creating right away.",
+      "signInUp": "Sign in / Register",
+      "help": "Help center",
+      "viewPlans": "View plans"
+    }
   },
   "brand": {
     "home": "Home"
