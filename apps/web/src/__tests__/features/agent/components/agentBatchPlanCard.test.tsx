@@ -615,7 +615,17 @@ it('同名输入图按各自媒体身份显示不同缩略图，便于核对完�
   )
   await render()
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    const deadline = Date.now() + 2000
+    while (Date.now() < deadline) {
+      const images = [...host.querySelectorAll('summary img')]
+      if (
+        images.length === 2 &&
+        images.every((image) => image.getAttribute('src')?.startsWith('data:'))
+      ) {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
   })
   const thumbnails = [...host.querySelectorAll('summary img')]
   expect(thumbnails).toHaveLength(2)
