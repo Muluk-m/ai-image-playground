@@ -623,7 +623,9 @@ it('creates an image node from the canvas prompt when nothing is selected', asyn
   )
   canvas.undo.undo()
   expect(
-    readCanvasDocument(canvas.doc).nodes.some((node) => node.data.meta?.nodePrompt === '窗台新叶'),
+    readCanvasDocument(canvas.doc).nodes.some(
+      (node) => node.type === 'image' && node.data.meta?.nodePrompt === '窗台新叶',
+    ),
   ).toBe(false)
 })
 
@@ -686,8 +688,8 @@ it('sends a preset template through the selected image node', async () => {
   try {
     await render()
     await act(async () => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
-    const chip = [...host.querySelectorAll('[data-look-chips] button')].find((button) =>
-      button.textContent?.includes('暖光窗台'),
+    const chip = [...host.querySelectorAll<HTMLButtonElement>('[data-look-chips] button')].find(
+      (button) => button.textContent?.includes('暖光窗台'),
     )
     expect(chip).toBeTruthy()
     await act(async () => chip!.click())
