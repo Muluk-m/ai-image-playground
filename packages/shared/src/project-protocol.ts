@@ -3,6 +3,28 @@ import { type CanvasStoryboardData, isCanvasStoryboardData } from './canvas-stor
 import { isVideoGenerationRecord, type VideoGenerationRecord } from './video-generation'
 
 export const PROJECT_NAME_MAX_LENGTH = 120
+/** 复制项目时拼在名称后面的默认词。客户端可以按界面语言另传一个。 */
+export const CANVAS_PROJECT_COPY_SUFFIX = '副本'
+const CANVAS_PROJECT_COPY_SUFFIX_MAX = 24
+
+/**
+ * 副本名称。后缀按写入时的界面语言传入；缺省、过长或含控制字符时用默认词。
+ * 结果仍不超过项目名上限，超长的原名从末尾截掉。
+ */
+export function copiedCanvasProjectName(name: string, suffix?: string): string {
+  const word = acceptedCopySuffix(suffix)
+  const ending = ` ${word}`
+  const room = PROJECT_NAME_MAX_LENGTH - ending.length
+  return `${name.trim().slice(0, Math.max(0, room))}${ending}`
+}
+
+function acceptedCopySuffix(suffix: string | undefined): string {
+  if (typeof suffix !== 'string' || /[\u0000-\u001f]/.test(suffix))
+    return CANVAS_PROJECT_COPY_SUFFIX
+  const word = suffix.trim().replace(/ {2,}/g, ' ')
+  if (!word || word.length > CANVAS_PROJECT_COPY_SUFFIX_MAX) return CANVAS_PROJECT_COPY_SUFFIX
+  return word
+}
 export const PROJECT_PAGE_SIZE = 30
 export const PROJECT_PAGE_MAX_SIZE = 100
 export const PROJECT_DOCUMENT_MAX_BYTES = 512 * 1024

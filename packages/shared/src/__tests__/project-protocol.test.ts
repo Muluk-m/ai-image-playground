@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isProjectDocument, projectKind } from '../project-protocol'
+import { copiedCanvasProjectName, isProjectDocument, projectKind } from '../project-protocol'
 
 const MEDIA = '0f8b6a4e-2c1d-4e5f-9a7b-3c2d1e0f9a8b'
 
@@ -159,6 +159,23 @@ describe('云端项目文档里的工作台入口', () => {
     expect(isProjectDocument({ version: 1, elements: [] })).toBe(true)
     expect(isProjectDocument({ version: 1, elements: [], experience: 'mixed' })).toBe(false)
     expect(isProjectDocument({ version: 1, elements: [], sourceProjectId: '' })).toBe(false)
+  })
+})
+
+describe('copied project names', () => {
+  it('appends the default suffix and keeps the name inside the limit', () => {
+    expect(copiedCanvasProjectName('窗台')).toBe('窗台 副本')
+    expect(copiedCanvasProjectName(`${'画'.repeat(120)}`)).toBe(`${'画'.repeat(117)} 副本`)
+    expect([...copiedCanvasProjectName(`${'画'.repeat(120)}`)].length).toBe(120)
+  })
+
+  it('uses a short caller suffix and rejects one that is not a label', () => {
+    expect(copiedCanvasProjectName('窗台', 'copy')).toBe('窗台 copy')
+    expect(copiedCanvasProjectName('窗台', '  copy  ')).toBe('窗台 copy')
+    expect(copiedCanvasProjectName('窗台', 'bad\nname')).toBe('窗台 副本')
+    expect(copiedCanvasProjectName('窗台', 'x'.repeat(25))).toBe('窗台 副本')
+    expect(copiedCanvasProjectName('窗台', '   ')).toBe('窗台 副本')
+    expect(copiedCanvasProjectName('窗台', '')).toBe('窗台 副本')
   })
 })
 
