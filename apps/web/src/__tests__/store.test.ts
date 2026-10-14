@@ -174,6 +174,7 @@ import {
   putTask,
 } from '../lib/db'
 import { _setRuntimeConfigForTesting } from '../lib/runtimeConfig'
+import { dismissSubmittedTasks, submittedTaskSnapshot } from '../lib/submittedTaskAttention'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -659,6 +660,9 @@ describe('mask draft lifecycle in store actions', () => {
         () => vi.mocked(callImageApi).mock.calls.length === 1,
         'original submission was not sent',
       )
+      const resumed = useStore.getState().tasks.find((item) => item.prompt === 'the original cat')
+      expect(resumed).toBeTruthy()
+      expect(submittedTaskSnapshot()).not.toContain(resumed?.id)
       expect(vi.mocked(callImageApi).mock.calls[0]?.[0]).toMatchObject({
         prompt: 'the original cat',
         inputImageDataUrls: [],
@@ -2137,6 +2141,32 @@ describe('submitPrepared 显式参数提交接缝', () => {
     await clearImages()
     await putImage({ id: imageA.id, dataUrl: PREPARED_IMAGE, source: 'upload', createdAt: 0 })
     setupPreparedState()
+  })
+
+  it('只有用户主动发送才记下作品卡注意力', async () => {
+    dismissSubmittedTasks([...submittedTaskSnapshot()])
+    useStore.setState({ prompt: '  ' })
+    await submitTask()
+    expect(submittedTaskSnapshot()).toEqual([])
+
+    useStore.setState({
+      prompt: '一只猫',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+    })
+    await submitTask()
+    const sent = useStore.getState().tasks[0]
+    expect(sent).toBeTruthy()
+    expect(submittedTaskSnapshot()).toEqual([sent?.id])
+
+    dismissSubmittedTasks([sent?.id ?? ''])
+    useStore.setState({ tasks: [], prompt: '', inputImages: [] })
+    const ids = await submitPrepared({
+      prompt: '一只猫',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+    })
+    expect(ids).toHaveLength(1)
+    expect(submittedTaskSnapshot()).toEqual([])
   })
 
   it('返回创建的任务 id，产出与 composer 路径同形的任务', async () => {
