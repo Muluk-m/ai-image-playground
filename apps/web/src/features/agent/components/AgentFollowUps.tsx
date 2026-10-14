@@ -2,7 +2,7 @@ import { Suggestions } from '../../../components/assistant-ui/elements/suggestio
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../lib/composerFill'
 
-/** 输入框上方的下一句。点一下只填进输入框，发不发由用户决定。 */
+/** 最新一条助手消息后面的下一句。点一下只填进输入框，发不发由用户决定。 */
 export default function AgentFollowUps({ lines }: { lines: readonly string[] }) {
   const { t } = useTranslation('agent')
   if (lines.length === 0) return null
