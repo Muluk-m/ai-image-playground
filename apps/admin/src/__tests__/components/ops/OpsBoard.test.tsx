@@ -6,8 +6,32 @@ import type { OpsSnapshot } from '../../../lib/types'
 
 // 任务详情是一条路由链接；这里只关心它指向哪，不需要起整棵路由树。
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, params }: { children: React.ReactNode; params: { taskId: string } }) => (
-    <a href={`/tasks/${params.taskId}`}>{children}</a>
+  Link: ({
+    children,
+    params,
+    search,
+    to,
+  }: {
+    children: React.ReactNode
+    params?: { taskId?: string }
+    search?: { requestId?: string; group?: string }
+    to?: string
+  }) => (
+    <a
+      href={
+        params?.taskId
+          ? `/tasks/${params.taskId}`
+          : `${to ?? ''}${
+              search?.requestId
+                ? `?requestId=${search.requestId}`
+                : search?.group
+                  ? `?group=${search.group}`
+                  : ''
+            }`
+      }
+    >
+      {children}
+    </a>
   ),
 }))
 
@@ -234,6 +258,40 @@ function block(name: string): HTMLElement {
 }
 
 describe('运维看板', () => {
+  it('shows the Agent failure reason and a link to that request log', () => {
+    const base = snapshot()
+    if (!base.reliability.ok) throw Error('fixture')
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          reliability: {
+            ok: true,
+            data: {
+              ...base.reliability.data,
+              exceptions: [
+                {
+                  source: 'agent',
+                  key: 'agent_upstream_error',
+                  count: 4,
+                  last_at: NOW - 23 * hour,
+                  detail: 'upstream timed out',
+                  example_request_id: 'ops-request',
+                },
+              ],
+            },
+          },
+        })}
+        range="7d"
+      />,
+    )
+    const sla = within(block('SLA 与异常'))
+    expect(sla.getByText('上游报错 · agent_upstream_error')).toBeTruthy()
+    expect(sla.getByText('upstream timed out')).toBeTruthy()
+    expect(sla.getByRole('link', { name: '日志' }).getAttribute('href')).toBe(
+      '/logs?requestId=ops-request',
+    )
+  })
+
   it('does not claim success when failure counts have no grouped exception details', () => {
     const base = snapshot()
     if (!base.reliability.ok) throw Error('fixture')

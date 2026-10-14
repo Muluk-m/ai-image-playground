@@ -367,10 +367,19 @@ async function readReliability(): Promise<OpsReliability> {
         GROUP BY COALESCE(error_type, 'unknown') ORDER BY count DESC, key ASC LIMIT 10
       `),
       db.execute(sql`
-        SELECT 'turn_failed' AS key, COUNT(*) AS count, MAX(created_at) AS last_at
+        SELECT
+          COALESCE(NULLIF(failure->>'code', ''), 'unknown') AS key,
+          COUNT(*) AS count,
+          MAX(created_at) AS last_at,
+          (ARRAY_AGG(LEFT(failure->>'message', 500) ORDER BY created_at DESC)
+            FILTER (WHERE NULLIF(failure->>'message', '') IS NOT NULL))[1] AS detail,
+          (ARRAY_AGG(failure->>'requestId' ORDER BY created_at DESC)
+            FILTER (WHERE NULLIF(failure->>'requestId', '') IS NOT NULL))[1] AS example_request_id
         FROM agent_turns
         WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '24 hours'
-        HAVING COUNT(*) > 0
+        GROUP BY 1
+        ORDER BY count DESC, key ASC
+        LIMIT 10
       `),
     ])
 
@@ -404,6 +413,10 @@ async function readReliability(): Promise<OpsReliability> {
       count: number(row.count),
       last_at: at(row.last_at) ?? 0,
       ...(row.example_task_id ? { example_task_id: String(row.example_task_id) } : {}),
+      ...(typeof row.detail === 'string' && row.detail.trim() ? { detail: row.detail.trim() } : {}),
+      ...(typeof row.example_request_id === 'string' && row.example_request_id
+        ? { example_request_id: row.example_request_id }
+        : {}),
     }))
   return {
     recent: {
