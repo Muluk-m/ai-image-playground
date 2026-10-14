@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { RefreshCw } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
 import { OpsHealthCard } from '@/components/overview/OpsHealthCard'
 import { TodayErrorsCard } from '@/components/overview/TodayErrorsCard'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
@@ -259,35 +260,97 @@ function TodayModels({ overview }: { overview: TodayOverviewResult }) {
   )
 }
 
+const FAILURE_REASON_LABELS: Record<string, string> = {
+  upstream_timeout: '上游超时',
+  upstream_result_unknown: '结果未确认',
+  upstream_error: '上游错误',
+  content_policy: '内容审核拒绝',
+  upstream_no_image: '没有拿到结果',
+  interrupted: '服务重启打断',
+  object_storage_error: '存储失败',
+  unknown: '未分类',
+}
+
+function failurePanelId(model: string): string {
+  return `model-failures-${encodeURIComponent(model)}`
+}
+
 function ModelRow({ row, window }: { row: TodayModelStat; window: TimeWindow }) {
   const rate = failureRate(row.completed, row.failed)
+  const [expanded, setExpanded] = useState(false)
+  const canExpand = row.failures.length > 0
+  const open = expanded && canExpand
+  const panelId = failurePanelId(row.model)
   return (
-    <TableRow>
-      <TableCell className="max-w-64 truncate pl-4 font-mono text-xs">{row.model}</TableCell>
-      <TableCell className="text-right font-mono tabular-nums">{row.tasks}</TableCell>
-      <TableCell className="text-right font-mono tabular-nums">{row.completed}</TableCell>
-      <TableCell className="text-right font-mono tabular-nums">
-        {row.failed ? (
-          <Link
-            to="/tasks"
-            search={{ ...window, status: 'failed', model: row.model }}
-            className="text-danger hover:underline"
-            aria-label={`${row.model}的失败任务`}
-          >
-            {row.failed}
-          </Link>
-        ) : (
-          '0'
-        )}
-      </TableCell>
-      <TableCell className="text-right font-mono tabular-nums">
-        {row.upstream_invocations}
-      </TableCell>
-      <TableCell
-        className={cn('pr-4 text-right font-mono tabular-nums', rate.alert && 'text-danger')}
-      >
-        {rate.label}
-      </TableCell>
-    </TableRow>
+    <>
+      <TableRow>
+        <TableCell className="max-w-64 truncate pl-4 font-mono text-xs">{row.model}</TableCell>
+        <TableCell className="text-right font-mono tabular-nums">{row.tasks}</TableCell>
+        <TableCell className="text-right font-mono tabular-nums">{row.completed}</TableCell>
+        <TableCell className="text-right font-mono tabular-nums">
+          {row.failed ? (
+            <span className="inline-flex items-center justify-end gap-1">
+              <Link
+                to="/tasks"
+                search={{ ...window, status: 'failed', model: row.model }}
+                className="text-danger hover:underline"
+                aria-label={`${row.model}的失败任务`}
+              >
+                {row.failed}
+              </Link>
+              {canExpand ? (
+                <button
+                  type="button"
+                  className="inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-expanded={open}
+                  aria-controls={open ? panelId : undefined}
+                  aria-label={`${open ? '收起' : '展开'}${row.model}的失败原因`}
+                  onClick={() => setExpanded((value) => !value)}
+                >
+                  <ChevronDown className={cn('size-3.5', open && 'rotate-180')} />
+                </button>
+              ) : null}
+            </span>
+          ) : (
+            '0'
+          )}
+        </TableCell>
+        <TableCell className="text-right font-mono tabular-nums">
+          {row.upstream_invocations}
+        </TableCell>
+        <TableCell
+          className={cn('pr-4 text-right font-mono tabular-nums', rate.alert && 'text-danger')}
+        >
+          {rate.label}
+        </TableCell>
+      </TableRow>
+      {open ? (
+        <TableRow id={panelId} className="bg-muted/30 hover:bg-muted/30">
+          <TableCell colSpan={6} className="px-4 py-2">
+            <ul className="flex flex-col gap-1" aria-label={`${row.model}的失败原因`}>
+              {row.failures.map((failure) => {
+                const label = FAILURE_REASON_LABELS[failure.error_type]
+                return (
+                  <li
+                    key={failure.error_type}
+                    className="flex items-baseline justify-between gap-4 text-xs"
+                  >
+                    <span>
+                      {label ?? failure.error_type}
+                      {label ? (
+                        <span className="ml-2 font-mono text-muted-foreground">
+                          {failure.error_type}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="font-mono tabular-nums text-danger">{failure.count}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
   )
 }
