@@ -197,6 +197,37 @@ describe('auth client', () => {
     setSignedIn(false)
   })
 
+  it('remembers a successful login on this page so the next load checks the session', async () => {
+    const store = new Map<string, string>()
+    let cookie = ''
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    })
+    vi.stubGlobal('document', {
+      get cookie() {
+        return cookie
+      },
+      set cookie(value: string) {
+        cookie = value
+      },
+    })
+    vi.stubGlobal('location', { protocol: 'https:' })
+    vi.stubGlobal('window', { location: { search: '' } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ user: USER })),
+    )
+
+    await loginUser('alice', 'secret')
+
+    expect(store.get('image-playground.last-storage-user')).toBe(JSON.stringify(USER.id))
+    expect(cookie).toContain('image_playground_signed_in=1')
+    expect(cookie).toContain('Secure')
+    expect(shouldProbeSession()).toBe(true)
+  })
+
   it('probes the session only when a hint cookie or a remembered user is present', () => {
     const store = new Map<string, string>()
     vi.stubGlobal('localStorage', {
@@ -215,6 +246,13 @@ describe('auth client', () => {
 
     store.clear()
     vi.stubGlobal('document', { cookie: 'image_playground_signed_in=1' })
+    expect(shouldProbeSession()).toBe(true)
+
+    vi.stubGlobal('document', { cookie: '' })
+    store.clear()
+    vi.stubGlobal('window', {
+      location: { search: '?auth_session=1' },
+    })
     expect(shouldProbeSession()).toBe(true)
   })
 

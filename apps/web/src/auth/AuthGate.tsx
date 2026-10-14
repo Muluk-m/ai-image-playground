@@ -8,15 +8,17 @@ import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
+  clearOAuthSessionLanding,
   getCurrentUser,
   logoutUser,
+  noteBrowserSession,
   shouldProbeSession,
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
-import { recoverStorageUser, rememberStorageUser } from '../lib/localRecovery'
+import { recoverStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
@@ -102,14 +104,16 @@ export function AuthGate() {
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
-        // 没有提示 cookie、也没有记住的用户时不请求 /api/auth/me，避免匿名打开就 401。
-        const currentUser = shouldProbeSession()
+        // 没有页面上的提示 cookie、记住的用户，也不是 OAuth 刚回来时，不请求 /api/auth/me。
+        const probeSession = shouldProbeSession()
+        const currentUser = probeSession
           ? await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
               if (err instanceof AuthRequestError && err.status === 401) return null
               throw err
             })
           : null
         if (cancelled) return
+        if (probeSession) clearOAuthSessionLanding()
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)
         if (!currentUser) {
@@ -123,7 +127,7 @@ export function AuthGate() {
           const pendingSend = await hasPendingSubmission().catch(() => false)
           if (cancelled) return
           if (pendingSend) setLoginReason('gated-action')
-          rememberStorageUser(null)
+          noteBrowserSession(null)
           setUser(null)
           setPhase('ready')
           return
@@ -137,7 +141,7 @@ export function AuthGate() {
         ])
         if (!cancelled) {
           setAdoptedTaskCount(adopted)
-          rememberStorageUser(currentUser.id)
+          noteBrowserSession(currentUser.id)
           setUser(currentUser)
           setPhase('ready')
         }
@@ -169,7 +173,7 @@ export function AuthGate() {
   useEffect(() => {
     if (!accountsLoginEnabled) return
     const expired = () => {
-      rememberStorageUser(null)
+      noteBrowserSession(null)
       setSignedIn(false)
       setUser(null)
       setSessionExpired(true)
@@ -183,7 +187,7 @@ export function AuthGate() {
   const logout = useCallback(async (clearLocalData: boolean) => {
     try {
       await logoutUser()
-      rememberStorageUser(null)
+      noteBrowserSession(null)
       if (clearLocalData) await clearScopedClientStorage()
     } finally {
       window.location.reload()

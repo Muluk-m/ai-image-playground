@@ -1,12 +1,13 @@
 import {
   type AuthUserView,
   type LoginMethodsView,
+  OAUTH_SESSION_QUERY_PARAM,
   type OAuthProviderView,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
 import { isClientCapabilityEnabled } from './clientCapabilities'
-import { hasRememberedSignedInUser } from './localRecovery'
+import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 
@@ -60,6 +61,7 @@ export async function loginUser(username: string, password: string): Promise<Aut
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
+  noteBrowserSession(result.user.id)
   return result.user
 }
 export interface RegistrationVerificationChallenge {
@@ -103,6 +105,7 @@ export async function registerUser(
       verification_code: options.verification?.code,
     }),
   })
+  noteBrowserSession(result.user.id)
   return result.user
 }
 
@@ -132,6 +135,7 @@ export function oauthStartUrl(provider: string, referralCode?: string): string {
 
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
+  noteBrowserSession(null)
 }
 
 export async function fetchLoginMethods(): Promise<LoginMethodsView> {
@@ -175,11 +179,41 @@ function requestPath(input: string): string {
   }
 }
 
+const PAGE_HINT_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+
+/**
+ * 会话 cookie 写在 API 主机上，页面域名的 document.cookie 读不到。
+ * 登录成功后在页面自己的源上留一份不含凭据的提示，并记住用户 id，刷新才会去请求 /api/auth/me。
+ */
+export function noteBrowserSession(userId: string | null): void {
+  rememberStorageUser(userId)
+  if (typeof document === 'undefined') return
+  const secure = globalThis.location?.protocol === 'https:' ? '; Secure' : ''
+  document.cookie =
+    userId === null
+      ? `${USER_SESSION_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+      : `${USER_SESSION_HINT_COOKIE}=1; Path=/; Max-Age=${PAGE_HINT_MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+}
+
+/** OAuth 成功落在前端时带的标记。读过就丢掉，避免刷新反复当作新登录。 */
+export function clearOAuthSessionLanding(): void {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (!url.searchParams.has(OAUTH_SESSION_QUERY_PARAM)) return
+  url.searchParams.delete(OAUTH_SESSION_QUERY_PARAM)
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
 /**
  * 匿名访客没有可读的登录痕迹时，跳过 /api/auth/me。
- * HttpOnly 会话脚本读不到；提示 cookie 或上次记住的用户 id 才说明值得探测。
+ * HttpOnly 会话脚本读不到；页面源上的提示 cookie、上次记住的用户 id，
+ * 或 OAuth 刚带回的 auth_session 才说明值得探测。
  */
 export function shouldProbeSession(): boolean {
+  if (typeof window !== 'undefined') {
+    const landing = new URLSearchParams(window.location.search).get(OAUTH_SESSION_QUERY_PARAM)
+    if (landing === '1') return true
+  }
   if (typeof document !== 'undefined') {
     const hinted = document.cookie.split(';').some((part) => {
       const [name, value] = part.trim().split('=')
