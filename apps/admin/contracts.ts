@@ -398,11 +398,15 @@ export interface OpsReliabilityWindow {
 
 export interface OpsExceptionGroup {
   source: 'api' | 'generation' | 'agent'
-  /** API 模板路由、生成错误类型，或 Agent 轮次失败。没有原始报错文本。 */
+  /** API 模板路由、生成错误类型，或 Agent 失败码。 */
   key: string
   count: number
   last_at: number
   example_task_id?: string
+  /** Agent 最近一条已脱敏的失败说明。接口路由和生成错误类型不带这段。 */
+  detail?: string
+  /** 这条 Agent 失败对应的请求，用来打开同一条服务端日志。 */
+  example_request_id?: string
 }
 
 export interface OpsReliability {

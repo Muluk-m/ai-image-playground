@@ -9,6 +9,34 @@ import type { OpsBlock, OpsReliability } from '@/lib/types'
 
 const SOURCE_LABEL = { api: '接口 5xx', generation: '生成失败', agent: 'Agent 失败' } as const
 
+const AGENT_REASON: Record<string, string> = {
+  agent_upstream_error: '上游报错',
+  agent_run_failed: '执行失败',
+  agent_tool_failed: '工具失败',
+  agent_turn_interrupted: '轮次中断',
+  agent_context_overflow: '上下文超限',
+  agent_request_budget_exceeded: '请求超预算',
+  unknown: '未记录原因',
+}
+
+/** 和 `turn.ts` 里记下来的事件名对齐，点进去就是这一类失败的服务端日志。 */
+const AGENT_LOG_GROUP: Record<string, string> = {
+  agent_upstream_error: 'agent.upstream_failed',
+  agent_run_failed: 'agent.turn_failed',
+  agent_context_overflow: 'agent.context_overflow',
+  agent_request_budget_exceeded: 'agent.request_rejected',
+  agent_tool_failed: 'agent.turn_failed',
+}
+
+function agentLogSearch(group: OpsReliability['exceptions'][number]) {
+  const to = Math.min(Date.now() + 30_000, group.last_at + 15 * 60_000)
+  const from = Math.max(0, to - 60 * 60_000, group.last_at - 60 * 60_000)
+  const window = to > from ? { from, to } : {}
+  if (group.example_request_id) return { ...window, requestId: group.example_request_id }
+  const logGroup = AGENT_LOG_GROUP[group.key]
+  return logGroup ? { ...window, group: logGroup } : { ...window, q: group.key }
+}
+
 function availability(value: number | null): string {
   return value === null ? '—' : `${(value * 100).toFixed(3)}%`
 }
@@ -159,7 +187,11 @@ export function ReliabilityBlock({ block, now }: { block: OpsBlock<OpsReliabilit
                     <span className="w-20 shrink-0 text-muted-foreground">
                       {SOURCE_LABEL[group.source]}
                     </span>
-                    <span className="min-w-0 flex-1 break-all font-mono text-xs">{group.key}</span>
+                    <span className="min-w-0 flex-1 break-all font-mono text-xs">
+                      {group.source === 'agent' && AGENT_REASON[group.key]
+                        ? `${AGENT_REASON[group.key]} · ${group.key}`
+                        : group.key}
+                    </span>
                     {group.example_task_id ? (
                       <Link
                         to="/tasks/$taskId"
@@ -169,7 +201,21 @@ export function ReliabilityBlock({ block, now }: { block: OpsBlock<OpsReliabilit
                         样例任务 {shortId(group.example_task_id, 10)}
                       </Link>
                     ) : null}
+                    {group.source === 'agent' ? (
+                      <Link
+                        to="/logs"
+                        search={agentLogSearch(group)}
+                        className="text-xs underline-offset-2 hover:underline"
+                      >
+                        日志
+                      </Link>
+                    ) : null}
                     <span className="tabular-nums font-medium text-danger">{group.count} 次</span>
+                    {group.detail ? (
+                      <p className="w-full whitespace-pre-wrap break-words pl-7 text-xs text-muted-foreground">
+                        {group.detail}
+                      </p>
+                    ) : null}
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full bg-danger/70"

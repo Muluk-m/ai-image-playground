@@ -110,6 +110,12 @@ await writer.db.insert(writer.schema.agent_turns).values({
   turn_id: 'ops-turn',
   duration_ms: 1000,
   stop_reason: 'failed',
+  failure: {
+    code: 'agent_upstream_error',
+    message: 'upstream timed out',
+    requestId: 'ops-request',
+    occurredAt: new Date(now - 6 * minute).toISOString(),
+  },
   created_at: now - 6 * minute,
 })
 
@@ -402,7 +408,7 @@ describe('GET /api/ops', () => {
     ])
   })
 
-  it('shows request availability and grouped generation and Agent failures without error messages', async () => {
+  it('shows request availability and the reason behind grouped Agent failures', async () => {
     const cookie = await login()
     const body = (await (
       await app.handle(new Request('http://localhost/api/ops', { headers: { cookie } }))
@@ -427,7 +433,13 @@ describe('GET /api/ops', () => {
           count: 1,
           example_task_id: 'ops-failed',
         }),
-        expect.objectContaining({ source: 'agent', key: 'turn_failed', count: 1 }),
+        expect.objectContaining({
+          source: 'agent',
+          key: 'agent_upstream_error',
+          count: 1,
+          detail: 'upstream timed out',
+          example_request_id: 'ops-request',
+        }),
       ]),
     )
     expect(JSON.stringify(body.reliability.data)).not.toContain('ops-device')
