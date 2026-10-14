@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
+import { NodeLodCard, useCanvasLod } from './CanvasLod'
 export const RenameGroupContext = createContext<(id: string, name: string) => void>(() => {})
 export default memo(function NodeGroup({
   data: { group },
@@ -16,6 +17,8 @@ export default memo(function NodeGroup({
   const rename = useContext(RenameGroupContext)
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState('')
+  const lod = useCanvasLod()
+  if (lod === 'card') return <NodeLodCard label={group?.name || t('nodes.groupDefault')} />
   if (!group) return null
   return (
     <div className="studio-node-group" data-selected={selected || undefined}>

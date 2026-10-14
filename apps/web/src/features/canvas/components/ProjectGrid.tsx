@@ -12,9 +12,10 @@ import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
-import { renameProject } from '../lib/activeProject'
+import { copyCloudCanvasProject, renameProject } from '../lib/activeProject'
 import { catalogProjectId, projectCatalog, RECENT_PROJECT_COUNT } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
+import { copyProjectErrorMessage } from '../lib/projectCopyError'
 import {
   type CanvasProject,
   projectDisplayName,
@@ -221,6 +222,32 @@ export default function ProjectGrid({
                     >
                       <Icon name="edit" /> {t('grid.rename')}
                     </Button>
+                    {project.cloud && !project.cloud.deleted && (
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start gap-3 px-3"
+                        onClick={() => {
+                          setMenuProjectId(null)
+                          void (async () => {
+                            setBusy(true)
+                            try {
+                              const copy = await copyCloudCanvasProject(project.id)
+                              const opened = await useAgentStore.getState().selectProject(copy.id)
+                              if (opened) {
+                                useStore.getState().setAppMode('canvas')
+                                useLibraryStore.getState().leaveLibraryPage()
+                              }
+                            } catch (error) {
+                              useStore.getState().showToast(copyProjectErrorMessage(error), 'error')
+                            } finally {
+                              setBusy(false)
+                            }
+                          })()
+                        }}
+                      >
+                        <Icon name="duplicate" /> {t('grid.copy')}
+                      </Button>
+                    )}
                     {!recent && (!project.cloud || project.cloud.revision > 0) && (
                       <Button
                         variant="ghost"

@@ -78,3 +78,44 @@ it('filters the full grid by chat or canvas and labels each card with its type',
     host.remove()
   }
 })
+
+it('offers to duplicate a live cloud project and skips a local one', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const cloud: CanvasProject = {
+    ...untitled('cloud', 'canvas'),
+    name: '窗台',
+    customName: true,
+    cloud: { revision: 2 },
+  }
+  const local: CanvasProject = { ...untitled('local', 'canvas'), name: '本机', customName: true }
+  useCanvasProjectStore.setState({
+    projects: [cloud, local],
+    activeId: null,
+    cloudCatalog: {},
+    cloudLoading: false,
+    cloudError: null,
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const openMenu = async (name: string) => {
+    const trigger = document.querySelector(
+      `button[aria-label="项目 ${name} 的更多操作"]`,
+    ) as HTMLButtonElement
+    await act(async () => trigger.click())
+  }
+  const duplicateShown = () =>
+    [...document.querySelectorAll('button')].some((button) =>
+      button.textContent?.includes('复制项目'),
+    )
+  try {
+    await act(async () => root.render(<ProjectGrid />))
+    await openMenu('窗台')
+    expect(duplicateShown()).toBe(true)
+    await openMenu('本机')
+    expect(duplicateShown()).toBe(false)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

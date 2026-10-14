@@ -215,6 +215,8 @@
     "actions": "更多操作",
     "actionsAria": "项目 {{name}} 的更多操作",
     "rename": "重命名",
+    "copy": "复制项目",
+    "copyNameSuffix": "副本",
     "deleteTitle": "删除项目",
     "deleteMessage": "删除“{{name}}”及其画布和会话？此操作无法撤销。",
     "noMatch": "没有找到匹配的项目",
