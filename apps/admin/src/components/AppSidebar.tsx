@@ -69,8 +69,8 @@ export interface NavGroup {
 
 /**
  * 左侧分组导航，也是 ⌘K 面板的模块清单（CommandPalette 直接读这份）。
- * 私有树的收款与计费不在这里：它由 overlay 通过 usePrivateAdminNavigation() 提供，
- * 是普通链接而不是路由，单独渲染在「设置」组里。
+ * 私有树的收款与计费不写在这份清单里：入口来自 /api/extensions。收费构建会把
+ * overlay 的路由编进同一棵树，侧栏跟其他模块一样做客户端跳转，并带上选中态。
  */
 export const NAV_GROUPS: readonly NavGroup[] = [
   {
@@ -123,6 +123,28 @@ function overlayNavIcon(href: string): LucideIcon {
 // hover 也一并钉住，否则鼠标扫过当前模块会把它变回灰的。
 const NAV_ACTIVE_CLASS =
   'data-[active=true]:bg-shell-nav-active data-[active=true]:font-medium data-[active=true]:text-shell-nav-active-foreground data-[active=true]:hover:bg-shell-nav-active data-[active=true]:hover:text-shell-nav-active-foreground'
+
+/** 扩展清单的 href 可能带查询串；选中态和跳转都只认路径。 */
+export function overlayNavPath(href: string): string {
+  const end = href.search(/[?#]/)
+  const path = end === -1 ? href : href.slice(0, end)
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+}
+
+/**
+ * 公开路由类型里没有这些 path。运行时 `to` 仍是清单上的路径，收费构建的路由树能匹配到。
+ * 断言成一个不带 search 的公开路由，只为通过公开树的类型检查。
+ */
+function overlayLinkTo(href: string): '/audit' {
+  return overlayNavPath(href) as '/audit'
+}
+
+export function overlayNavIsActive(pathname: string, href: string): boolean {
+  const path = overlayNavPath(href)
+  if (pathname === path) return true
+  if (path === '/') return false
+  return pathname.startsWith(`${path}/`)
+}
 
 export function AppSidebar() {
   const navigate = useNavigate()
@@ -191,14 +213,19 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu aria-label={group.label}>
                   {overlayEntries.map((entry) => {
-                    const Icon = overlayNavIcon(entry.href)
+                    const Icon = overlayNavIcon(overlayNavPath(entry.href))
                     return (
                       <SidebarMenuItem key={entry.href}>
-                        <SidebarMenuButton asChild tooltip={entry.label}>
-                          <a href={entry.href}>
+                        <SidebarMenuButton
+                          asChild
+                          tooltip={entry.label}
+                          className={NAV_ACTIVE_CLASS}
+                          isActive={overlayNavIsActive(pathname, entry.href)}
+                        >
+                          <Link to={overlayLinkTo(entry.href)}>
                             <Icon />
                             <span>{entry.label}</span>
-                          </a>
+                          </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     )
