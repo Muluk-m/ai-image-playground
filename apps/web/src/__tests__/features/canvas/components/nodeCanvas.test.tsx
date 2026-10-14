@@ -21,10 +21,11 @@ import { useActiveLook } from '../../../../features/library/lib/activeLook'
 import { useLibraryStore } from '../../../../features/library/store'
 import type { AssetRecord, LookRecord } from '../../../../features/library/types'
 import {
-  createDefaultOpenAIByokProfile,
+  createBuiltinEdgeProfile,
   DEFAULT_SETTINGS,
   normalizeSettings,
 } from '../../../../lib/apiProfiles'
+import { resetChannelCatalog, setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import { stubPointerApis } from '../../../helpers/radix'
 
@@ -633,7 +634,16 @@ it('sends a preset template through the selected image node', async () => {
   const params = useStore.getState().params
   const settings = useStore.getState().settings
   const noteLookUsed = useLibraryStore.getState().noteLookUsed
-  const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+  setChannels([
+    {
+      id: 'platform',
+      kind: 'openai-queue',
+      label: 'Platform',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  const profile = createBuiltinEdgeProfile('platform', 'gpt-image-2')
   useStore.setState({
     settings: normalizeSettings({
       ...DEFAULT_SETTINGS,
@@ -723,5 +733,6 @@ it('sends a preset template through the selected image node', async () => {
     useActiveLook.getState().set(null)
     useLibraryStore.setState({ looks: [], assets: [], noteLookUsed })
     useStore.setState({ params, settings })
+    resetChannelCatalog()
   }
 })
