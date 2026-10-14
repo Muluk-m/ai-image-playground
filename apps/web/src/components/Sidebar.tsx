@@ -262,14 +262,6 @@ export default function Sidebar() {
             <Icon name="guide" size="xs" />
             {t('nav.guide')}
           </a>
-          <div className="flex items-center gap-3 px-3 pb-1 text-label-sm text-muted-foreground">
-            <a href="/terms" target="_blank" rel="noopener" className="hover:text-foreground">
-              {t('nav.terms')}
-            </a>
-            <a href="/privacy" target="_blank" rel="noopener" className="hover:text-foreground">
-              {t('nav.privacy')}
-            </a>
-          </div>
         </nav>
       ) : null}
 
