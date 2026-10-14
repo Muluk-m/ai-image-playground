@@ -440,60 +440,162 @@ proxy_layout_current() {
   docker exec "$1" test -d /etc/admin-proxy >/dev/null 2>&1
 }
 
+# 0: the container now has this name. 2: it is still answering under the old one.
+rename_admin_proxy() {
+  source=$1
+  target=$2
+  attempts=0
+  while [ "$attempts" -lt 5 ]; do
+    docker rename "$source" "$target" && return 0
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+  return 2
+}
+
+# A stand-in left behind by a failed rename. Adopting it is the only way back
+# to the stable name; removing it would drop the admin alias.
+adopt_admin_proxy() {
+  proxy=$project-admin-proxy
+  next=$project-admin-proxy-next
+  if admin_running "$proxy" || ! admin_running "$next"; then return 0; fi
+  rename_admin_proxy "$next" "$proxy" || return 2
+}
+
+# The previous-name container is an already replaced proxy. Retire it only
+# once the stable name is the one answering.
+retire_replaced_proxy() {
+  proxy=$project-admin-proxy
+  previous_proxy=$project-admin-proxy-previous
+  if ! admin_running "$proxy"; then return 0; fi
+  if ! docker inspect "$previous_proxy" >/dev/null 2>&1; then return 0; fi
+  if admin_running "$previous_proxy"; then
+    docker stop -t 30 "$previous_proxy" >/dev/null 2>&1 || true
+  fi
+  docker rm "$previous_proxy" >/dev/null 2>&1 || true
+  if docker inspect "$previous_proxy" >/dev/null 2>&1; then return 2; fi
+}
+
 ensure_admin_proxy() {
   proxy=$project-admin-proxy
+  adopt_admin_proxy || return 2
+  retire_replaced_proxy || return $?
   if admin_running "$proxy"; then
     proxy_layout_current "$proxy" && return 0
-    replace_admin_proxy "$1" || return 1
+    replace_admin_proxy "$1" || return $?
     return 0
   fi
   docker rm -f "$proxy" >/dev/null 2>&1 || true
   write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf" || return 1
+  # No ingress alias yet. cloudflared must not be able to reach this process
+  # until it is actually listening.
   logged_docker run -d --name "$proxy" --init --restart unless-stopped \
-    --network "$network" --network-alias admin \
+    --network "$network" \
     --entrypoint nginx \
     --mount "type=bind,source=$state_dir/admin-proxy,target=/etc/admin-proxy,readonly" \
     "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
+  publish_listening_proxy "$proxy" || return 1
 }
 
-# Start the new layout beside the old proxy, both answering the admin name,
-# then stop the old one. The name is never absent. docker run returning does
-# not mean nginx is listening, so the old proxy stays until this one answers.
+# 1: the previous proxy is still the one answering under the stable name.
+# 2: the replacement is already answering as admin, but it could not be given
+# the stable name. The caller must not delete the upstream that config names.
 replace_admin_proxy() {
   proxy=$project-admin-proxy
   next=$project-admin-proxy-next
+  previous_proxy=$project-admin-proxy-previous
+  if admin_running "$next"; then
+    docker stop -t 30 "$next" >/dev/null 2>&1 || true
+  fi
   docker rm -f "$next" >/dev/null 2>&1 || true
   write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf" || return 1
   logged_docker run -d --name "$next" --init --restart unless-stopped \
-    --network "$network" --network-alias admin \
+    --network "$network" \
     --entrypoint nginx \
     --mount "type=bind,source=$state_dir/admin-proxy,target=/etc/admin-proxy,readonly" \
     "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
-  if ! wait_proxy_answers "$next"; then
+  # The alias is attached only after nginx answers, and only while the old
+  # proxy still has it too. A not-yet-listening process never owns the name.
+  publish_listening_proxy "$next" || return 1
+  # Free the stable name without stopping the process that is still answering.
+  if ! docker rename "$proxy" "$previous_proxy"; then
     docker rm -f "$next" >/dev/null 2>&1 || true
     return 1
   fi
-  docker stop -t 30 "$proxy" >/dev/null 2>&1 || true
-  docker rm "$proxy" >/dev/null 2>&1 || true
-  docker rename "$next" "$proxy" || return 1
+  if ! rename_admin_proxy "$next" "$proxy"; then
+    if rename_admin_proxy "$previous_proxy" "$proxy"; then
+      docker rm -f "$next" >/dev/null 2>&1 || true
+      return 1
+    fi
+    return 2
+  fi
+  docker stop -t 30 "$previous_proxy" >/dev/null 2>&1 || true
+  docker rm "$previous_proxy" >/dev/null 2>&1 || true
+  # The old process still owns the admin alias until it is gone. Reporting
+  # success here would let the rollout continue with two answers for the name.
+  if docker inspect "$previous_proxy" >/dev/null 2>&1; then return 2; fi
+}
+
+# Attach the ingress alias without a long overlap. The container is already on
+# the network so it can resolve its upstream; reconnect is only to add the alias
+# and drops no client traffic, because this container was not the ingress yet.
+publish_admin_alias() {
+  docker network disconnect "$network" "$1" >/dev/null 2>&1 || return 1
+  docker network connect --alias admin "$network" "$1" || return 1
+}
+
+# The container is already on the network so it can resolve its upstream, but it
+# does not own the admin alias until nginx answers. Reconnect replaces the
+# interface, so the alias stays only if the listener still answers afterwards.
+publish_listening_proxy() {
+  name=$1
+  deadline=$(( $(date +%s) + ${ADMIN_PROXY_WAIT_SECONDS:-30} ))
+  if ! wait_proxy_answers "$name" "$deadline"; then
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    return 1
+  fi
+  publish_admin_alias "$name" || {
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    return 1
+  }
+  if ! wait_proxy_answers "$name" "$deadline"; then
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    return 1
+  fi
 }
 
 proxy_answers() {
-  docker exec "$1" bun -e '
-    const response = await fetch("http://127.0.0.1:37378/health", { signal: AbortSignal.timeout(4000) })
+  probe=${PROXY_PROBE_SECONDS:-1}
+  docker exec -e "PROXY_PROBE_SECONDS=$probe" "$1" bun -e '
+    const seconds = Number(process.env.PROXY_PROBE_SECONDS || "1")
+    const response = await fetch("http://127.0.0.1:37378/health", {
+      signal: AbortSignal.timeout(Math.max(1, seconds) * 1000),
+    })
     if (!response.ok) process.exit(1)
   ' >/dev/null 2>&1
 }
 
+# ADMIN_PROXY_WAIT_SECONDS is a deadline, not a retry count. One hung probe
+# must not multiply it by the fetch timeout.
 wait_proxy_answers() {
   name=$1
-  remaining=${ADMIN_PROXY_WAIT_SECONDS:-30}
-  while [ "$remaining" -gt 0 ]; do
+  if [ -n "${2:-}" ]; then
+    deadline=$2
+  else
+    deadline=$(( $(date +%s) + ${ADMIN_PROXY_WAIT_SECONDS:-30} ))
+  fi
+  while :; do
+    now=$(date +%s)
+    [ "$now" -lt "$deadline" ] || return 1
+    left=$((deadline - now))
+    if [ "$left" -gt 4 ]; then left=4; fi
+    PROXY_PROBE_SECONDS=$left
+    export PROXY_PROBE_SECONDS
     proxy_answers "$name" && return 0
+    now=$(date +%s)
+    [ "$now" -lt "$deadline" ] || return 1
     sleep 1
-    remaining=$((remaining - 1))
   done
-  return 1
 }
 
 reload_admin_proxy() {
@@ -512,8 +614,12 @@ reload_admin_proxy() {
 # The container uses --init, so pid 1 is docker-init and its only child is the
 # master. Workers are children of the pid recorded in the proxy config.
 proxy_switched() {
-  docker exec "$project-admin-proxy" bun -e '
-    const response = await fetch("http://127.0.0.1:37378/health", { signal: AbortSignal.timeout(4000) })
+  probe=${PROXY_PROBE_SECONDS:-1}
+  docker exec -e "PROXY_PROBE_SECONDS=$probe" "$project-admin-proxy" bun -e '
+    const seconds = Number(process.env.PROXY_PROBE_SECONDS || "1")
+    const response = await fetch("http://127.0.0.1:37378/health", {
+      signal: AbortSignal.timeout(Math.max(1, seconds) * 1000),
+    })
     if (!response.ok) process.exit(1)
     const pid = (await Bun.file("/tmp/admin-proxy.pid").text()).trim()
     if (!/^\d+$/.test(pid)) process.exit(1)
@@ -523,19 +629,31 @@ proxy_switched() {
 }
 
 wait_proxy_switched() {
-  remaining=30
-  while [ "$remaining" -gt 0 ]; do
+  deadline=$(( $(date +%s) + ${ADMIN_PROXY_WAIT_SECONDS:-30} ))
+  while :; do
+    now=$(date +%s)
+    [ "$now" -lt "$deadline" ] || break
+    left=$((deadline - now))
+    if [ "$left" -gt 4 ]; then left=4; fi
+    PROXY_PROBE_SECONDS=$left
+    export PROXY_PROBE_SECONDS
     workers=$(proxy_switched || true)
     case "$workers" in
       '') ;;
       *[!0-9]*) return 0 ;;
       *) [ "$workers" -le 1 ] && return 0 ;;
     esac
+    now=$(date +%s)
+    [ "$now" -lt "$deadline" ] || break
     sleep 1
-    remaining=$((remaining - 1))
   done
   echo "Admin proxy did not finish switching" >&2
   return 1
+}
+
+proxy_config_names() {
+  [ -f "$state_dir/admin-proxy/nginx.conf" ] &&
+    grep -q "set \$upstream ${1};" "$state_dir/admin-proxy/nginx.conf"
 }
 
 # Stop with the same grace Compose gives Admin, then remove it. Do not disconnect
@@ -552,6 +670,10 @@ replace_admin() {
   proxy=$project-admin-proxy
   new=$release-admin
   upstream_file=$state_dir/admin-upstream
+  # A failed rename leaves the live proxy under the temporary name. Adopt it
+  # before deciding that nothing is answering, or this branch would start a
+  # second ingress and abandon the one cloudflared is already using.
+  adopt_admin_proxy || return 2
   if ! admin_running "$current" && ! admin_running "$proxy"; then
     # Nothing is answering yet. Compose may publish the name before listen;
     # there is no traffic to miss.
@@ -574,8 +696,7 @@ replace_admin() {
     live=
     [ -f "$upstream_file" ] && live=$(cat "$upstream_file")
     if [ "$pending" != "$live" ]; then
-      if [ -f "$state_dir/admin-proxy/nginx.conf" ] &&
-        grep -q "set \$upstream ${pending};" "$state_dir/admin-proxy/nginx.conf"; then
+      if proxy_config_names "$pending"; then
         # The proxy already follows pending. Remember the previous upstream:
         # overwriting the record without that would leave the old process running
         # and unnamed.
@@ -605,9 +726,17 @@ replace_admin() {
   # Also when a proxy is already up: an older build mounted a single file and
   # cannot see the directory this reload uses. ensure replaces that container
   # only after the new one answers.
-  if ! ensure_admin_proxy "$previous"; then
-    stop_admin "$new"
-    rm -f "$pending_file"
+  ensure_status=0
+  ensure_admin_proxy "$previous" || ensure_status=$?
+  if [ "$ensure_status" != 0 ]; then
+    # 1: the previous proxy is still answering. 2: a replacement proxy is
+    # already answering, but not under the stable name. In both cases the
+    # on-disk config may already name this process; deleting it leaves the
+    # proxy aimed at a container that is gone.
+    if ! proxy_config_names "$new"; then
+      stop_admin "$new"
+      rm -f "$pending_file"
+    fi
     return 1
   fi
   reload_status=0
