@@ -105,13 +105,60 @@ await writer.db.insert(writer.schema.agent_conversations).values({
   created_at: now - 10 * minute,
   updated_at: now - 1 * minute,
 })
-await writer.db.insert(writer.schema.agent_turns).values({
-  conversation_id: 'ops-conversation',
-  turn_id: 'ops-turn',
-  duration_ms: 1000,
-  stop_reason: 'failed',
-  created_at: now - 6 * minute,
-})
+await writer.db.insert(writer.schema.agent_turns).values([
+  {
+    conversation_id: 'ops-conversation',
+    turn_id: 'ops-turn',
+    duration_ms: 1000,
+    stop_reason: 'failed',
+    failure: {
+      code: 'agent_upstream_error',
+      message: 'upstream timed out',
+      requestId: 'ops-request',
+      occurredAt: new Date(now - 6 * minute).toISOString(),
+    },
+    created_at: now - 6 * minute,
+  },
+  {
+    conversation_id: 'ops-conversation',
+    turn_id: 'ops-turn-older',
+    duration_ms: 800,
+    stop_reason: 'failed',
+    failure: {
+      code: 'agent_upstream_error',
+      message: 'connection reset',
+      requestId: 'ops-request-old',
+      occurredAt: new Date(now - 20 * minute).toISOString(),
+    },
+    created_at: now - 20 * minute,
+  },
+  // 最新一条没有 requestId。链接必须跟这条走，不能借更早那条的请求号。
+  {
+    conversation_id: 'ops-conversation',
+    turn_id: 'ops-run-new',
+    duration_ms: 500,
+    stop_reason: 'failed',
+    failure: {
+      code: 'agent_run_failed',
+      message: 'run blew up',
+      occurredAt: new Date(now - 16 * minute).toISOString(),
+    },
+    created_at: now - 16 * minute,
+  },
+  {
+    conversation_id: 'ops-conversation',
+    turn_id: 'ops-run-old',
+    duration_ms: 500,
+    stop_reason: 'failed',
+    failure: {
+      code: 'agent_run_failed',
+      message: 'old run',
+      requestId: 'stale-request',
+      occurredAt: new Date(now - 40 * minute).toISOString(),
+    },
+    created_at: now - 40 * minute,
+  },
+])
 
 // 重新部署换了实例：每个服务只该报最新的那个实例。
 await writer.db.insert(writer.schema.service_heartbeats).values([
@@ -402,7 +449,7 @@ describe('GET /api/ops', () => {
     ])
   })
 
-  it('shows request availability and grouped generation and Agent failures without error messages', async () => {
+  it('shows request availability and the reason behind grouped Agent failures', async () => {
     const cookie = await login()
     const body = (await (
       await app.handle(new Request('http://localhost/api/ops', { headers: { cookie } }))
@@ -416,8 +463,14 @@ describe('GET /api/ops', () => {
       availability: 0.96,
       generation_completed: 1,
       generation_failed: 1,
-      agent_failed: 1,
+      agent_failed: 4,
     })
+    const upstream = body.reliability.data.exceptions.find(
+      (group) => group.source === 'agent' && group.key === 'agent_upstream_error',
+    )
+    const run = body.reliability.data.exceptions.find(
+      (group) => group.source === 'agent' && group.key === 'agent_run_failed',
+    )
     expect(body.reliability.data.exceptions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'api', count: 2 }),
@@ -427,9 +480,23 @@ describe('GET /api/ops', () => {
           count: 1,
           example_task_id: 'ops-failed',
         }),
-        expect.objectContaining({ source: 'agent', key: 'turn_failed', count: 1 }),
       ]),
     )
+    expect(upstream).toMatchObject({
+      count: 2,
+      detail: 'upstream timed out',
+      example_request_id: 'ops-request',
+    })
+    expect(upstream?.samples?.map((sample) => [sample.message, sample.request_id])).toEqual([
+      ['upstream timed out', 'ops-request'],
+      ['connection reset', 'ops-request-old'],
+    ])
+    expect(upstream?.samples?.[0].at).toBeGreaterThan(upstream?.samples?.[1].at ?? 0)
+    expect(run).toMatchObject({ count: 2, detail: 'run blew up' })
+    expect(run?.example_request_id).toBeUndefined()
+    expect(run?.samples?.[0]).toMatchObject({ message: 'run blew up' })
+    expect(run?.samples?.[0].request_id).toBeUndefined()
+    expect(run?.samples?.[1]).toMatchObject({ message: 'old run', request_id: 'stale-request' })
     expect(JSON.stringify(body.reliability.data)).not.toContain('ops-device')
   })
 
