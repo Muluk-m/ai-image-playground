@@ -10,9 +10,13 @@ let latestRequestId = 0
 let retryAttempt = 0
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let preloaded: { baseUrl: string; promise: Promise<DiscoveredChannel[]> } | undefined
+let catalogLoad: Promise<boolean> | undefined
+let catalogLoadToken = 0
 
 export function resetChannelDiscoveryForTests(): void {
   latestRequestId += 1
+  catalogLoadToken += 1
+  catalogLoad = undefined
   retryAttempt = 0
   if (retryTimer !== undefined) {
     clearTimeout(retryTimer)
@@ -136,12 +140,7 @@ export async function bootstrapChannels(
   }
 }
 
-/**
- * 等当前这一次渠道清单。已经加载完就立刻返回。
- * 这一次失败也不把清单标成空：后台重试还在，下一次调用可以再要。
- */
-export async function ensureChannelsLoaded(): Promise<boolean> {
-  if (channelsSettled()) return true
+async function loadCatalog(): Promise<boolean> {
   const { getRuntimeConfig } = await import('../runtimeConfig')
   const runtime = getRuntimeConfig()
   if (!runtime.bff.enabled) {
@@ -151,7 +150,24 @@ export async function ensureChannelsLoaded(): Promise<boolean> {
   try {
     await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, false)
   } catch {
-    // bootstrapChannels already scheduled a retry when the catalog is still pending.
+    // required=false 时失败已经安排了后台重试，这里不把异常再抛出去。
   }
   return channelsSettled()
+}
+
+/**
+ * 等当前这一次渠道清单。已经加载完就立刻返回。
+ * 还在加载时，所有调用方共用同一个 promise：后一次不能把先返回的结果作废。
+ * 这一次失败也不把清单标成空；promise 清掉后，下一次调用或后台重试可以再要。
+ */
+export function ensureChannelsLoaded(): Promise<boolean> {
+  if (channelsSettled()) return Promise.resolve(true)
+  if (!catalogLoad) {
+    const token = ++catalogLoadToken
+    const run = loadCatalog().finally(() => {
+      if (token === catalogLoadToken) catalogLoad = undefined
+    })
+    catalogLoad = run
+  }
+  return catalogLoad
 }
