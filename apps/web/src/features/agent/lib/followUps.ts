@@ -32,7 +32,7 @@ export function shouldPollFollowUps(input: {
 }
 
 /**
- * 输入框上方要显示的句子。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
+ * 最新一条助手消息后面要显示的句子。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
  * 返回的空数组是稳定引用，避免订阅每次都拿到新数组。
  */
 export function visibleFollowUps(input: {
