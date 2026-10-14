@@ -166,8 +166,7 @@ async function submit(
   if (!codexCli && opts.params.quality && opts.params.quality !== 'auto')
     body.quality = opts.params.quality
 
-  // 这两支必须逐字对齐 BYOK adapter（openaiCompatibleImageApi / geminiImageApi），
-  // 否则同一组 chip 在自带 key 和队列两条路径下发出去的参数会不一致。
+  // 协议族决定上游 body 里哪些字段要带。改这里要同时看参数卡片，避免界面有开关、请求里没有。
   if (provider === 'openai-compat') {
     body.output_format = opts.params.output_format
     body.moderation = opts.params.moderation

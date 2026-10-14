@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "mock:api": "node scripts/mock-image-api.mjs",
     "gen:hero-seed": "node scripts/build-hero-seed.mjs",
     "build": "pnpm gen:hero-seed && tsc -b && vite build",
     "build:static-host": "pnpm build && node scripts/write-runtime-config.mjs && node scripts/write-version-manifest.mjs",

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildRuntimeConfig } from '../../../scripts/write-runtime-config.mjs'
 
 describe('buildRuntimeConfig', () => {
-  it('falls back to the BYOK-only shape when the backend is not enabled', () => {
+  it('falls back to a disconnected backend when the backend is not enabled', () => {
     expect(buildRuntimeConfig({})).toEqual({ bff: { enabled: false, baseUrl: '' } })
   })
 

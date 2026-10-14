@@ -5,7 +5,7 @@ import { bffBaseUrl, getRuntimeConfig } from '../../../lib/runtimeConfig'
 import type { InspirationManifest } from '../types'
 
 /**
- * Paid deployments read the BFF's published manifest; the static file remains an offline/BYOK
+ * Paid deployments read the BFF's published manifest; the static file remains an offline
  * seed for builds with no BFF. A build-time URL may still point a staging build at another API.
  */
 export const DEFAULT_REMOTE_MANIFEST_URL = '/inspiration-manifest.json'
@@ -75,7 +75,7 @@ function validateManifest(payload: unknown): InspirationManifest | null {
   if (typeof record.updatedAt !== 'string') return null
   if (!Array.isArray(record.items)) return null
 
-  // 旧的静态 manifest（BYOK / 离线种子）没有 kind：按效果图收下，别整份判无效。
+  // 旧的静态 manifest（离线种子）没有 kind：按效果图收下，别整份判无效。
   const items = record.items.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return []
     const r = entry as Record<string, unknown>
