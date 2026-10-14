@@ -126,8 +126,8 @@ describe('定价目录', () => {
     withExtraCycle.plans[0]?.prices.push({
       period_months: 6,
       original_price_cents: 20_000,
-      discount_price_cents: null,
-      discount_ends_at: null,
+      discount_price_cents: 20_000,
+      discount_ends_at: 1,
       effective_price_cents: 20_000,
     })
     expect(parsePublicCatalog(withExtraCycle)?.plans[0]?.prices[1]).toBeDefined()
