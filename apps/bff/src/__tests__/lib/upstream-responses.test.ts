@@ -83,7 +83,7 @@ describe('Astra 图片 Responses 调用', () => {
         input_images: [IMAGE, IMAGE],
         mask: IMAGE,
         output_compression: 0,
-        extra: { model: 'gpt-5.6-luna', tools: [], prompt: '不要编辑' },
+        extra: { model: 'gpt-6-luna', tools: [], prompt: '不要编辑' },
       },
     })
     expect(extractMeta('openai-compat', result.payload).images).toEqual([

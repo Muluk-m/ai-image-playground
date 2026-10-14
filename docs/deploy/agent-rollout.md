@@ -88,10 +88,11 @@ AGENT_CHAT_MODEL=gpt-6-luna
 # 以下两个参数只作未登记旧模型的兜底；已登记模型以 models.config.json 为准
 AGENT_CHAT_CONTEXT_WINDOW=128000
 AGENT_CHAT_MAX_TOKENS=8000
-AGENT_SUMMARY_MODEL=gpt-5.6-luna
-# 预测用户下一句。只要一句短文本，钉在已验收的小模型上，不跟对话档走。
-# 网关有更快的小对话模型时再改这一行；留空则跟随 AGENT_SUMMARY_MODEL。
-AGENT_FOLLOW_UP_MODEL=gpt-5.6-luna
+AGENT_SUMMARY_MODEL=gpt-6-luna
+# 下一句预测专用。claude- 前缀走 UPSTREAM_CLAUDE_API_KEY。留空跟随摘要模型，再没有才跟随对话模型。
+AGENT_FOLLOWUP_MODEL=claude-haiku-5-5
+# 搜索打的是 /v1/responses，不跟随下一句模型。留空才跟随摘要模型、对话模型。
+AGENT_SEARCH_MODEL=gpt-6-luna
 # 自定义摘要模型或网关窗口更小时，填该摘要模型的真实窗口
 # AGENT_SUMMARY_CONTEXT_WINDOW=16000
 AGENT_IMAGE_MODEL=gpt-image-2.5-flare
@@ -103,9 +104,9 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 三档模型的压缩、出站硬闸与预扣都读取本轮所选模型的 `contextWindow`。
 
 三档模型分别是低 `gpt-6-luna`、中 `gpt-6.1-sol`、深 `claude-opus-5-5`。
-三档模型和旧默认模型 `gpt-5.6-luna` 按 100 万 token 的预算窗口、128000 token
+三档模型与下一句用的 `claude-haiku-5-5` 按 100 万 token 的预算窗口、128000 token
 最大输出处理。压缩与出站硬闸预留完整的模型输出额度；旧 output reserve 配置兼容读取但不再参与计算。摘要任务仍使用自己的小输出预算。依据与中转验收见
-[输出额度核验](../research/agent-model-output-limits-2026-10-13.md)。Claude 对话、摘要或搜索模型用
+[输出额度核验](../research/agent-model-output-limits-2026-10-13.md)。Claude 对话、摘要、搜索或下一句模型用
 `UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
 
 生图与生视频模型必须是 `channels.json` 里的模型，且在单价表里 active，否则工具提交会被拒。
@@ -117,7 +118,7 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 supported」，是确定性错误因而不重试，三次就把熔断器打开，压缩从此再没成功过一次。
 配之前拿它打一次 `/v1/chat/completions`，别只看 `/v1/models`。
 摘要使用自己的模型窗口，扣除提示词、上一版摘要、1500 token 输出和估算缓冲后再分段。
-三档对话模型及 `gpt-5.6-luna` 已登记 100 万 token 的预算窗口；其他摘要模型应设置
+三档对话模型及 `claude-haiku-5-5` 已登记 100 万 token 的预算窗口；其他摘要模型应设置
 `AGENT_SUMMARY_CONTEXT_WINDOW`，网关实际窗口较小时也用它覆盖登记值。
 
 ## 五、开能力，同时把阈值写死
@@ -144,7 +145,7 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 原来那位 `agent:web` 已经退役（`RETIRED_CAPABILITIES`）：旧配置里留着它不会让服务起不来，
 但也不再有任何作用，可以删掉。
 
-要配的只有 `AGENT_SEARCH_MODEL`。**它打的是 `/v1/responses` 上托管的 `web_search`，与对话模型
+要配的只有 `AGENT_SEARCH_MODEL`。上面把它写成 `gpt-6-luna`。**它打的是 `/v1/responses` 上托管的 `web_search`，与对话模型
 不是同一个端点**：某个模型在 `/v1/chat/completions` 能用，不代表网关在 Responses 上也供着它，
 所以照样拿它打一次真请求再定。留空时依次跟随 `AGENT_SUMMARY_MODEL`、`AGENT_CHAT_MODEL`；
 三个都没有时搜索工具不进模型的工具清单（其余三个不受影响），不会每次调用都失败。
