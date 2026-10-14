@@ -410,6 +410,40 @@ describe('edges', () => {
     expect(connectCanvasNodes(doc, { source: 'n0', target: 'n0' }, origin)).toBe(false)
   })
 
+  it('links 4000 edges across 3000 nodes without rereading the document', () => {
+    const doc = new Y.Doc()
+    const origin = canvasOrigin('user', 'me')
+    const nodeCount = 3000
+    const edgeCount = 4000
+    const inserting = performance.now()
+    for (let index = 0; index < nodeCount; index += 1)
+      insertCanvasNode(
+        doc,
+        { id: `n${index}`, type: 'image', x: index, y: 0, width: 40, height: 40, data: {} },
+        origin,
+      )
+    const inserted = performance.now() - inserting
+    let failed = 0
+    const linking = performance.now()
+    for (let index = 0; index < edgeCount; index += 1) {
+      const source = index % nodeCount
+      const target = (source + 1 + Math.floor(index / nodeCount)) % nodeCount
+      if (!connectCanvasNodes(doc, { source: `n${source}`, target: `n${target}` }, origin))
+        failed += 1
+    }
+    const linked = performance.now() - linking
+    const reading = performance.now()
+    const snapshot = readCanvasDocument(doc)
+    const read = performance.now() - reading
+    expect(failed).toBe(0)
+    expect(snapshot.nodes).toHaveLength(nodeCount)
+    expect(snapshot.edges).toHaveLength(edgeCount)
+    // 整份重读时 4000 条边大约 24 秒。这三道上限只拦住那条回归，不拿本机毫秒数当基准。
+    expect(inserted).toBeLessThan(10_000)
+    expect(linked).toBeLessThan(5_000)
+    expect(read).toBeLessThan(2_000)
+  })
+
   it('undoes a connection without moving the nodes', () => {
     const doc = imported()
     const origin = canvasOrigin('user', 'me')
