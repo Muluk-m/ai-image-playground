@@ -379,48 +379,125 @@ if [ "$retire_legacy" = 1 ]; then
 fi
 
 # Ancillary services have no generation execution state. Their writes use the stable ingress.
-# Admin is what cloudflared calls `http://admin:37378`. Replacing that container in place
-# removes the DNS name for the whole restart, and every admin request in that window is
-# logged as "lookup admin" / "dial tcp …:37378". Start the new copy under the same alias
-# first; only then let Compose replace the old one, and drop the extra copy after it is up.
+# cloudflared calls http://admin:37378. That name stays on a proxy. A new Admin is started
+# without the name, on the database network, and is published to the proxy only after it
+# answers /health. nginx reload keeps the proxy's old workers on the previous backend until
+# their requests finish; the previous container is then stopped, not killed.
+admin_running() {
+  [ "$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null || true)" = true ]
+}
+
+write_admin_proxy_conf() {
+  upstream=$1
+  mkdir -p "$state_dir/admin-proxy"
+  cat > "$state_dir/admin-proxy/nginx.conf" <<EOF
+worker_processes 1;
+error_log /dev/stderr warn;
+pid /tmp/admin-proxy.pid;
+events { worker_connections 128; }
+http {
+  access_log off;
+  server {
+    listen 37378;
+    resolver 127.0.0.11 valid=1s ipv6=off;
+    set \$upstream ${upstream};
+    location / {
+      proxy_pass http://\$upstream:37378;
+      proxy_http_version 1.1;
+      proxy_set_header Host \$host;
+      proxy_read_timeout 90s;
+    }
+  }
+}
+EOF
+}
+
+start_admin_instance() {
+  deployments_log=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/deployments.log
+  [ -f "$deployments_log" ] || deployments_log=/dev/null
+  # Database network only. The ingress alias is the proxy's, so this process is
+  # invisible to cloudflared until it is healthy and the proxy is reloaded.
+  logged_docker run -d --name "$1" --init --restart unless-stopped \
+    --network "$infra" \
+    --env-file "$app_env" \
+    -e APP_ROLE=admin -e PORT=37378 -e DATABASE_POOL_MAX=3 \
+    -e BFF_INTERNAL_URL=http://release-router:37377 \
+    --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
+    --mount "type=bind,source=$deployments_log,target=/host/deployments.log,readonly" \
+    "$image" bun run /app/apps/admin/server/index.ts >/dev/null
+}
+
+ensure_admin_proxy() {
+  proxy=$project-admin-proxy
+  if admin_running "$proxy"; then return 0; fi
+  docker rm -f "$proxy" >/dev/null 2>&1 || true
+  write_admin_proxy_conf "$1"
+  logged_docker run -d --name "$proxy" --init --restart unless-stopped \
+    --network "$network" --network-alias admin \
+    --entrypoint nginx \
+    --mount "type=bind,source=$state_dir/admin-proxy/nginx.conf,target=/etc/admin-proxy.conf,readonly" \
+    "$image" -g 'daemon off;' -c /etc/admin-proxy.conf >/dev/null
+}
+
+reload_admin_proxy() {
+  write_admin_proxy_conf "$1"
+  docker exec "$project-admin-proxy" nginx -s reload >/dev/null
+}
+
+# stop_admin <name> <drop-ingress true|false>
+# drop-ingress is only for a container that still carries the admin alias (the
+# Compose original, or a leftover from the earlier overlap). Disconnecting that
+# network stops new lookups; stop -t 30 lets the process finish what it accepted.
+stop_admin() {
+  name=$1
+  if ! docker inspect "$name" >/dev/null 2>&1; then return 0; fi
+  if [ "$2" = true ] && admin_running "$name"; then
+    docker network disconnect "$network" "$name" >/dev/null 2>&1 || true
+  fi
+  if admin_running "$name"; then docker stop -t 30 "$name" >/dev/null 2>&1 || true; fi
+  docker rm "$name" >/dev/null 2>&1 || true
+}
+
 replace_admin() {
   current=$project-admin-1
-  next=$project-admin-next
-  if [ "$(docker inspect --format '{{.State.Running}}' "$current" 2>/dev/null || true)" = true ] &&
-    [ "$(docker inspect --format '{{.Config.Image}}' "$current" 2>/dev/null || true)" = "$image" ]; then
+  proxy=$project-admin-proxy
+  new=$release-admin
+  upstream_file=$state_dir/admin-upstream
+  if ! admin_running "$current" && ! admin_running "$proxy"; then
+    # Nothing is answering yet. Compose may publish the name before listen;
+    # there is no traffic to miss.
+    APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+      "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps --wait admin
+    printf '%s\n' "$current" > "$upstream_file"
     return 0
   fi
-  next_image=$(docker inspect --format '{{.Config.Image}}' "$next" 2>/dev/null || true)
-  next_running=$(docker inspect --format '{{.State.Running}}' "$next" 2>/dev/null || true)
-  if [ "$next_running" != true ] || [ "$next_image" != "$image" ]; then
-    if docker inspect "$next" >/dev/null 2>&1 &&
-      { [ "$(docker inspect --format '{{.State.Running}}' "$current" 2>/dev/null || true)" = true ] ||
-        [ "$next_running" != true ]; }; then
-      docker rm -f "$next" >/dev/null 2>&1 || true
-    fi
+  # A leftover overlap container still owns the ingress name. Retire it only
+  # once the Compose instance is up, so a retry cannot skip it forever.
+  if admin_running "$current" && docker inspect "$project-admin-next" >/dev/null 2>&1; then
+    stop_admin "$project-admin-next" true
   fi
-  if ! docker inspect "$next" >/dev/null 2>&1; then
-    deployments_log=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/deployments.log
-    [ -f "$deployments_log" ] || deployments_log=/dev/null
-    logged_docker run -d --name "$next" --init --restart unless-stopped \
-      --network "$network" --network-alias admin --network-alias "$project-admin" \
-      --env-file "$app_env" \
-      -e APP_ROLE=admin -e PORT=37378 -e DATABASE_POOL_MAX=3 \
-      -e BFF_INTERNAL_URL=http://release-router:37377 \
-      --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
-      --mount "type=bind,source=$deployments_log,target=/host/deployments.log,readonly" \
-      "$image" bun run /app/apps/admin/server/index.ts >/dev/null
-    docker network connect "$infra" "$next"
-  fi
-  if ! healthy "$next" 37378; then
-    if [ "$(docker inspect --format '{{.State.Running}}' "$current" 2>/dev/null || true)" = true ]; then
-      docker rm -f "$next" >/dev/null 2>&1 || true
-    fi
+  # Always start a new process. app.env (CORS, auth, frontend origin) changes
+  # without an image change, and Compose's config hash is what used to notice.
+  start_admin_instance "$new"
+  if ! healthy "$new" 37378; then
+    docker rm -f "$new" >/dev/null 2>&1 || true
     return 1
   fi
-  APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
-    "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps --wait admin
-  docker rm -f "$next" >/dev/null 2>&1 || true
+  docker network connect "$network" "$new"
+  if ! admin_running "$proxy"; then
+    previous=$current
+    if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); fi
+    if ! admin_running "$previous"; then previous=$new; fi
+    ensure_admin_proxy "$previous"
+  fi
+  reload_admin_proxy "$new"
+  if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); else previous=$current; fi
+  if [ "$previous" != "$new" ]; then
+    drop=false
+    if [ "$previous" = "$current" ] || [ "$previous" = "$project-admin-next" ]; then drop=true; fi
+    stop_admin "$previous" "$drop"
+  fi
+  printf '%s\n' "$new" > "$upstream_file"
 }
 replace_admin
 APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
