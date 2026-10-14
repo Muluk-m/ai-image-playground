@@ -5,10 +5,10 @@ import {
   canvasProjectDocument,
   canvasResultMediaIds,
   canvasResults,
+  copiedCanvasProjectName,
   importLegacyElements,
   initializeCanvasConnectionRules,
   initializeCanvasTexts,
-  PROJECT_NAME_MAX_LENGTH,
   type ProjectDocument,
   readCanvasDocument,
   synchronizeLegacyElements,
@@ -333,14 +333,6 @@ export async function accessCanvasDocument(
   })
 }
 
-const COPY_SUFFIX = ' 副本'
-
-function copiedProjectName(name: string): string {
-  const trimmed = name.trim()
-  const room = PROJECT_NAME_MAX_LENGTH - COPY_SUFFIX.length
-  return `${trimmed.slice(0, Math.max(0, room))}${COPY_SUFFIX}`
-}
-
 function referencedMediaIds(doc: Y.Doc, document: ProjectDocument): string[] {
   return [
     ...new Set([
@@ -358,6 +350,7 @@ function referencedMediaIds(doc: Y.Doc, document: ProjectDocument): string[] {
 export async function copyCanvasProject(
   userId: string,
   sourceId: string,
+  suffix?: string,
 ): Promise<CloudProjectSummary> {
   await accessCanvasDocument(userId, sourceId)
   return db.transaction(async (tx) => {
@@ -387,14 +380,13 @@ export async function copyCanvasProject(
       Y.applyUpdate(copy, Y.encodeStateAsUpdate(loaded.doc))
       const now = Date.now()
       const id = crypto.randomUUID()
-      const document = canvasProjectDocument(copy, {
-        ...project.document,
-        sourceProjectId: sourceId,
-      })
+      // 副本是一张新画布，不保留「返回来源对话」。原件自己的回链留在原件上。
+      const { sourceProjectId: _sourceProjectId, ...identity } = project.document
+      const document = canvasProjectDocument(copy, identity)
       const snapshot = readCanvasDocument(copy)
       const summary: CloudProjectSummary = {
         id,
-        name: copiedProjectName(project.name),
+        name: copiedCanvasProjectName(project.name, suffix),
         revision: 1,
         createdAt: now,
         updatedAt: now,
@@ -403,7 +395,6 @@ export async function copyCanvasProject(
           document.elements.filter((element) => element.type === 'image').at(-1)?.mediaId ?? null,
         conversationId: null,
         ...(document.experience ? { experience: document.experience } : {}),
-        sourceProjectId: sourceId,
       }
       await tx.insert(schema.canvas_projects).values({
         id,

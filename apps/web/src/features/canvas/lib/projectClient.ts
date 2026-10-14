@@ -97,8 +97,16 @@ export function ensureCloudProjectConversation(
   })
 }
 
-export function copyCloudProject(id: string): Promise<CloudProjectSummary> {
-  return json(`/${encodeURIComponent(id)}/copy`, { method: 'POST' })
+export function copyCloudProject(id: string, suffix?: string): Promise<CloudProjectSummary> {
+  return json(`/${encodeURIComponent(id)}/copy`, {
+    method: 'POST',
+    ...(suffix
+      ? {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ suffix }),
+        }
+      : {}),
+  })
 }
 export function deleteCloudProject(id: string): Promise<{ ok: true }> {
   return json(`/${encodeURIComponent(id)}`, { method: 'DELETE' })

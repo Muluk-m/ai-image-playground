@@ -15,6 +15,7 @@ import { useLibraryStore } from '../../library/store'
 import { copyCloudCanvasProject, renameProject } from '../lib/activeProject'
 import { catalogProjectId, projectCatalog, RECENT_PROJECT_COUNT } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
+import { copyProjectErrorMessage } from '../lib/projectCopyError'
 import {
   type CanvasProject,
   projectDisplayName,
@@ -236,8 +237,8 @@ export default function ProjectGrid({
                                 useStore.getState().setAppMode('canvas')
                                 useLibraryStore.getState().leaveLibraryPage()
                               }
-                            } catch {
-                              useStore.getState().showToast(t('grid.copyFailed'), 'error')
+                            } catch (error) {
+                              useStore.getState().showToast(copyProjectErrorMessage(error), 'error')
                             } finally {
                               setBusy(false)
                             }

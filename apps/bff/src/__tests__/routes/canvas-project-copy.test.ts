@@ -148,6 +148,7 @@ it('copies the committed canvas into a new project and leaves the source alone',
       document: {
         version: 1,
         experience: 'canvas',
+        sourceProjectId: 'chat-origin',
         elements: [
           {
             id: 'shot',
@@ -227,7 +228,7 @@ it('copies the committed canvas into a new project and leaves the source alone',
     name: string
     conversationId: string | null
     experience: string
-    sourceProjectId: string
+    sourceProjectId?: string
     elementCount: number
     coverMediaId: string | null
   }
@@ -235,7 +236,7 @@ it('copies the committed canvas into a new project and leaves the source alone',
   expect(summary.name).toBe('窗台 副本')
   expect(summary.conversationId).toBeNull()
   expect(summary.experience).toBe('canvas')
-  expect(summary.sourceProjectId).toBe(sourceId)
+  expect(summary.sourceProjectId).toBeUndefined()
   expect(summary.elementCount).toBe(1)
   expect(summary.coverMediaId).toBe(shot)
 
@@ -258,13 +259,16 @@ it('copies the committed canvas into a new project and leaves the source alone',
     document: { sourceProjectId?: string }
   }
   expect(project.conversationId).toBeNull()
-  expect(project.document.sourceProjectId).toBe(sourceId)
+  expect(project.document.sourceProjectId).toBeUndefined()
   const sourceListed = await fetch(`${base}/api/projects/${sourceId}?identity=1`, {
     headers: { cookie },
   })
-  expect(((await sourceListed.json()) as { conversationId: string }).conversationId).toBe(
-    conversationId,
-  )
+  const sourceProject = (await sourceListed.json()) as {
+    conversationId: string
+    document: { sourceProjectId?: string }
+  }
+  expect(sourceProject.conversationId).toBe(conversationId)
+  expect(sourceProject.document.sourceProjectId).toBe('chat-origin')
 
   const refs = async (ownerId: string) =>
     (
@@ -379,4 +383,23 @@ it('shortens a copied name so it still fits the project name limit', async () =>
   const summary = (await response.json()) as { name: string }
   expect(summary.name).toBe(`${'画'.repeat(117)} 副本`)
   expect([...summary.name].length).toBe(120)
+})
+
+it('uses a caller suffix and drops one that is not a short label', async () => {
+  const sourceId = await putProject('窗台')
+  const named = await fetch(`${base}/api/projects/${sourceId}/copy`, {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ suffix: 'copy' }),
+  })
+  expect(named.status).toBe(200)
+  expect(((await named.json()) as { name: string }).name).toBe('窗台 copy')
+
+  const rejected = await fetch(`${base}/api/projects/${sourceId}/copy`, {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ suffix: 'bad\nname' }),
+  })
+  expect(rejected.status).toBe(200)
+  expect(((await rejected.json()) as { name: string }).name).toBe('窗台 副本')
 })
