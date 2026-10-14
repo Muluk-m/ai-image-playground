@@ -406,7 +406,23 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-home-create .creation-body .creation-prompt { min-height: 96px; }
 @media (max-width: 767px) {
   .studio-home-create .creation-body .creation-prompt { min-height: 84px; }
-  .studio-home-intro { padding-top: 80px; }
+  /* 顶栏已经让出安全区和一行图标。这里只留一点呼吸，不再把安全区再加一遍。 */
+  html[data-home='true'] {
+    --mobile-topbar-height: calc(52px + var(--safe-area-top));
+    --studio-account-cluster-top: 3px;
+  }
+  html[data-home='true'] .studio-home-intro { padding-top: 24px; }
+  html[data-home='true'] .studio-mobile-topbar {
+    border-bottom-width: 0;
+    background-color: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* 点阵和光晕从屏幕顶上铺下来，顶栏不再盖住它们。 */
+  html[data-home='true'] .studio-home-backdrop {
+    top: calc(-1 * var(--mobile-topbar-height));
+    height: calc(max(680px, 100vh) + var(--mobile-topbar-height));
+  }
   [data-home-main] .creation-composer { --creation-space: 20px; }
 }
 :root:not(.dark) .studio-home-backdrop { --dot-alpha: .07; }
