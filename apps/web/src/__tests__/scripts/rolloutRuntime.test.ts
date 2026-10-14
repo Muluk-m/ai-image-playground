@@ -278,7 +278,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     const args = readFileSync(join(root, 'args'), 'utf8').split('\n')
     expect(
       args.filter((arg) => arg === `fluentd-address=unix://${socketDir}/forward.sock`),
-    ).toHaveLength(3)
+    ).toHaveLength(4)
     expect(args).not.toContain(`fluentd-address=unix://${root}/path`)
   })
   it('does not leave a rollout lock when its log directory cannot be created', () => {
@@ -317,10 +317,15 @@ describe('rollout-runtime.sh: finite drain', () => {
       'Previous executors: 2 drained cleanly, 0 stopped after the 300s drain deadline, 0 already down.',
     )
     expect(result.log).toContainEqual(
-      expect.stringMatching(
-        /^compose .* up --detach --no-deps admin host-collector pg-backup cloudflared$/,
-      ),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
+    expect(result.log).toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps host-collector pg-backup$/),
+    )
+    expect(result.log).toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
+    )
+    expect(exists('fixture-admin-next')).toBe(false)
     // The executors, the router and the migration print through the deployment's log collector.
     const socket = `fluentd-address=unix://${xdg}/ai-image-playground/log-forward/fixture/forward.sock`
     const launches = result.log.filter((line) => /^(create|run) /.test(line))
@@ -350,7 +355,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
     expect(result.stderr).toContain('Drain deadline (20s) reached; stopping fixture-rold-bff')
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
   })
 
@@ -373,7 +378,27 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(exists('fixture-rold-worker')).toBe(false)
     expect(result.stdout).toContain('1 drained cleanly, 1 stopped after the 10s drain deadline')
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
+    )
+  })
+
+  it('keeps the admin name resolving while the new admin starts, and leaves a running tunnel up', () => {
+    currentGeneration()
+    container('fixture-admin-1', { image: 'fixture:old' })
+    container('fixture-cloudflared-1')
+    const result = run()
+
+    expect(result.status).toBe(0)
+    const started = indexOf(result.log, /^run .*--name fixture-admin-next /)
+    const swapped = indexOf(result.log, /^compose .* up --detach --no-deps --wait admin$/)
+    const removed = indexOf(result.log, /^rm -f fixture-admin-next$/)
+    expect(started).toBeGreaterThan(-1)
+    expect(started).toBeLessThan(swapped)
+    expect(removed).toBeGreaterThan(swapped)
+    expect(result.log[started]).toContain('--network-alias admin')
+    expect(exists('fixture-admin-next')).toBe(false)
+    expect(result.log).not.toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
     )
   })
 

@@ -379,6 +379,58 @@ if [ "$retire_legacy" = 1 ]; then
 fi
 
 # Ancillary services have no generation execution state. Their writes use the stable ingress.
+# Admin is what cloudflared calls `http://admin:37378`. Replacing that container in place
+# removes the DNS name for the whole restart, and every admin request in that window is
+# logged as "lookup admin" / "dial tcp …:37378". Start the new copy under the same alias
+# first; only then let Compose replace the old one, and drop the extra copy after it is up.
+replace_admin() {
+  current=$project-admin-1
+  next=$project-admin-next
+  if [ "$(docker inspect --format '{{.State.Running}}' "$current" 2>/dev/null || true)" = true ] &&
+    [ "$(docker inspect --format '{{.Config.Image}}' "$current" 2>/dev/null || true)" = "$image" ]; then
+    return 0
+  fi
+  next_image=$(docker inspect --format '{{.Config.Image}}' "$next" 2>/dev/null || true)
+  next_running=$(docker inspect --format '{{.State.Running}}' "$next" 2>/dev/null || true)
+  if [ "$next_running" != true ] || [ "$next_image" != "$image" ]; then
+    if docker inspect "$next" >/dev/null 2>&1 &&
+      { [ "$(docker inspect --format '{{.State.Running}}' "$current" 2>/dev/null || true)" = true ] ||
+        [ "$next_running" != true ]; }; then
+      docker rm -f "$next" >/dev/null 2>&1 || true
+    fi
+  fi
+  if ! docker inspect "$next" >/dev/null 2>&1; then
+    deployments_log=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/deployments.log
+    [ -f "$deployments_log" ] || deployments_log=/dev/null
+    logged_docker run -d --name "$next" --init --restart unless-stopped \
+      --network "$network" --network-alias admin --network-alias "$project-admin" \
+      --env-file "$app_env" \
+      -e APP_ROLE=admin -e PORT=37378 -e DATABASE_POOL_MAX=3 \
+      -e BFF_INTERNAL_URL=http://release-router:37377 \
+      --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
+      --mount "type=bind,source=$deployments_log,target=/host/deployments.log,readonly" \
+      "$image" bun run /app/apps/admin/server/index.ts >/dev/null
+    docker network connect "$infra" "$next"
+  fi
+  if ! healthy "$next" 37378; then
+    if [ "$(docker inspect --format '{{.State.Running}}' "$current" 2>/dev/null || true)" = true ]; then
+      docker rm -f "$next" >/dev/null 2>&1 || true
+    fi
+    return 1
+  fi
+  APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+    "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps --wait admin
+  docker rm -f "$next" >/dev/null 2>&1 || true
+}
+replace_admin
 APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
   "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps \
-  admin host-collector pg-backup cloudflared
+  host-collector pg-backup
+# Recreating a running connector closes its edge connections ("connection with edge closed",
+# "client disconnected"). The image is pinned and the logging driver is already attached;
+# a stopped connector is the only reason to start it again. Bumping the image tag requires
+# removing this container so the next rollout creates it.
+if [ "$(docker inspect --format '{{.State.Running}}' "$project-cloudflared-1" 2>/dev/null || true)" != true ]; then
+  APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+    "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps cloudflared
+fi
