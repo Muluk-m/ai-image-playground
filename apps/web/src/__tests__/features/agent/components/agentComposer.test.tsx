@@ -19,6 +19,7 @@ import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
 import { scopedStorageName } from '../../../../lib/authScope'
+import { getSelectedImageMentionLabel } from '../../../../lib/promptImageMentions'
 import { useStore } from '../../../../store'
 
 declare global {
@@ -343,7 +344,7 @@ describe('智能体输入框', () => {
     render()
     type('把@')
     pick('画布图1')
-    await openMask('给参考图 @图1 画遮罩')
+    await openMask('给参考图 图片 1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'prepared', targetDataUrl: PREPARED })
     act(() => root.render(null))
     render()
@@ -411,7 +412,26 @@ describe('智能体输入框', () => {
     pick('画布图1')
 
     expect(editor().querySelector('img')?.getAttribute('src')).toBe(PIXEL)
+    expect(editor().textContent).toContain('图片 1')
     expect(editor().textContent).not.toContain('@图1')
+  })
+
+  it('哈希文件名的引用在输入框里显示序号和缩略图', () => {
+    const hash = 'fdcfd93c4c098c0ce0123456789abcdef0123456789abcdef0123456789abcd'
+    agentDraft(null).update({
+      prompt: `${getSelectedImageMentionLabel(0)} 浴室的场景`,
+      references: [{ id: hash, dataUrl: PIXEL, name: hash }],
+    })
+    render()
+
+    expect(editor().querySelector('img')?.getAttribute('src')).toBe(PIXEL)
+    expect(editor().textContent).toContain('图片 1')
+    expect(editor().textContent).toContain('浴室的场景')
+    expect(host.textContent).not.toContain(hash)
+    click('发送并拟提示词')
+    expect(send).toHaveBeenCalledWith('[image 1] 浴室的场景', [
+      { imageId: hash, dataUrl: PIXEL, name: hash },
+    ])
   })
 
   it('纯对话输入框不列出画布图，也不自动带入画布选区', () => {
@@ -596,7 +616,7 @@ describe('智能体输入框', () => {
     type('把@')
     pick('画布图1')
 
-    await openMask('给参考图 @图1 画遮罩')
+    await openMask('给参考图 图片 1 画遮罩')
 
     const state = useStore.getState()
     expect(state.maskEditorImageId).toBe('canvas-1')
@@ -611,7 +631,7 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type('的桌面换成木纹')
 
-    await openMask('给参考图 @图1 画遮罩')
+    await openMask('给参考图 图片 1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
     click('发送并拟提示词')
@@ -624,10 +644,10 @@ describe('智能体输入框', () => {
     render()
     type('把@')
     pick('画布图1')
-    await openMask('给参考图 @图1 画遮罩')
+    await openMask('给参考图 图片 1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
-    await openMask('修改参考图 @图1 的遮罩')
+    await openMask('修改参考图 图片 1 的遮罩')
     expect(useStore.getState().maskEditorSession?.maskDataUrl).toBe(MASK)
 
     await act(async () => {
@@ -644,7 +664,7 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type('改成木色')
 
-    click('移除参考图 @图1')
+    click('移除参考图 图片 1')
 
     click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('把@已移除图片改成木色', [])

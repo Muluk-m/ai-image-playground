@@ -10,6 +10,7 @@ import {
   removeReference,
   setReferenceMask,
 } from '../../../features/agent/lib/references'
+import { ensureLocaleLoaded, i18next } from '../../../i18n'
 import { getVisiblePrompt } from '../../../lib/promptImageMentions'
 
 const CANVAS: AgentReference = { id: 'canvas-1', dataUrl: 'data:image/png;base64,aGk=' }
@@ -34,8 +35,8 @@ describe('智能体输入框的引用', () => {
     const { draft, cursor } = append({ prompt: '把', references: [] }, CANVAS)
 
     expect(draft.references).toEqual([CANVAS])
-    expect(visible(draft)).toBe('把@图1')
-    expect(cursor).toBe('把@图1'.length)
+    expect(visible(draft)).toBe('把图片 1')
+    expect(cursor).toBe('把图片 1'.length)
   })
 
   it('leaves the cursor right after the capsule it just inserted', () => {
@@ -44,24 +45,26 @@ describe('智能体输入框的引用', () => {
     // `@` 触发的区间是 [1, 2)：从 `@` 起、到光标止，胶囊顶掉这一段。
     const { draft: next, cursor } = attachReference(draft, CANVAS, 1, 2)
 
-    expect(visible(next)).toBe('把@图1的背景换成浅木色')
-    expect(cursor).toBe('把@图1'.length)
+    expect(visible(next)).toBe('把图片 1的背景换成浅木色')
+    expect(cursor).toBe('把图片 1'.length)
   })
 
-  it('keeps the cursor in place when a named asset makes the capsule longer', () => {
+  it('keeps the cursor after the capsule when another image is inserted', () => {
     const first = append(EMPTY_DRAFT, CANVAS)
     const draft: AgentDraft = { ...first.draft, prompt: `${first.draft.prompt}和@` }
 
-    const { draft: next, cursor } = attachReference(draft, ASSET, 4, 5)
+    // 可见文本是「图片 1和@」，光标区间顶掉末尾的 `@`。
+    const { draft: next, cursor } = attachReference(draft, ASSET, 5, 6)
 
-    expect(visible(next)).toBe('@图1和@橘猫产品图')
-    expect(cursor).toBe('@图1和@橘猫产品图'.length)
+    expect(visible(next)).toBe('图片 1和图片 2')
+    expect(cursor).toBe('图片 1和图片 2'.length)
   })
 
-  it('labels a library asset by its name', () => {
+  it('labels a library asset by its order, not its name', () => {
     const { draft } = append(EMPTY_DRAFT, ASSET)
 
-    expect(visible(draft)).toBe('@橘猫产品图')
+    expect(visible(draft)).toBe('图片 1')
+    expect(visible(draft)).not.toContain('橘猫产品图')
   })
 
   it('reuses the same number when the same image is referenced twice', () => {
@@ -69,7 +72,7 @@ describe('智能体输入框的引用', () => {
     const second = append({ ...first.draft, prompt: `${first.draft.prompt} 和 ` }, CANVAS)
 
     expect(second.draft.references).toEqual([CANVAS])
-    expect(visible(second.draft)).toBe('@图1 和 @图1')
+    expect(visible(second.draft)).toBe('图片 1 和 图片 1')
   })
 
   it('numbers a second distinct image after the first', () => {
@@ -77,7 +80,7 @@ describe('智能体输入框的引用', () => {
     const second = append({ ...first.draft, prompt: `${first.draft.prompt} 换成 ` }, ASSET)
 
     expect(second.draft.references.map((one) => one.id)).toEqual(['canvas-1', 'img-cat'])
-    expect(visible(second.draft)).toBe('@图1 换成 @橘猫产品图')
+    expect(visible(second.draft)).toBe('图片 1 换成 图片 2')
   })
 
   it('downgrades a removed reference and renumbers the rest', () => {
@@ -87,7 +90,7 @@ describe('智能体输入框的引用', () => {
     const left = removeReference(second.draft, 0)
 
     expect(left.references.map((one) => one.id)).toEqual(['img-cat'])
-    expect(visible(left)).toBe('@已移除图片 换成 @橘猫产品图')
+    expect(visible(left)).toBe('@已移除图片 换成 图片 1')
   })
 
   it('still submits the turn after a reference was removed', () => {
@@ -112,6 +115,33 @@ describe('智能体输入框的引用', () => {
         { imageId: 'canvas-1', dataUrl: CANVAS.dataUrl },
         { imageId: 'img-cat', dataUrl: ASSET.dataUrl, name: '橘猫产品图' },
       ],
+    })
+  })
+
+  it('shows an ordinal label for a hash-named image and still submits the hash', () => {
+    const hash = 'fdcfd93c4c098c0ce0123456789abcdef0123456789abcdef0123456789abcd'
+    const hashed: AgentReference = { id: hash, dataUrl: CANVAS.dataUrl, name: hash }
+    const { draft } = append({ prompt: '能不能把这个', references: [] }, hashed)
+
+    expect(visible(draft)).toBe('能不能把这个图片 1')
+    expect(visible(draft)).not.toContain(hash)
+    expect(draft.prompt).toContain('@图1')
+    expect(draftForSubmit(draft)).toEqual({
+      text: '能不能把这个[image 1]',
+      references: [{ imageId: hash, dataUrl: hashed.dataUrl, name: hash }],
+    })
+  })
+
+  it('uses Image N in English without changing the stored mention or payload', async () => {
+    await ensureLocaleLoaded('en')
+    await i18next.changeLanguage('en')
+    const { draft } = append(EMPTY_DRAFT, ASSET)
+
+    expect(visible(draft)).toBe('Image 1')
+    expect(draft.prompt).toContain('@图1')
+    expect(draftForSubmit(draft)).toEqual({
+      text: '[image 1]',
+      references: [{ imageId: 'img-cat', dataUrl: ASSET.dataUrl, name: '橘猫产品图' }],
     })
   })
 
