@@ -13,6 +13,7 @@ import {
   moveCanvasNodes,
   readCanvasDocument,
   replaceStoryboardShots,
+  type TextNodeData,
   ungroupCanvasNodes,
   updateCanvasNode,
 } from '@image-playground/shared'
@@ -81,6 +82,10 @@ function getNode(doc: Y.Doc, id: string) {
   return (
     readCanvasDocument(doc).nodes.find((node) => node.id === id) ?? invalid(`节点不存在：${id}`)
   )
+}
+// `CanvasNode` 是基类型与联合的交集，直接判 `type` 收不住 `data`，所以从这里返回。
+function textData(node: CanvasNode): TextNodeData {
+  return node.type === 'text' ? node.data : invalid('只能拆分文本剧本节点。')
 }
 export function patchAgentCanvasNode(doc: Y.Doc, fields: NodeFields, origin: CanvasOrigin) {
   const node = getNode(doc, fields.id)
@@ -419,7 +424,7 @@ export const applyScriptPlan = defineAgentTool({
   execute: (context) => async (callId, params) =>
     write(context, callId, '拆分剧本', params, (doc, origin) => {
       const script = getNode(doc, params.scriptNodeId)
-      if (script.type !== 'text') invalid('只能拆分文本剧本节点。')
+      const scriptText = textData(script)
       const taken = new Set(readCanvasDocument(doc).nodes.map((node) => node.id))
       if (taken.has(params.storyboardId)) invalid(`节点 id 已存在：${params.storyboardId}`)
       for (const asset of params.assets) {
@@ -451,13 +456,10 @@ export const applyScriptPlan = defineAgentTool({
       }))
       if (!isCanvasStoryboardData({ shots })) invalid('分镜表不合法。')
       if (params.episode) {
-        const next = appendScriptEpisode(
-          script.data.text,
-          params.episode.number,
-          params.episode.text,
-        )
-        if (!next) invalid(`第 ${params.episode.number} 集已经在剧本里，或正文是空的。`)
-        const { richText: _rich, ...data } = script.data
+        const next =
+          appendScriptEpisode(scriptText.text, params.episode.number, params.episode.text) ??
+          invalid(`第 ${params.episode.number} 集已经在剧本里，或正文是空的。`)
+        const { richText: _rich, ...data } = scriptText
         updateCanvasNode(doc, script.id, { data: { ...data, text: next } }, origin)
       }
       const existing = readCanvasDocument(doc).nodes
