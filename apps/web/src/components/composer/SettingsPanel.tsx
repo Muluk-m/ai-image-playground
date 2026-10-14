@@ -39,6 +39,7 @@ export function composerModelChipClass(size: ComposerControlSize = 'md') {
  */
 export function SettingsPopover({
   summary,
+  detail,
   icon,
   badge,
   title,
@@ -48,6 +49,8 @@ export function SettingsPopover({
   children,
 }: {
   summary: string
+  /** 悬停与读屏多出来的一句，不进可见摘要。 */
+  detail?: string
   icon?: ReactNode
   /** 摘要后的状态标记。 */
   badge?: ReactNode
@@ -61,6 +64,7 @@ export function SettingsPopover({
   const { t } = useTranslation('composer')
   const [open, setOpen] = useState(false)
   const titleId = useId()
+  const accessible = detail ? `${summary} · ${detail}` : summary
   return (
     <Popover
       open={open}
@@ -73,8 +77,8 @@ export function SettingsPopover({
           variant="outline"
           size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
-          title={`${title}: ${summary}`}
-          aria-label={`${title}: ${summary}`}
+          title={`${title}: ${accessible}`}
+          aria-label={`${title}: ${accessible}`}
           data-dirty={dirty || undefined}
           className={composerChipClass(size)}
         >

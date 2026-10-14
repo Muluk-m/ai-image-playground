@@ -139,4 +139,61 @@ describe('renderGuidePage', () => {
     expect(html).not.toContain('application/ld+json')
     expect(html).toContain('<meta name="robots" content="noindex, nofollow" />')
   })
+
+  it('describes the guide home with the visible page, breadcrumb and FAQ only', () => {
+    const data = jsonLd(renderGuidePage(guideZhCN, null, options))
+    expect(data.map((item) => item['@type'])).toEqual(['WebPage', 'BreadcrumbList', 'FAQPage'])
+    const page = data[0] as { publisher: { '@id': string }; isPartOf: { '@id': string } }
+    expect(page.publisher['@id']).toBe('https://example.com/#organization')
+    expect(page.isPartOf['@id']).toBe('https://example.com/#website')
+    const faq = data.find((item) => item['@type'] === 'FAQPage') as {
+      mainEntity: { name: string; acceptedAnswer: { text: string } }[]
+    }
+    expect(faq.mainEntity.map((item) => item.name)).toEqual(
+      guideZhCN.faq.items.map((item) => item.q),
+    )
+    expect(faq.mainEntity.map((item) => item.acceptedAnswer.text)).toEqual(
+      guideZhCN.faq.items.map((item) => item.a),
+    )
+    expect(JSON.stringify(data)).not.toContain('有没有贴商品链接就能生成主图')
+  })
+
+  it('marks real procedures as HowTo and leaves screenshot legends out', () => {
+    const zh = jsonLd(renderGuidePage(guideZhCN, 'getting-started', options))
+    const en = jsonLd(renderGuidePage(guideEn, 'getting-started', options))
+    const zhHowTo = zh.filter((item) => item['@type'] === 'HowTo')
+    const enHowTo = en.filter((item) => item['@type'] === 'HowTo')
+    expect(zhHowTo).toHaveLength(enHowTo.length)
+    expect(zhHowTo.map((item) => item.name)).toEqual(['生成第一张图'])
+    expect(enHowTo.map((item) => item.name)).toEqual(['Generate your first image'])
+    expect(zh.map((item) => item['@type'])).toContain('TechArticle')
+    expect(zh.map((item) => item['@type'])).toContain('BreadcrumbList')
+    expect(zh.map((item) => item['@type'])).toContain('FAQPage')
+
+    const howTo = zhHowTo[0] as {
+      url: string
+      step: { position: number; text: string }[]
+      description: string
+    }
+    expect(howTo.url).toBe('https://example.com/guide/getting-started/#first-image')
+    expect(howTo.description).toBe('在首页确认输入框上方已选中 快速生成，然后描述画面内容，例如：')
+    expect(howTo.step.map((step) => step.text)).toEqual([
+      '按需设置 比例 与 数量。',
+      '点击 生成 或按 Enter 提交。',
+      '任务会出现在 我的作品 顶部，依次显示 排队中...、生成中...，完成后自动展示结果。',
+    ])
+    expect(howTo.step.map((step) => step.position)).toEqual([1, 2, 3])
+    expect(howTo.step.some((step) => /\[\[|\{\{/.test(step.text))).toBe(false)
+
+    const canvas = jsonLd(renderGuidePage(guideZhCN, 'canvas', options))
+    const names = canvas.filter((item) => item['@type'] === 'HowTo').map((item) => item.name)
+    expect(names).toContain('标注修改')
+    expect(names).not.toContain('基本操作')
+  })
 })
+
+function jsonLd(html: string): Record<string, unknown>[] {
+  const scripts = html.match(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g) ?? []
+  expect(scripts).toHaveLength(1)
+  return JSON.parse(scripts[0]!.replace(/^<script[^>]*>|<\/script>$/g, ''))
+}

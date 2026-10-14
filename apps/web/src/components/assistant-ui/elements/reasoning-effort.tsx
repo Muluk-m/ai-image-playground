@@ -1,12 +1,12 @@
 // Adapted from assistant-ui Elements (MIT): elements-reasoning-effort.json.
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '../../../lib/utils'
 import { Button } from '../../ui/button'
 import { field } from './surfaces'
 
 export interface EffortLevel {
   key: string
-  label: string
+  label: ReactNode
 }
 
 // Providers expose categorical effort, not a token budget. Never invent usage or limits.
