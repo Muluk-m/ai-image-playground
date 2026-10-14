@@ -161,6 +161,7 @@ import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
 import { resumePendingSubmission } from '../auth/resumePendingSubmission'
 import { useLibraryStore } from '../features/library/store'
 import { callImageApi, resumeQueueImageApi } from '../lib/api'
+import { resetChannelDiscoveryForTests } from '../lib/channels/bootstrapChannels'
 import { resetChannelCatalog, setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
 import {
@@ -172,6 +173,7 @@ import {
   putImage,
   putTask,
 } from '../lib/db'
+import { _setRuntimeConfigForTesting } from '../lib/runtimeConfig'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -952,6 +954,84 @@ describe('startup task migration', () => {
       status: 'error',
       error: expect.stringContaining('自带密钥'),
     })
+  })
+})
+
+describe('startup resume waits for the channel catalog', () => {
+  const gemini: PublicChannel = {
+    id: 'gemini-images',
+    kind: 'gemini-queue',
+    label: 'Gemini',
+    models: [{ id: 'gemini-image', label: 'Gemini', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  afterEach(() => {
+    resetChannelDiscoveryForTests()
+    setChannels([])
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps a running platform task until the catalog arrives, then resumes it', async () => {
+    resetChannelCatalog()
+    _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://bff.test' } })
+    await clearTasks()
+    const running = task({
+      id: 'gemini-running',
+      apiProvider: 'gemini',
+      apiProfileId: gemini.id,
+      apiModel: 'gemini-image',
+      bffRequestId: 'req-gemini',
+      prompt: 'resume later',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    await putTask(running)
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: gemini.id,
+            source: 'builtin-edge',
+            channelId: gemini.id,
+            selectedModelId: 'gemini-image',
+          },
+        ],
+        activeProfileId: gemini.id,
+      }),
+      tasks: [],
+    })
+    vi.mocked(resumeQueueImageApi).mockClear()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('offline', { status: 503 })),
+    )
+    try {
+      await initStore()
+      await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const stored = useStore.getState().tasks.find((item) => item.id === running.id)
+      expect(stored).toMatchObject({ status: 'running', error: null })
+      expect(vi.mocked(resumeQueueImageApi)).not.toHaveBeenCalled()
+
+      setChannels([gemini])
+
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'resume later' }),
+        'req-gemini',
+      )
+      expect(
+        useStore.getState().tasks.find((item) => item.id === running.id)?.error ?? '',
+      ).not.toContain('API 配置')
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

@@ -50,12 +50,14 @@ function withNormalizedParams(opts: CallApiOptions): CallApiOptions {
   }
 }
 
-async function resolveDispatchChannel(channelId: string) {
+async function loadCatalogForDispatch(): Promise<void> {
+  if (channelsSettled() || !getRuntimeConfig().bff.enabled) return
+  await ensureChannelsLoaded()
+}
+
+function requireDispatchChannel(channelId: string) {
   if (!channelId) {
     throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: channelId }))
-  }
-  if (!getPublicChannel(channelId) && !channelsSettled() && getRuntimeConfig().bff.enabled) {
-    await ensureChannelsLoaded()
   }
   const channel = getPublicChannel(channelId)
   if (channel) return channel
@@ -67,11 +69,21 @@ async function resolveDispatchChannel(channelId: string) {
   )
 }
 
-export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
-  opts = withNormalizedParams(opts)
+/**
+ * 清单还在路上时先等它落地，再读设置。等待前拿到的档案可能还选着已经下线的模型，
+ * 清单到达后 normalize 会把它回退到仍在列表里的模型；用旧档案提交会直接失败。
+ */
+async function prepareImageDispatch(opts: CallApiOptions) {
+  await loadCatalogForDispatch()
+  const normalized = withNormalizedParams(opts)
+  return { opts: normalized, profile: getActiveApiProfile(normalized.settings) }
+}
 
-  const profile = getActiveApiProfile(opts.settings)
-  const channel = await resolveDispatchChannel(profile.channelId)
+export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
+  const prepared = await prepareImageDispatch(opts)
+  opts = prepared.opts
+  const { profile } = prepared
+  const channel = requireDispatchChannel(profile.channelId)
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
   // n>1 时上层已 fan-out 成多条 task，各自合成同一张标注图（输入相同、开销可接受），
@@ -119,13 +131,13 @@ export async function resumeQueueImageApi(
   opts: CallApiOptions,
   requestId: string,
 ): Promise<CallApiResult> {
-  opts = withNormalizedParams(opts)
-
-  const profile = getActiveApiProfile(opts.settings)
+  const prepared = await prepareImageDispatch(opts)
+  opts = prepared.opts
+  const { profile } = prepared
   if (!profile.channelId) {
     throw new Error(i18next.t('dispatch.resumeProfileMissing', { ns: 'lib' }))
   }
-  const channel = await resolveDispatchChannel(profile.channelId)
+  const channel = requireDispatchChannel(profile.channelId)
   if (toQueueProvider(channel.kind) === null) {
     throw new Error(i18next.t('dispatch.resumeKindNotQueue', { ns: 'lib', kind: channel.kind }))
   }

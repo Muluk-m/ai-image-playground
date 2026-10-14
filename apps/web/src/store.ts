@@ -21,6 +21,7 @@ import {
 import { pathAppMode } from './lib/appPaths'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
+import { ensureChannelsLoaded } from './lib/channels/bootstrapChannels'
 import { channelsSettled, subscribeChannels } from './lib/channels/channelStore'
 import { getProfileModels, updateSelectedModel } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
@@ -1275,11 +1276,9 @@ export async function initStore() {
     useStore.getState().setTasks(cleared)
     await persistTaskMigration(retiredCustom.map((task) => ({ ...task, customRecoverable: false })))
   }
-  for (const task of tasks) {
-    // 刷新前没跑完的平台任务：持有 request_id 就续 poll；这次版本写下的平台任务
-    // 只有幂等键时照原样重提交，BFF 端去重。旧自带密钥任务已经标成不可恢复，这里不再续。
-    if (isResumablePlatformTask(task)) void resumeStoredTask(task)
-  }
+  // 刷新前没跑完的平台任务要等渠道清单落地再解析档案。清单暂时失败就保持 running，
+  // 等后台重试把清单写进来后续跑，不能先写成「找不到配置」。
+  void resumePlatformTasksAfterCatalog()
 
   const referencedIds = await imageIdsInUse(tasks)
   const persistedInputImages = useStore.getState().inputImages
@@ -1867,8 +1866,32 @@ function workbenchSink(
  * 接着跑一条刷新前没跑完的任务：有队列号就跳过 submit 续 poll（不重传输入图），
  * 只有幂等键就照原样重提交，BFF 按键去重、不会双份消耗上游配额。
  */
+let resumePlatformTasksOnCatalog = false
+
+function resumeLoadedPlatformTasks(): void {
+  for (const task of useStore.getState().tasks) {
+    if (isResumablePlatformTask(task)) void resumeStoredTask(task)
+  }
+}
+
+/** 启动恢复：先等这一次清单。失败不把任务标错，清单之后到达时再续。 */
+async function resumePlatformTasksAfterCatalog(): Promise<void> {
+  if (!channelsSettled()) await ensureChannelsLoaded()
+  if (!channelsSettled()) {
+    resumePlatformTasksOnCatalog = true
+    return
+  }
+  resumeLoadedPlatformTasks()
+}
+
 async function resumeStoredTask(task: TaskRecord): Promise<void> {
   if (!isResumablePlatformTask(task)) return
+  // 清单还没到时，Gemini 档案会被暂时看成 openai，跟任务上的 provider 对不上。
+  // 这不是档案被删了，先留着，等清单订阅再续。
+  if (!channelsSettled()) {
+    resumePlatformTasksOnCatalog = true
+    return
+  }
   const { settings } = useStore.getState()
   const taskProfile = getTaskApiProfile(settings, task)
   if (!taskProfile && task.apiProfileId) {
@@ -2798,6 +2821,9 @@ subscribeChannels(() => {
   const current = useStore.getState().settings
   const next = normalizeSettings(current)
   if (next !== current) useStore.setState({ settings: next })
+  if (!resumePlatformTasksOnCatalog) return
+  resumePlatformTasksOnCatalog = false
+  resumeLoadedPlatformTasks()
 })
 
 export function blobToDataUrl(blob: Blob): Promise<string> {
