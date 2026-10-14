@@ -1852,13 +1852,21 @@ it('把下一句放在最新一条助手消息后面，而不是钉在输入框�
     conversationId: 'conversation-1',
     turn: 'idle',
     messages: [
-      { kind: 'text', id: 'user-1', turnId: 'turn-1', role: 'user', text: '先出一张设定图' },
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '先出一张设定图',
+        streaming: false,
+      },
       {
         kind: 'text',
         id: 'assistant-1',
         turnId: 'turn-1',
         role: 'assistant',
         text: '设定图在这里。',
+        streaming: false,
       },
     ],
     turns: {
@@ -1878,5 +1886,8 @@ it('把下一句放在最新一条助手消息后面，而不是钉在输入框�
   expect(log?.contains(chips ?? null)).toBe(true)
   expect(composer?.contains(chips ?? null)).toBe(false)
   const reply = host.querySelector('[data-agent-message-id="assistant-1"]')
-  expect(reply?.compareDocumentPosition(chips!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(reply).not.toBeNull()
+  expect(reply!.compareDocumentPosition(chips!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  )
 })
