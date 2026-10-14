@@ -40,7 +40,9 @@ web_bundle_changed() {
   printf '%s\n' "$1" | grep -Eq '^(apps/web/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
 }
 api_tree_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$)'
+  # The VPS runs the copies of these scripts shipped inside the release tarball. A change that
+  # does not roll out an API image never reaches the host.
+  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/lib/deploy-common\.sh$)'
 }
 
 tip=$(git rev-parse origin/main)
