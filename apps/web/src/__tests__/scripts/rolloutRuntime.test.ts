@@ -396,20 +396,30 @@ describe('rollout-runtime.sh: finite drain', () => {
       /^network connect fixture_application fixture-r\d+-\d+-admin$/,
     )
     const proxy = indexOf(result.log, /^run .*--name fixture-admin-proxy /)
-    const switched = indexOf(result.log, /^exec fixture-admin-proxy nginx -s reload$/)
-    const detached = indexOf(result.log, /^network disconnect fixture_application fixture-admin-1$/)
+    // The fake docker keeps the container name and the last three arguments.
+    const checked = indexOf(
+      result.log,
+      /^exec fixture-admin-proxy -t -c \/etc\/admin-proxy\/nginx.conf.next$/,
+    )
+    const switched = indexOf(
+      result.log,
+      /^exec fixture-admin-proxy reload -c \/etc\/admin-proxy\/nginx.conf$/,
+    )
     const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-1$/)
     expect(started).toBeGreaterThan(-1)
     expect(result.log[started]).toContain('--network image-playground-infra')
+    expect(result.log[started]).toContain('OPS_DEPLOYMENTS_LOG=/host/deployments.log')
+    expect(result.log[started]).toContain('container-healthcheck.ts')
     expect(result.log[started]).not.toContain('--network-alias admin')
     expect(result.log[proxy]).toContain('--network-alias admin')
     expect(ready).toBeGreaterThan(started)
     expect(joined).toBeGreaterThan(ready)
     expect(proxy).toBeGreaterThan(ready)
-    expect(switched).toBeGreaterThan(proxy)
-    expect(switched).toBeGreaterThan(joined)
-    expect(detached).toBeGreaterThan(switched)
-    expect(stopped).toBeGreaterThan(detached)
+    expect(checked).toBeGreaterThan(proxy)
+    expect(switched).toBeGreaterThan(checked)
+    expect(stopped).toBeGreaterThan(switched)
+    expect(result.log).not.toContainEqual(expect.stringMatching(/^network disconnect /))
+    expect(readFileSync(script, 'utf8')).toContain('nginx -s reload -c /etc/admin-proxy/nginx.conf')
     expect(result.log).not.toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )

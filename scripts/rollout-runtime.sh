@@ -389,8 +389,9 @@ admin_running() {
 
 write_admin_proxy_conf() {
   upstream=$1
+  dest=$2
   mkdir -p "$state_dir/admin-proxy"
-  cat > "$state_dir/admin-proxy/nginx.conf" <<EOF
+  cat > "$dest" <<EOF
 worker_processes 1;
 error_log /dev/stderr warn;
 pid /tmp/admin-proxy.pid;
@@ -417,10 +418,15 @@ start_admin_instance() {
   [ -f "$deployments_log" ] || deployments_log=/dev/null
   # Database network only. The ingress alias is the proxy's, so this process is
   # invisible to cloudflared until it is healthy and the proxy is reloaded.
+  # The health command is the same one Compose runs: after repeated failures it
+  # kills the application process so restart policy can bring it back.
   logged_docker run -d --name "$1" --init --restart unless-stopped \
     --network "$infra" \
+    --health-cmd "bun run /app/apps/bff/src/container-healthcheck.ts http://127.0.0.1:37378/health /tmp/admin-health.json 12 3 60000" \
+    --health-interval 10s --health-timeout 5s --health-retries 12 --health-start-period 15s \
     --env-file "$app_env" \
     -e APP_ROLE=admin -e PORT=37378 -e DATABASE_POOL_MAX=3 \
+    -e OPS_DEPLOYMENTS_LOG=/host/deployments.log \
     -e BFF_INTERNAL_URL=http://release-router:37377 \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
     --mount "type=bind,source=$deployments_log,target=/host/deployments.log,readonly" \
@@ -431,29 +437,58 @@ ensure_admin_proxy() {
   proxy=$project-admin-proxy
   if admin_running "$proxy"; then return 0; fi
   docker rm -f "$proxy" >/dev/null 2>&1 || true
-  write_admin_proxy_conf "$1"
+  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf"
   logged_docker run -d --name "$proxy" --init --restart unless-stopped \
     --network "$network" --network-alias admin \
     --entrypoint nginx \
-    --mount "type=bind,source=$state_dir/admin-proxy/nginx.conf,target=/etc/admin-proxy.conf,readonly" \
-    "$image" -g 'daemon off;' -c /etc/admin-proxy.conf >/dev/null
+    --mount "type=bind,source=$state_dir/admin-proxy,target=/etc/admin-proxy,readonly" \
+    "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null
 }
 
 reload_admin_proxy() {
-  write_admin_proxy_conf "$1"
-  docker exec "$project-admin-proxy" nginx -s reload >/dev/null
+  # Test the new file before replacing the one the running master has open.
+  # A failed check must not change what the proxy is currently serving.
+  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf.next"
+  docker exec "$project-admin-proxy" nginx -t -c /etc/admin-proxy/nginx.conf.next >/dev/null
+  mv "$state_dir/admin-proxy/nginx.conf.next" "$state_dir/admin-proxy/nginx.conf"
+  # -c selects this proxy's config, whose pid path is /tmp/admin-proxy.pid.
+  # Without it, nginx signals the default master and this process never reloads.
+  docker exec "$project-admin-proxy" nginx -s reload -c /etc/admin-proxy/nginx.conf >/dev/null
 }
 
-# stop_admin <name> <drop-ingress true|false>
-# drop-ingress is only for a container that still carries the admin alias (the
-# Compose original, or a leftover from the earlier overlap). Disconnecting that
-# network stops new lookups; stop -t 30 lets the process finish what it accepted.
+# True once the reloaded proxy answers and its previous worker has exited.
+# A reload only delivers the signal; old workers keep using the old upstream
+# until their requests finish.
+proxy_switched() {
+  docker exec "$project-admin-proxy" bun -e '
+    const response = await fetch("http://127.0.0.1:37378/health", { signal: AbortSignal.timeout(4000) })
+    if (!response.ok) process.exit(1)
+    const children = (await Bun.file("/proc/1/task/1/children").text()).trim().split(/\s+/).filter(Boolean)
+    console.log(String(children.length))
+  ' 2>/dev/null || return 1
+}
+
+wait_proxy_switched() {
+  remaining=30
+  while [ "$remaining" -gt 0 ]; do
+    workers=$(proxy_switched || true)
+    case "$workers" in
+      '') ;;
+      *[!0-9]*) return 0 ;;
+      *) [ "$workers" -le 1 ] && return 0 ;;
+    esac
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+  echo "Admin proxy did not finish switching" >&2
+  return 1
+}
+
+# Stop with the same grace Compose gives Admin, then remove it. Do not disconnect
+# the network first: that deletes the interface in-flight requests are still using.
 stop_admin() {
   name=$1
   if ! docker inspect "$name" >/dev/null 2>&1; then return 0; fi
-  if [ "$2" = true ] && admin_running "$name"; then
-    docker network disconnect "$network" "$name" >/dev/null 2>&1 || true
-  fi
   if admin_running "$name"; then docker stop -t 30 "$name" >/dev/null 2>&1 || true; fi
   docker rm "$name" >/dev/null 2>&1 || true
 }
@@ -474,13 +509,33 @@ replace_admin() {
   # A leftover overlap container still owns the ingress name. Retire it only
   # once the Compose instance is up, so a retry cannot skip it forever.
   if admin_running "$current" && docker inspect "$project-admin-next" >/dev/null 2>&1; then
-    stop_admin "$project-admin-next" true
+    stop_admin "$project-admin-next"
+  fi
+  # An earlier attempt may have exited after creating the new process and before
+  # recording it as the upstream. If the proxy config already names it, that
+  # switch landed; adopt it. Otherwise it is an extra process and comes down.
+  pending_file=$state_dir/admin-pending
+  if [ -f "$pending_file" ]; then
+    pending=$(cat "$pending_file")
+    live=
+    [ -f "$upstream_file" ] && live=$(cat "$upstream_file")
+    if [ "$pending" != "$live" ]; then
+      if [ -f "$state_dir/admin-proxy/nginx.conf" ] &&
+        grep -q "set \$upstream ${pending};" "$state_dir/admin-proxy/nginx.conf"; then
+        printf '%s\n' "$pending" > "$upstream_file"
+      else
+        stop_admin "$pending"
+      fi
+    fi
+    rm -f "$pending_file"
   fi
   # Always start a new process. app.env (CORS, auth, frontend origin) changes
   # without an image change, and Compose's config hash is what used to notice.
+  printf '%s\n' "$new" > "$pending_file"
   start_admin_instance "$new"
   if ! healthy "$new" 37378; then
-    docker rm -f "$new" >/dev/null 2>&1 || true
+    stop_admin "$new"
+    rm -f "$pending_file"
     return 1
   fi
   docker network connect "$network" "$new"
@@ -490,14 +545,19 @@ replace_admin() {
     if ! admin_running "$previous"; then previous=$new; fi
     ensure_admin_proxy "$previous"
   fi
-  reload_admin_proxy "$new"
+  if ! reload_admin_proxy "$new" || ! wait_proxy_switched; then
+    # The reload did not take effect, so the proxy still uses the previous
+    # upstream. This process is not serving and must not be left behind.
+    stop_admin "$new"
+    rm -f "$pending_file"
+    return 1
+  fi
   if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); else previous=$current; fi
   if [ "$previous" != "$new" ]; then
-    drop=false
-    if [ "$previous" = "$current" ] || [ "$previous" = "$project-admin-next" ]; then drop=true; fi
-    stop_admin "$previous" "$drop"
+    stop_admin "$previous"
   fi
   printf '%s\n' "$new" > "$upstream_file"
+  rm -f "$pending_file"
 }
 replace_admin
 APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
