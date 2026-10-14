@@ -73,21 +73,20 @@ export async function loadPublicCatalog(
   const onAbort = () => timeout.abort()
   signal?.addEventListener('abort', onAbort, { once: true })
   if (signal?.aborted) timeout.abort()
-  let response: Response
   try {
-    response = await fetcher(`${bffBaseUrl()}/api/billing/public-catalog`, {
+    const response = await fetcher(`${bffBaseUrl()}/api/billing/public-catalog`, {
       cache: 'no-store',
       headers: { accept: 'application/json' },
       signal: timeout.signal,
     })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const catalog = parsePublicCatalog(await response.json())
+    if (!catalog) throw new Error('invalid_catalog')
+    return catalog
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
   }
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const catalog = parsePublicCatalog(await response.json())
-  if (!catalog) throw new Error('invalid_catalog')
-  return catalog
 }
 
 function parsePlans(input: unknown): PublicPlan[] | null {

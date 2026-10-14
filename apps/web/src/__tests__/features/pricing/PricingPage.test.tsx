@@ -143,6 +143,21 @@ describe('定价目录', () => {
         return Promise.resolve(new Response('{}', { status: 200 }))
       }, AbortSignal.abort()),
     ).rejects.toThrow('aborted')
+    const hanging = new AbortController()
+    const body = loadPublicCatalog((_input, init) => {
+      const stream = new ReadableStream({
+        start(controller) {
+          const stop = () => controller.error(new DOMException('aborted', 'AbortError'))
+          if (init?.signal?.aborted) stop()
+          else init?.signal?.addEventListener('abort', stop, { once: true })
+        },
+      })
+      return Promise.resolve(
+        new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } }),
+      )
+    }, hanging.signal)
+    hanging.abort()
+    await expect(body).rejects.toThrow('aborted')
   })
 })
 
