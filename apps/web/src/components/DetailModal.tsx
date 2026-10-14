@@ -71,11 +71,11 @@ export default function DetailModal() {
   }, [detailTaskId])
 
   useEffect(() => {
-    if (task?.status !== 'running' && !(task?.status === 'error' && task.customRecoverable)) return
+    if (task?.status !== 'running') return
     const id = window.setInterval(() => setNow(Date.now()), 1000)
     setNow(Date.now())
     return () => window.clearInterval(id)
-  }, [task?.customRecoverable, task?.status])
+  }, [task?.status])
 
   // 加载所有相关图片
   useEffect(() => {
@@ -199,7 +199,6 @@ export default function DetailModal() {
     task.apiProfileName ?? '',
   ].filter(Boolean)
   const modelName = task.apiModel ? modelLabel(task.apiModel, task.apiProfileId) : ''
-  const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const rawImageUrls = task.rawImageUrls ?? []
 
   const formatTime = (ts: number | null) => {
@@ -208,7 +207,7 @@ export default function DetailModal() {
   }
 
   const formatDuration = () => {
-    if (task.status === 'running' || isCustomReconnecting) {
+    if (task.status === 'running') {
       const seconds = Math.max(0, Math.floor((now - task.createdAt) / 1000))
       const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
       const ss = String(seconds % 60).padStart(2, '0')

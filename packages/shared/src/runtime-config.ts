@@ -3,7 +3,7 @@
  *   - 200 + parseRuntimeConfig 成功 → 用 RuntimeConfig
  *   - 任何错误（404 / JSON 损坏 / 校验失败）→ 退到 BAKED_DEFAULTS
  *
- * operator 通过这个文件显式 opt-in BFF 功能。文件不存在 = 纯静态 BYOK 模式。
+ * operator 通过这个文件显式 opt-in BFF 功能。文件不存在 = 不连接 BFF，前端没有平台渠道。
  */
 import { parseRuntimeOrigins } from './runtime-origins.mjs'
 
@@ -24,7 +24,7 @@ export interface RuntimeBffConfig {
 }
 
 /**
- * 没有 `/runtime-config.json` 时使用的内嵌默认值：纯 BYOK，不向 BFF 发任何请求。
+ * 没有 `/runtime-config.json` 时使用的内嵌默认值：不连接 BFF，不向它发任何请求。
  */
 export const BAKED_DEFAULTS: RuntimeConfig = Object.freeze({
   bff: Object.freeze({ enabled: false, baseUrl: '' }) as RuntimeBffConfig,

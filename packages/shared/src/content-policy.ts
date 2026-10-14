@@ -1,8 +1,8 @@
 import type { QueueProvider } from './queue-protocol'
 
 /**
- * 上游「内容安全拒绝」的识别。两端都要用：BFF worker 给任务分类，浏览器直连（BYOK）时
- * 没有 worker，前端自己判。判据必须一致，否则同一次拒绝在两条路上出两种文案。
+ * 上游「内容安全拒绝」的识别。BFF worker 给任务分类；浏览器侧下载结果图时
+ * 没有 worker，前端自己判。判据必须一致，否则同一次拒绝出两种文案。
  *
  * 识别靠上游给的错误码优先、文案兜底。文案匹配不理想，但各家网关的码互不相同、且经常只在
  * message 里说人话（Grok 网关就只有一句 `Request blocked by upstream content policy`），

@@ -35,9 +35,7 @@ export interface GenerationCharge {
 /** 上游给回来的可恢复句柄。宿主要把它落进持久记录，刷新后才接得回去。 */
 export type GenerationReference =
   /** BFF 队列的 request_id：有它就能跳过 submit 续 poll。 */
-  | { kind: 'queue'; requestId: string }
-  /** 自定义服务商的任务号：由宿主自己的恢复轮询接手。 */
-  | { kind: 'custom'; taskId: string }
+  { kind: 'queue'; requestId: string }
 
 /** 终局失败：分类 + 按分类映射好的人话（ADR-0006：按码判，不把上游原文糊给用户）。 */
 export interface GenerationFailure {
@@ -148,7 +146,7 @@ export function admitGeneration(
   source: ClientProfile['source'],
   charge: GenerationCharge,
 ): boolean {
-  // BYOK 浏览器直连上游，不需要账号；内置渠道要经 BFF 的队列，没账号发不出去。
+  // 生成走平台渠道，要经 BFF 的队列，没账号发不出去。
   if (source === 'builtin-edge' && !requireAccount()) return false
   const guard = getPrivateSubmissionGuard(charge)
   if (!guard.blocked) return true
@@ -292,7 +290,6 @@ async function runUnit<H>(
         report.accepted(handle, { kind: 'queue', requestId })
         notifyPrivateSubmissionAccepted()
       },
-      onCustomTaskEnqueued: (task) => report.accepted(handle, { kind: 'custom', ...task }),
       onQueueStatus: (phase) => report.progress(handle, phase),
     })
   })
