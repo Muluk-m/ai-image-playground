@@ -7,7 +7,6 @@ import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
-import { isByokGenerationEnabled } from '../../lib/clientCapabilities'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
@@ -33,34 +32,25 @@ const SEARCH_THRESHOLD = 8
 export function useModelChoices() {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
-  const profileModelCache = useStore((s) => s.profileModelCache)
   const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeView = clientProfileToApiProfile(activeProfile)
 
   const options = useMemo(() => {
     const publicChannels = getPublicChannels()
-    const byokEnabled = isByokGenerationEnabled()
-    return settings.profiles
-      .filter((profile) => byokEnabled || profile.source === 'builtin-edge')
-      .flatMap((profile) => {
-        const view = clientProfileToApiProfile(profile)
-        const presetOptions = getProfileModelOptions(profile, publicChannels)
-        const knownIds = new Set(presetOptions.map((o) => o.id))
-        const cachedExtras = (profileModelCache[profile.id] ?? [])
-          .filter((id) => !knownIds.has(id))
-          .map((id) => ({ id, label: id }))
-        return [...presetOptions, ...cachedExtras].map(
-          (option): ModelChoice => ({
-            value: `${profile.id}::${option.id}`,
-            model: option.id,
-            profileId: profile.id,
-            label: compactModelName(option.id, option.label),
-            description: view.name,
-            title: `${option.label} · ${view.name}\n${option.id}`,
-          }),
-        )
-      })
-  }, [settings.profiles, profileModelCache])
+    return settings.profiles.flatMap((profile) => {
+      const view = clientProfileToApiProfile(profile)
+      return getProfileModelOptions(profile, publicChannels).map(
+        (option): ModelChoice => ({
+          value: `${profile.id}::${option.id}`,
+          model: option.id,
+          profileId: profile.id,
+          label: compactModelName(option.id, option.label),
+          description: view.name,
+          title: `${option.label} · ${view.name}\n${option.id}`,
+        }),
+      )
+    })
+  }, [settings.profiles])
 
   const currentValue = `${activeProfile.id}::${activeView.model}`
   const current = options.find((option) => option.value === currentValue)

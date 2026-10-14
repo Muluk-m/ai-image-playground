@@ -18,6 +18,11 @@ vi.mock('../../../features/production/components/ProductionGenerations', () => (
 }))
 vi.mock('../../../lib/channels/channelStore', () => ({
   getStoredChannels: () => [{ models: [{ id: 'image-model' }] }],
+  getStoredChannel: () => undefined,
+  setChannels: () => {},
+  channelsSettled: () => true,
+  resetChannelCatalog: () => {},
+  subscribeChannels: () => () => {},
 }))
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 it('keeps three-view generation on the same look and freezes the visible target for Chat', async () => {

@@ -261,8 +261,6 @@
     "interjectAria": "现在插话：{{text}}"
   },
   "params": {
-    "builtinModel": "内置渠道模型",
-    "byokNote": "智能体只能用内置渠道的模型，自带 Key 的配置在这里不生效。",
     "note": "张数由智能体按需求决定。参数改动从下一轮生效。",
     "thinkingFast": "快速",
     "thinkingMedium": "中等",
