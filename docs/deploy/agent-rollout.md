@@ -89,6 +89,9 @@ AGENT_CHAT_MODEL=gpt-6-luna
 AGENT_CHAT_CONTEXT_WINDOW=128000
 AGENT_CHAT_MAX_TOKENS=8000
 AGENT_SUMMARY_MODEL=gpt-5.6-luna
+# 预测用户下一句。只要一句短文本，钉在已验收的小模型上，不跟对话档走。
+# 网关有更快的小对话模型时再改这一行；留空则跟随 AGENT_SUMMARY_MODEL。
+AGENT_FOLLOW_UP_MODEL=gpt-5.6-luna
 # 自定义摘要模型或网关窗口更小时，填该摘要模型的真实窗口
 # AGENT_SUMMARY_CONTEXT_WINDOW=16000
 AGENT_IMAGE_MODEL=gpt-image-2.5-flare

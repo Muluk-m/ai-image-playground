@@ -49,19 +49,20 @@ afterAll(async () => {
 })
 
 describe('下一句的句子', () => {
-  it('丢掉空句、重复、超长和用户刚说的那句，凑不满两句就是没有', () => {
+  it('丢掉空句、重复、超长和用户刚说的那句，只留第一句预测', () => {
     const user = '画一张秋日海报'
     expect(
       normalizeFollowUpLines({ lines: ['  再出一版夜景。  ', user, '', '再出一版夜景。'] }, user),
-    ).toEqual([])
+    ).toEqual(['再出一版夜景。'])
     const long = '字'.repeat(81)
     expect(
       normalizeFollowUpLines(
         { lines: ['换成暖光。', long, '标题改成英文 Autumn Blend。', '再出一张方形。'] },
         user,
       ),
-    ).toEqual(['换成暖光。', '标题改成英文 Autumn Blend。', '再出一张方形。'])
-    expect(normalizeFollowUpLines({ lines: ['刚好八十个字。'] }, '')).toEqual([])
+    ).toEqual(['换成暖光。'])
+    expect(normalizeFollowUpLines({ lines: [user, '', long] }, user)).toEqual([])
+    expect(normalizeFollowUpLines({ lines: ['刚好八十个字。'] }, '')).toEqual(['刚好八十个字。'])
     expect(normalizeFollowUpLines('不是对象')).toEqual([])
   })
 
@@ -73,23 +74,35 @@ describe('下一句的句子', () => {
         message('user', '先发的那句', 1),
         message('assistant', '', 4),
       ]),
-    ).toEqual({ userText: '后发的那句', assistantText: '先看见的回复' })
+    ).toEqual({
+      userText: '后发的那句',
+      assistantText: '先看见的回复',
+      recentContext: '用户：先发的那句\n用户：后发的那句',
+    })
     expect(followUpSource([message('assistant', '只有回复', 1)])).toBeNull()
   })
 
-  it('按用户原话的语言问，失败或答不满就当没有', async () => {
+  it('按用户口吻预测一句，失败或答不出就当没有', async () => {
     const seen: string[] = []
     const lines = await suggestFollowUps(
-      { userText: 'Make an autumn poster', assistantText: '' },
+      {
+        userText: 'Make an autumn poster',
+        assistantText: 'What title and ratio should I use?',
+        recentContext: '用户：Make an autumn poster',
+      },
       async (prompt) => {
         seen.push(prompt)
-        return { lines: ['Make the background a night window.', 'Set the title to Autumn Blend.'] }
+        return { lines: ['Use the title Autumn Blend at 3:4.', 'Set the title to Autumn Blend.'] }
       },
     )
-    expect(lines).toEqual(['Make the background a night window.', 'Set the title to Autumn Blend.'])
+    expect(lines).toEqual(['Use the title Autumn Blend at 3:4.'])
     expect(seen[0]).toContain('Make an autumn poster')
-    expect(seen[0]).toContain('（这一轮没有文字回复）')
+    expect(seen[0]).toContain('What title and ratio should I use?')
+    expect(seen[0]).toContain('用用户的口吻、第一人称')
+    expect(seen[0]).toContain('只写一句')
+    expect(seen[0]).toContain('用合理的具体取值直接回答，不要反问')
     expect(seen[0]).toContain('用用户上一条消息的语言写')
+    expect(seen[0]).not.toContain('分别碰画面')
 
     const asked = viAsk()
     expect(await suggestFollowUps({ userText: '   ', assistantText: '有回复' }, asked.ask)).toEqual(
@@ -114,7 +127,7 @@ describe('下一句的句子', () => {
     })
     expect(
       await suggestFollowUps({ userText: '画一张', assistantText: '好' }, timeout.ask),
-    ).toEqual(['换成夜景。', '出一张方形。'])
+    ).toEqual(['换成夜景。'])
     expect(timeout.calls).toBe(2)
 
     const hung = countedAsk(() => {
@@ -131,7 +144,7 @@ describe('下一句的句子', () => {
     })
     expect(
       await suggestFollowUps({ userText: '画一张', assistantText: '好' }, gateway.ask),
-    ).toEqual(['灯光暖一点。', '再出一张方形。'])
+    ).toEqual(['灯光暖一点。'])
     expect(gateway.calls).toBe(2)
 
     const quota = countedAsk(() => {
@@ -221,10 +234,7 @@ describe('下一句落库', () => {
       async () => ({ lines: ['背景改成夜晚。', '再出一张方形。'] }),
     )
     await settled(conversationId, 'turn-2')
-    expect(await readAgentFollowUps(conversationId, 'turn-2')).toEqual([
-      '背景改成夜晚。',
-      '再出一张方形。',
-    ])
+    expect(await readAgentFollowUps(conversationId, 'turn-2')).toEqual(['背景改成夜晚。'])
   })
 
   it('超时重试还没结束时仍是 pending，两次都失败才写成空数组', async () => {
@@ -294,10 +304,8 @@ describe('下一句落库', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).toContain('先出男主设定图')
     expect(seen[0]).toContain('设定图出好了，可以作为基准。')
-    expect(await readAgentFollowUps(conversationId, 'turn-review')).toEqual([
-      '把这张存成素材。',
-      '出第一场分镜。',
-    ])
+    expect(seen[0]).toContain('用户：先出男主设定图')
+    expect(await readAgentFollowUps(conversationId, 'turn-review')).toEqual(['把这张存成素材。'])
   })
 })
 
