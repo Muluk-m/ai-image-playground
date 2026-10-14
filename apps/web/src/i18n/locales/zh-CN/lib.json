@@ -59,6 +59,7 @@
   },
   "dispatch": {
     "channelNotFound": "找不到内置 channel：{{id}}",
+    "channelsUnavailable": "平台渠道暂时连不上，正在重试",
     "unsupportedChannelKind": "不支持的内置 channel kind：{{kind}}",
     "resumeProfileMissing": "恢复 BFF queue 任务时未找到对应内置 channel profile",
     "resumeKindNotQueue": "channel kind {{kind}} 非 queue，无法恢复"

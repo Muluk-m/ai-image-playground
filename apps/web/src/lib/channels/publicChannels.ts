@@ -6,8 +6,8 @@
  * 只留 media 为 image 的模型。视频侧不经过这里，直接读 `channelStore`
  * （见 `videoChannels.ts`）—— 混进来的视频模型会被当成生图模型提交。
  *
- * 没有 BFF（runtimeConfig.bff.enabled=false）或 BFF 不可达时 store 为空数组，
- * 模型列表为空，生成不可用。
+ * 没有 BFF（runtimeConfig.bff.enabled=false）时 store 是一份已确认的空清单。
+ * BFF 暂时不可达时清单还没落地（空数组只是初始值），生成会等重试，而不是报渠道缺失。
  */
 import type { DiscoveredChannel } from '@image-playground/shared'
 import { getStoredChannels } from './channelStore'

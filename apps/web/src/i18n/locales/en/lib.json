@@ -61,6 +61,7 @@
   },
   "dispatch": {
     "channelNotFound": "Built-in channel not found: {{id}}",
+    "channelsUnavailable": "Platform channels are temporarily unreachable. Retrying.",
     "unsupportedChannelKind": "Unsupported built-in channel kind: {{kind}}",
     "resumeProfileMissing": "No matching built-in channel profile was found when resuming the BFF queue task",
     "resumeKindNotQueue": "channel kind {{kind}} is not a queue, cannot resume"

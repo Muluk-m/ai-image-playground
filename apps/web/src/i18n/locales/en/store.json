@@ -8,6 +8,7 @@
   },
   "task": {
     "interrupted": "Request interrupted",
+    "byokUnrecoverable": "This bring-your-own-key task can't be resumed. Generate it again.",
     "timeout": "Request timed out: still unfinished after {{timeoutSeconds}} seconds. Retry later or raise the timeout.",
     "profileMissing": "Cannot find the API profile this task used.",
     "inputImageMissing": "The input image no longer exists",
