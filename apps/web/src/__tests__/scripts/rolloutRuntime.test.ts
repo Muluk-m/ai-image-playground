@@ -32,6 +32,44 @@ C=$M/containers
 cmd=$1
 shift
 if [ "$cmd" = exec ]; then
+  while [ "$1" = -e ]; do shift 2; done
+  case " $* " in
+    *' nginx -t '*)
+      [ "\${TEST_NGINX_TEST_EXIT:-0}" = 0 ] || { printf 'nginx -t refused\\n' >> "\$M/log"; exit 1; }
+      ;;
+    *' nginx -s reload '*)
+      [ "\${TEST_NGINX_RELOAD_EXIT:-0}" = 0 ] || { printf 'nginx reload refused\\n' >> "\$M/log"; exit 1; }
+      ;;
+    *' test -d '*)
+      [ "\${TEST_PROXY_LAYOUT_OLD:-0}" = 0 ] || exit 1
+      ;;
+  esac
+  if [ "\${TEST_PROXY_HEALTH_EXIT:-0}" != 0 ]; then
+    case "$1" in
+      *-admin-proxy-next)
+        printf 'proxy health refused\\n' >> "\$M/log"
+        exit 1
+        ;;
+    esac
+  fi
+  if [ "\${TEST_PROXY_HEALTH_SLOW:-0}" != 0 ]; then
+    case "$1" in
+      *-admin-proxy-next)
+        printf 'proxy health slow\\n' >> "\$M/log"
+        # The rollout script's sleep is stubbed; this probe has to consume real time.
+        /bin/sleep "\${PROXY_PROBE_SECONDS:-1}"
+        exit 1
+        ;;
+    esac
+  fi
+  if [ -f "$C/$1/silent" ]; then
+    case " $* " in
+      *' bun '*)
+        printf 'proxy stable silent\\n' >> "\$M/log"
+        exit 1
+        ;;
+    esac
+  fi
   name=$1
   while [ $# -gt 4 ]; do shift; done
   port=$1 method=$2 path=$3 field=$4
@@ -127,7 +165,18 @@ case "$cmd" in
   rm)
     [ "$1" = -f ] && shift
     for name in "$@"; do rm -rf "$C/$name"; done ;;
-  rename) mv "$C/$1" "$C/$2" ;;
+  rename)
+    case "\${TEST_PROXY_RENAME_EXIT:-}" in
+      next)
+        case "$1" in
+          *-admin-proxy-next) printf 'proxy rename refused\\n' >> "\$M/log"; exit 1 ;;
+        esac ;;
+      stable)
+        case "$2" in
+          *-admin-proxy) printf 'proxy rename refused\\n' >> "\$M/log"; exit 1 ;;
+        esac ;;
+    esac
+    mv "$C/$1" "$C/$2" ;;
   *) : ;;
 esac
 exit 0
@@ -317,10 +366,12 @@ describe('rollout-runtime.sh: finite drain', () => {
       'Previous executors: 2 drained cleanly, 0 stopped after the 300s drain deadline, 0 already down.',
     )
     expect(result.log).toContainEqual(
-      expect.stringMatching(
-        /^compose .* up --detach --no-deps admin host-collector pg-backup cloudflared$/,
-      ),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
+    expect(result.log).toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
+    )
+    expect(exists('fixture-admin-next')).toBe(false)
     // The executors, the router and the migration print through the deployment's log collector.
     const socket = `fluentd-address=unix://${xdg}/ai-image-playground/log-forward/fixture/forward.sock`
     const launches = result.log.filter((line) => /^(create|run) /.test(line))
@@ -350,7 +401,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
     expect(result.stderr).toContain('Drain deadline (20s) reached; stopping fixture-rold-bff')
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
   })
 
@@ -373,8 +424,43 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(exists('fixture-rold-worker')).toBe(false)
     expect(result.stdout).toContain('1 drained cleanly, 1 stopped after the 10s drain deadline')
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
+  })
+
+  it('updates admin with compose and leaves a running tunnel up', () => {
+    currentGeneration()
+    container('fixture-cloudflared-1')
+    const result = run()
+
+    expect(result.status).toBe(0)
+    expect(result.log).toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
+    )
+    expect(result.log).not.toContainEqual(
+      expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
+    )
+  })
+
+  it('removes a leftover admin proxy only after compose admin is requested', () => {
+    currentGeneration()
+    container('fixture-admin-proxy')
+    container('fixture-admin-proxy-next')
+    container('fixture-r20260101010101-1-admin')
+    write(releases('admin-proxy/nginx.conf'), 'set $upstream old;\n')
+    write(releases('admin-pending'), 'old\n')
+    const result = run()
+
+    expect(result.status).toBe(0)
+    const composed = indexOf(result.log, /^compose .* up --detach --no-deps --wait admin$/)
+    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy$/)
+    expect(composed).toBeGreaterThan(-1)
+    expect(stopped).toBeGreaterThan(composed)
+    expect(exists('fixture-admin-proxy')).toBe(false)
+    expect(exists('fixture-admin-proxy-next')).toBe(false)
+    expect(exists('fixture-r20260101010101-1-admin')).toBe(false)
+    expect(existsSync(releases('admin-proxy'))).toBe(false)
+    expect(existsSync(releases('admin-pending'))).toBe(false)
   })
 
   it('counts a previous executor that already exited as down rather than drained', () => {

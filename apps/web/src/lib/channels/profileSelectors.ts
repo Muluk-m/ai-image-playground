@@ -3,42 +3,34 @@ import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
 
 /**
  * 当前选中模型支持的能力集合（控制 UI 显隐参考图/遮罩/质量等控件）。
- * - builtin-edge：从 channel.models 的 capabilities 读，是权威声明
- * - user-byok：无声明，返回 null = 不限制（BYOK 用户自负其责，UI 全开）
+ * 清单来自平台渠道；渠道或模型还没对上时返回 null，调用方按「未知」处理，不猜。
  */
 export function getModelCapabilities(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
 ): ReadonlySet<ChannelCapability> | null {
-  if (profile.source !== 'builtin-edge') return null
-  const channel = publicChannels.find((c) => c.id === profile.channelId)
-  const model = channel?.models.find((m) => m.id === profile.selectedModelId) ?? channel?.models[0]
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  const model =
+    channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
   return model ? new Set(model.capabilities) : null
 }
 
 /**
  * 模型是否「原生」支持遮罩（走 OpenAI images/edits 的真·inpainting）。
- * - builtin-edge：按 channel 模型 capability 'mask'
- * - user-byok：仅 gemini kind 无原生 mask（geminiImageApi 不接受 mask）；
- *   openai-compat / http-template 走 images/edits 原生支持
  * 不支持的模型在分发层走软遮罩降级（见 api.ts 的 applySoftMaskFallback）。
  */
 export function modelSupportsNativeMask(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
 ): boolean {
-  if (profile.source === 'builtin-edge') {
-    return getModelCapabilities(profile, publicChannels)?.has('mask') ?? false
-  }
-  return profile.kind !== 'gemini'
+  return getModelCapabilities(profile, publicChannels)?.has('mask') ?? false
 }
 
 /**
- * builtin-edge 的模型清单由 BFF 下发，长开的标签页会停在改名前的旧清单上。
+ * 平台渠道的模型清单由 BFF 下发，长开的标签页会停在改名前的旧清单上。
  * 认不出来不等于不支持，不能让它悄悄降级成「无此能力」。
  */
 export function isModelKnown(profile: ClientProfile, publicChannels: PublicChannel[]): boolean {
-  if (profile.source !== 'builtin-edge') return true
   return getProfileModels(profile, publicChannels).includes(profile.selectedModelId)
 }
 
@@ -48,7 +40,11 @@ i18next.on('languageChanged', () => {
   NO_EDIT_SUPPORT_MESSAGE = i18next.t('model.noEditSupport', { ns: 'lib' })
 })
 
-/** 当前模型是否支持 edit（参考图/图生图）。BYOK（capabilities=null）默认放开。 */
+/**
+ * 当前模型是否支持 edit（参考图/图生图）。
+ * 渠道清单还没到、能力未知时不拦：拦了会在启动窗口里把参考图整条关掉。
+ * 清单明确没有 `edit` 时才拒绝。
+ */
 export function modelSupportsEdit(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
@@ -62,26 +58,19 @@ export function getProfileModels(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
 ): string[] {
-  if (profile.source === 'builtin-edge') {
-    const channel = publicChannels.find((c) => c.id === profile.channelId)
-    return channel ? channel.models.map((m) => m.id) : []
-  }
-  return profile.models
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  return channel ? channel.models.map((model) => model.id) : []
 }
 
-/**
- * 返回该 profile 的模型展示项（id + 人类可读 label）。
- * builtin-edge 从 channel.models 取 label；user-byok 没有 label，用 id 兜底。
- */
+/** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
 ): Array<{ id: string; label: string }> {
-  if (profile.source === 'builtin-edge') {
-    const channel = publicChannels.find((c) => c.id === profile.channelId)
-    return channel ? channel.models.map((m) => ({ id: m.id, label: m.label ?? m.id })) : []
-  }
-  return profile.models.map((id) => ({ id, label: id }))
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  return channel
+    ? channel.models.map((model) => ({ id: model.id, label: model.label ?? model.id }))
+    : []
 }
 
 /** 返回该 profile 当前激活的模型 id；若失效则回退到 models[0]，再失效返回空串。 */
@@ -92,24 +81,7 @@ export function getSelectedModel(profile: ClientProfile, publicChannels: PublicC
 }
 
 /**
- * 替换 BYOK profile 的 models[]，保证 selectedModelId 仍 ∈ models。
- * 仅对 user-byok 生效（builtin-edge 的 models 由 channel 决定，无法在客户端改）。
- */
-export function updateProfileModels(profile: ClientProfile, nextModels: string[]): ClientProfile {
-  if (profile.source === 'builtin-edge') return profile
-
-  const deduped = Array.from(new Set(nextModels.filter((m) => m.trim().length > 0)))
-  if (deduped.length === 0) return profile
-
-  const selectedModelId = deduped.includes(profile.selectedModelId)
-    ? profile.selectedModelId
-    : deduped[0]
-  return { ...profile, models: deduped, selectedModelId }
-}
-
-/**
- * 切换 selectedModelId；若 modelId 不在当前 models 中，BYOK 自动追加，
- * builtin-edge 则忽略（channel.models 不可在客户端修改）。
+ * 切换 selectedModelId。modelId 不在该渠道的模型清单里则忽略。
  */
 export function updateSelectedModel(
   profile: ClientProfile,
@@ -117,13 +89,7 @@ export function updateSelectedModel(
   publicChannels: PublicChannel[],
 ): ClientProfile {
   if (!modelId.trim()) return profile
-
-  if (profile.source === 'builtin-edge') {
-    const channel = publicChannels.find((c) => c.id === profile.channelId)
-    const valid = channel?.models.some((m) => m.id === modelId) ?? false
-    return valid ? { ...profile, selectedModelId: modelId } : profile
-  }
-
-  const models = profile.models.includes(modelId) ? profile.models : [...profile.models, modelId]
-  return { ...profile, models, selectedModelId: modelId }
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  const valid = channel?.models.some((model) => model.id === modelId) ?? false
+  return valid ? { ...profile, selectedModelId: modelId } : profile
 }

@@ -16,11 +16,7 @@ import {
 } from '../../../../features/library/lib/lookSubmit'
 import type { LookItem } from '../../../../features/library/lib/looks'
 import { useLibraryStore } from '../../../../features/library/store'
-import {
-  createDefaultOpenAIByokProfile,
-  DEFAULT_SETTINGS,
-  normalizeSettings,
-} from '../../../../lib/apiProfiles'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../../../lib/apiProfiles'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
@@ -49,6 +45,8 @@ vi.mock('../../../../lib/db', async (original) => ({
   putTask: async () => {},
 }))
 
+const LOOK_MODEL = 'gpt-image-2.5-flare'
+
 function look(references: LookItem['references'] = []): LookItem {
   return {
     skillName: 'look-test',
@@ -56,7 +54,7 @@ function look(references: LookItem['references'] = []): LookItem {
     name: 'Test',
     description: '',
     purpose: 'scene',
-    model: createDefaultOpenAIByokProfile().selectedModelId,
+    model: LOOK_MODEL,
     size: '1024x1024',
     slotCount: 1,
     cover: null,
@@ -68,7 +66,15 @@ beforeEach(async () => {
   await bootstrapClientCapabilities(false, '')
   setSignedIn(false)
   setClientStorageScope(null)
-  setChannels([])
+  setChannels([
+    {
+      id: 'default-openai',
+      kind: 'openai-queue',
+      label: 'OpenAI',
+      models: [{ id: LOOK_MODEL, label: 'Flare', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
   storage.images.clear()
   storage.read = undefined
   storage.write = undefined
@@ -88,7 +94,14 @@ beforeEach(async () => {
     settings: normalizeSettings({
       ...DEFAULT_SETTINGS,
       clearInputAfterSubmit: false,
-      profiles: [createDefaultOpenAIByokProfile({ apiKey: 'test-key' })],
+      profiles: [
+        {
+          id: 'default-openai',
+          source: 'builtin-edge',
+          channelId: 'default-openai',
+          selectedModelId: LOOK_MODEL,
+        },
+      ],
       activeProfileId: 'default-openai',
     }),
     prompt: 'my words',
@@ -469,11 +482,14 @@ it('sends eight materials and eight references at the limit, but never sends a s
   expect(await submitWithLook(template, 'template')).toBe(true)
   expect(useStore.getState().tasks[0].inputImageIds).toEqual(ids.slice(0, 16))
   await vi.waitFor(() =>
-    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/images/edits'))).toBe(true),
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/v1/queue/'))).toBe(true),
   )
-  const request = fetcher.mock.calls.find(([url]) => String(url).includes('/images/edits'))
+  const request = fetcher.mock.calls.find(([url]) => String(url).includes('/submit'))
   expect(request).toBeDefined()
-  expect((request![1]!.body as FormData).getAll('image[]')).toHaveLength(16)
+  const submitted = JSON.parse(String((request![1] as RequestInit).body)) as {
+    input_images?: unknown[]
+  }
+  expect(submitted.input_images).toHaveLength(16)
   // A new intentional send is allowed after handoff, even with the same input.
   expect(await submitWithLook(template, 'template')).toBe(true)
   expect(useStore.getState().tasks).toHaveLength(2)

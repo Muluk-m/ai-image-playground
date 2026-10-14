@@ -72,7 +72,7 @@ overlay 改了就该上线。
 | 部署已经在用外部私有配置 | `scripts/app-compose.sh` — env 文件与 operator 配置都取自 `~/.config/ai-image-playground/`，仓库外 |
 | `.gitignore` 已有 operator 覆盖文件的先例 | `.gitignore:15,17` — `apps/web/public/runtime-config.json`、`scripts/local/` |
 | `CHANNELS_FILE` 已可把 channels.json 指到仓库外 | `apps/bff/src/config.ts:47` |
-| channels.json 缺失时优雅降级为 BYOK-only | `apps/bff/src/routes/channels.ts` 返回 `{ channels: [] }` → 前端不渲染「内置」分组 |
+| channels.json 缺失时返回空渠道列表 | `apps/bff/src/routes/channels.ts` 返回 `{ channels: [] }` → 前端没有可生成的平台模型 |
 | BFF **没有构建步骤**，镜像里直接跑 TS 源码 | `apps/bff/package.json` `"start": "bun run src/index.ts"`；`Dockerfile:83,99` |
 | 仓库里没有 CI | `.github/workflows` 不存在 |
 
@@ -257,7 +257,7 @@ Metabase 在宏的 docstring 里对「不指定具体 feature」直接写警告�
 export const CAPABILITIES = {
   'accounts:login':   { defaultValue: false, clientExposed: true  },
   'billing:credits':  { defaultValue: false, clientExposed: true  },
-  'generation:byok':  { defaultValue: false, clientExposed: true  },
+  // generation:byok 已退役，旧运营配置里的这个键会被忽略。
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily':      { defaultValue: false, clientExposed: true  },
 } as const
@@ -422,7 +422,7 @@ GitLab 一手结论是「同一个 schema，免费版多几张空表」：
 - `!` 否定**救不回被排除目录下的文件**：「It is not possible to re-include a file if a parent directory of that file is excluded.」
 - CI 断言用 `git check-ignore -q <path>`（0 = 已忽略，1 = 没忽略）。<https://git-scm.com/docs/git-check-ignore>
 
-本仓库已有这个约定：`apps/bff/.env.example`、`apps/web/.env.example`、`apps/admin/.env.example`、`apps/web/dev-proxy.config.example.json`。
+本仓库已有这个约定：`apps/bff/.env.example`、`apps/web/.env.example`、`apps/admin/.env.example`。
 
 ### 6.2 排名第二：env 指向仓库外的配置路径（已实现一半）
 

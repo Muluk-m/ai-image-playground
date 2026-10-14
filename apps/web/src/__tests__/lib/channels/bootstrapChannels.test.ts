@@ -1,8 +1,21 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { bootstrapChannels, preloadChannels } from '../../../lib/channels/bootstrapChannels'
-import { getStoredChannels } from '../../../lib/channels/channelStore'
+import {
+  bootstrapChannels,
+  preloadChannels,
+  resetChannelDiscoveryForTests,
+} from '../../../lib/channels/bootstrapChannels'
+import {
+  channelsSettled,
+  getStoredChannels,
+  resetChannelCatalog,
+} from '../../../lib/channels/channelStore'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  resetChannelDiscoveryForTests()
+  resetChannelCatalog()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
 
 it('keeps an aborted older channel response from replacing the latest list', async () => {
   let resolveFirst!: (response: Response) => void
@@ -81,4 +94,33 @@ it('ignores an old channel preload after the backend is disabled', async () => {
   finish(Response.json({ channels: [{ id: 'stale' }] }))
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(getStoredChannels()).toEqual([])
+})
+
+it('retries a failed catalog without treating an empty list as loaded', async () => {
+  const channel = {
+    id: 'back',
+    kind: 'openai-queue',
+    label: 'Back',
+    models: [{ id: 'gpt-image-2', label: 'GPT', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  vi.useFakeTimers()
+  const fetchSpy = vi
+    .fn()
+    .mockRejectedValueOnce(new TypeError('offline'))
+    .mockResolvedValueOnce(Response.json({ channels: [channel] }))
+  vi.stubGlobal('fetch', fetchSpy)
+
+  preloadChannels(true, 'https://retry-later.example.com')
+  await Promise.resolve()
+  await Promise.resolve()
+
+  expect(fetchSpy).toHaveBeenCalledTimes(1)
+  expect(channelsSettled()).toBe(false)
+  expect(getStoredChannels()).toEqual([])
+
+  await vi.advanceTimersByTimeAsync(1000)
+
+  expect(channelsSettled()).toBe(true)
+  expect(getStoredChannels().map((item) => item.id)).toEqual(['back'])
 })

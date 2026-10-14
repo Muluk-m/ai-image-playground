@@ -59,6 +59,21 @@ describe('container log records', () => {
     expect(level('2026-10-08T03:01:40Z WRN Connection terminated', 'stderr')).toBe('warn')
     expect(
       level(
+        '2026-10-13T06:41:18Z WRN Connection terminated error="connection with edge closed" connIndex=3',
+      ),
+    ).toBe('warn')
+    expect(
+      level(
+        '2026-10-13T06:41:18Z WRN Serve tunnel error error="connection with edge closed" connIndex=3 event=0 ip=198.41.200.33',
+      ),
+    ).toBe('warn')
+    expect(
+      level(
+        '2026-10-13T10:01:25Z ERR error="Unable to reach the origin service. dial tcp 172.22.0.3:37378: connect: connection refused"',
+      ),
+    ).toBe('error')
+    expect(
+      level(
         '2026-10-10T03:17:45Z ERR failed to serve incoming request error="Failed to proxy HTTP: context canceled"',
       ),
     ).toBe('warn')

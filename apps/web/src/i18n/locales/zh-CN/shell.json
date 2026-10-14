@@ -8,7 +8,16 @@
     "settings": "设置",
     "loginMethods": "账户设置",
     "login": "登录",
-    "loggingOut": "退出中"
+    "loggingOut": "退出中",
+    "guest": {
+      "signedOut": "未登录",
+      "syncHint": "登录后同步作品与积分",
+      "trialTitle": "免费体验",
+      "trialBody": "新用户注册送体验积分，可直接开始创作。",
+      "signInUp": "登录 / 注册",
+      "help": "帮助中心",
+      "viewPlans": "查看套餐"
+    }
   },
   "brand": {
     "home": "主页"
@@ -70,8 +79,8 @@
     "canvas": "画布"
   },
   "hero": {
-    "titleLead": "做图、做视频，",
-    "titleAccent": "就在这里",
+    "titleLead": "用想象，",
+    "titleAccent": "创造更多可能",
     "subtitle": "从文字或参考图开始，生成后继续编辑。"
   },
   "createTarget": {

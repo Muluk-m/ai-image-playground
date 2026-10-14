@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLibraryStore } from '../features/library/store'
 import { useCloudGenerations } from '../hooks/useCloudGenerations'
 import { useTranslation } from '../i18n'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
@@ -21,6 +22,10 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
   // 冷启动时下面是灵感区，它自带标题；「我的作品」空着挂一个标题只会像没加载出来。
   const hasWorks = useStore((s) => s.tasks.length > 0 || s.platformGenerations.length > 0)
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
+  const openLibrary = () => {
+    useLibraryStore.getState().setTab('assets')
+    useStore.getState().setAppMode('library')
+  }
   return (
     <>
       {!hero && <SearchBar />}
@@ -29,10 +34,12 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
         <SectionHeader
           className="pb-4 pt-10"
           title={t('grid.mine')}
+          link={{ label: t('grid.openLibrary'), onClick: openLibrary }}
           action={{
-            label: showAll ? t('grid.collapse') : t('grid.viewAll'),
+            label: showAll ? t('grid.collapse') : t('grid.expandAll'),
             onClick: () => setShowAll((value) => !value),
             expanded: showAll,
+            disclosure: true,
           }}
         >
           {showAll && (

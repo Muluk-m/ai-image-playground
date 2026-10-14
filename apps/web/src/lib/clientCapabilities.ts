@@ -28,7 +28,6 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
   return manifest
 }
 let currentManifest = disabledManifest()
-let currentBffEnabled = false
 let projectDocumentIdentity = false
 let attachmentLimits: AttachmentLimits | undefined
 const CAPABILITY_TIMEOUTS_MS = [5000, 10_000, 15_000]
@@ -39,7 +38,6 @@ export async function bootstrapClientCapabilities(
   required = false,
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
-  currentBffEnabled = bffEnabled
   projectDocumentIdentity = false
   attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
@@ -133,14 +131,6 @@ export function isClientCapabilityEnabled(key: CapabilityKey): boolean {
   const definition = CAPABILITIES[key]
   if (!definition.clientExposed) return false
   return currentManifest[key as ClientCapabilityKey]
-}
-
-/**
- * Static deployments remain BYOK workbenches. BFF deployments must opt in
- * through the server capability manifest; a missing manifest therefore fails closed.
- */
-export function isByokGenerationEnabled(): boolean {
-  return !currentBffEnabled || isClientCapabilityEnabled('generation:byok')
 }
 
 export function getAttachmentLimits(): Readonly<AttachmentLimits> | undefined {

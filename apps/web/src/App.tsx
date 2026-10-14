@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -33,15 +33,10 @@ import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { installAppRouting } from './lib/appRoute'
-import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { usePathname } from './lib/pathname'
 import { startSyncEngine } from './lib/sync/engine'
-import {
-  buildSettingsFromUrlParams,
-  clearUrlSettingParams,
-  hasUrlSettingParams,
-} from './lib/urlSettings'
+import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
 
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
@@ -52,6 +47,20 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const { t } = useTranslation('shell')
   const homeBackdropRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
+  const homeChrome =
+    appMode === 'image' &&
+    !isPricingPath(pathname) &&
+    !isTermsPath(pathname) &&
+    !isPrivacyPath(pathname)
+
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    if (homeChrome) root.dataset.home = 'true'
+    else delete root.dataset.home
+    return () => {
+      delete root.dataset.home
+    }
+  }, [homeChrome])
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -65,13 +74,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
-    let nextSettings = buildSettingsFromUrlParams(useStore.getState().settings, searchParams)
-    if (!isByokGenerationEnabled()) {
-      const builtin = nextSettings.profiles?.find((profile) => profile.source === 'builtin-edge')
-      if (builtin) nextSettings = { ...nextSettings, activeProfileId: builtin.id }
-    }
-
-    setSettings(nextSettings)
+    // 渠道清单在进工作台前已经装好。再正规化一次，把启动早于清单的那份设置补上平台渠道，
+    // 并丢掉本地存储里残留的自带密钥档案。
+    setSettings({})
 
     if (hasUrlSettingParams(searchParams)) {
       clearUrlSettingParams(searchParams)
@@ -157,6 +162,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
               onPointerLeave={() => homeBackdropRef.current?.removeAttribute('data-pointer-active')}
             >
               <div ref={homeBackdropRef} aria-hidden="true" className="studio-home-backdrop">
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--a" />
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--b" />
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--c" />
                 <div className="studio-home-backdrop__grain" />
                 <div className="studio-home-backdrop__grid" />
                 <div className="studio-home-backdrop__hover" />
@@ -170,9 +178,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                   <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
-                <div className="studio-home-create pt-5">
+                <div className="studio-home-create pt-8 md:pt-5">
                   <CreateTargetSwitch />
-                  <div className="pt-4">
+                  <div className="pt-6 md:pt-4">
                     <InputBar inline />
                   </div>
                 </div>
