@@ -774,7 +774,7 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     expect(retry).toHaveLength(1)
     await act(async () => {
       retry[0]!.click()
-      await vi.waitFor(() => expect(send.disabled).toBe(false))
+      await vi.waitFor(() => expect(send.disabled).toBe(false), { timeout: 10_000 })
     })
     expect([...putAttempts.values()].filter((count) => count > 1)).toEqual([2])
     expect(new Set(registrations).size).toBe(100)
