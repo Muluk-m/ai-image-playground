@@ -1107,6 +1107,33 @@ input[type="number"] {
   animation: task-pop-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* 主动发送后的新作品卡：1.5s 内边框和光晕淡出，颜色用 primary。时长与 submittedTaskAttention 的高亮窗口一致。 */
+.task-card-wrapper {
+  scroll-margin-block: max(1rem, var(--mobile-topbar-height));
+}
+@keyframes task-submitted-attention {
+  0% {
+    box-shadow:
+      0 0 0 2px hsl(var(--primary)),
+      0 0 16px 4px hsl(var(--primary) / 0.45);
+  }
+  100% {
+    box-shadow:
+      0 0 0 2px hsl(var(--primary) / 0),
+      0 0 16px 4px hsl(var(--primary) / 0);
+  }
+}
+.task-submitted-attention {
+  border-radius: 0.75rem;
+  animation: task-submitted-attention 1.5s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-submitted-attention {
+    animation: none;
+    box-shadow: 0 0 0 2px hsl(var(--primary));
+  }
+}
+
 @keyframes coach-pulse {
   0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.55); }
   70%  { box-shadow: 0 0 0 10px hsl(var(--primary) / 0); }

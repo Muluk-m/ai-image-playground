@@ -91,6 +91,7 @@ import {
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
 import { watchSubmissionContext } from './lib/submissionContext'
+import { noteUserSubmittedTasks } from './lib/submittedTaskAttention'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
 import { taskErrorTypeOf } from './lib/taskError'
 import {
@@ -129,8 +130,6 @@ let thumbnailBackfillScheduled = false
 const MAX_IMAGE_CACHE_ENTRIES = 8
 const MAX_THUMBNAIL_CACHE_ENTRIES = 80
 const MAX_THUMBNAIL_BACKFILL_CONCURRENT = 4
-/** submitTask 后若用户已滚出此高度（px），把视口平滑滚回顶部把新卡片带进视野。 */
-const SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX = 80
 /** 任务文案在写进任务那一刻才求值：模块级常量会被之后的语言切换甩在身后。 */
 function createOpenAIInterruptedError() {
   return i18next.t('task.interrupted', { ns: 'store' })
@@ -1644,14 +1643,12 @@ export async function submitTask() {
   }
   if (createdTaskIds.length === 0) return
 
+  // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
+  noteUserSubmittedTasks(createdTaskIds)
+
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
-  }
-
-  // 滚出顶部时把视口平滑滚回，让新卡片即刻可见。已在顶部时无需动。
-  if (typeof window !== 'undefined' && window.scrollY > SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX) {
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 }
 
