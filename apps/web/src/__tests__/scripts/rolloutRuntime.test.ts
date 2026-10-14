@@ -369,9 +369,6 @@ describe('rollout-runtime.sh: finite drain', () => {
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps host-collector pg-backup$/),
-    )
-    expect(result.log).toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
     )
     expect(exists('fixture-admin-next')).toBe(false)
@@ -431,56 +428,13 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
   })
 
-  it('publishes a new admin only after it is healthy, and leaves a running tunnel up', () => {
+  it('updates admin with compose and leaves a running tunnel up', () => {
     currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
     container('fixture-cloudflared-1')
     const result = run()
 
     expect(result.status).toBe(0)
-    const started = indexOf(result.log, /^create .*--name fixture-r\d+-\d+-admin /)
-    const ready = indexOf(result.log, /^exec fixture-r\d+-\d+-admin GET \/health/)
-    const joined = indexOf(
-      result.log,
-      /^network connect fixture_application fixture-r\d+-\d+-admin$/,
-    )
-    const running = indexOf(result.log, /^start fixture-r\d+-\d+-admin$/)
-    const proxy = indexOf(result.log, /^run .*--name fixture-admin-proxy /)
-    // The fake docker keeps the container name and the last three arguments.
-    const checked = indexOf(
-      result.log,
-      /^exec fixture-admin-proxy -t -c \/etc\/admin-proxy\/nginx.conf.next$/,
-    )
-    const switched = indexOf(
-      result.log,
-      /^exec fixture-admin-proxy reload -c \/etc\/admin-proxy\/nginx.conf$/,
-    )
-    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-1$/)
-    expect(started).toBeGreaterThan(-1)
-    expect(result.log[started]).toContain('--network image-playground-infra')
-    expect(result.log[started]).toContain('OPS_DEPLOYMENTS_LOG=/host/deployments.log')
-    expect(result.log[started]).toContain('container-healthcheck.ts')
-    const proxyReady = indexOf(result.log, /^exec fixture-admin-proxy bun /)
-    const published = indexOf(
-      result.log,
-      /^network connect --alias admin fixture_application fixture-admin-proxy$/,
-    )
-    expect(result.log[started]).not.toContain('--network-alias admin')
-    expect(result.log[proxy]).not.toContain('--network-alias admin')
-    expect(joined).toBeGreaterThan(started)
-    expect(running).toBeGreaterThan(joined)
-    expect(ready).toBeGreaterThan(running)
-    expect(proxy).toBeGreaterThan(ready)
-    expect(proxyReady).toBeGreaterThan(proxy)
-    expect(published).toBeGreaterThan(proxyReady)
-    expect(checked).toBeGreaterThan(published)
-    expect(switched).toBeGreaterThan(checked)
-    expect(stopped).toBeGreaterThan(switched)
-    expect(result.log).not.toContainEqual(
-      expect.stringMatching(/^network disconnect \S+ fixture-(admin-1|r\d+-\d+-admin)$/),
-    )
-    expect(readFileSync(script, 'utf8')).toContain('nginx -s reload -c /etc/admin-proxy/nginx.conf')
-    expect(result.log).not.toContainEqual(
+    expect(result.log).toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
     expect(result.log).not.toContainEqual(
@@ -488,215 +442,25 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
   })
 
-  it('replaces an old proxy mount only after the new proxy answers', () => {
-    currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
-    container('fixture-admin-proxy')
-    const result = run({ TEST_PROXY_LAYOUT_OLD: '1' })
-
-    expect(result.status).toBe(0)
-    const started = indexOf(result.log, /^run .*--name fixture-admin-proxy-next /)
-    const probed = indexOf(result.log, /^exec fixture-admin-proxy-next /)
-    const published = indexOf(
-      result.log,
-      /^network connect --alias admin \S+ fixture-admin-proxy-next$/,
-    )
-    const renamed = indexOf(result.log, /^rename fixture-admin-proxy-next fixture-admin-proxy$/)
-    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy-previous$/)
-    expect(started).toBeGreaterThan(-1)
-    expect(result.log[started]).not.toContain('--network-alias admin')
-    expect(probed).toBeGreaterThan(started)
-    expect(published).toBeGreaterThan(probed)
-    expect(renamed).toBeGreaterThan(published)
-    expect(stopped).toBeGreaterThan(renamed)
-    expect(exists('fixture-admin-proxy')).toBe(true)
-    expect(exists('fixture-admin-proxy-next')).toBe(false)
-    expect(exists('fixture-admin-proxy-previous')).toBe(false)
-  })
-
-  it('keeps the old proxy when the replacement does not answer', () => {
-    currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
-    container('fixture-admin-proxy')
-    const result = run({
-      TEST_PROXY_LAYOUT_OLD: '1',
-      TEST_PROXY_HEALTH_EXIT: '1',
-      ADMIN_PROXY_WAIT_SECONDS: '1',
-    })
-
-    expect(result.status).not.toBe(0)
-    expect(result.log).toContain('proxy health refused')
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^network connect --alias admin /))
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^rename fixture-admin-proxy /))
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy/))
-    expect(exists('fixture-admin-proxy')).toBe(true)
-    expect(exists('fixture-admin-proxy-next')).toBe(false)
-  })
-
-  it('stops waiting on a hung proxy probe when the deadline is reached', () => {
-    currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
-    container('fixture-admin-proxy')
-    const startedAt = Date.now()
-    const result = run({
-      TEST_PROXY_LAYOUT_OLD: '1',
-      TEST_PROXY_HEALTH_SLOW: '1',
-      ADMIN_PROXY_WAIT_SECONDS: '2',
-    })
-    const elapsed = Date.now() - startedAt
-
-    expect(result.status).not.toBe(0)
-    expect(result.log.filter((line) => line === 'proxy health slow')).toHaveLength(1)
-    expect(elapsed).toBeLessThan(8_000)
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy/))
-    expect(exists('fixture-admin-proxy')).toBe(true)
-    expect(exists('fixture-admin-proxy-next')).toBe(false)
-  })
-
-  it('restores the old proxy name when the replacement cannot take it', () => {
-    currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
-    container('fixture-admin-proxy')
-    const result = run({
-      TEST_PROXY_LAYOUT_OLD: '1',
-      TEST_PROXY_RENAME_EXIT: 'next',
-    })
-
-    expect(result.status).not.toBe(0)
-    expect(result.log).toContain('proxy rename refused')
-    expect(exists('fixture-admin-proxy')).toBe(true)
-    expect(exists('fixture-admin-proxy-next')).toBe(false)
-    expect(exists('fixture-admin-proxy-previous')).toBe(false)
-    expect(exists('fixture-admin-1')).toBe(true)
-    expect(
-      readdirSync(join(root, 'containers')).some((name) => /^fixture-r\d+-\d+-admin$/.test(name)),
-    ).toBe(false)
-    expect(readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')).toContain(
-      'set $upstream fixture-admin-1;',
-    )
-  })
-
-  it('keeps the published proxy and its upstream when the stable name cannot be restored', () => {
+  it('removes a leftover admin proxy only after compose admin is requested', () => {
     currentGeneration()
     container('fixture-admin-proxy')
-    const failed = run({
-      TEST_PROXY_LAYOUT_OLD: '1',
-      TEST_PROXY_RENAME_EXIT: 'stable',
-    })
-
-    expect(failed.status).not.toBe(0)
-    expect(exists('fixture-admin-proxy')).toBe(false)
-    expect(exists('fixture-admin-proxy-next')).toBe(true)
-    expect(exists('fixture-admin-proxy-previous')).toBe(true)
-    const kept = readdirSync(join(root, 'containers')).find((name) =>
-      /^fixture-r\d+-\d+-admin$/.test(name),
-    )
-    expect(kept).toBeTruthy()
-    expect(readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')).toContain(
-      `set $upstream ${kept};`,
-    )
-
-    const recovered = run()
-    expect(recovered.status).toBe(0)
-    expect(exists('fixture-admin-proxy')).toBe(true)
-    expect(exists('fixture-admin-proxy-next')).toBe(false)
-    expect(exists('fixture-admin-proxy-previous')).toBe(false)
-    expect(exists(kept!)).toBe(false)
-  })
-
-  it('removes a stopped proxy name before adopting the one that is still running', () => {
-    currentGeneration()
-    container('fixture-admin-proxy', { state: 'exited' })
     container('fixture-admin-proxy-next')
+    container('fixture-r20260101010101-1-admin')
+    write(releases('admin-proxy/nginx.conf'), 'set $upstream old;\n')
+    write(releases('admin-pending'), 'old\n')
     const result = run()
 
     expect(result.status).toBe(0)
-    const removed = indexOf(result.log, /^rm fixture-admin-proxy$/)
-    const adopted = indexOf(result.log, /^rename fixture-admin-proxy-next fixture-admin-proxy$/)
-    expect(removed).toBeGreaterThan(-1)
-    expect(adopted).toBeGreaterThan(removed)
-    expect(exists('fixture-admin-proxy')).toBe(true)
+    const composed = indexOf(result.log, /^compose .* up --detach --no-deps --wait admin$/)
+    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy$/)
+    expect(composed).toBeGreaterThan(-1)
+    expect(stopped).toBeGreaterThan(composed)
+    expect(exists('fixture-admin-proxy')).toBe(false)
     expect(exists('fixture-admin-proxy-next')).toBe(false)
-    expect(stateOf('fixture-admin-proxy')).toBe('running')
-  })
-
-  it('puts the listening previous proxy back when the stable one is not answering', () => {
-    currentGeneration()
-    container('fixture-admin-proxy')
-    container('fixture-admin-proxy-previous')
-    write(join(root, 'containers/fixture-admin-proxy/silent'), '')
-    const result = run({ ADMIN_PROXY_WAIT_SECONDS: '1' })
-
-    expect(result.status).toBe(0)
-    const restored = indexOf(
-      result.log,
-      /^rename fixture-admin-proxy-previous fixture-admin-proxy$/,
-    )
-    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy-dead$/)
-    expect(result.log).toContain('proxy stable silent')
-    expect(restored).toBeGreaterThan(-1)
-    expect(stopped).toBeGreaterThan(restored)
-    expect(result.log).not.toContainEqual(
-      expect.stringMatching(/^stop -t 30 fixture-admin-proxy-previous$/),
-    )
-    expect(exists('fixture-admin-proxy')).toBe(true)
-    expect(exists('fixture-admin-proxy-previous')).toBe(false)
-    expect(exists('fixture-admin-proxy-dead')).toBe(false)
-    expect(stateOf('fixture-admin-proxy')).toBe('running')
-  })
-
-  it('keeps the previous proxy when neither proxy is answering', () => {
-    currentGeneration()
-    container('fixture-admin-proxy')
-    container('fixture-admin-proxy-previous')
-    write(join(root, 'containers/fixture-admin-proxy/silent'), '')
-    write(join(root, 'containers/fixture-admin-proxy-previous/silent'), '')
-    const result = run({ ADMIN_PROXY_WAIT_SECONDS: '1' })
-
-    expect(result.status).not.toBe(0)
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy/))
-    expect(result.log).not.toContainEqual(
-      expect.stringMatching(/^rename fixture-admin-proxy-previous /),
-    )
-    expect(stateOf('fixture-admin-proxy')).toBe('running')
-    expect(stateOf('fixture-admin-proxy-previous')).toBe('running')
-  })
-
-  it('rejects a proxy wait that is not a positive number of seconds', () => {
-    currentGeneration()
-    for (const value of ['30s', '0', '-1']) {
-      const result = run({ ADMIN_PROXY_WAIT_SECONDS: value })
-      expect(result.status).toBe(2)
-      expect(result.stderr).toContain('ADMIN_PROXY_WAIT_SECONDS')
-      expect(result.log.some((line) => line.includes('admin-proxy'))).toBe(false)
-    }
-  })
-
-  it('keeps the new admin when the reload signal fails after the config is committed', () => {
-    currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
-    const result = run({ TEST_NGINX_RELOAD_EXIT: '1' })
-
-    expect(result.status).not.toBe(0)
-    expect(result.log).toContain('nginx reload refused')
-    const names = readdirSync(join(root, 'containers'))
-    expect(names.some((name) => /^fixture-r\d+-\d+-admin$/.test(name))).toBe(true)
-    expect(exists('fixture-admin-1')).toBe(true)
-    const live = readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')
-    expect(live).toMatch(/set \$upstream fixture-r\d+-\d+-admin;/)
-  })
-
-  it('does not replace the live proxy config when nginx rejects the new one', () => {
-    currentGeneration()
-    container('fixture-admin-1', { image: 'fixture:old' })
-    const result = run({ TEST_NGINX_TEST_EXIT: '1' })
-
-    expect(result.status).not.toBe(0)
-    expect(result.log).toContain('nginx -t refused')
-    const live = readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')
-    expect(live).toContain('set $upstream fixture-admin-1;')
-    expect(live).not.toMatch(/set \$upstream fixture-r\d+-\d+-admin;/)
-    expect(exists('fixture-admin-1')).toBe(true)
+    expect(exists('fixture-r20260101010101-1-admin')).toBe(false)
+    expect(existsSync(releases('admin-proxy'))).toBe(false)
+    expect(existsSync(releases('admin-pending'))).toBe(false)
   })
 
   it('counts a previous executor that already exited as down rather than drained', () => {
