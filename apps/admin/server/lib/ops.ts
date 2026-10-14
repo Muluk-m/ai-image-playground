@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import {
   DEFAULT_OPS_RANGE,
   type HostSample,
+  type OpsAgentFailureSample,
   type OpsApi,
   type OpsBackups,
   type OpsBlock,
@@ -24,6 +25,43 @@ import { getDbHandle } from './db'
 /** 看板上列出来的卡住任务与大表的条数上限；再多也只是同一件事的重复。 */
 const STUCK_TASK_LIMIT = 20
 const LARGEST_TABLE_LIMIT = 8
+
+function agentSamples(value: unknown): OpsAgentFailureSample[] {
+  let raw = value
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw) as unknown
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const at = Number(row.at)
+    if (!Number.isFinite(at)) return []
+    const message = typeof row.message === 'string' ? row.message.trim() : ''
+    const requestId = typeof row.request_id === 'string' ? row.request_id : ''
+    return [
+      {
+        at,
+        ...(message ? { message } : {}),
+        ...(requestId ? { request_id: requestId } : {}),
+      },
+    ]
+  })
+}
+
+function agentFailureFields(row: Record<string, unknown>) {
+  const samples = agentSamples(row.samples)
+  const latest = samples[0]
+  return {
+    ...(samples.length > 0 ? { samples } : {}),
+    ...(latest?.message ? { detail: latest.message } : {}),
+    ...(latest?.request_id ? { example_request_id: latest.request_id } : {}),
+  }
+}
 
 type OpsData = {
   [K in Exclude<keyof OpsSnapshot, 'generated_at'>]: OpsSnapshot[K] extends OpsBlock<infer T>
@@ -368,16 +406,28 @@ async function readReliability(): Promise<OpsReliability> {
       `),
       db.execute(sql`
         SELECT
-          COALESCE(NULLIF(failure->>'code', ''), 'unknown') AS key,
+          key,
           COUNT(*) AS count,
           MAX(created_at) AS last_at,
-          (ARRAY_AGG(LEFT(failure->>'message', 500) ORDER BY created_at DESC)
-            FILTER (WHERE NULLIF(failure->>'message', '') IS NOT NULL))[1] AS detail,
-          (ARRAY_AGG(failure->>'requestId' ORDER BY created_at DESC)
-            FILTER (WHERE NULLIF(failure->>'requestId', '') IS NOT NULL))[1] AS example_request_id
-        FROM agent_turns
-        WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '24 hours'
-        GROUP BY 1
+          jsonb_agg(
+            jsonb_build_object('at', at_ms, 'message', message, 'request_id', request_id)
+            ORDER BY at_ms DESC
+          ) FILTER (WHERE rn <= 5) AS samples
+        FROM (
+          SELECT
+            COALESCE(NULLIF(failure->>'code', ''), 'unknown') AS key,
+            created_at,
+            (EXTRACT(EPOCH FROM created_at) * 1000)::bigint AS at_ms,
+            NULLIF(LEFT(failure->>'message', 500), '') AS message,
+            NULLIF(failure->>'requestId', '') AS request_id,
+            ROW_NUMBER() OVER (
+              PARTITION BY COALESCE(NULLIF(failure->>'code', ''), 'unknown')
+              ORDER BY created_at DESC
+            ) AS rn
+          FROM agent_turns
+          WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '24 hours'
+        ) recent
+        GROUP BY key
         ORDER BY count DESC, key ASC
         LIMIT 10
       `),
@@ -413,10 +463,7 @@ async function readReliability(): Promise<OpsReliability> {
       count: number(row.count),
       last_at: at(row.last_at) ?? 0,
       ...(row.example_task_id ? { example_task_id: String(row.example_task_id) } : {}),
-      ...(typeof row.detail === 'string' && row.detail.trim() ? { detail: row.detail.trim() } : {}),
-      ...(typeof row.example_request_id === 'string' && row.example_request_id
-        ? { example_request_id: row.example_request_id }
-        : {}),
+      ...agentFailureFields(row),
     }))
   return {
     recent: {
