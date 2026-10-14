@@ -32,6 +32,7 @@ C=$M/containers
 cmd=$1
 shift
 if [ "$cmd" = exec ]; then
+  while [ "$1" = -e ]; do shift 2; done
   case " $* " in
     *' nginx -t '*)
       [ "\${TEST_NGINX_TEST_EXIT:-0}" = 0 ] || { printf 'nginx -t refused\\n' >> "\$M/log"; exit 1; }
@@ -47,6 +48,16 @@ if [ "$cmd" = exec ]; then
     case "$1" in
       *-admin-proxy-next)
         printf 'proxy health refused\\n' >> "\$M/log"
+        exit 1
+        ;;
+    esac
+  fi
+  if [ "\${TEST_PROXY_HEALTH_SLOW:-0}" != 0 ]; then
+    case "$1" in
+      *-admin-proxy-next)
+        printf 'proxy health slow\\n' >> "\$M/log"
+        # The rollout script's sleep is stubbed; this probe has to consume real time.
+        /bin/sleep "\${PROXY_PROBE_SECONDS:-1}"
         exit 1
         ;;
     esac
@@ -146,7 +157,18 @@ case "$cmd" in
   rm)
     [ "$1" = -f ] && shift
     for name in "$@"; do rm -rf "$C/$name"; done ;;
-  rename) mv "$C/$1" "$C/$2" ;;
+  rename)
+    case "\${TEST_PROXY_RENAME_EXIT:-}" in
+      next)
+        case "$1" in
+          *-admin-proxy-next) printf 'proxy rename refused\\n' >> "\$M/log"; exit 1 ;;
+        esac ;;
+      stable)
+        case "$2" in
+          *-admin-proxy) printf 'proxy rename refused\\n' >> "\$M/log"; exit 1 ;;
+        esac ;;
+    esac
+    mv "$C/$1" "$C/$2" ;;
   *) : ;;
 esac
 exit 0
@@ -429,15 +451,24 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(result.log[started]).toContain('--network image-playground-infra')
     expect(result.log[started]).toContain('OPS_DEPLOYMENTS_LOG=/host/deployments.log')
     expect(result.log[started]).toContain('container-healthcheck.ts')
+    const proxyReady = indexOf(result.log, /^exec fixture-admin-proxy bun /)
+    const published = indexOf(
+      result.log,
+      /^network connect --alias admin fixture_application fixture-admin-proxy$/,
+    )
     expect(result.log[started]).not.toContain('--network-alias admin')
-    expect(result.log[proxy]).toContain('--network-alias admin')
+    expect(result.log[proxy]).not.toContain('--network-alias admin')
     expect(ready).toBeGreaterThan(started)
     expect(joined).toBeGreaterThan(ready)
     expect(proxy).toBeGreaterThan(ready)
-    expect(checked).toBeGreaterThan(proxy)
+    expect(proxyReady).toBeGreaterThan(proxy)
+    expect(published).toBeGreaterThan(proxyReady)
+    expect(checked).toBeGreaterThan(published)
     expect(switched).toBeGreaterThan(checked)
     expect(stopped).toBeGreaterThan(switched)
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^network disconnect /))
+    expect(result.log).not.toContainEqual(
+      expect.stringMatching(/^network disconnect \S+ fixture-(admin-1|r\d+-\d+-admin)$/),
+    )
     expect(readFileSync(script, 'utf8')).toContain('nginx -s reload -c /etc/admin-proxy/nginx.conf')
     expect(result.log).not.toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
@@ -456,12 +487,21 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(result.status).toBe(0)
     const started = indexOf(result.log, /^run .*--name fixture-admin-proxy-next /)
     const probed = indexOf(result.log, /^exec fixture-admin-proxy-next /)
-    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy$/)
+    const published = indexOf(
+      result.log,
+      /^network connect --alias admin \S+ fixture-admin-proxy-next$/,
+    )
+    const renamed = indexOf(result.log, /^rename fixture-admin-proxy-next fixture-admin-proxy$/)
+    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy-previous$/)
     expect(started).toBeGreaterThan(-1)
+    expect(result.log[started]).not.toContain('--network-alias admin')
     expect(probed).toBeGreaterThan(started)
-    expect(stopped).toBeGreaterThan(probed)
+    expect(published).toBeGreaterThan(probed)
+    expect(renamed).toBeGreaterThan(published)
+    expect(stopped).toBeGreaterThan(renamed)
     expect(exists('fixture-admin-proxy')).toBe(true)
     expect(exists('fixture-admin-proxy-next')).toBe(false)
+    expect(exists('fixture-admin-proxy-previous')).toBe(false)
   })
 
   it('keeps the old proxy when the replacement does not answer', () => {
@@ -476,9 +516,82 @@ describe('rollout-runtime.sh: finite drain', () => {
 
     expect(result.status).not.toBe(0)
     expect(result.log).toContain('proxy health refused')
-    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy$/))
+    expect(result.log).not.toContainEqual(expect.stringMatching(/^network connect --alias admin /))
+    expect(result.log).not.toContainEqual(expect.stringMatching(/^rename fixture-admin-proxy /))
+    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy/))
     expect(exists('fixture-admin-proxy')).toBe(true)
     expect(exists('fixture-admin-proxy-next')).toBe(false)
+  })
+
+  it('stops waiting on a hung proxy probe when the deadline is reached', () => {
+    currentGeneration()
+    container('fixture-admin-1', { image: 'fixture:old' })
+    container('fixture-admin-proxy')
+    const startedAt = Date.now()
+    const result = run({
+      TEST_PROXY_LAYOUT_OLD: '1',
+      TEST_PROXY_HEALTH_SLOW: '1',
+      ADMIN_PROXY_WAIT_SECONDS: '2',
+    })
+    const elapsed = Date.now() - startedAt
+
+    expect(result.status).not.toBe(0)
+    expect(result.log.filter((line) => line === 'proxy health slow')).toHaveLength(1)
+    expect(elapsed).toBeLessThan(8_000)
+    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy/))
+    expect(exists('fixture-admin-proxy')).toBe(true)
+    expect(exists('fixture-admin-proxy-next')).toBe(false)
+  })
+
+  it('restores the old proxy name when the replacement cannot take it', () => {
+    currentGeneration()
+    container('fixture-admin-1', { image: 'fixture:old' })
+    container('fixture-admin-proxy')
+    const result = run({
+      TEST_PROXY_LAYOUT_OLD: '1',
+      TEST_PROXY_RENAME_EXIT: 'next',
+    })
+
+    expect(result.status).not.toBe(0)
+    expect(result.log).toContain('proxy rename refused')
+    expect(exists('fixture-admin-proxy')).toBe(true)
+    expect(exists('fixture-admin-proxy-next')).toBe(false)
+    expect(exists('fixture-admin-proxy-previous')).toBe(false)
+    expect(exists('fixture-admin-1')).toBe(true)
+    expect(
+      readdirSync(join(root, 'containers')).some((name) => /^fixture-r\d+-\d+-admin$/.test(name)),
+    ).toBe(false)
+    expect(readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')).toContain(
+      'set $upstream fixture-admin-1;',
+    )
+  })
+
+  it('keeps the published proxy and its upstream when the stable name cannot be restored', () => {
+    currentGeneration()
+    container('fixture-admin-proxy')
+    const failed = run({
+      TEST_PROXY_LAYOUT_OLD: '1',
+      TEST_PROXY_RENAME_EXIT: 'stable',
+    })
+
+    expect(failed.status).not.toBe(0)
+    expect(exists('fixture-admin-proxy')).toBe(false)
+    expect(exists('fixture-admin-proxy-next')).toBe(true)
+    expect(exists('fixture-admin-proxy-previous')).toBe(true)
+    const kept = readdirSync(join(root, 'containers')).find((name) =>
+      /^fixture-r\d+-\d+-admin$/.test(name),
+    )
+    expect(kept).toBeTruthy()
+    expect(readFileSync(join(config, 'releases/admin-proxy/nginx.conf'), 'utf8')).toContain(
+      `set $upstream ${kept};`,
+    )
+
+    const recovered = run()
+    expect(recovered.status).toBe(0)
+    expect(exists('fixture-admin-proxy')).toBe(true)
+    expect(exists('fixture-admin-proxy-next')).toBe(false)
+    expect(exists('fixture-admin-proxy-previous')).toBe(false)
+    expect(exists(kept!)).toBe(false)
   })
 
   it('keeps the new admin when the reload signal fails after the config is committed', () => {
