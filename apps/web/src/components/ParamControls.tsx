@@ -67,6 +67,8 @@ export interface ExtraSettings {
   reset: () => void
   /** 摘要后的状态标记。 */
   badge?: ReactNode
+  /** 只进 chip 的悬停与读屏名，不进可见摘要。 */
+  detail?: string
   /** 卡片最后的说明。 */
   footnote?: ReactNode
 }
@@ -420,6 +422,7 @@ export function ImageSettings({
     <SettingsPopover
       title={t('settings.title')}
       summary={summary}
+      detail={extra?.detail}
       icon={
         <RatioShape
           ratio={selection.kind === 'custom' ? selection.ratio : ratio}
