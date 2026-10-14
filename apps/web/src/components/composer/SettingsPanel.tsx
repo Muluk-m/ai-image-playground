@@ -246,17 +246,22 @@ export function SettingsChoice<T extends string | number>({
   )
 }
 
-/** 画幅形状：长边占满方框，短边按比例收。认不出的比例（`auto`）画虚线方框。 */
+/** 画幅形状：长边贴满方框，短边按比例收。认不出的比例（`auto`）画虚线方框。 */
 export function RatioShape({ ratio, className }: { ratio: string; className?: string }) {
   const parsed = parseRatio(ratio)
-  const [w, h] = parsed ? [parsed.width, parsed.height] : [1, 1]
+  const width = parsed?.width ?? 1
+  const height = parsed?.height ?? 1
+  const wide = width >= height
   return (
-    <span aria-hidden="true" className={cn('flex h-4 w-4 items-center justify-center', className)}>
+    <span aria-hidden="true" className={cn('relative block h-4 w-4 shrink-0', className)}>
       <span
-        className={cn('rounded-sm border-[1.5px] border-current', !parsed && 'border-dashed')}
+        className={cn(
+          'absolute left-1/2 top-1/2 box-border -translate-x-1/2 -translate-y-1/2 rounded-sm border-[1.5px] border-current',
+          !parsed && 'border-dashed',
+        )}
         style={{
-          width: w >= h ? '100%' : `${(w / h) * 100}%`,
-          height: h >= w ? '100%' : `${(h / w) * 100}%`,
+          width: wide ? '100%' : `${(width / height) * 100}%`,
+          height: wide ? `${(height / width) * 100}%` : '100%',
         }}
       />
     </span>
@@ -285,12 +290,16 @@ export function RatioGrid({
       {options.map((option) => (
         <Button
           variant="ghost"
-          size="lg"
+          size="xs"
           key={option.value}
           type="button"
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={cn(SEGMENT_ITEM, 'min-w-0 flex-col gap-0 px-2 py-1 text-label-sm')}
+          className={cn(
+            SEGMENT_ITEM,
+            // 单行按钮的 40px 装不下「形状 + 比例名」，格子按两行来。
+            'h-auto min-h-14 w-full flex-col gap-1.5 rounded-xl px-0.5 py-1.5 text-label-sm',
+          )}
         >
           {option.icon ?? <RatioShape ratio={option.value} />}
           <span className="max-w-full truncate">{option.label}</span>
