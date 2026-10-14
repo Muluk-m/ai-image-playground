@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../../auth/AuthContext'
 import {
   imagesPerMonth,
+  loadPublicCatalog,
   monthlyEquivalentCents,
   parsePublicCatalog,
   rechargeCredits,
@@ -112,7 +113,7 @@ async function renderPage(): Promise<void> {
 }
 
 describe('定价目录', () => {
-  it('按接口返回的单价折算张数', () => {
+  it('按接口返回的单价折算张数', async () => {
     expect(imagesPerMonth(66_000, 100)).toBe(660)
     expect(imagesPerMonth(220_000, 80)).toBe(2750)
     expect(monthlyEquivalentCents(34800, 12)).toBe(2900)
@@ -132,6 +133,16 @@ describe('定价目录', () => {
     })
     expect(parsePublicCatalog(withExtraCycle)?.plans[0]?.prices[1]).toBeDefined()
     expect(parsePublicCatalog(withExtraCycle)?.plans[0]?.prices).not.toHaveProperty('6')
+    const negative = structuredClone(LIVE_CATALOG)
+    const first = negative.plans[0]?.prices[0]
+    if (first) first.effective_price_cents = -100
+    expect(parsePublicCatalog(negative)).toBeNull()
+    await expect(
+      loadPublicCatalog((_input, init) => {
+        if (init?.signal?.aborted) return Promise.reject(new DOMException('aborted', 'AbortError'))
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }, AbortSignal.abort()),
+    ).rejects.toThrow('aborted')
   })
 })
 

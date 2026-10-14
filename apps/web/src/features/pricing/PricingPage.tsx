@@ -104,10 +104,11 @@ export default function PricingPage({
   }, [embedded])
 
   useEffect(() => {
+    const controller = new AbortController()
     let cancelled = false
     setCatalog(null)
     setCatalogError(false)
-    loadPublicCatalog()
+    loadPublicCatalog(fetch, controller.signal)
       .then((next) => {
         if (!cancelled) setCatalog(next)
       })
@@ -116,6 +117,7 @@ export default function PricingPage({
       })
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [reloadKey])
 

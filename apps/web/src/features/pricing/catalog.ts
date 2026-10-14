@@ -62,11 +62,28 @@ export function parsePublicCatalog(input: unknown): PublicCatalog | null {
   }
 }
 
-export async function loadPublicCatalog(fetcher: typeof fetch = fetch): Promise<PublicCatalog> {
-  const response = await fetcher(`${bffBaseUrl()}/api/billing/public-catalog`, {
-    cache: 'no-store',
-    headers: { accept: 'application/json' },
-  })
+const CATALOG_TIMEOUT_MS = 10_000
+
+export async function loadPublicCatalog(
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<PublicCatalog> {
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), CATALOG_TIMEOUT_MS)
+  const onAbort = () => timeout.abort()
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) timeout.abort()
+  let response: Response
+  try {
+    response = await fetcher(`${bffBaseUrl()}/api/billing/public-catalog`, {
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+      signal: timeout.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+  }
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   const catalog = parsePublicCatalog(await response.json())
   if (!catalog) throw new Error('invalid_catalog')
@@ -85,7 +102,10 @@ function parsePlans(input: unknown): PublicPlan[] | null {
       if (!isObject(price)) return null
       // 页面只展示月付、季付、年付。多出来的周期留给以后的购买流，不让整页失败。
       if (!isCycle(price.period_months)) continue
-      if (!isSafeInt(price.original_price_cents) || !isSafeInt(price.effective_price_cents)) {
+      if (
+        !isNonNegativeInt(price.original_price_cents) ||
+        !isNonNegativeInt(price.effective_price_cents)
+      ) {
         return null
       }
       prices[price.period_months] = {
@@ -148,6 +168,10 @@ function isCycle(value: unknown): value is BillingCycle {
 
 function isSafeInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value)
+}
+
+function isNonNegativeInt(value: unknown): value is number {
+  return isSafeInt(value) && value >= 0
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
