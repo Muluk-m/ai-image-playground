@@ -276,7 +276,8 @@
     "headingReferences": "本次参考图",
     "headingCanvas": "画布",
     "headingAssets": "素材",
-    "headingSkills": "技能"
+    "headingSkills": "技能",
+    "imageLabel": "图片 {{n}}"
   },
   "activity": {
     "sending": "发送中",
