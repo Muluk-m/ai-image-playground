@@ -8,6 +8,7 @@ import { type ComponentProps, type ReactNode, useId } from 'react'
 import { cn } from '../../../lib/utils'
 import { Button } from '../../ui/button'
 import { Icon } from '../../ui/icon'
+import { OverflowText } from '../../ui/overflowTitle'
 import { field, mono, paper } from './surfaces'
 
 export type ApprovalState = 'request' | 'running' | 'done' | 'denied'
@@ -104,9 +105,11 @@ export function ApprovalCard({
           <p id={titleId} className="text-sm font-medium">
             {title}
           </p>
-          <p className="line-clamp-2 break-words text-xs text-muted-foreground" title={subtitle}>
-            {subtitle}
-          </p>
+          <OverflowText
+            as="p"
+            text={subtitle}
+            className="line-clamp-2 break-words text-xs text-muted-foreground"
+          />
         </div>
       </div>
 

@@ -1246,7 +1246,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     className="creation-add"
                     aria-label={t('studio.addReference')}
                     aria-disabled={attachDisabled || undefined}
-                    title={attachDisabled ? attachDisabledReason : t('studio.addReference')}
+                    title={attachDisabled ? attachDisabledReason : undefined}
                     onClick={(event) => !attachDisabled && openAttachMenu(event)}
                   >
                     <Icon name="add" />

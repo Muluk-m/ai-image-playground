@@ -506,7 +506,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       className="studio-production-trigger"
                       aria-label={tProduction('entry')}
                       aria-pressed={productionOpen}
-                      title={tProduction('entry')}
                       onClick={() => {
                         const next = !productionOpen
                         setProductionOpen(next)

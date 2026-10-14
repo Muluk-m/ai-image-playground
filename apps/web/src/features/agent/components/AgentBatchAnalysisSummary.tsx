@@ -93,7 +93,7 @@ export default function AgentBatchAnalysisSummary({
               >
                 <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
                   <span>{name(finding.imageId)}</span>
-                  <span title={finding.taskId}>
+                  <span>
                     {(finding.version ?? (versions.length === 1 ? versions[0] : undefined)) !==
                       undefined && (
                       <>{t('batch.version', { version: finding.version ?? versions[0] })} · </>

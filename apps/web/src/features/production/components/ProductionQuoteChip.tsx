@@ -1,6 +1,7 @@
 import type { ProductionContext } from '@image-playground/shared'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import {
   locateProductionSelection,
@@ -38,7 +39,6 @@ export default function ProductionQuoteChip({
         size="sm"
         type="button"
         className="h-auto"
-        title={selection.quote?.text}
         aria-label={t('locateQuote')}
         onClick={() => locateProductionSelection(conversationId, selection)}
       >
@@ -47,7 +47,7 @@ export default function ProductionQuoteChip({
           <strong>
             {label} · V{selection.revision}
           </strong>
-          <span>{selection.quote?.text ?? label}</span>
+          <OverflowText text={selection.quote?.text ?? label} />
         </span>
       </Button>
       <Button

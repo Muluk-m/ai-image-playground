@@ -4,6 +4,7 @@ import { useTranslation } from '../../i18n'
 import MediaImage from '../MediaImage'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
+import { OverflowText } from '../ui/overflowTitle'
 import type { CreationReference } from './draft'
 
 export function AssetGallery({
@@ -85,7 +86,7 @@ export function ProjectCardSurface({
       >
         <div className="creation-project-cover">{cover}</div>
         <div className="creation-project-info">
-          <h3 title={name}>{name}</h3>
+          <OverflowText as="h3" text={name} />
           <p>{date}</p>
         </div>
       </Button>

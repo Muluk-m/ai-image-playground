@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../lib/canvasDoc'
 import { elementBounds } from '../lib/editor'
@@ -47,9 +48,7 @@ export default function SelectionInfo({ doc }: { doc: CanvasDoc }) {
         width: labelWidth,
       }}
     >
-      <span className="min-w-0 flex-1 truncate text-foreground" title={name}>
-        {name}
-      </span>
+      <OverflowText text={name} className="min-w-0 flex-1 truncate text-foreground" />
       {dimensions && (
         <span className="shrink-0 text-muted-foreground tabular-nums">
           {dimensions.width} × {dimensions.height}

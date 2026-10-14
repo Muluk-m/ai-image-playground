@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { useLibraryStore } from '../../library/store'
 import { CARD, CARD_NOTE, CARD_TITLE, THUMBNAIL_STATIC } from '../agentStyles'
@@ -211,7 +212,6 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
             <Button
               key={view.imageId}
               type="button"
-              title={badge}
               aria-label={out ? t('save.keep') : t('save.drop')}
               aria-pressed={!out}
               disabled={saving}
@@ -225,9 +225,10 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
               }
             >
               {source && <img src={source} alt="" className="h-full w-full object-cover" />}
-              <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-label-sm text-white">
-                {badge}
-              </span>
+              <OverflowText
+                text={badge}
+                className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-label-sm text-white"
+              />
               {out && (
                 <Icon
                   name="close"

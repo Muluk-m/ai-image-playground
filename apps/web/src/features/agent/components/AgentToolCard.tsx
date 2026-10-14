@@ -9,6 +9,7 @@ import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -691,9 +692,11 @@ function StandardAgentToolCard({
       >
         <div className="studio-agent-generation-body">
           <div className="flex min-w-0 items-center gap-2">
-            <p className="studio-agent-generation-title flex-1" title={message.title}>
-              {message.title}
-            </p>
+            <OverflowText
+              as="p"
+              text={message.title}
+              className="studio-agent-generation-title flex-1"
+            />
             {message.prompt && (
               <AgentIconButton
                 label={t('tool.viewPrompt')}
@@ -855,7 +858,7 @@ function StandardAgentToolCard({
       >
         <div className="studio-agent-inline-meta">
           <ToolStatus label={statusLabel} status={status} />
-          <span title={message.title}>{message.title}</span>
+          <OverflowText text={message.title} />
         </div>
         {generatedImage ? (
           <ImageGallery
@@ -1017,9 +1020,7 @@ function StandardAgentToolCard({
             <span className="text-xs font-semibold text-foreground">{t('tool.resultTitle')}</span>
             <ToolStatus label={statusLabel} status={status} />
           </div>
-          <p className="studio-agent-result-description" title={message.title}>
-            {message.title}
-          </p>
+          <OverflowText as="p" text={message.title} className="studio-agent-result-description" />
           {note && <p className={CARD_NOTE}>{note}</p>}
           <WakeSkippedNote message={message} />
           <div className="studio-agent-result-actions">

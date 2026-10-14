@@ -4,13 +4,13 @@ import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
 import { useTranslation } from '../../i18n'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../../lib/dropdown'
 import { Icon } from '../ui/icon'
+import { OverflowText } from '../ui/overflowTitle'
 
 interface Option {
   label: string
   value: string | number
   icon?: ReactNode
   description?: string
-  title?: string
   variant?: 'action' | 'danger'
   draggable?: boolean
   actions?: Array<{
@@ -77,6 +77,7 @@ export default function Select({
   const triggerRef = useRef<HTMLDivElement>(null)
 
   const selectedOption = options.find((o) => o.value === value)
+  const selectedLabel = String(selectedOption?.label ?? value)
   const listId = useId()
   const [activeIndex, setActiveIndex] = useState(-1)
   const optionId = (index: number) => `${listId}-opt-${index}`
@@ -267,7 +268,6 @@ export default function Select({
             ? [label, selectedOption?.label ?? String(value)].filter(Boolean).join(' ')
             : label
         }
-        title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
         // design-allow arbitrary-radius: 触发区继承外层 chip 的圆角
@@ -275,7 +275,7 @@ export default function Select({
           disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50' : ''
         }`}
       >
-        {!hideSelectedLabel && <span className="truncate">{selectedOption?.label ?? value}</span>}
+        {!hideSelectedLabel && <OverflowText text={selectedLabel} className="truncate" />}
         <Icon
           name="chevronDown"
           size="xs"
@@ -302,7 +302,6 @@ export default function Select({
               aria-selected={option.value === value}
               onMouseEnter={() => setActiveIndex(index)}
               data-option-value={String(option.value)}
-              title={option.title ?? option.label}
               draggable={option.draggable}
               onDragStart={(e) => {
                 if (!option.draggable) return
@@ -511,13 +510,15 @@ export default function Select({
                   </span>
                 )}
                 <span className="min-w-0">
-                  <span className={`block ${option.icon ? 'break-words' : 'truncate'}`}>
-                    {option.label}
-                  </span>
+                  <OverflowText
+                    text={option.label}
+                    className={`block ${option.icon ? 'break-words' : 'truncate'}`}
+                  />
                   {option.description && (
-                    <span className="mt-0.5 block truncate text-label-sm font-normal opacity-70">
-                      {option.description}
-                    </span>
+                    <OverflowText
+                      text={option.description}
+                      className="mt-0.5 block truncate text-label-sm font-normal opacity-70"
+                    />
                   )}
                 </span>
               </div>
@@ -527,7 +528,12 @@ export default function Select({
                     <button
                       key={action.label}
                       type="button"
-                      title={action.label}
+                      title={
+                        action.label === t('common:action.edit') ||
+                        action.label === t('common:action.delete')
+                          ? action.label
+                          : undefined
+                      }
                       onPointerDown={(event) => {
                         event.stopPropagation()
                       }}

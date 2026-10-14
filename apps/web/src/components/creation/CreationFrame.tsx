@@ -3,6 +3,7 @@ import { useTranslation } from '../../i18n'
 import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
+import { useOverflowTitle } from '../ui/overflowTitle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import type { CreationMode } from './draft'
 import './creation.css'
@@ -91,6 +92,8 @@ export function CreationModePicker({
   modes?: readonly CreationMode[]
 }) {
   const { t } = useTranslation('composer')
+  const fullLabel = t(`studio.modes.${value}`)
+  const fullName = useOverflowTitle<HTMLSpanElement>(fullLabel, { whenHidden: true })
   const icons = { agent: 'chat', image: 'imageAdd', video: 'video' } as const
   const shortLabels = {
     agent: t('studio.shortModes.agent'),
@@ -99,12 +102,14 @@ export function CreationModePicker({
   }
   return (
     <Select value={value} onValueChange={(mode) => onChange(mode as CreationMode)}>
-      <Hint tooltip={`${t('studio.type')}：${t(`studio.modes.${value}`)}`}>
+      <Hint tooltip={fullName.title}>
         <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
           <SelectValue>
             <span className="creation-mode-value">
               <Icon name={icons[value]} />
-              <span className="creation-mode-full">{t(`studio.modes.${value}`)}</span>
+              <span ref={fullName.ref} className="creation-mode-full">
+                {fullLabel}
+              </span>
               <span className="creation-mode-short">{shortLabels[value]}</span>
             </span>
           </SelectValue>
