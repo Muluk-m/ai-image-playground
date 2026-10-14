@@ -87,22 +87,13 @@ describe('operator config', () => {
     expect(await configModuleExitCode(invalid)).not.toBe(0)
   })
 
-  it('rejects billing without login or with BYOK enabled', () => {
+  it('rejects billing without login', () => {
     const withoutLogin = temporaryFile(
       JSON.stringify({
         capabilities: {
           'accounts:login': false,
           'billing:credits': true,
           'generation:byok': false,
-        },
-      }),
-    )
-    const withByok = temporaryFile(
-      JSON.stringify({
-        capabilities: {
-          'accounts:login': true,
-          'billing:credits': true,
-          'generation:byok': true,
         },
       }),
     )
@@ -121,9 +112,21 @@ describe('operator config', () => {
     expect(() => loadOperatorConfig(withoutLogin)).toThrow(
       'billing:credits requires accounts:login',
     )
-    expect(() => loadOperatorConfig(withByok)).toThrow(
-      'billing:credits requires generation:byok=false',
+  })
+
+  it('ignores a retired generation:byok flag in an older operator file', () => {
+    const file = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': true,
+          'billing:credits': true,
+          'generation:byok': true,
+        },
+      }),
     )
+    const resolved = loadOperatorConfig(file)
+    expect(resolved.capabilities['billing:credits']).toBe(true)
+    expect(resolved.capabilities).not.toHaveProperty('generation:byok')
   })
 
   it('treats accounts:sync as off when login is off', () => {

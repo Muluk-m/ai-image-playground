@@ -3,7 +3,7 @@
  *   - 200 + parseRuntimeConfig 成功 → 用 fetched config
  *   - 任何错误（404 / parse 失败 / schema 不匹配 / 网络错误）→ 退到 BAKED_DEFAULTS
  *
- * BAKED_DEFAULTS 的 `bff.enabled=false` 意味着「纯静态 BYOK」是默认形态；
+ * BAKED_DEFAULTS 的 `bff.enabled=false` 意味着默认不连接 BFF、没有平台渠道；
  * operator 部署 BFF 时必须显式写一份 `runtime-config.json` 把 `bff.enabled` 打开。
  *
  * 缓存策略：仅 boot 时拉一次，整个 SPA 生命周期内 `getRuntimeConfig()` 同步返回。
@@ -20,7 +20,7 @@ const RUNTIME_CONFIG_PATH = '/runtime-config.json'
 /**
  * main.tsx 在 render 之前 top-level await 这个函数，所以它必须保证会结束：
  * 卡住的连接（tunnel / 代理挂起、不返回也不断开）会让 React 永远不 mount，
- * 用户看到的是永久白屏。超时后退到 BAKED_DEFAULTS，至少能进 BYOK 形态。
+ * 用户看到的是永久白屏。超时后退到 BAKED_DEFAULTS，页面仍能挂上，只是没有平台渠道。
  */
 const RUNTIME_CONFIG_TIMEOUT_MS = 5000
 

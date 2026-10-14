@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { callImageApi, resumeQueueImageApi } from '../../lib/api'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
-import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from '../../lib/channels/types'
+import type { BuiltinEdgeProfile, PublicChannel } from '../../lib/channels/types'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { type AppSettings, DEFAULT_PARAMS } from '../../types'
-import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 const mockChannels = vi.hoisted(() => ({ list: [] as PublicChannel[] }))
 vi.mock('../../lib/channels/publicChannels', () => ({
@@ -27,24 +26,6 @@ function expectNoAuthHeaders(headers: Record<string, string>): void {
   expect(headers['x-goog-api-key']).toBeUndefined()
 }
 
-function sseResponse(events: Array<Record<string, unknown>>): Response {
-  const encoder = new TextEncoder()
-  return new Response(
-    new ReadableStream({
-      start(controller) {
-        for (const event of events) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-        }
-        controller.close()
-      },
-    }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    },
-  )
-}
-
 function settingsWithBuiltin(
   channel: PublicChannel,
   selectedModelId = channel.models[0].id,
@@ -62,44 +43,6 @@ function settingsWithBuiltin(
   })
 }
 
-function settingsWithByok(
-  overrides: {
-    apiKey?: string
-    baseUrl?: string
-    model?: string
-    apiMode?: 'images' | 'responses'
-    codexCli?: boolean
-    apiProxy?: boolean
-    responseFormatB64Json?: boolean
-    timeout?: number
-  } = {},
-): AppSettings {
-  const baseUrl = overrides.baseUrl ?? 'https://api.openai.com/v1'
-  const model = overrides.model ?? 'gpt-image-2'
-  const profile: UserByokProfile = {
-    id: 'test-profile',
-    source: 'user-byok',
-    name: 'Test',
-    kind: 'openai-compat',
-    baseUrl,
-    apiKey: overrides.apiKey ?? '',
-    models: [model],
-    selectedModelId: model,
-    preferences: {
-      apiMode: overrides.apiMode ?? 'images',
-      timeout: overrides.timeout ?? 600,
-      codexCli: overrides.codexCli ?? false,
-      apiProxy: overrides.apiProxy ?? false,
-      responseFormatB64Json: overrides.responseFormatB64Json,
-    },
-  }
-  return normalizeSettings({
-    ...DEFAULT_SETTINGS,
-    profiles: [profile],
-    activeProfileId: profile.id,
-  })
-}
-
 describe('callImageApi', () => {
   afterEach(async () => {
     vi.restoreAllMocks()
@@ -107,201 +50,6 @@ describe('callImageApi', () => {
     vi.useRealTimers()
     mockChannels.list = []
     await bootstrapClientCapabilities(false, '')
-  })
-
-  it('adds prompt guard on Responses API by default', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          output: [
-            {
-              type: 'image_generation_call',
-              result: 'aW1hZ2U=',
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key', apiMode: 'responses' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.input).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\nprompt',
-    )
-  })
-
-  it('records actual params returned on Images API responses in Codex CLI mode', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          output_format: 'png',
-          quality: 'medium',
-          size: '1033x1522',
-          data: [{ b64_json: 'aW1hZ2U=', revised_prompt: '移除靴子' }],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-
-    const result = await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key', codexCli: true }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(result.actualParams).toEqual({
-      output_format: 'png',
-      quality: 'medium',
-      size: '1033x1522',
-    })
-    expect(result.revisedPrompts).toEqual(['移除靴子'])
-  })
-
-  it('parses Images API stream result events with final data payloads', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      sseResponse([
-        {
-          type: 'image.generation.result',
-          data: [{ b64_json: 'aW1hZ2U=', revised_prompt: 'stream prompt' }],
-          size: '1024x1024',
-        },
-      ]),
-    )
-
-    const result = await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
-    expect(result.actualParams).toEqual({ size: '1024x1024' })
-    expect(result.revisedPrompts).toEqual(['stream prompt'])
-  })
-
-  it('parses Images API completed stream events with top-level image data', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      sseResponse([
-        {
-          type: 'image_edit.completed',
-          b64_json: 'ZWRpdA==',
-          revised_prompt: 'edited prompt',
-          quality: 'high',
-        },
-      ]),
-    )
-
-    const result = await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: ['data:image/png;base64,aW1hZ2U='],
-    })
-
-    expect(result.images).toEqual(['data:image/png;base64,ZWRpdA=='])
-    expect(result.actualParams).toEqual({ quality: 'high' })
-    expect(result.revisedPrompts).toEqual(['edited prompt'])
-  })
-
-  it('keeps per-image params aligned when some completed stream events carry no b64_json', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      sseResponse([
-        { type: 'image_generation.completed', revised_prompt: 'no image event' },
-        {
-          type: 'image_generation.completed',
-          b64_json: 'aW1hZ2U=',
-          revised_prompt: 'real prompt',
-          size: '512x512',
-        },
-      ]),
-    )
-
-    const result = await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
-    expect(result.actualParamsList).toEqual([{ size: '512x512' }])
-    expect(result.revisedPrompts).toEqual(['real prompt'])
-  })
-
-  it('does not add cache request headers that require extra CORS allow-list entries', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [{ b64_json: 'aW1hZ2U=' }],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const headers = (init as RequestInit).headers as Record<string, string>
-    expect(headers).not.toHaveProperty('Pragma')
-    expect(headers).not.toHaveProperty('Cache-Control')
-    expect((init as RequestInit).cache).toBe('no-store')
-  })
-
-  it('ignores stored apiProxy=true preference when no dev-proxy is configured', async () => {
-    // 没有 dev-proxy.config.json 注入时 isApiProxyAvailable() = false，
-    // BYOK 用户的 apiProxy=true 偏好被无视，请求直连用户填的 baseUrl。
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [{ b64_json: 'aW1hZ2U=' }],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({
-        apiKey: 'test-key',
-        apiProxy: true,
-        baseUrl: 'http://api.example.com/v1',
-      }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.example.com/v1/images/generations',
-      expect.objectContaining({ method: 'POST' }),
-    )
   })
 
   // Helper: builtin-edge queue 模式 fetch 序列：
@@ -436,26 +184,6 @@ describe('callImageApi', () => {
       String(url).endsWith('/submit'),
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
-    expect(body.prompt).toBe('a red cat')
-  })
-
-  it('does not append a composition for BYOK profiles without declared capabilities', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key' }),
-      prompt: 'a red cat',
-      params: { ...DEFAULT_PARAMS, size: '1024x1824', no_rewrite: false },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
     expect(body.prompt).toBe('a red cat')
   })
 
@@ -597,71 +325,6 @@ describe('callImageApi', () => {
       'Use the following text as the complete prompt. Do not rewrite it:\na red cat',
     )
     expect(body.quality).toBe('high')
-  })
-
-  it('params.no_rewrite=false sends raw prompt on BYOK Images API', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS, no_rewrite: false },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.prompt).toBe('prompt')
-  })
-
-  it('BYOK Images API with codexCli adds prompt guard by default and drops quality', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key', codexCli: true }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.prompt).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\nprompt',
-    )
-    expect(body).not.toHaveProperty('quality')
-  })
-
-  it('params.no_rewrite=false sends raw prompt on Responses API', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          output: [{ type: 'image_generation_call', result: 'aW1hZ2U=' }],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key', apiMode: 'responses' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS, no_rewrite: false },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.input).toBe('prompt')
   })
 
   it('builtin-edge openai-compat dispatch routes to /v1/queue/openai-compat/... without Authorization', async () => {
@@ -833,49 +496,5 @@ describe('callImageApi', () => {
     expect(urls.some((u: string) => u.endsWith('/v1/queue/requests/persisted-request-id-42'))).toBe(
       true,
     )
-  })
-
-  it('rejects BYOK dispatch when the BFF capability is disabled', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      Response.json({
-        ...allCapabilitiesOff(),
-        'accounts:login': true,
-      }),
-    )
-    await bootstrapClientCapabilities(true, 'https://bff.example')
-
-    await expect(
-      callImageApi({
-        settings: settingsWithByok({ apiKey: 'sk-test' }),
-        prompt: 'prompt',
-        params: { ...DEFAULT_PARAMS },
-        inputImageDataUrls: [],
-      }),
-    ).rejects.toThrow('当前部署只允许使用内置模型')
-  })
-
-  it('user-byok dispatch always carries Authorization header', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [{ b64_json: 'aW1hZ2U=' }],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-
-    await callImageApi({
-      settings: settingsWithByok({ apiKey: 'sk-test' }),
-      prompt: 'prompt',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    })
-
-    const [, init] = fetchMock.mock.calls[0]
-    const headers = (init as RequestInit).headers as Record<string, string>
-    expect(headers.Authorization).toBe('Bearer sk-test')
   })
 })

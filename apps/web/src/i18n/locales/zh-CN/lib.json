@@ -1,9 +1,7 @@
 {
   "size": {
     "tooLarge": "{{label}}过大：{{size}}，上限为 {{limit}}",
-    "imageInputPayload": "图像输入有效负载总大小",
-    "maskBaseFile": "遮罩主图文件",
-    "maskFile": "遮罩文件"
+    "imageInputPayload": "图像输入有效负载总大小"
   },
   "canvas": {
     "unsupported": "当前浏览器不支持 Canvas",
@@ -31,25 +29,6 @@
   },
   "proxy": {
     "upstreamFailed": "上游 API 调用失败（代理层）"
-  },
-  "imageApi": {
-    "streamRequestFailed": "流式请求失败",
-    "streamNoBody": "接口未返回可读取的流式响应",
-    "streamBadJsonEvent": "流式接口返回了无法解析的 JSON 事件",
-    "streamNoDataEvent": "未从流式响应中解析到有效的 data 事件",
-    "streamNoFinalImage": "流式接口未返回最终图片数据",
-    "streamNoUsableImage": "流式接口未返回可用图片数据",
-    "noImageData": "接口未返回图片数据",
-    "noImageDataProvider": "接口没有返回图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。",
-    "unrecognizedShapeProvider": "接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。",
-    "unrecognizedShapeCustom": "接口没有返回可识别的图片数据，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。",
-    "allConcurrentFailed": "所有并发请求均失败",
-    "asyncTaskFailed": "异步任务失败",
-    "asyncMissingPoll": "自定义异步任务缺少 poll 配置",
-    "asyncMissingTaskId": "无法从响应中提取异步任务 ID，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的 taskIdPath。",
-    "asyncTaskIdWithoutPoll": "异步接口返回了 task_id，但服务商配置缺少 poll",
-    "geminiNoImageData": "Gemini 未返回可用图片数据",
-    "geminiNoMaskEdit": "Gemini 服务商不支持遮罩编辑，请改用 OpenAI 服务商"
   },
   "queue": {
     "unsupportedKindCall": "callQueueChannelApi: 不支持的 channel kind {{kind}}",
@@ -79,33 +58,14 @@
     "bffInvalidInputImage": "参考图无法使用，请换一张"
   },
   "dispatch": {
-    "builtinOnly": "当前部署只允许使用内置模型",
     "channelNotFound": "找不到内置 channel：{{id}}",
+    "channelsUnavailable": "平台渠道暂时连不上，正在重试",
     "unsupportedChannelKind": "不支持的内置 channel kind：{{kind}}",
-    "queueKindMisuse": "queue kind {{kind}} 仅用于 builtin-edge profile，不应作为 user-byok kind",
     "resumeProfileMissing": "恢复 BFF queue 任务时未找到对应内置 channel profile",
     "resumeKindNotQueue": "channel kind {{kind}} 非 queue，无法恢复"
   },
   "profile": {
-    "defaultName": "默认",
-    "newName": "新配置",
-    "importedName": "导入配置",
-    "urlParamName": "URL 参数配置",
-    "customProviderName": "自定义服务商",
-    "httpTemplate": "HTTP 模板",
-    "missingName": "缺少名称",
-    "missingApiUrl": "缺少 API URL",
-    "missingApiKey": "缺少 API Key",
-    "missingModelId": "缺少模型 ID",
-    "needApiUrl": "请先填写 API URL",
-    "needApiKey": "请先填写 API Key",
-    "noModelList": "接口返回中未找到可识别的模型列表",
-    "importMarkdownLink": "JSON 包含 Markdown 链接，请粘贴纯文本",
-    "importBadApiMode": "apiMode 格式无效，应为 images 或 responses",
-    "importInvalidJson": "JSON 格式无效",
-    "importRootNotObject": "JSON 根节点必须是对象",
-    "importNoValidProviders": "customProviders 数组中没有有效的服务商配置",
-    "importUnrecognized": "无法识别该 JSON。请粘贴自定义服务商配置。"
+    "missingModelId": "缺少模型 ID"
   },
   "param": {
     "actualResponseValue": "API 实际响应值"

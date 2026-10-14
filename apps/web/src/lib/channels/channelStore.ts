@@ -1,18 +1,40 @@
 /**
- * 客户端 channel store。Boot 期间 `discoverChannels` 拉到的 channel 列表写进来；
- * 后续 `getPublicChannels()` / `getPublicChannel(id)` 都直接 hit 这份内存状态。
+ * 客户端 channel store。`discoverChannels` 拉到的 channel 列表写进来；
+ * `getPublicChannels()` / `getPublicChannel(id)` 都直接读这份内存状态。
  *
- * 无响应式：runtime config 与 channel 列表在 boot 时一锤定音，UI 起来后不会变。
- * 切换需要刷新页面，跟「环境配置」语义一致。
+ * `settled` 区分「还在加载 / 上次失败、正在重试」和「已经拿到一份清单」。
+ * 失败时不能把空数组当成加载完成，否则设置会被正规化成没有渠道。
  */
 import type { DiscoveredChannel } from '@image-playground/shared'
 
 let channels: DiscoveredChannel[] = []
+let settled = false
 let byId = new Map<string, DiscoveredChannel>()
+const listeners = new Set<() => void>()
 
 export function setChannels(list: DiscoveredChannel[]): void {
   channels = list
+  settled = true
   byId = new Map(list.map((c) => [c.id, c]))
+  for (const listener of listeners) listener()
+}
+
+/** 清单还没成功到达。空数组在这之前不代表「这个部署没有渠道」。 */
+export function channelsSettled(): boolean {
+  return settled
+}
+
+/** 测试用：回到「还没加载」而不是「已确认没有渠道」。 */
+export function resetChannelCatalog(): void {
+  channels = []
+  settled = false
+  byId = new Map()
+  for (const listener of listeners) listener()
+}
+
+export function subscribeChannels(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
 }
 
 export function getStoredChannels(): DiscoveredChannel[] {
