@@ -100,8 +100,11 @@ COPY --from=private-overlay / /tmp/private-overlay
 # Elysia peers typescript and drizzle-orm peers bun-types; both are type-only
 # and optional. They are removed after deploy. sharp's optional native binaries
 # stay, so this is not a global --no-optional install.
+# pnpm deploy refuses a target that already exists. The placeholder is created
+# only when there is no private BFF, so the later COPY of node_modules still has
+# a source. A real overlay deploys into a path that is not there yet.
 RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
-  && mkdir -p /app/private /out/private-src /out/private-bff/node_modules \
+  && mkdir -p /app/private /out/private-src \
   && if [ -n "$(find /tmp/private-overlay -mindepth 1 -print -quit)" ]; then \
        cp -a /tmp/private-overlay/. /app/private/; \
      fi \
@@ -109,6 +112,8 @@ RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
   && pnpm --filter @image-playground/admin --prod deploy /out/admin \
   && if [ -f /app/private/apps/bff/package.json ]; then \
        pnpm --filter ./private/apps/bff --prod deploy /out/private-bff; \
+     else \
+       mkdir -p /out/private-bff/node_modules; \
      fi \
   && if [ -d /app/private ]; then cp -a /app/private/. /out/private-src/; fi \
   && find /out/private-src -type d -name node_modules -print0 | xargs -0r rm -rf \
