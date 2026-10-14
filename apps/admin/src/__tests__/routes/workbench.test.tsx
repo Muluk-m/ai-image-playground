@@ -57,6 +57,10 @@ vi.mock('../../lib/api-client', () => {
         completed: 20,
         failed: 10,
         upstream_invocations: 40,
+        failures: [
+          { error_type: 'upstream_error', count: 8 },
+          { error_type: 'content_policy', count: 2 },
+        ],
       },
       {
         model: 'doubao-seedream',
@@ -64,6 +68,7 @@ vi.mock('../../lib/api-client', () => {
         completed: 1,
         failed: 1,
         upstream_invocations: 3,
+        failures: [{ error_type: 'upstream_timeout', count: 1 }],
       },
     ],
   }
@@ -360,6 +365,17 @@ describe('今日概览', () => {
     expect(large.closest('tr')).toHaveTextContent('33.3%')
     expect(large.closest('tr')?.textContent).toContain('40')
     expect(models.getByText('33.3%').className).toContain('text-danger')
+    expect(models.queryByText('上游错误')).not.toBeInTheDocument()
+    fireEvent.click(models.getByRole('button', { name: '展开gpt-image-2的失败原因' }))
+    const reasons = models.getByRole('list', { name: 'gpt-image-2的失败原因' })
+    expect(reasons).toHaveTextContent('上游错误')
+    expect(reasons).toHaveTextContent('upstream_error')
+    expect(reasons).toHaveTextContent('8')
+    expect(reasons).toHaveTextContent('内容审核拒绝')
+    expect(reasons).toHaveTextContent('2')
+    expect(models.queryByText('上游超时')).not.toBeInTheDocument()
+    fireEvent.click(models.getByRole('button', { name: '收起gpt-image-2的失败原因' }))
+    expect(models.queryByText('上游错误')).not.toBeInTheDocument()
     const small = models.getByText('doubao-seedream').closest('tr')!
     expect(within(small).getByText('50.0%').className).not.toContain('text-danger')
     expect(screen.queryByText('Agent 输入缓存')).not.toBeInTheDocument()
