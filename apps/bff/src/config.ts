@@ -146,6 +146,14 @@ export const config = {
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
+    /**
+     * 下一句预测专用，不给摘要或搜索。留空跟随摘要模型，再没有才跟随对话模型。
+     * 发布步骤使用 claude-haiku-5-5；claude- 前缀走 UPSTREAM_CLAUDE_API_KEY。
+     */
+    followUpModel:
+      env('AGENT_FOLLOWUP_MODEL', '') ||
+      env('AGENT_SUMMARY_MODEL', '') ||
+      env('AGENT_CHAT_MODEL', ''),
     /** 可覆盖摘要模型登记窗口；自定义摘要模型应显式填它的真实窗口。 */
     summaryContextWindow: env('AGENT_SUMMARY_CONTEXT_WINDOW', '')
       ? positiveIntEnv('AGENT_SUMMARY_CONTEXT_WINDOW', 16_000)

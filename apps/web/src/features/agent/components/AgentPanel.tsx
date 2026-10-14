@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
@@ -22,9 +21,7 @@ import type { ProductionPane } from '../../production/lib/productionContext'
 import { ACTIVE_TAB, CARD, CARD_TITLE, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
-import { visibleFollowUps } from '../lib/followUps'
 import { answerableClarificationId } from '../lib/panelMessages'
-import { currentProjectDraft } from '../lib/projectLifecycle'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
@@ -36,7 +33,6 @@ import AgentComposer from './AgentComposer'
 import AgentConnectionHint from './AgentConnectionHint'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentCreations from './AgentCreations'
-import AgentFollowUps from './AgentFollowUps'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentMessageQueue from './AgentMessageQueue'
 import AgentPendingDrafts from './AgentPendingDrafts'
@@ -261,21 +257,6 @@ export default function AgentPanel({
     followLatest.current = false
   }
   const conversationId = useAgentStore((state) => state.conversationId)
-  const draftSession = currentProjectDraft(conversationId)
-  const draftPrompt = useSyncExternalStore(
-    draftSession.subscribe,
-    () => draftSession.getSnapshot().draft.prompt,
-  )
-  const followUpLines = useAgentStore((state) =>
-    visibleFollowUps({
-      idle: state.turn === 'idle',
-      historyBlocked: state.historyLoading || state.historyFailed,
-      welcome: false,
-      draft: draftPrompt,
-      messages: state.messages,
-      turns: state.turns,
-    }),
-  )
   useLayoutEffect(() => {
     followLatest.current = true
     setUnseen(false)
@@ -593,7 +574,6 @@ export default function AgentPanel({
                   </div>
                 )
               })}
-              {followUpLines.length > 0 && <AgentFollowUps lines={followUpLines} />}
               <AgentActivity />
               <AgentHistoryStatus />
               {(error || returnedMessagesPending) && !historyFailed && (

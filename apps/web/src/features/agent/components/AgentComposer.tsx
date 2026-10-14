@@ -3,6 +3,7 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -116,6 +117,7 @@ import {
 } from '../lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
+import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
@@ -317,6 +319,24 @@ export default function AgentComposer({
     recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const loading = readingDraft || recoveryBlocked
+  const followUpLines = useAgentStore((state) =>
+    visibleFollowUps({
+      idle: state.turn === 'idle',
+      historyBlocked: state.historyLoading || state.historyFailed,
+      welcome,
+      draft: draft.prompt,
+      messages: state.messages,
+      turns: state.turns,
+    }),
+  )
+  const followUpHintId = useId()
+  const [dismissedFollowUp, setDismissedFollowUp] = useState<string | null>(null)
+  useEffect(() => {
+    setDismissedFollowUp(null)
+  }, [conversationId])
+  const followUpGhost =
+    followUpLines[0] && followUpLines[0] !== dismissedFollowUp ? followUpLines[0] : null
+  const acceptFollowUpRef = useRef<(line: string) => void>(() => {})
   const setDraft = session.update
   useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
@@ -629,6 +649,30 @@ export default function AgentComposer({
     onKeyDown: (event) => {
       if (menuRef.current.handleKeyDown(event)) return
       if (recallKeyDown(event)) return
+      if (followUpGhost) {
+        const range = promptEditor.selection()
+        const action = followUpGhostAction(
+          {
+            key: event.key,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            isComposing: event.nativeEvent.isComposing,
+          },
+          range.start === range.end && range.end === promptEditor.visible.length,
+        )
+        if (action === 'accept') {
+          event.preventDefault()
+          acceptFollowUpRef.current(followUpGhost)
+          return
+        }
+        if (action === 'dismiss') {
+          event.preventDefault()
+          setDismissedFollowUp(followUpGhost)
+          return
+        }
+      }
       // 写着字时按钮是发送，中止没有可点的入口；Esc 补上它，不必先清空输入框。
       if (event.key === 'Escape' && running && !stopping) {
         event.preventDefault()
@@ -649,6 +693,10 @@ export default function AgentComposer({
       attachFiles(files)
     },
   })
+  acceptFollowUpRef.current = (line) => {
+    setDraft((current) => ({ ...current, prompt: line }))
+    promptEditor.select(line.length, line.length)
+  }
 
   const groups: SuggestionMenuGroup<ComposerSuggestion>[] =
     promptEditor.query?.kind === 'mention'
@@ -1227,13 +1275,39 @@ export default function AgentComposer({
               role="textbox"
               tabIndex={0}
               aria-label={t('composer.editorAria')}
+              aria-describedby={followUpGhost ? followUpHintId : undefined}
               disabled={loading}
               aria-busy={loading}
-              placeholder={t(
-                `composer:studio.placeholders.${productionMode ? 'video' : creationMode}`,
-              )}
+              placeholder={
+                followUpGhost
+                  ? undefined
+                  : t(`composer:studio.placeholders.${productionMode ? 'video' : creationMode}`)
+              }
+              data-follow-up={followUpGhost ? '' : undefined}
               className="creation-prompt"
             />
+            {followUpGhost && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-center gap-2 text-base leading-[1.75]">
+                <span className="min-w-0 text-muted-foreground" aria-hidden="true">
+                  {followUpGhost}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="pointer-events-auto h-7 px-2 font-normal text-muted-foreground"
+                  aria-label={t('suggestions.followUpAccept')}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => acceptFollowUpRef.current(followUpGhost)}
+                >
+                  <span className="sm:hidden">{t('suggestions.followUpTap')}</span>
+                  <span className="hidden sm:inline">Tab</span>
+                </Button>
+                <p id={followUpHintId} className="sr-only">
+                  {t('suggestions.followUpHint', { text: followUpGhost })}
+                </p>
+              </div>
+            )}
           </div>
         </CreationBody>
         <CreationToolbar

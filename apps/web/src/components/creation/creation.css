@@ -28,6 +28,8 @@
 .creation-prompt.creation-prompt-filled { padding-right: 2.75rem; }
 /* 占位文案跟输入区同宽。ch 是数字 0 的宽度，中文会在右侧还有空时提前换行。 */
 .creation-prompt:empty::before { content: attr(data-placeholder); display: block; pointer-events: none; color: hsl(var(--muted-foreground) / .85); }
+/* 下一句用真实节点画在输入框里，占位伪元素让开，避免两层灰字叠在一起。 */
+.creation-prompt[data-follow-up]:empty::before { content: none; }
 .creation-mention { display: inline-flex; align-items: center; gap: 5px; background: hsl(var(--muted)); border-radius: 7px; padding: 1px 5px; @apply text-body-sm; vertical-align: middle; }
 :where(.creation-mention) img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; }
 .creation-toolbar { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 0 var(--creation-space) var(--creation-space); }
