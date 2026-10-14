@@ -13,6 +13,7 @@ export type {
   ListDevicesResult,
   ListUsersResult,
   OperatorAuditRow,
+  OpsAgentFailureSample,
   OpsApi,
   OpsApiPoint,
   OpsApiWindow,

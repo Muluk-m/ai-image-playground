@@ -150,6 +150,16 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`web bundle unchanged since ${previous}`)
   })
 
+  it('ships Pages and the API when the admin site changes', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('apps/admin/src/main.tsx', 'export {}\n')
+    serve({
+      [internalApi]: health(previous),
+      [paidApi]: health(`${previous}+${'f'.repeat(40)}`),
+    })
+    expect(decide(tip).decision).toBe('deploy_api=true\ndeploy_pages=true\ndeploy=true\n')
+  })
+
   it('ships the API without Pages when only the API tree changed', () => {
     const previous = commits[2]
     const tip = commitOnTip('apps/bff/src/index.ts', 'export {}\n')

@@ -340,7 +340,7 @@ export function defaultChannelsPath(): string {
  * 顶层入口：读文件 + 解析 + 解析 secret。
  *
  * 文件不存在不抛错（返回空 channels + warning），让 BFF 在没配 channels 时
- * 也能 serve BYOK 路径。其它 IO / parse / schema 错抛 ChannelsLoadError。
+ * 仍能起来。其它 IO / parse / schema 错抛 ChannelsLoadError。
  */
 export function loadChannelsFromFile(filePath: string): ChannelsLoadResult {
   let text: string

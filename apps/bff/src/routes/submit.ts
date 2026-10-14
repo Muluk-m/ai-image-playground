@@ -69,7 +69,7 @@ const submitBodySchema = t.Object({
   client_request_id: t.Optional(t.String({ minLength: 8, maxLength: 64 })),
   /**
    * 浏览器持久化的设备 ID。BFF 用于按设备每日配额计数。前端 submitTask 时
-   * 统一带；缺失或太短返回 400。BYOK profile 不走 BFF，无需此字段。
+   * 统一带；缺失或太短返回 400。
    */
   device_id: deviceIdSchema(),
 })
