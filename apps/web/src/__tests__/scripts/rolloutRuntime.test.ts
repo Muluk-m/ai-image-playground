@@ -366,7 +366,7 @@ describe('rollout-runtime.sh: finite drain', () => {
       'Previous executors: 2 drained cleanly, 0 stopped after the 300s drain deadline, 0 already down.',
     )
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin host-collector pg-backup$/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
     expect(result.log).toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
@@ -401,7 +401,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     )
     expect(result.stderr).toContain('Drain deadline (20s) reached; stopping fixture-rold-bff')
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin host-collector pg-backup$/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
   })
 
@@ -424,7 +424,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(exists('fixture-rold-worker')).toBe(false)
     expect(result.stdout).toContain('1 drained cleanly, 1 stopped after the 10s drain deadline')
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin host-collector pg-backup$/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
   })
 
@@ -435,7 +435,7 @@ describe('rollout-runtime.sh: finite drain', () => {
 
     expect(result.status).toBe(0)
     expect(result.log).toContainEqual(
-      expect.stringMatching(/^compose .* up --detach --no-deps admin host-collector pg-backup$/),
+      expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
     expect(result.log).not.toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps cloudflared$/),
@@ -452,10 +452,7 @@ describe('rollout-runtime.sh: finite drain', () => {
     const result = run()
 
     expect(result.status).toBe(0)
-    const composed = indexOf(
-      result.log,
-      /^compose .* up --detach --no-deps admin host-collector pg-backup$/,
-    )
+    const composed = indexOf(result.log, /^compose .* up --detach --no-deps --wait admin$/)
     const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy$/)
     expect(composed).toBeGreaterThan(-1)
     expect(stopped).toBeGreaterThan(composed)

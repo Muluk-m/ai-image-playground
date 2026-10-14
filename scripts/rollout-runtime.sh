@@ -386,30 +386,37 @@ if [ "$retire_legacy" = 1 ]; then
 fi
 
 # Ancillary services have no generation execution state. Their writes use the stable ingress.
-# Compose admin owns the tunnel name `admin` again. A previous rollout may have left a
-# proxy holding that name; remove it only after Compose admin is up, so the name is
-# never absent and is not shared afterwards. Release-qualified admin processes from
-# that rollout are not the Compose service and only hold a database pool.
+# Compose admin owns the tunnel name `admin` again. --wait returns only after its healthcheck
+# passes, so the name is already answering before the leftover proxy is stopped.
+APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+  "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps --wait admin
 APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
   "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps \
-  admin host-collector pg-backup
+  host-collector pg-backup
+# A previous rollout may have left a proxy holding `admin`, and release-qualified admin
+# processes from that rollout. Those names are `$project-r<time>-<pid>-admin`; the Compose
+# service is `$project-admin-1` and does not match. Removal has to stick: a proxy that is
+# still there keeps the tunnel name alongside the Compose service.
+remove_stale_admin() {
+  if ! docker inspect "$1" >/dev/null 2>&1; then return 0; fi
+  docker stop -t 30 "$1" >/dev/null 2>&1 || true
+  docker rm -f "$1" >/dev/null 2>&1 || true
+  if docker inspect "$1" >/dev/null 2>&1; then
+    echo "Could not remove stale admin container $1" >&2
+    return 1
+  fi
+}
 for extra in \
   "$project-admin-proxy" \
   "$project-admin-proxy-next" \
   "$project-admin-proxy-previous" \
   "$project-admin-proxy-dead"
 do
-  if docker inspect "$extra" >/dev/null 2>&1; then
-    docker stop -t 30 "$extra" >/dev/null 2>&1 || true
-    docker rm -f "$extra" >/dev/null 2>&1 || true
-  fi
+  remove_stale_admin "$extra" || exit 1
 done
 for name in $(docker ps -a --format '{{.Names}}'); do
   case "$name" in
-    "$project"-r*-admin)
-      docker stop -t 30 "$name" >/dev/null 2>&1 || true
-      docker rm -f "$name" >/dev/null 2>&1 || true
-      ;;
+    "$project"-r[0-9]*-admin) remove_stale_admin "$name" || exit 1 ;;
   esac
 done
 rm -rf "$state_dir/admin-proxy"
