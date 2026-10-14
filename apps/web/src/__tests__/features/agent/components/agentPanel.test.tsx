@@ -767,11 +767,9 @@ describe('AgentPanel', () => {
     act(() => {
       log.dispatchEvent(event)
     })
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+    await vi.waitFor(() => {
+      expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
     })
-
-    expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
     expect(host.querySelector('img')?.getAttribute('alt')).toContain('ref')
   })
 

@@ -404,6 +404,13 @@ export default function AgentComposer({
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：整组读取 → 进引用区。
   // 一次进来的图多了先问一声：整份文件夹误拖进来时，确认框比事后逐张删引用便宜。
   const attachmentRevision = useRef(0)
+  // 读文件是异步的。卸载后把代次拨走，晚到的结果不能写进下一次挂载的草稿。
+  useEffect(
+    () => () => {
+      attachmentRevision.current += 1
+    },
+    [],
+  )
   const attachFiles = (files: File[]) => {
     const revision = attachmentRevision.current
     if (loading) {
