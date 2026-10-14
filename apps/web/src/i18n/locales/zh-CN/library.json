@@ -31,7 +31,9 @@
     "viewCount_other": "{{count}} 张",
     "kind": {
       "product": "产品",
-      "person": "人物"
+      "person": "人物",
+      "location": "地点",
+      "prop": "道具"
     },
     "background": {
       "transparent": "透明底",
@@ -51,18 +53,22 @@
     },
     "cover": "封面",
     "addView": "追加视角",
-    "views": "视角"
+    "views": "视角",
+    "noImage": "待补充参考图",
+    "saveFailed": "素材保存失败，请重试"
   },
   "createAsset": {
     "title": "新建素材",
     "images": "参考图",
-    "dropHint": "拖入同一主体的一张或多张图，也可以直接拖入文件夹",
+    "dropHint": "拖入参考图，或先填写名称和描述，稍后补图",
     "fromLocal": "从本地添加",
     "fromFolder": "从文件夹添加",
     "name": "名称",
     "namePlaceholder": "请输入名称",
     "kind": "类别",
-    "save": "保存"
+    "save": "保存",
+    "description": "素材描述",
+    "descriptionPlaceholder": "描述外形、性格或环境特征，稍后可以补充参考图。"
   },
   "look": {
     "new": "新建模板",

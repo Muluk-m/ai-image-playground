@@ -614,25 +614,18 @@ it('同名输入图按各自媒体身份显示不同缩略图，便于核对完�
     }),
   )
   await render()
-  await act(async () => {
-    const deadline = Date.now() + 2000
-    while (Date.now() < deadline) {
-      const images = [...host.querySelectorAll('summary img')]
-      if (
-        images.length === 2 &&
-        images.every((image) => image.getAttribute('src')?.startsWith('data:'))
-      ) {
-        return
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    }
-  })
+  // Media access and FileReader complete asynchronously; CI load is not bounded by 20 ms.
+  await vi.waitFor(
+    async () => {
+      await act(async () => {})
+      expect(
+        [...host.querySelectorAll('summary img')].map((image) => image.getAttribute('src')),
+      ).toEqual(['data:image/webp;base64,AQID', 'data:image/webp;base64,BAUG'])
+    },
+    { timeout: 5_000 },
+  )
   const thumbnails = [...host.querySelectorAll('summary img')]
   expect(thumbnails).toHaveLength(2)
-  expect(thumbnails.map((image) => image.getAttribute('src'))).toEqual([
-    'data:image/webp;base64,AQID',
-    'data:image/webp;base64,BAUG',
-  ])
   expect(thumbnails.map((image) => image.getAttribute('alt'))).toEqual(['同名商品', '同名商品'])
   expect(fetched).toContain(`http://bff.test/api/media/${firstId}/access`)
   expect(fetched).toContain(`http://bff.test/api/media/${secondId}/access`)

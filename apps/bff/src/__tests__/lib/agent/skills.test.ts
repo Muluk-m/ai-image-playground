@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test'
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   type AgentMessageView,
   type AgentSkillOutcome,
@@ -11,6 +11,10 @@ import {
 // 只读磁盘上的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-skills'
 process.env.LOG_LEVEL = 'silent'
+process.env.OPERATOR_CONFIG_FILE = resolve(
+  import.meta.dir,
+  '../../agent-video-operator-config.json',
+)
 
 const {
   AGENT_SKILL_FILE_MAX_BYTES,
@@ -29,6 +33,21 @@ const {
   titleSourceText,
 } = await import('../../../lib/agent/skills')
 const { log } = await import('../../../lib/logger')
+const { _setChannelsForTesting } = await import('../../../lib/channels')
+_setChannelsForTesting([
+  {
+    id: 'video',
+    kind: 'openai-queue',
+    label: 'Video',
+    baseUrl: 'https://gateway.example/v1',
+    auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'fixture' },
+    allowedPaths: ['videos/generations'],
+    defaults: { asyncTasks: true },
+    models: [
+      { id: 'grok-imagine-video', label: 'Video', media: 'video', capabilities: ['generate'] },
+    ],
+  },
+])
 const { replayedSkillTexts } = await import('../../../lib/agent/tools/loadSkill')
 
 let root = ''
@@ -139,22 +158,23 @@ beforeAll(async () => {
 
 afterAll(async () => {
   setAgentSkillsRootForTesting(null)
+  _setChannelsForTesting([])
   if (root) await rm(root, { recursive: true, force: true })
 })
 
 describe('agent skills loading', () => {
-  it('shows a mode its own skills plus the shared ones', () => {
+  it('shares image, video and shared skills in either mode', () => {
     // `other-name` 那条 frontmatter 与目录名不符，只记 diagnostic 不丢弃，所以它也在。
     expect(
       agentSkills('image')
         .map((one) => one.name)
         .sort(),
-    ).toEqual(['broken-look', 'main-image', 'other-name', 'palette', 'scene-look'])
+    ).toEqual(['broken-look', 'main-image', 'other-name', 'palette', 'scene-look', 'storyboard'])
     expect(
       agentSkills('video')
         .map((one) => one.name)
         .sort(),
-    ).toEqual(['palette', 'storyboard'])
+    ).toEqual(['broken-look', 'main-image', 'other-name', 'palette', 'scene-look', 'storyboard'])
   })
 
   it('drops skills whose frontmatter cannot be trusted instead of failing the load', () => {
@@ -227,9 +247,10 @@ describe('reading a skill attachment', () => {
     expect(result).toEqual({ kind: 'ok', text: '# 镜头清单\n每镜一行。' })
   })
 
-  it('refuses a skill the current mode cannot see', async () => {
+  it('reads video skills from an old image turn', async () => {
     expect(await readAgentSkillFile('image', 'storyboard', 'references/shot-list.md')).toEqual({
-      kind: 'unknown-skill',
+      kind: 'ok',
+      text: '# 镜头清单\n每镜一行。',
     })
   })
 
@@ -462,7 +483,7 @@ describe('会话标题里的技能命令', () => {
 
   it('认不出的名字、别的模式的技能、句中的斜杠都原样留着', () => {
     expect(titleSourceText('/nope 你好', 'image')).toBe('/nope 你好')
-    expect(titleSourceText('/storyboard', 'image')).toBe('/storyboard')
+    expect(titleSourceText('/storyboard', 'image')).toBe('分镜短片')
     expect(titleSourceText('把 /main-image 用上', 'image')).toBe('把 /main-image 用上')
   })
 })

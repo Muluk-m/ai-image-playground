@@ -386,3 +386,22 @@ describe('保存失败的原因', () => {
     await vi.waitFor(() => expect(useSyncStatus.getState().failure).toBe('rejected'))
   })
 })
+
+it('round-trips imageless assets without inventing an empty image view', async () => {
+  const record = {
+    ...asset('empty-location'),
+    kind: 'location' as const,
+    views: [],
+    description: 'quiet room',
+    voiceId: 'voice-1',
+  }
+  await assetStore.put(record)
+  postSyncMock.mockResolvedValue(response({ assets: [{ ...record, imageId: '' }] }))
+  stopEngine = startSyncEngine()
+  await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalled())
+  await vi.waitFor(() => expect(useLibraryStore.getState().assets).toEqual([record]))
+  expect(postSyncMock.mock.calls[0]?.[0].assets).toEqual([
+    expect.objectContaining({ imageId: '', views: [], kind: 'location', voiceId: 'voice-1' }),
+  ])
+  expect(await assetStore.list()).toEqual([record])
+})

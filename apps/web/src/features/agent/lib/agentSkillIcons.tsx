@@ -17,6 +17,7 @@ const AGENT_SKILL_ICONS: Readonly<Record<string, IconName>> = {
   'layout-template': 'layoutTemplate',
   megaphone: 'advertise',
   mountain: 'landscape',
+  notebook: 'notebook',
   'notebook-pen': 'notebook',
   'package-plus': 'productAdd',
   palette: 'palette',

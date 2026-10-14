@@ -1,4 +1,4 @@
-import type { VideoGenerationRecord } from '@image-playground/shared'
+import type { ProjectStoryboard, ProjectVideoRef } from '@image-playground/shared'
 import type { CanvasTaskMeta, CanvasTaskStatus } from './editor'
 
 /**
@@ -33,11 +33,7 @@ export interface ImageEl {
 }
 
 /** 画布上一段视频的来源。`generation` 是它实际按什么生成的，早于它的存档没有。 */
-export interface CanvasVideoRef {
-  taskId: string
-  outputIndex: number
-  generation?: VideoGenerationRecord
-}
+export type CanvasVideoRef = ProjectVideoRef
 
 export interface FreedrawEl {
   id: string
@@ -84,6 +80,8 @@ export interface PlaceholderEl {
 
 /** 时间线上的一段：引用画布上的一个视频元素，按入 / 出点截取（秒）。`out` 缺省即播到结尾。 */
 export interface TimelineClip {
+  /** Transient identity in the node timeline editor; stripped before persistence. */
+  slotKey?: string
   elementId: string
   in: number
   out?: number
@@ -103,7 +101,14 @@ export interface TimelineEl {
   clips: TimelineClip[]
 }
 
-export type CanvasEl = ImageEl | FreedrawEl | ArrowEl | TextEl | PlaceholderEl | TimelineEl
+export type CanvasEl =
+  | ImageEl
+  | FreedrawEl
+  | ArrowEl
+  | TextEl
+  | PlaceholderEl
+  | TimelineEl
+  | ProjectStoryboard
 
 export interface Camera {
   /** 视口左上角的页面坐标。 */
@@ -247,6 +252,15 @@ export class CanvasDoc {
     if (opts.history) this.captureHistory()
     this.elements = next
     this.emit()
+  }
+
+  /** Cache candidate pixels without creating a canvas element or a second undo history. */
+  cacheBitmap(source: string, id = newElementId()): string {
+    if (this.files[id] !== source) {
+      this.files = { ...this.files, [id]: source }
+      this.emit()
+    }
+    return id
   }
 
   /** Refresh derived video covers without changing geometry or adding an undo step. */

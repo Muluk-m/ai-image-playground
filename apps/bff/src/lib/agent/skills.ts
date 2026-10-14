@@ -26,6 +26,7 @@ import {
   parseAgentSkillStarterMeta,
   templateSlotInputs,
 } from './skill-starters'
+import { agentVideoModel } from './video-models'
 
 /**
  * 技能（Agent Skill）：一份写在 `SKILL.md` 里的专业流程指引，按 agentskills.io 的目录约定放在
@@ -342,9 +343,10 @@ export function ensureAgentSkills(): Promise<SkillIndex> {
   return loading
 }
 
-/** 这个 mode 看得见的技能。`ensureAgentSkills()` 之前一律是空的。 */
-export function agentSkills(mode: AgentMode): readonly AgentSkill[] {
-  return index[mode].filter(
+/** 图片/视频目录仅用于组织技能；所有创作轮共用清单，正文仍按需加载。 */
+export function agentSkills(_mode: AgentMode): readonly AgentSkill[] {
+  const video = isCapabilityEnabled('generation:video') && agentVideoModel() ? index.video : []
+  return dedupe([...index.image, ...video]).filter(
     (skill) => skill.name !== 'video-production' || isCapabilityEnabled('agent:production'),
   )
 }
@@ -372,7 +374,7 @@ export function agentSkillSummaries(
   mode: AgentMode,
   imageModel: string | undefined,
 ): AgentSkillSummary[] {
-  return index[mode].map((skill) => agentSkillSummary(skill, imageModel))
+  return agentSkills(mode).map((skill) => agentSkillSummary(skill, imageModel))
 }
 
 /**
@@ -415,14 +417,13 @@ export function agentSkillFileUrl(name: string, file: string): string {
 /**
  * 这一轮看得见的技能：内置的，加上这个用户自建的模板。
  *
- * **模板只属于出图轮**：它是一套出图效果，钉的是出图模型与尺寸；内置模板同样只放在 `image/` 下，
- * 用户自建的那些也按同一条规矩，视频轮一条都不列。
+ * 项目不限制媒体类型；一轮可先出图再生视频，模板也共享同一份按需加载清单。
  */
 export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  return mode === 'image' ? [...agentSkills(mode), ...audience.looks] : agentSkills(mode)
+  return [...agentSkills(mode), ...audience.looks]
 }
 
 /**
@@ -434,7 +435,7 @@ export async function listAgentSkillSummaries(
   userId: string | null,
   imageModel: string | undefined,
 ): Promise<AgentSkillSummary[]> {
-  const looks = mode === 'image' ? await userLookSkills(userId) : []
+  const looks = await userLookSkills(userId)
   return visibleAgentSkills(mode, { userId, looks }).map((skill) =>
     agentSkillSummary(skill, imageModel),
   )
@@ -445,6 +446,7 @@ export async function listAgentSkillSummaries(
  * 起轮前取一次，本轮之后处处按这一份算——`<available_skills>` 与 `/look-<id>` 才不会各说各的。
  */
 export interface AgentTurnAudience {
+  readonly nodeCanvas?: boolean
   readonly experience?: 'chat' | 'canvas'
   /** 登录用户；device-only 用户为 null。 */
   readonly userId: string | null
@@ -539,7 +541,7 @@ async function readUserLook(userId: string, id: string): Promise<AgentSkill | un
 /**
  * 按名字找这一轮能用的技能：先内置，再看是不是这个用户的模板。
  * `loadSkill` 与 `/name` 都走它，两条路才认同一份清单，可见规则与
- * {@link visibleAgentSkills} 同一条（模板只属于出图轮）。
+ * {@link visibleAgentSkills} 同一条。
  */
 export async function resolveAgentSkill(
   mode: AgentMode,
@@ -547,8 +549,7 @@ export async function resolveAgentSkill(
   userId: string | null,
 ): Promise<AgentSkill | undefined> {
   const builtin = findAgentSkill(mode, name)
-  if (builtin || mode !== 'image' || !userId || !name.startsWith(LOOK_SKILL_NAME_PREFIX))
-    return builtin
+  if (builtin || !userId || !name.startsWith(LOOK_SKILL_NAME_PREFIX)) return builtin
   return readUserLook(userId, name.slice(LOOK_SKILL_NAME_PREFIX.length))
 }
 

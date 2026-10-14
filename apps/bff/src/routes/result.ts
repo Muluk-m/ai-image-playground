@@ -7,9 +7,10 @@ import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { readGeneration } from '../lib/generations'
 import { jsonResponse } from '../lib/gzipResponse'
 import { isStoredImageRef } from '../lib/imageArchive'
-import { type ObjectRangeReader, objectStore } from '../lib/objectStore'
+import { objectStore } from '../lib/objectStore'
 import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
+import { parseByteRange, rangeStreamResponse } from '../lib/rangeResponse'
 import { taskAccessWhere } from '../lib/task-access'
 import { requireUserOrService } from '../lib/user-auth'
 
@@ -253,33 +254,6 @@ function isSeekable(mime: string): boolean {
   return mime.startsWith('video/')
 }
 
-/**
- * 与 `mediaResponse` 同一套 Range 语义，但字节是边读边发的：进程内存只吃当前 chunk，
- * 与对象总大小无关。视频走这条。
- */
-function rangeStreamResponse(
-  object: ObjectRangeReader,
-  mime: string,
-  cacheControl: string,
-  range: string | null,
-): Response {
-  const headers: Record<string, string> = {
-    'content-type': mime,
-    'cache-control': cacheControl,
-    'accept-ranges': 'bytes',
-  }
-  const span = range === null ? null : parseByteRange(range, object.size)
-  if (span === 'unsatisfiable') {
-    headers['content-range'] = `bytes */${object.size}`
-    return new Response(null, { status: 416, headers })
-  }
-  const { start, end } = span ?? { start: 0, end: object.size - 1 }
-  headers['content-length'] = String(end - start + 1)
-  if (span === null) return new Response(object.stream(start, end), { headers })
-  headers['content-range'] = `bytes ${start}-${end}/${object.size}`
-  return new Response(object.stream(start, end), { status: 206, headers })
-}
-
 function mediaResponse(
   bytes: Uint8Array<ArrayBuffer>,
   mime: string,
@@ -298,30 +272,6 @@ function mediaResponse(
   }
   headers['content-range'] = `bytes ${span.start}-${span.end}/${bytes.length}`
   return new Response(bytes.slice(span.start, span.end + 1), { status: 206, headers })
-}
-
-/**
- * 单段 `bytes=` 区间。多段与不认识的写法返回 null，按整份 200 回 —— 规范允许，
- * 播放器拿到 200 会退回整段下载而不是报错。
- */
-function parseByteRange(
-  header: string,
-  size: number,
-): { start: number; end: number } | 'unsatisfiable' | null {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
-  if (!match) return null
-  const [, rawStart, rawEnd] = match
-  if (!rawStart && !rawEnd) return null
-  if (!rawStart) {
-    const suffix = Number(rawEnd)
-    if (suffix === 0) return 'unsatisfiable'
-    return { start: Math.max(0, size - suffix), end: size - 1 }
-  }
-  const start = Number(rawStart)
-  if (start >= size) return 'unsatisfiable'
-  const end = rawEnd ? Math.min(Number(rawEnd), size - 1) : size - 1
-  if (end < start) return 'unsatisfiable'
-  return { start, end }
 }
 
 type InputImage =

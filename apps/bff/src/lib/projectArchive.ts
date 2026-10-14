@@ -9,6 +9,7 @@ import {
 } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
 import { schema } from '../db/client'
+import { syncLegacyCanvasWrite } from './canvasSyncStore'
 import type { BffTransaction } from './private-overlay'
 import { lockMediaOwner } from './projectMedia'
 
@@ -90,6 +91,7 @@ export async function reserveProjectOutputs(
       object_id: output.id,
     })),
   )
+  await syncLegacyCanvasWrite(tx, project.id, project.document, document)
   await tx
     .update(schema.canvas_projects)
     .set({
@@ -224,6 +226,7 @@ export async function publishProjectOutputs(
         })),
       )
       .onConflictDoNothing()
+  await syncLegacyCanvasWrite(tx, project.id, project.document, { ...project.document, elements })
   await tx
     .update(schema.canvas_projects)
     .set({

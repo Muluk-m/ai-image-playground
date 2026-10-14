@@ -13,6 +13,7 @@ import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { agentRoutes } from './routes/agent'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
+import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { clientErrorRoutes } from './routes/client-errors'
@@ -198,6 +199,7 @@ export const app = new Elysia()
   .use(productionRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
+  .use(canvasSyncRoutes)
   .use(lookRoutes)
   .use(mediaRoutes)
   .use(publicInspirationRoutes)

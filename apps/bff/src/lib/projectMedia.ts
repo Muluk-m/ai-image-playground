@@ -76,7 +76,7 @@ export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.
   return Number(durable?.total ?? 0) + Number(legacy?.total ?? 0)
 }
 
-function summary(row: Media) {
+export function mediaSummary(row: Media) {
   return {
     id: row.id,
     status: row.status,
@@ -89,9 +89,9 @@ function summary(row: Media) {
 }
 function uploadResult(row: Media) {
   return row.status === 'ready'
-    ? summary(row)
+    ? mediaSummary(row)
     : {
-        ...summary(row),
+        ...mediaSummary(row),
         uploadUrl: durableMediaStore().sign(row.staging_key, 'PUT', row.content_type),
         expiresAt: row.expires_at,
       }
@@ -105,6 +105,21 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
     ? (attachmentLimits(config.operator)?.imageBytes ??
       config.operator.quotas['sync:asset-image-bytes'])
     : config.operator.quotas['sync:asset-image-bytes']
+  return reserveOwnedMedia(userId, input, byteLimit, PREVIEW_BUDGET)
+}
+
+/** Server-owned queue output only; never grants a client an arbitrary video upload. */
+export function reserveGeneratedVideoMedia(userId: string, input: UploadDescriptor) {
+  return reserveOwnedMedia(userId, input, config.operator.quotas['sync:asset-video-bytes'], 0)
+}
+
+async function reserveOwnedMedia(
+  userId: string,
+  input: UploadDescriptor,
+  byteLimit: number,
+  previewBudget: number,
+) {
+  const attachment = input.purpose === 'conversation-attachment'
   if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
   return db.transaction(async (tx) => {
     await lockMediaOwner(tx, userId)
@@ -139,7 +154,7 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
       (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
     )
       return uploadResult(existing)
-    const reserved = input.bytes + PREVIEW_BUDGET
+    const reserved = input.bytes + previewBudget
     const used = await mediaUsage(tx, userId, now)
     const previous =
       existing && (existing.attachment_managed || existing.expires_at > now)
@@ -229,7 +244,7 @@ async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
     release()
   }
 }
-const confirmations = new Map<string, Promise<ReturnType<typeof summary>>>()
+const confirmations = new Map<string, Promise<ReturnType<typeof mediaSummary>>>()
 const CONFIRM_LOCK_WAIT_MS = 60_000
 // Bound all distinct operations, including cross-instance lock waiters outside the processing queue.
 const MAX_CONFIRMATIONS = 10
@@ -237,7 +252,7 @@ const MAX_CONFIRMATIONS = 10
 export async function completeMedia(userId: string, id: string) {
   // Authorize before joining another request's result, including ready replays.
   const existing = await ownedMedia(userId, id)
-  if (existing.status === 'ready') return summary(existing)
+  if (existing.status === 'ready') return mediaSummary(existing)
   const key = JSON.stringify([userId, id])
   const pending = confirmations.get(key)
   if (pending) return pending
@@ -278,7 +293,7 @@ async function processMedia(userId: string, id: string) {
             // A different instance may publish while this request waits for local capacity.
             if (error instanceof MediaError && error.message === 'media_processing_busy') {
               const current = await ownedMedia(userId, id)
-              if (current.status === 'ready') return summary(current)
+              if (current.status === 'ready') return mediaSummary(current)
             }
             throw error
           })
@@ -290,7 +305,7 @@ async function processMedia(userId: string, id: string) {
         throw new MediaError(503, 'media_processing_busy', 'object_lock_timeout')
       await new Promise((resolve) => setTimeout(resolve, 500))
       const current = await ownedMedia(userId, id)
-      if (current.status === 'ready') return summary(current)
+      if (current.status === 'ready') return mediaSummary(current)
       if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
       if (current.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
     }
@@ -328,7 +343,7 @@ async function publishMedia(
   mark: (phase: string) => void,
 ) {
   const row = await ownedMedia(userId, id, database)
-  if (row.status === 'ready') return summary(row)
+  if (row.status === 'ready') return mediaSummary(row)
   if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
   if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
   const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
@@ -442,7 +457,7 @@ async function publishMedia(
         .from(media)
         .where(and(eq(media.id, id), eq(media.user_id, userId)))
       if (!current) throw new MediaError(404, 'media_not_found')
-      if (current.status === 'ready') return summary(current)
+      if (current.status === 'ready') return mediaSummary(current)
       if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
       if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
         throw new MediaError(409, 'media_upload_expired')
@@ -461,7 +476,7 @@ async function publishMedia(
         .where(eq(media.id, id))
         .returning()
       published = true
-      return summary(ready!)
+      return mediaSummary(ready!)
     })
   } catch (error) {
     if (error instanceof MediaError) throw error
@@ -483,7 +498,7 @@ export async function accessMedia(userId: string, id: string) {
     throw new MediaError(409, 'media_not_ready')
   const store = durableMediaStore()
   return {
-    ...summary(row),
+    ...mediaSummary(row),
     originalUrl: store.sign(row.object_key, 'GET'),
     previewUrl: store.sign(row.preview_key, 'GET'),
     expiresAt: Date.now() + 600_000,

@@ -39,6 +39,11 @@ describe('request context', () => {
     }
   })
 
+  it('preserves the empty response after a WebSocket upgrade', async () => {
+    const handle = withRequestContext(() => undefined)
+    expect(await handle(new Request('http://localhost/ws'))).toBeUndefined()
+  })
+
   it('logs nothing extra outside a request', () => {
     expect(requestLogFields()).toEqual({})
   })

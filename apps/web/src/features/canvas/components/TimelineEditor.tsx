@@ -1,3 +1,4 @@
+import { PROJECT_TIMELINE_MAX_CLIPS } from '@image-playground/shared'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -12,8 +13,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
-import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { useStore } from '../../../store'
 import type { TimelineClip, TimelineEl } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
@@ -32,6 +32,7 @@ import {
   trimClip,
 } from '../lib/timelineEdit'
 import { useTimelineEditor } from '../timelineEditorStore'
+import { useNodeMedia } from './NodeMediaImage'
 
 /** 片段轨上一秒多宽（像素）。短片段也留够拖边缘的宽度。 */
 const TRACK_PX_PER_SECOND = 28
@@ -47,26 +48,16 @@ function clock(seconds: number): string {
   return `${minutes}:${(whole - minutes * 60).toFixed(1).padStart(4, '0')}`
 }
 
-/** 画布里存的封面可能是云端媒体引用，要先换成可显示的地址。 */
-function usePoster(source: string | undefined): string | undefined {
-  const [resolved, setResolved] = useState<string>()
-  useEffect(() => {
-    if (!source || source.startsWith('data:')) return
-    let cancelled = false
-    void resolveMediaSource(source, 'preview')
-      .then((url) => {
-        if (!cancelled) setResolved(url)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [source])
-  return source?.startsWith('data:') ? source : resolved
-}
-
 /** 画布挂载点：有正在编辑的时间线才渲染编辑器；时间线没了（被删、换了项目）就收起。 */
-export default function TimelineEditorHost({ editor }: { editor: CanvasEditor }) {
+interface TimelineEditorActions {
+  beginEdit?: (id: string) => { clips: TimelineClip[]; save: (clips: TimelineClip[]) => void }
+  onLocate?: (id: string) => void
+  onSave?: (id: string, clips: TimelineClip[]) => void
+}
+export default function TimelineEditorHost({
+  editor,
+  ...actions
+}: { editor: CanvasEditor } & TimelineEditorActions) {
   const openId = useTimelineEditor((state) => state.openId)
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const element = openId ? editor.getElement(openId) : undefined
@@ -76,17 +67,24 @@ export default function TimelineEditorHost({ editor }: { editor: CanvasEditor })
     if (gone) useTimelineEditor.getState().close()
   }, [gone])
   if (element?.type !== 'timeline') return null
-  return <TimelineEditor key={element.id} editor={editor} timeline={element} />
+  return <TimelineEditor key={element.id} editor={editor} timeline={element} {...actions} />
 }
 
 /**
  * 全屏编辑一条时间线：上面预览，下面片段轨。改的是草稿，关闭时一次写回画布——
  * 整个编辑过程是一条撤销记录，⌘Z 一下回到打开前。
  */
-function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: TimelineEl }) {
+function TimelineEditor({
+  editor,
+  timeline,
+  onLocate,
+  onSave,
+  beginEdit,
+}: { editor: CanvasEditor; timeline: TimelineEl } & TimelineEditorActions) {
   const { t } = useTranslation('canvas')
-  const [baseline] = useState(timeline.clips)
-  const [clips, setClips] = useState<TimelineClip[]>(timeline.clips)
+  const [session] = useState(() => beginEdit?.(timeline.id))
+  const [baseline] = useState(session?.clips ?? timeline.clips)
+  const [clips, setClips] = useState<TimelineClip[]>(baseline)
   const [selected, setSelected] = useState<number | null>(null)
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -100,7 +98,13 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
   live.current = { clips, playing, playIndex }
 
   const sourceOf = useCallback(
-    (id: string) => sourceSeconds(editor.getElement(id)) ?? measured[id],
+    (id: string) => {
+      const el = editor.getElement(id)
+      return (
+        sourceSeconds(el) ??
+        (el?.type === 'image' && el.video ? measured[videoOutputUrl(el.video)] : undefined)
+      )
+    },
     [editor, measured],
   )
   const total = totalDuration(clips, sourceOf)
@@ -113,9 +117,7 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
 
   const urlOf = (list: readonly TimelineClip[], index: number) => {
     const el = editor.getElement(list[index]?.elementId ?? '')
-    return el?.type === 'image' && el.video
-      ? queueOutputUrl(el.video.taskId, el.video.outputIndex)
-      : null
+    return el?.type === 'image' && el.video ? videoOutputUrl(el.video) : null
   }
 
   /** 把预览放到全局 target 秒（按给定的片段表）：换段就换源，同一段直接定位。 */
@@ -129,7 +131,16 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
     live.current.playIndex = index
     const node = video.current
     const url = urlOf(list, index)
-    if (!node || !url) return
+    if (!node) return
+    if (!url) {
+      live.current.playing = false
+      setPlaying(false)
+      pendingSeek.current = null
+      node.pause()
+      node.removeAttribute('src')
+      node.load()
+      return
+    }
     if (node.getAttribute('src') !== url) {
       pendingSeek.current = sourceTime
       node.src = url
@@ -159,10 +170,11 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
     setTime(totalDuration(list, sourceOf))
   }
 
-  // 打开即把第一段载进预览，按播放才有画面。
+  // 主结果切换或源删除时同步预览；节点 ID 不变也不能继续播旧地址。
+  const previewUrl = urlOf(clips, playIndex)
   useEffect(() => {
-    seek(0)
-  }, [])
+    seek(time)
+  }, [previewUrl])
 
   // 播放中逐帧检查出点：timeupdate 只有约 4 次 / 秒，等它越过出点会多播一截。
   useEffect(() => {
@@ -213,17 +225,20 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
   const close = () => {
     const current = editor.getElement(timeline.id)
     if (current?.type === 'timeline' && !sameClips(clips, baseline, sourceOf)) {
-      if (current.clips !== baseline)
+      if (!session && !sameClips(current.clips, baseline, sourceOf))
         useStore.getState().showToast(t('timeline.changedElsewhere'), 'info')
-      editor.doc.updateElements(
-        [
-          {
-            id: timeline.id,
-            patch: { clips, width: timelineWidth(clips, (id) => editor.getElement(id)) },
-          },
-        ],
-        { history: true },
-      )
+      if (session) session.save(clips)
+      else if (onSave) onSave(timeline.id, clips)
+      else
+        editor.doc.updateElements(
+          [
+            {
+              id: timeline.id,
+              patch: { clips, width: timelineWidth(clips, (id) => editor.getElement(id)) },
+            },
+          ],
+          { history: true },
+        )
     }
     stop()
     useTimelineEditor.getState().close()
@@ -263,6 +278,11 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
         tabIndex={-1}
         onKeyDown={onKeyDown}
       >
+        {clips.length > PROJECT_TIMELINE_MAX_CLIPS && (
+          <p role="alert" className="px-3 text-xs text-destructive">
+            {t('timeline.overflow', { max: PROJECT_TIMELINE_MAX_CLIPS })}
+          </p>
+        )}
         <header className="flex items-center justify-between border-b border-border px-4 py-2">
           <h2 className="text-sm font-medium">
             {t('timeline.editorTitle')} · {clips.length} · {clock(total)}
@@ -350,6 +370,14 @@ function TimelineEditor({ editor, timeline }: { editor: CanvasEditor; timeline: 
             update(next)
           }}
           onRemove={(index) => update(removeClip(clips, index), { kind: 'remove', index })}
+          onLocate={
+            onLocate
+              ? (index) => {
+                  close()
+                  onLocate(clips[index]!.elementId)
+                }
+              : undefined
+          }
         />
       </div>
     </Overlay>
@@ -366,41 +394,46 @@ function useProbeUnknownDurations(
   setMeasured: (update: (current: Record<string, number>) => Record<string, number>) => void,
 ) {
   const tried = useRef(new Set<string>())
-  const unknownKey = [
-    ...new Set(
-      clips
-        .map((clip) => editor.getElement(clip.elementId))
-        .filter((el) => isTimelineSource(el) && sourceSeconds(el) === undefined)
-        .map((el) => el!.id),
-    ),
-  ]
-    .sort()
-    .join('|')
+  const unknownKey = JSON.stringify(
+    [
+      ...new Set(
+        clips.flatMap((clip) => {
+          const el = editor.getElement(clip.elementId)
+          return el?.type === 'image' && el.video && sourceSeconds(el) === undefined
+            ? [videoOutputUrl(el.video)]
+            : []
+        }),
+      ),
+    ].sort(),
+  )
   useEffect(() => {
     const probes: HTMLVideoElement[] = []
-    for (const id of unknownKey.split('|').filter(Boolean)) {
-      if (tried.current.has(id)) continue
-      tried.current.add(id)
-      const el = editor.getElement(id)
-      if (el?.type !== 'image' || !el.video) continue
+    const urls: string[] = JSON.parse(unknownKey)
+    for (const url of urls) {
+      if (tried.current.has(url)) continue
       const probe = document.createElement('video')
       probe.preload = 'metadata'
       probe.crossOrigin = 'use-credentials'
       probe.onloadedmetadata = () => {
+        tried.current.add(url)
         if (Number.isFinite(probe.duration))
-          setMeasured((current) => ({ ...current, [id]: probe.duration }))
+          setMeasured((current) => ({ ...current, [url]: probe.duration }))
       }
-      probe.src = queueOutputUrl(el.video.taskId, el.video.outputIndex)
+      probe.onerror = () => {
+        tried.current.add(url)
+      }
+      probe.src = url
       probes.push(probe)
     }
     return () => {
       for (const probe of probes) {
         probe.onloadedmetadata = null
+        probe.onerror = null
         probe.removeAttribute('src')
         probe.load()
       }
     }
-  }, [editor, unknownKey, setMeasured])
+  }, [unknownKey, setMeasured])
 }
 
 function ClipTrack({
@@ -412,6 +445,7 @@ function ClipTrack({
   onMove,
   onTrim,
   onRemove,
+  onLocate,
 }: {
   editor: CanvasEditor
   clips: TimelineClip[]
@@ -421,6 +455,7 @@ function ClipTrack({
   onMove: (from: number, to: number) => void
   onTrim: (index: number, edge: 'in' | 'out', seconds: number) => void
   onRemove: (index: number) => void
+  onLocate?: (index: number) => void
 }) {
   const { t } = useTranslation('canvas')
   const [dragFrom, setDragFrom] = useState<number | null>(null)
@@ -448,6 +483,9 @@ function ClipTrack({
           }}
           onTrim={(edge, seconds) => onTrim(index, edge, seconds)}
           onRemove={() => onRemove(index)}
+          onLocate={onLocate ? () => onLocate(index) : undefined}
+          onMoveLeft={index > 0 ? () => onMove(index, index - 1) : undefined}
+          onMoveRight={index < clips.length - 1 ? () => onMove(index, index + 1) : undefined}
         />
       ))}
     </ol>
@@ -467,6 +505,9 @@ function ClipCard({
   onDrop,
   onTrim,
   onRemove,
+  onLocate,
+  onMoveLeft,
+  onMoveRight,
 }: {
   editor: CanvasEditor
   clip: TimelineClip
@@ -480,12 +521,17 @@ function ClipCard({
   onDrop: () => void
   onTrim: (edge: 'in' | 'out', seconds: number) => void
   onRemove: () => void
+  onLocate?: () => void
+  onMoveLeft?: () => void
+  onMoveRight?: () => void
 }) {
   const { t } = useTranslation('canvas')
   const [trimming, setTrimming] = useState(false)
   const element = editor.getElement(clip.elementId)
   const missing = !isTimelineSource(element)
-  const poster = usePoster(element?.type === 'image' ? editor.doc.files[element.fileId] : undefined)
+  const poster = useNodeMedia(
+    element?.type === 'image' ? editor.doc.files[element.fileId] : undefined,
+  )
   const range = clipRange(clip, source)
   const duration = clipDuration(clip, source)
   const width = Math.max(MIN_CARD_WIDTH, duration * TRACK_PX_PER_SECOND)
@@ -548,7 +594,7 @@ function ClipCard({
         aria-valuemax={max}
         aria-valuenow={value}
         aria-valuetext={t('timeline.seconds', { seconds: value.toFixed(1) })}
-        className={`absolute inset-y-0 w-3 cursor-ew-resize touch-none bg-primary/70 ${
+        className={`absolute top-0 h-20 w-3 cursor-ew-resize touch-none bg-primary/70 ${
           isIn ? 'left-0' : 'right-0'
         }`}
         onPointerDown={startTrim(edge)}
@@ -604,6 +650,37 @@ function ClipCard({
           onClick={onRemove}
         >
           <Icon name="delete" />
+        </Button>
+      </div>
+      <div className="flex justify-center gap-1 px-3">
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label={t('timeline.moveEarlier', { index: index + 1 })}
+          disabled={!onMoveLeft}
+          onClick={onMoveLeft}
+        >
+          <Icon name="chevronLeft" />
+        </Button>
+        {onLocate && (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label={t('timeline.locate', { index: index + 1 })}
+            disabled={!element}
+            onClick={onLocate}
+          >
+            <Icon name="focus" />
+          </Button>
+        )}
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label={t('timeline.moveLater', { index: index + 1 })}
+          disabled={!onMoveRight}
+          onClick={onMoveRight}
+        >
+          <Icon name="chevronRight" />
         </Button>
       </div>
       {!missing && handle('in')}
