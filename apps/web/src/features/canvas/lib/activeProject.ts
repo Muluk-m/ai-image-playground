@@ -1,4 +1,5 @@
 import type { AgentConversationView } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import {
   AGENT_CONVERSATION_KEY,
   accountScope,
@@ -392,7 +393,10 @@ export async function copyCloudCanvasProject(id: string): Promise<CanvasProject>
   const session: CanvasCloudSession | undefined = openCanvasCloudSession()
   if (session?.projectId === id) await session.sync()
   if (!isCurrent()) throw new Error('account_changed')
-  const summary = await copyCloudProject(id)
+  const summary = await copyCloudProject(
+    id,
+    i18next.getFixedT(null, 'canvas')('grid.copyNameSuffix'),
+  )
   if (!isCurrent()) throw new Error('account_changed')
   const project = await restoreCloudProject(summary)
   if (!isCurrent()) throw new Error('account_changed')

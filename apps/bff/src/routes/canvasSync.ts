@@ -18,6 +18,17 @@ import { resolveAuthUser } from '../lib/user-auth'
 import { resolveUserSession, USER_SESSION_COOKIE } from '../lib/user-session'
 
 const id = t.Object({ id: t.String({ format: 'uuid' }) })
+
+/** 没有 JSON 正文时用服务端默认后缀。空正文或非字符串都不算指定。 */
+async function copySuffix(request: Request): Promise<string | undefined> {
+  if (!request.headers.get('content-type')?.includes('application/json')) return undefined
+  try {
+    const body = (await request.json()) as { suffix?: unknown }
+    return typeof body?.suffix === 'string' ? body.suffix : undefined
+  } catch {
+    return undefined
+  }
+}
 const sessions = new Map<
   string,
   {
@@ -127,9 +138,9 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
   )
   .post(
     '/api/projects/:id/copy',
-    async ({ authUser, params, status }) => {
+    async ({ authUser, params, request, status }) => {
       try {
-        return await copyCanvasProject(authUser!.id, params.id)
+        return await copyCanvasProject(authUser!.id, params.id, await copySuffix(request))
       } catch (error) {
         if (error instanceof CanvasSyncError) return status(error.status, { error: error.message })
         throw error
