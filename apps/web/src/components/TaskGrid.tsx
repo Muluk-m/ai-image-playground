@@ -1,4 +1,12 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { i18next, useTranslation } from '../i18n'
@@ -10,6 +18,12 @@ import {
   readLegacyStoryboardTitles,
 } from '../lib/legacyProductHistory'
 import { groupTasksBySet } from '../lib/setHistory'
+import {
+  revealSubmittedCard,
+  submittedTaskServerSnapshot,
+  submittedTaskSnapshot,
+  subscribeSubmittedTasks,
+} from '../lib/submittedTaskAttention'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import SetHistoryCard from './SetHistoryCard'
@@ -58,6 +72,14 @@ export default function TaskGrid({
 } = {}) {
   const { t } = useTranslation('task')
   const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
+  const submittedIds = useSyncExternalStore(
+    subscribeSubmittedTasks,
+    submittedTaskSnapshot,
+    submittedTaskServerSnapshot,
+  )
+  const [submittedAnnouncement, setSubmittedAnnouncement] = useState('')
+  const revealedSubmittedIds = useRef(new Set<string>())
+  const submittedAnnouncementRef = useRef('')
   const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
@@ -357,34 +379,78 @@ export default function TaskGrid({
     }
   }, [clearSelection, isMac])
 
-  const renderTask = (task: (typeof tasks)[0]) => (
-    <div key={task.id} className="task-card-wrapper" data-task-id={task.id}>
-      <TaskCard
-        task={task}
-        onClick={(e) => {
-          if (Date.now() < suppressClickUntil.current) {
-            e.preventDefault()
-            return
-          }
-          suppressClickUntil.current = 0
-          const isCtrl = isMac ? e.metaKey : e.ctrlKey
-          if (isCtrl) {
-            useStore.getState().toggleTaskSelection(task.id)
-          } else if (selectedTaskIds.length > 0) {
-            clearSelection()
-            setDetailTaskId(task.id)
-          } else {
-            setDetailTaskId(task.id)
-          }
-        }}
-        onReuse={() => reuseConfig(task)}
-        onEditOutputs={() => editOutputImage(task)}
-        onSendToCanvas={() => sendTaskToCanvas(task)}
-        onDelete={() => handleDelete(task)}
-        isSelected={selectedTaskIds.includes(task.id)}
-      />
-    </div>
-  )
+  // 只有这次主动发送记下来的任务才滚、高亮、抢焦点。恢复和轮询会改 tasks，但 id 不在这份名单里。
+  useLayoutEffect(() => {
+    const root = gridRef.current
+    if (!root) return
+    const pending = submittedIds.filter((id) => !revealedSubmittedIds.current.has(id))
+    if (pending.length === 0) return
+    const cards: HTMLElement[] = []
+    const byId = new Map(
+      [...root.querySelectorAll<HTMLElement>('[data-task-id]')].map((node) => [
+        node.dataset.taskId,
+        node,
+      ]),
+    )
+    for (const id of pending) {
+      const card = byId.get(id)
+      if (!card) continue
+      revealedSubmittedIds.current.add(id)
+      cards.push(card)
+    }
+    const primary = cards[0]
+    if (!primary) return
+    revealSubmittedCard(primary)
+    const phrase = t('grid.submitted')
+    if (submittedAnnouncementRef.current) {
+      submittedAnnouncementRef.current = ''
+      setSubmittedAnnouncement('')
+      requestAnimationFrame(() => {
+        submittedAnnouncementRef.current = phrase
+        setSubmittedAnnouncement(phrase)
+      })
+    } else {
+      submittedAnnouncementRef.current = phrase
+      setSubmittedAnnouncement(phrase)
+    }
+  }, [submittedIds, filteredTasks, expandedSetIds, historyReady, limit, t])
+
+  const renderTask = (task: (typeof tasks)[0]) => {
+    const attended = submittedIds.includes(task.id)
+    return (
+      <div
+        key={task.id}
+        className={attended ? 'task-card-wrapper task-submitted-attention' : 'task-card-wrapper'}
+        data-task-id={task.id}
+        tabIndex={attended ? -1 : undefined}
+      >
+        <TaskCard
+          task={task}
+          onClick={(e) => {
+            if (Date.now() < suppressClickUntil.current) {
+              e.preventDefault()
+              return
+            }
+            suppressClickUntil.current = 0
+            const isCtrl = isMac ? e.metaKey : e.ctrlKey
+            if (isCtrl) {
+              useStore.getState().toggleTaskSelection(task.id)
+            } else if (selectedTaskIds.length > 0) {
+              clearSelection()
+              setDetailTaskId(task.id)
+            } else {
+              setDetailTaskId(task.id)
+            }
+          }}
+          onReuse={() => reuseConfig(task)}
+          onEditOutputs={() => editOutputImage(task)}
+          onSendToCanvas={() => sendTaskToCanvas(task)}
+          onDelete={() => handleDelete(task)}
+          isSelected={selectedTaskIds.includes(task.id)}
+        />
+      </div>
+    )
+  }
 
   if (hero && !historyReady) return <HomeWorksSkeleton />
 
@@ -446,6 +512,9 @@ export default function TaskGrid({
       data-task-grid-root
       className={`relative ${unfiltered ? '' : 'min-h-[50vh]'}`}
     >
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {submittedAnnouncement}
+      </div>
       <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
         {visibleRows.flatMap((row) => row.nodes)}
       </div>
