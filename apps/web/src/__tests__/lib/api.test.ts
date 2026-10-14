@@ -6,6 +6,11 @@ import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { type AppSettings, DEFAULT_PARAMS } from '../../types'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
+vi.mock('../../lib/devProxy', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/devProxy')>()),
+  readClientDevProxyConfig: () => null,
+}))
+
 const mockChannels = vi.hoisted(() => ({ list: [] as PublicChannel[] }))
 vi.mock('../../lib/channels/publicChannels', () => ({
   getPublicChannels: () => mockChannels.list,

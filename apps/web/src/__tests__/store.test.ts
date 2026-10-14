@@ -73,6 +73,17 @@ vi.mock('../lib/db', () => {
 vi.mock('../features/library/lib/assetStore', () => {
   const assets = new Map<string, AssetRecord>()
   return {
+    updateAssetRecord: async (
+      id: string,
+      change: (asset: AssetRecord) => AssetRecord,
+      canWrite = () => true,
+    ) => {
+      const current = assets.get(id)
+      if (!current || !canWrite()) return null
+      const saved = change(current)
+      assets.set(id, saved)
+      return saved
+    },
     assetStore: {
       list: async () => [...assets.values()],
       put: async (asset: AssetRecord) => {
@@ -164,6 +175,7 @@ import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
+import * as database from '../lib/db'
 import { clearImages, getAllImages, getAllTasks, getImage, putImage } from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
@@ -1078,6 +1090,51 @@ describe('getPersistedState builtin profile stripping', () => {
 })
 
 describe('addCompletedCanvasTask', () => {
+  it('does not report a failed task write as persisted and allows the same completion to retry', async () => {
+    const task = {
+      id: 'canvas:storage-retry',
+      prompt: 'retry',
+      params: DEFAULT_PARAMS,
+      images: ['data:image/png;base64,one'],
+    }
+    const saving = vi.spyOn(database, 'putTask').mockRejectedValueOnce(new Error('quota exceeded'))
+    try {
+      expect(await addCompletedCanvasTask(task)).toBe(false)
+      expect(useStore.getState().tasks.some((t) => t.id === task.id)).toBe(false)
+      expect(await addCompletedCanvasTask(task)).toBe(true)
+      expect((await getAllTasks()).find((t) => t.id === task.id)?.outputImages).toHaveLength(1)
+    } finally {
+      saving.mockRestore()
+    }
+  })
+
+  it('preserves favorites and original completion metadata on repeated delivery', async () => {
+    const task = {
+      id: 'canvas:favorite-job',
+      prompt: 'original',
+      params: DEFAULT_PARAMS,
+      images: [],
+      elapsed: 123,
+    }
+    await addCompletedCanvasTask(task)
+    const original = { ...useStore.getState().tasks[0]!, isFavorite: true }
+    useStore.getState().setTasks([original])
+    await addCompletedCanvasTask({ ...task, prompt: 'late recovery', elapsed: 999 })
+    expect(useStore.getState().tasks).toEqual([original])
+  })
+
+  it('upserts a recovered completion by its stable task identity', async () => {
+    useStore.getState().setTasks([])
+    const task = {
+      id: 'canvas:same-job',
+      prompt: 'two devices',
+      params: DEFAULT_PARAMS,
+      images: [],
+    }
+    await Promise.all([addCompletedCanvasTask(task), addCompletedCanvasTask(task)])
+    expect(useStore.getState().tasks.filter((record) => record.id === task.id)).toHaveLength(1)
+  })
+
   beforeEach(() => {
     useStore.setState({ settings: { ...DEFAULT_SETTINGS }, tasks: [] })
   })

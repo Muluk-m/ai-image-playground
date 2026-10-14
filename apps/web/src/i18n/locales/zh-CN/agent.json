@@ -51,6 +51,8 @@
     "copyFailed": "复制失败，请选择回复文字手动复制"
   },
   "tool": {
+    "canvasReadNodes": "已读取节点：{{nodes}}",
+    "canvasReadNone": "无",
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
     "notFinished": "没有完成",
@@ -495,7 +497,9 @@
     "lookMeta": "{{purpose}} · {{size}} · {{slots}} 个素材位",
     "kind": {
       "product": "产品",
-      "person": "人物"
+      "person": "人物",
+      "location": "地点",
+      "prop": "道具"
     },
     "background": {
       "transparent": "透明底",
@@ -673,5 +677,17 @@
     "upload": "上传图片",
     "clear": "清空",
     "canvas": "画布"
+  },
+  "canvasWelcome": {
+    "title": "让灵感，在这里萌芽",
+    "readCanvas": "从画布开始创作",
+    "readPrompt": "请读取当前选中的画布节点，梳理已有素材，并帮我规划下一步创作。"
+  },
+  "nodeRun": {
+    "title": "运行节点建议",
+    "unpriced": "按实际模型用量结算",
+    "unavailable": "请打开对应画布，并确认建议中的节点仍然存在。",
+    "changed": "画布或参数已变化，或确认窗口已经打开，请重新检查。",
+    "review": "检查节点并确认"
   }
 }

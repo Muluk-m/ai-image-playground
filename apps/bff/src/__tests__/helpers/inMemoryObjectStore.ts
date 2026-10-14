@@ -23,6 +23,10 @@ export class InMemoryObjectStore implements ObjectStore {
     this.objects.set(key, { bytes: Uint8Array.from(bytes), contentType })
   }
 
+  async writeStream(key: string, stream: ReadableStream<Uint8Array>, contentType: string) {
+    await this.write(key, new Uint8Array(await new Response(stream).arrayBuffer()), contentType)
+  }
+
   async read(key: string): Promise<Uint8Array<ArrayBuffer>> {
     this.events.push(`read:${key}`)
     if (this.readFailuresRemaining > 0) {

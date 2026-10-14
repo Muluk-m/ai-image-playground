@@ -1,0 +1,1 @@
+{ "capabilities": { "accounts:login": true, "accounts:sync": true, "canvas:nodes": true }, "quotas": { "sync:user-projects": 30 } }

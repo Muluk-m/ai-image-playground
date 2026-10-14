@@ -1,10 +1,11 @@
+import type { StreamTargetChunk } from 'mediabunny'
 import type { ComposeClip, ComposeFailure } from './composeFilm'
 import { FILM_SAMPLE_RATE, type FilmClip } from './filmSpec'
 import type { FilmWorkerRequest, FilmWorkerResponse } from './filmWorker'
 
 /** 成片流水线里不依赖应用（鉴权、下载）的部分，单独成模块方便在真实浏览器里验证。 */
 
-export type FilmExportFailure = ComposeFailure | 'fetch' | 'encode'
+export type FilmExportFailure = ComposeFailure | 'fetch' | 'encode' | 'zipTooLarge'
 
 export class FilmExportError extends Error {
   constructor(
@@ -42,34 +43,66 @@ export async function decodeClipAudio(
   )
 }
 
-/** 在 Worker 里合成。取消或失败都直接结束 Worker，编了一半的数据随之释放。 */
+/** 一次只传一段原片；每次写盘确认后才允许 Worker 继续输出。 */
 export function composeInWorker(
   worker: Worker,
-  clips: ComposeClip[],
+  count: number,
   signal: AbortSignal,
-  onProgress: (fraction: number) => void,
-): Promise<ArrayBuffer> {
+  handlers: {
+    loadClip: (index: number) => Promise<ComposeClip>
+    write: (chunk: StreamTargetChunk) => Promise<void>
+    onProgress: (fraction: number) => void
+  },
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const settle = (finish: () => void) => {
+    let settled = false
+    const pending = new Set<Promise<void>>()
+    const settle = (error?: unknown) => {
+      if (settled) return
+      settled = true
       signal.removeEventListener('abort', onAbort)
       worker.terminate()
-      finish()
+      // decodeAudioData 不可取消；等当前解码释放后再让 UI 开始下一次导出。
+      void Promise.allSettled(pending).then(() => {
+        if (error === undefined) resolve()
+        else reject(error)
+      })
     }
     function onAbort() {
-      settle(() => reject(signal.reason))
+      settle(signal.reason ?? new DOMException('Aborted', 'AbortError'))
     }
     if (signal.aborted) return onAbort()
     signal.addEventListener('abort', onAbort, { once: true })
+    const post = (message: FilmWorkerRequest, transfer: Transferable[] = []) => {
+      if (!settled) worker.postMessage(message, transfer)
+    }
+    const track = (task: Promise<void>) => {
+      pending.add(task)
+      void task.catch(settle).finally(() => pending.delete(task))
+    }
     worker.onmessage = (event: MessageEvent<FilmWorkerResponse>) => {
+      if (settled) return
       const data = event.data
-      if (data.type === 'progress') onProgress(data.fraction)
-      else if (data.type === 'done') settle(() => resolve(data.buffer))
-      else settle(() => reject(new FilmExportError(data.reason, data.position, data.message)))
+      if (data.type === 'clip') {
+        track(
+          handlers.loadClip(data.index).then((clip) => {
+            post(
+              { type: 'clip', clip },
+              clip.audio.map((channel) => channel.buffer),
+            )
+          }),
+        )
+      } else if (data.type === 'write') {
+        track(handlers.write(data.chunk).then(() => post({ type: 'written' })))
+      } else if (data.type === 'progress') handlers.onProgress(data.fraction)
+      else if (data.type === 'done') settle()
+      else settle(new FilmExportError(data.reason, data.position, data.message))
     }
-    worker.onerror = (event) => {
-      settle(() => reject(new FilmExportError('encode', undefined, event.message)))
+    worker.onerror = (event) => settle(new FilmExportError('encode', undefined, event.message))
+    try {
+      post({ type: 'start', count })
+    } catch (error) {
+      settle(error)
     }
-    const transfer = clips.flatMap((clip) => clip.audio.map((channel) => channel.buffer))
-    worker.postMessage({ clips } satisfies FilmWorkerRequest, transfer)
   })
 }

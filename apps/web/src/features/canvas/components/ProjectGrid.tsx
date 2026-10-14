@@ -8,7 +8,6 @@ import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
-import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
@@ -25,19 +24,6 @@ import {
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectCover from './ProjectCover'
 import ProjectTrash from './ProjectTrash'
-
-function projectBadge(project: CanvasProject): {
-  label: 'grid.chat' | 'project.kindVideo' | 'grid.canvas'
-} {
-  return {
-    label:
-      projectExperience(project) === 'chat'
-        ? 'grid.chat'
-        : project.kind === 'video'
-          ? 'project.kindVideo'
-          : 'grid.canvas',
-  }
-}
 
 type ExperienceFilter = 'all' | 'chat' | 'canvas'
 const FILTERS = [
@@ -90,17 +76,13 @@ export default function ProjectGrid({
   const visible = scoped
     .filter((project) => !showFilter || filter === 'all' || projectExperience(project) === filter)
     .slice(0, recent ? RECENT_PROJECT_COUNT : undefined)
-  const enter = async (
-    project?: CanvasProject,
-    kind?: 'image' | 'video',
-    entry: 'chat' | 'canvas' = 'canvas',
-  ) => {
+  const enter = async (project?: CanvasProject, entry: 'chat' | 'canvas' = 'canvas') => {
     if (busy) return
     setBusy(true)
     try {
       const opened = project
         ? await useAgentStore.getState().selectProject(project.id)
-        : await useAgentStore.getState().createProject(kind, false, entry)
+        : await useAgentStore.getState().createProject(undefined, false, entry)
       if (opened) {
         // 挑中或建出项目就落到画布——项目的唯一去处就是它自己的工作台。
         useStore.getState().setAppMode('canvas')
@@ -165,26 +147,15 @@ export default function ProjectGrid({
           <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl border border-border bg-muted/50 text-muted-foreground">
             <Icon name="add" size="lg" />
             <span className="text-sm font-medium">{t('grid.newProject')}</span>
-            {/* 画布类型建后不可改，所以在这里问一次，而不是进去再切。 */}
             <div className="flex flex-wrap justify-center gap-2">
-              <Button size="sm" disabled={busy} onClick={() => void enter(undefined, 'image')}>
-                {t('project.kindImage')}
+              <Button size="sm" disabled={busy} onClick={() => void enter()}>
+                {t('grid.canvas')}
               </Button>
-              {isVideoModeAvailable() && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void enter(undefined, 'video')}
-                >
-                  {t('project.kindVideo')}
-                </Button>
-              )}
               <Button
                 size="sm"
                 variant="outline"
                 disabled={busy}
-                onClick={() => void enter(undefined, undefined, 'chat')}
+                onClick={() => void enter(undefined, 'chat')}
               >
                 {t('grid.chat')}
               </Button>
@@ -192,8 +163,7 @@ export default function ProjectGrid({
           </div>
         )}
         {visible.map((project) => {
-          const { label } = projectBadge(project)
-          const typeLabel = t(label)
+          const typeLabel = t(projectExperience(project) === 'chat' ? 'grid.chat' : 'grid.canvas')
           const isCurrent = project.id === selectedId
           const statusLabel = [typeLabel, ...(isCurrent ? [t('grid.current')] : [])].join(' · ')
           return (
@@ -220,11 +190,6 @@ export default function ProjectGrid({
                         project.conversationId === runningConversationId)
                     }
                   />
-                  {project.kind === 'video' && (
-                    <span className="creation-play-badge">
-                      <Icon name="play" />
-                    </span>
-                  )}
                 </>
               }
               menu={

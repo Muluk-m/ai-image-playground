@@ -55,6 +55,8 @@
     "copyFailed": "Copy failed. Select the reply text and copy it manually."
   },
   "tool": {
+    "canvasReadNodes": "Read nodes: {{nodes}}",
+    "canvasReadNone": "None",
     "background": "Generating in the background; the result will appear here",
     "preparing": "Preparing",
     "notFinished": "Did not finish",
@@ -520,7 +522,9 @@
     "lookMeta": "{{purpose}} · {{size}} · {{slots}} asset slots",
     "kind": {
       "product": "Product",
-      "person": "Person"
+      "person": "Person",
+      "location": "Location",
+      "prop": "Prop"
     },
     "background": {
       "transparent": "Transparent",
@@ -703,5 +707,17 @@
     "upload": "Upload images",
     "clear": "Clear",
     "canvas": "Canvas"
+  },
+  "canvasWelcome": {
+    "title": "Give your ideas room to grow",
+    "readCanvas": "Create from your canvas",
+    "readPrompt": "Read the selected canvas nodes, review the existing material, and help me plan what to create next."
+  },
+  "nodeRun": {
+    "title": "Suggested node run",
+    "unpriced": "Charged by actual model usage",
+    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
+    "changed": "The canvas or settings changed, or a confirmation is already open. Review again.",
+    "review": "Review nodes and confirm"
   }
 }

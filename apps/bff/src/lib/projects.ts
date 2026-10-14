@@ -88,6 +88,14 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       .where(and(eq(table.id, id), eq(table.user_id, userId)))
     if (existing?.deleted_at != null)
       return { ok: false as const, status: 410 as const, error: 'project_deleted' }
+    const [migrated] = existing
+      ? await tx
+          .select({ id: schema.canvas_documents.project_id })
+          .from(schema.canvas_documents)
+          .where(eq(schema.canvas_documents.project_id, id))
+      : []
+    if (migrated)
+      return { ok: false as const, status: 409 as const, error: 'project_canvas_upgrade_required' }
     const receipt = existing?.receipts.find((one) => one.requestId === input.requestId)
     if (receipt)
       return receipt.digest === digest
@@ -140,10 +148,13 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
     const imageIds = input.document.elements.flatMap((element) =>
       element.type === 'image' ? [element.mediaId] : [],
     )
-    const mediaIds = [...new Set(imageIds)]
+    const videoIds = input.document.elements.flatMap((el) =>
+      el.type === 'image' && el.video?.mediaId ? [el.video.mediaId] : [],
+    )
+    const mediaIds = [...new Set([...imageIds, ...videoIds])]
     if (mediaIds.length) {
       const ready = await tx
-        .select({ id: schema.media_objects.id })
+        .select({ id: schema.media_objects.id, contentType: schema.media_objects.content_type })
         .from(schema.media_objects)
         .where(
           and(
@@ -152,7 +163,10 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
             inArray(schema.media_objects.id, mediaIds),
           ),
         )
-      if (ready.length !== mediaIds.length)
+      if (
+        ready.length !== mediaIds.length ||
+        ready.some((media) => videoIds.includes(media.id) && media.contentType !== 'video/mp4')
+      )
         return { ok: false as const, status: 409 as const, error: 'project_media_not_ready' }
     }
     const now = Date.now()

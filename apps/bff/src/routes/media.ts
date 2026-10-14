@@ -2,11 +2,16 @@ import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { log } from '../lib/logger'
 import { accessMedia, completeMedia, MediaError, reserveMedia } from '../lib/projectMedia'
+import { promoteQueueVideo, serveMediaContent } from '../lib/projectVideoMedia'
 import { resolveAuthUser } from '../lib/user-auth'
 
 async function respond(
   work: () => Promise<unknown>,
-  context: { userId: string; mediaId?: string; stage: 'reserve' | 'complete' | 'access' },
+  context: {
+    userId: string
+    mediaId?: string
+    stage: 'reserve' | 'complete' | 'access' | 'promote' | 'content'
+  },
 ) {
   try {
     return await work()
@@ -79,6 +84,38 @@ export const mediaRoutes = new Elysia()
             userId: authUser.id,
             mediaId: params.id,
             stage: 'access',
+          })
+        : status(401, { error: 'unauthorized' }),
+    { params },
+  )
+
+  .post(
+    '/api/media/video-outputs',
+    ({ authUser, body, status }) =>
+      authUser
+        ? respond(() => promoteQueueVideo(authUser.id, body.taskId, body.outputIndex), {
+            userId: authUser.id,
+            stage: 'promote',
+          })
+        : status(401, { error: 'unauthorized' }),
+    {
+      body: t.Object(
+        {
+          taskId: t.String({ pattern: '^[A-Za-z0-9_-]{1,128}$' }),
+          outputIndex: t.Integer({ minimum: 0, maximum: 15 }),
+        },
+        { additionalProperties: false },
+      ),
+    },
+  )
+  .get(
+    '/api/media/:id/content',
+    ({ authUser, params, request, status }) =>
+      authUser
+        ? respond(() => serveMediaContent(authUser.id, params.id, request), {
+            userId: authUser.id,
+            mediaId: params.id,
+            stage: 'content',
           })
         : status(401, { error: 'unauthorized' }),
     { params },

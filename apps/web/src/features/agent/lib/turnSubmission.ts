@@ -12,6 +12,7 @@ import {
 } from '../../../lib/localAttachmentSources'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import { liveCanvasSnapshot } from '../../canvas/lib/canvasSnapshot'
+import { nodeCanvasSelection } from '../../canvas/lib/nodeCanvasSelection'
 import { type CanvasProject, projectExperience } from '../../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../../canvas/lib/workspaceKeys'
 import { inlineReferenceCount } from './agentClient'
@@ -76,6 +77,8 @@ export function captureTurnSubmission(input: {
     canvas = liveCanvasSnapshot(workspace.doc, (fileId, source) =>
       cloud?.knownMediaId(fileId, source),
     )
+    const selectedNodeIds = nodeCanvasSelection(workspace.editor)
+    if (canvas && selectedNodeIds) canvas = { ...canvas, selectedNodeIds }
     canvasReferenceIds = input.references.flatMap((reference) => {
       if (!('dataUrl' in reference) || reference.maskDataUrl) return []
       const element = workspace.doc.elements.find((one) => one.id === reference.imageId)
@@ -124,6 +127,8 @@ export function captureTurnSubmission(input: {
         }
       : undefined,
     async prepare(): Promise<TurnSubmissionSnapshot | null> {
+      // readCanvas reads the server document; do not let a turn race unsent node edits.
+      if (snapshot.canvas?.selectedNodeIds && cloud && 'canvas' in cloud) await cloud.sync()
       const local = snapshot.references.flatMap((reference) =>
         'dataUrl' in reference &&
         !reference.maskDataUrl &&
