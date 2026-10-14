@@ -1,44 +1,25 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { guideEn } from '../features/guide/content/en'
-import { guideZhCN } from '../features/guide/content/zh-CN'
-import type { GuideContent } from '../features/guide/model'
-import {
-  buildSearchIndex,
-  escapeHtml,
-  guidePagePath,
-  renderGuidePage,
-} from '../features/guide/render'
+import { buildSearchIndex, renderGuidePage } from '../features/guide/render'
+import { homeStructuredData } from './homeMeta'
+import { renderLlmsTxt } from './llms'
+import { collectSitemapPages, GUIDE_EDITIONS, GUIDE_PAGES, indexablePaths } from './pages'
+import { renderSitemap } from './sitemap'
 
 /**
  * 搜索引擎相关的构建产物，全部由构建环境决定：
  * - `PUBLIC_ORIGIN`：站点公开源（Pages 发布脚本按版本传入）。有它才写 canonical、og:url、
  *   hreflang、结构化数据与 sitemap——这些都要求绝对地址，猜错域名比不写更糟。
- * - `SEARCH_INDEXING=false`：测试站与内部站。robots.txt 整站 Disallow，页面再加 noindex。
- *   未设置时按允许收录处理，自托管的默认行为与普通网站一致。
+ *   `llms.txt` 在没有源时改写为站内路径，不猜域名。
+ * - `SEARCH_INDEXING=false`：测试站与内部站。robots.txt 整站 Disallow，页面再加 noindex，
+ *   不产出 sitemap.xml 与 llms.txt。未设置时按允许收录处理。
  *
  * 使用指南在这里整页渲染成静态 HTML（见 `features/guide/render.ts`），每种语言一个首页加每章
  * 一页，另出一份站内搜索索引；应用首页仍是 SPA，只补 head 里的元信息。
- * 形状是 Vite 的 Plugin，这里不 import vite 以免把它带进应用的类型图。
+ * 公开页面登记在 `pages.ts`。形状是 Vite 的 Plugin，这里不 import vite 以免把它带进应用的类型图。
  */
 
-/** 第一份是 x-default。 */
-const EDITIONS: GuideContent[] = [guideZhCN, guideEn]
-
-interface GuidePageRef {
-  content: GuideContent
-  chapterId: string | null
-}
-
-/** 每个指南页面：站内地址 → 内容。Vite 入口 `apps/web<path>index.html` 与它一一对应。 */
-const GUIDE_PAGES: Record<string, GuidePageRef> = Object.fromEntries(
-  EDITIONS.flatMap((content) =>
-    [null, ...content.chapters.map((chapter) => chapter.id)].map((chapterId) => [
-      guidePagePath(content, chapterId),
-      { content, chapterId },
-    ]),
-  ),
-)
+const EDITIONS = GUIDE_EDITIONS
 
 /**
  * Vite 的 HTML 入口：每页一个占位文件（`apps/web/guide/**\/index.html`），内容在 transform 时整页替换。
@@ -53,10 +34,7 @@ export function guideHtmlEntries(webRoot: string): Record<string, string> {
   )
 }
 
-const searchIndexPath = (content: GuideContent) => `${content.root}search.json`
-
-/** 收进 sitemap 的应用公开页面。`/image` 与 `/` 是同一个入口，只列根地址。 */
-const SITEMAP_PATHS = ['/', '/explore', '/pricing', '/terms', '/privacy']
+const searchIndexPath = (content: (typeof EDITIONS)[number]) => `${content.root}search.json`
 
 interface EmitContext {
   emitFile(file: { type: 'asset'; fileName: string; source: string }): string
@@ -99,7 +77,7 @@ function readOrigin(raw: string | undefined): string | null {
   return value
 }
 
-function homeTags(origin: string | null, indexing: boolean) {
+export function homeTags(origin: string | null, indexing: boolean) {
   const tags: { tag: string; attrs?: Record<string, string>; children?: string }[] = []
   if (!indexing) tags.push({ tag: 'meta', attrs: { name: 'robots', content: 'noindex, nofollow' } })
   if (!origin) return tags
@@ -115,41 +93,10 @@ function homeTags(origin: string | null, indexing: boolean) {
     {
       tag: 'script',
       attrs: { type: 'application/ld+json' },
-      children: JSON.stringify({
-        '@context': 'https://schema.org',
-        '@type': 'WebApplication',
-        name: '幕芽 Muvloom',
-        alternateName: 'Muvloom',
-        url,
-        applicationCategory: 'DesignApplication',
-        operatingSystem: 'Web',
-        description:
-          '幕芽 Muvloom，AI 图片与视频创作工作台：一句话生成图片，在无限画布上继续编辑，与 AI 智能体一起完成创作。',
-        image,
-        inLanguage: ['zh-CN', 'en'],
-      }).replace(/</g, '\\u003c'),
+      children: JSON.stringify(homeStructuredData(origin)).replace(/</g, '\\u003c'),
     },
   )
   return tags
-}
-
-function sitemap(origin: string): string {
-  const guidePages = Object.values(GUIDE_PAGES).map(({ content, chapterId }) => {
-    const alternates = EDITIONS.map(
-      (edition) =>
-        `<xhtml:link rel="alternate" hreflang="${edition.lang}" href="${escapeHtml(origin + guidePagePath(edition, chapterId))}"/>`,
-    ).join('')
-    return `<url><loc>${escapeHtml(origin + guidePagePath(content, chapterId))}</loc>${alternates}</url>`
-  })
-  const pages = [
-    ...SITEMAP_PATHS.map((path) => `<url><loc>${escapeHtml(origin + path)}</loc></url>`),
-    ...guidePages,
-  ]
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
-${pages.join('\n')}
-</urlset>
-`
 }
 
 function robots(origin: string | null, indexing: boolean): string {
@@ -157,6 +104,40 @@ function robots(origin: string | null, indexing: boolean): string {
   const lines = ['User-agent: *', 'Allow: /', 'Disallow: /p/']
   if (origin) lines.push('', `Sitemap: ${origin}/sitemap.xml`)
   return `${lines.join('\n')}\n`
+}
+
+export function readLlmsSource(): string {
+  return readFileSync(new URL('./llms.txt', import.meta.url), 'utf8')
+}
+
+/**
+ * robots、sitemap、llms.txt。搜索索引仍由插件按指南内容另发。
+ * 测试站不发 llms.txt：这份文件会被当成该主机的产品说明，写上测试域名或借测试主机
+ * 指向生产站都是错的。允许收录但没有公开源时仍发出，链接改成站内路径。
+ */
+export function seoStaticFiles(input: {
+  origin: string | null
+  indexing: boolean
+  updated: string
+  llmsSource: string
+}): { fileName: string; source: string }[] {
+  const files = [{ fileName: 'robots.txt', source: robots(input.origin, input.indexing) }]
+  if (input.origin && input.indexing) {
+    files.push({
+      fileName: 'sitemap.xml',
+      source: renderSitemap(input.origin, collectSitemapPages(input.updated)),
+    })
+  }
+  if (input.indexing) {
+    files.push({
+      fileName: 'llms.txt',
+      source: renderLlmsTxt(input.llmsSource, {
+        origin: input.origin,
+        paths: indexablePaths(),
+      }),
+    })
+  }
+  return files
 }
 
 export function seoPlugin({ publicDir }: { publicDir: string }) {
@@ -194,9 +175,13 @@ export function seoPlugin({ publicDir }: { publicDir: string }) {
       })
     },
     generateBundle(this: EmitContext) {
-      this.emitFile({ type: 'asset', fileName: 'robots.txt', source: robots(origin, indexing) })
-      if (origin && indexing)
-        this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemap(origin) })
+      for (const file of seoStaticFiles({
+        origin,
+        indexing,
+        updated,
+        llmsSource: readLlmsSource(),
+      }))
+        this.emitFile({ type: 'asset', fileName: file.fileName, source: file.source })
       for (const content of EDITIONS)
         this.emitFile({
           type: 'asset',
