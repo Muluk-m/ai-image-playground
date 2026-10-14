@@ -6,13 +6,16 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_agent_follow_ups')
 process.env.PORT = '0'
 
 const {
+  followUpLimitsForTesting,
   followUpSource,
   normalizeFollowUpLines,
   readAgentFollowUps,
   recordAgentFollowUps,
   scheduleAgentFollowUps,
+  setFollowUpRetryDelayForTesting,
   suggestFollowUps,
 } = await import('../../../lib/agent/follow-ups')
+const { ChatTimeoutError, ChatUpstreamError } = await import('../../../lib/chatCompletion')
 const { listAgentTurnSummaries, recordAgentTurnSummary } = await import(
   '../../../lib/agent/turn-summary'
 )
@@ -37,6 +40,7 @@ async function conversation(): Promise<string> {
 }
 
 beforeEach(async () => {
+  setFollowUpRetryDelayForTesting(0)
   await db.delete(schema.agent_conversations)
 })
 
@@ -92,11 +96,51 @@ describe('下一句的句子', () => {
       [],
     )
     expect(asked.calls).toBe(0)
+    const down = countedAsk(() => {
+      throw new Error('upstream down')
+    })
+    expect(await suggestFollowUps({ userText: '画一张', assistantText: '好' }, down.ask)).toEqual(
+      [],
+    )
+    expect(down.calls).toBe(1)
+  })
+
+  it('单次 30 秒，超时或瞬时故障只再试一次', async () => {
+    expect(followUpLimitsForTesting()).toEqual({ timeoutMs: 30_000, attempts: 2 })
+
+    const timeout = countedAsk((call) => {
+      if (call === 1) throw new ChatTimeoutError(30_000)
+      return { lines: ['换成夜景。', '出一张方形。'] }
+    })
     expect(
-      await suggestFollowUps({ userText: '画一张', assistantText: '好' }, async () => {
-        throw new Error('upstream down')
-      }),
-    ).toEqual([])
+      await suggestFollowUps({ userText: '画一张', assistantText: '好' }, timeout.ask),
+    ).toEqual(['换成夜景。', '出一张方形。'])
+    expect(timeout.calls).toBe(2)
+
+    const hung = countedAsk(() => {
+      throw new ChatTimeoutError(30_000)
+    })
+    expect(await suggestFollowUps({ userText: '画一张', assistantText: '好' }, hung.ask)).toEqual(
+      [],
+    )
+    expect(hung.calls).toBe(2)
+
+    const gateway = countedAsk((call) => {
+      if (call === 1) throw new ChatUpstreamError(502, 'bad gateway')
+      return { lines: ['灯光暖一点。', '再出一张方形。'] }
+    })
+    expect(
+      await suggestFollowUps({ userText: '画一张', assistantText: '好' }, gateway.ask),
+    ).toEqual(['灯光暖一点。', '再出一张方形。'])
+    expect(gateway.calls).toBe(2)
+
+    const quota = countedAsk(() => {
+      throw new ChatUpstreamError(429, 'insufficient_quota')
+    })
+    expect(await suggestFollowUps({ userText: '画一张', assistantText: '好' }, quota.ask)).toEqual(
+      [],
+    )
+    expect(quota.calls).toBe(1)
   })
 })
 
@@ -183,6 +227,43 @@ describe('下一句落库', () => {
     ])
   })
 
+  it('超时重试还没结束时仍是 pending，两次都失败才写成空数组', async () => {
+    const conversationId = await conversation()
+    await recordAgentTurnSummary({
+      conversationId,
+      turnId: 'turn-1',
+      durationMs: 10,
+      stopReason: 'completed',
+    })
+    let calls = 0
+    let release = () => {}
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { promise: secondStarted, resolve: markSecond } = Promise.withResolvers<void>()
+    scheduleAgentFollowUps(
+      {
+        conversationId,
+        turnId: 'turn-1',
+        messages: [message('user', '画一张海报', 1), message('assistant', '画好了', 2)],
+      },
+      async () => {
+        calls += 1
+        if (calls === 1) throw new ChatTimeoutError(30_000)
+        markSecond()
+        await hold
+        throw new ChatTimeoutError(30_000)
+      },
+    )
+    await secondStarted
+    expect(calls).toBe(2)
+    expect(await readAgentFollowUps(conversationId, 'turn-1')).toBeNull()
+    release()
+    await settled(conversationId, 'turn-1')
+    expect(await readAgentFollowUps(conversationId, 'turn-1')).toEqual([])
+    expect(calls).toBe(2)
+  })
+
   it('出图后的复查没有新的用户原话时，沿用会话里上一句', async () => {
     const conversationId = await conversation()
     await appendAgentMessage(db, {
@@ -222,6 +303,20 @@ describe('下一句落库', () => {
 
 function viAsk(): { ask: () => Promise<unknown>; calls: number } {
   const state = { calls: 0, ask: async () => ((state.calls += 1), null) }
+  return state
+}
+
+function countedAsk(run: (call: number) => unknown): {
+  ask: () => Promise<unknown>
+  calls: number
+} {
+  const state = {
+    calls: 0,
+    ask: async () => {
+      state.calls += 1
+      return run(state.calls)
+    },
+  }
   return state
 }
 

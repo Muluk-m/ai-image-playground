@@ -2,12 +2,19 @@ import { type AgentMessageView, agentMessageText } from '@image-playground/share
 import { and, desc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { askChatModel } from '../chatCompletion'
+import { askChatModel, ChatTimeoutError, isTransientChatError } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
 
 const FOLLOW_UP_MAX_TOKENS = 180
-const FOLLOW_UP_TIMEOUT_MS = 15_000
+/**
+ * 线上概括模型经常要 15 秒以上才答完，15 秒的 deadline 会把还在写的下一句切成超时。
+ * 单次给 30 秒。超时和瞬时故障再试一次，两次就是上限，不再往上加。
+ */
+const FOLLOW_UP_TIMEOUT_MS = 30_000
+const FOLLOW_UP_ATTEMPTS = 2
+/** 第一次超时后稍等再问，避免立刻撞上同一次拥塞。测试可以收成 0。 */
+const FOLLOW_UP_RETRY_DELAY_MS = 500
 const FOLLOW_UP_INPUT_CHARS = 2_000
 const FOLLOW_UP_MAX_CHARS = 80
 const FOLLOW_UP_MIN_LINES = 2
@@ -96,9 +103,55 @@ async function askSummaryModel(prompt: string, userText: string): Promise<unknow
   )
 }
 
+let followUpRetryDelayMs = FOLLOW_UP_RETRY_DELAY_MS
+
+/** 测试把重试前的等待收成 0。不传则恢复生产值。 */
+export function setFollowUpRetryDelayForTesting(delayMs?: number): void {
+  followUpRetryDelayMs = delayMs ?? FOLLOW_UP_RETRY_DELAY_MS
+}
+
+/** 测试锁住预算，避免超时又被改回 15 秒或重试变成循环。 */
+export function followUpLimitsForTesting(): {
+  readonly timeoutMs: number
+  readonly attempts: number
+} {
+  return { timeoutMs: FOLLOW_UP_TIMEOUT_MS, attempts: FOLLOW_UP_ATTEMPTS }
+}
+
 /**
- * 用概括标题的同一个小模型问三句下一句。失败、答歪、凑不满两句都是空数组：
- * 主轮已经结束，这里不能再抛。
+ * askChatModel 不重试自己的 deadline：那会把还在跑的主轮拖长。
+ * 下一句在终帧之后，主轮已经结束，超时再问一次不会挡住用户。
+ * 配额耗尽、答歪、本地预算拒绝都不算瞬时故障，重试只是再撞一次墙。
+ */
+function isFollowUpRetryable(err: unknown): boolean {
+  if (err instanceof ChatTimeoutError) return true
+  return isTransientChatError(err, config.agent.summaryModel)
+}
+
+function retryPause(): Promise<void> {
+  if (followUpRetryDelayMs <= 0) return Promise.resolve()
+  return new Promise((resolve) => setTimeout(resolve, followUpRetryDelayMs))
+}
+
+/** 最多两次。列在两次都结束前保持 null，调用方据此把「还在问」和「问完是空的」分开。 */
+async function askFollowUps(ask: FollowUpAsk, prompt: string): Promise<unknown> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= FOLLOW_UP_ATTEMPTS; attempt += 1) {
+    try {
+      return await ask(prompt)
+    } catch (err) {
+      lastError = err
+      if (attempt >= FOLLOW_UP_ATTEMPTS || !isFollowUpRetryable(err)) throw err
+      log.warn({ event: 'agent.follow_ups_retry', attempt, err }, 'follow-up suggestion retried')
+      await retryPause()
+    }
+  }
+  throw lastError
+}
+
+/**
+ * 用概括标题的同一个小模型问三句下一句。单次最多 30 秒，超时或瞬时故障再试一次，
+ * 总次数有界。失败、答歪、凑不满两句都是空数组：主轮已经结束，这里不能再抛。
  */
 export async function suggestFollowUps(
   source: FollowUpSource,
@@ -109,7 +162,10 @@ export async function suggestFollowUps(
   const assistantText = clip(source.assistantText) || EMPTY_ASSISTANT
   const prompt = followUpPrompt(userText, assistantText)
   try {
-    const value = await (ask ?? ((next: string) => askSummaryModel(next, userText)))(prompt)
+    const value = await askFollowUps(
+      ask ?? ((next: string) => askSummaryModel(next, userText)),
+      prompt,
+    )
     return normalizeFollowUpLines(value, userText)
   } catch (err) {
     log.warn({ event: 'agent.follow_ups_failed', err }, 'follow-up suggestions were not generated')
@@ -135,8 +191,9 @@ export async function recordAgentFollowUps(
 }
 
 /**
- * null：这一轮的行在，句子还没写上。
- * 数组：已经定了。行本身不在（页脚没落上）时返回空数组，调用方不用再等。
+ * null：还在问，句子还没写上。调用方继续等。
+ * 空数组：问完了但没有句子，或这一轮的行不在。这是终态，调用方不用再等。
+ * 非空数组：可以显示的句子。
  */
 export async function readAgentFollowUps(
   conversationId: string,
@@ -161,7 +218,9 @@ export async function readAgentFollowUps(
 }
 
 /**
- * 终帧之后再问，不进这一轮的账单，也不挡终帧。只问一次：写成空数组也算问过。
+ * 终帧之后再问，不进这一轮的账单，也不挡终帧。调用方不要 await。
+ * 问完才落库：超时或瞬时故障最多再试一次，两次都失败才写成空数组。
+ * 写成空数组也算问过。问的过程中列保持 null，读接口据此区分还在等和已经没有。
  */
 export function scheduleAgentFollowUps(
   input: {
