@@ -16,6 +16,13 @@ export interface OAuthProvidersResponse {
 export const OAUTH_ERROR_QUERY_PARAM = 'auth_error'
 
 /**
+ * A successful OAuth login lands on the frontend with this flag.
+ * The session cookie lives on the API host, so the page cannot see it and needs an explicit
+ * reason to call /api/auth/me.
+ */
+export const OAUTH_SESSION_QUERY_PARAM = 'auth_session'
+
+/**
  * Link-mode callbacks land on the workbench, not the login screen, so they carry their own
  * parameters instead of OAUTH_ERROR_QUERY_PARAM.
  */
