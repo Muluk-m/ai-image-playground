@@ -12,7 +12,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { listCanvasCommands, reverseStoredCanvasCommand } from '../lib/canvasCommands'
 import { type CanvasPeer, canvasSyncRooms } from '../lib/canvasSyncRooms'
-import { accessCanvasDocument, CanvasSyncError } from '../lib/canvasSyncStore'
+import { accessCanvasDocument, CanvasSyncError, copyCanvasProject } from '../lib/canvasSyncStore'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { resolveAuthUser } from '../lib/user-auth'
 import { resolveUserSession, USER_SESSION_COOKIE } from '../lib/user-session'
@@ -124,6 +124,18 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
       params: id,
       body: t.Object({ name: t.String({ minLength: 1, maxLength: 120, pattern: '\\S' }) }),
     },
+  )
+  .post(
+    '/api/projects/:id/copy',
+    async ({ authUser, params, status }) => {
+      try {
+        return await copyCanvasProject(authUser!.id, params.id)
+      } catch (error) {
+        if (error instanceof CanvasSyncError) return status(error.status, { error: error.message })
+        throw error
+      }
+    },
+    { params: id },
   )
   .ws('/api/projects/:id/canvas/ws', {
     params: id,

@@ -226,6 +226,8 @@
     "actions": "More actions",
     "actionsAria": "More actions for {{name}}",
     "rename": "Rename",
+    "copy": "Duplicate project",
+    "copyFailed": "Could not duplicate the project. Please retry.",
     "deleteTitle": "Delete project",
     "deleteMessage": "Delete “{{name}}” along with its canvas and conversation? This cannot be undone.",
     "noMatch": "No matching projects",
