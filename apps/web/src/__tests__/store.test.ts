@@ -1033,6 +1033,151 @@ describe('startup resume waits for the channel catalog', () => {
       warn.mockRestore()
     }
   })
+
+  async function bootOfflineCatalog(running: TaskRecord) {
+    resetChannelCatalog()
+    _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://bff.test' } })
+    await clearTasks()
+    await putTask(running)
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: gemini.id,
+            source: 'builtin-edge',
+            channelId: gemini.id,
+            selectedModelId: 'gemini-image',
+          },
+        ],
+        activeProfileId: gemini.id,
+      }),
+      tasks: [],
+      prompt: '',
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS },
+    })
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(resumeQueueImageApi).mockClear()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('offline', { status: 503 })),
+    )
+    await initStore()
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return warn
+  }
+
+  it('submits a new task once and resumes only the startup task when the catalog arrives', async () => {
+    const running = task({
+      id: 'gemini-running',
+      apiProvider: 'gemini',
+      apiProfileId: gemini.id,
+      apiModel: 'gemini-image',
+      bffRequestId: 'req-gemini',
+      prompt: 'resume later',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const generated = {
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    }
+    let releaseSubmit: (value: typeof generated) => void = () => {}
+    vi.mocked(callImageApi).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseSubmit = resolve
+        }),
+    )
+    const warn = await bootOfflineCatalog(running)
+    try {
+      useStore.setState({ prompt: 'fresh idea' })
+      const submitting = submitTask()
+      await vi.waitFor(() => expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(1))
+      expect(useStore.getState().tasks.find((item) => item.prompt === 'fresh idea')).toMatchObject({
+        status: 'running',
+        platformTask: true,
+      })
+      expect(vi.mocked(resumeQueueImageApi)).not.toHaveBeenCalled()
+
+      setChannels([gemini])
+
+      expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(callImageApi).mock.calls[0]?.[0]).toMatchObject({ prompt: 'fresh idea' })
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'resume later' }),
+        'req-gemini',
+      )
+
+      releaseSubmit(generated)
+      await submitting
+      await waitUntil(
+        () =>
+          useStore.getState().tasks.find((item) => item.id === running.id)?.status !== 'running',
+        'startup task did not finish resuming',
+      )
+      expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+    } finally {
+      releaseSubmit(generated)
+      warn.mockRestore()
+      vi.mocked(callImageApi).mockImplementation(async () => generated)
+      vi.mocked(resumeQueueImageApi).mockReset()
+    }
+  })
+
+  it('runs one recovery when the same task is resumed twice', async () => {
+    const running = task({
+      id: 'gemini-running',
+      apiProvider: 'gemini',
+      apiProfileId: gemini.id,
+      apiModel: 'gemini-image',
+      bffRequestId: 'req-gemini',
+      prompt: 'resume later',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const generated = {
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    }
+    let releaseResume: (value: typeof generated) => void = () => {}
+    vi.mocked(resumeQueueImageApi).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseResume = resolve
+        }),
+    )
+    const warn = await bootOfflineCatalog(running)
+    try {
+      setChannels([gemini])
+      setChannels([gemini])
+
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(callImageApi)).not.toHaveBeenCalled()
+
+      releaseResume(generated)
+      await waitUntil(
+        () =>
+          useStore.getState().tasks.find((item) => item.id === running.id)?.status !== 'running',
+        'startup task did not finish resuming',
+      )
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+    } finally {
+      releaseResume(generated)
+      warn.mockRestore()
+      vi.mocked(resumeQueueImageApi).mockReset()
+    }
+  })
 })
 
 describe('saved creation selections before the channel catalog loads', () => {
