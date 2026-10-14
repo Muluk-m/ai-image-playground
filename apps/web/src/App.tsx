@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -52,6 +52,20 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const { t } = useTranslation('shell')
   const homeBackdropRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
+  const homeChrome =
+    appMode === 'image' &&
+    !isPricingPath(pathname) &&
+    !isTermsPath(pathname) &&
+    !isPrivacyPath(pathname)
+
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    if (homeChrome) root.dataset.home = 'true'
+    else delete root.dataset.home
+    return () => {
+      delete root.dataset.home
+    }
+  }, [homeChrome])
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -157,6 +171,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
               onPointerLeave={() => homeBackdropRef.current?.removeAttribute('data-pointer-active')}
             >
               <div ref={homeBackdropRef} aria-hidden="true" className="studio-home-backdrop">
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--a" />
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--b" />
+                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--c" />
                 <div className="studio-home-backdrop__grain" />
                 <div className="studio-home-backdrop__grid" />
                 <div className="studio-home-backdrop__hover" />
@@ -170,9 +187,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                   <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
-                <div className="studio-home-create pt-5">
+                <div className="studio-home-create pt-8 md:pt-5">
                   <CreateTargetSwitch />
-                  <div className="pt-4">
+                  <div className="pt-6 md:pt-4">
                     <InputBar inline />
                   </div>
                 </div>

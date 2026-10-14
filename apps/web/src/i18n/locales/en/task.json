@@ -90,9 +90,10 @@
     "dialog": "Image preview"
   },
   "grid": {
-    "viewAll": "View all",
+    "expandAll": "Expand all",
     "expandMore": "Show more creations",
-    "collapse": "Show less",
+    "collapse": "Collapse",
+    "openLibrary": "Open library",
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
     "noMatches": "No matching records",
     "empty": "No works yet. Write a line on Create, or pick a starting point in Explore.",
