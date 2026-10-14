@@ -6,8 +6,11 @@ import { askChatModel, ChatTimeoutError, isTransientChatError } from '../chatCom
 import { log } from '../logger'
 import { isObject } from '../type-guards'
 
-/** 只预测一句短话，输出预算压到够放下 JSON 和这一句。 */
-const FOLLOW_UP_MAX_TOKENS = 96
+/**
+ * 中文一句加上 Haiku 的思考会顶满旧的 180：线上 claude-haiku-5-5 以
+ * finish_reason=length 把句子截断。400 留给思考和这一句 JSON。
+ */
+const FOLLOW_UP_MAX_TOKENS = 400
 /**
  * 线上小模型也经常要 15 秒以上才答完，15 秒的 deadline 会把还在写的下一句切成超时。
  * 单次给 30 秒。超时和瞬时故障再试一次，两次就是上限，不再往上加。

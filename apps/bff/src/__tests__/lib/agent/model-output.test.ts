@@ -4,7 +4,7 @@ import { completionStream } from '../../helpers/agentStubs'
 process.env.DATABASE_URL = 'postgres://unused/model-output'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-key'
-process.env.AGENT_CHAT_MODEL = 'gpt-5.6-luna'
+process.env.AGENT_CHAT_MODEL = 'gpt-6-luna'
 // 线上遗留值不能把已核实模型重新压回 8K。
 process.env.AGENT_CHAT_MAX_TOKENS = '8000'
 process.env.OPERATOR_CONFIG_FILE = ''
