@@ -122,7 +122,7 @@ async function loginMethods(session: string): Promise<LoginMethodsView> {
 async function oauthOnlyAccount(subject: string, email: string): Promise<string> {
   stubGoogle({ sub: subject, email, email_verified: true, name: 'Creator' })
   const response = await callback(await startFlow('start'))
-  expect(response.headers.get('location')).toBe('https://app.example.com/')
+  expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
   const session = readCookie(response, USER_SESSION_COOKIE)
   if (!session) throw new Error('oauth login issued no session')
   return session
@@ -335,7 +335,7 @@ describe('identity linking', () => {
     // The mode lives in the state cookie, so a login flow finished by a signed-in browser
     // provisions its own account instead of silently joining the open session.
     const response = await callback(await startFlow('start'), session)
-    expect(response.headers.get('location')).toBe('https://app.example.com/')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
     expect((await loginMethods(session)).identities).toEqual([])
     expect(await db.select().from(schema.users)).toHaveLength(2)
   })
