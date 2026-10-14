@@ -138,7 +138,11 @@ describe('release router', () => {
     cleanups.push(() => child.kill('SIGKILL'))
     await waitUntilListening(port)
 
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/api/projects/one/canvas/ws`, {
+    // lib.dom's constructor has no header argument. Bun's overload does, and the router must see them.
+    const Socket = WebSocket as unknown as {
+      new (url: string, options: Bun.WebSocketOptions): WebSocket
+    }
+    const socket = new Socket(`ws://127.0.0.1:${port}/api/projects/one/canvas/ws`, {
       headers: {
         cookie: 'image_playground_session=session-token',
         host: 'api.new.example',
