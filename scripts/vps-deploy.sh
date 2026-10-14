@@ -69,6 +69,13 @@ done
 release_images=$(awk -F '\t' 'NF >= 2 { printf "%s ", $2 }' "$release/images.tsv")
 reclaim_deploy_disk "$release" "$release_images"
 free_gb=$(docker_root_free_gb)
+echo "Docker disk free: ${free_gb}G"
+if [ "$free_gb" -lt "$DEPLOY_MIN_FREE_GB" ]; then
+  echo "Docker disk still ${free_gb}G free; dropping rollback images beyond the one in use" >&2
+  reclaim_deploy_disk "$release" "$release_images" 1
+  free_gb=$(docker_root_free_gb)
+  echo "Docker disk free after dropping rollback images: ${free_gb}G"
+fi
 [ "$free_gb" -ge "$DEPLOY_MIN_FREE_GB" ] || { echo "Insufficient Docker disk space: ${free_gb}G" >&2; exit 1; }
 if [ -f "$release/images.tar.gz" ]; then
   docker load -i "$release/images.tar.gz"
