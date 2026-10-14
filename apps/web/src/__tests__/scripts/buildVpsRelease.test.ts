@@ -62,6 +62,7 @@ case "$1" in
     [ -f "$TEST_ROOT/logged-in" ] ;;
   save) printf 'image archive' > "$3" ;;
   image)
+    [ "$2" = prune ] && exit 0
     case "$5" in
       '{{.Id}}') echo '${imageId}' ;;
       '{{range .RepoDigests}}{{println .}}{{end}}')
@@ -71,6 +72,7 @@ case "$1" in
       *) case "$3" in *:paid-*) echo "APP_VERSION=$TEST_PUB+$TEST_PRIV" ;; *) echo "APP_VERSION=$TEST_PUB" ;; esac ;;
     esac ;;
   info) echo / ;;
+  builder) [ "$2" = prune ] && exit 0; exit 91 ;;
   tag|rmi|pull|run|load|ps|images) ;;
   *) exit 91 ;;
 esac

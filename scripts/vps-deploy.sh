@@ -63,9 +63,11 @@ awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
 for edition in $editions backup; do
   [ "$(awk -F '\t' -v e="$edition" '$1==e { n++ } END { print n+0 }' "$release/images.tsv")" = 1 ] || { echo "Missing $edition image" >&2; exit 1; }
 done
-# Free anything past the retention window before refusing the pull. The images about to be
-# pulled are not local yet; running containers are protected inside reclaim_deploy_disk.
-reclaim_deploy_disk "$release"
+# Free anything past the retention window before refusing the pull. Tags in this release stay:
+# a rollback or a retry may already have them locally, and deleting them would make the pull
+# below mandatory. Running containers are protected as well.
+release_images=$(awk -F '\t' 'NF >= 2 { printf "%s ", $2 }' "$release/images.tsv")
+reclaim_deploy_disk "$release" "$release_images"
 free_gb=$(docker_root_free_gb)
 [ "$free_gb" -ge "$DEPLOY_MIN_FREE_GB" ] || { echo "Insufficient Docker disk space: ${free_gb}G" >&2; exit 1; }
 if [ -f "$release/images.tar.gz" ]; then

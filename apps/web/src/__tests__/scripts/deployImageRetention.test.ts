@@ -214,12 +214,66 @@ esac
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('重试失败目录时留下自己的归档，并留下这次即将部署的旧标签', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-reclaim-'))
+    const bin = join(dir, 'bin')
+    const releases = join(dir, 'releases')
+    const current = join(releases, 'aip-retry.failed-run-9')
+    const other = join(releases, 'aip-other.failed-run-8')
+    mkdirSync(bin)
+    mkdirSync(current, { recursive: true })
+    mkdirSync(other, { recursive: true })
+    writeFileSync(join(current, 'images.tar.gz'), 'current')
+    writeFileSync(join(other, 'images.tar.gz'), 'other')
+    const calls = join(dir, 'calls')
+    writeFileSync(
+      join(bin, 'docker'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> '${calls}'
+case "$1 $2" in
+  'image prune'|'builder prune') ;;
+  'images --format')
+    printf '%s\\n' \\
+      'ai-image-playground:vps-main-aaaaaaa1' \\
+      'ai-image-playground:vps-main-aaaaaaa2' \\
+      'ai-image-playground:vps-main-aaaaaaa3'
+    ;;
+esac
+`,
+    )
+    chmodSync(join(bin, 'docker'), 0o755)
+    const out = execFileSync(
+      'sh',
+      [
+        '-c',
+        'set -eu; . "$0"; reclaim_deploy_disk "$1" "ai-image-playground:vps-main-aaaaaaa3"',
+        lib,
+        current,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          XDG_CONFIG_HOME: join(dir, 'config'),
+          DEPLOY_KEEP_IMAGES: '2',
+        },
+      },
+    )
+    const log = readFileSync(calls, 'utf8')
+    expect(out).not.toContain('pruned ai-image-playground:vps-main-aaaaaaa3')
+    expect(log).not.toContain('rmi ')
+    expect(existsSync(join(current, 'images.tar.gz'))).toBe(true)
+    expect(existsSync(join(other, 'images.tar.gz'))).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('拉镜像之前就回收，测试发布也会清备份镜像', () => {
     const receiver = readFileSync(
       resolve(__dirname, '../../../../../scripts/vps-deploy.sh'),
       'utf8',
     )
-    const reclaim = receiver.indexOf('reclaim_deploy_disk "$release"\n')
+    const reclaim = receiver.indexOf('reclaim_deploy_disk "$release" "$release_images"')
     const free = receiver.indexOf('free_gb=$(docker_root_free_gb)')
     expect(reclaim).toBeGreaterThan(-1)
     expect(free).toBeGreaterThan(reclaim)
