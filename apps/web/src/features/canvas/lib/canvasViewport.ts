@@ -75,6 +75,24 @@ function cappedPins(pinnedIds: readonly string[], known: ReadonlySet<string>): s
   return mounted
 }
 
+/**
+ * 总览画的是文档坐标。拖动时 React 状态里的位置已经变了，但文档要等松手才写入。
+ * 用实时坐标盖住同一批盒子，组里的节点才会跟着组框走。尺寸仍用文档里的。
+ */
+export function withLivePositions(
+  items: readonly CanvasViewportBox[],
+  positions: ReadonlyMap<string, { x: number; y: number }>,
+): readonly CanvasViewportBox[] {
+  let changed = false
+  const next = items.map((item) => {
+    const position = positions.get(item.id)
+    if (!position || (position.x === item.x && position.y === item.y)) return item
+    changed = true
+    return { ...item, x: position.x, y: position.y }
+  })
+  return changed ? next : items
+}
+
 function plan(
   mode: CanvasLodMode,
   mountedIds: readonly string[],

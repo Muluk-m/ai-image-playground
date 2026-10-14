@@ -79,7 +79,11 @@ import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
 import { newElementId } from '../lib/canvasDoc'
-import { type CanvasViewportBox, planCanvasViewport } from '../lib/canvasViewport'
+import {
+  type CanvasViewportBox,
+  planCanvasViewport,
+  withLivePositions,
+} from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
@@ -888,6 +892,15 @@ function Flow({
         pinnedIds,
       }),
     [viewportItems, snapshot.edges, frame, pinnedIds],
+  )
+  // 总览不挂组成员。拖组时状态里的坐标已经跟着走，画布要用这份，不能等松手写回文档。
+  const overviewItems = useMemo(
+    () =>
+      withLivePositions(
+        viewportPlan.painted,
+        new Map(nodes.map((node) => [node.id, node.position])),
+      ),
+    [viewportPlan.painted, nodes],
   )
   const showFrame = (
     ids: readonly string[] | undefined,
@@ -1875,7 +1888,7 @@ function Flow({
                         <CanvasOverview
                           active={overview}
                           container={container}
-                          items={viewportPlan.painted}
+                          items={overviewItems}
                           edges={snapshot.edges}
                           frame={frame}
                           mountedIds={viewportPlan.mountedIds}
