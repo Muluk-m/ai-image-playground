@@ -9,15 +9,11 @@ import { GUIDE_PATHS } from '../guide/paths'
 import {
   BILLING_CYCLES,
   type BillingCycle,
-  effectivePriceCents,
-  GPT_IMAGE_2_CREDITS,
   imagesPerMonth,
+  loadPublicCatalog,
   monthlyEquivalentCents,
-  PRICING_PLANS,
-  type PricingPlan,
-  RECHARGE_AMOUNTS_YUAN,
-  RECHARGE_CREDITS_PER_YUAN,
-  REFERRAL_REGISTRATION_CREDITS,
+  type PublicCatalog,
+  type PublicPlan,
   rechargeCredits,
 } from './catalog'
 import { closePricingSheet } from './pricingSheetState'
@@ -46,6 +42,27 @@ const FAQ_ITEMS = [
   { q: 'faq.inviteQ', a: 'faq.inviteA' },
 ] as const
 
+function knownPlan(id: string): 'starter' | 'standard' | 'professional' | null {
+  if (id === 'starter' || id === 'standard' || id === 'professional') return id
+  return null
+}
+
+function formatAmounts(amounts: readonly number[], locale: string): string {
+  if (locale === 'zh-CN') return amounts.join('、')
+  if (amounts.length <= 1) return String(amounts[0] ?? '')
+  return `${amounts.slice(0, -1).join(', ')} and ${amounts[amounts.length - 1]}`
+}
+
+function formatRate(value: number): string {
+  return Number.isInteger(value)
+    ? formatCount(value)
+    : formatNumber(value, { maximumFractionDigits: 2 })
+}
+
+function rewardPercent(basisPoints: number): string {
+  return formatNumber(basisPoints / 100, { maximumFractionDigits: 2 })
+}
+
 function yuanText(cents: number): string {
   const yuan = cents / 100
   const digits = Number.isInteger(yuan) ? 0 : 2
@@ -70,6 +87,9 @@ export default function PricingPage({
   const [cycle, setCycle] = useState<BillingCycle>(1)
   const [rechargeYuan, setRechargeYuan] = useState<number>(50)
   const [openFaq, setOpenFaq] = useState<string>('faq.grantQ')
+  const [catalog, setCatalog] = useState<PublicCatalog | null>(null)
+  const [catalogError, setCatalogError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (embedded) return
@@ -82,6 +102,30 @@ export default function PricingPage({
     setDocumentTitleOverride(() => i18next.t('documentTitle', { ns: 'pricing' }))
     return () => setDocumentTitleOverride(null)
   }, [embedded])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let cancelled = false
+    setCatalog(null)
+    setCatalogError(false)
+    loadPublicCatalog(fetch, controller.signal)
+      .then((next) => {
+        if (!cancelled) setCatalog(next)
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogError(true)
+      })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [reloadKey])
+
+  useEffect(() => {
+    if (!catalog || catalog.recharge.amountsYuan.includes(rechargeYuan)) return
+    const amounts = catalog.recharge.amountsYuan
+    setRechargeYuan(amounts[Math.floor((amounts.length - 1) / 2)] ?? amounts[0] ?? 0)
+  }, [catalog, rechargeYuan])
 
   const enter = () => {
     if (embedded) {
@@ -106,6 +150,31 @@ export default function PricingPage({
 
   const unit =
     cycle === 1 ? t('plan.perMonth') : cycle === 3 ? t('plan.perQuarter') : t('plan.perYear')
+  const anchor = catalog?.imageAnchor ?? null
+  const amounts = catalog ? formatAmounts(catalog.recharge.amountsYuan, locale) : ''
+  const answerFaq = (id: (typeof FAQ_ITEMS)[number]['a']): string => {
+    if (!catalog) return ''
+    if (id === 'faq.unitA') {
+      return anchor
+        ? t('faq.unitA', { model: anchor.model, credits: formatCount(anchor.creditsPerImage) })
+        : t('faq.unitAGeneric')
+    }
+    if (id === 'faq.estimateA') {
+      return anchor
+        ? t('faq.estimateA', {
+            model: anchor.model,
+            credits: formatCount(anchor.creditsPerImage),
+          })
+        : t('faq.estimateAGeneric')
+    }
+    if (id === 'faq.rechargeA') {
+      return t('faq.rechargeA', {
+        amounts,
+        rate: formatCount(catalog.recharge.creditsPerYuan),
+      })
+    }
+    return t(id)
+  }
 
   return (
     <div
@@ -238,183 +307,303 @@ export default function PricingPage({
               })}
             </div>
           </div>
-          <div className="mt-8 grid items-stretch gap-4 pt-3 lg:grid-cols-3">
-            {PRICING_PLANS.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} cycle={cycle} unit={unit} onUpgrade={enter} />
-            ))}
-          </div>
+          {catalogError ? (
+            <div className="mt-8">
+              <p className="text-sm text-white/60">{t('status.error')}</p>
+              <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                type="button"
+                onClick={() => setReloadKey((value) => value + 1)}
+                className="mt-4 h-10 rounded-full bg-white px-5 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+              >
+                {t('status.retry')}
+              </button>
+            </div>
+          ) : !catalog ? (
+            <p className="mt-8 text-sm text-white/50">{t('status.loading')}</p>
+          ) : (
+            <div className="mt-8 grid items-stretch gap-4 pt-3 lg:grid-cols-3">
+              {catalog.plans.map((plan) => (
+                <PlanCard
+                  key={plan.id}
+                  plan={plan}
+                  cycle={cycle}
+                  unit={unit}
+                  imageAnchor={anchor}
+                  onUpgrade={enter}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
-        <section id="benefits" className="scroll-mt-24 pb-20">
-          <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <h2 className="pricing-section font-semibold tracking-tight">{t('compare.title')}</h2>
-            <div className="mt-6 overflow-x-auto rounded-3xl border border-white/10 bg-[var(--pricing-panel)]">
-              <table className="w-full min-w-[760px] border-collapse text-sm">
-                <caption className="sr-only">{t('compare.caption')}</caption>
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="sticky left-0 bg-[var(--pricing-panel)] px-5 py-6 text-left font-medium text-white/45">
-                      {t('compare.feature')}
-                    </th>
-                    {PRICING_PLANS.map((plan) => (
-                      <th key={plan.id} className="px-4 py-6 text-center font-normal">
-                        <div className="text-base font-semibold">{t(PLAN_NAME[plan.id])}</div>
-                        <div className="mt-1 text-white/55">
-                          {money(effectivePriceCents(plan.prices[cycle]))}
-                          {unit}
+        {catalog ? (
+          <>
+            <section id="benefits" className="scroll-mt-24 pb-20">
+              <div className="mx-auto max-w-6xl px-5 sm:px-8">
+                <h2 className="pricing-section font-semibold tracking-tight">
+                  {t('compare.title')}
+                </h2>
+                <div className="mt-6 overflow-x-auto rounded-3xl border border-white/10 bg-[var(--pricing-panel)]">
+                  <table className="w-full min-w-[760px] border-collapse text-sm">
+                    <caption className="sr-only">{t('compare.caption')}</caption>
+                    <thead>
+                      <tr className="border-b border-white/10">
+                        <th className="sticky left-0 bg-[var(--pricing-panel)] px-5 py-6 text-left font-medium text-white/45">
+                          {t('compare.feature')}
+                        </th>
+                        {catalog.plans.map((plan) => {
+                          const known = knownPlan(plan.id)
+                          const price = plan.prices[cycle]
+                          return (
+                            <th key={plan.id} className="px-4 py-6 text-center font-normal">
+                              <div className="text-base font-semibold">
+                                {known ? t(PLAN_NAME[known]) : plan.name}
+                              </div>
+                              <div className="mt-1 text-white/55">
+                                {price ? `${money(price.effectiveCents)}${unit}` : '—'}
+                              </div>
+                              <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                                type="button"
+                                onClick={enter}
+                                className="mt-3 h-8 rounded-full bg-white px-4 text-xs font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+                              >
+                                {t('compare.upgrade')}
+                              </button>
+                            </th>
+                          )
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <GroupLabel label={t('compare.groupPlan')} columns={catalog.plans.length} />
+                      <PriceRow plans={catalog.plans} label={t('compare.monthPrice')} cycle={1} />
+                      <PriceRow plans={catalog.plans} label={t('compare.quarterPrice')} cycle={3} />
+                      <PriceRow plans={catalog.plans} label={t('compare.yearPrice')} cycle={12} />
+                      <Row plans={catalog.plans} label={t('compare.credits')}>
+                        {(plan) => formatCount(plan.monthlyCredits)}
+                      </Row>
+                      {anchor ? (
+                        <Row plans={catalog.plans} label={t('compare.images')}>
+                          {(plan) =>
+                            t('compare.imagesValue', {
+                              n: formatCount(
+                                imagesPerMonth(plan.monthlyCredits, anchor.creditsPerImage),
+                              ),
+                            })
+                          }
+                        </Row>
+                      ) : null}
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.grant')}
+                        value={t('compare.grantValue')}
+                      />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.expiry')}
+                        value={t('compare.expiryValue')}
+                      />
+                      <Row plans={catalog.plans} label={t('compare.concurrency')}>
+                        {(plan) => t('compare.concurrencyValue', { n: plan.concurrency })}
+                      </Row>
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.billing')}
+                        value={t('compare.billingValue')}
+                      />
+
+                      <GroupLabel label={t('compare.groupCreate')} columns={catalog.plans.length} />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.imageVideo')}
+                        value={t('compare.imageVideoValue')}
+                      />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.canvas')}
+                        value={t('compare.canvasValue')}
+                      />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.agent')}
+                        value={t('compare.agentValue')}
+                      />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.library')}
+                        value={t('compare.libraryValue')}
+                      />
+
+                      <GroupLabel label={t('compare.groupSpend')} columns={catalog.plans.length} />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.meter')}
+                        value={t('compare.meterValue')}
+                      />
+                      {anchor ? (
+                        <SameRow
+                          plans={catalog.plans}
+                          label={t('compare.anchor')}
+                          value={t('compare.anchorValue', {
+                            model: anchor.model,
+                            n: formatCount(anchor.creditsPerImage),
+                          })}
+                        />
+                      ) : null}
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.failure')}
+                        value={t('compare.failureValue')}
+                      />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.order')}
+                        value={t('compare.orderValue')}
+                      />
+                      <SameRow
+                        plans={catalog.plans}
+                        label={t('compare.estimate')}
+                        value={t('compare.estimateValue')}
+                      />
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section className="mx-auto max-w-6xl px-5 pb-20 sm:px-8">
+              <h2 className="pricing-section font-semibold tracking-tight">{t('rules.title')}</h2>
+              <div className="mt-8 grid gap-10 md:grid-cols-2">
+                <Rule
+                  title={t('rules.meterTitle')}
+                  body={
+                    anchor
+                      ? t('rules.meterBody', {
+                          model: anchor.model,
+                          credits: formatCount(anchor.creditsPerImage),
+                        })
+                      : t('rules.meterBodyGeneric')
+                  }
+                />
+                <Rule
+                  title={t('rules.bucketTitle')}
+                  body={t('rules.bucketBody', {
+                    amounts,
+                    rate: formatCount(catalog.recharge.creditsPerYuan),
+                  })}
+                />
+                <Rule title={t('rules.cycleTitle')} body={t('rules.cycleBody')} />
+                <Rule title={t('rules.failureTitle')} body={t('rules.failureBody')} />
+              </div>
+              <div className="mt-10 max-w-3xl">
+                <Rule
+                  title={t('rules.inviteTitle')}
+                  body={t(
+                    catalog.referral.inviterCredits === catalog.referral.inviteeCredits
+                      ? 'rules.inviteBody'
+                      : 'rules.inviteBodyUneven',
+                    {
+                      n: formatCount(catalog.referral.inviteeCredits),
+                      inviter: formatCount(catalog.referral.inviterCredits),
+                      invitee: formatCount(catalog.referral.inviteeCredits),
+                      percent: rewardPercent(catalog.referral.paidRewardBasisPoints),
+                      rewardRate: formatRate(catalog.referral.creditsPerYuan),
+                    },
+                  )}
+                />
+              </div>
+            </section>
+
+            <section id="recharge" className="scroll-mt-24 pb-20">
+              <div className="mx-auto max-w-6xl px-5 sm:px-8">
+                <h2 className="pricing-section font-semibold tracking-tight">
+                  {t('recharge.title')}
+                </h2>
+                <p className="mt-4 max-w-2xl text-sm leading-7 text-white/60">
+                  {t('recharge.subtitle', {
+                    rate: formatCount(catalog.recharge.creditsPerYuan),
+                  })}
+                </p>
+                <div
+                  className="mt-8 grid gap-4 sm:grid-cols-3"
+                  role="radiogroup"
+                  aria-label={t('recharge.title')}
+                >
+                  {catalog.recharge.amountsYuan.map((yuan) => {
+                    const selected = rechargeYuan === yuan
+                    return (
+                      <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                        key={yuan}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => setRechargeYuan(yuan)}
+                        className={`rounded-3xl border px-5 py-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
+                          selected
+                            ? 'border-[var(--pricing-lime)] bg-[var(--pricing-lime)]/10'
+                            : 'border-white/10 bg-[var(--pricing-card)] hover:border-white/25'
+                        }`}
+                      >
+                        <div className="text-sm text-white/50">¥{formatCount(yuan)}</div>
+                        <div className="mt-3 pricing-pack font-semibold tracking-tight">
+                          {t('recharge.credits', {
+                            n: formatCount(rechargeCredits(yuan, catalog.recharge.creditsPerYuan)),
+                          })}
                         </div>
+                        <div className="mt-2 text-sm text-white/45">{t('recharge.valid')}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                  type="button"
+                  onClick={enter}
+                  className="mt-6 h-11 rounded-full bg-[var(--pricing-lime)] px-6 text-sm font-semibold text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+                >
+                  {t('recharge.pay', { amount: formatCount(rechargeYuan) })}
+                </button>
+              </div>
+            </section>
+
+            <section id="faq" className="scroll-mt-24 pb-20">
+              <div className="mx-auto max-w-3xl px-5 sm:px-8">
+                <h2 className="pricing-section font-semibold tracking-tight">{t('faq.title')}</h2>
+                <p className="mt-3 text-sm text-white/50">{t('faq.lead')}</p>
+                <div className="mt-6 divide-y divide-white/10 border-y border-white/10">
+                  {FAQ_ITEMS.map((item) => {
+                    const open = openFaq === item.q
+                    const panelId = `pricing-faq-${item.q}`
+                    return (
+                      <div key={item.q}>
                         <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                           type="button"
-                          onClick={enter}
-                          className="mt-3 h-8 rounded-full bg-white px-4 text-xs font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+                          aria-expanded={open}
+                          aria-controls={panelId}
+                          onClick={() => setOpenFaq(open ? '' : item.q)}
+                          className="flex w-full items-center justify-between gap-6 py-4 text-left pricing-copy font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
                         >
-                          {t('compare.upgrade')}
+                          {t(item.q)}
+                          <Icon
+                            name="chevronDown"
+                            className={`size-[18px] shrink-0 text-white/50 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+                          />
                         </button>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <GroupLabel label={t('compare.groupPlan')} />
-                  <PriceRow label={t('compare.monthPrice')} cycle={1} />
-                  <PriceRow label={t('compare.quarterPrice')} cycle={3} />
-                  <PriceRow label={t('compare.yearPrice')} cycle={12} />
-                  <Row label={t('compare.credits')}>
-                    {(plan) => formatCount(plan.monthlyCredits)}
-                  </Row>
-                  <Row label={t('compare.images')}>
-                    {(plan) =>
-                      t('compare.imagesValue', {
-                        n: formatCount(imagesPerMonth(plan.monthlyCredits)),
-                      })
-                    }
-                  </Row>
-                  <SameRow label={t('compare.grant')} value={t('compare.grantValue')} />
-                  <SameRow label={t('compare.expiry')} value={t('compare.expiryValue')} />
-                  <Row label={t('compare.concurrency')}>
-                    {(plan) => t('compare.concurrencyValue', { n: plan.concurrency })}
-                  </Row>
-                  <SameRow label={t('compare.billing')} value={t('compare.billingValue')} />
-
-                  <GroupLabel label={t('compare.groupCreate')} />
-                  <SameRow label={t('compare.imageVideo')} value={t('compare.imageVideoValue')} />
-                  <SameRow label={t('compare.canvas')} value={t('compare.canvasValue')} />
-                  <SameRow label={t('compare.agent')} value={t('compare.agentValue')} />
-                  <SameRow label={t('compare.library')} value={t('compare.libraryValue')} />
-
-                  <GroupLabel label={t('compare.groupSpend')} />
-                  <SameRow label={t('compare.meter')} value={t('compare.meterValue')} />
-                  <SameRow
-                    label={t('compare.anchor')}
-                    value={t('compare.anchorValue', { n: formatCount(GPT_IMAGE_2_CREDITS) })}
-                  />
-                  <SameRow label={t('compare.failure')} value={t('compare.failureValue')} />
-                  <SameRow label={t('compare.order')} value={t('compare.orderValue')} />
-                  <SameRow label={t('compare.estimate')} value={t('compare.estimateValue')} />
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-5 pb-20 sm:px-8">
-          <h2 className="pricing-section font-semibold tracking-tight">{t('rules.title')}</h2>
-          <div className="mt-8 grid gap-10 md:grid-cols-2">
-            <Rule title={t('rules.meterTitle')} body={t('rules.meterBody')} />
-            <Rule
-              title={t('rules.bucketTitle')}
-              body={t('rules.bucketBody', { rate: formatCount(RECHARGE_CREDITS_PER_YUAN) })}
-            />
-            <Rule title={t('rules.cycleTitle')} body={t('rules.cycleBody')} />
-            <Rule title={t('rules.failureTitle')} body={t('rules.failureBody')} />
-          </div>
-          <div className="mt-10 max-w-3xl">
-            <Rule
-              title={t('rules.inviteTitle')}
-              body={t('rules.inviteBody', { n: formatCount(REFERRAL_REGISTRATION_CREDITS) })}
-            />
-          </div>
-        </section>
-
-        <section id="recharge" className="scroll-mt-24 pb-20">
-          <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <h2 className="pricing-section font-semibold tracking-tight">{t('recharge.title')}</h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-white/60">
-              {t('recharge.subtitle', { rate: formatCount(RECHARGE_CREDITS_PER_YUAN) })}
-            </p>
-            <div
-              className="mt-8 grid gap-4 sm:grid-cols-3"
-              role="radiogroup"
-              aria-label={t('recharge.title')}
-            >
-              {RECHARGE_AMOUNTS_YUAN.map((yuan) => {
-                const selected = rechargeYuan === yuan
-                return (
-                  <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-                    key={yuan}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setRechargeYuan(yuan)}
-                    className={`rounded-3xl border px-5 py-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
-                      selected
-                        ? 'border-[var(--pricing-lime)] bg-[var(--pricing-lime)]/10'
-                        : 'border-white/10 bg-[var(--pricing-card)] hover:border-white/25'
-                    }`}
-                  >
-                    <div className="text-sm text-white/50">¥{formatCount(yuan)}</div>
-                    <div className="mt-3 pricing-pack font-semibold tracking-tight">
-                      {t('recharge.credits', { n: formatCount(rechargeCredits(yuan)) })}
-                    </div>
-                    <div className="mt-2 text-sm text-white/45">{t('recharge.valid')}</div>
-                  </button>
-                )
-              })}
-            </div>
-            <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-              type="button"
-              onClick={enter}
-              className="mt-6 h-11 rounded-full bg-[var(--pricing-lime)] px-6 text-sm font-semibold text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
-            >
-              {t('recharge.pay', { amount: formatCount(rechargeYuan) })}
-            </button>
-          </div>
-        </section>
-
-        <section id="faq" className="scroll-mt-24 pb-20">
-          <div className="mx-auto max-w-3xl px-5 sm:px-8">
-            <h2 className="pricing-section font-semibold tracking-tight">{t('faq.title')}</h2>
-            <p className="mt-3 text-sm text-white/50">{t('faq.lead')}</p>
-            <div className="mt-6 divide-y divide-white/10 border-y border-white/10">
-              {FAQ_ITEMS.map((item) => {
-                const open = openFaq === item.q
-                const panelId = `pricing-faq-${item.q}`
-                return (
-                  <div key={item.q}>
-                    <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-                      type="button"
-                      aria-expanded={open}
-                      aria-controls={panelId}
-                      onClick={() => setOpenFaq(open ? '' : item.q)}
-                      className="flex w-full items-center justify-between gap-6 py-4 text-left pricing-copy font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
-                    >
-                      {t(item.q)}
-                      <Icon
-                        name="chevronDown"
-                        className={`size-[18px] shrink-0 text-white/50 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-                      />
-                    </button>
-                    {open ? (
-                      <p id={panelId} className="max-w-2xl pb-4 text-sm leading-7 text-white/60">
-                        {t(item.a)}
-                      </p>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </section>
+                        {open ? (
+                          <p
+                            id={panelId}
+                            className="max-w-2xl pb-4 text-sm leading-7 text-white/60"
+                          >
+                            {answerFaq(item.a)}
+                          </p>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </section>
+          </>
+        ) : null}
 
         <section className="border-t border-white/10">
           <div className="mx-auto max-w-6xl px-5 py-20 text-center sm:px-8">
@@ -483,41 +672,47 @@ function PlanCard({
   plan,
   cycle,
   unit,
+  imageAnchor,
   onUpgrade,
 }: {
-  plan: PricingPlan
+  plan: PublicPlan
   cycle: BillingCycle
   unit: string
+  imageAnchor: PublicCatalog['imageAnchor']
   onUpgrade: () => void
 }) {
   const { t } = useTranslation('pricing')
   const price = plan.prices[cycle]
-  const payable = effectivePriceCents(price)
-  const monthly = monthlyEquivalentCents(payable, cycle)
-  const discounted = payable < price.originalCents
+  const payable = price?.effectiveCents
+  const monthly = payable === undefined ? null : monthlyEquivalentCents(payable, cycle)
+  const discounted = price !== undefined && price.effectiveCents < price.originalCents
+  const livePrice = payable === undefined ? '—' : money(payable)
+  const liveUnit = payable === undefined ? '' : unit
+  const known = knownPlan(plan.id)
+  const featured = plan.id === 'standard'
   return (
     <article
       className={`relative flex h-full flex-col rounded-3xl border p-5 ${
-        plan.featured
+        featured
           ? 'border-[var(--pricing-lime)] bg-[var(--pricing-featured)]'
           : 'border-white/10 bg-[var(--pricing-card)]'
       }`}
     >
-      {plan.featured ? (
+      {featured ? (
         <span className="absolute -top-3 right-5 rounded-full bg-[var(--pricing-lime)] px-2.5 py-1 pricing-badge font-semibold text-[var(--pricing-ink-strong)]">
           {t('plan.featured')}
         </span>
       ) : null}
-      <h2 className="pricing-name font-semibold">{t(PLAN_NAME[plan.id])}</h2>
-      <p className="mt-1 text-sm text-white/50">{t(PLAN_TAGLINE[plan.id])}</p>
+      <h2 className="pricing-name font-semibold">{known ? t(PLAN_NAME[known]) : plan.name}</h2>
+      <p className="mt-1 text-sm text-white/50">{known ? t(PLAN_TAGLINE[known]) : null}</p>
       <p className="mt-5 min-h-5 text-sm text-white/40 line-through">
-        {discounted ? `${money(price.originalCents)}${unit}` : null}
+        {discounted && price ? `${money(price.originalCents)}${unit}` : null}
       </p>
       <p className="mt-1 flex items-end gap-1" aria-live="polite">
-        <span className="pricing-price font-semibold tracking-tight">{money(payable)}</span>
-        <span className="pb-1.5 text-sm text-white/50">{unit}</span>
+        <span className="pricing-price font-semibold tracking-tight">{livePrice}</span>
+        <span className="pb-1.5 text-sm text-white/50">{liveUnit}</span>
       </p>
-      {cycle === 1 ? null : (
+      {cycle === 1 || monthly === null ? null : (
         <p className="mt-2 text-sm text-white/45">
           {t('plan.equivalent', { amount: yuanText(monthly) })}
         </p>
@@ -526,7 +721,7 @@ function PlanCard({
         type="button"
         onClick={onUpgrade}
         className={`mt-4 h-11 w-full rounded-full text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
-          plan.featured
+          featured
             ? 'bg-[var(--pricing-lime)] text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)]'
             : 'bg-white text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)]'
         }`}
@@ -535,9 +730,14 @@ function PlanCard({
       </button>
       <ul className="mt-6 space-y-3 border-t border-white/10 pt-5 text-sm">
         <Feature>{t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}</Feature>
-        <Feature>
-          {t('plan.images', { n: formatCount(imagesPerMonth(plan.monthlyCredits)) })}
-        </Feature>
+        {imageAnchor ? (
+          <Feature>
+            {t('plan.images', {
+              model: imageAnchor.model,
+              n: formatCount(imagesPerMonth(plan.monthlyCredits, imageAnchor.creditsPerImage)),
+            })}
+          </Feature>
+        ) : null}
         <Feature>{t('plan.concurrency', { n: plan.concurrency })}</Feature>
         <Feature>{t('plan.studio')}</Feature>
       </ul>
@@ -568,11 +768,11 @@ function Rule({ title, body }: { title: string; body: string }) {
   )
 }
 
-function GroupLabel({ label }: { label: string }) {
+function GroupLabel({ label, columns }: { label: string; columns: number }) {
   return (
     <tr>
       <th
-        colSpan={1 + PRICING_PLANS.length}
+        colSpan={1 + columns}
         className="bg-white/[0.03] px-5 pb-2 pt-8 text-left text-xs font-medium text-white/40"
       >
         {label}
@@ -581,13 +781,21 @@ function GroupLabel({ label }: { label: string }) {
   )
 }
 
-function Row({ label, children }: { label: string; children: (plan: PricingPlan) => string }) {
+function Row({
+  plans,
+  label,
+  children,
+}: {
+  plans: readonly PublicPlan[]
+  label: string
+  children: (plan: PublicPlan) => string
+}) {
   return (
     <tr className="border-t border-white/[0.08]">
       <th className="sticky left-0 bg-[var(--pricing-panel)] px-5 py-3.5 text-left font-normal text-white/70">
         {label}
       </th>
-      {PRICING_PLANS.map((plan) => (
+      {plans.map((plan) => (
         <td key={plan.id} className="px-4 py-3.5 text-center text-white/80">
           {children(plan)}
         </td>
@@ -596,10 +804,37 @@ function Row({ label, children }: { label: string; children: (plan: PricingPlan)
   )
 }
 
-function SameRow({ label, value }: { label: string; value: string }) {
-  return <Row label={label}>{() => value}</Row>
+function SameRow({
+  plans,
+  label,
+  value,
+}: {
+  plans: readonly PublicPlan[]
+  label: string
+  value: string
+}) {
+  return (
+    <Row plans={plans} label={label}>
+      {() => value}
+    </Row>
+  )
 }
 
-function PriceRow({ label, cycle }: { label: string; cycle: BillingCycle }) {
-  return <Row label={label}>{(plan) => money(effectivePriceCents(plan.prices[cycle]))}</Row>
+function PriceRow({
+  plans,
+  label,
+  cycle,
+}: {
+  plans: readonly PublicPlan[]
+  label: string
+  cycle: BillingCycle
+}) {
+  return (
+    <Row plans={plans} label={label}>
+      {(plan) => {
+        const price = plan.prices[cycle]
+        return price ? money(price.effectiveCents) : '—'
+      }}
+    </Row>
+  )
 }
