@@ -256,9 +256,8 @@ export function RatioShape({ ratio, className }: { ratio: string; className?: st
     <span aria-hidden="true" className={cn('relative block h-4 w-4 shrink-0', className)}>
       <span
         className={cn(
-          'absolute left-1/2 top-1/2 box-border -translate-x-1/2 -translate-y-1/2 border-[1.5px] border-current',
-          // 圆角跟着短边走会把 16:9、9:16 收成胶囊。固定小圆角，方的还是方的。
-          parsed ? 'rounded-[1.5px]' : 'rounded-[2px] border-dashed',
+          'absolute left-1/2 top-1/2 box-border -translate-x-1/2 -translate-y-1/2 rounded-sm border-[1.5px] border-current',
+          !parsed && 'border-dashed',
         )}
         style={{
           width: wide ? '100%' : `${(width / height) * 100}%`,
