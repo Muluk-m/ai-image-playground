@@ -393,6 +393,23 @@ describe('edges', () => {
     ])
   })
 
+  it('links many image nodes without rereading the whole document for each edge', () => {
+    const doc = new Y.Doc()
+    const origin = canvasOrigin('user', 'me')
+    for (let index = 0; index < 200; index += 1)
+      insertCanvasNode(
+        doc,
+        { id: `n${index}`, type: 'image', x: index, y: 0, width: 40, height: 40, data: {} },
+        origin,
+      )
+    for (let index = 1; index < 200; index += 1)
+      expect(
+        connectCanvasNodes(doc, { source: `n${index - 1}`, target: `n${index}` }, origin),
+      ).toBe(true)
+    expect(readCanvasDocument(doc).edges).toHaveLength(199)
+    expect(connectCanvasNodes(doc, { source: 'n0', target: 'n0' }, origin)).toBe(false)
+  })
+
   it('undoes a connection without moving the nodes', () => {
     const doc = imported()
     const origin = canvasOrigin('user', 'me')
