@@ -114,7 +114,7 @@ case "$1 $2" in
     esac ;;
   'run --rm') exit "\${TEST_NATIVE_EXIT:-0}" ;;
   'load -i') exit "\${TEST_LOAD_EXIT:-0}" ;;
-  'ps --format'|'images --format'|'tag '*) ;;
+  'ps --format'|'images --format'|'tag '*|'image prune'|'builder prune') ;;
   *) exit 91 ;;
 esac
 `
@@ -146,7 +146,7 @@ describe('prebuilt VPS receiver', () => {
     )
     expect(calls.indexOf('--entrypoint pg_dump')).toBeLessThan(calls.indexOf('rollout'))
     expect(calls).toContain('rollout image-playground-paid')
-    expect(calls).not.toMatch(/build|pull/)
+    expect(calls).not.toMatch(/(^|\n)(build|pull)\b/)
   })
   it('rejects a release without a prebuilt backup image', () => {
     writeFileSync(

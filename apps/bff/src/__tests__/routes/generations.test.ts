@@ -1127,3 +1127,83 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
     reason: 'Grok model channel is temporarily unavailable. Please try again later.',
   })
 })
+
+it('keeps node candidates uncharged and temporary while adopted main media survives queue expiry', async () => {
+  const bytes = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#83b645' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [{ b64_json: bytes.toString('base64') }],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    n: 2,
+    output_retention: 'candidate',
+  })
+  expect(submitted.status).toBe(200)
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+  expect(task?.status).toBe('completed')
+  expect(task?.request_payload.output_retention).toBe('candidate')
+  expect(await db.select().from(schema.media_objects)).toHaveLength(0)
+  expect(await db.select().from(schema.media_references)).toHaveLength(0)
+  expect((await request(`/v1/queue/requests/${id}/output/1`, deviceB)).status).toBe(200)
+  // Choosing the main output uses the existing owned-media promotion path.
+  const { storeMedia } = await import('../../lib/projectMedia')
+  const media = await storeMedia('owner', new Uint8Array(bytes), 'image/png')
+  await db.insert(schema.media_references).values({
+    user_id: 'owner',
+    media_id: media.id,
+    owner_kind: 'project',
+    owner_id: 'candidate-project',
+    created_at: Date.now(),
+  })
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  const cleanup = spyOn(durable, 'deletePrefix').mockRejectedValueOnce(
+    new Error('temporary storage outage'),
+  )
+  expect(await purgeOldTasks(-1)).toBe(0)
+  expect((await request(`/v1/queue/requests/${id}/output/1`, deviceB)).status).toBe(200)
+  cleanup.mockRestore()
+  expect(await purgeOldTasks(-1)).toBe(1)
+  expect(await durable.listPrefix(`${id}/`)).toEqual([])
+  expect((await request(`/v1/queue/requests/${id}/output/1`, deviceB)).status).toBe(404)
+  expect(
+    await db.select().from(schema.media_objects).where(eq(schema.media_objects.id, media.id)),
+  ).toHaveLength(1)
+  expect(calls).toBe(2)
+})
+
+it('cleans more than one candidate batch while retaining a failed prefix for the next sweep', async () => {
+  await db.insert(schema.tasks).values(
+    Array.from({ length: 205 }, (_, index) => ({
+      id: `candidate-${String(index).padStart(3, '0')}`,
+      provider: 'openai-compat' as const,
+      model: 'gpt-image-2',
+      status: 'completed' as const,
+      user_id: 'owner',
+      submitted_at: 0,
+      completed_at: 1,
+      request_payload: { prompt: 'fixture', output_retention: 'candidate' as const },
+    })),
+  )
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  const cleanup = spyOn(durable, 'deletePrefix').mockRejectedValueOnce(
+    new Error('temporary storage outage'),
+  )
+  try {
+    expect(await purgeOldTasks()).toBe(204)
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([
+      { id: 'candidate-000' },
+    ])
+  } finally {
+    cleanup.mockRestore()
+  }
+  expect(await purgeOldTasks()).toBe(1)
+  expect(await db.select().from(schema.tasks)).toEqual([])
+})

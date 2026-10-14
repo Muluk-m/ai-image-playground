@@ -105,13 +105,15 @@ afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true })
 })
 
-describe('tools filtered by creation mode', () => {
-  it('keeps generateVideo out of an image turn', () => {
+describe('tools share capabilities across creation modes', () => {
+  it('gives old image turns both image and video tools', () => {
     expect(toolNames('image')).toEqual([
       'arrangeCanvas',
+      'arrangeTimeline',
       'editCanvasObject',
       'editImage',
       'generateImage',
+      'generateVideo',
       'loadSkill',
       'readCanvas',
       'readLibrary',
@@ -185,9 +187,8 @@ describe('what the panel shows for a loadSkill call', () => {
     )
   })
 
-  it('falls back to what the model said when this turn cannot see that skill', () => {
-    // `main-image` 只在图片轮；拿它在别的 mode 里的标题写这一行，等于报一件没发生的事。
-    expect(start({ name: 'main-image' }).title).toBe('读取技能：main-image')
+  it('resolves skills from either media catalog and falls back for unknown names', () => {
+    expect(start({ name: 'main-image' }).title).toBe('读取技能：电商主图')
     expect(start({ name: 'main-image' }, 'image').title).toBe('读取技能：电商主图')
     expect(start({ name: 'nope' }).title).toBe('读取技能：nope')
     expect(start({}).title).toBe('读取技能')
@@ -199,11 +200,11 @@ describe('what the panel shows for a loadSkill call', () => {
 })
 
 describe('the skills block in the system prompt', () => {
-  it('lists this mode skills and nothing else', () => {
+  it('lists image and video skill summaries without their bodies', () => {
     const video = turnInitialState([], 'video').systemPrompt
     expect(video).toContain('<available_skills>')
     expect(video).toContain('<name>storyboard</name>')
-    expect(video).not.toContain('main-image')
+    expect(video).toContain('main-image')
     // 清单只有 name / description / location：标题是界面用的，不占模型的上下文。
     expect(video).not.toContain('分镜短片')
   })
@@ -232,7 +233,9 @@ describe('explicit /skill invocation', () => {
 
   it('leaves an unknown name as ordinary text', () => {
     expect(expandSkillInvocation('/nope 做个片子', 'video')).toBe('/nope 做个片子')
-    expect(expandSkillInvocation('/storyboard 做个片子', 'image')).toBe('/storyboard 做个片子')
+    expect(expandSkillInvocation('/storyboard 做个片子', 'image')).toContain(
+      '分镜正文只应出现在工具返回里',
+    )
   })
 
   it('leaves a slash in the middle of a sentence alone', () => {

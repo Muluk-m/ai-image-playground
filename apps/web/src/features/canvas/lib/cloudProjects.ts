@@ -1,4 +1,9 @@
-import { isProjectDocument, type ProjectDocument, projectKind } from '@image-playground/shared'
+import {
+  isProjectDocument,
+  type ProjectDocument,
+  type ProjectKind,
+  projectKind,
+} from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { supportsProjectDocumentIdentity } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity } from '../../../lib/cloudMedia'
@@ -6,6 +11,7 @@ import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
+  archivedProjectKind,
   isLocalPlaceholder,
   type LoadedBindings,
   prepareProjectMedia,
@@ -113,8 +119,8 @@ function content(name: string, document: ProjectDocument): string {
   )
 }
 
-/** 一个已打开项目的同步会话持有自己的基线，不能借用另一标签页的新修订覆盖旧文档。 */
 export class CloudProjectSession implements CloudSceneStrategy {
+  private legacyKind: ProjectKind
   private readonly editor: CanvasEditor
   private baseline: Checkpoint = { revision: 0, savedContent: null, pending: null, conflict: false }
   private readonly mediaBindings: LoadedBindings = new Map()
@@ -192,6 +198,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
     /** 冲突自动分叉出的副本；调用方负责把用户带到副本上。空实现表示只走手动按钮。 */
     private readonly onFork: (copy: CanvasProject) => void = () => {},
   ) {
+    this.legacyKind = project.kind
     this.editor = record.editor
     record.useCloud(this)
   }
@@ -242,26 +249,20 @@ export class CloudProjectSession implements CloudSceneStrategy {
     return projectDocument(
       this.editor.doc,
       this.mediaBindings,
-      this.project.kind,
+      this.legacyKind,
       supportsProjectDocumentIdentity() ? this.project : undefined,
     )
   }
-  /**
-   * 云端文档是本机第一次得知「这张画布是什么」的地方——从另一台设备同步过来的项目，
-   * 目录摘要里没有这一项。认领一次就定死，往后再读也不改。
-   */
-  private async adoptKind(document: ProjectDocument) {
-    const kind = projectKind(document)
+  /** 旧 kind 仅透传归档；云同步不再认领或改变项目的创作类型。 */
+  private async adoptIdentity(document: ProjectDocument) {
+    this.current()
+    this.legacyKind = projectKind(document)
     if (
-      this.project.kind === kind &&
       (document.experience === undefined || this.project.experience === document.experience) &&
       (document.sourceProjectId === undefined ||
         this.project.sourceProjectId === document.sourceProjectId)
     )
       return
-    this.current()
-    if (this.project.kind !== kind)
-      this.project = await projectRepository.adoptKind(this.project.id, kind)
     if (document.experience || document.sourceProjectId)
       this.project = await projectRepository.update(this.project.id, {
         ...(document.experience ? { experience: document.experience } : {}),
@@ -278,6 +279,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
     version: 1,
     ...this.baseline,
     name: this.project.name,
+    legacyKind: this.legacyKind,
   })
   /** 存档把这一次落盘交给同步会话：写进去的是它的检查点，同步状态也跟着这次结果走。 */
   save = async (
@@ -350,6 +352,9 @@ export class CloudProjectSession implements CloudSceneStrategy {
           throw new Error('unsupported_cloud_cache')
         const { version: _version, name, ...baseline } = cached
         this.baseline = baseline
+        // 旧检查点没有独立归档字段，从它保存的原文恢复，避免离线编辑改写旧 kind。
+        const archived = archivedProjectKind(cached)
+        this.legacyKind = cached.legacyKind ?? archived ?? this.legacyKind
         this.project = {
           ...this.project,
           name: this.project.cloud?.nameDirty ? this.project.name : name,
@@ -442,7 +447,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
         remote.revision < 1
       )
         throw new Error('unsupported_project')
-      await this.adoptKind(remote.document)
+      await this.adoptIdentity(remote.document)
       if (
         (version !== this.editVersion ||
           this.editedBeforeLoaded ||
@@ -724,10 +729,13 @@ export class CloudProjectSession implements CloudSceneStrategy {
           remote.revision < 1)
       )
         throw new Error('unsupported_project')
-      if (remote) await this.adoptKind(remote.document)
+      if (remote) await this.adoptIdentity(remote.document)
       const version = this.editVersion
       copy = await projectRepository
-        .createRecoveryCopy(this.project, structuredClone(this.record.contents()))
+        .createRecoveryCopy(
+          { ...this.project, kind: this.legacyKind },
+          structuredClone(this.record.contents()),
+        )
         .catch((error: unknown) => {
           this.update('conflict', 'errors:projectSync.recovery_copy_failed')
           throw error

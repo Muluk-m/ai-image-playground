@@ -164,12 +164,12 @@ describe('GET /api/agent/skills', () => {
     })
   })
 
-  it('answers an image turn with nothing, and treats a missing mode as image', async () => {
+  it('shares video skills with image turns and clients without mode', async () => {
     for (const path of ['/api/agent/skills?mode=image', '/api/agent/skills']) {
       const response = await app.handle(
         new Request(`http://localhost${path}`, { headers: { [DEVICE_ID_HEADER]: DEVICE } }),
       )
-      expect(await response.json()).toEqual({ skills: [] })
+      expect(await response.json()).toMatchObject({ skills: [{ name: 'storyboard-short' }] })
     }
   })
 })
@@ -246,12 +246,12 @@ describe('the tool list the model receives', () => {
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('loadSkill')
   })
 
-  it('leaves loadSkill out of a mode with no skills at all', async () => {
+  it('offers skills across both media catalogs', async () => {
     calls.length = 0
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只猫')
     const names = calls[0]!.tools?.map((tool) => tool.function.name) ?? []
-    expect(names).not.toContain('loadSkill')
+    expect(names).toContain('loadSkill')
     // Chat can generate video even when this mode has no skill catalog.
     expect(names).toContain('generateVideo')
     expect(names).toContain('generateImage')

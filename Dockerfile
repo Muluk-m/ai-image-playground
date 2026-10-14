@@ -7,7 +7,7 @@ FROM scratch AS private-overlay
 
 # The public lockfile carries the private/apps/* importers, so pnpm fetches their
 # dependencies only when the overlay manifests are present at install time.
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS private-manifests
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.3 AS private-manifests
 COPY --from=private-overlay / /overlay/private
 RUN mkdir -p /overlay/private \
   && find /overlay/private ! -type d ! -name package.json -delete \
@@ -17,7 +17,7 @@ RUN mkdir -p /overlay/private \
 # worker, or Admin with APP_ROLE and command; both deployment projects reuse the
 # same immutable image and the web role writes its runtime config at startup.
 
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS deps
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.3 AS deps
 WORKDIR /app
 
 # packageManager is the source of truth for pnpm. @pnpm/exe supplies a native
@@ -70,7 +70,7 @@ RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkd
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/admin build
 
-FROM oven/bun:1 AS runtime
+FROM oven/bun:1.4.3 AS runtime
 WORKDIR /app
 
 # ffmpeg extracts a few scaled stills for viewVideo. It does not re-encode films (ADR 0010).

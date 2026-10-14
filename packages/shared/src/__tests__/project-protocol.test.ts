@@ -84,7 +84,7 @@ describe('云端项目文档里的时间线', () => {
     expect(isProjectDocument(withTimeline('a'))).toBe(false)
     expect(
       isProjectDocument(
-        withTimeline(Array.from({ length: 65 }, () => ({ elementId: 'a', in: 0 }))),
+        withTimeline(Array.from({ length: 1001 }, () => ({ elementId: 'a', in: 0 }))),
       ),
     ).toBe(false)
   })
@@ -160,4 +160,12 @@ describe('云端项目文档里的工作台入口', () => {
     expect(isProjectDocument({ version: 1, elements: [], experience: 'mixed' })).toBe(false)
     expect(isProjectDocument({ version: 1, elements: [], sourceProjectId: '' })).toBe(false)
   })
+})
+
+it('retains concurrent timeline overflow in storage for user reconciliation', () => {
+  expect(
+    isProjectDocument(
+      withTimeline(Array.from({ length: 65 }, (_, i) => ({ elementId: `clip-${i}`, in: 0 }))),
+    ),
+  ).toBe(true)
 })

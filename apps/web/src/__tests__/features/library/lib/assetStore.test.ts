@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { assetStore } from '../../../../features/library/lib/assetStore'
+import { appendGeneratedAssetView, assetStore } from '../../../../features/library/lib/assetStore'
 import { type AssetRecord, assetCoverImageId } from '../../../../features/library/types'
 import { dbTransaction, STORE_ASSETS } from '../../../../lib/db'
 
@@ -81,4 +81,38 @@ describe('asset storage', () => {
 
     expect(await assetStore.list()).toEqual([])
   })
+})
+
+it('appends generated views atomically while preserving current metadata and deduplicating retries', async () => {
+  await assetStore.put(makeAsset({ description: 'latest description', voiceId: 'voice' }))
+  const a = { imageId: 'a', label: 'sheet' as const, source: 'generated' as const }
+  const b = { ...a, imageId: 'b' }
+  await Promise.all([appendGeneratedAssetView('a1', a), appendGeneratedAssetView('a1', b)])
+  await appendGeneratedAssetView('a1', b)
+  const saved = (await assetStore.list())[0]!
+  expect(saved.views.map((view) => view.imageId)).toEqual(['b', 'a', 'image-1'])
+  expect(saved).toMatchObject({
+    description: 'latest description',
+    voiceId: 'voice',
+    name: '产品白底图',
+  })
+})
+it('never resurrects deleted assets and aborts a result that became stale before the transaction', async () => {
+  await assetStore.put(makeAsset())
+  const view = { imageId: 'derived', label: 'none' as const, source: 'generated' as const }
+  expect(await appendGeneratedAssetView('a1', view, () => false)).toBeNull()
+  expect((await assetStore.list())[0]!.views).toHaveLength(1)
+  await assetStore.remove('a1')
+  expect(await appendGeneratedAssetView('a1', view)).toBeNull()
+  expect(await assetStore.list()).toEqual([])
+})
+
+it('preserves an existing view label and source when adopting the same pixels again', async () => {
+  await assetStore.put(
+    makeAsset({ views: [{ imageId: 'original', label: 'front', source: 'upload' }] }),
+  )
+  await appendGeneratedAssetView('a1', { imageId: 'original', label: 'sheet', source: 'generated' })
+  expect((await assetStore.list())[0]!.views).toEqual([
+    { imageId: 'original', label: 'front', source: 'upload' },
+  ])
 })

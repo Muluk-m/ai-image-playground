@@ -61,6 +61,45 @@ function pickImages(count: number): void {
 }
 
 describe('CreateRecordDialog', () => {
+  it('can save a named, described asset without an image; templates still require an image', async () => {
+    const save = vi.fn().mockResolvedValue(undefined)
+    act(() =>
+      root.render(
+        <CreateRecordDialog kind="asset" agentReady={false} onClose={vi.fn()} onSave={save} />,
+      ),
+    )
+    const input = document.querySelector<HTMLInputElement>('input:not([type="file"])')!
+    const textarea = document.querySelector<HTMLTextAreaElement>('textarea')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '雨夜街角',
+      )
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+        textarea,
+        '霓虹灯照亮湿润的路面',
+      )
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => button('地点').click())
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click(),
+    )
+    expect(save).toHaveBeenCalledWith({
+      files: [],
+      name: '雨夜街角',
+      kind: 'location',
+      description: '霓虹灯照亮湿润的路面',
+    })
+    act(() =>
+      root.render(
+        <CreateRecordDialog kind="look" agentReady={false} onClose={vi.fn()} onSave={save} />,
+      ),
+    )
+    expect(document.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true)
+  })
+
   it('「用智能体创建」把命令放进创作页输入框、目标切成画布，等用户自己发', () => {
     const onClose = vi.fn()
     act(() =>
@@ -74,7 +113,7 @@ describe('CreateRecordDialog', () => {
     expect(state.appMode).toBe('image')
   })
 
-  it('没有图或没有名字时不能保存', () => {
+  it('没有名字时不能保存', () => {
     act(() =>
       root.render(
         <CreateRecordDialog kind="asset" agentReady onClose={vi.fn()} onSave={vi.fn()} />,

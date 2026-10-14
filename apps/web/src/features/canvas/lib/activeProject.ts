@@ -8,7 +8,7 @@ import {
 import { flushOnPageHide } from '../../../lib/flushOnPageHide'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
 import { currentCanvasProject, restoreCloudProject, useCanvasProjectStore } from '../projectStore'
-import type { CloudProjectSession } from './cloudProjects'
+import type { CanvasCloudSession } from './cloudNodeProjects'
 import { readPersistedScene } from './persistence'
 import {
   cloudProjectsEnabled,
@@ -78,7 +78,7 @@ function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
  * 只读：不像 `currentCanvasWorkspace()` 那样顺手建一个——在发送路径上建工作区会抢在
  * 首条消息绑定画布之前占住 `current`，绑定随之失败。
  */
-export function openCanvasCloudSession(): CloudProjectSession | undefined {
+export function openCanvasCloudSession(): CanvasCloudSession | undefined {
   return current?.cloud
 }
 

@@ -74,6 +74,7 @@ export default defineConfig(({ command }) => {
     if (devProxyConfig?.enabled) {
       proxy[devProxyConfig.prefix] = {
         target: devProxyConfig.target,
+        ws: true,
         changeOrigin: devProxyConfig.changeOrigin,
         secure: devProxyConfig.secure,
         rewrite: (path) =>

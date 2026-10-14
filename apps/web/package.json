@@ -36,6 +36,7 @@
     "lucide-react": "^0.469.0",
     "mediabunny": "1.58.0",
     "perfect-freehand": "^1.2.3",
+    "quill": "^2.0.3",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-i18next": "^17.0.14",
@@ -44,6 +45,7 @@
     "remark-gfm": "4.0.1",
     "tailwind-merge": "^2.6.1",
     "y-indexeddb": "^9.0.12",
+    "y-quill": "^1.0.0",
     "yjs": "^13.6.33",
     "zustand": "^5.0.5"
   },

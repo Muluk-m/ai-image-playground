@@ -31,6 +31,8 @@ function failureText(err: unknown): string {
       return i18next.t('film.fetchFailed', { ns: 'canvas', position: err.position })
     case 'unreadable':
       return i18next.t('film.unreadable', { ns: 'canvas', position: err.position })
+    case 'zipTooLarge':
+      return i18next.t('film.zipTooLarge', { ns: 'canvas' })
     case 'tooLong':
       return i18next.t('film.tooLongActual', { ns: 'canvas' })
     default:
@@ -41,7 +43,7 @@ function failureText(err: unknown): string {
 let controller: AbortController | null = null
 
 /**
- * 成片导出一次只跑一条：整段成片放在内存里，并行两条会把内存翻倍。
+ * 成片导出一次只跑一条，避免并行解码和编码争抢设备资源。
  * 结果只下载到本机，不上传、不回落画布。
  */
 export const useFilmExport = create<{
@@ -80,7 +82,9 @@ export const useFilmExport = create<{
         if (current.signal.aborted) toast(i18next.t('film.cancelled', { ns: 'canvas' }), 'info')
         else
           toast(
-            kind === 'film' ? failureText(err) : i18next.t('film.zipFailed', { ns: 'canvas' }),
+            kind === 'film' || err instanceof FilmExportError
+              ? failureText(err)
+              : i18next.t('film.zipFailed', { ns: 'canvas' }),
             'error',
           )
       })

@@ -137,6 +137,76 @@ prune_old_releases() {
     [ -d "$dir" ] && release_was_deployed "$dir" || continue
     rm -f "$tar" && echo "removed $(basename -- "$tar")"
   done
+  # A failed receive is renamed to <id>.failed-run-<run> and kept so the scripts can be
+  # inspected. Retry uses a new directory, so the image archive in the failed one is only
+  # a second copy of layers that were never (or no longer) the running release.
+  for dir in "$releases_root"/*.failed-run-*/; do
+    dir=${dir%/}
+    # A retry can run this script from inside the failed directory itself. That archive
+    # is the copy about to be loaded, not a leftover.
+    [ "$dir" != "$1" ] || continue
+    [ -d "$dir" ] || continue
+    [ -f "$dir/images.tar.gz" ] || continue
+    rm -f "$dir/images.tar.gz" && echo "removed the failed image archive of $(basename -- "$dir")"
+  done
+}
+
+# prune_edition_images <moving-alias> <keep> <protected-tags>
+#
+# Deletes commit-qualified tags of one edition beyond <keep>, then drops the registry digest
+# reference that would otherwise pin the layers. A protected tag (running, or the one just
+# rolled out) is kept without using a slot. Hand-named tags are left alone.
+prune_edition_images() {
+  stale=$(docker images --format '{{.Repository}}:{{.Tag}}' "${1%%:*}" |
+    select_stale_images "$1" "$2" "$3")
+  if [ -z "$stale" ]; then
+    echo "no images to prune for $1 (keeping $2)"
+    return 0
+  fi
+  for image in $stale; do
+    image_id=$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null) || image_id=
+    if docker rmi "$image" >/dev/null 2>&1; then
+      echo "pruned $image"
+      [ -z "$image_id" ] || release_untagged_image "$image_id" "${1%%:*}"
+    else
+      echo "could not prune $image; leaving it" >&2
+    fi
+  done
+}
+
+# prune_dangling_images
+#
+# `docker image prune` without -a removes only untagged images. That is the residue left when a
+# tag was deleted but its registry digest reference, or a half-pulled layer, still occupies the
+# disk. -a would also delete tagged rollback targets that no container is running, so it is not
+# used.
+prune_dangling_images() {
+  docker image prune -f || echo "could not prune dangling images; leaving them" >&2
+}
+
+# reclaim_deploy_disk <current-release-directory> [protected-tags]
+#
+# Runs before the free-space check and again after rollout. All four editions share this disk;
+# a test receive used to leave backup images and release archives for the next production
+# deploy, and a full disk is exactly when that deploy is refused. Protected tags are the images
+# this release is about to use and the ones just rolled out. Containers still running are
+# always protected. set -u is on in the receiver, so the tag list may be empty.
+reclaim_deploy_disk() {
+  running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
+  protected="${2:-} $running"
+  for alias in \
+    ai-image-playground:vps-main \
+    ai-image-playground:paid \
+    ai-image-playground:test \
+    ai-image-playground:backup
+  do
+    prune_edition_images "$alias" "${DEPLOY_KEEP_IMAGES:-2}" "$protected"
+  done
+  prune_dangling_images
+  if ! docker builder prune -f; then
+    echo "could not prune build cache; leaving it" >&2
+  fi
+  prune_old_releases "$1"
 }
 
 # deploy_process_token <pid>
