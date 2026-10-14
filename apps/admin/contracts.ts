@@ -592,6 +592,12 @@ export interface GenerationActor {
   last_submitted_at: number
 }
 
+export interface TodayModelFailure {
+  /** `queue_tasks.error_type`。没有记下类型时是 `unknown`。 */
+  error_type: string
+  count: number
+}
+
 export interface TodayModelStat {
   model: string
   tasks: number
@@ -599,6 +605,8 @@ export interface TodayModelStat {
   failed: number
   /** 含重试。一个任务可以对应多次上游调用。 */
   upstream_invocations: number
+  /** 当天该模型的失败原因，按次数从高到低。没有失败时是空数组。 */
+  failures: TodayModelFailure[]
 }
 
 export interface TodayOverviewResult {
