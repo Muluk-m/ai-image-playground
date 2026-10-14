@@ -3,7 +3,7 @@ import type { AssetRecord, LookRecord, Tombstone } from '../features/library/typ
 import type { VideoTask } from '../features/video/types'
 import { i18next } from '../i18n'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
-import { scopedStorageName } from './authScope'
+import { accountScope, scopedStorageName } from './authScope'
 import type { LegacyProductJob, LegacyStoryboardRecord } from './legacyProductHistory'
 import type { PlatformGenerationRow } from './platformGenerations'
 
@@ -529,10 +529,17 @@ export async function storeImage(
   dataUrl: string,
   source: NonNullable<StoredImage['source']> = 'upload',
 ): Promise<string> {
+  const current = accountScope()
+  const ensureCurrent = () => {
+    if (!current()) throw new Error('account_changed')
+  }
   const id = await hashDataUrl(dataUrl)
+  ensureCurrent()
   const existing = await getImage(id)
+  ensureCurrent()
   if (!existing) {
     const thumbnail = await safeCreateImageThumbnail(dataUrl)
+    ensureCurrent()
     await putImage({
       id,
       dataUrl,
@@ -542,6 +549,7 @@ export async function storeImage(
       height: thumbnail.height,
     })
     if (thumbnail.thumbnailDataUrl) {
+      ensureCurrent()
       await putImageThumbnail({
         id,
         thumbnailDataUrl: thumbnail.thumbnailDataUrl,
@@ -557,9 +565,11 @@ export async function storeImage(
       thumbnail.height &&
       (existing.width !== thumbnail.width || existing.height !== thumbnail.height)
     ) {
+      ensureCurrent()
       await putImage({ ...existing, width: thumbnail.width, height: thumbnail.height })
     }
     if (thumbnail.thumbnailDataUrl) {
+      ensureCurrent()
       await putImageThumbnail({
         id,
         thumbnailDataUrl: thumbnail.thumbnailDataUrl,
@@ -569,6 +579,7 @@ export async function storeImage(
       })
     }
   }
+  ensureCurrent()
   return id
 }
 

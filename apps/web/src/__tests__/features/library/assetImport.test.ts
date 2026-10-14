@@ -29,6 +29,26 @@ afterEach(() => {
 })
 
 describe('importing local image files as assets', () => {
+  it('persists an image-free location with its description without creating a naming queue', async () => {
+    await useLibraryStore.getState().importAssetFiles([], {
+      group: true,
+      kind: 'location',
+      name: '雨夜街角',
+      description: '霓虹灯照亮湿润的路面',
+    })
+    useLibraryStore.setState({ assets: [] })
+    await useLibraryStore.getState().loadAssets()
+    expect(useLibraryStore.getState().assets).toEqual([
+      expect.objectContaining({
+        name: '雨夜街角',
+        kind: 'location',
+        description: '霓虹灯照亮湿润的路面',
+        views: [],
+      }),
+    ])
+    expect(useLibraryStore.getState().pendingAssetNames).toEqual([])
+  })
+
   it('queues one naming per image, defaulting to the file name without its extension', async () => {
     await useLibraryStore
       .getState()

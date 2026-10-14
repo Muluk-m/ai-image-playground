@@ -109,7 +109,7 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', () => {})
   useStore.setState({ showToast: mocks.showToast })
   useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, model: AGNES } })
-  // 「用 N 张图生成视频」只在视频画布里出现。
+  // 旧视频存档和旧图片存档共用创作能力，不再按 kind 分流。
   useCanvasProjectStore.setState({
     projects: [
       {
@@ -149,13 +149,14 @@ afterEach(() => {
 })
 
 describe('选中即参考', () => {
-  it('stays out of image canvases: several selected images there are for editing, not video', () => {
+  it('keeps video creation available when opening a legacy image project', () => {
     act(() =>
       useCanvasProjectStore.setState((state) => ({
         projects: state.projects.map((one) => ({ ...one, kind: 'image' as const })),
       })),
     )
-    expect(host.querySelector('[role=toolbar]')).toBeNull()
+    expect(button('用 3 张图生成视频')).toBeDefined()
+    expect(mocks.submitVideoRequest).not.toHaveBeenCalled()
   })
 
   it('opens from the selection toolbar with the images left to right, on a model that takes references', () => {

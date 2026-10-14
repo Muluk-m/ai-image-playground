@@ -442,6 +442,27 @@
       "when": 1790853000015,
       "tag": "0063_agent_turn_follow_ups",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790853000016,
+      "tag": "0064_canvas_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790853000017,
+      "tag": "0065_asset_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790853000018,
+      "tag": "0066_canvas_commands",
+      "breakpoints": true
     }
   ]
 }

@@ -19,8 +19,9 @@ export const useActiveLook = create<ActiveLookState>((set) => ({
 /** 当前部署里所有可选的图片模型 id：判断模板钉死的模型还在不在。 */
 export function availableImageModels(): ReadonlySet<string> {
   const publicChannels = getPublicChannels()
-  const { settings } = useStore.getState()
-  return new Set(settings.profiles.flatMap((profile) => getProfileModels(profile, publicChannels)))
+  // 组件测试会换上还没有 profiles 的 settings，清单未到时也不该打崩输入框。
+  const profiles = useStore.getState().settings.profiles ?? []
+  return new Set(profiles.flatMap((profile) => getProfileModels(profile, publicChannels)))
 }
 
 /**
@@ -30,12 +31,11 @@ export function availableImageModels(): ReadonlySet<string> {
 export function pinLookParams(look: LookItem): void {
   const store = useStore.getState()
   const publicChannels = getPublicChannels()
-  const profile = store.settings.profiles.find((one) =>
-    getProfileModels(one, publicChannels).includes(look.model),
-  )
+  const profiles = store.settings.profiles ?? []
+  const profile = profiles.find((one) => getProfileModels(one, publicChannels).includes(look.model))
   if (profile) {
     store.setSettings({
-      profiles: store.settings.profiles.map((one) =>
+      profiles: profiles.map((one) =>
         one.id === profile.id ? updateSelectedModel(one, look.model, publicChannels) : one,
       ),
       activeProfileId: profile.id,

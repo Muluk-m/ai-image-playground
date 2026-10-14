@@ -48,6 +48,7 @@ import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
+import AgentNodeRunCard from './AgentNodeRunCard'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
 import AgentVideoToolCard from './AgentVideoToolCard'
@@ -538,6 +539,12 @@ function StandardAgentToolCard({
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
   }
+  if (message.canvasRun)
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
+        <AgentNodeRunCard proposal={message.canvasRun} />
+      </div>
+    )
   if (message.status === 'awaiting_confirmation') {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
@@ -639,6 +646,15 @@ function StandardAgentToolCard({
             <ToolStatus label={statusLabel} status={status} />
           )}
           {note && <p className={CARD_NOTE}>{note}</p>}
+          {message.canvasRead && (
+            <p className={CARD_NOTE}>
+              {t('tool.canvasReadNodes', {
+                nodes:
+                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
+                  t('tool.canvasReadNone'),
+              })}
+            </p>
+          )}
           {message.sources?.map((source) => (
             <a
               key={source.url}

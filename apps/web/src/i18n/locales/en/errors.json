@@ -69,6 +69,15 @@
   "projectRecycle": {
     "fallback": "The recycle bin operation failed. Please retry."
   },
+  "projectCopy": {
+    "project_quota_exceeded": "The project limit is reached. Remove some projects before duplicating.",
+    "project_deleted": "This project was deleted and cannot be duplicated.",
+    "project_not_found": "This project is missing, or this account cannot open it.",
+    "unauthorized": "Your session expired. Sign in again, then duplicate the project.",
+    "canvas_sync_unavailable": "This environment cannot duplicate projects.",
+    "account_changed": "The account changed. Reopen the project, then duplicate it.",
+    "fallback": "Could not duplicate the project. Please retry."
+  },
   "agentTool": {
     "upstream_error": "The generation service failed, so nothing came out",
     "timeout": "Generation timed out, so nothing came out",

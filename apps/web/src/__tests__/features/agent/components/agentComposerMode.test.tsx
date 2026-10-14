@@ -62,7 +62,7 @@ import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../../features/library/store'
 import { getContentEditableSelection } from '../../../../lib/promptEditorDom'
 import { useStore } from '../../../../store'
-import { stubPointerApis } from '../../../helpers/radix'
+import { chooseOption, stubPointerApis } from '../../../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -107,7 +107,7 @@ function click(label: string): void {
 /** 草稿是按项目存的；换类型不能换 id，否则输入框读的是另一份草稿。 */
 const PROJECT_ID = 'project-under-test'
 
-/** 创作类型只由项目定：这里换的是「当前打开的是哪种画布」。 */
+/** kind 只保留旧存档元数据，创作模式由用户选择。 */
 function openProject(kind: CanvasProject['kind']): void {
   const id = PROJECT_ID
   useCanvasProjectStore.setState({
@@ -167,7 +167,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('创作类型跟着项目走', () => {
+describe('创作类型按当前选择保存', () => {
   it('图片画布起的是图片轮', async () => {
     render()
     await settle()
@@ -177,9 +177,11 @@ describe('创作类型跟着项目走', () => {
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
-  it('视频画布起的一直是视频轮，发完也不弹回图片', async () => {
+  it('显式选择视频后一直是视频轮，发完也不弹回图片', async () => {
     openProject('video')
     render()
+    await settle()
+    chooseOption('创作类型', '视频生成')
     await settle()
 
     type('做个开箱片')
@@ -190,7 +192,7 @@ describe('创作类型跟着项目走', () => {
     expect(send).toHaveBeenLastCalledWith('再来一段', [], 'video')
   })
 
-  it('项目类型同时写进会话状态，代用户发一轮的入口据此跟上', async () => {
+  it('旧项目类型不会覆盖当前会话的创作模式', async () => {
     render()
     await settle()
     expect(useAgentStore.getState().mode).toBe('image')
@@ -198,7 +200,7 @@ describe('创作类型跟着项目走', () => {
     act(() => openProject('video'))
     await settle()
 
-    expect(useAgentStore.getState().mode).toBe('video')
+    expect(useAgentStore.getState().mode).toBe('image')
   })
 
   it('图片画布里残留的视频草稿不算数，仍按图片发', async () => {
@@ -235,6 +237,8 @@ describe('起手句填进项目输入框', () => {
   it('技能变成胶囊，示例词被选中；用户自己的草稿不被覆盖', async () => {
     openProject('video')
     render()
+    await settle()
+    chooseOption('创作类型', '视频生成')
     await settle()
 
     act(() => {
@@ -358,6 +362,8 @@ describe('`/` 技能候选', () => {
     openProject('video')
     render()
     await settle()
+    chooseOption('创作类型', '视频生成')
+    await settle()
 
     type('/story')
     const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')][0]
@@ -383,6 +389,8 @@ describe('`/` 技能候选', () => {
   it('技能标题与缩略图混排后仍按原命令和引用序号发送', async () => {
     openProject('video')
     render()
+    await settle()
+    chooseOption('创作类型', '视频生成')
     await settle()
     type('/story')
     const option = host.querySelector<HTMLElement>('[role="option"]')!
@@ -411,6 +419,8 @@ describe('`/` 技能候选', () => {
     openProject('video')
     render()
     await settle()
+    chooseOption('创作类型', '视频生成')
+    await settle()
 
     type('/image')
     const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')][0]
@@ -423,6 +433,8 @@ describe('`/` 技能候选', () => {
   it('只打一个 `/` 就列出这个 mode 的全部技能', async () => {
     openProject('video')
     render()
+    await settle()
+    chooseOption('创作类型', '视频生成')
     await settle()
 
     type('/')
@@ -439,6 +451,8 @@ describe('`/` 技能候选', () => {
     }))
     openProject('video')
     render()
+    await settle()
+    chooseOption('创作类型', '视频生成')
     await settle()
 
     // 光标停在命令名末尾（可见文本的第 6 位）。

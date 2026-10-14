@@ -69,6 +69,15 @@
   "projectRecycle": {
     "fallback": "回收站操作失败，请重试。"
   },
+  "projectCopy": {
+    "project_quota_exceeded": "项目数量已到上限，先清理一些再复制。",
+    "project_deleted": "这个项目已被删除，不能再复制。",
+    "project_not_found": "找不到这个项目，或当前账号不能访问。",
+    "unauthorized": "登录已过期，请重新登录后再复制。",
+    "canvas_sync_unavailable": "当前环境不能复制项目。",
+    "account_changed": "账号已经切换，请重新打开后再复制。",
+    "fallback": "复制项目失败，请重试。"
+  },
   "agentTool": {
     "upstream_error": "生成服务出错了，这次没有出来",
     "timeout": "生成超时，这次没有出来",

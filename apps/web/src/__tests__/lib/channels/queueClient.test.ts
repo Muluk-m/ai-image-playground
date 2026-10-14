@@ -97,6 +97,7 @@ function mockFetchJson(...payloads: unknown[]) {
 async function captureSubmitBody(
   provider: MockQueueProvider,
   params: Partial<Parameters<typeof callQueueChannelApi>[0]['params']> = {},
+  outputRetention?: 'candidate',
 ) {
   const call = await loadCallQueueChannelApi()
   const fetchSpy = mockFetchJson(
@@ -110,7 +111,7 @@ async function captureSubmitBody(
   )
 
   await expect(
-    call(mockOpts(params), mockProfile(provider), mockChannel(provider)),
+    call({ ...mockOpts(params), outputRetention }, mockProfile(provider), mockChannel(provider)),
   ).rejects.toThrow('test-stop')
 
   const firstCall = fetchSpy.mock.calls[0]!
@@ -132,6 +133,14 @@ describe('callQueueChannelApi submit body', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('only canvas submissions opt into temporary candidate retention', async () => {
+    expect((await captureSubmitBody('openai-compat', {}, 'candidate')).body.output_retention).toBe(
+      'candidate',
+    )
+    vi.restoreAllMocks()
+    expect((await captureSubmitBody('openai-compat')).body).not.toHaveProperty('output_retention')
   })
 
   it('submit body 包含 device_id 字段', async () => {

@@ -17,14 +17,16 @@ export function requestLogFields(): { requestId?: string } {
  * 给整个请求套上 request id：沿用或生成、在处理期间对日志可见、写回响应头。
  * 请求里 await 链上发起的后台工作（例如对话轮）通常也带着它；流式响应体里打的日志不保证有。
  */
-export function withRequestContext(
-  handle: (request: Request) => Response | Promise<Response>,
-): (request: Request) => Promise<Response> {
+export function withRequestContext<T extends Response | undefined>(
+  handle: (request: Request) => T | Promise<T>,
+): (request: Request) => Promise<T | Response> {
   return (request) => {
     const incoming = request.headers.get(REQUEST_ID_HEADER)
     const requestId = incoming && ACCEPTED_ID.test(incoming) ? incoming : crypto.randomUUID()
     return context.run({ requestId }, async () => {
+      // A successful WebSocket upgrade returns no HTTP response.
       const response = await handle(request)
+      if (!response) return response
       try {
         response.headers.set(REQUEST_ID_HEADER, requestId)
         return response

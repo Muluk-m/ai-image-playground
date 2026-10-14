@@ -295,6 +295,37 @@ describe('智能体生视频工具', () => {
     })
   })
 
+  it('offers image and video creation in one old image-mode canvas turn without submitting either draft', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion(
+            { id: 'image-draft', name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
+            {
+              id: 'video-draft',
+              name: 'generateVideo',
+              args: { prompt: 'An ocean shot', durationSeconds: 5 },
+            },
+          ),
+        () => completionStream('Drafts ready'),
+      ]),
+    )
+    const id = await startConversation('canvas')
+    const frames = await runTurn(id, 'Create an ocean image and video', [], 'image')
+    const drafts = eventsOfType(frames, 'toolEnd')
+    expect(drafts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ toolName: 'generateImage', status: 'awaiting_confirmation' }),
+        expect.objectContaining({ toolName: 'generateVideo', status: 'awaiting_confirmation' }),
+      ]),
+    )
+    expect(
+      (await db.select().from(schema.tasks)).filter((one) => one.kind === 'queue'),
+    ).toHaveLength(0)
+    expect(calls[0]!.tools!.map((tool) => tool.function.name)).toContain('arrangeTimeline')
+  })
+
   it('generates video from an image-kind chat, confirms once and restores playable results', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '海浪', durationSeconds: 8, aspectRatio: '9:16' })

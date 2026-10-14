@@ -65,6 +65,13 @@ export type AgentToolName =
   | 'readConversationImages'
   | 'readLibrary'
   | 'readCanvas'
+  | 'createNodes'
+  | 'updateNodes'
+  | 'connectNodes'
+  | 'deleteNodes'
+  | 'arrangeNodes'
+  | 'runNodes'
+  | 'applyScriptPlan'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
@@ -649,7 +656,15 @@ export interface AgentVisualObservation {
   readonly evidence: readonly AgentVisualEvidence[]
 }
 
+/** A proposal only. The client must review the live estimate and confirm the batch before submission. */
+export interface AgentCanvasRunProposal {
+  readonly projectId: string
+  readonly nodeIds: readonly string[]
+}
+
 export interface AgentToolResultBlock {
+  readonly canvasRun?: AgentCanvasRunProposal
+  readonly canvasRead?: readonly { id: string; name: string }[]
   readonly productionDraftRevision?: number
   /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
   readonly video?: VideoGenerationRecord
@@ -1324,6 +1339,8 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
+  if (block.canvasRun)
+    return `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户可在画布检查预估并二次确认，实际执行情况需重新读取节点。`
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =
@@ -1338,6 +1355,8 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return block.saveCard.status === 'saved'
       ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
       : `${title}：卡片已经给到用户，他还没按下保存`
+  if (block.canvasRead)
+    return `${title}：已读取节点 ${block.canvasRead.map((node) => `${node.name}（${node.id}）`).join('、') || '无'}；需要正文时重新读取。`
   if (block.visualObservations?.length)
     return `${title}：完成；已观察结论：${block.visualObservations.map((entry) => `图片 ${entry.imageId}：${entry.observation}`).join('；')}。需要像素时用 viewImage 重读。`
   if (block.fetchedImages?.length)
