@@ -1,97 +1,155 @@
 /**
- * 定价页展示用的公开价目。
- *
- * 页面不能 import `private/`。标价抄自生产库 `billing_plan_prices`
- * （2026-10-13 读取 image_playground_paid），不是迁移种子：
- * 种子里的入门首月 ¥39 已在 2026-09-01 过期，后台后来改过三档原价和折扣。
- * 折扣截止与私有 `effectivePrice` 一致：`now > discountEndsAt` 之后回到原价。
- * 积分、并发、充值和邀请仍跟种子与充值配置一致。
+ * 定价页从 BFF 的公开价目读取套餐、折扣、充值和邀请。
+ * 不 import `private/`，也不调用需要登录的 `/api/billing/catalog`。
+ * 折扣是否生效由服务端计算，页面只展示返回的 effective price。
  */
+import { bffBaseUrl } from '../../lib/runtimeConfig'
 
 export const BILLING_CYCLES = [1, 3, 12] as const
 export type BillingCycle = (typeof BILLING_CYCLES)[number]
 
-export const GPT_IMAGE_2_CREDITS = 100
-
-/** 生产库三档折扣的共同截止时间：2027-02-28 15:59:59Z。 */
-export const PLAN_DISCOUNT_ENDS_AT = Date.parse('2027-02-28T15:59:59Z')
-
-export interface PlanPrice {
+export interface PublicPlanPrice {
   originalCents: number
-  discountCents: number | null
-  discountEndsAt: number | null
+  effectiveCents: number
 }
 
-export interface PricingPlan {
-  id: 'starter' | 'standard' | 'professional'
+export interface PublicPlan {
+  id: string
+  name: string
   monthlyCredits: number
   concurrency: number
-  featured: boolean
-  prices: Record<BillingCycle, PlanPrice>
+  sortOrder: number
+  prices: Partial<Record<BillingCycle, PublicPlanPrice>>
 }
 
-function quote(originalCents: number, discountCents: number): PlanPrice {
-  return { originalCents, discountCents, discountEndsAt: PLAN_DISCOUNT_ENDS_AT }
-}
-
-export const PRICING_PLANS: readonly PricingPlan[] = [
-  {
-    id: 'starter',
-    monthlyCredits: 66_000,
-    concurrency: 1,
-    featured: false,
-    prices: {
-      1: quote(4900, 3900),
-      3: quote(13500, 10500),
-      12: quote(46800, 34800),
-    },
-  },
-  {
-    id: 'standard',
-    monthlyCredits: 220_000,
-    concurrency: 2,
-    featured: true,
-    prices: {
-      1: quote(9900, 7900),
-      3: quote(26700, 21300),
-      12: quote(94800, 70800),
-    },
-  },
-  {
-    id: 'professional',
-    monthlyCredits: 600_000,
-    concurrency: 3,
-    featured: false,
-    prices: {
-      1: quote(19900, 15900),
-      3: quote(53700, 42900),
-      12: quote(190800, 142800),
-    },
-  },
-]
-
-export const RECHARGE_CREDITS_PER_YUAN = 400
-export const RECHARGE_AMOUNTS_YUAN = [10, 50, 100] as const
-
-export const REFERRAL_REGISTRATION_CREDITS = 200
-
-export function imagesPerMonth(monthlyCredits: number): number {
-  return Math.floor(monthlyCredits / GPT_IMAGE_2_CREDITS)
-}
-
-export function rechargeCredits(yuan: number): number {
-  return yuan * RECHARGE_CREDITS_PER_YUAN
-}
-
-/** 与私有账本 `effectivePrice` 相同：截止时刻仍然算折扣价。 */
-export function effectivePriceCents(price: PlanPrice, now = Date.now()): number {
-  if (price.discountCents === null || price.discountEndsAt === null || now > price.discountEndsAt) {
-    return price.originalCents
+export interface PublicCatalog {
+  plans: PublicPlan[]
+  recharge: { creditsPerYuan: number; amountsYuan: number[] }
+  imageAnchor: { model: string; creditsPerImage: number } | null
+  referral: {
+    inviterCredits: number
+    inviteeCredits: number
+    paidRewardBasisPoints: number
+    creditsPerYuan: number
   }
-  return price.discountCents
+}
+
+export function imagesPerMonth(monthlyCredits: number, creditsPerImage: number): number {
+  if (creditsPerImage <= 0) return 0
+  return Math.floor(monthlyCredits / creditsPerImage)
+}
+
+export function rechargeCredits(yuan: number, creditsPerYuan: number): number {
+  return yuan * creditsPerYuan
 }
 
 /** 季付、年付折成每月，单位分。 */
 export function monthlyEquivalentCents(cents: number, cycle: BillingCycle): number {
   return cents / cycle
+}
+
+export function parsePublicCatalog(input: unknown): PublicCatalog | null {
+  if (!isObject(input)) return null
+  const plans = parsePlans(input.plans)
+  const recharge = parseRecharge(input.recharge)
+  const referral = parseReferral(input.referral)
+  if (!plans || !recharge || !referral) return null
+  return {
+    plans,
+    recharge,
+    imageAnchor: parseImageAnchor(input.image_anchor),
+    referral,
+  }
+}
+
+export async function loadPublicCatalog(fetcher: typeof fetch = fetch): Promise<PublicCatalog> {
+  const response = await fetcher(`${bffBaseUrl()}/api/billing/public-catalog`, {
+    cache: 'no-store',
+    headers: { accept: 'application/json' },
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const catalog = parsePublicCatalog(await response.json())
+  if (!catalog) throw new Error('invalid_catalog')
+  return catalog
+}
+
+function parsePlans(input: unknown): PublicPlan[] | null {
+  if (!Array.isArray(input)) return null
+  const plans: PublicPlan[] = []
+  for (const row of input) {
+    if (!isObject(row) || typeof row.id !== 'string' || typeof row.name !== 'string') return null
+    if (!isSafeInt(row.monthly_credits) || !isSafeInt(row.max_concurrent_tasks)) return null
+    if (!isSafeInt(row.sort_order) || !Array.isArray(row.prices)) return null
+    const prices: PublicPlan['prices'] = {}
+    for (const price of row.prices) {
+      if (!isObject(price)) return null
+      // 页面只展示月付、季付、年付。多出来的周期留给以后的购买流，不让整页失败。
+      if (!isCycle(price.period_months)) continue
+      if (!isSafeInt(price.original_price_cents) || !isSafeInt(price.effective_price_cents)) {
+        return null
+      }
+      prices[price.period_months] = {
+        originalCents: price.original_price_cents,
+        effectiveCents: price.effective_price_cents,
+      }
+    }
+    plans.push({
+      id: row.id,
+      name: row.name,
+      monthlyCredits: row.monthly_credits,
+      concurrency: row.max_concurrent_tasks,
+      sortOrder: row.sort_order,
+      prices,
+    })
+  }
+  plans.sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id))
+  return plans
+}
+
+function parseRecharge(input: unknown): PublicCatalog['recharge'] | null {
+  if (!isObject(input) || !isSafeInt(input.credits_per_yuan) || input.credits_per_yuan <= 0) {
+    return null
+  }
+  if (!Array.isArray(input.amounts_yuan) || input.amounts_yuan.length === 0) return null
+  if (!input.amounts_yuan.every((yuan) => isSafeInt(yuan) && yuan > 0)) return null
+  return { creditsPerYuan: input.credits_per_yuan, amountsYuan: input.amounts_yuan }
+}
+
+function parseReferral(input: unknown): PublicCatalog['referral'] | null {
+  if (!isObject(input)) return null
+  if (
+    !isSafeInt(input.inviter_registration_credits) ||
+    !isSafeInt(input.invitee_registration_credits) ||
+    !isSafeInt(input.paid_reward_basis_points) ||
+    typeof input.credits_per_yuan !== 'number' ||
+    !Number.isFinite(input.credits_per_yuan) ||
+    input.credits_per_yuan <= 0
+  ) {
+    return null
+  }
+  return {
+    inviterCredits: input.inviter_registration_credits,
+    inviteeCredits: input.invitee_registration_credits,
+    paidRewardBasisPoints: input.paid_reward_basis_points,
+    creditsPerYuan: input.credits_per_yuan,
+  }
+}
+
+function parseImageAnchor(input: unknown): PublicCatalog['imageAnchor'] {
+  if (input === null || input === undefined) return null
+  if (!isObject(input) || typeof input.model !== 'string' || input.model.length === 0) return null
+  if (!isSafeInt(input.credits_per_image) || input.credits_per_image <= 0) return null
+  return { model: input.model, creditsPerImage: input.credits_per_image }
+}
+
+function isCycle(value: unknown): value is BillingCycle {
+  return value === 1 || value === 3 || value === 12
+}
+
+function isSafeInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
