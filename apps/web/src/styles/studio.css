@@ -392,12 +392,13 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 /* 中性光晕和细纹只盖住首屏，往下淡出，不压到作品区。 */
 .studio-home-backdrop {
   --dot-gap: 22px;
-  --dot-alpha: .06;
+  --dot-alpha: .045;
   position: absolute;
   inset: 0 0 auto;
-  height: 1100px;
+  height: max(680px, 100vh);
   overflow: hidden;
   pointer-events: none;
+  background: hsl(var(--background));
 }
 
 .studio-home-intro { padding-top: 48px; }
@@ -412,12 +413,13 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-home-backdrop::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, transparent 55%, hsl(var(--background)) 100%);
+  background: linear-gradient(to bottom, transparent 72%, hsl(var(--background)) 100%);
   content: '';
 }
 .studio-home-backdrop__glow,
 .studio-home-backdrop__grain,
-.studio-home-backdrop__grid {
+.studio-home-backdrop__grid,
+.studio-home-backdrop__hover {
   position: absolute;
   inset: 0;
 }
@@ -461,11 +463,47 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-home-backdrop__grid {
   background-image: radial-gradient(circle, hsl(var(--foreground) / var(--dot-alpha)) .8px, transparent 1.2px);
   background-size: var(--dot-gap) var(--dot-gap);
-  mask-image: radial-gradient(ellipse 60% 55% at 50% 22%, hsl(var(--scrim)) 0%, transparent 75%);
+  mask-image: linear-gradient(to bottom, hsl(var(--scrim)) 30%, transparent 92%);
 }
+
+/* 光透点阵：鼠标照到的地方，细点浮现成淡绿色，从中心往外分段变暗；底下托一层很薄的绿光。 */
+.studio-home-backdrop__hover {
+  opacity: 0;
+  transition: opacity .45s ease;
+}
+.studio-home-backdrop__hover::before,
+.studio-home-backdrop__hover::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+}
+.studio-home-backdrop__hover::before {
+  background: radial-gradient(
+    circle 160px at var(--pointer-x, 50%) var(--pointer-y, 40%),
+    hsl(var(--primary) / 0.06),
+    hsl(var(--primary) / 0.042) 18%,
+    hsl(var(--primary) / 0.025) 38%,
+    hsl(var(--primary) / 0.011) 60%,
+    hsl(var(--primary) / 0.003) 80%,
+    transparent
+  );
+}
+.studio-home-backdrop__hover::after {
+  background-image: radial-gradient(circle, hsl(var(--primary) / .6) .8px, transparent 1.3px);
+  background-size: var(--dot-gap) var(--dot-gap);
+  mask-image: radial-gradient(
+    circle 150px at var(--pointer-x, 50%) var(--pointer-y, 40%),
+    hsl(var(--scrim)) 0%,
+    hsl(var(--scrim) / .7) 20%,
+    hsl(var(--scrim) / .4) 42%,
+    hsl(var(--scrim) / .15) 66%,
+    transparent 100%
+  );
+}
+.studio-home-backdrop[data-pointer-active="true"] .studio-home-backdrop__hover { opacity: 1; }
+
 @media (max-width: 767px) {
   /* 窄屏上光晕更容易被裁出首屏，把中性灰光略抬高，避免整页看起来是一块纯黑。 */
-  .studio-home-backdrop { --dot-alpha: .11; }
   .dark .studio-home-backdrop__glow {
     background: radial-gradient(closest-side, hsl(var(--foreground) / .18), transparent);
   }
@@ -570,6 +608,7 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .studio-home-backdrop__hover { display: none; }
   .studio-hero-accent,
   .studio-home-backdrop__glow,
   [data-home-main] .studio-history-composer { animation: none; }
