@@ -8,6 +8,11 @@
     "workspace": "Open studio",
     "locale": "Language"
   },
+  "status": {
+    "loading": "Loading prices",
+    "error": "Prices could not be loaded",
+    "retry": "Try again"
+  },
   "hero": {
     "title": "Pricing",
     "subtitle": "Pay once. Credits arrive monthly, expire at month end, and the plan does not renew."
@@ -27,7 +32,7 @@
     "professionalTagline": "Heavy delivery",
     "featured": "Featured",
     "monthlyCredits": "{{n}} credits each month",
-    "images": "About {{n}} gpt-image-2 images / month",
+    "images": "About {{n}} {{model}} images / month",
     "concurrency": "{{n}} jobs at once",
     "studio": "Images, video, canvas, and the agent",
     "upgrade": "Upgrade",
@@ -71,7 +76,7 @@
     "meter": "How a job is priced",
     "meterValue": "Unit price × quantity × multiplier",
     "anchor": "Reference image price",
-    "anchorValue": "gpt-image-2 is {{n}} credits each",
+    "anchorValue": "{{model}} is {{n}} credits each",
     "failure": "Failure and cancel",
     "failureValue": "Returned to the same bucket. Retries do not hold again",
     "order": "Which credits are used first",
@@ -82,15 +87,17 @@
   "rules": {
     "title": "How credits are spent",
     "meterTitle": "Priced by the model",
-    "meterBody": "Images are per picture, video is per second, and chat is per thousand tokens. A submit costs unit price × quantity × multiplier. The image count on a plan spends the whole month at 100 credits per gpt-image-2 image. Other models and video produce fewer images. The estimate is shown before you submit.",
+    "meterBody": "Images are per picture, video is per second, and chat is per thousand tokens. A submit costs unit price × quantity × multiplier. The image count on a plan spends the whole month at {{credits}} credits per {{model}} image. Other models and video produce fewer images. The estimate is shown before you submit.",
+    "meterBodyGeneric": "Images are per picture, video is per second, and chat is per thousand tokens. A submit costs unit price × quantity × multiplier. The estimate is shown before you submit.",
     "bucketTitle": "Two balances",
-    "bucketBody": "Plan credits arrive each month and expire at month end. Top-up credits last. Packs are ¥10, ¥50, and ¥100, at {{rate}} credits per yuan, with or without a plan. Plan credits are spent first.",
+    "bucketBody": "Plan credits arrive each month and expire at month end. Top-up credits last. Packs are ¥{{amounts}}, at {{rate}} credits per yuan, with or without a plan. Plan credits are spent first.",
     "cycleTitle": "Pay once, receive monthly",
     "cycleBody": "Monthly, quarterly, and yearly plans are a single payment and do not renew. Quarterly and yearly plans do not drop every month of credits in at once. Each entitlement month still grants that month’s amount.",
     "failureTitle": "Failed jobs are returned",
     "failureBody": "If a job is cancelled or fails before delivery, the hold goes back to the bucket it came from. Retrying that same job does not hold credits again.",
     "inviteTitle": "Invites",
-    "inviteBody": "When a friend signs up with your invite, each of you receives {{n}} credits in the long-lived balance. Later payments earn the inviter 5% of the amount paid, converted at 100 credits per yuan. That reward sits in a reward balance until you move it. It cannot be withdrawn as cash."
+    "inviteBody": "When a friend signs up with your invite, each of you receives {{n}} credits in the long-lived balance. Later payments earn the inviter {{percent}}% of the amount paid, converted at {{rewardRate}} credits per yuan. That reward sits in a reward balance until you move it. It cannot be withdrawn as cash.",
+    "inviteBodyUneven": "When a friend signs up with your invite, you receive {{inviter}} credits and they receive {{invitee}}, in the long-lived balance. Later payments earn the inviter {{percent}}% of the amount paid, converted at {{rewardRate}} credits per yuan. That reward sits in a reward balance until you move it. It cannot be withdrawn as cash."
   },
   "recharge": {
     "title": "Credit top-up",
@@ -111,11 +118,13 @@
     "failureQ": "Am I charged if generation fails?",
     "failureA": "No. Failure and cancellation return the hold to the original bucket. A retry of that job does not hold credits again.",
     "unitQ": "How many credits is one image?",
-    "unitA": "It depends on the model. gpt-image-2 is listed at 100 credits per image. Video is per second and chat is per token. The estimate before submit is the charge.",
+    "unitA": "It depends on the model. {{model}} is listed at {{credits}} credits per image. Video is per second and chat is per token. The estimate before submit is the charge.",
+    "unitAGeneric": "It depends on the model. Video is per second and chat is per token. The estimate before submit is the charge.",
     "estimateQ": "Where do the image counts come from?",
-    "estimateA": "The month’s credits divided by 100, the gpt-image-2 price. That is a ceiling, not a promise. Other image models, video, and chat produce fewer images.",
+    "estimateA": "The month’s credits divided by {{credits}}, the {{model}} price. That is a ceiling, not a promise. Other image models, video, and chat produce fewer images.",
+    "estimateAGeneric": "The image count divides the month’s credits by the current image price. That is a ceiling, not a promise. Other models, video, and chat produce fewer images.",
     "rechargeQ": "Can I top up without a plan?",
-    "rechargeA": "Yes. Packs are ¥10, ¥50, and ¥100, at 400 credits per yuan. They last, and a plan is not required.",
+    "rechargeA": "Yes. Packs are ¥{{amounts}}, at {{rate}} credits per yuan. They last, and a plan is not required.",
     "renewQ": "Does the plan renew automatically?",
     "renewA": "No. Monthly, quarterly, and yearly plans are a single payment. When the term ends, grants stop. The next term is not charged.",
     "inviteQ": "Can invite credits be spent or cashed out?",
