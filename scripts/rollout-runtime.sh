@@ -433,37 +433,68 @@ start_admin_instance() {
     "$image" bun run /app/apps/admin/server/index.ts >/dev/null
 }
 
+# An earlier build of this proxy bind-mounted one file at /etc/admin-proxy.conf.
+# Reload now uses the directory mount; a running container from that build does
+# not have the new path, and retrying the same container cannot create it.
+proxy_layout_current() {
+  docker exec "$1" test -d /etc/admin-proxy >/dev/null 2>&1
+}
+
 ensure_admin_proxy() {
   proxy=$project-admin-proxy
-  if admin_running "$proxy"; then return 0; fi
+  if admin_running "$proxy"; then
+    proxy_layout_current "$proxy" && return 0
+    replace_admin_proxy "$1" || return 1
+    return 0
+  fi
   docker rm -f "$proxy" >/dev/null 2>&1 || true
-  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf"
+  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf" || return 1
   logged_docker run -d --name "$proxy" --init --restart unless-stopped \
     --network "$network" --network-alias admin \
     --entrypoint nginx \
     --mount "type=bind,source=$state_dir/admin-proxy,target=/etc/admin-proxy,readonly" \
-    "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null
+    "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
+}
+
+# Start the new layout beside the old proxy, both answering the admin name,
+# then stop the old one. The name is never absent.
+replace_admin_proxy() {
+  proxy=$project-admin-proxy
+  next=$project-admin-proxy-next
+  docker rm -f "$next" >/dev/null 2>&1 || true
+  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf" || return 1
+  logged_docker run -d --name "$next" --init --restart unless-stopped \
+    --network "$network" --network-alias admin \
+    --entrypoint nginx \
+    --mount "type=bind,source=$state_dir/admin-proxy,target=/etc/admin-proxy,readonly" \
+    "$image" -g 'daemon off;' -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
+  docker stop -t 30 "$proxy" >/dev/null 2>&1 || true
+  docker rm "$proxy" >/dev/null 2>&1 || true
+  docker rename "$next" "$proxy" || return 1
 }
 
 reload_admin_proxy() {
-  # Test the new file before replacing the one the running master has open.
-  # A failed check must not change what the proxy is currently serving.
-  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf.next"
-  docker exec "$project-admin-proxy" nginx -t -c /etc/admin-proxy/nginx.conf.next >/dev/null
-  mv "$state_dir/admin-proxy/nginx.conf.next" "$state_dir/admin-proxy/nginx.conf"
+  # Called from `if !`, which disables set -e for the whole function. Each step
+  # has to stop the function itself, or a failed nginx -t still replaces the
+  # file the running master will read on the next reload.
+  write_admin_proxy_conf "$1" "$state_dir/admin-proxy/nginx.conf.next" || return 1
+  docker exec "$project-admin-proxy" nginx -t -c /etc/admin-proxy/nginx.conf.next >/dev/null || return 1
+  mv "$state_dir/admin-proxy/nginx.conf.next" "$state_dir/admin-proxy/nginx.conf" || return 1
   # -c selects this proxy's config, whose pid path is /tmp/admin-proxy.pid.
   # Without it, nginx signals the default master and this process never reloads.
-  docker exec "$project-admin-proxy" nginx -s reload -c /etc/admin-proxy/nginx.conf >/dev/null
+  docker exec "$project-admin-proxy" nginx -s reload -c /etc/admin-proxy/nginx.conf >/dev/null || return 1
 }
 
-# True once the reloaded proxy answers and its previous worker has exited.
-# A reload only delivers the signal; old workers keep using the old upstream
-# until their requests finish.
+# Prints how many worker processes the nginx master still has.
+# The container uses --init, so pid 1 is docker-init and its only child is the
+# master. Workers are children of the pid recorded in the proxy config.
 proxy_switched() {
   docker exec "$project-admin-proxy" bun -e '
     const response = await fetch("http://127.0.0.1:37378/health", { signal: AbortSignal.timeout(4000) })
     if (!response.ok) process.exit(1)
-    const children = (await Bun.file("/proc/1/task/1/children").text()).trim().split(/\s+/).filter(Boolean)
+    const pid = (await Bun.file("/tmp/admin-proxy.pid").text()).trim()
+    if (!/^\d+$/.test(pid)) process.exit(1)
+    const children = (await Bun.file(`/proc/${pid}/task/${pid}/children`).text()).trim().split(/\s+/).filter(Boolean)
     console.log(String(children.length))
   ' 2>/dev/null || return 1
 }
@@ -522,6 +553,12 @@ replace_admin() {
     if [ "$pending" != "$live" ]; then
       if [ -f "$state_dir/admin-proxy/nginx.conf" ] &&
         grep -q "set \$upstream ${pending};" "$state_dir/admin-proxy/nginx.conf"; then
+        # The proxy already follows pending. Remember the previous upstream:
+        # overwriting the record without that would leave the old process running
+        # and unnamed.
+        if [ -n "$live" ] && [ "$live" != "$pending" ]; then
+          printf '%s\n' "$live" >> "$state_dir/admin-retire"
+        fi
         printf '%s\n' "$pending" > "$upstream_file"
       else
         stop_admin "$pending"
@@ -545,16 +582,28 @@ replace_admin() {
     if ! admin_running "$previous"; then previous=$new; fi
     ensure_admin_proxy "$previous"
   fi
-  if ! reload_admin_proxy "$new" || ! wait_proxy_switched; then
-    # The reload did not take effect, so the proxy still uses the previous
-    # upstream. This process is not serving and must not be left behind.
+  if ! reload_admin_proxy "$new"; then
+    # nginx -t failed, or the signal was not delivered. The live config was
+    # not replaced, so this process is not what the proxy is using.
     stop_admin "$new"
     rm -f "$pending_file"
     return 1
   fi
+  if ! wait_proxy_switched; then
+    # The reload was accepted, so the proxy may already be sending new requests
+    # here. Deleting this container would point the proxy at nothing. Leave the
+    # pending record; the next rollout adopts it and retires whatever is older.
+    return 1
+  fi
   if [ -f "$upstream_file" ]; then previous=$(cat "$upstream_file"); else previous=$current; fi
-  if [ "$previous" != "$new" ]; then
-    stop_admin "$previous"
+  if [ -n "$previous" ] && [ "$previous" != "$new" ]; then
+    printf '%s\n' "$previous" >> "$state_dir/admin-retire"
+  fi
+  if [ -f "$state_dir/admin-retire" ]; then
+    while read -r retiring || [ -n "$retiring" ]; do
+      [ -n "$retiring" ] && [ "$retiring" != "$new" ] && stop_admin "$retiring"
+    done < "$state_dir/admin-retire"
+    rm -f "$state_dir/admin-retire"
   fi
   printf '%s\n' "$new" > "$upstream_file"
   rm -f "$pending_file"
