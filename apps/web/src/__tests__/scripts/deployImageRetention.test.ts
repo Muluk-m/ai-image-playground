@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -118,5 +126,104 @@ describe('release_untagged_image', () => {
 
   it('镜像已经不在了也不报错', () => {
     expect(releaseUntagged('missing')).toEqual({ out: '', removed: false })
+  })
+})
+
+describe('reclaim_deploy_disk', () => {
+  it('删掉超出保留代的镜像和悬空层，并清掉已发布与失败发布的镜像归档', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-reclaim-'))
+    const bin = join(dir, 'bin')
+    const config = join(dir, 'config')
+    const releases = join(dir, 'releases')
+    const current = join(releases, 'aip-current')
+    const deployed = join(releases, 'aip-deployed')
+    const pending = join(releases, 'aip-pending')
+    const failed = join(releases, 'aip-old.failed-run-9')
+    mkdirSync(bin)
+    mkdirSync(join(config, 'ai-image-playground'), { recursive: true })
+    for (const path of [current, deployed, pending, failed]) mkdirSync(path, { recursive: true })
+    writeFileSync(join(current, 'images.tar.gz'), 'current')
+    writeFileSync(join(deployed, 'images.tar.gz'), 'deployed')
+    writeFileSync(join(pending, 'images.tar.gz'), 'pending')
+    writeFileSync(join(failed, 'images.tar.gz'), 'failed')
+    const kept = 'ai-image-playground:vps-main-aaaaaaaaaaaa'
+    writeFileSync(
+      join(deployed, 'images.tsv'),
+      `internal\t${kept}\tsha256:${'a'.repeat(64)}\t${'b'.repeat(40)}\t-\n`,
+    )
+    writeFileSync(
+      join(current, 'images.tsv'),
+      `internal\t${kept}\tsha256:${'a'.repeat(64)}\t${'b'.repeat(40)}\t-\n`,
+    )
+    writeFileSync(
+      join(config, 'ai-image-playground/deployments.log'),
+      `2026-10-14T00:00:00Z internal public=${'b'.repeat(40)} private=- image=${kept} by=test result=ok\n`,
+    )
+    const calls = join(dir, 'calls')
+    writeFileSync(
+      join(bin, 'docker'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "${calls}"
+case "$1 $2" in
+  'image prune')
+    case " $* " in
+      *' -a '*|*' --all '*) echo "refusing to drop tagged rollback images" >&2; exit 1 ;;
+    esac
+    ;;
+  'image inspect')
+    case "$3" in
+      sha256:dead) printf '%s\\n' 'ghcr.io/muluk-m/ai-image-playground@sha256:dead' ;;
+      *) printf '%s\\n' 'sha256:dead' ;;
+    esac
+    ;;
+  'images --format')
+    printf '%s\\n' \\
+      'ai-image-playground:vps-main-aaaaaaa1' \\
+      'ai-image-playground:vps-main-aaaaaaa2' \\
+      'ai-image-playground:vps-main-aaaaaaa3' \\
+      'ai-image-playground:paid-relay-removal'
+    ;;
+esac
+`,
+    )
+    chmodSync(join(bin, 'docker'), 0o755)
+    const out = execFileSync(
+      'sh',
+      ['-c', 'set -eu; . "$0"; reclaim_deploy_disk "$1"', lib, current],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          XDG_CONFIG_HOME: config,
+          DEPLOY_KEEP_IMAGES: '2',
+        },
+      },
+    )
+    const log = readFileSync(calls, 'utf8')
+    expect(out).toContain('pruned ai-image-playground:vps-main-aaaaaaa3')
+    expect(out).not.toContain('pruned ai-image-playground:paid-relay-removal')
+    expect(log).toContain('rmi ai-image-playground:vps-main-aaaaaaa3')
+    expect(log).toContain('rmi sha256:dead')
+    expect(log).toContain('image prune -f')
+    expect(log).not.toContain('image prune -a')
+    expect(existsSync(join(current, 'images.tar.gz'))).toBe(true)
+    expect(existsSync(join(deployed, 'images.tar.gz'))).toBe(false)
+    expect(existsSync(join(pending, 'images.tar.gz'))).toBe(true)
+    expect(existsSync(join(failed, 'images.tar.gz'))).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('拉镜像之前就回收，测试发布也会清备份镜像', () => {
+    const receiver = readFileSync(
+      resolve(__dirname, '../../../../../scripts/vps-deploy.sh'),
+      'utf8',
+    )
+    const reclaim = receiver.indexOf('reclaim_deploy_disk "$release"\n')
+    const free = receiver.indexOf('free_gb=$(docker_root_free_gb)')
+    expect(reclaim).toBeGreaterThan(-1)
+    expect(free).toBeGreaterThan(reclaim)
+    expect(receiver).toContain('reclaim_deploy_disk "$release" "$rolled_out $backup_image"')
+    expect(receiver).not.toContain('prune_old_images')
   })
 })

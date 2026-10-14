@@ -63,6 +63,9 @@ awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
 for edition in $editions backup; do
   [ "$(awk -F '\t' -v e="$edition" '$1==e { n++ } END { print n+0 }' "$release/images.tsv")" = 1 ] || { echo "Missing $edition image" >&2; exit 1; }
 done
+# Free anything past the retention window before refusing the pull. The images about to be
+# pulled are not local yet; running containers are protected inside reclaim_deploy_disk.
+reclaim_deploy_disk "$release"
 free_gb=$(docker_root_free_gb)
 [ "$free_gb" -ge "$DEPLOY_MIN_FREE_GB" ] || { echo "Insufficient Docker disk space: ${free_gb}G" >&2; exit 1; }
 if [ -f "$release/images.tar.gz" ]; then
@@ -106,28 +109,8 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
     if ((await sharp(png).metadata()).width !== 2) process.exit(1);
   '
 done < "$release/images.tsv"
-# Untagging alone leaves the release's registry digest reference holding the layers, so each
-# pruned tag hands its image id to release_untagged_image.
-prune_old_images() {
-  running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
-  stale=$(docker images --format '{{.Repository}}:{{.Tag}}' "${1%%:*}" |
-    select_stale_images "$1" "$DEPLOY_KEEP_IMAGES" "$2 $running")
-  if [ -z "$stale" ]; then
-    echo "no images to prune for $1 (keeping $DEPLOY_KEEP_IMAGES)"
-    return 0
-  fi
-  for image in $stale; do
-    image_id=$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null)
-    if docker rmi "$image" >/dev/null 2>&1; then
-      echo "pruned $image"
-      [ -z "$image_id" ] || release_untagged_image "$image_id" "${1%%:*}"
-    else
-      echo "could not prune $image; leaving it" >&2
-    fi
-  done
-}
-
 backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
+rolled_out=
 for edition in $editions; do
   record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
   IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
@@ -139,11 +122,13 @@ EOF
   docker tag "$image" "$(edition_var "$prefix" IMAGE)"
   append_deploy_log "$edition" "$image" ok
   current_edition=
-  prune_old_images "$(edition_var "$prefix" IMAGE)" "$image"
+  rolled_out="$rolled_out $image"
 done
+# The moving backup alias is what a hand rollback of the sidecar looks up. Test receives do
+# not own that alias; production does. Either way the commit-qualified backup tag is pruned
+# with the other editions below, including backups a test receive pulled and used to leave.
 if [ "$target" != test ]; then
   docker tag "$backup_image" ai-image-playground-pg-backup:local
-  prune_old_images ai-image-playground:backup "$backup_image"
-  prune_old_releases "$release"
 fi
+reclaim_deploy_disk "$release" "$rolled_out $backup_image"
 echo "Deployed prebuilt release: $release"
