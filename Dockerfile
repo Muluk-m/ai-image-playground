@@ -85,6 +85,10 @@ RUN pnpm --filter @image-playground/admin build
 
 # Production tree for the processes this image actually runs. Frontend packages
 # stay in the build stages above; pnpm deploy --prod does not copy them.
+# The private BFF is source-only here. Deploying it separately installs a second
+# physical copy of elysia, and apps/bff then exits on startup because
+# `instanceof Elysia` is false. Its runtime dependencies already live in the
+# public bff deploy; the runtime stage points private source at that one store.
 FROM deps AS runtime-deps
 WORKDIR /app
 COPY apps/bff ./apps/bff
@@ -100,9 +104,6 @@ COPY --from=private-overlay / /tmp/private-overlay
 # Elysia peers typescript and drizzle-orm peers bun-types; both are type-only
 # and optional. They are removed after deploy. sharp's optional native binaries
 # stay, so this is not a global --no-optional install.
-# pnpm deploy refuses a target that already exists. The placeholder is created
-# only when there is no private BFF, so the later COPY of node_modules still has
-# a source. A real overlay deploys into a path that is not there yet.
 RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
   && mkdir -p /app/private /out/private-src \
   && if [ -n "$(find /tmp/private-overlay -mindepth 1 -print -quit)" ]; then \
@@ -110,11 +111,6 @@ RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
      fi \
   && pnpm --filter @image-playground/bff --prod deploy /out/bff \
   && pnpm --filter @image-playground/admin --prod deploy /out/admin \
-  && if [ -f /app/private/apps/bff/package.json ]; then \
-       pnpm --filter ./private/apps/bff --prod deploy /out/private-bff; \
-     else \
-       mkdir -p /out/private-bff/node_modules; \
-     fi \
   && if [ -d /app/private ]; then cp -a /app/private/. /out/private-src/; fi \
   && find /out/private-src -type d -name node_modules -print0 | xargs -0r rm -rf \
   && find /out \( -type d -o -type l \) \( \
@@ -130,7 +126,7 @@ RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
        /out/admin/contracts.ts; do \
        test -e "$path" || { echo "missing $path" >&2; exit 1; }; \
      done \
-  && for root in /out/bff /out/admin /out/private-bff; do \
+  && for root in /out/bff /out/admin; do \
        [ -d "$root" ] || continue; \
        find "$root" -type l > /tmp/deploy-links; \
        while IFS= read -r link; do \
@@ -226,7 +222,12 @@ RUN ln -s libdav1d.so.7.0.0 /usr/local/lib/libdav1d.so.7 \
 COPY --from=runtime-deps /out/bff ./apps/bff
 COPY --from=runtime-deps /out/admin ./apps/admin
 COPY --from=runtime-deps /out/private-src ./private
-COPY --from=runtime-deps /out/private-bff/node_modules ./private/apps/bff/node_modules
+COPY scripts/check-shared-bff-modules.ts ./scripts/check-shared-bff-modules.ts
+# Private source is outside apps/bff, so its imports walk up to /app/node_modules.
+# That directory is the public deploy, not a second install. Admin resolves
+# /app/apps/admin/node_modules first and does not use this link.
+RUN ln -sfn apps/bff/node_modules /app/node_modules \
+  && bun run ./scripts/check-shared-bff-modules.ts
 
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
