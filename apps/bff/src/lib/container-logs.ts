@@ -34,9 +34,19 @@ export function containerService(name: string): ServerLogService {
   return (service as ServerLogService | undefined) ?? 'other'
 }
 
-/** Text lines carry their level as a word (cloudflared `ERR`, postgres `ERROR:`, `[warn]`). */
+/**
+ * Text lines carry their level as a word (cloudflared `ERR`, postgres `ERROR:`, `[warn]`).
+ * cloudflared puts that word immediately after the timestamp. A later `error="..."` is the
+ * message, not a second vote: `WRN ... error="connection with edge closed"` is still a warning.
+ */
 function textLevel(line: string, stream: string): ServerLogLevel {
   if (/^\s*at\s/.test(line)) return stream === 'stderr' ? 'warn' : 'info'
+  const token = /^\d{4}-\d{2}-\d{2}T\S*Z\s+(FTL|ERR|WRN|INF|DBG)\b/.exec(line)?.[1]
+  if (token === 'FTL') return 'fatal'
+  if (token === 'ERR') return 'error'
+  if (token === 'WRN') return 'warn'
+  if (token === 'INF') return 'info'
+  if (token === 'DBG') return 'debug'
   if (/^(?:warn|warning)\b/i.test(line)) return 'warn'
   if (/\b(?:FATAL|PANIC|CRIT(?:ICAL)?)\b/i.test(line)) return 'fatal'
   if (/\b(?:ERR|ERROR|EXCEPTION)\b|Error:/i.test(line)) return 'error'

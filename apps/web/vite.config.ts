@@ -6,7 +6,6 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
-import { normalizeDevProxyConfig } from './src/lib/devProxy'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
 import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { optionalFontsPlugin } from './src/styles/fontPlugin'
@@ -25,18 +24,6 @@ function displayedVersion(): string {
 
 /** 最低支持的浏览器内核。Chrome 80 覆盖仍在使用的国产浏览器旧内核；Safari 14 覆盖 iOS 14。 */
 const BROWSER_TARGET = ['es2020', 'chrome80', 'edge80', 'firefox78', 'safari14']
-
-function loadDevProxyConfig() {
-  try {
-    return normalizeDevProxyConfig(
-      JSON.parse(readFileSync('./dev-proxy.config.json', 'utf-8')) as unknown,
-    )
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException
-    if (err.code === 'ENOENT') return null
-    throw error
-  }
-}
 
 /**
  * 把 dist/sw.js 中的 __BUILD_VERSION__ 占位符替换为每次构建唯一的 token。
@@ -63,29 +50,7 @@ function injectSwBuildVersion(): Plugin {
   }
 }
 
-export default defineConfig(({ command }) => {
-  const isServe = command === 'serve'
-  const devProxyConfig = isServe ? loadDevProxyConfig() : null
-
-  const proxy: Record<string, import('vite').ProxyOptions> = {}
-  if (isServe) {
-    // BYOK dev-proxy (optional, opt-in via dev-proxy.config.json).
-    // 用于本地调试 BYOK profile 时绕过上游 CORS 或加临时 header。
-    if (devProxyConfig?.enabled) {
-      proxy[devProxyConfig.prefix] = {
-        target: devProxyConfig.target,
-        ws: true,
-        changeOrigin: devProxyConfig.changeOrigin,
-        secure: devProxyConfig.secure,
-        rewrite: (path) =>
-          path.replace(
-            new RegExp(`^${devProxyConfig.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
-            '',
-          ),
-      }
-    }
-  }
-
+export default defineConfig(() => {
   return {
     plugins: [
       optionalFontsPlugin(),
@@ -100,7 +65,6 @@ export default defineConfig(({ command }) => {
     base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(displayedVersion()),
-      __DEV_PROXY_CONFIG__: JSON.stringify(devProxyConfig),
     },
     resolve: {
       alias: {
@@ -112,7 +76,6 @@ export default defineConfig(({ command }) => {
     },
     server: {
       host: true,
-      proxy: Object.keys(proxy).length ? proxy : undefined,
     },
     // jSquash 用 `new URL('*.wasm', import.meta.url)` 找自己的 wasm；预打包会把路径改坏。
     optimizeDeps: { exclude: ['@jsquash/webp', '@jsquash/avif', '@jsquash/oxipng'] },

@@ -25,24 +25,6 @@ const openaiChannel: PublicChannel = {
 
 const publicChannels: PublicChannel[] = [geminiChannel, openaiChannel]
 
-function makeByok(opts: {
-  id: string
-  kind: 'openai-compat' | 'gemini'
-  models: string[]
-}): ClientProfile {
-  return {
-    id: opts.id,
-    source: 'user-byok',
-    name: opts.id,
-    kind: opts.kind,
-    baseUrl: 'https://example.com/v1',
-    apiKey: 'sk-x',
-    models: opts.models,
-    selectedModelId: opts.models[0] ?? '',
-    preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
-  }
-}
-
 function makeBuiltin(opts: {
   id: string
   channelId: string
@@ -58,11 +40,17 @@ function makeBuiltin(opts: {
 
 describe('matchProfile', () => {
   it('returns null when no profile satisfies provider + model', () => {
-    const profiles = [makeByok({ id: 'byok1', kind: 'openai-compat', models: ['gpt-image-2'] })]
+    const profiles = [
+      makeBuiltin({
+        id: 'openai',
+        channelId: 'test-openai',
+        selectedModelId: 'gpt-image-2.5-flare',
+      }),
+    ]
     const result = matchProfile({
       profiles,
       publicChannels,
-      activeProfileId: 'byok1',
+      activeProfileId: 'openai',
       provider: 'gemini',
       model: 'gemini-3.1-flash-image',
     })
@@ -70,54 +58,69 @@ describe('matchProfile', () => {
   })
 
   it('prefers the currently active profile when it satisfies the constraint', () => {
-    const byok1 = makeByok({ id: 'byok1', kind: 'gemini', models: ['gemini-3.1-flash-image'] })
-    const builtin = makeBuiltin({
-      id: 'b1',
+    const other = makeBuiltin({
+      id: 'other',
+      channelId: 'test-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
+    const active = makeBuiltin({
+      id: 'active',
       channelId: 'test-gemini',
       selectedModelId: 'gemini-3.1-flash-image',
     })
     const result = matchProfile({
-      profiles: [byok1, builtin],
+      profiles: [other, active],
       publicChannels,
-      activeProfileId: 'byok1',
+      activeProfileId: 'active',
       provider: 'gemini',
       model: 'gemini-3.1-flash-image',
     })
-    expect(result?.profile.id).toBe('byok1')
+    expect(result?.profile.id).toBe('active')
   })
 
-  it('prefers builtin-edge over user-byok when active is unrelated', () => {
-    const byok1 = makeByok({ id: 'byok1', kind: 'gemini', models: ['gemini-3.1-flash-image'] })
-    const builtin = makeBuiltin({
-      id: 'b1',
+  it('falls back to the first matching channel when the active profile cannot serve the model', () => {
+    const gemini = makeBuiltin({
+      id: 'gemini',
       channelId: 'test-gemini',
       selectedModelId: 'gemini-3.1-flash-image',
     })
-    const openaiByok = makeByok({ id: 'byok2', kind: 'openai-compat', models: ['gpt-image-2'] })
+    const openai = makeBuiltin({
+      id: 'openai',
+      channelId: 'test-openai',
+      selectedModelId: 'gpt-image-2.5-flare',
+    })
     const result = matchProfile({
-      profiles: [byok1, builtin, openaiByok],
+      profiles: [gemini, openai],
       publicChannels,
-      activeProfileId: 'byok2', // unrelated active
+      activeProfileId: 'openai',
       provider: 'gemini',
       model: 'gemini-3.1-flash-image',
     })
-    expect(result?.profile.id).toBe('b1')
+    expect(result?.profile.id).toBe('gemini')
   })
 
-  it('falls back to first match when neither active nor builtin satisfies', () => {
-    const byok1 = makeByok({ id: 'byok1', kind: 'gemini', models: ['gemini-3.1-flash-image'] })
-    const byok2 = makeByok({ id: 'byok2', kind: 'gemini', models: ['gemini-3.1-flash-image'] })
+  it('falls back to the first match when the active profile is unrelated', () => {
+    const first = makeBuiltin({
+      id: 'first',
+      channelId: 'test-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
+    const second = makeBuiltin({
+      id: 'second',
+      channelId: 'test-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
     const result = matchProfile({
-      profiles: [byok1, byok2],
+      profiles: [first, second],
       publicChannels,
       activeProfileId: 'unrelated',
       provider: 'gemini',
       model: 'gemini-3.1-flash-image',
     })
-    expect(result?.profile.id).toBe('byok1')
+    expect(result?.profile.id).toBe('first')
   })
 
-  it('skips builtin-edge whose channel does not include the requested model', () => {
+  it('skips a channel that does not include the requested model', () => {
     const builtin = makeBuiltin({
       id: 'b1',
       channelId: 'test-gemini',
@@ -133,7 +136,7 @@ describe('matchProfile', () => {
     expect(result).toBeNull()
   })
 
-  it('skips builtin-edge with unknown channelId', () => {
+  it('skips a profile with an unknown channelId', () => {
     const builtin = makeBuiltin({ id: 'b1', channelId: 'unknown-channel', selectedModelId: 'x' })
     const result = matchProfile({
       profiles: [builtin],
@@ -175,20 +178,18 @@ describe('matchProfile', () => {
   })
 
   it('falls back within the gpt-image family when the exact id is gone', () => {
-    const byok = makeByok({ id: 'byok1', kind: 'openai-compat', models: ['gpt-image-2.5-flare'] })
     const builtin = makeBuiltin({
       id: 'b-openai',
       channelId: 'test-openai',
       selectedModelId: 'gpt-image-2.5-flare',
     })
     const result = matchProfile({
-      profiles: [byok, builtin],
+      profiles: [builtin],
       publicChannels,
       activeProfileId: 'none',
       provider: 'openai-compat',
       model: 'gpt-image-2',
     })
-    // builtin-edge 的优先级在回退档里同样成立
     expect(result?.profile.id).toBe('b-openai')
     expect(result?.model).toBe('gpt-image-2.5-flare')
   })
@@ -217,11 +218,15 @@ describe('matchProfile', () => {
   })
 
   it('does not fall back across providers', () => {
-    const geminiByok = makeByok({ id: 'byok1', kind: 'gemini', models: ['gpt-image-2.5-flare'] })
+    const gemini = makeBuiltin({
+      id: 'gemini',
+      channelId: 'test-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
     const result = matchProfile({
-      profiles: [geminiByok],
+      profiles: [gemini],
       publicChannels,
-      activeProfileId: 'byok1',
+      activeProfileId: 'gemini',
       provider: 'openai-compat',
       model: 'gpt-image-2',
     })

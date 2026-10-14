@@ -16,6 +16,7 @@ import { useSyncStatus } from '../lib/sync/status'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
+import GuestAccountMenu from './GuestAccountMenu'
 import HeaderMembershipChip from './HeaderMembershipChip'
 import LocaleGlobe from './LocaleGlobe'
 import LogoutDialog from './LogoutDialog'
@@ -93,14 +94,14 @@ export default function Header() {
   return (
     <>
       {/*
-        窄屏有一条毛玻璃顶栏，正文从它下面开始，滚上去时不再透出内容。
-        画布自己有顶上的留白，不再加这条栏。宽屏没有顶栏，账号簇浮在右上角，
-        页头按测得的宽度让出右侧空位。
+        窄屏有一条顶栏，正文从它下面开始。首页这条栏是透明的，点阵和光晕从状态栏后面铺下来；
+        其它页保留毛玻璃和底边，滚上去时内容不透出。画布自己留白，不再加这条栏。
+        宽屏没有顶栏，账号簇浮在右上角，页头按测得的宽度让出右侧空位。
       */}
       {appMode !== 'canvas' ? (
         <div
           aria-hidden
-          className="pointer-events-none fixed inset-x-0 top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md md:hidden"
+          className="studio-mobile-topbar pointer-events-none fixed inset-x-0 top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md md:hidden"
           style={{ height: 'var(--mobile-topbar-height)' }}
         />
       ) : null}
@@ -134,9 +135,14 @@ export default function Header() {
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
                 size="icon-sm"
-                className="relative rounded-full"
+                variant={auth.user ? 'default' : 'ghost'}
+                className="relative rounded-full text-muted-foreground"
               >
-                <BrandAvatar />
+                {auth.user ? (
+                  <BrandAvatar />
+                ) : (
+                  <Icon name="user" className="size-6 text-muted-foreground" />
+                )}
                 {syncPending ? (
                   <span
                     role="img"
@@ -145,7 +151,17 @@ export default function Header() {
                   />
                 ) : null}
               </Button>
-              {accountMenuOpen ? (
+              {accountMenuOpen && !auth.user ? (
+                <GuestAccountMenu
+                  authEnabled={auth.enabled}
+                  onLogin={() => {
+                    setAccountMenuOpen(false)
+                    auth.login()
+                  }}
+                  onClose={() => setAccountMenuOpen(false)}
+                />
+              ) : null}
+              {accountMenuOpen && auth.user ? (
                 <div
                   role="menu"
                   className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-popover"

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import GenerationHistory from '../../components/GenerationHistory'
 import InputBar from '../../components/InputBar'
+import { useLibraryStore } from '../../features/library/store'
 import { setClientStorageScope } from '../../lib/authScope'
 import { setChannels } from '../../lib/channels/channelStore'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
@@ -147,9 +148,30 @@ it('首页底部展开更多作品，并与顶部收起入口联动', async () =
   await click('展开更多作品')
   await waitCards(4)
   expect(findButton('展开更多作品')).toBe(false)
-  await click('收起历史')
+  await click('收起')
   await waitCards(3)
   expect(findButton('展开更多作品')).toBe(true)
+})
+
+it('展开全部留在创作页，去资产库才离开', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      page(Array.from({ length: 4 }, (_, index) => ({ ...item, id: `creation-${index}` }))),
+    ),
+  )
+  useLibraryStore.setState({ tab: 'projects' })
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(3)
+  expect(findButton('展开全部')).toBe(true)
+  expect(findButton('去资产库')).toBe(true)
+  await click('展开全部')
+  await waitCards(4)
+  expect(useStore.getState().appMode).toBe('image')
+  expect(findButton('展开全部')).toBe(false)
+  await click('去资产库')
+  expect(useStore.getState().appMode).toBe('library')
+  expect(useLibraryStore.getState().tab).toBe('assets')
 })
 
 it('只有三条作品且没有下一页时，不展示底部更多入口', async () => {

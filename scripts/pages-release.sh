@@ -107,7 +107,7 @@ fi
 
 BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
-# The web build writes canonical URLs, hreflang, sitemap.xml and robots.txt from these two.
+# The web build writes canonical URLs, hreflang, sitemap.xml, robots.txt and llms.txt from these two.
 PUBLIC_ORIGIN=$public_origin
 SEARCH_INDEXING=$search_indexing
 export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID \

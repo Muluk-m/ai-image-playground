@@ -16,11 +16,7 @@ import { fillAgentComposer } from '../../features/agent/lib/composerFill'
 import { useActiveLook } from '../../features/library/lib/activeLook'
 import { cancelLookSubmission, useLookSubmission } from '../../features/library/lib/lookSubmit'
 import { useLibraryStore } from '../../features/library/store'
-import {
-  createDefaultOpenAIByokProfile,
-  DEFAULT_SETTINGS,
-  normalizeSettings,
-} from '../../lib/apiProfiles'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
 import { setChannels } from '../../lib/channels/channelStore'
 import type { PublicChannel } from '../../lib/channels/types'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
@@ -57,6 +53,7 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   document.body.innerHTML = ''
+  setChannels([])
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -240,21 +237,31 @@ describe('首屏的生成设置', () => {
   })
 
   it('Gemini 模型下留的是比例与分辨率，思考强度归智能体', () => {
+    setChannels([
+      {
+        id: 'gemini',
+        kind: 'gemini-queue',
+        label: 'Gemini',
+        models: [
+          {
+            id: 'gemini-3.1-flash-image',
+            label: 'Gemini',
+            capabilities: ['generate', 'edit', 'size'],
+          },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     useStore.setState({
       settings: {
         ...useStore.getState().settings,
-        activeProfileId: 'gemini-byok',
+        activeProfileId: 'gemini',
         profiles: [
           {
-            id: 'gemini-byok',
-            source: 'user-byok',
-            name: 'Gemini',
-            kind: 'gemini',
-            baseUrl: 'https://example.com',
-            apiKey: 'sk-x',
-            models: ['gemini-3.1-flash-image'],
+            id: 'gemini',
+            source: 'builtin-edge',
+            channelId: 'gemini',
             selectedModelId: 'gemini-3.1-flash-image',
-            preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
           },
         ],
       },
@@ -378,25 +385,6 @@ describe('开头的 /技能 命令', () => {
   })
 
   it('生成档不认技能，也不许把命令当提示词拿去出图', () => {
-    useStore.setState({
-      settings: {
-        ...useStore.getState().settings,
-        activeProfileId: 'openai-byok',
-        profiles: [
-          {
-            id: 'openai-byok',
-            source: 'user-byok',
-            name: 'OpenAI',
-            kind: 'openai-compat',
-            baseUrl: 'https://example.com',
-            apiKey: 'sk-x',
-            models: ['gpt-image-2'],
-            selectedModelId: 'gpt-image-2',
-            preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
-          },
-        ],
-      },
-    })
     remount('generate')
     const submit = () =>
       [...host.querySelectorAll('button')].find((one) => one.getAttribute('aria-label') === '生成')
@@ -412,7 +400,16 @@ describe('开头的 /技能 命令', () => {
 
 it('template preparation turns the send button into a click-only stop, even with a draft', async () => {
   await bootstrapClientCapabilities(false, '')
-  const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+  const model = 'gpt-image-2.5-flare'
+  setChannels([
+    {
+      id: 'default-openai',
+      kind: 'openai-queue',
+      label: 'OpenAI',
+      models: [{ id: model, label: model, capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
   const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
   try {
     act(() => {
@@ -422,8 +419,15 @@ it('template preparation turns the send button into a click-only stop, even with
         appMode: 'image',
         settings: normalizeSettings({
           ...DEFAULT_SETTINGS,
-          profiles: [profile],
-          activeProfileId: profile.id,
+          profiles: [
+            {
+              id: 'default-openai',
+              source: 'builtin-edge',
+              channelId: 'default-openai',
+              selectedModelId: model,
+            },
+          ],
+          activeProfileId: 'default-openai',
         }),
       })
       useActiveLook.getState().set({
@@ -432,7 +436,7 @@ it('template preparation turns the send button into a click-only stop, even with
         name: 'Test',
         description: '',
         purpose: 'scene',
-        model: profile.selectedModelId,
+        model,
         size: '1024x1024',
         slotCount: 0,
         cover: null,
@@ -509,9 +513,23 @@ it('shares text and references across creation modes while restoring each image 
 })
 
 it('does not resurrect a model removed while another creation mode is selected', () => {
-  const profile = createDefaultOpenAIByokProfile()
-  profile.models = ['kept', 'removed']
-  profile.selectedModelId = 'removed'
+  const channel = {
+    id: 'openai',
+    kind: 'openai-queue' as const,
+    label: 'OpenAI',
+    models: [
+      { id: 'kept', label: 'kept', capabilities: ['generate' as const] },
+      { id: 'removed', label: 'removed', capabilities: ['generate' as const] },
+    ],
+    defaults: { apiMode: 'images' as const, timeout: 600 },
+  }
+  const profile = {
+    id: 'openai',
+    source: 'builtin-edge' as const,
+    channelId: 'openai',
+    selectedModelId: 'removed',
+  }
+  setChannels([channel])
   act(() => {
     useStore.setState({
       createTarget: 'generate',
@@ -519,13 +537,14 @@ it('does not resurrect a model removed while another creation mode is selected',
       settings: { ...INITIAL_SETTINGS, profiles: [profile], activeProfileId: profile.id },
     })
     useStore.getState().setCreateTarget('chat')
-    useStore
-      .getState()
-      .setSettings({ profiles: [{ ...profile, models: ['kept'], selectedModelId: 'kept' }] })
+    setChannels([{ ...channel, models: [channel.models[0]] }])
+    useStore.getState().setSettings({
+      profiles: [{ ...profile, selectedModelId: 'kept' }],
+      activeProfileId: profile.id,
+    })
     useStore.getState().setCreateTarget('generate')
   })
   expect(useStore.getState().settings.profiles[0]).toMatchObject({
-    models: ['kept'],
     selectedModelId: 'kept',
   })
 })

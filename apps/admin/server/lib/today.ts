@@ -6,6 +6,7 @@ import {
   type TimeWindow,
   type TodayErrorItem,
   type TodayErrorsResult,
+  type TodayModelFailure,
   type TodayModelStat,
   type TodayOverviewResult,
   todayWindow,
@@ -21,11 +22,30 @@ const nullableText = (value: unknown) => (value == null ? null : String(value))
 const ACTOR_LIMIT = 500
 const PAGE_SIZE = 100
 
+function modelFailures(rows: Row[]): Map<string, TodayModelFailure[]> {
+  const grouped = new Map<string, TodayModelFailure[]>()
+  for (const row of rows) {
+    const model = String(row.model)
+    const failures = grouped.get(model) ?? []
+    failures.push({ error_type: String(row.error_type), count: Number(row.count) })
+    grouped.set(model, failures)
+  }
+  for (const failures of grouped.values()) {
+    failures.sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count
+      if (left.error_type < right.error_type) return -1
+      if (left.error_type > right.error_type) return 1
+      return 0
+    })
+  }
+  return grouped
+}
+
 export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewResult> {
   const window = todayWindow(now)
   const from = new Date(window.from)
   const to = new Date(window.to)
-  const [actorRows, modelRows] = await Promise.all([
+  const [actorRows, modelRows, failureRows] = await Promise.all([
     getDbHandle().db.execute(sql`
     WITH actors AS (
       SELECT CASE WHEN t.user_id IS NOT NULL THEN 'user'
@@ -65,9 +85,19 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
       GROUP BY model
       ORDER BY COUNT(*) DESC, model
     `),
+    getDbHandle().db.execute(sql`
+      SELECT model,
+        COALESCE(error_type, 'unknown') AS error_type,
+        COUNT(*) AS count
+      FROM queue_tasks
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
+        AND status = 'failed'
+      GROUP BY model, COALESCE(error_type, 'unknown')
+    `),
   ])
   const rows = actorRows as unknown as Row[]
   const totals = rows[0] ?? {}
+  const failuresByModel = modelFailures(failureRows as unknown as Row[])
   return {
     window,
     models: (modelRows as unknown as Row[]).map(
@@ -77,6 +107,7 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
         completed: Number(row.completed),
         failed: Number(row.failed),
         upstream_invocations: Number(row.upstream_invocations),
+        failures: failuresByModel.get(String(row.model)) ?? [],
       }),
     ),
     summary: {

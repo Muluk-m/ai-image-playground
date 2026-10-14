@@ -17,8 +17,15 @@ image=${2:?image required}
 case "$project" in *[!a-zA-Z0-9_-]*|'') echo 'Invalid project name' >&2; exit 2 ;; esac
 deadline=${DEPLOY_DRAIN_DEADLINE_SECONDS:-300}
 grace=${DEPLOY_STOP_GRACE_SECONDS:-75}
+proxy_wait=${ADMIN_PROXY_WAIT_SECONDS:-30}
 retire_legacy=${DEPLOY_RETIRE_LEGACY:-0}
-case "$deadline$grace" in *[!0-9]*) echo 'DEPLOY_DRAIN_DEADLINE_SECONDS and DEPLOY_STOP_GRACE_SECONDS take whole seconds' >&2; exit 2 ;; esac
+case "$deadline$grace$proxy_wait" in
+  *[!0-9]*) echo 'DEPLOY_DRAIN_DEADLINE_SECONDS, DEPLOY_STOP_GRACE_SECONDS and ADMIN_PROXY_WAIT_SECONDS take whole seconds' >&2; exit 2 ;;
+esac
+if [ "$proxy_wait" -lt 1 ]; then
+  echo 'ADMIN_PROXY_WAIT_SECONDS must be at least 1' >&2
+  exit 2
+fi
 if [ "$(docker image inspect --format '{{index .Config.Labels "app.execution-protocol"}}' "$image")" != 1 ]; then
   echo 'Image does not support executor-preserving deployment; refusing rollout/rollback' >&2
   exit 1
@@ -379,6 +386,46 @@ if [ "$retire_legacy" = 1 ]; then
 fi
 
 # Ancillary services have no generation execution state. Their writes use the stable ingress.
+# Compose admin owns the tunnel name `admin` again. --wait returns only after its healthcheck
+# passes, so the name is already answering before the leftover proxy is stopped.
+APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+  "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps --wait admin
 APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
   "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps \
-  admin host-collector pg-backup cloudflared
+  host-collector pg-backup
+# A previous rollout may have left a proxy holding `admin`, and release-qualified admin
+# processes from that rollout. Those names are `$project-r<time>-<pid>-admin`; the Compose
+# service is `$project-admin-1` and does not match. Removal has to stick: a proxy that is
+# still there keeps the tunnel name alongside the Compose service.
+remove_stale_admin() {
+  if ! docker inspect "$1" >/dev/null 2>&1; then return 0; fi
+  docker stop -t 30 "$1" >/dev/null 2>&1 || true
+  docker rm -f "$1" >/dev/null 2>&1 || true
+  if docker inspect "$1" >/dev/null 2>&1; then
+    echo "Could not remove stale admin container $1" >&2
+    return 1
+  fi
+}
+for extra in \
+  "$project-admin-proxy" \
+  "$project-admin-proxy-next" \
+  "$project-admin-proxy-previous" \
+  "$project-admin-proxy-dead"
+do
+  remove_stale_admin "$extra" || exit 1
+done
+for name in $(docker ps -a --format '{{.Names}}'); do
+  case "$name" in
+    "$project"-r[0-9]*-admin) remove_stale_admin "$name" || exit 1 ;;
+  esac
+done
+rm -rf "$state_dir/admin-proxy"
+rm -f "$state_dir/admin-pending" "$state_dir/admin-upstream" "$state_dir/admin-retire"
+# Recreating a running connector closes its edge connections ("connection with edge closed",
+# "client disconnected"). The image is pinned and the logging driver is already attached;
+# a stopped connector is the only reason to start it again. Bumping the image tag requires
+# removing this container so the next rollout creates it.
+if [ "$(docker inspect --format '{{.State.Running}}' "$project-cloudflared-1" 2>/dev/null || true)" != true ]; then
+  APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+    "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps cloudflared
+fi

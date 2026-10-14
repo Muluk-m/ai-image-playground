@@ -2,15 +2,154 @@ import { OPS_THRESHOLDS } from '@image-playground/shared'
 import { Link } from '@tanstack/react-router'
 
 import { AlertTriangle, CircleCheck, CircleHelp } from 'lucide-react'
+import { useState } from 'react'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
 import { OutcomeBar } from '@/components/ops/OpsVisuals'
 import { fuzzyTime, shortId } from '@/lib/format'
-import type { OpsBlock, OpsReliability } from '@/lib/types'
+import type {
+  OpsAgentFailureSample,
+  OpsBlock,
+  OpsExceptionGroup,
+  OpsReliability,
+} from '@/lib/types'
 
 const SOURCE_LABEL = { api: '接口 5xx', generation: '生成失败', agent: 'Agent 失败' } as const
 
+const AGENT_REASON: Record<string, string> = {
+  agent_upstream_error: '上游报错',
+  agent_run_failed: '执行失败',
+  agent_tool_failed: '工具失败',
+  agent_turn_interrupted: '轮次中断',
+  agent_context_overflow: '上下文超限',
+  agent_request_budget_exceeded: '请求超预算',
+  unknown: '未记录原因',
+}
+
+/**
+ * 和 `turn.ts` 里记下来的事件名对齐。工具失败不会走进 `agent.turn_failed`，
+ * 它留在收尾日志 `agent.turn_settled` 的 error 字段里。
+ */
+const AGENT_LOG_GROUP: Record<string, string> = {
+  agent_upstream_error: 'agent.upstream_failed',
+  agent_run_failed: 'agent.turn_failed',
+  agent_context_overflow: 'agent.context_overflow',
+  agent_request_budget_exceeded: 'agent.request_rejected',
+}
+
+function agentLogSearch(at: number, key: string, requestId?: string) {
+  const to = Math.min(Date.now() + 30_000, at + 15 * 60_000)
+  const from = Math.max(0, to - 60 * 60_000, at - 60 * 60_000)
+  const window = to > from ? { from, to } : {}
+  if (requestId) return { ...window, requestId }
+  if (key === 'agent_tool_failed') {
+    return { ...window, group: 'agent.turn_settled', q: 'agent_tool_failed' }
+  }
+  const logGroup = AGENT_LOG_GROUP[key]
+  return logGroup ? { ...window, group: logGroup } : { ...window, q: key }
+}
+
 function availability(value: number | null): string {
   return value === null ? '—' : `${(value * 100).toFixed(3)}%`
+}
+
+/** 展开后按时间从新到旧。没有样品时，用这一组最新的一条顶上。 */
+function agentReasons(group: OpsExceptionGroup): OpsAgentFailureSample[] {
+  if (group.samples && group.samples.length > 0) return group.samples
+  if (!group.detail && !group.example_request_id) return []
+  return [
+    {
+      at: group.last_at,
+      ...(group.detail ? { message: group.detail } : {}),
+      ...(group.example_request_id ? { request_id: group.example_request_id } : {}),
+    },
+  ]
+}
+
+function ExceptionRow({
+  group,
+  now,
+  maxCount,
+}: {
+  group: OpsExceptionGroup
+  now: number
+  maxCount: number
+}) {
+  const reasons = group.source === 'agent' ? agentReasons(group) : []
+  const [open, setOpen] = useState(false)
+  const expanded = open && reasons.length > 0
+  const panelId = `agent-reasons-${encodeURIComponent(group.key)}`
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+      <AlertTriangle className="size-4 text-danger" />
+      <span className="w-20 shrink-0 text-muted-foreground">{SOURCE_LABEL[group.source]}</span>
+      <span className="min-w-0 flex-1 break-all font-mono text-xs">
+        {group.source === 'agent' && AGENT_REASON[group.key]
+          ? `${AGENT_REASON[group.key]} · ${group.key}`
+          : group.key}
+      </span>
+      {group.example_task_id ? (
+        <Link
+          to="/tasks/$taskId"
+          params={{ taskId: group.example_task_id }}
+          className="text-xs underline-offset-2 hover:underline"
+        >
+          样例任务 {shortId(group.example_task_id, 10)}
+        </Link>
+      ) : null}
+      {reasons.length > 0 ? (
+        <button
+          type="button"
+          className="text-xs underline-offset-2 hover:underline"
+          aria-expanded={expanded}
+          aria-controls={expanded ? panelId : undefined}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {expanded ? '收起原因' : '查看原因'}
+        </button>
+      ) : null}
+      {group.source === 'agent' ? (
+        <Link
+          to="/logs"
+          search={agentLogSearch(group.last_at, group.key, group.example_request_id)}
+          className="text-xs underline-offset-2 hover:underline"
+        >
+          日志
+        </Link>
+      ) : null}
+      <span className="tabular-nums font-medium text-danger">{group.count} 次</span>
+      {expanded ? (
+        <ul id={panelId} aria-label="失败原因" className="flex w-full flex-col gap-2 pl-7">
+          {reasons.map((sample, index) => (
+            <li
+              key={`${sample.at}:${sample.request_id ?? index}`}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs"
+            >
+              <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-muted-foreground">
+                {sample.message ?? '这次失败没有记下说明'}
+              </p>
+              <span className="text-muted-foreground">{fuzzyTime(sample.at, now)}</span>
+              <Link
+                to="/logs"
+                search={agentLogSearch(sample.at, group.key, sample.request_id)}
+                className="underline-offset-2 hover:underline"
+              >
+                日志
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full bg-danger/70"
+          style={{ width: `${(group.count / maxCount) * 100}%` }}
+        />
+      </div>
+      <span className="w-24 text-right text-xs text-muted-foreground">
+        {fuzzyTime(group.last_at, now)}
+      </span>
+    </li>
+  )
 }
 
 export function reliabilityProblems(data: OpsReliability): string[] {
@@ -151,37 +290,12 @@ export function ReliabilityBlock({ block, now }: { block: OpsBlock<OpsReliabilit
             ) : (
               <ul className="divide-y text-sm">
                 {data.exceptions.map((group) => (
-                  <li
+                  <ExceptionRow
                     key={`${group.source}:${group.key}`}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3"
-                  >
-                    <AlertTriangle className="size-4 text-danger" />
-                    <span className="w-20 shrink-0 text-muted-foreground">
-                      {SOURCE_LABEL[group.source]}
-                    </span>
-                    <span className="min-w-0 flex-1 break-all font-mono text-xs">{group.key}</span>
-                    {group.example_task_id ? (
-                      <Link
-                        to="/tasks/$taskId"
-                        params={{ taskId: group.example_task_id }}
-                        className="text-xs underline-offset-2 hover:underline"
-                      >
-                        样例任务 {shortId(group.example_task_id, 10)}
-                      </Link>
-                    ) : null}
-                    <span className="tabular-nums font-medium text-danger">{group.count} 次</span>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full bg-danger/70"
-                        style={{
-                          width: `${(group.count / Math.max(...data.exceptions.map((one) => one.count))) * 100}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="w-24 text-right text-xs text-muted-foreground">
-                      {fuzzyTime(group.last_at, now)}
-                    </span>
-                  </li>
+                    group={group}
+                    now={now}
+                    maxCount={Math.max(...data.exceptions.map((one) => one.count))}
+                  />
                 ))}
               </ul>
             )}

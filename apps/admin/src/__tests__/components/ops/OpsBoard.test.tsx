@@ -1,14 +1,33 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { OpsSnapshot } from '../../../lib/types'
 
 // 任务详情是一条路由链接；这里只关心它指向哪，不需要起整棵路由树。
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, params }: { children: React.ReactNode; params: { taskId: string } }) => (
-    <a href={`/tasks/${params.taskId}`}>{children}</a>
-  ),
+  Link: ({
+    children,
+    params,
+    search,
+    to,
+  }: {
+    children: React.ReactNode
+    params?: { taskId?: string }
+    search?: Record<string, string | number | undefined>
+    to?: string
+  }) => {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(search ?? {})) {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    }
+    const text = query.toString()
+    return (
+      <a href={params?.taskId ? `/tasks/${params.taskId}` : `${to ?? ''}${text ? `?${text}` : ''}`}>
+        {children}
+      </a>
+    )
+  },
 }))
 
 vi.mock('../../../components/ops/LazyHostTrendChart', () => ({
@@ -234,6 +253,132 @@ function block(name: string): HTMLElement {
 }
 
 describe('运维看板', () => {
+  it('shows the Agent failure reason and a link to that request log', () => {
+    const base = snapshot()
+    if (!base.reliability.ok) throw Error('fixture')
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          reliability: {
+            ok: true,
+            data: {
+              ...base.reliability.data,
+              exceptions: [
+                {
+                  source: 'agent',
+                  key: 'agent_upstream_error',
+                  count: 4,
+                  last_at: NOW - 23 * hour,
+                  detail: 'upstream timed out',
+                  example_request_id: 'ops-request',
+                },
+              ],
+            },
+          },
+        })}
+        range="7d"
+      />,
+    )
+    const sla = within(block('SLA 与异常'))
+    expect(sla.getByText('上游报错 · agent_upstream_error')).toBeTruthy()
+    expect(sla.queryByText('upstream timed out')).toBeNull()
+    const collapsed = new URL(
+      sla.getByRole('link', { name: '日志' }).getAttribute('href')!,
+      'http://localhost',
+    )
+    expect(collapsed.searchParams.get('requestId')).toBe('ops-request')
+    fireEvent.click(sla.getByRole('button', { name: '查看原因' }))
+    expect(sla.getByText('upstream timed out')).toBeTruthy()
+    expect(sla.getByRole('button', { name: '收起原因' }).getAttribute('aria-expanded')).toBe('true')
+    const opened = sla
+      .getAllByRole('link', { name: '日志' })
+      .map((link) => link.getAttribute('href'))
+    expect(opened.some((href) => href?.includes('requestId=ops-request'))).toBe(true)
+  })
+
+  it('lists recent Agent failure reasons and keeps each log on that failure', () => {
+    const base = snapshot()
+    if (!base.reliability.ok) throw Error('fixture')
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          reliability: {
+            ok: true,
+            data: {
+              ...base.reliability.data,
+              exceptions: [
+                {
+                  source: 'agent',
+                  key: 'agent_upstream_error',
+                  count: 4,
+                  last_at: NOW - 23 * hour,
+                  detail: 'upstream timed out',
+                  example_request_id: 'ops-request',
+                  samples: [
+                    {
+                      at: NOW - 23 * hour,
+                      message: 'upstream timed out',
+                      request_id: 'ops-request',
+                    },
+                    {
+                      at: NOW - 23 * hour - 10 * minute,
+                      message: 'connection reset',
+                      request_id: 'ops-request-old',
+                    },
+                    { at: NOW - 23 * hour - 20 * minute },
+                  ],
+                },
+                {
+                  source: 'agent',
+                  key: 'agent_tool_failed',
+                  count: 1,
+                  last_at: NOW - hour,
+                  detail: 'tool exploded',
+                },
+              ],
+            },
+          },
+        })}
+        range="7d"
+      />,
+    )
+    const sla = within(block('SLA 与异常'))
+    expect(sla.queryByText('connection reset')).toBeNull()
+    expect(sla.queryByText('这次失败没有记下说明')).toBeNull()
+    const toolLog = new URL(
+      within(sla.getByText('工具失败 · agent_tool_failed').closest('li')!)
+        .getByRole('link', { name: '日志' })
+        .getAttribute('href')!,
+      'http://localhost',
+    )
+    expect(toolLog.searchParams.get('group')).toBe('agent.turn_settled')
+    expect(toolLog.searchParams.get('q')).toBe('agent_tool_failed')
+    expect(toolLog.searchParams.get('requestId')).toBeNull()
+    fireEvent.click(sla.getAllByRole('button', { name: '查看原因' })[0])
+    expect(sla.getByText('upstream timed out')).toBeTruthy()
+    expect(sla.getByText('connection reset')).toBeTruthy()
+    expect(sla.getByText('这次失败没有记下说明')).toBeTruthy()
+    const row = sla.getByText('上游报错 · agent_upstream_error').closest('li')!
+    const hrefs = within(row)
+      .getAllByRole('link', { name: '日志' })
+      .map((link) => new URL(link.getAttribute('href')!, 'http://localhost'))
+    const blank = hrefs.find(
+      (href) => href.searchParams.get('requestId') === null && href.searchParams.get('q') === null,
+    )
+    expect(blank?.searchParams.get('group')).toBe('agent.upstream_failed')
+    expect(hrefs.some((href) => href.searchParams.get('requestId') === 'ops-request-old')).toBe(
+      true,
+    )
+    expect(hrefs.some((href) => href.searchParams.get('requestId') === 'ops-request')).toBe(true)
+    expect(
+      hrefs.every(
+        (href) =>
+          href.searchParams.get('requestId') !== 'ops-request' ||
+          href.searchParams.get('q') === null,
+      ),
+    ).toBe(true)
+  })
+
   it('does not claim success when failure counts have no grouped exception details', () => {
     const base = snapshot()
     if (!base.reliability.ok) throw Error('fixture')

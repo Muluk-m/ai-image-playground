@@ -739,7 +739,7 @@ _Avoid_: 网络错误、生成失败
 
 ## 创作云同步（creation cloud sync）
 
-平台执行的生成任务属于登录用户，创作记录与临时执行任务分开保留。浏览器直连生成由用户选择上传，API Key 不进入同步数据。云端范围以 [ADR-0011](docs/adr/0011-cloud-storage-limited-to-assets.md) 为准：只承载资产与会话，生成产出停止扩张、已上线的云端生成历史不回退；被它取代的 [ADR-0017](docs/adr/0017-durable-generation-cloud-ownership.md) 仅供追溯。
+平台执行的生成任务属于登录用户，创作记录与临时执行任务分开保留。生成只走运营配置的平台渠道，用户不持有上游 API Key，同步数据里也没有密钥。云端范围以 [ADR-0011](docs/adr/0011-cloud-storage-limited-to-assets.md) 为准：只承载资产与会话，生成产出停止扩张、已上线的云端生成历史不回退；被它取代的 [ADR-0017](docs/adr/0017-durable-generation-cloud-ownership.md) 仅供追溯。
 
 生成档案（generation record）使用稳定任务身份；命令回执（generation command receipt）保存请求摘要和结果身份，执行任务过期不删除回执。一个事务内的创作变化组成持久批次，按用户事务计数器排序；计数器锁在业务与计费锁之后获取并持有到提交。临时游标、选区、相机和撤销栈不在云同步范围内。
 

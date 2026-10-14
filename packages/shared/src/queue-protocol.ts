@@ -289,7 +289,7 @@ export const SERVER_IDLE_TIMEOUT_SEC = 255
 
 /**
  * 单设备单日最大生图张数。计数粒度是输出图数 n（n=4 的 submit 扣 4 张）。
- * 北京时间 8 点 / UTC 0 点重置。BYOK profile 不走 BFF，天然豁免。
+ * 北京时间 8 点 / UTC 0 点重置。生成都经 BFF，按这次提交的张数计数。
  */
 export const DAILY_QUOTA_LIMIT = 80
 

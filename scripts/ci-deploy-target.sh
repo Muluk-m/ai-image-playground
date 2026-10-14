@@ -36,8 +36,9 @@ finish() {
 }
 
 # Pages reads these. The API image reads these. A path in both lists ships both.
+# admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 web_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/web/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
+  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/admin/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
 }
 api_tree_changed() {
   # The VPS runs the copies of these scripts shipped inside the release tarball. A change that

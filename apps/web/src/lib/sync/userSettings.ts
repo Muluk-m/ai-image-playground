@@ -1,7 +1,6 @@
 /**
  * 用户设置：从持久化 blob 里划出的、可跨设备携带的那一份文档。整份存取、整份 LWW。
- * 密钥类数据（BYOK profile、customProviders、profileModelCache）与本机数据
- * （草稿、槽位值、任务记录、商品图任务、画布）都不在这里，加字段前先对照 CONTEXT.md。
+ * 本机数据（草稿、槽位值、任务记录、商品图任务、画布）不在这里，加字段前先对照 CONTEXT.md。
  */
 import { useStore } from '../../store'
 import { type AppSettings, DEFAULT_PARAMS, type TaskParams } from '../../types'
@@ -16,7 +15,7 @@ export type UserSettingsDocument = {
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
   params: TaskParams
-  /** 选中的是 BYOK profile 时为 null：那是本机的事，不跨设备。 */
+  /** 还没有平台渠道时为 null。 */
   builtinChannel: { channelId: string; modelId: string } | null
   pinnedInspirationIds: string[]
   inspirationCoachDismissed: boolean
@@ -35,10 +34,9 @@ export function readUserSettingsDocument(): UserSettingsDocument {
     alwaysShowRetryButton: settings.alwaysShowRetryButton,
     enterSubmit: settings.enterSubmit,
     params: { ...state.params },
-    builtinChannel:
-      active.source === 'builtin-edge'
-        ? { channelId: active.channelId, modelId: active.selectedModelId }
-        : null,
+    builtinChannel: active.channelId
+      ? { channelId: active.channelId, modelId: active.selectedModelId }
+      : null,
     pinnedInspirationIds: [...state.pinnedInspirationIds],
     inspirationCoachDismissed: state.inspirationCoachDismissed,
     libraryCoachDismissed: state.libraryCoachDismissed,
@@ -90,9 +88,7 @@ function selectedBuiltinChannel(
   ) {
     return undefined
   }
-  const target = settings.profiles.find(
-    (profile) => profile.source === 'builtin-edge' && profile.channelId === value.channelId,
-  )
+  const target = settings.profiles.find((profile) => profile.channelId === value.channelId)
   if (!target) return undefined
   return {
     activeProfileId: target.id,

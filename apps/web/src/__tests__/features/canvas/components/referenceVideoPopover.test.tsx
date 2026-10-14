@@ -31,6 +31,10 @@ vi.mock('../../../../lib/channels/videoChannels', async (importOriginal) => ({
 vi.mock('../../../../lib/channels/channelStore', () => ({
   getStoredChannel: (id: string) => ({ id, kind: 'openai-queue' }),
   getStoredChannels: () => [],
+  setChannels: () => {},
+  channelsSettled: () => true,
+  resetChannelCatalog: () => {},
+  subscribeChannels: () => () => {},
 }))
 vi.mock('../../../../lib/channels/queueClient', () => ({
   submitVideoRequest: mocks.submitVideoRequest,

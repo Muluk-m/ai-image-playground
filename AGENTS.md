@@ -21,8 +21,8 @@
 
 两种部署形态（详见仓库根 `README.md`）：
 
-- **Tier 1：纯静态** — 仅 `apps/web/dist`，BYOK only，浏览器直连上游
-- **Tier 2：静态 + BFF** — Docker 镜像或裸跑 BFF + web/dist 同进程托管
+- **Tier 1：纯静态** — 仅 `apps/web/dist`。没有平台渠道，也不能自填密钥，生图不可用
+- **Tier 2：静态 + BFF** — Docker 镜像或裸跑 BFF + web/dist 同进程托管。生成只走运营配置的平台渠道
 
 各 app 的内部约定（服务商架构、内置 channel、BFF 定位、queue 协议等）放在 `apps/web/AGENTS.md` 与 `apps/bff/AGENTS.md`，改到对应目录时自动加载。
 

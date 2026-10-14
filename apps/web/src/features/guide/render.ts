@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { buttonVariants } from '../../components/ui/button'
 import { Icon, type IconName } from '../../components/ui/icon'
 import { Input } from '../../components/ui/input'
+import { SITE_ALTERNATE_NAME, SITE_NAME, siteEntityId } from '../../seo/site'
 import type { Block, GuideChapter, GuideContent, Inline } from './model'
 
 /**
@@ -187,6 +188,70 @@ function jsonLd(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
 }
 
+function publisherNode(origin: string) {
+  return {
+    '@type': 'Organization',
+    '@id': siteEntityId(origin, 'organization'),
+    name: SITE_NAME,
+    alternateName: SITE_ALTERNATE_NAME,
+    url: absolute(origin, '/'),
+    logo: absolute(origin, '/brand/apple-touch-icon.png'),
+  }
+}
+
+/**
+ * 紧跟带编号圆点的截图的 `steps` 是图例，不是操作步骤。
+ * HowTo 只收真正的操作序列，文字用 `plainInline`，与页面上读到的一致。
+ */
+function procedureSteps(blocks: Block[]): string[] {
+  const steps: string[] = []
+  blocks.forEach((block, index) => {
+    if (block.type !== 'steps') return
+    const previous = blocks[index - 1]
+    if (previous?.type === 'shot' && (previous.marks?.length ?? 0) > 0) return
+    steps.push(...block.items.map(plainInline))
+  })
+  return steps
+}
+
+function howToNodes(content: GuideContent, chapter: GuideChapter, origin: string) {
+  const page = absolute(origin, guidePagePath(content, chapter.id))
+  return chapter.subsections.flatMap((subsection) => {
+    const steps = procedureSteps(subsection.blocks)
+    if (steps.length === 0) return []
+    const lead = subsection.blocks.find((block) => block.type === 'p')
+    return [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'HowTo',
+        name: subsection.title,
+        ...(lead ? { description: plainInline(lead.text) } : {}),
+        inLanguage: content.lang,
+        url: `${page}#${subsection.id}`,
+        step: steps.map((text, index) => ({
+          '@type': 'HowToStep',
+          position: index + 1,
+          text,
+          url: `${page}#${subsection.id}`,
+        })),
+      },
+    ]
+  })
+}
+
+function faqNode(content: GuideContent, items: { q: string; a: string }[]) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    inLanguage: content.lang,
+    mainEntity: items.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: { '@type': 'Answer', text: item.a },
+    })),
+  }
+}
+
 function structuredData(
   content: GuideContent,
   chapter: GuideChapter | null,
@@ -195,12 +260,7 @@ function structuredData(
 ) {
   const url = absolute(origin, guidePagePath(content, chapter?.id ?? null))
   const home = absolute(origin, content.root)
-  const publisher = {
-    '@type': 'Organization',
-    name: content.chrome.brand,
-    url: absolute(origin, '/'),
-    logo: absolute(origin, '/brand/apple-touch-icon.png'),
-  }
+  const publisher = publisherNode(origin)
   const crumbs = [
     { '@type': 'ListItem', position: 1, name: content.chrome.brand, item: absolute(origin, '/') },
     { '@type': 'ListItem', position: 2, name: content.chrome.title, item: home },
@@ -210,11 +270,13 @@ function structuredData(
       {
         '@context': 'https://schema.org',
         '@type': 'WebPage',
+        '@id': url,
         name: content.meta.title,
         description: content.meta.description,
         inLanguage: content.lang,
         url,
         dateModified: options.updated,
+        isPartOf: { '@id': siteEntityId(origin, 'website') },
         publisher,
         hasPart: content.chapters.map((c) => ({
           '@type': 'TechArticle',
@@ -223,16 +285,7 @@ function structuredData(
         })),
       },
       { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: crumbs },
-      {
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        inLanguage: content.lang,
-        mainEntity: content.faq.items.map((item) => ({
-          '@type': 'Question',
-          name: item.q,
-          acceptedAnswer: { '@type': 'Answer', text: item.a },
-        })),
-      },
+      faqNode(content, content.faq.items),
     ]
   return [
     {
@@ -248,7 +301,12 @@ function structuredData(
       author: publisher,
       publisher,
       isPartOf: { '@type': 'WebPage', name: content.chrome.title, url: home },
-      about: { '@type': 'WebApplication', name: content.chrome.brand, url: absolute(origin, '/') },
+      about: {
+        '@type': 'WebApplication',
+        '@id': siteEntityId(origin, 'app'),
+        name: SITE_NAME,
+        url: absolute(origin, '/'),
+      },
     },
     {
       '@context': 'https://schema.org',
@@ -258,20 +316,8 @@ function structuredData(
         { '@type': 'ListItem', position: 3, name: chapter.title, item: url },
       ],
     },
-    ...(chapter.faq
-      ? [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'FAQPage',
-            inLanguage: content.lang,
-            mainEntity: chapter.faq.map((item) => ({
-              '@type': 'Question',
-              name: item.q,
-              acceptedAnswer: { '@type': 'Answer', text: item.a },
-            })),
-          },
-        ]
-      : []),
+    ...(chapter.faq ? [faqNode(content, chapter.faq)] : []),
+    ...howToNodes(content, chapter, origin),
   ]
 }
 

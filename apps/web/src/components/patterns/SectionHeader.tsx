@@ -2,17 +2,19 @@ import type { ReactNode } from 'react'
 import { cn } from '../../lib/utils'
 import { Icon } from '../ui/icon'
 
-/** 区块标题 + 右侧「查看全部」类链接；链接文字与下方网格右边缘对齐。 */
+/** 区块标题。去另一页的动作用「查看全部」；原地展开用 disclosure，不离开当前页。 */
 export default function SectionHeader({
   title,
   icon,
+  link,
   action,
   children,
   className,
 }: {
   title: ReactNode
   icon?: ReactNode
-  action?: { label: ReactNode; onClick: () => void; expanded?: boolean }
+  link?: { label: ReactNode; onClick: () => void }
+  action?: { label: ReactNode; onClick: () => void; expanded?: boolean; disclosure?: boolean }
   children?: ReactNode
   className?: string
 }) {
@@ -23,15 +25,40 @@ export default function SectionHeader({
         {title}
       </h2>
       {children}
+      {link ? (
+        <button
+          type="button"
+          onClick={link.onClick}
+          className="ml-auto inline-flex items-center gap-1 text-body-sm text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11"
+        >
+          {link.label}
+          <Icon name="arrowRight" size="xs" />
+        </button>
+      ) : null}
       {action ? (
         <button
           type="button"
           onClick={action.onClick}
           aria-expanded={action.expanded}
-          className="group ml-auto inline-flex items-center gap-1 rounded-sm px-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 max-md:px-2"
+          className={cn(
+            'group inline-flex items-center gap-1 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11',
+            link ? '' : 'ml-auto',
+            action.disclosure
+              ? 'h-7 rounded-md border border-border px-2.5 text-foreground hover:bg-secondary max-md:h-11'
+              : 'rounded-sm px-1 text-muted-foreground hover:text-foreground max-md:px-2',
+          )}
         >
           {action.label}
-          {!action.expanded ? (
+          {action.disclosure ? (
+            <Icon
+              name="chevronDown"
+              size="xs"
+              className={cn(
+                'transition-transform motion-reduce:transition-none',
+                action.expanded && 'rotate-180',
+              )}
+            />
+          ) : !action.expanded ? (
             <Icon
               name="arrowRight"
               size="xs"
