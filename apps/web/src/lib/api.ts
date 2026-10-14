@@ -5,29 +5,11 @@ import { createMaskPreviewDataUrl } from './canvasImage'
 import { modelSupportsNativeMask } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
-import type { UserByokProfile } from './channels/types'
-import { isByokGenerationEnabled } from './clientCapabilities'
 import { compressInputImageDataUrls } from './compressInputImage'
-import { callGeminiImageApi } from './geminiImageApi'
-import type { BYOKAdapterProfile, CallApiOptions, CallApiResult } from './imageApiShared'
-import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
+import type { CallApiOptions, CallApiResult } from './imageApiShared'
 import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
 
-export { normalizeBaseUrl } from './devProxy'
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
-
-function toByokAdapterProfile(profile: UserByokProfile): BYOKAdapterProfile {
-  return {
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
-    model: profile.selectedModelId,
-    apiMode: profile.preferences.apiMode,
-    timeout: profile.preferences.timeout,
-    codexCli: profile.preferences.codexCli,
-    apiProxy: profile.preferences.apiProxy,
-    responseFormatB64Json: profile.preferences.responseFormatB64Json,
-  }
-}
 
 const SOFT_MASK_INSTRUCTION =
   'The second input image is a copy of the first image with a blue translucent overlay marking the region to edit. ' +
@@ -69,8 +51,8 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   opts = withNormalizedParams(opts)
 
   const profile = getActiveApiProfile(opts.settings)
-  if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
-    throw new Error(i18next.t('dispatch.builtinOnly', { ns: 'lib' }))
+  if (!profile.channelId) {
+    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
   }
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
@@ -103,34 +85,15 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
     }
   }
 
-  if (profile.source === 'builtin-edge') {
-    const channel = getPublicChannel(profile.channelId)
-    if (!channel)
-      throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
-    // builtin-edge 全部走 queue：浏览器 → BFF 都是 < 1s 短请求，永远绕开 CF Edge
-    // ~60s 死线。生成 / 编辑 / mask 编辑都靠 BFF worker 调上游 /v1/images/edits
-    // 或 /v1/images/generations 区分。
-    if (toQueueProvider(channel.kind) === null) {
-      throw new Error(
-        i18next.t('dispatch.unsupportedChannelKind', { ns: 'lib', kind: channel.kind }),
-      )
-    }
-    return callQueueChannelApi(opts, profile, channel)
+  const channel = getPublicChannel(profile.channelId)
+  if (!channel)
+    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
+  // 全部走 queue：浏览器 → BFF 都是 < 1s 短请求，永远绕开 CF Edge ~60s 死线。
+  // 生成 / 编辑 / mask 编辑都靠 BFF worker 调上游区分。
+  if (toQueueProvider(channel.kind) === null) {
+    throw new Error(i18next.t('dispatch.unsupportedChannelKind', { ns: 'lib', kind: channel.kind }))
   }
-
-  // user-byok
-  const byok = toByokAdapterProfile(profile)
-  switch (profile.kind) {
-    case 'gemini':
-      return callGeminiImageApi(opts, byok)
-    case 'openai-compat':
-    case 'http-template':
-      // http-template 暂走 OpenAI 兼容路径；未来若新增独立 adapter 在此分支替换。
-      return callOpenAICompatibleImageApi(opts, byok, null)
-    case 'openai-queue':
-    case 'gemini-queue':
-      throw new Error(i18next.t('dispatch.queueKindMisuse', { ns: 'lib', kind: profile.kind }))
-  }
+  return callQueueChannelApi(opts, profile, channel)
 }
 
 /**
@@ -144,7 +107,7 @@ export async function resumeQueueImageApi(
   opts = withNormalizedParams(opts)
 
   const profile = getActiveApiProfile(opts.settings)
-  if (profile.source !== 'builtin-edge') {
+  if (!profile.channelId) {
     throw new Error(i18next.t('dispatch.resumeProfileMissing', { ns: 'lib' }))
   }
   const channel = getPublicChannel(profile.channelId)

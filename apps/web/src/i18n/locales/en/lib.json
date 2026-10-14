@@ -1,9 +1,7 @@
 {
   "size": {
     "tooLarge": "{{label}} is too large: {{size}}, the limit is {{limit}}",
-    "imageInputPayload": "Total image input payload",
-    "maskBaseFile": "Mask base image file",
-    "maskFile": "Mask file"
+    "imageInputPayload": "Total image input payload"
   },
   "canvas": {
     "unsupported": "This browser does not support Canvas",
@@ -34,25 +32,6 @@
   "proxy": {
     "upstreamFailed": "Upstream API call failed (proxy layer)"
   },
-  "imageApi": {
-    "streamRequestFailed": "Streaming request failed",
-    "streamNoBody": "The endpoint returned no readable stream",
-    "streamBadJsonEvent": "The streaming endpoint returned an unparsable JSON event",
-    "streamNoDataEvent": "No valid data event was parsed from the streaming response",
-    "streamNoFinalImage": "The streaming endpoint returned no final image data",
-    "streamNoUsableImage": "The streaming endpoint returned no usable image data",
-    "noImageData": "The endpoint returned no image data",
-    "noImageDataProvider": "The endpoint returned no image data. Check the raw response to see what the provider actually returns. If you are going through a relay or compatible endpoint, create and use a “custom provider” configuration.",
-    "unrecognizedShapeProvider": "The endpoint returned no recognizable image data. Check the raw response to see what the provider actually returns. If you are going through a relay or compatible endpoint, create and use a “custom provider” configuration.",
-    "unrecognizedShapeCustom": "The endpoint returned no recognizable image data. Check the raw response to see what the endpoint actually returns, then adjust the result extraction path in the “custom provider” configuration to match the API docs.",
-    "allConcurrentFailed": "Every concurrent request failed",
-    "asyncTaskFailed": "The async task failed",
-    "asyncMissingPoll": "The custom async task has no poll configuration",
-    "asyncMissingTaskId": "Could not extract the async task ID from the response. Check the raw response to see what the endpoint actually returns, then adjust taskIdPath in the “custom provider” configuration to match the API docs.",
-    "asyncTaskIdWithoutPoll": "The async endpoint returned a task_id, but the provider configuration has no poll",
-    "geminiNoImageData": "Gemini returned no usable image data",
-    "geminiNoMaskEdit": "The Gemini provider does not support mask editing, switch to an OpenAI provider"
-  },
   "queue": {
     "unsupportedKindCall": "callQueueChannelApi: unsupported channel kind {{kind}}",
     "unsupportedKindResume": "resumeQueueChannelApi: unsupported channel kind {{kind}}",
@@ -81,33 +60,13 @@
     "bffInvalidInputImage": "That reference image cannot be used, pick another one"
   },
   "dispatch": {
-    "builtinOnly": "This deployment only allows built-in models",
     "channelNotFound": "Built-in channel not found: {{id}}",
     "unsupportedChannelKind": "Unsupported built-in channel kind: {{kind}}",
-    "queueKindMisuse": "queue kind {{kind}} is only for a builtin-edge profile, never a user-byok kind",
     "resumeProfileMissing": "No matching built-in channel profile was found when resuming the BFF queue task",
     "resumeKindNotQueue": "channel kind {{kind}} is not a queue, cannot resume"
   },
   "profile": {
-    "defaultName": "Default",
-    "newName": "New profile",
-    "importedName": "Imported profile",
-    "urlParamName": "URL parameter profile",
-    "customProviderName": "Custom provider",
-    "httpTemplate": "HTTP template",
-    "missingName": "Missing name",
-    "missingApiUrl": "Missing API URL",
-    "missingApiKey": "Missing API key",
-    "missingModelId": "Missing model ID",
-    "needApiUrl": "Fill in the API URL first",
-    "needApiKey": "Fill in the API key first",
-    "noModelList": "No recognizable model list in the response",
-    "importMarkdownLink": "The JSON contains a Markdown link, paste plain text instead",
-    "importBadApiMode": "Invalid apiMode, it must be images or responses",
-    "importInvalidJson": "Invalid JSON",
-    "importRootNotObject": "The JSON root must be an object",
-    "importNoValidProviders": "The customProviders array has no valid provider configuration",
-    "importUnrecognized": "Could not recognize this JSON. Paste a custom provider configuration."
+    "missingModelId": "Missing model ID"
   },
   "param": {
     "actualResponseValue": "Actual API response value"

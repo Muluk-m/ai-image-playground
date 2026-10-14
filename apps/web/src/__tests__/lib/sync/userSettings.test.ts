@@ -19,25 +19,19 @@ beforeEach(() => {
   setChannels([CHANNEL])
   useStore.setState({
     settings: {
-      customProviders: [],
       clearInputAfterSubmit: false,
       persistInputOnRestart: true,
       alwaysShowRetryButton: false,
       enterSubmit: false,
       profiles: [
         {
-          id: 'byok-1',
-          source: 'user-byok',
-          name: '我的网关',
-          kind: 'openai-compat',
-          baseUrl: 'https://gateway.example.com',
-          apiKey: 'sk-secret-value',
-          models: ['gpt-image-1'],
+          id: 'openai-main',
+          source: 'builtin-edge',
+          channelId: 'openai-main',
           selectedModelId: 'gpt-image-1',
-          preferences: { apiMode: 'images', timeout: 300, codexCli: false, apiProxy: false },
         },
       ],
-      activeProfileId: 'byok-1',
+      activeProfileId: 'openai-main',
     },
     params: { ...DEFAULT_PARAMS },
     appMode: 'image',
@@ -49,7 +43,6 @@ beforeEach(() => {
     prompt: '还在打的草稿',
     slotValues: { 背景: ['浴室'] },
     tasks: [],
-    profileModelCache: { 'byok-1': ['gpt-image-1'] },
   })
 })
 
@@ -75,7 +68,7 @@ describe('the user settings document', () => {
     expect(document.libraryCoachDismissed).toBe(true)
   })
 
-  it('leaves keys, drafts and device-local state out', () => {
+  it('leaves drafts and device-local state out', () => {
     const document = readUserSettingsDocument()
 
     expect(Object.keys(document).sort()).toEqual([
@@ -94,16 +87,22 @@ describe('the user settings document', () => {
     expect(JSON.stringify(document)).not.toContain('sk-secret-value')
   })
 
-  it('carries the selected builtin channel and model, never a BYOK profile', () => {
+  it('carries the selected platform channel and model', () => {
     useStore.getState().setSettings({ activeProfileId: 'openai-main' })
 
     expect(readUserSettingsDocument().builtinChannel).toEqual({
       channelId: 'openai-main',
       modelId: 'gpt-image-1',
     })
+  })
 
+  it('a leftover BYOK profile id falls back to the platform channel', () => {
     useStore.getState().setSettings({ activeProfileId: 'byok-1' })
-    expect(readUserSettingsDocument().builtinChannel).toBeNull()
+
+    expect(readUserSettingsDocument().builtinChannel).toEqual({
+      channelId: 'openai-main',
+      modelId: 'gpt-image-1',
+    })
   })
 })
 
@@ -126,16 +125,17 @@ describe('applying a document from another device', () => {
     expect(state.inspirationCoachDismissed).toBe(true)
   })
 
-  it('keeps this device BYOK profiles and drafts untouched', () => {
+  it('keeps the local draft and stays on the platform channel', () => {
     applyUserSettingsDocument({ ...readUserSettingsDocument(), enterSubmit: true })
 
     const state = useStore.getState()
-    expect(state.settings.profiles.some((profile) => profile.id === 'byok-1')).toBe(true)
+    expect(state.settings.profiles.map((profile) => profile.id)).toEqual(['openai-main'])
+    expect(state.settings.profiles.every((profile) => profile.source === 'builtin-edge')).toBe(true)
     expect(state.prompt).toBe('还在打的草稿')
     expect(state.slotValues).toEqual({ 背景: ['浴室'] })
   })
 
-  it('selects the builtin channel and model named by the document', () => {
+  it('selects the platform channel and model named by the document', () => {
     applyUserSettingsDocument({
       ...readUserSettingsDocument(),
       builtinChannel: { channelId: 'openai-main', modelId: 'gpt-image-2' },
@@ -154,7 +154,7 @@ describe('applying a document from another device', () => {
       builtinChannel: { channelId: 'somewhere-else', modelId: 'unknown' },
     })
 
-    expect(useStore.getState().settings.activeProfileId).toBe('byok-1')
+    expect(useStore.getState().settings.activeProfileId).toBe('openai-main')
   })
 
   it('does not interrupt navigation already chosen in this session', () => {

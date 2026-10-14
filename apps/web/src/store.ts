@@ -1,4 +1,5 @@
 import type { GenerationDetail } from '@image-playground/shared'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { accountRequired, requireAccount } from './auth/loginPrompt'
@@ -13,41 +14,17 @@ import {
   createBuiltinEdgeProfile,
   DEFAULT_SETTINGS,
   getActiveApiProfile,
-  getCustomProviderDefinition,
   mergeImportedSettings,
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
 import { pathAppMode } from './lib/appPaths'
+import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
+import { validateMaskMatchesImage } from './lib/canvasImage'
 import { getProfileModels, updateSelectedModel } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import { isVideoModeAvailable } from './lib/channels/videoChannels'
-import { markHistoryReady } from './lib/historyReady'
-import type {
-  AppSettings,
-  ExportData,
-  InputImage,
-  MaskDraft,
-  MaskEditorSession,
-  TaskOrigin,
-  TaskParams,
-  TaskRecord,
-} from './types'
-import { DEFAULT_PARAMS } from './types'
-
-function filterUserProfileCache(
-  cache: Record<string, string[]>,
-  profiles: ClientProfile[],
-): Record<string, string[]> {
-  const builtinIds = new Set(profiles.filter((p) => p.source === 'builtin-edge').map((p) => p.id))
-  return Object.fromEntries(Object.entries(cache).filter(([id]) => !builtinIds.has(id)))
-}
-
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
-import { validateMaskMatchesImage } from './lib/canvasImage'
-import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { mediaIdentity, resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
@@ -76,9 +53,9 @@ import {
   resumeGeneration,
   startGeneration,
 } from './lib/generationJob'
+import { markHistoryReady } from './lib/historyReady'
 import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from './lib/imageApiShared'
 import { orderInputImagesForMask } from './lib/mask'
-import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { placeCloudGeneration } from './lib/placeCloudGeneration'
 import {
@@ -120,6 +97,17 @@ import {
   removeKeyedBackgroundFromDataUrl,
   type TransparentOutputMeta,
 } from './lib/transparentImage'
+import type {
+  AppSettings,
+  ExportData,
+  InputImage,
+  MaskDraft,
+  MaskEditorSession,
+  TaskOrigin,
+  TaskParams,
+  TaskRecord,
+} from './types'
+import { DEFAULT_PARAMS } from './types'
 
 // ===== Image cache =====
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
@@ -139,11 +127,8 @@ let thumbnailBackfillScheduled = false
 const MAX_IMAGE_CACHE_ENTRIES = 8
 const MAX_THUMBNAIL_CACHE_ENTRIES = 80
 const MAX_THUMBNAIL_BACKFILL_CONCURRENT = 4
-const CUSTOM_RECOVERY_POLL_MS = 10_000
 /** submitTask 后若用户已滚出此高度（px），把视口平滑滚回顶部把新卡片带进视野。 */
 const SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX = 80
-const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
 /** 任务文案在写进任务那一刻才求值：模块级常量会被之后的语言切换甩在身后。 */
 function createOpenAIInterruptedError() {
   return i18next.t('task.interrupted', { ns: 'store' })
@@ -484,13 +469,7 @@ function currentSidebarExperience(): 'chat' | 'canvas' | null {
 }
 
 export function getPersistedState(state: AppState) {
-  const normalized = normalizeSettings(state.settings)
-  // builtin-edge profile 不进 localStorage：其完整定义来自 config/channels.json + edge env。
-  // 只持久化 user-byok profile + 用户对 builtin-edge 的 selectedModelId 选择。
-  const settings: AppSettings = {
-    ...normalized,
-    profiles: normalized.profiles.filter((p) => p.source !== 'builtin-edge'),
-  }
+  const settings = normalizeSettings(state.settings)
   return {
     settings,
     params: state.params,
@@ -507,9 +486,6 @@ export function getPersistedState(state: AppState) {
     libraryPanelOpened: state.libraryPanelOpened,
     assetHintShown: state.assetHintShown,
     pinnedInspirationIds: state.pinnedInspirationIds,
-    // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
-    // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
-    profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
   }
 }
 
@@ -551,7 +527,8 @@ function normalizeSlotValues(persisted: unknown): SlotValues {
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
-  const persisted = persistedState as Partial<AppState>
+  const { profileModelCache: _droppedModelCache, ...persisted } =
+    persistedState as Partial<AppState> & { profileModelCache?: unknown }
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
   const inputImages =
     settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
@@ -683,9 +660,6 @@ interface AppState {
   setLightboxImageId: (id: string | null, list?: string[]) => void
   showSettings: boolean
   setShowSettings: (v: boolean) => void
-  /** 按 profile.id 缓存上游 /models 拉取结果，仅用户 profile 持久化 */
-  profileModelCache: Record<string, string[]>
-  setProfileModelCache: (profileId: string, models: string[]) => void
   /** 新人引导：第一次访问、还没生成过图时在 Header 灵感库按钮上引出气泡。 */
   inspirationCoachDismissed: boolean
   dismissInspirationCoach: () => void
@@ -928,9 +902,14 @@ export const useStore = create<AppState>()(
               }
         const candidate = createTarget === 'video' ? undefined : selections[nextKey]
         const savedProfile =
-          candidate && state.settings.profiles.find((p) => p.id === candidate.profileId)
+          candidate?.profileId && state.settings.profiles.find((p) => p.id === candidate.profileId)
+        // 还没有平台渠道时，这个模式只记住了参数。渠道清单还没到时也不能把参数丢掉。
+        // 清单到了、模型已经不在上面，才算这次选择作废。
+        const models = savedProfile ? clientProfileToApiProfile(savedProfile).models : undefined
         const saved =
-          savedProfile && clientProfileToApiProfile(savedProfile).models?.includes(candidate!.model)
+          candidate &&
+          (!candidate.profileId ||
+            (savedProfile && (models === undefined || models.includes(candidate.model))))
             ? candidate
             : undefined
         if (candidate && !saved) delete selections[nextKey]
@@ -938,7 +917,7 @@ export const useStore = create<AppState>()(
           createTarget,
           creationSelections: selections,
           ...(saved ? { params: saved.params } : {}),
-          ...(saved
+          ...(saved?.profileId
             ? {
                 settings: {
                   ...state.settings,
@@ -972,11 +951,6 @@ export const useStore = create<AppState>()(
       setShowSettings: (showSettings) => {
         set({ showSettings })
       },
-      profileModelCache: {},
-      setProfileModelCache: (profileId, models) =>
-        set((st) => ({
-          profileModelCache: { ...st.profileModelCache, [profileId]: models },
-        })),
       inspirationCoachDismissed: false,
       dismissInspirationCoach: () => set({ inspirationCoachDismissed: true }),
       libraryCoachDismissed: false,
@@ -1050,31 +1024,13 @@ function isRunningOpenAITask(task: TaskRecord) {
   return task.status === 'running' && isOpenAITask(task)
 }
 
-function isAsyncCustomProviderTask(
-  settings: AppSettings,
-  provider: string,
-  hasInputImages: boolean,
-) {
-  const customProvider = getCustomProviderDefinition(settings, provider)
-  if (!customProvider?.poll) return false
-  const submitMapping =
-    hasInputImages && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
-  return Boolean(submitMapping.taskIdPath)
-}
-
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
   const interruptedTasks: TaskRecord[] = []
   const updatedTasks = tasks.map((task) => {
-    // 已有 request_id（customTaskId / bffRequestId）→ initStore 走恢复轮询，
-    // 有 clientRequestId → 走重提交（BFF 去重）。都不当中断。
-    if (
-      !isRunningOpenAITask(task) ||
-      task.customTaskId ||
-      task.bffRequestId ||
-      task.clientRequestId
-    ) {
-      return task
-    }
+    // 有 bffRequestId → 续 poll。只有幂等键、且不是旧自带密钥任务 → 重提交。
+    // 旧的自带密钥异步任务已经无法续上，标成中断。
+    if (!isRunningOpenAITask(task) || task.bffRequestId) return task
+    if (task.clientRequestId && !task.customTaskId) return task
 
     const updated: TaskRecord = {
       ...task,
@@ -1088,62 +1044,6 @@ export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Dat
   })
 
   return { tasks: updatedTasks, interruptedTasks }
-}
-
-function clearOpenAIWatchdogTimer(taskId: string) {
-  const timer = openAIWatchdogTimers.get(taskId)
-  if (timer) clearTimeout(timer)
-  openAIWatchdogTimers.delete(taskId)
-}
-
-function failOpenAITaskIfStillRunning(taskId: string, error: string, now = Date.now()) {
-  const task = useStore.getState().tasks.find((item) => item.id === taskId)
-  if (!task || !isRunningOpenAITask(task)) return false
-
-  updateTaskInStore(taskId, {
-    status: 'error',
-    error,
-    finishedAt: now,
-    elapsed: Math.max(0, now - task.createdAt),
-  })
-  return true
-}
-
-function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
-  clearOpenAIWatchdogTimer(taskId)
-  const task = useStore.getState().tasks.find((item) => item.id === taskId)
-  if (!task || !isRunningOpenAITask(task)) return
-
-  const timeoutMs = Math.max(0, timeoutSeconds * 1000)
-  const remainingMs = Math.max(0, timeoutMs - (Date.now() - task.createdAt))
-  const timer = setTimeout(() => {
-    openAIWatchdogTimers.delete(taskId)
-    const failed = failOpenAITaskIfStillRunning(taskId, createOpenAITimeoutError(timeoutSeconds))
-    if (failed)
-      useStore.getState().showToast(i18next.t('toast.openaiTimeout', { ns: 'store' }), 'error')
-  }, remainingMs)
-  openAIWatchdogTimers.set(taskId, timer)
-}
-
-function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
-  const provider = task.apiProvider
-  if (!provider || provider === 'openai') return null
-  const taskProfile = getTaskApiProfile(settings, task)
-  if (taskProfile && clientProfileToApiProfile(taskProfile).provider === provider)
-    return taskProfile
-
-  const normalized = normalizeSettings(settings)
-  const active = getActiveApiProfile(normalized)
-  if (clientProfileToApiProfile(active).provider === provider) return active
-  const profilesWithView = normalized.profiles.map((p) => ({ p, v: clientProfileToApiProfile(p) }))
-  return (
-    profilesWithView.find(
-      ({ v }) =>
-        v.provider === provider && (v.name === task.apiProfileName || v.model === task.apiModel),
-    )?.p ??
-    profilesWithView.find(({ v }) => v.provider === provider)?.p ??
-    null
-  )
 }
 
 export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
@@ -1188,22 +1088,8 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ClientProfi
   })
 }
 
-function isConnectionRecoverableError(err: unknown) {
-  if (
-    typeof DOMException !== 'undefined' &&
-    err instanceof DOMException &&
-    err.name === 'AbortError'
-  )
-    return true
-  const message = err instanceof Error ? err.message : String(err)
-  return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(
-    message,
-  )
-}
-
 /**
- * 到得了任务卡的 abort 只可能是我们自己挂的超时（BYOK 的 profile.timeout、
- * builtin-edge 下载的 channel timeout）——没有取消按钮能中断在跑的任务。
+ * 到得了任务卡的 abort 只可能是我们自己挂的超时（渠道 timeout）——没有取消按钮能中断在跑的任务。
  * 浏览器给的是 `The user aborted a request.`，照抄等于告诉用户「你取消了」，
  * 所以换成 watchdog 同款超时文案。
  */
@@ -1225,24 +1111,13 @@ function isApiRequestNetworkError(err: unknown): boolean {
   return false
 }
 
-function getApiRequestNetworkErrorHint(
-  err: unknown,
-  task: TaskRecord,
-  settings: AppSettings,
-): string | null {
+function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord): string | null {
   if (!isApiRequestNetworkError(err)) return null
 
-  const profile = getTaskApiProfile(settings, task)
   const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-  const profileView = profile ? clientProfileToApiProfile(profile) : null
-  const usesApiProxy =
-    profileView?.apiProxy ?? clientProfileToApiProfile(getActiveApiProfile(settings)).apiProxy
 
   if (elapsedSeconds <= 15) {
-    if (usesApiProxy) {
-      return i18next.t('networkHint.proxyDown', { ns: 'store' })
-    }
-    return i18next.t('networkHint.cors', { ns: 'store' })
+    return i18next.t('networkHint.generic', { ns: 'store' })
   }
 
   if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
@@ -1274,21 +1149,6 @@ function getRawErrorPayload(
         : undefined,
     rawResponsePayload: typeof rawResponsePayload === 'string' ? rawResponsePayload : undefined,
   }
-}
-
-function clearCustomRecoveryTimer(taskId: string) {
-  const timer = customRecoveryTimers.get(taskId)
-  if (timer) clearTimeout(timer)
-  customRecoveryTimers.delete(taskId)
-}
-
-function scheduleCustomRecovery(taskId: string, delayMs = CUSTOM_RECOVERY_POLL_MS) {
-  if (customRecoveryTimers.has(taskId)) return
-  const timer = setTimeout(() => {
-    customRecoveryTimers.delete(taskId)
-    recoverCustomTask(taskId)
-  }, delayMs)
-  customRecoveryTimers.set(taskId, timer)
 }
 
 function hasActualParams(params: Partial<TaskParams> | undefined): params is Partial<TaskParams> {
@@ -1385,17 +1245,22 @@ export async function initStore() {
   }
   // 平台记录的权威在平台，本机只留一份可整体替换的缓存，作品页第一帧靠它有东西可看。
   void loadPlatformGenerations()
+  const retiredCustom = tasks.filter((task) => task.customRecoverable)
+  if (retiredCustom.length) {
+    const cleared = tasks.map((task) =>
+      task.customRecoverable ? { ...task, customRecoverable: false } : task,
+    )
+    tasks = cleared
+    useStore.getState().setTasks(cleared)
+    await Promise.all(retiredCustom.map((task) => putTask({ ...task, customRecoverable: false })))
+  }
   for (const task of tasks) {
-    if (task.customTaskId && (task.status === 'running' || task.customRecoverable)) {
-      scheduleCustomRecovery(task.id, 0)
-    }
     // 刷新前没跑完的任务：持有 request_id 就续 poll；只有幂等键（submit 还没返回就刷新了）
     // 就照原样重提交，BFF 端去重，不会重复消耗上游配额。
-    // markInterruptedOpenAIRunningTasks 已经放行这类 task，所以这里看到的 status 还是 'running'。
+    // 只有旧自带密钥任务号、没有队列号的，前面已经标成中断，这里不再续。
     if (
       task.status === 'running' &&
-      !task.customTaskId &&
-      (task.bffRequestId || task.clientRequestId)
+      (task.bffRequestId || (task.clientRequestId && !task.customTaskId))
     )
       void resumeStoredTask(task)
   }
@@ -1570,15 +1435,14 @@ export async function submitPrepared(
     : selectedProfile
   const requestSettings = createSettingsForApiProfile(normalizedSettings, profile)
 
-  if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
-    showToast(i18next.t('submit.builtinOnly', { ns: 'store' }), 'error')
+  if (!profile.channelId || !profile.selectedModelId) {
+    showToast(i18next.t('submit.noChannel', { ns: 'store' }), 'error')
     return []
   }
 
   const validationError = validateClientProfile(profile)
   if (validationError) {
     showToast(i18next.t('submit.invalidProfile', { ns: 'store', reason: validationError }), 'error')
-    useStore.getState().setShowSettings(true)
     return []
   }
 
@@ -1810,8 +1674,6 @@ interface WorkbenchJob {
   timeoutSeconds: number
   /** 遮罩位图：出片后据它判断草稿还是不是这次用的那张。 */
   maskDataUrl?: string
-  /** 自定义服务商给的任务号：失败时决定这条还能不能续。 */
-  customTaskId: string | null
   /** 任务行落盘。先有行再有请求，中途刷新才恢复得回来。 */
   stored: Promise<unknown>
 }
@@ -1844,11 +1706,6 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
     persisted: (job) => job.stored.then(() => undefined),
 
     accepted(job, reference) {
-      if (reference.kind === 'custom') {
-        job.customTaskId = reference.taskId
-        updateTaskInStore(job.taskId, { customTaskId: reference.taskId, customRecoverable: false })
-        return
-      }
       updateTaskInStore(job.taskId, { bffRequestId: reference.requestId })
     },
 
@@ -1862,30 +1719,25 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
       const task = useStore.getState().tasks.find((t) => t.id === job.taskId)
       if (!task || task.status !== 'running') return
 
-      const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeGeneratedImages(
+      const { outputIds, transparentOriginalImageIds } = await storeGeneratedImages(
         result.images,
         task,
       )
-      const isAsyncCustomTask = job.provider !== 'openai' && Boolean(job.customTaskId)
-      const actualParamsList = isAsyncCustomTask
-        ? await readImageSizeParamsList(outputDataUrls)
-        : result.actualParamsList
-      const actualParams = isAsyncCustomTask
-        ? firstActualParams(actualParamsList)
-        : { ...result.actualParams, n: outputIds.length }
+      const actualParamsList = result.actualParamsList
+      const actualParams = { ...result.actualParams, n: outputIds.length }
       const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
-      const revisedPromptByImage = isAsyncCustomTask
-        ? undefined
-        : result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
-            const imgId = outputIds[index]
-            if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
-            return acc
-          }, {})
+      const revisedPromptByImage = result.revisedPrompts?.reduce<Record<string, string>>(
+        (acc, revisedPrompt, index) => {
+          const imgId = outputIds[index]
+          if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
+          return acc
+        },
+        {},
+      )
 
       // 写图那段里用户可能已经把这条任务删了 / 中止了：再确认一次才写终局。
       const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
       if (!latest || latest.status !== 'running') return
-      clearOpenAIWatchdogTimer(job.taskId)
       updateTaskInStore(job.taskId, {
         outputImages: outputIds,
         transparentOriginalImages: transparentOriginalImageIds,
@@ -1921,31 +1773,13 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
 
     failed(job, failure) {
       for (const imgId of job.inputImageIds) imageCache.delete(imgId)
-      clearOpenAIWatchdogTimer(job.taskId)
       const latestTask = useStore.getState().tasks.find((t) => t.id === job.taskId)
       if (!latestTask || latestTask.status !== 'running') return
-      const customTaskId = job.customTaskId ?? latestTask.customTaskId ?? null
-      if (customTaskId && isConnectionRecoverableError(failure.error)) {
-        updateTaskInStore(job.taskId, {
-          status: 'error',
-          error: i18next.t('task.customDisconnected', { ns: 'store' }),
-          customTaskId,
-          customRecoverable: true,
-          finishedAt: Date.now(),
-          elapsed: Date.now() - job.createdAt,
-        })
-        scheduleCustomRecovery(job.taskId)
-        return
-      }
       // 自己挂的超时 abort 只有这里知道秒数；其余照 module 按错误码映射好的那句。
       let errorMessage = isOwnTimeoutAbortError(failure.error)
         ? createOpenAITimeoutError(job.timeoutSeconds)
         : failure.text
-      const networkErrorHint = getApiRequestNetworkErrorHint(
-        failure.error,
-        latestTask,
-        useStore.getState().settings,
-      )
+      const networkErrorHint = getApiRequestNetworkErrorHint(failure.error, latestTask)
       if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
         errorMessage += `\n${networkErrorHint}`
       }
@@ -1997,18 +1831,8 @@ function workbenchSink(
       const tasks = useStore.getState().tasks
       useStore.getState().setTasks([...tasks.slice(0, inserted), task, ...tasks.slice(inserted)])
       inserted++
-      // builtin-edge queue 路径由 queueClient 的 POLL_MAX_MS (30 min) 兜底超时，不走 watchdog；
-      // 否则 BFF 端 retry（Bun socket idle ~300s × 2 + backoff > 600s）会被 watchdog 提前在前端
-      // 单方面标 failed，BFF 还在后台继续跑。
-      if (
-        submission.profile.source !== 'builtin-edge' &&
-        !isAsyncCustomProviderTask(
-          submission.requestSettings,
-          submission.view.provider,
-          submission.inputImageIds.length > 0,
-        )
-      )
-        scheduleOpenAIWatchdog(task.id, submission.view.timeout)
+      // 队列路径由 queueClient 的 POLL_MAX_MS (30 min) 兜底超时，不走前端 watchdog；
+      // 否则 BFF 端 retry（Bun socket idle ~300s × 2 + backoff > 600s）会被提前标失败。
       return {
         taskId: task.id,
         createdAt: task.createdAt,
@@ -2016,7 +1840,6 @@ function workbenchSink(
         provider: submission.view.provider,
         timeoutSeconds: submission.view.timeout,
         ...(submission.maskDataUrl ? { maskDataUrl: submission.maskDataUrl } : {}),
-        customTaskId: null,
         stored: putTask(task),
       }
     },
@@ -2051,7 +1874,6 @@ async function resumeStoredTask(task: TaskRecord): Promise<void> {
     inputImageIds: task.inputImageIds,
     provider: task.apiProvider ?? view.provider,
     timeoutSeconds: view.timeout,
-    customTaskId: task.customTaskId ?? null,
     stored: Promise.resolve(),
   }
 
@@ -2068,11 +1890,6 @@ async function resumeStoredTask(task: TaskRecord): Promise<void> {
     )
   }
 
-  if (
-    profile.source !== 'builtin-edge' &&
-    !isAsyncCustomProviderTask(requestSettings, job.provider, task.inputImageIds.length > 0)
-  )
-    scheduleOpenAIWatchdog(task.id, view.timeout)
   return resumeGeneration(
     {
       settings: requestSettings,
@@ -2706,95 +2523,6 @@ function bytesToDataUrl(bytes: Uint8Array, filePath: string): string {
   return sharedBytesToDataUrl(bytes, mimeMap[ext] ?? 'image/png')
 }
 
-async function completeRecoveredCustomTask(
-  task: TaskRecord,
-  result: Awaited<ReturnType<typeof getCustomQueuedImageResult>>,
-) {
-  const latest = useStore.getState().tasks.find((item) => item.id === task.id)
-  if (!latest || latest.status === 'done') return
-
-  const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeGeneratedImages(
-    result.images,
-    task,
-  )
-  const actualParamsList = await readImageSizeParamsList(outputDataUrls)
-
-  updateTaskInStore(task.id, {
-    outputImages: outputIds,
-    transparentOriginalImages: transparentOriginalImageIds,
-    actualParams: firstActualParams(actualParamsList),
-    actualParamsByImage: mapActualParamsByImage(outputIds, actualParamsList),
-    revisedPromptByImage: undefined,
-    status: 'done',
-    error: null,
-    customRecoverable: false,
-    finishedAt: Date.now(),
-    elapsed: Date.now() - task.createdAt,
-  })
-  useStore
-    .getState()
-    .showToast(
-      i18next.t('toast.customTaskRecovered', { ns: 'store', count: outputIds.length }),
-      'success',
-    )
-}
-
-async function recoverCustomTask(taskId: string) {
-  const { settings, tasks } = useStore.getState()
-  const task = tasks.find((item) => item.id === taskId)
-  if (!task || !task.customTaskId || task.status === 'done') return
-
-  const profile = getCustomRecoveryProfile(settings, task)
-  const customProvider = task.apiProvider
-    ? getCustomProviderDefinition(settings, task.apiProvider)
-    : null
-  if (!profile || !customProvider?.poll) {
-    scheduleCustomRecovery(taskId)
-    return
-  }
-
-  if (profile.source !== 'user-byok') {
-    scheduleCustomRecovery(taskId)
-    return
-  }
-  const view = clientProfileToApiProfile(profile)
-  const byokAdapter = {
-    baseUrl: view.baseUrl,
-    apiKey: view.apiKey,
-    model: view.model,
-    apiMode: view.apiMode,
-    timeout: view.timeout,
-    codexCli: view.codexCli,
-    apiProxy: view.apiProxy,
-    responseFormatB64Json: view.responseFormatB64Json,
-  }
-  try {
-    const result = await getCustomQueuedImageResult(
-      byokAdapter,
-      customProvider,
-      task.customTaskId,
-      task.params,
-    )
-    clearCustomRecoveryTimer(taskId)
-    await completeRecoveredCustomTask(task, result)
-  } catch (err) {
-    clearCustomRecoveryTimer(taskId)
-    updateTaskInStore(taskId, {
-      status: 'error',
-      error: isOwnTimeoutAbortError(err)
-        ? createOpenAITimeoutError(view.timeout)
-        : err instanceof Error
-          ? err.message
-          : String(err),
-      errorCode: taskErrorTypeOf(err),
-      ...getRawErrorPayload(err),
-      customRecoverable: false,
-      finishedAt: Date.now(),
-      elapsed: Date.now() - task.createdAt,
-    })
-  }
-}
-
 function formatExportFileTime(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
@@ -2881,11 +2609,13 @@ export async function exportData(
     }
 
     if (options.exportConfig) {
-      // 剥掉内置 profile，避免硬编码 apiKey 被导出
-      manifest.settings = {
-        ...settings,
-        profiles: settings.profiles.filter((p) => p.source !== 'builtin-edge'),
-      }
+      // 只导出使用习惯。平台渠道由服务端清单注入，不把模型选择写成可导入的密钥配置。
+      const {
+        profiles: _profiles,
+        activeProfileId: _active,
+        ...preferences
+      } = normalizeSettings(settings)
+      manifest.settings = { ...preferences, profiles: [], activeProfileId: '' }
     }
     if (options.exportTasks) {
       manifest.tasks = tasks

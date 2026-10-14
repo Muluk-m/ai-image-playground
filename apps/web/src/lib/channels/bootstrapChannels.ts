@@ -52,7 +52,7 @@ export async function bootstrapChannels(
     if (signal?.aborted) return
     if (required) throw err
     console.warn(
-      '[channel-discovery] BFF unreachable; UI will only offer BYOK profiles.',
+      '[channel-discovery] BFF unreachable; no platform channels are available.',
       err instanceof Error ? err.message : err,
     )
   } finally {

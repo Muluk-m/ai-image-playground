@@ -24,7 +24,7 @@ const GPT_IMAGE_PREFIX = 'gpt-image-'
  * 按 (provider, model) 在 profiles 中找最佳匹配，并给出实际要选中的模型。
  *
  * 精确命中 model 的 profile 整体优先于同族回退；两档内部都按
- * active profile > builtin-edge（密钥不暴露）> 其余 的顺序取第一个。
+ * 当前活动渠道优先、其余渠道其次。
  *
  * 返回 null 表示没有任何 profile 能在该 provider 下服务这个模型或其同族模型。
  */
@@ -43,12 +43,7 @@ export function matchProfile(input: MatchProfileInput): MatchProfileResult | nul
   const exact = candidates.filter((c) => c.model === model)
   const pool = exact.length > 0 ? exact : candidates
 
-  return (
-    pool.find((c) => c.profile.id === activeProfileId) ??
-    pool.find((c) => c.profile.source === 'builtin-edge') ??
-    pool[0] ??
-    null
-  )
+  return pool.find((c) => c.profile.id === activeProfileId) ?? pool[0] ?? null
 }
 
 /** 该 profile 在给定 provider 下能服务的模型 id；provider 不匹配返回空数组。 */
@@ -57,9 +52,6 @@ function servableModelIds(
   publicChannels: PublicChannel[],
   provider: ProviderKind,
 ): string[] {
-  if (profile.source === 'user-byok') {
-    return profile.kind === provider ? getProfileModels(profile, publicChannels) : []
-  }
   // Inspiration manifest 用「请求风格」描述 provider（'openai-compat' / 'gemini'），
   // 内置 channel 用 BFF 队列 kind（'openai-queue' / 'gemini-queue'）。
   // toQueueProvider 把两边都规约到同一个 QueueProvider 轴，做兼容匹配。

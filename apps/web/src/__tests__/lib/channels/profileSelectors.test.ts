@@ -4,7 +4,6 @@ import {
   getSelectedModel,
   isModelKnown,
   modelSupportsNativeMask,
-  updateProfileModels,
   updateSelectedModel,
 } from '../../../lib/channels/profileSelectors'
 import type { ClientProfile, PublicChannel } from '../../../lib/channels/types'
@@ -31,115 +30,46 @@ function makeBuiltin(selectedModelId = 'gemini-a'): ClientProfile {
   }
 }
 
-function makeByok(models: string[], selectedModelId?: string): ClientProfile {
-  return {
-    id: 'p2',
-    source: 'user-byok',
-    name: 'My OpenAI',
-    kind: 'openai-compat',
-    baseUrl: 'https://api.example.com/v1',
-    apiKey: 'sk-xxx',
-    models,
-    selectedModelId: selectedModelId ?? models[0],
-    preferences: {
-      apiMode: 'images',
-      timeout: 600,
-      codexCli: false,
-      apiProxy: false,
-    },
-  }
-}
-
 describe('getProfileModels', () => {
-  it('builtin-edge: from channel.models', () => {
+  it('reads models from the platform channel', () => {
     expect(getProfileModels(makeBuiltin(), publicChannels)).toEqual(['gemini-a', 'gemini-b'])
   })
 
-  it('builtin-edge: unknown channel returns empty', () => {
-    const profile: ClientProfile = { ...makeBuiltin(), channelId: 'missing' } as ClientProfile
+  it('returns empty when the channel is gone', () => {
+    const profile: ClientProfile = { ...makeBuiltin(), channelId: 'missing' }
     expect(getProfileModels(profile, publicChannels)).toEqual([])
-  })
-
-  it('user-byok: from profile.models', () => {
-    expect(getProfileModels(makeByok(['m1', 'm2']), publicChannels)).toEqual(['m1', 'm2'])
   })
 })
 
 describe('getSelectedModel', () => {
   it('returns selectedModelId when valid', () => {
     expect(getSelectedModel(makeBuiltin('gemini-b'), publicChannels)).toBe('gemini-b')
-    expect(getSelectedModel(makeByok(['m1', 'm2'], 'm2'), publicChannels)).toBe('m2')
   })
 
-  it('falls back to models[0] when selectedModelId stale', () => {
+  it('falls back to models[0] when selectedModelId is stale', () => {
     expect(getSelectedModel(makeBuiltin('removed'), publicChannels)).toBe('gemini-a')
-    expect(getSelectedModel(makeByok(['m1'], 'gone'), publicChannels)).toBe('m1')
   })
 
   it('returns empty string when no models', () => {
-    const p: ClientProfile = { ...makeBuiltin(), channelId: 'missing' } as ClientProfile
-    expect(getSelectedModel(p, publicChannels)).toBe('')
-  })
-})
-
-describe('updateProfileModels', () => {
-  it('no-op for builtin-edge', () => {
-    const p = makeBuiltin()
-    expect(updateProfileModels(p, ['x'])).toBe(p)
-  })
-
-  it('BYOK: dedupes, trims empty', () => {
-    const next = updateProfileModels(makeByok(['m1']), ['m1', 'm2', 'm2', '', '  '])
-    if (next.source !== 'user-byok') throw new Error('expected byok')
-    expect(next.models).toEqual(['m1', 'm2'])
-  })
-
-  it('BYOK: keeps selectedModelId when still in models', () => {
-    const next = updateProfileModels(makeByok(['m1', 'm2'], 'm2'), ['m2', 'm3'])
-    if (next.source !== 'user-byok') throw new Error('expected byok')
-    expect(next.selectedModelId).toBe('m2')
-  })
-
-  it('BYOK: fallback selectedModelId to models[0] when removed', () => {
-    const next = updateProfileModels(makeByok(['m1', 'm2'], 'm2'), ['m3', 'm4'])
-    if (next.source !== 'user-byok') throw new Error('expected byok')
-    expect(next.selectedModelId).toBe('m3')
-  })
-
-  it('BYOK: reject empty resulting models (no-op)', () => {
-    const p = makeByok(['m1'])
-    expect(updateProfileModels(p, ['', '  '])).toBe(p)
+    const profile: ClientProfile = { ...makeBuiltin(), channelId: 'missing' }
+    expect(getSelectedModel(profile, publicChannels)).toBe('')
   })
 })
 
 describe('updateSelectedModel', () => {
-  it('builtin-edge: accepts valid channel model', () => {
+  it('accepts a model on the channel', () => {
     const next = updateSelectedModel(makeBuiltin('gemini-a'), 'gemini-b', publicChannels)
     expect(next.selectedModelId).toBe('gemini-b')
   })
 
-  it('builtin-edge: ignores unknown model', () => {
-    const p = makeBuiltin('gemini-a')
-    expect(updateSelectedModel(p, 'unknown', publicChannels)).toBe(p)
+  it('ignores an unknown model', () => {
+    const profile = makeBuiltin('gemini-a')
+    expect(updateSelectedModel(profile, 'unknown', publicChannels)).toBe(profile)
   })
 
-  it('BYOK: existing model just switches selectedModelId', () => {
-    const next = updateSelectedModel(makeByok(['m1', 'm2']), 'm2', publicChannels)
-    if (next.source !== 'user-byok') throw new Error('expected byok')
-    expect(next.selectedModelId).toBe('m2')
-    expect(next.models).toEqual(['m1', 'm2'])
-  })
-
-  it('BYOK: unknown model auto-appended', () => {
-    const next = updateSelectedModel(makeByok(['m1']), 'mx', publicChannels)
-    if (next.source !== 'user-byok') throw new Error('expected byok')
-    expect(next.models).toEqual(['m1', 'mx'])
-    expect(next.selectedModelId).toBe('mx')
-  })
-
-  it('rejects empty modelId', () => {
-    const p = makeByok(['m1'])
-    expect(updateSelectedModel(p, '  ', publicChannels)).toBe(p)
+  it('rejects an empty model id', () => {
+    const profile = makeBuiltin()
+    expect(updateSelectedModel(profile, '  ', publicChannels)).toBe(profile)
   })
 })
 
@@ -150,7 +80,7 @@ describe('modelSupportsNativeMask', () => {
     models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'mask'] }],
   }
 
-  it('builtin-edge: only when the model declares mask', () => {
+  it('is true only when the model declares mask', () => {
     expect(modelSupportsNativeMask(makeBuiltin(), publicChannels)).toBe(false)
     const masking: ClientProfile = {
       id: 'p1',
@@ -160,29 +90,15 @@ describe('modelSupportsNativeMask', () => {
     }
     expect(modelSupportsNativeMask(masking, [maskChannel])).toBe(true)
   })
-
-  it('user-byok: every kind but gemini takes a native mask', () => {
-    expect(modelSupportsNativeMask(makeByok(['gpt-image-2']), publicChannels)).toBe(true)
-    expect(
-      modelSupportsNativeMask(
-        { ...makeByok(['g']), kind: 'gemini' } as ClientProfile,
-        publicChannels,
-      ),
-    ).toBe(false)
-  })
 })
 
 describe('isModelKnown', () => {
-  it('builtin-edge: 只认 channel 当前清单里的模型', () => {
+  it('recognizes only models currently on the channel', () => {
     expect(isModelKnown(makeBuiltin('gemini-a'), publicChannels)).toBe(true)
     expect(isModelKnown(makeBuiltin('gemini-retired'), publicChannels)).toBe(false)
   })
 
-  it('builtin-edge: channel 整个没了也算认不出', () => {
+  it('does not recognize a model whose channel is gone', () => {
     expect(isModelKnown(makeBuiltin(), [])).toBe(false)
-  })
-
-  it('user-byok: 模型清单由用户自己填，一律认', () => {
-    expect(isModelKnown(makeByok(['whatever']), [])).toBe(true)
   })
 })
