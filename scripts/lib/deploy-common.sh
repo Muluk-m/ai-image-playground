@@ -141,6 +141,10 @@ prune_old_releases() {
   # inspected. Retry uses a new directory, so the image archive in the failed one is only
   # a second copy of layers that were never (or no longer) the running release.
   for dir in "$releases_root"/*.failed-run-*/; do
+    dir=${dir%/}
+    # A retry can run this script from inside the failed directory itself. That archive
+    # is the copy about to be loaded, not a leftover.
+    [ "$dir" != "$1" ] || continue
     [ -d "$dir" ] || continue
     [ -f "$dir/images.tar.gz" ] || continue
     rm -f "$dir/images.tar.gz" && echo "removed the failed image archive of $(basename -- "$dir")"
@@ -185,10 +189,10 @@ prune_dangling_images() {
 # Runs before the free-space check and again after rollout. All four editions share this disk;
 # a test receive used to leave backup images and release archives for the next production
 # deploy, and a full disk is exactly when that deploy is refused. Protected tags are the images
-# just rolled out. Containers still running are always protected.
+# this release is about to use and the ones just rolled out. Containers still running are
+# always protected. set -u is on in the receiver, so the tag list may be empty.
 reclaim_deploy_disk() {
   running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
-  # $2 is absent on the pre-pull pass. set -u is on in the receiver.
   protected="${2:-} $running"
   for alias in \
     ai-image-playground:vps-main \
