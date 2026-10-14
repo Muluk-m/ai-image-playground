@@ -3,6 +3,7 @@ import {
   type CanvasViewportBox,
   type CanvasViewportLink,
   planCanvasViewport,
+  withLivePositions,
 } from '../../../../features/canvas/lib/canvasViewport'
 
 const COLS = 60
@@ -38,6 +39,31 @@ function chain(): CanvasViewportLink[] {
 
 const items = grid()
 const edges = chain()
+
+describe('withLivePositions', () => {
+  it('moves painted boxes onto the drag positions and leaves the rest alone', () => {
+    const painted = [
+      { id: 'group', x: 0, y: 0, width: 400, height: 300 },
+      { id: 'a', x: 20, y: 40, width: 200, height: 160 },
+      { id: 'still', x: 900, y: 900, width: 200, height: 160 },
+    ]
+    const moved = withLivePositions(
+      painted,
+      new Map([
+        ['group', { x: 80, y: 30 }],
+        ['a', { x: 100, y: 70 }],
+      ]),
+    )
+    expect(moved.map((box) => [box.id, box.x, box.y])).toEqual([
+      ['group', 80, 30],
+      ['a', 100, 70],
+      ['still', 900, 900],
+    ])
+    expect(moved[0]).toMatchObject({ width: 400, height: 300 })
+    expect(moved[2]).toBe(painted[2])
+    expect(withLivePositions(painted, new Map([['a', { x: 20, y: 40 }]]))).toBe(painted)
+  })
+})
 
 describe('planCanvasViewport', () => {
   it('mounts the padded 1280×800 view and drops to an overview when the whole grid is in frame', () => {
