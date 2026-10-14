@@ -22,7 +22,7 @@ export type ChannelKind = 'openai-queue' | 'gemini-queue'
  * （Grok 网关收到它直接 403，报文长得像内容被拦，实际只是不认这个字段）。
  * 'duration' / 'aspect_ratio' / 'resolution' / 'first_frame' / 'last_frame' = 视频模型的参数支持，
  * 具体档位见 video-presets 的 VIDEO_MODEL_SUPPORT。
- * 数组里没有 = 不支持（UI 收起对应控件）。BYOK profile 无此信息，UI 不做限制。
+ * 数组里没有 = 不支持（UI 收起对应控件）。渠道清单还没到时按未知处理，不猜。
  */
 // 单一事实来源 — BFF 的 channels.json 校验器直接读这条 tuple。之前 BFF 侧另抄了一份运行时
 // 白名单，加 'size' 时漏改那份 → initChannels 抛「invalid capability」退出、launchd 反复

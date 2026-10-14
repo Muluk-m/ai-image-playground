@@ -96,7 +96,7 @@ describe('智能体输入框的生成设置', () => {
   })
 
   it('选一格比例立即写回尺寸，卡片保持打开，点「完成」才收起', () => {
-    useProfile('openai-compat', 'gpt-image-2.5-flare')
+    useProfile('openai-queue', 'gpt-image-2.5-flare')
     render()
     toggle()
 
@@ -132,9 +132,20 @@ describe('智能体输入框的生成设置', () => {
   })
 })
 
-/** 换一个 BYOK profile：kind 决定协议，selectedModelId 决定模型。 */
-function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
+/** 换一条平台渠道：kind 决定协议，selectedModelId 决定模型。 */
+function useProfile(kind: 'gemini-queue' | 'openai-queue', model: string): void {
   act(() => {
+    setChannels([
+      {
+        id: 'probe',
+        kind,
+        label: 'probe',
+        models: [
+          { id: model, label: model, capabilities: ['generate', 'edit', 'quality', 'size'] },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     useStore.setState({
       settings: {
         ...useStore.getState().settings,
@@ -142,14 +153,9 @@ function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
         profiles: [
           {
             id: 'probe',
-            source: 'user-byok',
-            name: 'probe',
-            kind,
-            baseUrl: 'https://example.com/v1',
-            apiKey: 'k',
-            models: [model],
+            source: 'builtin-edge',
+            channelId: 'probe',
             selectedModelId: model,
-            preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
           },
         ],
       },
@@ -157,25 +163,9 @@ function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
   })
 }
 
-/**
- * 自带 Key 的配置在智能体这条路上不生效：服务端没有 BYOK 分支，模型一律从内置渠道挑。
- * 模型 chip 写 profile 的模型名就是「界面写 A、实际花钱跑 B」，所以那个名字不能出现，
- * 卡片里得说清楚为什么。
- */
-it('自带 Key 时模型 chip 不摆本地模型名，卡片说明智能体只能用内置渠道', () => {
-  useProfile('openai-compat', 'my-private-image-model')
-  render()
-
-  expect(host.textContent).not.toContain('my-private-image-model')
-  expect(host.textContent).toContain('内置渠道模型')
-
-  toggle()
-  expect(document.body.textContent).toContain('智能体只能用内置渠道的模型')
-})
-
 describe('gemini 专属参数跟着当前模型走', () => {
   it('摘要展示实际的 Gemini 比例，不读取另一种协议的尺寸', () => {
-    useProfile('gemini', 'gemini-3.1-flash-image')
+    useProfile('gemini-queue', 'gemini-3.1-flash-image')
     useStore.setState({
       params: { ...DEFAULT_PARAMS, size: '1536x1024', gemini_aspect_ratio: '9:16' },
     })
@@ -185,7 +175,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
   })
 
   it('gemini 系模型才给分辨率与思考级别', () => {
-    useProfile('gemini', 'gemini-3.1-flash-image')
+    useProfile('gemini-queue', 'gemini-3.1-flash-image')
     render()
     toggle()
 
@@ -196,7 +186,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
 
   // 同一个 Gemini profile 也能指到别的模型；分辨率与思考级别只有 Gemini 图像模型认。
   it('gemini 协议但不是 gemini 系模型时收起这两项', () => {
-    useProfile('gemini', 'imagen-4.0-generate')
+    useProfile('gemini-queue', 'imagen-4.0-generate')
     render()
     toggle()
 
@@ -206,7 +196,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
   })
 
   it('不走 gemini 协议时一项都不给', () => {
-    useProfile('openai-compat', 'gpt-image-2.5-flare')
+    useProfile('openai-queue', 'gpt-image-2.5-flare')
     render()
     toggle()
 

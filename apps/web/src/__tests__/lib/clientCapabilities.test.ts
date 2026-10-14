@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   bootstrapClientCapabilities,
   getClientCapabilityManifest,
-  isByokGenerationEnabled,
   isClientCapabilityEnabled,
   supportsProjectDocumentIdentity,
 } from '../../lib/clientCapabilities'
@@ -22,7 +21,6 @@ describe('client capability bootstrap', () => {
         'accounts:login': true,
         'accounts:self-register': true,
         'accounts:sync': true,
-        'generation:byok': true,
         projectDocumentIdentity: true,
       }),
     )
@@ -32,7 +30,7 @@ describe('client capability bootstrap', () => {
 
     expect(isClientCapabilityEnabled('accounts:login')).toBe(true)
     expect(isClientCapabilityEnabled('accounts:self-register')).toBe(true)
-    expect(isClientCapabilityEnabled('generation:byok')).toBe(true)
+    expect(getClientCapabilityManifest()).not.toHaveProperty('generation:byok')
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
     expect(supportsProjectDocumentIdentity()).toBe(true)
   })
@@ -55,7 +53,6 @@ describe('client capability bootstrap', () => {
     expect(isClientCapabilityEnabled('billing:credits')).toBe(true)
     expect(isClientCapabilityEnabled('agent:chat')).toBe(false)
     expect(supportsProjectDocumentIdentity()).toBe(false)
-    expect(isByokGenerationEnabled()).toBe(false)
   })
 
   it('fails closed for a disabled backend or a malformed capability value', async () => {
@@ -66,29 +63,13 @@ describe('client capability bootstrap', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => Response.json({ 'accounts:login': 'true', 'generation:byok': true })),
+      vi.fn(async () => Response.json({ 'accounts:login': 'true' })),
     )
     await bootstrapClientCapabilities(true, '')
 
     expect(Object.values(getClientCapabilityManifest()).every((value) => value === false)).toBe(
       true,
     )
-  })
-
-  it('keeps static BYOK enabled but fails closed for BFF deployments', async () => {
-    await bootstrapClientCapabilities(false, '')
-    expect(isByokGenerationEnabled()).toBe(true)
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          ...allCapabilitiesOff(),
-        }),
-      ),
-    )
-    await bootstrapClientCapabilities(true, '')
-    expect(isByokGenerationEnabled()).toBe(false)
   })
 
   it('bounds a stalled capability request and fails closed', async () => {

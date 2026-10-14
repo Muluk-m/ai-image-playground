@@ -3,7 +3,7 @@
  * 拉取 BFF 的 `/api/channels`（同源时 base 为空字符串，跨域时填 cf tunnel 域名）。
  *
  * 错误处理：网络错 / 非 200 / 响应不符合 schema 都向上抛，由 boot 层落到
- * console.warn + 空 channel 列表（UI 自动退化为「仅 BYOK 可用」）。
+ * console.warn + 空 channel 列表（没有平台模型，生成不可用）。
  *
  * 调用方应该传 `signal`（main.tsx 用 AbortSignal.timeout）— BFF hang 时不能
  * 让浏览器吊着 default ~5min 才放弃，否则 SPA 卡在白屏。

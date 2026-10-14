@@ -1,24 +1,7 @@
 import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import { i18next } from '../i18n'
-import type { ApiMode, AppSettings, TaskParams } from '../types'
+import type { AppSettings, TaskParams } from '../types'
 import { taskFailure } from './taskError'
-
-/**
- * BYOK adapter 消费的扁平 profile shape。
- *
- * `callImageApi` 把 `UserByokProfile`（含嵌套 preferences）拍平成这个结构再交给
- * OpenAI-compat / Gemini adapter，让 adapter 不必感知 `ClientProfile` 的 discriminated union。
- */
-export interface BYOKAdapterProfile {
-  baseUrl: string
-  apiKey: string
-  model: string
-  apiMode: ApiMode
-  timeout: number
-  codexCli: boolean
-  apiProxy: boolean
-  responseFormatB64Json?: boolean
-}
 
 export const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -36,7 +19,6 @@ export interface CallApiOptions {
   /** 输入图片的 data URL 列表 */
   inputImageDataUrls: string[]
   maskDataUrl?: string
-  onCustomTaskEnqueued?: (task: { taskId: string }) => void
   /** BFF queue 模式 submit 成功后立刻回调，把 request_id 持久化以便刷新后恢复 */
   onQueueSubmitted?: (requestId: string) => void
   /** Durable queue phase reported by the BFF. */
@@ -212,7 +194,7 @@ export async function fetchImageUrlAsDataUrl(
  * 由于 keep-alive streaming 必须提前 send 200 OK status（status 一旦 flush 不能改），
  * proxy 把所有 upstream 错误（含网络失败 / 超时 / non-2xx）封装为：
  *   { error: { message, type, upstream_status? }, _proxyError: true, channelId }
- * 通过 body 通知前端。直连 user-byok 不经 proxy，不会触发此 path。
+ * 通过 body 通知前端。
  *
  * 调用时机：所有走 `callImageApi` 的 fetch 在 `await response.json()` 之后、
  * 业务字段解析之前。
@@ -264,8 +246,8 @@ export async function getApiErrorMessage(response: Response): Promise<string> {
 }
 
 /**
- * 上游非 2xx 时抛的错。直连（BYOK）没有 worker 给任务分类，分类就在这里做——判据与 BFF
- * 侧同一个 `isContentPolicyRejection`，否则同一次拒绝在两条路上出两种文案。
+ * 上游非 2xx 时抛的错。浏览器侧没有 worker 给这次失败分类，分类就在这里做——判据与 BFF
+ * 侧同一个 `isContentPolicyRejection`，否则同一次拒绝出两种文案。
  */
 export async function upstreamHttpError(response: Response): Promise<Error> {
   const { message, payload } = await readApiError(response)

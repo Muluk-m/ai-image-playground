@@ -1,484 +1,192 @@
 import { describe, expect, it } from 'vitest'
 import {
-  apiProfileToClientProfile,
   clientProfileToApiProfile,
   createBuiltinEdgeProfile,
-  createDefaultGeminiByokProfile,
-  createDefaultOpenAIByokProfile,
-  DEFAULT_API_TIMEOUT,
-  DEFAULT_GEMINI_BASE_URL,
-  DEFAULT_GEMINI_MODEL,
-  DEFAULT_IMAGES_MODEL,
-  DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_SETTINGS,
-  findEquivalentClientProfile,
+  getActiveApiProfile,
   getApiProviderLabel,
-  importCustomProviderDefinitionFromJson,
-  importCustomProviderSettingsFromJson,
-  isBuiltinProfile,
   mergeImportedSettings,
   normalizeApiTimeout,
   normalizeClientProfile,
   normalizeSettings,
-  switchByokProfileKind,
   validateClientProfile,
 } from '../../lib/apiProfiles'
-import type { UserByokProfile } from '../../lib/channels/types'
+import { setChannels } from '../../lib/channels/channelStore'
+import type { PublicChannel } from '../../lib/channels/types'
 
-describe('createDefaultOpenAIByokProfile', () => {
-  it('returns an openai-compat user-byok profile with defaults', () => {
-    const p = createDefaultOpenAIByokProfile()
-    expect(p.source).toBe('user-byok')
-    expect(p.kind).toBe('openai-compat')
-    expect(p.id).toBe(DEFAULT_OPENAI_PROFILE_ID)
-    expect(p.models).toEqual([DEFAULT_IMAGES_MODEL])
-    expect(p.selectedModelId).toBe(DEFAULT_IMAGES_MODEL)
-    expect(p.preferences.apiMode).toBe('images')
-  })
-})
+const CHANNEL: PublicChannel = {
+  id: 'openai-images',
+  kind: 'openai-queue',
+  label: 'OpenAI',
+  models: [
+    { id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['generate'] },
+    { id: 'gpt-image-2.5-sunburst', label: 'Sunburst', capabilities: ['generate'] },
+  ],
+  defaults: { apiMode: 'images', timeout: 600 },
+}
 
 describe('normalizeApiTimeout', () => {
-  // 0 会让 `setTimeout(() => controller.abort(), 0)` 在请求发出的同一 tick 掐断它，
-  // 卡片上只剩浏览器那句 "The user aborted a request."，看着像用户点了取消。
-  it('把 0 / 负数 / 非数字的超时退回默认值，正数原样保留', () => {
-    expect(normalizeApiTimeout(0)).toBe(DEFAULT_API_TIMEOUT)
-    expect(normalizeApiTimeout(-30)).toBe(DEFAULT_API_TIMEOUT)
-    expect(normalizeApiTimeout(Number.NaN)).toBe(DEFAULT_API_TIMEOUT)
-    expect(normalizeApiTimeout(undefined)).toBe(DEFAULT_API_TIMEOUT)
-    expect(normalizeApiTimeout(90)).toBe(90)
-  })
-
-  it('存量 profile 里的 0 超时在读出来时就被挡住', () => {
-    const stored = normalizeClientProfile({
-      ...createDefaultOpenAIByokProfile({ apiKey: 'k' }),
-      preferences: { apiMode: 'images', timeout: 0, codexCli: false, apiProxy: false },
-    })
-    expect(clientProfileToApiProfile(stored!).timeout).toBe(DEFAULT_API_TIMEOUT)
-  })
-})
-
-describe('createDefaultGeminiByokProfile', () => {
-  it('returns a gemini user-byok profile with v1beta defaults', () => {
-    const p = createDefaultGeminiByokProfile()
-    expect(p.source).toBe('user-byok')
-    expect(p.kind).toBe('gemini')
-    expect(p.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
-    expect(p.models).toEqual([DEFAULT_GEMINI_MODEL])
-    expect(p.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
-    expect(p.preferences.apiProxy).toBe(false)
-    expect(p.preferences.codexCli).toBe(false)
+  it('rejects non-positive and non-finite values', () => {
+    expect(normalizeApiTimeout(0)).toBe(600)
+    expect(normalizeApiTimeout(-1)).toBe(600)
+    expect(normalizeApiTimeout(Number.NaN)).toBe(600)
+    expect(normalizeApiTimeout('30')).toBe(600)
+    expect(normalizeApiTimeout(30)).toBe(30)
   })
 })
 
 describe('normalizeClientProfile', () => {
-  it('normalizes a builtin-edge profile preserving channelId + selectedModelId', () => {
-    const p = normalizeClientProfile({
-      source: 'builtin-edge',
-      id: 'test-x',
-      channelId: 'test-x',
-      selectedModelId: 'model-a',
-    })
-    expect(p).toEqual({
-      id: 'test-x',
-      source: 'builtin-edge',
-      channelId: 'test-x',
-      selectedModelId: 'model-a',
-    })
+  it('keeps a platform channel profile', () => {
+    expect(
+      normalizeClientProfile(createBuiltinEdgeProfile('openai-images', 'gpt-image-2')),
+    ).toEqual(createBuiltinEdgeProfile('openai-images', 'gpt-image-2'))
   })
 
-  it('rejects builtin-edge profile missing channelId', () => {
-    expect(normalizeClientProfile({ source: 'builtin-edge', selectedModelId: 'm' })).toBeNull()
-  })
-
-  it('normalizes user-byok profile, defaulting models from kind', () => {
-    const p = normalizeClientProfile({
-      source: 'user-byok',
-      id: 'b1',
-      name: 'B',
-      kind: 'gemini',
-      baseUrl: '',
-      apiKey: 'k',
-    }) as UserByokProfile
-    expect(p?.source).toBe('user-byok')
-    expect(p.kind).toBe('gemini')
-    expect(p.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
-    expect(p.models).toEqual([DEFAULT_GEMINI_MODEL])
-    expect(p.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
-  })
-
-  it('falls back selectedModelId to models[0] when out of range', () => {
-    const p = normalizeClientProfile({
-      source: 'user-byok',
-      id: 'b1',
-      name: 'B',
-      kind: 'openai-compat',
-      models: ['m1', 'm2'],
-      selectedModelId: 'unknown',
-    }) as UserByokProfile
-    expect(p.selectedModelId).toBe('m1')
-  })
-
-  it('drops unrecognized source', () => {
-    expect(normalizeClientProfile({ source: 'unknown', id: 'x' })).toBeNull()
+  it('drops a stored bring-your-own-key profile', () => {
+    expect(
+      normalizeClientProfile({
+        id: 'default-openai',
+        source: 'user-byok',
+        name: '默认',
+        kind: 'openai-compat',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-old',
+        models: ['gpt-image-2'],
+        selectedModelId: 'gpt-image-2',
+        preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
+      }),
+    ).toBeNull()
   })
 })
 
-describe('isBuiltinProfile', () => {
-  it('returns true for builtin-edge source', () => {
-    expect(isBuiltinProfile(createBuiltinEdgeProfile('test-x', 'm'))).toBe(true)
-  })
-  it('returns false for user-byok source', () => {
-    expect(isBuiltinProfile(createDefaultOpenAIByokProfile())).toBe(false)
-    expect(isBuiltinProfile(null)).toBe(false)
-    expect(isBuiltinProfile(undefined)).toBe(false)
-  })
-})
-
-describe('normalizeSettings', () => {
-  it('returns default openai byok profile when input is empty', () => {
-    const s = normalizeSettings({})
-    expect(s.profiles).toHaveLength(1)
-    expect(s.profiles[0].source).toBe('user-byok')
-    expect(s.activeProfileId).toBe(DEFAULT_OPENAI_PROFILE_ID)
-  })
-
-  it('preserves user-byok profiles from input', () => {
-    const byok = createDefaultGeminiByokProfile({ id: 'g1', name: 'G', apiKey: 'k' })
-    const s = normalizeSettings({ profiles: [byok], activeProfileId: 'g1' })
-    expect(s.profiles).toHaveLength(1)
-    expect(s.profiles[0].id).toBe('g1')
-    expect(s.activeProfileId).toBe('g1')
-  })
-
-  it('drops invalid profile records', () => {
-    const s = normalizeSettings({ profiles: [{ source: 'unknown' }, { source: 'builtin-edge' }] })
-    expect(s.profiles).toHaveLength(1)
-    expect(s.profiles[0].source).toBe('user-byok')
-  })
-
-  it('falls back activeProfileId to first profile if invalid', () => {
-    const byok = createDefaultOpenAIByokProfile({ id: 'p1' })
-    const s = normalizeSettings({ profiles: [byok], activeProfileId: 'nonexistent' })
-    expect(s.activeProfileId).toBe('p1')
-  })
-})
-
-describe('normalizeSettings + builtin channels (hydrate timing fix)', () => {
-  // 模拟：channelStore 装载后，normalize 时如果碰到「store hydrate 时机问题留下的
-  // 未编辑默认 BYOK」就把它清掉，避免内置 channel 列表里夹一个空 BYOK 默认。
-  it('drops the synthetic untouched default BYOK when builtin channels exist', async () => {
-    const { setChannels } = await import('../../lib/channels/channelStore')
-    setChannels([
-      {
-        id: 'test-openai',
-        kind: 'openai-queue',
-        label: 'Test OpenAI',
-        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
-        defaults: {},
-      },
-    ])
+describe('normalizeSettings migration', () => {
+  it('lands on the first platform channel when the saved profile was bring-your-own-key', () => {
+    setChannels([CHANNEL])
     try {
-      const synthetic = createDefaultOpenAIByokProfile() // apiKey=''，是 hydrate fallback 状态
-      const s = normalizeSettings({ profiles: [synthetic], activeProfileId: synthetic.id })
-      // builtin 注入 + synthetic BYOK 被清掉
-      expect(s.profiles).toHaveLength(1)
-      expect(s.profiles[0].source).toBe('builtin-edge')
-      expect(s.profiles[0].id).toBe('test-openai')
-    } finally {
-      setChannels([])
-    }
-  })
-
-  it('keeps a user-configured default-id BYOK (apiKey filled) even when builtin exists', async () => {
-    const { setChannels } = await import('../../lib/channels/channelStore')
-    setChannels([
-      {
-        id: 'test-openai',
-        kind: 'openai-queue',
-        label: 'Test OpenAI',
-        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
-        defaults: {},
-      },
-    ])
-    try {
-      const configured = createDefaultOpenAIByokProfile({ apiKey: 'sk-real' })
-      const s = normalizeSettings({ profiles: [configured] })
-      // builtin + 用户配置过的 BYOK 都保留
-      expect(s.profiles.map((p) => p.source).sort()).toEqual(['builtin-edge', 'user-byok'])
-    } finally {
-      setChannels([])
-    }
-  })
-
-  it('builds no profile for a video-only channel', async () => {
-    const { setChannels } = await import('../../lib/channels/channelStore')
-    const { GROK_CHANNEL, IMAGE_CHANNEL } = await import('../features/video/fixtures')
-    setChannels([GROK_CHANNEL, IMAGE_CHANNEL])
-    try {
-      const s = normalizeSettings({})
-      expect(s.profiles.map((p) => p.id)).toEqual([IMAGE_CHANNEL.id])
-      expect(s.activeProfileId).toBe(IMAGE_CHANNEL.id)
-    } finally {
-      setChannels([])
-    }
-  })
-
-  it('repairs a persisted builtin profile pinned to a video model', async () => {
-    const { setChannels } = await import('../../lib/channels/channelStore')
-    setChannels([
-      {
-        id: 'test-mixed',
-        kind: 'openai-queue',
-        label: 'Test Mixed',
-        models: [
-          { id: 'vid', label: 'Video', capabilities: ['generate'], media: 'video' },
-          { id: 'img', label: 'Image', capabilities: ['generate'] },
+      const settings = normalizeSettings({
+        profiles: [
+          {
+            id: 'default-openai',
+            source: 'user-byok',
+            name: '默认',
+            kind: 'openai-compat',
+            baseUrl: 'https://api.openai.com/v1',
+            apiKey: '',
+            models: ['gpt-image-2'],
+            selectedModelId: 'gpt-image-2',
+            preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: true },
+          },
         ],
-        defaults: {},
-      },
-    ])
-    try {
-      const s = normalizeSettings({ profiles: [createBuiltinEdgeProfile('test-mixed', 'vid')] })
-      expect(s.profiles[0]).toMatchObject({ channelId: 'test-mixed', selectedModelId: 'img' })
+        activeProfileId: 'default-openai',
+        customProviders: [{ id: 'custom', name: 'Old' }],
+        clearInputAfterSubmit: true,
+      })
+      expect(settings.profiles).toEqual([
+        createBuiltinEdgeProfile('openai-images', 'gpt-image-2.5-flare'),
+      ])
+      expect(settings.activeProfileId).toBe('openai-images')
+      expect(settings.clearInputAfterSubmit).toBe(true)
+      expect(settings).not.toHaveProperty('customProviders')
+      expect(clientProfileToApiProfile(getActiveApiProfile(settings)).apiKey).toBe('')
     } finally {
       setChannels([])
     }
   })
 
-  it('still falls back to default BYOK when there are no channels and no profiles', () => {
-    // 旧行为不变：纯静态 BYOK 部署形态
-    const s = normalizeSettings({})
-    expect(s.profiles).toHaveLength(1)
-    expect(s.profiles[0].source).toBe('user-byok')
-    expect(s.profiles[0].id).toBe(DEFAULT_OPENAI_PROFILE_ID)
-  })
-})
-
-describe('normalizeSettings + 失效的内置模型选择', () => {
-  const RENAMED_CHANNEL = {
-    id: 'test-openai',
-    kind: 'openai-queue' as const,
-    label: 'Test OpenAI',
-    models: [
-      { id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['generate' as const] },
-      { id: 'gpt-image-2.5-sunburst', label: 'Sunburst', capabilities: ['generate' as const] },
-    ],
-    defaults: {},
-  }
-
-  const RETIRED = {
-    id: 'test-openai',
-    source: 'builtin-edge' as const,
-    channelId: 'test-openai',
-    selectedModelId: 'gpt-image-2',
-  }
-
-  it('把停用的模型换成 channel 的第一个模型', async () => {
-    const { setChannels } = await import('../../lib/channels/channelStore')
-    setChannels([RENAMED_CHANNEL])
+  it('keeps a still-valid platform model selection and ignores a retired one', () => {
+    setChannels([CHANNEL])
     try {
-      const s = normalizeSettings({ profiles: [RETIRED] })
-      expect(s.profiles).toHaveLength(1)
-      expect(s.profiles[0].selectedModelId).toBe('gpt-image-2.5-flare')
+      const kept = normalizeSettings({
+        profiles: [createBuiltinEdgeProfile('openai-images', 'gpt-image-2.5-sunburst')],
+        activeProfileId: 'openai-images',
+      })
+      expect(kept.profiles[0]?.selectedModelId).toBe('gpt-image-2.5-sunburst')
+
+      const retired = normalizeSettings({
+        profiles: [createBuiltinEdgeProfile('openai-images', 'gpt-image-2')],
+        activeProfileId: 'openai-images',
+      })
+      expect(retired.profiles[0]?.selectedModelId).toBe('gpt-image-2.5-flare')
     } finally {
       setChannels([])
     }
   })
 
-  it('hydrate 早于 channel 装载时，列表到位后重算而不是吃缓存', async () => {
-    const { setChannels } = await import('../../lib/channels/channelStore')
+  it('stays empty until channels load, without inventing a keyless profile', () => {
     setChannels([])
-    const hydrated = normalizeSettings({ profiles: [RETIRED] })
-    expect(hydrated.profiles.every((p) => p.source === 'user-byok')).toBe(true)
+    const settings = normalizeSettings({
+      profiles: [
+        {
+          source: 'user-byok',
+          apiKey: '',
+          baseUrl: 'https://api.openai.com/v1',
+          selectedModelId: 'gpt-image-2',
+        },
+      ],
+      activeProfileId: 'default-openai',
+    })
+    expect(settings.profiles).toEqual([])
+    expect(settings.activeProfileId).toBe('')
+    expect(getActiveApiProfile(settings).channelId).toBe('')
+    expect(validateClientProfile(getActiveApiProfile(settings))).toMatch(/模型/)
+  })
 
-    setChannels([RENAMED_CHANNEL])
+  it('recomputes after channels arrive instead of reusing the empty normalization', () => {
+    setChannels([])
+    const hydrated = normalizeSettings({
+      profiles: [createBuiltinEdgeProfile('openai-images', 'gpt-image-2.5-sunburst')],
+    })
+    expect(hydrated.profiles).toEqual([])
+    setChannels([CHANNEL])
     try {
-      const s = normalizeSettings(hydrated)
-      const builtin = s.profiles.find((p) => p.source === 'builtin-edge')
-      expect(builtin?.selectedModelId).toBe('gpt-image-2.5-flare')
+      const next = normalizeSettings(hydrated)
+      expect(next.profiles[0]?.selectedModelId).toBe('gpt-image-2.5-flare')
     } finally {
       setChannels([])
     }
-  })
-})
-
-describe('switchByokProfileKind', () => {
-  it('switches openai → gemini using gemini defaults', () => {
-    const base = createDefaultOpenAIByokProfile({
-      apiKey: 'sk-abc',
-      baseUrl: 'https://api.openai.com/v1',
-    })
-    const next = switchByokProfileKind(base, 'gemini')
-    expect(next.kind).toBe('gemini')
-    expect(next.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
-    expect(next.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
-    expect(next.apiKey).toBe('sk-abc')
-    expect(next.preferences.codexCli).toBe(false)
-    expect(next.preferences.apiProxy).toBe(false)
-  })
-
-  it('no-op if kind is unchanged', () => {
-    const base = createDefaultOpenAIByokProfile()
-    const next = switchByokProfileKind(base, 'openai-compat')
-    expect(next).toBe(base)
-  })
-})
-
-describe('validateClientProfile', () => {
-  it('returns error for byok missing apiKey', () => {
-    expect(validateClientProfile(createDefaultOpenAIByokProfile())).toMatch(/API Key/)
-  })
-  it('returns null for fully populated byok', () => {
-    expect(validateClientProfile(createDefaultOpenAIByokProfile({ apiKey: 'k' }))).toBeNull()
-  })
-  it('returns null for builtin-edge profile with selectedModelId', () => {
-    expect(validateClientProfile(createBuiltinEdgeProfile('test-x', 'm'))).toBeNull()
-  })
-})
-
-describe('findEquivalentClientProfile', () => {
-  it('matches user-byok by all key fields', () => {
-    const p = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'k' })
-    const settings = normalizeSettings({ profiles: [p], activeProfileId: 'g1' })
-    const same = createDefaultGeminiByokProfile({ id: 'other', apiKey: 'k' })
-    const found = findEquivalentClientProfile(settings, same)
-    expect(found?.id).toBe('g1')
-  })
-
-  it('matches keyless candidate to keyed existing by connection key', () => {
-    const stored = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'sk' })
-    const settings = normalizeSettings({ profiles: [stored], activeProfileId: 'g1' })
-    const candidate = createDefaultGeminiByokProfile({ id: 'imp', apiKey: '' })
-    const found = findEquivalentClientProfile(settings, candidate)
-    expect(found?.id).toBe('g1')
-  })
-
-  it('does not match builtin-edge to user-byok', () => {
-    const byok = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'k' })
-    const settings = normalizeSettings({ profiles: [byok], activeProfileId: 'g1' })
-    const edge = createBuiltinEdgeProfile('test-x', 'm')
-    expect(findEquivalentClientProfile(settings, edge)).toBeNull()
   })
 })
 
 describe('mergeImportedSettings', () => {
-  it('replaces untouched default with imported settings', () => {
-    const importedByok = createDefaultGeminiByokProfile({ id: 'imp-g', name: 'Imp', apiKey: 'k' })
-    const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
-      profiles: [importedByok],
-      activeProfileId: 'imp-g',
-    })
-    expect(merged.profiles).toHaveLength(1)
-    expect(merged.profiles[0].id).toBe('imp-g')
-  })
-
-  it('appends new byok profiles when current is customized', () => {
-    const current = normalizeSettings({
-      profiles: [createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk-current' })],
-      activeProfileId: 'p1',
-    })
-    const importedByok = createDefaultGeminiByokProfile({
-      id: 'imp-g',
-      name: 'Imp',
-      apiKey: 'sk-imp',
-    })
-    const merged = mergeImportedSettings(current, { profiles: [importedByok] })
-    expect(merged.profiles).toHaveLength(2)
-    const byIds = merged.profiles.map((p) => p.id).sort()
-    expect(byIds).toContain('p1')
-  })
-
-  it('deduplicates imported byok against existing same connection', () => {
-    const current = normalizeSettings({
-      profiles: [
-        createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk', baseUrl: 'https://x.example/v1' }),
-      ],
-      activeProfileId: 'p1',
-    })
-    const duplicate = createDefaultOpenAIByokProfile({
-      id: 'p2',
-      apiKey: 'sk',
-      baseUrl: 'https://x.example/v1',
-    })
-    const merged = mergeImportedSettings(current, { profiles: [duplicate] })
-    expect(merged.profiles).toHaveLength(1)
-    expect(merged.profiles[0].id).toBe('p1')
-  })
-})
-
-describe('clientProfileToApiProfile / apiProfileToClientProfile', () => {
-  it('round-trips user-byok preserving fields', () => {
-    const byok = createDefaultGeminiByokProfile({ id: 'g1', name: 'G', apiKey: 'k' })
-    const api = clientProfileToApiProfile(byok)
-    expect(api.provider).toBe('gemini')
-    expect(api.apiKey).toBe('k')
-    expect(api.model).toBe(DEFAULT_GEMINI_MODEL)
-    const back = apiProfileToClientProfile(api)
-    expect(back.source).toBe('user-byok')
-    if (back.source === 'user-byok') {
-      expect(back.kind).toBe('gemini')
-      expect(back.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
+  it('keeps usage preferences and drops imported profiles and keys', () => {
+    setChannels([CHANNEL])
+    try {
+      const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
+        enterSubmit: false,
+        profiles: [
+          {
+            source: 'user-byok',
+            apiKey: 'sk-imported',
+            baseUrl: 'https://evil.example/v1',
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: 'imported',
+        customProviders: [{ id: 'x' }],
+      })
+      expect(merged.enterSubmit).toBe(false)
+      expect(merged.activeProfileId).toBe('openai-images')
+      expect(merged.profiles.every((profile) => profile.source === 'builtin-edge')).toBe(true)
+      expect(JSON.stringify(merged)).not.toContain('sk-imported')
+    } finally {
+      setChannels([])
     }
   })
 })
 
 describe('getApiProviderLabel', () => {
-  it('returns OpenAI / Gemini labels', () => {
+  it('labels the platform protocol families', () => {
     expect(getApiProviderLabel(DEFAULT_SETTINGS, 'openai')).toBe('OpenAI')
     expect(getApiProviderLabel(DEFAULT_SETTINGS, 'openai-compat')).toBe('OpenAI')
     expect(getApiProviderLabel(DEFAULT_SETTINGS, 'gemini')).toBe('Gemini')
+    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'gemini-queue')).toBe('Gemini')
   })
 })
 
-describe('custom provider import (data shape only)', () => {
-  it('imports a wrapped customProviders + profiles payload', () => {
-    const result = importCustomProviderSettingsFromJson(
-      JSON.stringify({
-        customProviders: [
-          {
-            id: 'custom-json',
-            name: 'Custom JSON',
-            submit: {
-              path: 'images/generations',
-              method: 'POST',
-              contentType: 'json',
-              body: { model: '$profile.model', prompt: '$prompt' },
-              result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-            },
-          },
-        ],
-        profiles: [
-          {
-            // 旧 ApiProfile shape — 由 import 路径迁移成 user-byok
-            name: 'Custom JSON',
-            provider: 'custom-json',
-            baseUrl: 'https://custom.example.com/v1',
-            model: 'custom-model',
-            apiMode: 'images',
-          },
-        ],
-      }),
-    )
-    expect(result.customProviders).toHaveLength(1)
-    expect(result.profiles).toHaveLength(1)
-    expect(result.profiles[0].source).toBe('user-byok')
-  })
-
-  it('imports a single custom provider manifest', () => {
-    const p = importCustomProviderDefinitionFromJson(
-      JSON.stringify({
-        name: 'Apimart GPT-Image-2',
-        template: 'http-image',
-        submit: {
-          path: '/v1/images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          taskIdPath: 'data.0.task_id',
-        },
-      }),
-    )
-    expect(p.template).toBe('http-image')
-    expect(p.submit.path).toBe('images/generations')
+describe('validateClientProfile', () => {
+  it('accepts a platform profile that has a model', () => {
+    expect(
+      validateClientProfile(createBuiltinEdgeProfile('openai-images', 'gpt-image-2')),
+    ).toBeNull()
   })
 })

@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetRecord, LookRecord, TemplateRecord } from '../features/library/types'
-import {
-  createDefaultGeminiByokProfile,
-  createDefaultOpenAIByokProfile,
-  DEFAULT_SETTINGS,
-  normalizeSettings,
-} from '../lib/apiProfiles'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
 import { API_MAX_IMAGES } from '../lib/inputImageLimit'
 import { mergeHistory, type PlatformGenerationRow } from '../lib/platformGenerations'
@@ -225,7 +220,21 @@ describe('mask draft lifecycle in store actions', () => {
     await bootstrapClientCapabilities(false, '')
     // 登录态是模块级的，逐用例归零。
     setSignedIn(false)
-    setChannels([])
+    setChannels([
+      {
+        id: 'default-openai',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [
+          {
+            id: 'gpt-image-2',
+            label: 'GPT Image 2',
+            capabilities: ['generate', 'edit', 'mask', 'quality'],
+          },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -238,7 +247,14 @@ describe('mask draft lifecycle in store actions', () => {
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
-        profiles: [createDefaultOpenAIByokProfile({ apiKey: 'test-key' })],
+        profiles: [
+          {
+            id: 'default-openai',
+            source: 'builtin-edge',
+            channelId: 'default-openai',
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
         activeProfileId: 'default-openai',
       }),
       prompt: 'prompt',
@@ -256,6 +272,10 @@ describe('mask draft lifecycle in store actions', () => {
       showToast: vi.fn(),
       setConfirmDialog: vi.fn(),
     })
+  })
+
+  afterEach(() => {
+    setChannels([])
   })
 
   it('editOutputImage 对输出图打开遮罩编辑器且不破坏已有 mask draft', async () => {
@@ -737,7 +757,7 @@ describe('参考图条的挪动、删除与整条换掉', () => {
 })
 
 describe('interrupted OpenAI running tasks', () => {
-  it('marks legacy and OpenAI running tasks as interrupted', () => {
+  it('interrupts running tasks that cannot be resumed, including old custom-provider tasks', () => {
     const now = 10_000
     const legacyRunning = task({
       id: 'legacy-running',
@@ -773,6 +793,7 @@ describe('interrupted OpenAI running tasks', () => {
     expect(result.interruptedTasks.map((item) => item.id)).toEqual([
       'legacy-running',
       'openai-running',
+      'custom-running',
     ])
     expect(result.tasks.find((item) => item.id === 'legacy-running')).toMatchObject({
       status: 'error',
@@ -786,7 +807,11 @@ describe('interrupted OpenAI running tasks', () => {
       finishedAt: now,
       elapsed: 8_000,
     })
-    expect(result.tasks.find((item) => item.id === 'custom-running')).toEqual(customAsyncRunning)
+    expect(result.tasks.find((item) => item.id === 'custom-running')).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('请求中断'),
+      finishedAt: now,
+    })
     expect(result.tasks.find((item) => item.id === 'done-task')).toEqual(doneTask)
   })
 })
@@ -960,17 +985,42 @@ describe('input persistence setting', () => {
 })
 
 describe('reusing a task', () => {
-  const openaiProfile = createDefaultOpenAIByokProfile({
+  const openaiProfile: BuiltinEdgeProfile = {
     id: 'openai-profile',
-    apiKey: 'openai-key',
-  })
-  const geminiProfile = createDefaultGeminiByokProfile({
+    source: 'builtin-edge',
+    channelId: 'openai-profile',
+    selectedModelId: 'gpt-image-2',
+  }
+  const geminiProfile: BuiltinEdgeProfile = {
     id: 'gemini-profile',
-    name: 'Gemini 配置',
-    apiKey: 'gem-key',
-  })
+    source: 'builtin-edge',
+    channelId: 'gemini-profile',
+    selectedModelId: 'gemini-3.1-flash-image',
+  }
 
   beforeEach(() => {
+    setChannels([
+      {
+        id: 'openai-profile',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+      {
+        id: 'gemini-profile',
+        kind: 'gemini-queue',
+        label: 'Gemini 配置',
+        models: [
+          {
+            id: 'gemini-3.1-flash-image',
+            label: 'Gemini',
+            capabilities: ['generate', 'edit'],
+          },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1046,7 +1096,7 @@ describe('reusing a task', () => {
   })
 })
 
-describe('getPersistedState builtin profile stripping', () => {
+describe('getPersistedState keeps platform profiles', () => {
   beforeEach(() => {
     useStore.setState({
       settings: { ...DEFAULT_SETTINGS },
@@ -1055,8 +1105,16 @@ describe('getPersistedState builtin profile stripping', () => {
     })
   })
 
-  it('removes builtin-edge profiles before persisting', () => {
-    const userProfile = createDefaultOpenAIByokProfile({ id: 'user-1', apiKey: 'user-key' })
+  it('persists the platform profile and drops a retired BYOK record', () => {
+    setChannels([
+      {
+        id: 'test-x',
+        kind: 'openai-queue',
+        label: 'X',
+        models: [{ id: 'm', label: 'M', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     const builtinEdge = {
       id: 'test-x',
       source: 'builtin-edge' as const,
@@ -1065,15 +1123,17 @@ describe('getPersistedState builtin profile stripping', () => {
     }
     useStore.setState({
       settings: normalizeSettings({
-        profiles: [builtinEdge, userProfile],
-        activeProfileId: userProfile.id,
+        profiles: [builtinEdge, { id: 'user-1', source: 'user-byok', apiKey: 'user-key' } as never],
+        activeProfileId: 'user-1',
       }),
     })
 
     const persisted = getPersistedState(useStore.getState())
 
-    expect(persisted.settings.profiles.find((p) => p.id === 'test-x')).toBeUndefined()
-    expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
+    expect(persisted.settings.profiles.map((profile) => profile.id)).toEqual(['test-x'])
+    expect(persisted.settings.activeProfileId).toBe('test-x')
+    expect(JSON.stringify(persisted.settings)).not.toContain('user-key')
+    setChannels([])
   })
 })
 
@@ -1281,21 +1341,6 @@ describe('submitTask 数量分发（capability n 门控）', () => {
     expectFanOutFour()
   })
 
-  it('BYOK profile（无能力声明，模型名与内置相同也不推断）：count=4 仍是四条 n=1 任务', async () => {
-    setChannels([gptImageChannel])
-    setupCountState(createDefaultOpenAIByokProfile({ apiKey: 'test-key' }))
-
-    await submitTask()
-    await waitUntil(
-      () =>
-        useStore.getState().tasks.length === 4 &&
-        useStore.getState().tasks.every((t) => t.status === 'done'),
-      'fan-out tasks did not finish',
-    )
-
-    expectFanOutFour()
-  })
-
   // 重试原本绕过了提交门禁、扇出与幂等键——三件事都归提交那条路，重试也得走同一条。
   it('重试按扇出规则拆：未声明 n 的渠道，n=4 的失败任务重试出四条 n=1', async () => {
     setChannels([geminiChannel])
@@ -1341,8 +1386,22 @@ describe('submitTask 数量分发（capability n 门控）', () => {
 })
 
 describe('submitTask 槽位批量展开', () => {
+  const slotChannel: PublicChannel = {
+    id: 'slot-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
   function setupSlotState(prompt: string, slotValues: Record<string, string[]>, n: number) {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    setChannels([slotChannel])
+    const profile: BuiltinEdgeProfile = {
+      id: slotChannel.id,
+      source: 'builtin-edge',
+      channelId: slotChannel.id,
+      selectedModelId: slotChannel.models[0].id,
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1365,7 +1424,9 @@ describe('submitTask 槽位批量展开', () => {
     })
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -1426,7 +1487,20 @@ describe('素材引用与模板套用后提交', () => {
   const HALL = 'data:image/png;base64,hall'
 
   function setupState() {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    const channel: PublicChannel = {
+      id: 'asset-openai',
+      kind: 'openai-queue',
+      label: 'OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const profile: BuiltinEdgeProfile = {
+      id: channel.id,
+      source: 'builtin-edge',
+      channelId: channel.id,
+      selectedModelId: channel.models[0].id,
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1465,6 +1539,8 @@ describe('素材引用与模板套用后提交', () => {
   }
 
   beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -1559,13 +1635,44 @@ describe('素材与模板引导标记', () => {
 
 describe('submitPrepared 显式参数提交接缝', () => {
   const PREPARED_IMAGE = 'data:image/png;base64,prepared'
-  const preparedGeminiProfile = createDefaultGeminiByokProfile({
+  const preparedOpenAI: PublicChannel = {
+    id: 'default-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [
+      { id: 'gpt-image-1', label: 'GPT Image 1', capabilities: ['generate', 'edit'] },
+      { id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const preparedGemini: PublicChannel = {
     id: 'gemini-byok',
-    apiKey: 'gemini-key',
-  })
+    kind: 'gemini-queue',
+    label: 'Gemini',
+    models: [
+      {
+        id: 'gemini-3.1-flash-image',
+        label: 'Gemini',
+        capabilities: ['generate', 'edit'],
+      },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const preparedGeminiProfile: BuiltinEdgeProfile = {
+    id: preparedGemini.id,
+    source: 'builtin-edge',
+    channelId: preparedGemini.id,
+    selectedModelId: preparedGemini.models[0].id,
+  }
 
   function setupPreparedState() {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    setChannels([preparedOpenAI, preparedGemini])
+    const profile: BuiltinEdgeProfile = {
+      id: preparedOpenAI.id,
+      source: 'builtin-edge',
+      channelId: preparedOpenAI.id,
+      selectedModelId: 'gpt-image-1',
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1589,6 +1696,8 @@ describe('submitPrepared 显式参数提交接缝', () => {
   }
 
   beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -1697,9 +1806,12 @@ describe('submitPrepared 显式参数提交接缝', () => {
   })
 
   it('explicit model is used by dispatch without changing the selected model', async () => {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
-    profile.models = ['gpt-image-1', 'gpt-image-2']
-    profile.selectedModelId = 'gpt-image-1'
+    const profile: BuiltinEdgeProfile = {
+      id: preparedOpenAI.id,
+      source: 'builtin-edge',
+      channelId: preparedOpenAI.id,
+      selectedModelId: 'gpt-image-1',
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,

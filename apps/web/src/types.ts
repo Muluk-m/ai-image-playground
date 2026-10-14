@@ -1,69 +1,20 @@
 import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
 import {
+  DEFAULT_IMAGE_MODERATION,
   GEMINI_ASPECT_RATIOS,
   GEMINI_IMAGE_SIZES,
   GEMINI_THINKING_LEVELS,
 } from '@image-playground/shared'
+import type { ClientProfile } from './lib/channels/types'
 
 // ===== 设置 =====
 
 export type ApiMode = 'images' | 'responses'
 export type BuiltInApiProvider = 'openai' | 'gemini'
+/** 历史任务上记下的协议族。新任务只写平台渠道映射出来的 openai / gemini。 */
 export type ApiProvider = BuiltInApiProvider | string
-export type CustomProviderTemplate = 'http-image'
-
-export type CustomProviderRequestMethod = 'GET' | 'POST'
-export type CustomProviderContentType = 'json' | 'multipart'
-export type CustomProviderFileSource = 'inputImages' | 'mask'
-
-export interface CustomProviderFileMapping {
-  field: string
-  source: CustomProviderFileSource
-  array?: boolean
-}
-
-export interface CustomProviderResultMapping {
-  imageUrlPaths?: string[]
-  b64JsonPaths?: string[]
-}
-
-export interface CustomProviderSubmitMapping {
-  path: string
-  method?: CustomProviderRequestMethod
-  contentType?: CustomProviderContentType
-  query?: Record<string, string>
-  body?: Record<string, unknown>
-  files?: CustomProviderFileMapping[]
-  taskIdPath?: string
-  result?: CustomProviderResultMapping
-}
-
-export interface CustomProviderPollMapping {
-  path: string
-  method?: CustomProviderRequestMethod
-  query?: Record<string, string>
-  intervalSeconds?: number
-  statusPath: string
-  successValues: string[]
-  failureValues: string[]
-  errorPath?: string
-  result: CustomProviderResultMapping
-}
-
-export interface CustomProviderDefinition {
-  id: string
-  name: string
-  template?: CustomProviderTemplate
-  submit: CustomProviderSubmitMapping
-  editSubmit?: CustomProviderSubmitMapping
-  poll?: CustomProviderPollMapping
-}
-
-import { DEFAULT_IMAGE_MODERATION } from '@image-playground/shared'
-import type { ClientProfile } from './lib/channels/types'
 
 export interface AppSettings {
-  customProviders: CustomProviderDefinition[]
   clearInputAfterSubmit: boolean
   persistInputOnRestart: boolean
   alwaysShowRetryButton: boolean
@@ -182,13 +133,15 @@ export interface TaskRecord {
   apiProfileName?: string
   /** 生成时使用的模型 ID */
   apiModel?: string
-  /** 自定义异步服务商任务 ID，用于重启后继续查询结果 */
+  /**
+   * 旧版自带密钥的异步任务号。平台渠道不再写它，读到旧记录时也不再续轮询。
+   */
   customTaskId?: string
-  /** 自定义异步任务是否等待自动恢复 */
+  /** 旧版自带密钥任务的自动重连标记。读到就清掉，避免界面停在重连中。 */
   customRecoverable?: boolean
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
-  /** Server-reported durable queue phase; absent for BYOK and older BFFs. */
+  /** Server-reported durable queue phase; absent for older BFFs. */
   queuePhase?: TaskProgressPhase
   /**
    * 客户端幂等键。submitTask 时为每个任务生成一次 UUID 并持久化；提交期间
