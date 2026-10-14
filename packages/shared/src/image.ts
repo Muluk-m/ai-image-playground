@@ -24,7 +24,7 @@ const GEMINI_ASPECT_RATIOS: ReadonlyArray<{ label: string; value: number }> = [
 /**
  * 把 OpenAI 的 `宽x高` size 归到 Gemini 最接近的那一档 aspectRatio。
  *
- * 放在 shared 是因为三条路都要它：BYOK 直连、队列直接生成、智能体工具提交。
+ * 放在 shared 是因为队列直接生成和智能体工具提交都要它。
  * 各自照着档位表重写一遍必然对不齐——1024x1536 实际是 2:3，而这张表里没有 2:3，
  * 正确答案是 3:4，凭印象写就会写错。
  */

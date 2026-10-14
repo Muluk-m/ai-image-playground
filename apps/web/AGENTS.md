@@ -11,12 +11,7 @@
 
 ## 服务商架构
 
-前端 dispatch 入口在 [`src/lib/api.ts`](./src/lib/api.ts) 的 `callImageApi`，按 profile.source 分两条路径：
-
-| profile.source | 实现路径 | 协议 |
-|---|---|---|
-| `user-byok` | `openaiCompatibleImageApi.ts` / `geminiImageApi.ts` | 浏览器直连用户填的 baseUrl |
-| `builtin-edge` | `queueClient.ts` | 浏览器 → BFF queue（`submit / poll / fetch`） |
+前端 dispatch 入口在 [`src/lib/api.ts`](./src/lib/api.ts) 的 `callImageApi`。唯一路径是平台渠道：`queueClient.ts`，浏览器 → BFF queue（`submit / poll / fetch`）。用户不配置 API key 或自定义端点。旧 localStorage 里的 `user-byok` 档案在 `normalizeSettings` 时丢掉，活动配置落到当前渠道列表的第一个。
 
 **Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`** — 浏览器 CORS preflight 对常见中转网关只放行前者；后端代理通常两个 header 都接受。
 
@@ -77,8 +72,6 @@ overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人
   永不随语言变；胶囊上显示的序号标签由 `getImageMentionLabel` 产出，是界面文案（英文 `@Image 1`）。
   按标签解析器做缓存的 `useMemo` 要把 `i18n.language` 列进依赖。`@` 菜单匹配不分语言。
 - **初值文案**（系统替用户写进数据的第一份文字）按写入那一刻的界面语言取，写完不再翻译、不迁移。
-  配置档案的默认名、复制后缀在 [`src/lib/profileSeedNames.ts`](./src/lib/profileSeedNames.ts)，
-  刻意不进按需加载的语料：判断「没动过的新配置」要同时认所有语言的默认名。
   例外是「未命名项目」：它表示「没有名字」，存的是固定哨兵，显示时才查译文。
 - **语料里不允许空值**，空字符串一律当漏翻（`catalog.test.ts` 守着）。要按语言隐藏某段界面，
   写显式规则，例如品牌字标的 `brandNeedsWordmark()`。
@@ -181,9 +174,8 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 
 ## 其它要点
 
-- 用户优先看到「模型名」，profile name 次之（TaskCard、InputBar 下拉等顺序遵循该原则）
-- 上游 `/models` 拉取通过 [`src/lib/fetchProfileModels.ts`](./src/lib/fetchProfileModels.ts)，结果缓存在 store 的 `profileModelCache`
-- builtin-edge channel 的 model 可改（用户可在 InputBar 切换），变化通过 `builtinChannelModelSelections` 字段持久化
+- 用户优先看到「模型名」（TaskCard、模型选择器）
+- 平台渠道的模型可在选择器里切换；选中的 `selectedModelId` 写在 settings 的 builtin profile 里，随本地持久化保存。渠道清单里已经没有的模型会回到该渠道的第一个模型
 - `channelStore` 是全量 channel；`publicChannels` 是它的**图片视图**（滤掉 `media: 'video'` 的模型），图片侧一律走后者，视频侧直接读 store
 - 灵感库 (`public/inspiration-manifest.json`) 是同源静态资源，跟着部署走；可通过 `VITE_INSPIRATION_MANIFEST_URL` 覆盖为外部 CDN
 

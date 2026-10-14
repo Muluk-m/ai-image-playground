@@ -24,6 +24,10 @@ vi.mock('../../../../lib/channels/channelStore', () => ({
   getStoredChannel: (id: string) =>
     id === 'video-channel' ? { id, kind: 'openai-queue' } : undefined,
   getStoredChannels: () => [],
+  setChannels: () => {},
+  channelsSettled: () => true,
+  resetChannelCatalog: () => {},
+  subscribeChannels: () => () => {},
 }))
 vi.mock('../../../../lib/channels/videoChannels', () => ({
   videoModelOptions: () => [

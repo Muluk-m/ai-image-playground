@@ -4,9 +4,6 @@
     "fallback": "Message recovery failed. Please try again.",
     "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
   },
-  "customProvider": {
-    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again"
-  },
   "login": {
     "invalid_credentials": "That email address or password is not correct",
     "rate_limited": "Too many attempts, please try again later",

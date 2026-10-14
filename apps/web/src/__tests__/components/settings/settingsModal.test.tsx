@@ -4,13 +4,6 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const byok = vi.hoisted(() => ({ enabled: true }))
-
-vi.mock('../../../lib/clientCapabilities', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../lib/clientCapabilities')>()),
-  isByokGenerationEnabled: () => byok.enabled,
-}))
-
 const dataActions = vi.hoisted(() => ({
   exportData: vi.fn(),
   clearData: vi.fn(),
@@ -26,11 +19,7 @@ vi.mock('../../../store', async (importOriginal) => ({
 
 import { AuthContextProvider } from '../../../auth/AuthContext'
 import SettingsModal from '../../../components/SettingsModal'
-import {
-  clientProfileToApiProfile,
-  DEFAULT_SETTINGS,
-  getActiveApiProfile,
-} from '../../../lib/apiProfiles'
+import { DEFAULT_SETTINGS } from '../../../lib/apiProfiles'
 import { useStore } from '../../../store'
 import { stubPointerApis } from '../../helpers/radix'
 
@@ -100,7 +89,6 @@ function cardButton(sectionTitle: string, label: string): HTMLButtonElement {
 
 beforeEach(() => {
   stubPointerApis()
-  byok.enabled = true
   dataActions.exportData.mockClear()
   dataActions.clearData.mockClear()
   host = document.createElement('div')
@@ -145,43 +133,13 @@ describe('通用页', () => {
   })
 })
 
-describe('没有 BYOK 的部署', () => {
-  it('API 页连内容都不渲染，不只是藏起入口', () => {
-    render()
-    click(navButton('API'))
-    expect(document.body.textContent).toContain('当前配置')
-
-    byok.enabled = false
+describe('设置页没有 API 配置', () => {
+  it('不提供填写密钥或自定义端点的页', () => {
     render()
 
     expect(navButton('API')).toBeUndefined()
     expect(document.body.textContent).not.toContain('当前配置')
-  })
-})
-
-describe('API 页', () => {
-  it('关弹窗时把还没失焦的输入落盘', () => {
-    render()
-    click(navButton('API'))
-
-    const field = Array.from(document.querySelectorAll('label')).find((one) =>
-      one.textContent?.includes('配置名称'),
-    )
-    const input = field?.querySelector('input')
-    if (!input) throw new Error('missing profile name input')
-    // 受控 input 要走原生 setter，React 才认这次变化。
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-    act(() => {
-      setValue?.call(input, '我的配置')
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-
-    // 背景点击与 ESC 都不会让输入框失焦，草稿只能靠关弹窗这一下落盘。
-    click(document.querySelector('[aria-label="关闭"]'))
-
-    expect(useStore.getState().showSettings).toBe(false)
-    const active = getActiveApiProfile(useStore.getState().settings)
-    expect(clientProfileToApiProfile(active).name).toBe('我的配置')
+    expect(document.body.textContent).not.toContain('API Key')
   })
 })
 
