@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import { type CanvasGroup, readCanvasGroups } from './canvas-groups'
 import { canvasPendingJob } from './canvas-jobs'
-import { canvasLinkAllowed } from './canvas-registry'
+import { canvasConnectionAllowed, canvasLinkAllowed } from './canvas-registry'
 import { canvasMainResult, refreshCanvasResultDisplay } from './canvas-results'
 import {
   type CanvasStoryboardData,
@@ -157,11 +157,50 @@ function edgesOf(doc: Y.Doc): Y.Map<CanvasEdge> {
   return doc.getMap('edges')
 }
 
+function storedNode(map: Y.Map<unknown>): CanvasNode {
+  const { richText: _rich, storyboardShots: _shots, ...raw } = map.toJSON()
+  return raw as CanvasNode
+}
+
+/** 主结果会改掉连线时看到的类型。只投影这一个节点，避免为了一条边扫完整份文档。 */
+function withMainResult(doc: Y.Doc, node: CanvasNode): CanvasNode {
+  if (node.type !== 'image' && node.type !== 'video') return node
+  const result = canvasMainResult(doc, node.id)
+  if (!result?.display) return node
+  const {
+    fileId: _file,
+    mediaId: _media,
+    naturalWidth: _width,
+    naturalHeight: _height,
+    ...data
+  } = node.data
+  const { video: _video, ...rest } = data as typeof data & { video?: ProjectVideoRef }
+  return {
+    ...node,
+    type: result.kind,
+    data: {
+      ...rest,
+      ...result.display,
+      ...(result.display.mediaId ? { fileId: `cloud-${result.display.mediaId}` } : {}),
+    },
+  } as CanvasNode
+}
+
+function nodeForLink(doc: Y.Doc, id: string): CanvasNode | undefined {
+  const map = nodesOf(doc).get(id)
+  if (!map) return undefined
+  const node = withMainResult(doc, storedNode(map))
+  if (node.type === 'timeline')
+    node.data = {
+      clips: canvasTimelineSlots(doc, node.id, node.data.clips).map(([, slot]) => slot.clip),
+    }
+  return node
+}
+
 /** 节点按写入顺序给出；叠放看 `z`。标注按 `z` 排好，绘制层直接按序画。 */
 export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
   const nodes = [...nodesOf(doc).values()].map((map) => {
-    const { richText: _rich, storyboardShots: _shots, ...raw } = map.toJSON()
-    const node = raw as CanvasNode
+    const node = storedNode(map)
     if (node.type === 'storyboard') node.data = { ...node.data, shots: readStoryboard(map) }
     const text = canvasText(doc, node.id)
     if (node.type === 'text' && text) {
@@ -177,26 +216,7 @@ export function readCanvasDocument(doc: Y.Doc): CanvasSnapshot {
     if (node.type === 'image' || node.type === 'video') {
       const pending = canvasPendingJob(doc, node.id)
       if (pending) node.data = { ...node.data, pending }
-      const result = canvasMainResult(doc, node.id)
-      if (result?.display) {
-        const {
-          fileId: _file,
-          mediaId: _media,
-          naturalWidth: _width,
-          naturalHeight: _height,
-          ...data
-        } = node.data
-        const { video: _video, ...rest } = data as typeof data & { video?: ProjectVideoRef }
-        return {
-          ...node,
-          type: result.kind,
-          data: {
-            ...rest,
-            ...result.display,
-            ...(result.display.mediaId ? { fileId: `cloud-${result.display.mediaId}` } : {}),
-          },
-        } as CanvasNode
-      }
+      return withMainResult(doc, node)
     }
     return node
   })
@@ -364,25 +384,27 @@ export function connectCanvasNodes(
   origin: CanvasOrigin,
 ): boolean {
   const { source, target } = link
-  if (!source || !target || !canvasLinkAllowed(readCanvasDocument(doc), link)) return false
+  if (!source || !target) return false
   const nodes = nodesOf(doc)
   const edges = edgesOf(doc)
-  const targetNode = readCanvasDocument(doc).nodes.find((node) => node.id === target)
-  const timeline = targetNode?.type === 'timeline' ? targetNode.data : undefined
+  const id = `${source}:${target}`
+  if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return false
+  const sourceNode = nodeForLink(doc, source)
+  const targetNode = nodeForLink(doc, target)
+  if (!sourceNode || !targetNode || !canvasConnectionAllowed(sourceNode, targetNode)) return false
+  const timeline = targetNode.type === 'timeline' ? targetNode.data : undefined
   if (
     timeline &&
     !timeline.clips.some((clip) => clip.elementId === source) &&
     timeline.clips.length >= PROJECT_TIMELINE_MAX_CLIPS
   )
     return false
-  const id = `${source}:${target}`
-  if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return false
+  const meta =
+    sourceNode.type === 'image' || sourceNode.type === 'video' ? sourceNode.data.meta : undefined
   doc.transact(() => {
     if (!nodes.has(source) || !nodes.has(target) || edges.has(id)) return
     edges.set(id, { id, source, target })
     if (timeline && !timeline.clips.some((clip) => clip.elementId === source)) {
-      const sourceNode = readCanvasDocument(doc).nodes.find((node) => node.id === source)
-      const meta = sourceNode && 'meta' in sourceNode.data ? sourceNode.data.meta : undefined
       const start = Number(meta?.videoTrimIn)
       const end = Number(meta?.videoTrimOut)
       const trimmed = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start
