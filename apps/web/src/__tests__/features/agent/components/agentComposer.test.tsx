@@ -877,7 +877,7 @@ describe('下一句幽灵文字', () => {
   it('点填入按钮只把第一句放进输入框', () => {
     showFollowUp()
     const button = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="把建议的下一句填进输入框"]',
+      'button[aria-label="把预测的下一句填进输入框"]',
     )
     expect(button?.getAttribute('type')).toBe('button')
     act(() => {

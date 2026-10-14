@@ -146,6 +146,14 @@ export const config = {
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
+    /**
+     * 预测用户下一句用的模型。只要一句短文本，优先快的小模型。
+     * 留空跟随摘要模型，再没有才跟随对话模型。
+     */
+    followUpModel:
+      env('AGENT_FOLLOW_UP_MODEL', '') ||
+      env('AGENT_SUMMARY_MODEL', '') ||
+      env('AGENT_CHAT_MODEL', ''),
     /** 可覆盖摘要模型登记窗口；自定义摘要模型应显式填它的真实窗口。 */
     summaryContextWindow: env('AGENT_SUMMARY_CONTEXT_WINDOW', '')
       ? positiveIntEnv('AGENT_SUMMARY_CONTEXT_WINDOW', 16_000)

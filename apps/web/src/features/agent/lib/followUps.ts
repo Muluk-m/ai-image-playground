@@ -37,7 +37,7 @@ export function shouldPollFollowUps(input: {
 
 /**
  * 可以显示的下一句。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
- * 界面只拿第一句当输入框里的灰色幽灵文字；后面的句子留在数据里，不排成胶囊。
+ * 界面把第一句当成用户最可能打的下一句，画成输入框里的灰色幽灵文字。
  * 返回的空数组是稳定引用，避免订阅每次都拿到新数组。
  */
 export function visibleFollowUps(input: {
