@@ -17,8 +17,15 @@ image=${2:?image required}
 case "$project" in *[!a-zA-Z0-9_-]*|'') echo 'Invalid project name' >&2; exit 2 ;; esac
 deadline=${DEPLOY_DRAIN_DEADLINE_SECONDS:-300}
 grace=${DEPLOY_STOP_GRACE_SECONDS:-75}
+proxy_wait=${ADMIN_PROXY_WAIT_SECONDS:-30}
 retire_legacy=${DEPLOY_RETIRE_LEGACY:-0}
-case "$deadline$grace" in *[!0-9]*) echo 'DEPLOY_DRAIN_DEADLINE_SECONDS and DEPLOY_STOP_GRACE_SECONDS take whole seconds' >&2; exit 2 ;; esac
+case "$deadline$grace$proxy_wait" in
+  *[!0-9]*) echo 'DEPLOY_DRAIN_DEADLINE_SECONDS, DEPLOY_STOP_GRACE_SECONDS and ADMIN_PROXY_WAIT_SECONDS take whole seconds' >&2; exit 2 ;;
+esac
+if [ "$proxy_wait" -lt 1 ]; then
+  echo 'ADMIN_PROXY_WAIT_SECONDS must be at least 1' >&2
+  exit 2
+fi
 if [ "$(docker image inspect --format '{{index .Config.Labels "app.execution-protocol"}}' "$image")" != 1 ]; then
   echo 'Image does not support executor-preserving deployment; refusing rollout/rollback' >&2
   exit 1
@@ -459,16 +466,38 @@ adopt_admin_proxy() {
   proxy=$project-admin-proxy
   next=$project-admin-proxy-next
   if admin_running "$proxy" || ! admin_running "$next"; then return 0; fi
+  # A stopped container still owns the stable name, so rename would fail and
+  # the running stand-in would be left as the only ingress.
+  if docker inspect "$proxy" >/dev/null 2>&1; then
+    docker rm "$proxy" >/dev/null 2>&1 || return 2
+  fi
   rename_admin_proxy "$next" "$proxy" || return 2
 }
 
 # The previous-name container is an already replaced proxy. Retire it only
-# once the stable name is the one answering.
+# once the stable name is actually answering, not merely running.
 retire_replaced_proxy() {
   proxy=$project-admin-proxy
   previous_proxy=$project-admin-proxy-previous
   if ! admin_running "$proxy"; then return 0; fi
   if ! docker inspect "$previous_proxy" >/dev/null 2>&1; then return 0; fi
+  if ! wait_proxy_answers "$proxy"; then
+    # Stable is up but not listening. previous may be the only ingress.
+    if ! admin_running "$previous_proxy" || ! wait_proxy_answers "$previous_proxy"; then
+      return 2
+    fi
+    dead=$project-admin-proxy-dead
+    docker rm -f "$dead" >/dev/null 2>&1 || true
+    if ! docker rename "$proxy" "$dead"; then return 2; fi
+    if ! rename_admin_proxy "$previous_proxy" "$proxy"; then
+      docker rename "$dead" "$proxy" >/dev/null 2>&1 || return 2
+      return 2
+    fi
+    docker stop -t 30 "$dead" >/dev/null 2>&1 || true
+    docker rm "$dead" >/dev/null 2>&1 || true
+    if docker inspect "$dead" >/dev/null 2>&1; then return 2; fi
+    return 0
+  fi
   if admin_running "$previous_proxy"; then
     docker stop -t 30 "$previous_proxy" >/dev/null 2>&1 || true
   fi
@@ -549,7 +578,7 @@ publish_admin_alias() {
 # interface, so the alias stays only if the listener still answers afterwards.
 publish_listening_proxy() {
   name=$1
-  deadline=$(( $(date +%s) + ${ADMIN_PROXY_WAIT_SECONDS:-30} ))
+  deadline=$(( $(date +%s) + proxy_wait ))
   if ! wait_proxy_answers "$name" "$deadline"; then
     docker rm -f "$name" >/dev/null 2>&1 || true
     return 1
@@ -582,7 +611,7 @@ wait_proxy_answers() {
   if [ -n "${2:-}" ]; then
     deadline=$2
   else
-    deadline=$(( $(date +%s) + ${ADMIN_PROXY_WAIT_SECONDS:-30} ))
+    deadline=$(( $(date +%s) + proxy_wait ))
   fi
   while :; do
     now=$(date +%s)
@@ -629,7 +658,7 @@ proxy_switched() {
 }
 
 wait_proxy_switched() {
-  deadline=$(( $(date +%s) + ${ADMIN_PROXY_WAIT_SECONDS:-30} ))
+  deadline=$(( $(date +%s) + proxy_wait ))
   while :; do
     now=$(date +%s)
     [ "$now" -lt "$deadline" ] || break

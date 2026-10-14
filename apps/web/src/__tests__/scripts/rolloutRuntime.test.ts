@@ -62,6 +62,14 @@ if [ "$cmd" = exec ]; then
         ;;
     esac
   fi
+  if [ -f "$C/$1/silent" ]; then
+    case " $* " in
+      *' bun '*)
+        printf 'proxy stable silent\\n' >> "\$M/log"
+        exit 1
+        ;;
+    esac
+  fi
   name=$1
   while [ $# -gt 4 ]; do shift; done
   port=$1 method=$2 path=$3 field=$4
@@ -592,6 +600,74 @@ describe('rollout-runtime.sh: finite drain', () => {
     expect(exists('fixture-admin-proxy-next')).toBe(false)
     expect(exists('fixture-admin-proxy-previous')).toBe(false)
     expect(exists(kept!)).toBe(false)
+  })
+
+  it('removes a stopped proxy name before adopting the one that is still running', () => {
+    currentGeneration()
+    container('fixture-admin-proxy', { state: 'exited' })
+    container('fixture-admin-proxy-next')
+    const result = run()
+
+    expect(result.status).toBe(0)
+    const removed = indexOf(result.log, /^rm fixture-admin-proxy$/)
+    const adopted = indexOf(result.log, /^rename fixture-admin-proxy-next fixture-admin-proxy$/)
+    expect(removed).toBeGreaterThan(-1)
+    expect(adopted).toBeGreaterThan(removed)
+    expect(exists('fixture-admin-proxy')).toBe(true)
+    expect(exists('fixture-admin-proxy-next')).toBe(false)
+    expect(stateOf('fixture-admin-proxy')).toBe('running')
+  })
+
+  it('puts the listening previous proxy back when the stable one is not answering', () => {
+    currentGeneration()
+    container('fixture-admin-proxy')
+    container('fixture-admin-proxy-previous')
+    write(join(root, 'containers/fixture-admin-proxy/silent'), '')
+    const result = run({ ADMIN_PROXY_WAIT_SECONDS: '1' })
+
+    expect(result.status).toBe(0)
+    const restored = indexOf(
+      result.log,
+      /^rename fixture-admin-proxy-previous fixture-admin-proxy$/,
+    )
+    const stopped = indexOf(result.log, /^stop -t 30 fixture-admin-proxy-dead$/)
+    expect(result.log).toContain('proxy stable silent')
+    expect(restored).toBeGreaterThan(-1)
+    expect(stopped).toBeGreaterThan(restored)
+    expect(result.log).not.toContainEqual(
+      expect.stringMatching(/^stop -t 30 fixture-admin-proxy-previous$/),
+    )
+    expect(exists('fixture-admin-proxy')).toBe(true)
+    expect(exists('fixture-admin-proxy-previous')).toBe(false)
+    expect(exists('fixture-admin-proxy-dead')).toBe(false)
+    expect(stateOf('fixture-admin-proxy')).toBe('running')
+  })
+
+  it('keeps the previous proxy when neither proxy is answering', () => {
+    currentGeneration()
+    container('fixture-admin-proxy')
+    container('fixture-admin-proxy-previous')
+    write(join(root, 'containers/fixture-admin-proxy/silent'), '')
+    write(join(root, 'containers/fixture-admin-proxy-previous/silent'), '')
+    const result = run({ ADMIN_PROXY_WAIT_SECONDS: '1' })
+
+    expect(result.status).not.toBe(0)
+    expect(result.log).not.toContainEqual(expect.stringMatching(/^stop -t 30 fixture-admin-proxy/))
+    expect(result.log).not.toContainEqual(
+      expect.stringMatching(/^rename fixture-admin-proxy-previous /),
+    )
+    expect(stateOf('fixture-admin-proxy')).toBe('running')
+    expect(stateOf('fixture-admin-proxy-previous')).toBe('running')
+  })
+
+  it('rejects a proxy wait that is not a positive number of seconds', () => {
+    currentGeneration()
+    for (const value of ['30s', '0', '-1']) {
+      const result = run({ ADMIN_PROXY_WAIT_SECONDS: value })
+      expect(result.status).toBe(2)
+      expect(result.stderr).toContain('ADMIN_PROXY_WAIT_SECONDS')
+      expect(result.log.some((line) => line.includes('admin-proxy'))).toBe(false)
+    }
   })
 
   it('keeps the new admin when the reload signal fails after the config is committed', () => {
