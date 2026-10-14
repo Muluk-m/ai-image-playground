@@ -909,7 +909,10 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 
 /* Node canvas (canvas:nodes). Nodes are DOM inside React Flow's viewport; sizes are page units. */
 .studio-node-canvas { position: absolute; inset: 0; }
-.studio-node-canvas .react-flow { --xy-background-color: transparent; }
+.studio-node-canvas .react-flow { --xy-background-color: transparent; z-index: 1; }
+.studio-node-overview { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+.studio-node-lod { display: flex; align-items: flex-start; background: hsl(var(--muted) / .72); }
+.studio-node-lod-label { display: block; width: 100%; padding: 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: theme('fontSize.xs'); color: hsl(var(--muted-foreground)); }
 .studio-node-canvas-error { position: absolute; inset: 0; display: grid; place-items: center; color: hsl(var(--muted-foreground)); }
 .studio-node-canvas .react-flow__node { overflow: visible; }
 .studio-node { position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 12px; }

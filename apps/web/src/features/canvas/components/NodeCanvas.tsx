@@ -79,6 +79,7 @@ import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
 import { newElementId } from '../lib/canvasDoc'
+import { type CanvasViewportBox, planCanvasViewport } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
@@ -119,6 +120,7 @@ import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import { clearNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
+import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './CanvasLod'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
@@ -359,6 +361,13 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
   const preview = useContext(PreviewContext)
   const files = useContext(FilesContext)
   const uploadInput = useRef<HTMLInputElement>(null)
+  const lod = useCanvasLod()
+  if (lod === 'card')
+    return (
+      <NodeLodCard
+        label={node?.type === 'image' ? node.data.name || t('nodes.addImage') : undefined}
+      />
+    )
   if (node?.type !== 'image') return null
   const { pending, fileId, rotation } = node.data
   const empty = !pending && !fileId
@@ -434,9 +443,18 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
   const playheads = useContext(NodeVideoPlayheadContext)
+  const lod = useCanvasLod()
   const poster = useNodeMedia(
-    node && 'fileId' in node.data && node.data.fileId ? files[node.data.fileId] : undefined,
+    lod === 'card' || !node || !('fileId' in node.data) || !node.data.fileId
+      ? undefined
+      : files[node.data.fileId],
   )
+  if (lod === 'card')
+    return (
+      <NodeLodCard
+        label={node && 'name' in node.data && node.data.name ? node.data.name : t('nodes.addVideo')}
+      />
+    )
   if (!node || (node.type !== 'video' && node.type !== 'image')) return null
   const { fileId, rotation, pending } = node.data
   const video = node.type === 'video' ? node.data.video : undefined
@@ -509,6 +527,14 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
 })
 
 const TextNode = memo(function TextNode({ data: { node }, selected }: NodeProps<FlowNode>) {
+  const { t } = useTranslation('canvas')
+  const lod = useCanvasLod()
+  if (lod === 'card')
+    return (
+      <NodeLodCard
+        label={node?.type === 'text' ? node.data.name || t('nodes.addText') : undefined}
+      />
+    )
   if (node?.type !== 'text') return null
   return (
     <>
@@ -521,10 +547,16 @@ const TextNode = memo(function TextNode({ data: { node }, selected }: NodeProps<
 })
 
 const StoryboardNode = memo(function StoryboardNode({ data: { node } }: NodeProps<FlowNode>) {
+  const { t } = useTranslation('canvas')
+  const lod = useCanvasLod()
+  if (lod === 'card') return <NodeLodCard label={t('storyboard.title')} />
   return node?.type === 'storyboard' ? <NodeStoryboard node={node} /> : null
 })
 
 const TimelineNode = memo(function TimelineNode({ data: { node } }: NodeProps<FlowNode>) {
+  const { t } = useTranslation('canvas')
+  const lod = useCanvasLod()
+  if (lod === 'card') return <NodeLodCard label={t('timeline.title')} />
   return node?.type === 'timeline' ? <NodeTimeline node={node} /> : null
 })
 
@@ -544,6 +576,8 @@ function arrowHead(points: readonly number[]): string {
 const AnnotationNode = memo(function AnnotationNode({
   data: { annotation: one },
 }: NodeProps<FlowNode>) {
+  const lod = useCanvasLod()
+  if (lod === 'card') return <NodeLodCard />
   if (!one) return null
   const bounds = annotationBounds(one)
   return (
@@ -637,6 +671,37 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
   for (const one of annotations) {
     const bounds = annotationBounds(one)
     include(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height)
+  }
+  if (!Number.isFinite(minX)) return null
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+/** 定位用文档里的盒子，不依赖当前挂上的节点。文本按显示尺寸计。 */
+function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | null {
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  const include = (x: number, y: number, width: number, height: number) => {
+    if (![x, y, width, height].every(Number.isFinite)) return
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + width)
+    maxY = Math.max(maxY, y + height)
+  }
+  for (const group of snapshot.groups ?? []) {
+    if (!ids || ids.has(group.id)) include(group.x, group.y, group.width, group.height)
+  }
+  for (const node of snapshot.nodes) {
+    if (ids && !ids.has(node.id)) continue
+    const width = node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width
+    const height = node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height
+    include(node.x, node.y, width, height)
+  }
+  for (const annotation of snapshot.annotations) {
+    if (ids && !ids.has(annotation.id)) continue
+    const box = annotationBounds(annotation)
+    include(box.x, box.y, box.width, box.height)
   }
   if (!Number.isFinite(minX)) return null
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
@@ -742,19 +807,16 @@ function Flow({
   const connectStart = useRef<{ x: number; y: number } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [draggingIds, setDraggingIds] = useState<string[]>([])
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)
   const flowRef = useRef<{
     screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
-    setViewport: (viewport: { x: number; y: number; zoom: number }) => void
+    setViewport: (
+      viewport: { x: number; y: number; zoom: number },
+      options?: { duration?: number },
+    ) => void
     getViewport: () => { x: number; y: number; zoom: number }
-    fitView: (options?: {
-      padding?: number
-      duration?: number
-      nodes?: { id: string }[]
-      minZoom?: number
-      maxZoom?: number
-    }) => unknown
     zoomTo: (zoom: number) => unknown
     flowToScreenPosition: (point: { x: number; y: number }) => { x: number; y: number }
   } | null>(null)
@@ -787,6 +849,62 @@ function Flow({
     observer.observe(el)
     return () => observer.disconnect()
   }, [container])
+  const viewportItems = useMemo(() => {
+    const boxes: CanvasViewportBox[] = []
+    for (const group of snapshot.groups ?? []) {
+      boxes.push({
+        id: group.id,
+        x: group.x,
+        y: group.y,
+        width: group.width,
+        height: group.height,
+      })
+    }
+    for (const node of snapshot.nodes) {
+      boxes.push({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        width: node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width,
+        height: node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height,
+      })
+    }
+    for (const annotation of snapshot.annotations) {
+      boxes.push({ id: annotation.id, ...annotationBounds(annotation) })
+    }
+    return boxes
+  }, [snapshot])
+  const pinnedIds = useMemo(() => {
+    const ids = selectedId ? [selectedId] : []
+    for (const id of draggingIds) if (id !== selectedId) ids.push(id)
+    return ids
+  }, [selectedId, draggingIds])
+  const viewportPlan = useMemo(
+    () =>
+      planCanvasViewport({
+        items: viewportItems,
+        edges: snapshot.edges,
+        frame,
+        pinnedIds,
+      }),
+    [viewportItems, snapshot.edges, frame, pinnedIds],
+  )
+  const showFrame = (
+    ids: readonly string[] | undefined,
+    padding: number,
+    minZoom: number,
+    maxZoom: number,
+    duration?: number,
+  ) => {
+    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined)
+    const width = frame.width || container.current?.clientWidth || 0
+    const height = frame.height || container.current?.clientHeight || 0
+    if (!bounds || !width || !height) return
+    flowRef.current?.setViewport(
+      getViewportForBounds(bounds, width, height, minZoom, maxZoom, padding),
+      duration ? { duration } : undefined,
+    )
+  }
   const revealNode = (target: CanvasNode) => {
     if (frame.width && frame.height) {
       const left = target.x * frame.zoom + frame.x
@@ -898,11 +1016,7 @@ function Flow({
       setNodeCanvasSelection(editor, canvas, selectedIds.current)
       setSelectedCount(selected.size)
       setNodes((current) => current.map((node) => ({ ...node, selected: selected.has(node.id) })))
-      void flowRef.current?.fitView({
-        nodes: [...selected].map((id) => ({ id })),
-        padding: 0.3,
-        maxZoom: 1,
-      })
+      showFrame([...selected], 0.3, 0.05, 1)
       setAgentBatchPlan(plan)
       setBatchIds(ids)
       return true
@@ -918,7 +1032,7 @@ function Flow({
       : { x: 0, y: 0 }
   }
   const fit = () => {
-    void flowRef.current?.fitView?.({ padding: 0.25, duration: 250 })
+    showFrame(undefined, 0.25, 0.05, 8, 250)
   }
   const revertArrangement = () => {
     if (arrangement) flowRef.current?.setViewport(arrangement.viewport)
@@ -1449,6 +1563,8 @@ function Flow({
       })
     }
   }
+  const overview = viewportPlan.mode === 'overview'
+  const mounted = overview ? new Set(viewportPlan.mountedIds) : null
   return (
     <NodeStoryboardContext.Provider value={{ canvas, snapshot, onRun: setBatchIds }}>
       <NodeTimelineContext.Provider
@@ -1462,13 +1578,7 @@ function Flow({
           },
           onLocate: (id) => {
             selectNode(id)
-            void flowRef.current?.fitView({
-              nodes: [{ id }],
-              padding: 0.5,
-              minZoom: 0.2,
-              maxZoom: 1,
-              duration: 250,
-            })
+            showFrame([id], 0.5, 0.2, 1, 250)
           },
         }}
       >
@@ -1484,256 +1594,293 @@ function Flow({
                 <TextCanvasContext.Provider value={canvas}>
                   <FillImageContext.Provider value={uploadInto}>
                     <SpawnContext.Provider value={spawnBeside}>
-                      <ReactFlow<FlowNode>
-                        nodes={nodes.map((node) => {
-                          if (referencePick)
-                            return {
-                              ...node,
-                              className: pickableIds.has(node.id)
-                                ? 'studio-node-reference-eligible'
-                                : 'studio-node-reference-disabled',
+                      <CanvasLodProvider mode={viewportPlan.mode === 'card' ? 'card' : 'detail'}>
+                        <ReactFlow<FlowNode>
+                          nodes={(mounted
+                            ? nodes.filter((node) => mounted.has(node.id))
+                            : nodes
+                          ).map((node) => {
+                            if (referencePick)
+                              return {
+                                ...node,
+                                className: pickableIds.has(node.id)
+                                  ? 'studio-node-reference-eligible'
+                                  : 'studio-node-reference-disabled',
+                              }
+                            const position = arrangementPositions.get(node.id)
+                            return position ? { ...node, position } : node
+                          })}
+                          className={
+                            arrangementActive
+                              ? 'studio-node-arranging'
+                              : referencePick
+                                ? 'studio-node-reference-picking'
+                                : undefined
+                          }
+                          nodesDraggable={!arrangementActive && !referencePick}
+                          nodesConnectable={!arrangementActive && !referencePick}
+                          elementsSelectable={!arrangementActive && !referencePick}
+                          onlyRenderVisibleElements={!overview}
+                          edges={snapshot.edges.flatMap((edge) => {
+                            if (mounted && (!mounted.has(edge.source) || !mounted.has(edge.target)))
+                              return []
+                            return [
+                              {
+                                id: edge.id,
+                                type: 'reference',
+                                source: edge.source,
+                                target: edge.target,
+                                interactionWidth: 22,
+                                hidden: !connections && !referencePick,
+                                selected: selectedEdges.includes(edge.id),
+                                className: highlightedEdges.has(edge.id)
+                                  ? 'studio-edge-lit'
+                                  : undefined,
+                                zIndex: highlightedEdges.has(edge.id) ? 1 : 0,
+                              },
+                            ]
+                          })}
+                          onEdgeMouseEnter={(_event, edge) => {
+                            setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
+                          }}
+                          onEdgeMouseLeave={(event) => {
+                            const next = event.relatedTarget
+                            const nextId =
+                              next instanceof Element
+                                ? next.closest('.react-flow__edge')?.getAttribute('data-id')
+                                : null
+                            if (nextId && litRef.current?.has(nextId)) return
+                            setLitEdgeIds(null)
+                          }}
+                          edgeTypes={edgeTypes}
+                          nodeTypes={nodeTypes}
+                          zoomOnDoubleClick={false}
+                          selectionOnDrag={mode === 'select' && !referencePick}
+                          selectionMode={SelectionMode.Partial}
+                          panOnDrag={mode === 'pan' ? true : [1, 2]}
+                          panOnScroll
+                          zoomOnScroll={false}
+                          multiSelectionKeyCode="Shift"
+                          onSelectionChange={({ nodes: selected }) => {
+                            if (arrangementActive || referencePick || overview) return
+                            const ids = selected
+                              .filter((n) => n.data.node || n.data.group)
+                              .map((n) => n.id)
+                            selectedIds.current = ids
+                            setNodeCanvasSelection(editor, canvas, ids)
+                            if (ids.length)
+                              setSelectedEdges((current) => (current.length ? [] : current))
+                            setSelectedCount(ids.length)
+                            const id = ids.length === 1 ? ids[0]! : null
+                            selectedRef.current = id
+                            setSelectedId(id)
+                          }}
+                          onPaneContextMenu={(event) => {
+                            event.preventDefault()
+                            if (referencePick) return
+                            placeAt.current =
+                              flowRef.current?.screenToFlowPosition({
+                                x: event.clientX,
+                                y: event.clientY,
+                              }) ?? center()
+                            setMenu({ x: event.clientX, y: event.clientY })
+                          }}
+                          onNodeClick={(event, node) => {
+                            if (referencePick) {
+                              event.stopPropagation()
+                              if (
+                                addCanvasReference(
+                                  canvas,
+                                  referencePick.targetId,
+                                  node.id,
+                                  referencePick.slot,
+                                ) &&
+                                referencePick.slot
+                              )
+                                finishReferencePick()
+                              return
                             }
-                          const position = arrangementPositions.get(node.id)
-                          return position ? { ...node, position } : node
-                        })}
-                        className={
-                          arrangementActive
-                            ? 'studio-node-arranging'
-                            : referencePick
-                              ? 'studio-node-reference-picking'
-                              : undefined
-                        }
-                        nodesDraggable={!arrangementActive && !referencePick}
-                        nodesConnectable={!arrangementActive && !referencePick}
-                        elementsSelectable={!arrangementActive && !referencePick}
-                        edges={snapshot.edges.map((edge) => ({
-                          id: edge.id,
-                          type: 'reference',
-                          source: edge.source,
-                          target: edge.target,
-                          interactionWidth: 22,
-                          hidden: !connections && !referencePick,
-                          selected: selectedEdges.includes(edge.id),
-                          className: highlightedEdges.has(edge.id) ? 'studio-edge-lit' : undefined,
-                          zIndex: highlightedEdges.has(edge.id) ? 1 : 0,
-                        }))}
-                        onEdgeMouseEnter={(_event, edge) => {
-                          setLitEdgeIds(new Set(flowEdgeIds(snapshot.edges, edge.id)))
-                        }}
-                        onEdgeMouseLeave={(event) => {
-                          const next = event.relatedTarget
-                          const nextId =
-                            next instanceof Element
-                              ? next.closest('.react-flow__edge')?.getAttribute('data-id')
-                              : null
-                          if (nextId && litRef.current?.has(nextId)) return
-                          setLitEdgeIds(null)
-                        }}
-                        edgeTypes={edgeTypes}
-                        nodeTypes={nodeTypes}
-                        zoomOnDoubleClick={false}
-                        selectionOnDrag={mode === 'select' && !referencePick}
-                        selectionMode={SelectionMode.Partial}
-                        panOnDrag={mode === 'pan' ? true : [1, 2]}
-                        panOnScroll
-                        zoomOnScroll={false}
-                        multiSelectionKeyCode="Shift"
-                        onSelectionChange={({ nodes: selected }) => {
-                          if (arrangementActive || referencePick) return
-                          const ids = selected
-                            .filter((n) => n.data.node || n.data.group)
-                            .map((n) => n.id)
-                          selectedIds.current = ids
-                          setNodeCanvasSelection(editor, canvas, ids)
-                          if (ids.length)
-                            setSelectedEdges((current) => (current.length ? [] : current))
-                          setSelectedCount(ids.length)
-                          const id = ids.length === 1 ? ids[0]! : null
-                          selectedRef.current = id
-                          setSelectedId(id)
-                        }}
-                        onPaneContextMenu={(event) => {
-                          event.preventDefault()
-                          if (referencePick) return
-                          placeAt.current =
-                            flowRef.current?.screenToFlowPosition({
-                              x: event.clientX,
-                              y: event.clientY,
-                            }) ?? center()
-                          setMenu({ x: event.clientX, y: event.clientY })
-                        }}
-                        onNodeClick={(event, node) => {
-                          if (referencePick) {
+                            if (arrangementActive) return
+                            if (!event.shiftKey && node.data.node) revealNode(node.data.node)
+                          }}
+                          onNodeContextMenu={(event, node) => {
+                            event.preventDefault()
+                            if (arrangementActive || referencePick) return
+                            if (!selectedIds.current.includes(node.id)) selectNode(node.id)
+                            placeAt.current = center()
+                            setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
+                          }}
+                          onEdgeClick={(event, edge) => {
                             event.stopPropagation()
-                            if (
-                              addCanvasReference(
-                                canvas,
-                                referencePick.targetId,
-                                node.id,
-                                referencePick.slot,
-                              ) &&
-                              referencePick.slot
-                            )
-                              finishReferencePick()
-                            return
-                          }
-                          if (arrangementActive) return
-                          if (!event.shiftKey && node.data.node) revealNode(node.data.node)
-                        }}
-                        onNodeContextMenu={(event, node) => {
-                          event.preventDefault()
-                          if (arrangementActive || referencePick) return
-                          if (!selectedIds.current.includes(node.id)) selectNode(node.id)
-                          placeAt.current = center()
-                          setMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
-                        }}
-                        onEdgeClick={(event, edge) => {
-                          event.stopPropagation()
-                          if (referencePick) return
-                          selectNode(null)
-                          setSelectedEdges([edge.id])
-                        }}
-                        onConnectStart={(event) => {
-                          const point = 'touches' in event ? event.touches[0] : event
-                          if (point) connectStart.current = { x: point.clientX, y: point.clientY }
-                        }}
-                        elevateNodesOnSelect={false}
-                        onNodesChange={(changes: NodeChange<FlowNode>[]) =>
-                          setNodes((current) => {
-                            const next = applyNodeChanges(changes, current)
-                            const changed = new Set(
-                              changes
-                                .filter((change) => change.type === 'position')
-                                .map((change) => change.id),
-                            )
-                            const shifts = new Map<string, { x: number; y: number }>()
-                            for (const group of next.filter(
-                              (node) => node.data.group && changed.has(node.id),
-                            )) {
-                              const previous = current.find((node) => node.id === group.id)
-                              if (!previous) continue
-                              for (const id of group.data.group!.members)
-                                shifts.set(id, {
-                                  x: group.position.x - previous.position.x,
-                                  y: group.position.y - previous.position.y,
-                                })
-                            }
-                            return next.map((node) => {
-                              const shift = shifts.get(node.id)
-                              return shift && !changed.has(node.id)
-                                ? {
-                                    ...node,
-                                    position: {
-                                      x: node.position.x + shift.x,
-                                      y: node.position.y + shift.y,
-                                    },
-                                  }
-                                : node
+                            if (referencePick) return
+                            selectNode(null)
+                            setSelectedEdges([edge.id])
+                          }}
+                          onConnectStart={(event) => {
+                            const point = 'touches' in event ? event.touches[0] : event
+                            if (point) connectStart.current = { x: point.clientX, y: point.clientY }
+                          }}
+                          elevateNodesOnSelect={false}
+                          onNodesChange={(changes: NodeChange<FlowNode>[]) =>
+                            setNodes((current) => {
+                              // 总览把没钉住的节点从 React Flow 拿掉。忽略随之而来的删除和取消选择，状态里仍留着整份画布。
+                              const applicable = overview
+                                ? changes.filter(
+                                    (change) =>
+                                      change.type !== 'remove' && change.type !== 'select',
+                                  )
+                                : changes
+                              const next = applyNodeChanges(applicable, current)
+                              const changed = new Set(
+                                applicable
+                                  .filter((change) => change.type === 'position')
+                                  .map((change) => change.id),
+                              )
+                              const shifts = new Map<string, { x: number; y: number }>()
+                              for (const group of next.filter(
+                                (node) => node.data.group && changed.has(node.id),
+                              )) {
+                                const previous = current.find((node) => node.id === group.id)
+                                if (!previous) continue
+                                for (const id of group.data.group!.members)
+                                  shifts.set(id, {
+                                    x: group.position.x - previous.position.x,
+                                    y: group.position.y - previous.position.y,
+                                  })
+                              }
+                              return next.map((node) => {
+                                const shift = shifts.get(node.id)
+                                return shift && !changed.has(node.id)
+                                  ? {
+                                      ...node,
+                                      position: {
+                                        x: node.position.x + shift.x,
+                                        y: node.position.y + shift.y,
+                                      },
+                                    }
+                                  : node
+                              })
                             })
-                          })
-                        }
-                        onPaneClick={() => {
-                          if (referencePick) return
-                          selectNode(null)
-                          closeMenu()
-                        }}
-                        onConnect={(connection) => {
-                          if (!connection.source || !connection.target) return
-                          connectCanvasNodes(
-                            canvas.doc,
-                            { source: connection.source, target: connection.target },
-                            canvas.origin,
-                          )
-                        }}
-                        onConnectEnd={connectDrop}
-                        isValidConnection={(connection) =>
-                          Boolean(
-                            connection.source &&
-                              connection.target &&
-                              canvasLinkAllowed(snapshot, {
-                                source: connection.source,
-                                target: connection.target,
-                              }),
-                          )
-                        }
-                        onNodeDragStart={() => canvas.undo.stopCapturing()}
-                        onNodeDragStop={(_event, _node, dragged) => {
-                          const groups = dragged.filter((one) => one.data.group)
-                          const members = new Set(groups.flatMap((one) => one.data.group!.members))
-                          const free = dragged.filter(
-                            (one) => one.data.node && !members.has(one.id),
-                          )
-                          canvas.doc.transact(() => {
-                            moveCanvasGroups(
+                          }
+                          onPaneClick={() => {
+                            if (referencePick) return
+                            selectNode(null)
+                            closeMenu()
+                          }}
+                          onConnect={(connection) => {
+                            if (!connection.source || !connection.target) return
+                            connectCanvasNodes(
                               canvas.doc,
-                              groups.map((one) => ({ id: one.id, ...one.position })),
+                              { source: connection.source, target: connection.target },
                               canvas.origin,
                             )
-                            moveCanvasNodes(
-                              canvas.doc,
-                              free.map((one) => ({ id: one.id, ...one.position })),
-                              canvas.origin,
-                            )
-                            reconcileCanvasGroupMembership(
-                              canvas.doc,
-                              free.map((one) => one.id),
-                              canvas.origin,
-                            )
-                          }, canvas.origin)
-                          canvas.undo.stopCapturing()
-                        }}
-                        onMove={(_event, viewport) => remember(viewport)}
-                        onMoveEnd={(_event, viewport) =>
-                          safeLocalStorage.setItem(
-                            scopedStorageName(`node-viewport:${viewKey}`),
-                            JSON.stringify(viewport),
-                          )
-                        }
-                        colorMode={theme}
-                        minZoom={0.05}
-                        maxZoom={8}
-                        onInit={(flow) => {
-                          flowRef.current = flow
-                          const bounds = contentBounds(snapshot)
-                          const box = container.current
-                          // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
-                          let saved: { x: number; y: number; zoom: number } | undefined
-                          try {
-                            const value = JSON.parse(
-                              safeLocalStorage.getItem(
-                                scopedStorageName(`node-viewport:${viewKey}`),
-                              ) ?? 'null',
-                            )
-                            if (
-                              value &&
-                              [value.x, value.y, value.zoom].every(Number.isFinite) &&
-                              value.zoom >= 0.05 &&
-                              value.zoom <= 8
-                            )
-                              saved = value
-                          } catch {}
-                          if (saved) flow.setViewport(saved)
-                          else if (bounds && box?.clientWidth && box.clientHeight) {
-                            // 与旧画布一致：打开时最多按 100% 显示。
-                            flow.setViewport(
-                              getViewportForBounds(
-                                bounds,
-                                box.clientWidth,
-                                box.clientHeight,
-                                0.05,
-                                1,
-                                0.1,
-                              ),
+                          }}
+                          onConnectEnd={connectDrop}
+                          isValidConnection={(connection) =>
+                            Boolean(
+                              connection.source &&
+                                connection.target &&
+                                canvasLinkAllowed(snapshot, {
+                                  source: connection.source,
+                                  target: connection.target,
+                                }),
                             )
                           }
-                          remember(flow.getViewport())
-                        }}
-                        deleteKeyCode={null}
-                        proOptions={{ hideAttribution: true }}
-                      >
-                        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
-                        {minimap && <MiniMap pannable zoomable position="bottom-right" />}
-                      </ReactFlow>
+                          onNodeDragStart={(_event, _node, dragged) => {
+                            canvas.undo.stopCapturing()
+                            setDraggingIds(dragged.map((node) => node.id))
+                          }}
+                          onNodeDragStop={(_event, _node, dragged) => {
+                            setDraggingIds([])
+                            const groups = dragged.filter((one) => one.data.group)
+                            const members = new Set(
+                              groups.flatMap((one) => one.data.group!.members),
+                            )
+                            const free = dragged.filter(
+                              (one) => one.data.node && !members.has(one.id),
+                            )
+                            canvas.doc.transact(() => {
+                              moveCanvasGroups(
+                                canvas.doc,
+                                groups.map((one) => ({ id: one.id, ...one.position })),
+                                canvas.origin,
+                              )
+                              moveCanvasNodes(
+                                canvas.doc,
+                                free.map((one) => ({ id: one.id, ...one.position })),
+                                canvas.origin,
+                              )
+                              reconcileCanvasGroupMembership(
+                                canvas.doc,
+                                free.map((one) => one.id),
+                                canvas.origin,
+                              )
+                            }, canvas.origin)
+                            canvas.undo.stopCapturing()
+                          }}
+                          onMove={(_event, viewport) => remember(viewport)}
+                          onMoveEnd={(_event, viewport) =>
+                            safeLocalStorage.setItem(
+                              scopedStorageName(`node-viewport:${viewKey}`),
+                              JSON.stringify(viewport),
+                            )
+                          }
+                          colorMode={theme}
+                          minZoom={0.05}
+                          maxZoom={8}
+                          onInit={(flow) => {
+                            flowRef.current = flow
+                            const bounds = contentBounds(snapshot)
+                            const box = container.current
+                            // 容器还没量出尺寸时留默认视口，免得按 0 宽高缩到最小。
+                            let saved: { x: number; y: number; zoom: number } | undefined
+                            try {
+                              const value = JSON.parse(
+                                safeLocalStorage.getItem(
+                                  scopedStorageName(`node-viewport:${viewKey}`),
+                                ) ?? 'null',
+                              )
+                              if (
+                                value &&
+                                [value.x, value.y, value.zoom].every(Number.isFinite) &&
+                                value.zoom >= 0.05 &&
+                                value.zoom <= 8
+                              )
+                                saved = value
+                            } catch {}
+                            if (saved) flow.setViewport(saved)
+                            else if (bounds && box?.clientWidth && box.clientHeight) {
+                              // 与旧画布一致：打开时最多按 100% 显示。
+                              flow.setViewport(
+                                getViewportForBounds(
+                                  bounds,
+                                  box.clientWidth,
+                                  box.clientHeight,
+                                  0.05,
+                                  1,
+                                  0.1,
+                                ),
+                              )
+                            }
+                            remember(flow.getViewport())
+                          }}
+                          deleteKeyCode={null}
+                          proOptions={{ hideAttribution: true }}
+                        >
+                          <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
+                          {minimap && !overview && (
+                            <MiniMap pannable zoomable position="bottom-right" />
+                          )}
+                        </ReactFlow>
+                        <CanvasOverview
+                          active={overview}
+                          container={container}
+                          items={viewportPlan.painted}
+                          edges={snapshot.edges}
+                          frame={frame}
+                          mountedIds={viewportPlan.mountedIds}
+                        />
+                      </CanvasLodProvider>
                       {referencePick && (
                         <div className="studio-node-pick-banner" role="status">
                           <Icon name="fit" /> <span>{t('nodes.pickFromCanvas')}</span>
@@ -1881,13 +2028,7 @@ function Flow({
                         editor={editor}
                         onLocate={(id) => {
                           selectNode(id)
-                          void flowRef.current?.fitView({
-                            nodes: [{ id }],
-                            padding: 0.5,
-                            minZoom: 0.2,
-                            maxZoom: 1,
-                            duration: 250,
-                          })
+                          showFrame([id], 0.5, 0.2, 1, 250)
                         }}
                         beginEdit={(id) => {
                           const draft = beginCanvasTimelineEdit(canvas.doc, id, canvas.origin)
