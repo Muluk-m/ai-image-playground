@@ -8,6 +8,7 @@ import {
   SettingsPopover,
 } from '../../../components/composer/SettingsPanel'
 import { ModelLogo } from '../../../components/ModelIdentity'
+import { useOverflowTitle } from '../../../components/ui/overflowTitle'
 import {
   Select,
   SelectContent,
@@ -51,6 +52,8 @@ export default function CanvasVideoParams({
     if (!isControlled) useVideoStore.getState().syncModelOptions()
   }, [isControlled])
 
+  const modelLabel = option?.label ?? ''
+  const modelName = useOverflowTitle<HTMLSpanElement>(modelLabel, { whenHidden: true })
   if (!option) return null
   const summary = [
     t('shared.seconds', { seconds: draft.duration }),
@@ -67,12 +70,14 @@ export default function CanvasVideoParams({
           controlled ? controlled.onChange({ model }) : useVideoStore.getState().setModel(model)
         }
       >
-        <Hint tooltip={`${t('field.model')}：${option.label}`}>
+        <Hint tooltip={modelName.title}>
           <SelectTrigger aria-label={t('field.model')} className={composerModelChipClass(size)}>
             <SelectValue>
               <span className="creation-model-value">
                 <ModelLogo model={option.modelId} />
-                <span className="creation-model-name">{option.label}</span>
+                <span ref={modelName.ref} className="creation-model-name">
+                  {option.label}
+                </span>
               </span>
             </SelectValue>
           </SelectTrigger>

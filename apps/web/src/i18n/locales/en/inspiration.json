@@ -14,7 +14,6 @@
     "resetFilters": "Reset filters"
   },
   "card": {
-    "titleHint": "{{title}}\nSuggested model: {{model}}",
     "pin": "Pin",
     "unpin": "Unpin",
     "imageEdit": "Image edit",

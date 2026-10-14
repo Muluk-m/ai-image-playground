@@ -3,6 +3,7 @@ import Badge from '../../../components/patterns/Badge'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
@@ -53,7 +54,6 @@ export default function AssetCard({
         tabIndex={0}
         onClick={() => (asset.views.length ? void attachAsset(asset.id) : onOpen(asset))}
         onKeyDown={handleKeyDown}
-        title={asset.name}
         className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <AssetThumb imageId={coverImageId} alt={asset.name} />
@@ -103,9 +103,10 @@ export default function AssetCard({
 
       <div className="flex items-center gap-1 px-2.5 py-2">
         {draftName === null ? (
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-            {asset.name}
-          </span>
+          <OverflowText
+            text={asset.name}
+            className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+          />
         ) : (
           <Input
             value={draftName}

@@ -28,7 +28,6 @@ function AnsweredClarification({
         variant="ghost"
         type="button"
         aria-expanded={expanded}
-        title={chosen}
         onClick={() => setExpanded((value) => !value)}
       >
         <Icon name="check" />

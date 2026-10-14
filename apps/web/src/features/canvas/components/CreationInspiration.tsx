@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import SectionHeader from '../../../components/patterns/SectionHeader'
 import { Button } from '../../../components/ui/button'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
@@ -61,7 +62,6 @@ export default function CreationInspiration() {
               type="button"
               variant="ghost"
               data-prompt={item.prompt}
-              title={item.title}
               onClick={() => fillAgentComposer(item.prompt)}
               className="group h-auto w-full flex-col gap-0 overflow-hidden whitespace-normal rounded-2xl border border-border/60 bg-card/40 p-0 text-left font-normal hover:-translate-y-0.5 hover:border-primary hover:bg-transparent hover:shadow-lg"
             >
@@ -81,9 +81,10 @@ export default function CreationInspiration() {
                   </span>
                 </span>
               </span>
-              <span className="line-clamp-2 px-3 py-2.5 text-sm font-medium leading-snug text-foreground transition group-hover:text-primary">
-                {item.title}
-              </span>
+              <OverflowText
+                text={item.title}
+                className="line-clamp-2 px-3 py-2.5 text-sm font-medium leading-snug text-foreground transition group-hover:text-primary"
+              />
             </Button>
           </li>
         ))}

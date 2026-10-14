@@ -651,7 +651,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                   key={`${source.version ?? 'legacy'}:${source.taskId}:${source.attempt}`}
                   className="grid gap-1"
                 >
-                  <span className="text-muted-foreground" title={source.taskId}>
+                  <span className="text-muted-foreground">
                     {(source.version ?? singleSourceVersion) !== undefined && (
                       <>
                         {t('batch.version', {

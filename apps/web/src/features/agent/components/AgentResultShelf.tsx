@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
@@ -110,7 +111,6 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
                 variant="ghost"
                 onClick={() => void onSelect(message)}
                 className="studio-result-shelf-item h-auto justify-start gap-2 rounded-lg border border-border bg-card p-1 text-left text-xs font-normal hover:border-primary/60 hover:bg-card"
-                title={message.title}
               >
                 {previews[message.id] ? (
                   <img src={previews[message.id] ?? ''} alt="" />
@@ -118,7 +118,7 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
                   <span className="studio-result-shelf-placeholder">✦</span>
                 )}
                 <span className="min-w-0">
-                  <span className="block truncate">{message.title}</span>
+                  <OverflowText text={message.title} className="block truncate" />
                   <span className="text-label-sm text-muted-foreground">
                     {placed ? t('resultShelf.locate') : t('resultShelf.place')}
                   </span>
