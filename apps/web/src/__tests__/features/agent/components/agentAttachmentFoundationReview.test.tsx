@@ -1,3 +1,5 @@
+import { submitDraft } from '../../../../features/agent/lib/draftSubmission'
+
 // @vitest-environment jsdom
 
 vi.mock('../../../../lib/imagePreprocessing', async () => ({
@@ -88,6 +90,7 @@ async function setup(bulk = false) {
   await bootstrapClientCapabilities(true, 'http://bff.test')
   useCanvasProjectStore.setState({ projects: [], activeId: null, loaded: true })
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     conversationId: null,
     historyLoading: false,
     historyFailed: false,

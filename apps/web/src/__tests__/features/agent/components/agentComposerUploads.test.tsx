@@ -1,3 +1,4 @@
+import { submitDraft } from '../../../../features/agent/lib/draftSubmission'
 import { openReferenceStack } from '../../../helpers/radix'
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
@@ -53,6 +54,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
   session.update({ prompt: 'inspect this', references: [{ id: 'attachment', dataUrl: source }] })
   const send = vi.fn(async () => {})
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     conversationId: null,
     historyLoading: false,
     historyFailed: false,
@@ -148,6 +150,7 @@ it.each([
   session.update({ prompt: 'inspect this', references: [{ id: 'attachment', dataUrl: source }] })
   const send = vi.fn(async () => {})
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     conversationId: null,
     historyLoading: false,
     historyFailed: false,

@@ -62,8 +62,6 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
-  attachmentSourceOwner,
-  hasLocalAttachmentSources,
   localAttachmentFailure,
   localAttachmentIdentity,
   readAttachmentUpload,
@@ -121,7 +119,7 @@ import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
 import { referenceTileLabel } from '../lib/imageMentions'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
-import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
+import { agentPromptHistory } from '../lib/promptHistory'
 import {
   type AgentDraft,
   type AgentReference,
@@ -129,7 +127,6 @@ import {
   agentAdmission,
   attachReference,
   clearReferenceMask,
-  draftForSubmit,
   hasDraftContent,
   type ReferenceTransport,
   referenceDisplayNames,
@@ -861,87 +858,22 @@ export default function AgentComposer({
 
   const submit = () => {
     if (loading || submitting || historyBlocked || uploadsBlocked) return
-    const submission = draftForSubmit(draft)
-    if (!submission.text.trim()) return
-    // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
-    const snapshot = draft
-    const handoff = hasLocalAttachmentSources(snapshot)
-      ? attachmentSourceOwner(`sending:${crypto.randomUUID()}`)
-      : undefined
-    const releaseSubmission = session.beginSubmission()
-    const sameAccount = accountScope()
-    let stagedId: string | undefined
-    let accepted = false
-    let returnedToDraft = false
-    const restore = (cancelled = false) => {
-      returnedToDraft = true
-      useStore
-        .getState()
-        .showToast(
-          cancelled ? t('composer.abortedToast') : t('composer.sendFailedToast'),
-          cancelled ? 'info' : 'error',
-        )
-      // 这几秒里用户要是已经开始打下一句，别把它冲掉。
-      setDraft((current) =>
-        current.prompt.trim() || current.references.length
-          ? current
-          : { ...snapshot, submission: undefined },
-      )
-    }
-    const acceptLocalDraft = () => {
-      if (stagedId) session.acceptSubmission(stagedId)
-      else session.accept(snapshot)
-      selection.sent()
-      browsingRef.current = null
-    }
-    const send = () => {
-      if (!sameAccount()) throw new Error('media_scope_changed')
-      if (!handoff) acceptLocalDraft()
-      return useAgentStore.getState().send(
-        snapshot.submission?.text ?? submission.text,
-        snapshot.submission?.references ?? submission.references,
-        () => {
-          accepted = true
-          if (handoff) acceptLocalDraft()
-          if (sameAccount()) rememberAgentPrompt(snapshot.prompt)
-          releaseSubmission()
-        },
-        snapshot.submission?.mode ?? mode,
-        snapshot.submission?.id,
-        snapshot.submission,
-        undefined,
-        async (retry) => {
-          returnedToDraft = true
-          useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
-          return session.returnUnsent({ ...snapshot, submission: retry })
-        },
-        handoff
-          ? {
-              stage: async (command) => {
-                if (!sameAccount()) throw new Error('media_scope_changed')
-                stagedId = command.id
-                await session.stageSubmission(snapshot, command)
-              },
-              committed: () => acceptLocalDraft(),
-            }
-          : undefined,
-      )
-    }
-    void (handoff ? handoff.retain(snapshot).then(send) : send())
-      .then(
-        (outcome) => {
-          if (!accepted && !returnedToDraft) restore(outcome === 'cancelled')
-        },
-        () => restore(),
-      )
-      .finally(async () => {
-        try {
-          await session.flush()
-          if (!session.getSnapshot().error) await handoff?.release().catch(() => {})
-        } finally {
-          releaseSubmission()
-        }
-      })
+    void useAgentStore.getState().submitDraft({
+      session,
+      snapshot: draft,
+      mode,
+      onConsumed: () => {
+        selection.sent()
+        browsingRef.current = null
+      },
+      onNotice: (notice) =>
+        useStore
+          .getState()
+          .showToast(
+            notice === 'cancelled' ? t('composer.abortedToast') : t('composer.sendFailedToast'),
+            notice === 'cancelled' ? 'info' : 'error',
+          ),
+    })
   }
 
   /**
