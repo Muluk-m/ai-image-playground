@@ -1,7 +1,7 @@
 import type { CapabilityKey } from '@image-playground/shared'
 import { status } from 'elysia'
 import { config } from '../config'
-import { clientCapabilityManifest, evaluateCapability } from './operator-config'
+import { clientCapabilityManifest, evaluateCapability, userHasCapability } from './operator-config'
 
 export interface CapabilityUnavailableBody {
   readonly error: 'capability_unavailable'
@@ -10,6 +10,13 @@ export interface CapabilityUnavailableBody {
 
 export function isCapabilityEnabled(key: CapabilityKey): boolean {
   return evaluateCapability(config.operator, key)
+}
+
+export function isCapabilityEnabledForUser(
+  key: CapabilityKey,
+  userId: string | null | undefined,
+): boolean {
+  return userHasCapability(config.operator, key, userId)
 }
 
 export function capabilityManifest() {

@@ -15,8 +15,14 @@ export const CAPABILITIES = {
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
-  /** 节点画布（ADR 0022 / 0023）。跑通前只在测试站开；关着时画布照旧。 */
+  /** 节点画布（ADR 0022 / 0023）。关着时画布照旧。 */
   'canvas:nodes': { defaultValue: false, clientExposed: true },
+  /** #1140 空白处生成与节点上的模板胶囊。默认关，可按用户单独开。 */
+  'canvas:blank-generate': { defaultValue: false, clientExposed: true },
+  /** #1161 智能体建议运行节点，以及确认后的真实上游回写。默认关。 */
+  'canvas:node-run': { defaultValue: false, clientExposed: true },
+  /** #1162 剧本设定器与拆剧本。默认关。 */
+  'canvas:script': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
    * （`chatTurnsBilled()`），这一轮的 `cost.chat` 恒为 0；工具产生的生图 / 生视频
