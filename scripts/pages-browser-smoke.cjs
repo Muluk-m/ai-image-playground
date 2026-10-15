@@ -31,9 +31,19 @@ async function serveDist(dist) {
         return
       }
       if (redirect) path = redirect.target
+      const cleanHtmlPath = path.endsWith('/index.html') ? path.slice(0, -10)
+        : path.endsWith('.html') ? path.slice(0, -5) : undefined
       if (path.endsWith('/')) path += 'index.html'
-      const file = await realpath(resolve(root, `.${path}`))
+      const file = await realpath(resolve(root, `.${path}`)).catch((error) => {
+        if (error.code !== 'ENOENT' || extname(path)) throw error
+        return realpath(resolve(root, `.${path}.html`))
+      })
       if (!file.startsWith(root + sep)) throw new Error('Outside dist')
+      // Pages canonicalizes explicit .html targets even after a 200 rewrite.
+      if (cleanHtmlPath !== undefined) {
+        res.writeHead(308, { location: cleanHtmlPath }).end()
+        return
+      }
       const bytes = await readFile(file)
       res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream',
         'cache-control': 'no-store' }).end(bytes)
