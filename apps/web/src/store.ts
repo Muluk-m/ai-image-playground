@@ -454,16 +454,14 @@ export function isWorkbenchMode(mode: AppMode): boolean {
 }
 
 /**
- * 侧栏没被手动开合时的默认。
- * 首页等入口摊开。工作台里对话也摊开，发出消息不收起；画布才收起。
- * 项目还没对上号时先收着，避免打开画布地址时宽栏闪一下。
+ * 侧栏没被手动开合时的默认：首页、对话和画布都摊开。
+ * 收起只发生在用户自己折叠，或从列表里选了沉浸式打开。
  */
 export function defaultSidebarExpanded(
-  appMode: AppMode,
-  experience: 'chat' | 'canvas' | null,
+  _appMode: AppMode,
+  _experience: 'chat' | 'canvas' | null,
 ): boolean {
-  if (!isWorkbenchMode(appMode)) return true
-  return experience === 'chat'
+  return true
 }
 
 function currentSidebarExperience(): 'chat' | 'canvas' | null {
