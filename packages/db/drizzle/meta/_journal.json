@@ -463,6 +463,13 @@
       "when": 1790853000018,
       "tag": "0066_canvas_commands",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790853000019,
+      "tag": "0067_account_profile",
+      "breakpoints": true
     }
   ]
 }

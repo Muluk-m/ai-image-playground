@@ -94,10 +94,24 @@ export const users = pgTable(
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
     last_login_at: epochMs('last_login_at'),
+    /** 展示名。登录名仍是 username。空着表示还没设置。 */
+    nickname: text('nickname'),
+    /** 个人简介。空着表示没有简介。 */
+    bio: text('bio'),
+    /** 对象存储里的头像键。空着时接口返回默认芽标，不把默认图写进这一列。 */
+    avatar_key: text('avatar_key'),
   },
   (t) => [
     uniqueIndex('idx_users_username').on(t.username),
     check('users_status_check', sql`${t.status} IN ('active', 'disabled')`),
+    check(
+      'users_nickname_check',
+      sql`${t.nickname} IS NULL OR (char_length(${t.nickname}) BETWEEN 2 AND 20 AND ${t.nickname} = btrim(${t.nickname}))`,
+    ),
+    check(
+      'users_bio_check',
+      sql`${t.bio} IS NULL OR (char_length(${t.bio}) BETWEEN 1 AND 120 AND ${t.bio} = btrim(${t.bio}))`,
+    ),
   ],
 )
 
@@ -134,6 +148,12 @@ export const user_sessions = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     created_at: epochMs('created_at').notNull(),
     expires_at: epochMs('expires_at').notNull(),
+    /** 签发时的 User-Agent，之后随活动刷新。 */
+    user_agent: text('user_agent'),
+    /** 签发时的客户端地址，之后随活动刷新。 */
+    ip: text('ip'),
+    /** 最近一次带着这枚会话访问的时间。旧行可能为空，读取时回退到 created_at。 */
+    last_active_at: epochMs('last_active_at'),
   },
   (t) => [
     index('idx_user_sessions_user_id').on(t.user_id),
