@@ -75,6 +75,7 @@ export class CloudNodeProjectSession {
   private loading: Promise<void> | undefined
   private commandHistory: CloudCanvasHistory | undefined
   private readingCommands: Promise<void> | undefined
+  private remoteDeleted = false
   private waits = new Set<{ resolve(): void; reject(error: unknown): void }>()
   constructor(
     private project: CanvasProject,
@@ -209,13 +210,23 @@ export class CloudNodeProjectSession {
         })
         this.publish(this.project)
       } catch (error) {
-        // Network loss can use a previously opened Y.Doc; permission failures cannot.
-        if (
+        // 410 means the server copy is gone. The local scene still has to open, so the
+        // edit can be saved as a new project. Other client errors, and a first open that
+        // never imported a Y.Doc, still fail. A later network loss can use the Y.Doc.
+        const deleted = error instanceof ProjectRequestError && error.status === 410
+        if (deleted) {
+          importLegacyElements(
+            doc,
+            this.record.editor.doc.elements as readonly LegacyCanvasElement[],
+            legacyOrigin,
+          )
+          this.remoteDeleted = true
+        } else if (
           (error instanceof ProjectRequestError && error.status < 500 && error.status !== 429) ||
           !doc.getMap('meta').get('legacyImported')
         )
           throw error
-        this.status('offline')
+        else this.status('offline')
       }
       this.current()
       const origin = canvasOrigin('user', crypto.randomUUID())
@@ -282,7 +293,8 @@ export class CloudNodeProjectSession {
         }
       })
       this.projectToEditor()
-      this.start()
+      if (this.remoteDeleted) this.status('deleted')
+      else this.start()
     } catch (error) {
       await persistence.destroy()
       doc.destroy()
@@ -629,13 +641,29 @@ export class CloudNodeProjectSession {
     return source ? (mediaIdentity(source) ?? this.bindings.get(source)) : undefined
   }
   async mediaIdsFor(sources: readonly string[]) {
-    // Agent attachments can fall back to inline data; unrelated canvas uploads must not block them.
-    return new Map(
-      sources.flatMap((s) => {
-        const id = this.knownMediaId('', s)
-        return id ? [[s, id] as const] : []
-      }),
-    )
+    const lookup = () =>
+      new Map(
+        sources.flatMap((source) => {
+          const id = this.knownMediaId('', source)
+          return id ? [[source, id] as const] : []
+        }),
+      )
+    if (lookup().size === new Set(sources).size) return lookup()
+    // A reference to a canvas original waits for its upload, then falls back to inline data.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        this.sync(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('media_lookup_timeout')), 20_000)
+        }),
+      ])
+    } catch {
+      // Sync can fail or time out. Send the ids already known.
+    } finally {
+      clearTimeout(timer)
+    }
+    return lookup()
   }
   rename(
     name: string,
