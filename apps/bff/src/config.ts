@@ -148,7 +148,7 @@ export const config = {
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
     /**
      * 下一句预测专用，不给摘要或搜索。留空跟随摘要模型，再没有才跟随对话模型。
-     * 发布步骤使用 claude-haiku-5-5；claude- 前缀走 UPSTREAM_CLAUDE_API_KEY。
+     * 发布步骤使用 gpt-6-luna，与摘要、搜索分别配置。
      */
     followUpModel:
       env('AGENT_FOLLOWUP_MODEL', '') ||
