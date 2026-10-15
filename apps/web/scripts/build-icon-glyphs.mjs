@@ -25,6 +25,7 @@ const GLYPHS = {
   sidebar: ['solar', 'sidebar'],
   light: ['solar', 'sun'],
   dark: ['solar', 'moon'],
+  system: ['lucide', 'monitor'],
   language: ['solar', 'global'],
   // 会员等级
   membershipFree: ['lucide', 'sprout'],

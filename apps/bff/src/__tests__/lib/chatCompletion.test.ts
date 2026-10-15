@@ -178,8 +178,31 @@ describe('askChatModel', () => {
       () => chatCompletion('还是不会'),
     )
 
-    await expect(askChatModel(ASK, parseAnswer)).rejects.toBeInstanceOf(ChatInvalidResponseError)
+    await expect(askChatModel(ASK, parseAnswer)).rejects.toMatchObject({
+      name: 'ChatInvalidResponseError',
+      model: ASK.model,
+      reason: 'invalid_json',
+    })
     expect(sent).toBe(2)
+  })
+
+  it('distinguishes missing content from JSON rejected by the caller without logging content', async () => {
+    for (const [content, reason] of [
+      [undefined, 'missing_content'],
+      ['{"private":"fixture-sensitive-value"}', 'rejected_value'],
+    ] as const) {
+      const response = () => new Response(JSON.stringify({ choices: [{ message: { content } }] }))
+      scriptedChat(response, response)
+      let failure: unknown
+      try {
+        await askChatModel(ASK, parseAnswer)
+      } catch (error) {
+        failure = error
+      }
+      expect(failure).toBeInstanceOf(ChatInvalidResponseError)
+      expect(failure).toMatchObject({ model: ASK.model, reason })
+      expect(JSON.stringify(failure)).not.toContain('fixture-sensitive-value')
+    }
   })
 
   it('counts both retry reasons against a single request budget', async () => {

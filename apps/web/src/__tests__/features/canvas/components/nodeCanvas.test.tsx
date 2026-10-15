@@ -221,37 +221,6 @@ it('displays images delivered after migration without resetting node edits', asy
   })
 })
 
-it('includes delivery while IndexedDB opening is still pending', async () => {
-  let resolve!: (value: NodeCanvasDocument) => void
-  mocks.open.mockReturnValue(
-    new Promise<NodeCanvasDocument>((accept) => {
-      resolve = accept
-    }),
-  )
-  await render()
-  act(() => old.addElements([image('during-open')]))
-  await act(async () => resolve(canvas))
-  expect(host.querySelector('[data-node-id="during-open"] img')).not.toBeNull()
-})
-
-it('replays a delivery and its deletion even when migration read the intermediate snapshot', async () => {
-  let resolve!: (value: NodeCanvasDocument) => void
-  mocks.open.mockReturnValue(
-    new Promise<NodeCanvasDocument>((accept) => {
-      resolve = accept
-    }),
-  )
-  await render()
-  act(() => old.addElements([image('transient')]))
-  canvas.undo.destroy()
-  canvas.doc.destroy()
-  canvas = createCanvas()
-  act(() => old.deleteElements(['transient']))
-  await act(async () => resolve(canvas))
-  expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image'])
-  expect(host.querySelector('[data-node-id="transient"]')).toBeNull()
-})
-
 it('ignores undo while hidden or a modal is open and resumes in the active canvas', async () => {
   await render()
   act(() => moveCanvasNodes(canvas.doc, [{ id: 'image', x: 90, y: 80 }], canvas.origin))

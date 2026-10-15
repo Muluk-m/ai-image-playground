@@ -24,7 +24,6 @@ import {
   projectRepository,
   UNTITLED_PROJECT,
 } from './projectRepository'
-import { writeProjectRoute } from './projectRoute'
 import { canvasSceneKey } from './workspaceKeys'
 import { CanvasWorkspace } from './workspaces'
 
@@ -177,17 +176,6 @@ export async function openCurrentProject(): Promise<void> {
   }
   const active = useCanvasProjectStore.getState().activeId
   if (active) openProject(active)
-}
-
-/** 地址里那个项目打不开时的退路：回到当前项目的地址，没有当前项目就回首页。 */
-export function backToCurrentProject(): void {
-  const active = useCanvasProjectStore.getState().activeId
-  if (!active) {
-    location.assign('/')
-    return
-  }
-  writeProjectRoute(active, true)
-  useCanvasProjectStore.setState({ routeError: null })
 }
 
 export async function bindNewCanvasWorkspace(conversationId: string): Promise<boolean> {

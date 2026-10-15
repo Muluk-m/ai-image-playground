@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
 import * as historyCache from '../../../features/agent/lib/conversationCache'
 import { conversationCache } from '../../../features/agent/lib/conversationCache'
+import { DraftSession } from '../../../features/agent/lib/drafts'
 import { setFollowUpReaderForTesting } from '../../../features/agent/lib/followUps'
 import {
   agentActivityPhase,
@@ -336,29 +337,38 @@ describe('一轮对话', () => {
       },
     }))
     const references = [{ imageId: 'fabric', dataUrl: 'data:image/png;base64,aGk=' }]
-    const accepted = vi.fn()
-    const unsent = vi.fn(async () => true)
-
-    await state().send(
-      '改这块面料',
-      references,
-      accepted,
-      'image',
-      'client-1',
-      undefined,
-      undefined,
-      unsent,
-    )
+    const session = new DraftSession(`prepare-failure:${crypto.randomUUID()}`)
+    await session.ready
+    session.update({
+      prompt: '改这块面料',
+      references: references.map(({ imageId, ...reference }) => ({ id: imageId, ...reference })),
+      submission: {
+        id: 'client-1',
+        text: '改这块面料',
+        references,
+        mode: 'image',
+        clarificationAnswer: false,
+      },
+    })
+    await state().submitDraft({
+      session,
+      snapshot: session.getSnapshot().draft,
+      mode: 'image',
+      onConsumed: () => {},
+      onNotice: () => {},
+    })
 
     expect(state().turn).toBe('failed')
     expect(agentActivityPhase(state())).toBeNull()
     expect(state().messages).toEqual([])
     expect(state().error).toBe('有几张图还没能上传到云端，这一轮没有发出。请重试，草稿已保留。')
     expect(state().errorDiagnostic).toMatchObject({ message: 'media_upload_failed' })
-    expect(accepted).not.toHaveBeenCalled()
-    expect(unsent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'client-1', text: '改这块面料', references }),
-    )
+    expect(session.getSnapshot().submitting).toBe(false)
+    expect(session.getSnapshot().draft.submission).toMatchObject({
+      id: 'client-1',
+      text: '改这块面料',
+      references,
+    })
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(false)
 
     turnResponse = () => turnStream(TURN_START, TURN_END)

@@ -94,22 +94,18 @@ export default function Header() {
   return (
     <>
       {/*
-        窄屏有一条顶栏，正文从它下面开始。首页这条栏是透明的，点阵和光晕从状态栏后面铺下来；
-        其它页保留毛玻璃和底边，滚上去时内容不透出。画布自己留白，不再加这条栏。
-        宽屏没有顶栏，账号簇浮在右上角，页头按测得的宽度让出右侧空位。
+        窄屏有一条深色顶栏，圆角内容面板从它下面留出缝。宽屏没有这条栏，
+        账号簇浮在内容面板右上角，页头按测得的宽度让出右侧空位。
       */}
-      {appMode !== 'canvas' ? (
-        <div
-          aria-hidden
-          className="studio-mobile-topbar pointer-events-none fixed inset-x-0 top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md md:hidden"
-          style={{ height: 'var(--mobile-topbar-height)' }}
-        />
-      ) : null}
+      <div
+        aria-hidden
+        className="studio-mobile-topbar pointer-events-none fixed inset-x-0 top-0 z-30 bg-sidebar md:hidden"
+        style={{ height: 'var(--mobile-topbar-height)' }}
+      />
       <div
         ref={headerActionsRef}
         data-no-drag-select
-        className="studio-global-account fixed right-3 z-40 flex items-center gap-3 sm:right-4"
-        style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
+        className="studio-global-account fixed z-40 flex items-center gap-3"
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
@@ -134,7 +130,7 @@ export default function Header() {
                 aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
-                size="icon-sm"
+                size="icon-lg"
                 variant={auth.user ? 'default' : 'ghost'}
                 className="relative rounded-full text-muted-foreground"
               >
@@ -159,6 +155,7 @@ export default function Header() {
                     auth.login()
                   }}
                   onClose={() => setAccountMenuOpen(false)}
+                  onOpenSettings={openSettings}
                 />
               ) : null}
               {accountMenuOpen && auth.user ? (

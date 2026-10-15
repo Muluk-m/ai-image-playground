@@ -11,7 +11,7 @@ const SUBMIT_WITH_MODIFIER = 'ctrl-enter'
 const SECTION_CARD =
   'divide-y divide-border/60 rounded-2xl border border-border bg-card px-4 shadow-sm'
 
-/** 通用：使用习惯（随账号走）。显示设置（语言 / 主题）在头像菜单里，登录前就要能改，不进这里。 */
+/** 通用：使用习惯（随账号走）。语言在顶栏地球，主题在头像菜单，登录前就要能改，不进这里。 */
 export default function GeneralTab() {
   const { t } = useTranslation('settings')
   const settings = useStore((s) => s.settings)

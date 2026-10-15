@@ -3,7 +3,8 @@
   "theme": {
     "label": "主题",
     "light": "亮色",
-    "dark": "暗色"
+    "dark": "暗色",
+    "system": "跟随系统"
   },
   "locale": {
     "label": "界面语言",

@@ -56,6 +56,7 @@ import { Icon } from '@/components/ui/icon'
 | `sidebar` | 收起 / 展开侧栏 | sidebar |
 | `light` | 浅色主题 | sun |
 | `dark` | 深色主题 | moon |
+| `system` | 跟随系统外观 | monitor（lucide） |
 | `language` | 界面语言 | global |
 
 **会员等级**

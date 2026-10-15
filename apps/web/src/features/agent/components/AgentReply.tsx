@@ -26,7 +26,6 @@ function CopyReplyButton({ text }: { text: string }) {
 
   return (
     <MessageActions
-      className="absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
       copied={copied}
       copyLabel={copied ? t('reply.copied') : t('reply.copyAria')}
       onCopy={() => {
@@ -42,12 +41,10 @@ function CopyReplyButton({ text }: { text: string }) {
   )
 }
 
-/** 助手回复整段展示、按 Markdown 渲染；对话面板不折叠回复，折叠只会让人多点一下。 */
+/** 助手回复整段展示、按 Markdown 渲染；操作跟在正文下面，不浮在角落。 */
 export default function AgentReply({ text, streaming }: Props) {
   return (
-    <div
-      className={`group relative min-w-0 max-w-full self-start ${!streaming && text ? 'pr-10' : ''}`}
-    >
+    <div className="studio-agent-reply-wrap min-w-0 max-w-full self-start">
       <div
         className={`${REPLY} studio-agent-reply break-words`}
         data-streaming={streaming || undefined}
@@ -55,7 +52,11 @@ export default function AgentReply({ text, streaming }: Props) {
         <AgentMarkdown text={text} />
       </div>
       {/* 流式中原文还在变，说完才给复制。 */}
-      {!streaming && text && <CopyReplyButton text={text} />}
+      {!streaming && text && (
+        <div className="studio-agent-reply-actions mt-2 flex items-center">
+          <CopyReplyButton text={text} />
+        </div>
+      )}
     </div>
   )
 }

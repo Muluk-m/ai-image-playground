@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
-import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
@@ -11,6 +10,8 @@ import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import { publishStartedProjectAddress } from '../../../lib/navigation/address'
+import { backToCurrentProject } from '../../../lib/navigation/workbenchNavigation'
 import { defaultSidebarExpanded, useStore } from '../../../store'
 import AgentArtifactPane from '../../agent/components/AgentArtifactPane'
 import AgentAssetDrawer from '../../agent/components/AgentAssetDrawer'
@@ -28,7 +29,6 @@ import type { AgentToolMessage } from '../../agent/types'
 import ProductionWorkspace from '../../production/components/ProductionWorkspace'
 import { openProductionContent, type ProductionPane } from '../../production/lib/productionContext'
 import {
-  backToCurrentProject,
   currentCanvasWorkspace,
   openCurrentProject,
   showCanvasWorkspace,
@@ -39,7 +39,6 @@ import { importImageFiles } from '../lib/importImages'
 import { shouldUseNodeCanvas } from '../lib/nodeCanvasGate'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import { projectExperience } from '../lib/projectRepository'
-import { writeProjectRoute } from '../lib/projectRoute'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
 import CanvasBatchBar from './CanvasBatchBar'
@@ -411,8 +410,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   // 或画布上真有了东西，这个工作区才成为一个「项目」，这时补一条 `/p/<项目>` 的历史。
   useEffect(() => {
     if (showWelcome || !project) return
-    if ((globalThis.location?.pathname ?? '/').replace(/\/+$/, '') !== '') return
-    writeProjectRoute(project.id)
+    publishStartedProjectAddress(project.id)
   }, [showWelcome, project])
   useEffect(() => {
     if (!hasAgent) return
@@ -462,8 +460,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   return (
     <div
-      className="studio-shell fixed bottom-0 right-0 z-30"
-      style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
+      className="studio-shell app-inset-panel fixed z-30"
+      style={{
+        top: 'calc(var(--safe-area-top) + var(--header-height) + var(--mobile-topbar-height) + var(--app-inset))',
+        right: 'var(--app-inset)',
+        bottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+        left: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+      }}
     >
       {loading && !loadFailed && (
         <span className="sr-only" role="status">

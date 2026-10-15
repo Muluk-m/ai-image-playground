@@ -3,7 +3,6 @@ import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useAgentStore } from '../../../../features/agent/store'
 import { currentCanvasWorkspace } from '../../../../features/canvas/lib/activeProject'
-import { installProjectNavigation } from '../../../../features/canvas/lib/projectNavigation'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import {
   projectRouteSegment,
@@ -17,6 +16,7 @@ import {
   scopedStorageName,
   setClientStorageScope,
 } from '../../../../lib/authScope'
+import { installWorkbenchNavigation } from '../../../../lib/navigation/workbenchNavigation'
 
 let cleanup: (() => void) | undefined
 afterEach(() => {
@@ -69,7 +69,7 @@ it('reload restores the URL project over the last selection, and back/forward sw
     b = await projectRepository.create('B')
   localStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), b.id)
   history.replaceState(null, '', `/p/${a.id}`)
-  cleanup = installProjectNavigation()
+  cleanup = installWorkbenchNavigation()
   await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).toBe(a.id))
   await vi.waitFor(() => expect(useAgentStore.getState().loaded).toBe(true))
   expect(await useAgentStore.getState().selectProject(b.id)).toBe(true)
@@ -87,7 +87,7 @@ it('an unknown project URL never silently opens a different remembered project',
   const existing = await projectRepository.create('Existing')
   localStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), existing.id)
   history.replaceState(null, '', '/p/missing-project')
-  cleanup = installProjectNavigation()
+  cleanup = installWorkbenchNavigation()
   await vi.waitFor(() => expect(useCanvasProjectStore.getState().routeError).not.toBeNull())
   expect(useCanvasProjectStore.getState().activeId).toBeNull()
   expect(readProjectRoute()).toBe('missing-project')
@@ -99,7 +99,7 @@ it('rapid history changes finish at the last requested project while a save is p
     b = await projectRepository.create('B'),
     c = await projectRepository.create('C')
   history.replaceState(null, '', `/p/${a.id}`)
-  cleanup = installProjectNavigation()
+  cleanup = installWorkbenchNavigation()
   await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).toBe(a.id))
   await vi.waitFor(() => expect(useAgentStore.getState().loaded).toBe(true))
   let release!: (saved: boolean) => void
@@ -128,7 +128,7 @@ it('legacy navigation continues opening the workspace after canonicalizing an ol
     conversationId: null,
   })
   history.replaceState(null, '', `/p/${a.id}`)
-  cleanup = installProjectNavigation()
+  cleanup = installWorkbenchNavigation()
   await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).toBe(a.id))
   await vi.waitFor(() => expect(useAgentStore.getState().loaded).toBe(true))
   history.pushState(null, '', `/p/${encodeURIComponent(b.id)}`)

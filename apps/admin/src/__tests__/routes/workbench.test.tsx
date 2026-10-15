@@ -10,6 +10,7 @@ const session = vi.hoisted(() => ({
   accountsSync: true,
   failToday: false,
   showError: false,
+  recoveryScenario: false,
   errorRequest: true,
   recentAvailable: true,
   errorCode: 'media_processing_busy',
@@ -97,6 +98,35 @@ vi.mock('../../lib/api-client', () => {
       }
     }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
+    if (url.startsWith('/api/overview/errors') && session.recoveryScenario) {
+      const recovered = {
+        source: 'server',
+        id: 'restored',
+        at: window.from,
+        service: 'cloudflared',
+        instance: 'tunnel-1',
+        message: 'rpc: connection closed',
+        task_id: null,
+        request_id: null,
+        group: null,
+        stack: null,
+        recovery: {
+          state: 'recovered',
+          reason: '同一隧道连接已重新注册成功',
+          recoveredAt: window.from + 100,
+        },
+      }
+      return {
+        window,
+        total: 12,
+        entries: [recovered],
+        recovery: {
+          unresolved: { total: 0, entries: [] },
+          unknown: { total: 0, entries: [] },
+          recovered: { total: 12, entries: [recovered] },
+        },
+      }
+    }
     if (url.startsWith('/api/overview/errors'))
       return {
         window,
@@ -246,6 +276,7 @@ beforeEach(() => {
   patch.mockClear()
   requests.length = 0
   session.failToday = false
+  session.recoveryScenario = false
   session.showError = false
   session.errorRequest = true
   session.taskAt = undefined
@@ -348,6 +379,36 @@ describe('sync footprint', () => {
 })
 
 describe('今日概览', () => {
+  it('defaults to outstanding errors and keeps recovered history behind its own filter with evidence', async () => {
+    session.recoveryScenario = true
+    renderAt('/overview')
+    expect(await screen.findByRole('button', { name: '未恢复 0 条' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByText('当前范围没有确认未恢复的错误')).toBeInTheDocument()
+    expect(screen.queryByText('rpc: connection closed')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '已恢复 12 条' }))
+    expect(screen.getByText('rpc: connection closed')).toBeInTheDocument()
+    expect(screen.getByText(/同一隧道连接已重新注册成功/)).toHaveTextContent('恢复于')
+    const link = screen.getByRole('link', { name: '恢复记录 →' })
+    expect(link.getAttribute('href')).toContain('instance=tunnel-1')
+    expect(screen.getByText('cloudflared')).toHaveClass('text-success')
+    fireEvent.click(screen.getByRole('button', { name: '待确认 0 条' }))
+    expect(screen.queryByText('rpc: connection closed')).not.toBeInTheDocument()
+  })
+
+  it('keeps legacy API errors unknown instead of inferring recovery from an empty recent window', async () => {
+    session.showError = true
+    renderAt('/overview')
+    expect(await screen.findByRole('button', { name: '待确认 24 条' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: '已恢复 0 条' })).toBeInTheDocument()
+    expect(screen.getByText('暂无可关联的恢复证据')).toBeInTheDocument()
+  })
+
   it('shows generation users and links to their exact daily tasks instead of unrelated statistics', async () => {
     renderAt('/overview')
     expect(await screen.findByText('今天谁在生成')).toBeInTheDocument()

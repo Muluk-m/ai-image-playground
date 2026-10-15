@@ -385,14 +385,13 @@ it('排队发送失败后仍保留原输入，刷新后用同一消息身份重�
   await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
 })
 
-it('uploads a complete immutable edit snapshot and restores the same mask, action and regions after rejection', async () => {
+it('uploads a complete immutable edit snapshot and journals the same mask, action and regions after rejection', async () => {
   vi.stubGlobal('crypto', webcrypto)
   setClientStorageScope(crypto.randomUUID())
   const source = 'data:image/png;base64,iVBORw0KGgo='
   const mask = 'data:image/png;base64,iVBORw0KGgoA'
   const originalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const maskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-  let unsent: UnsentTurnSubmission | undefined
   const references = [
     {
       imageId: 'photo',
@@ -422,23 +421,10 @@ it('uploads a complete immutable edit snapshot and restores the same mask, actio
   await bootstrapClientCapabilities(true, 'http://bff.test')
   turnResponse = () => Response.json({ error: 'invalid_reference' }, { status: 400 })
   try {
-    const sending = useAgentStore
-      .getState()
-      .send(
-        '只修改选区',
-        references,
-        undefined,
-        'image',
-        undefined,
-        undefined,
-        undefined,
-        async (snapshot) => {
-          unsent = snapshot
-          return true
-        },
-      )
+    const sending = useAgentStore.getState().send('只修改选区', references, undefined, 'image')
     references[0]!.regions[0]!.x = 0.6
     await sending
+    const unsent = (await outgoingMessages(PROJECT))[0]!
     const sent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
     const body = JSON.parse(String(sent?.[1]?.body))
     const expected = {
@@ -639,18 +625,34 @@ it.each([
       },
       { status: 202 },
     )
-  const returned = vi.fn(async (_snapshot: UnsentTurnSubmission) => true)
-  const outcome = await useAgentStore
-    .getState()
-    .send('已撤回', [], undefined, 'image', 'withdrawn-client-id', undefined, undefined, returned)
-  expect(outcome).toBe('cancelled')
-  expect(returned).toHaveBeenCalledOnce()
-  const snapshot = returned.mock.calls[0]?.[0]
+  setClientStorageScope(crypto.randomUUID())
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({
+    prompt: '已撤回',
+    references: [],
+    submission: {
+      id: 'withdrawn-client-id',
+      text: '已撤回',
+      references: [],
+      mode: 'image',
+      clarificationAnswer: false,
+    },
+  })
+  await useAgentStore.getState().submitDraft({
+    session,
+    snapshot: session.getSnapshot().draft,
+    mode: 'image',
+    onConsumed: () => {},
+    onNotice: () => {},
+  })
+  const snapshot = session.getSnapshot().draft.submission
   const posted = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
   const body = JSON.parse(String(posted?.[1]?.body))
   expect(snapshot).toMatchObject({ text: '已撤回', params: body.params })
   expect(snapshot?.id).not.toBe('withdrawn-client-id')
   expect(await outgoingMessages(PROJECT)).toEqual([])
+  setClientStorageScope(null)
   reload(CONVERSATION)
 })
 
@@ -1596,7 +1598,7 @@ function pauseOutgoingRetention() {
   return { waiting, release: () => release(), restore: () => spy.mockRestore() }
 }
 
-async function mountDurableAttachmentDraft() {
+async function durableAttachmentDraft() {
   vi.stubGlobal('crypto', webcrypto)
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   const account = crypto.randomUUID()
@@ -1634,33 +1636,37 @@ async function mountDurableAttachmentDraft() {
     prompt: '保留完整的原输入',
     references: [{ id: 'retained', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }],
   })
-  const host = document.createElement('div')
-  document.body.append(host)
-  const root = createRoot(host)
-  await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
-  await act(async () => {
-    await vi.waitFor(() =>
-      expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
-        false,
-      ),
-    )
-  })
+  const { registerLocalAttachmentSource } = await import('../../../lib/localAttachmentSources')
+  session.update((draft) => ({
+    ...draft,
+    references: draft.references.map((reference) => ({
+      ...reference,
+      dataUrl: registerLocalAttachmentSource(reference.dataUrl, 10 * 1024 * 1024),
+    })),
+  }))
   await session.flush()
-  return { account, session, host, root }
+  return { account, session }
 }
 
 it('keeps the original durable draft until its outgoing command has committed', async () => {
-  const ui = await mountDurableAttachmentDraft()
-  const original = ui.session.getSnapshot().draft
+  const fixture = await durableAttachmentDraft()
+  let sending: Promise<void> | undefined
+  const original = fixture.session.getSnapshot().draft
   const barrier = pauseOutgoingRetention()
   try {
     await act(async () => {
-      ui.host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      sending = useAgentStore.getState().submitDraft({
+        session: fixture.session,
+        snapshot: original,
+        mode: 'image',
+        onConsumed: () => {},
+        onNotice: () => {},
+      })
       await barrier.waiting
-      await ui.session.flush()
+      await fixture.session.flush()
     })
     expect(await outgoingMessages(PROJECT)).toEqual([])
-    const recovered = new DraftSession(ui.session.key)
+    const recovered = new DraftSession(fixture.session.key)
     await recovered.ready
     expect(recovered.getSnapshot().unsent).toMatchObject(original)
     expect(recovered.getSnapshot().unsent?.submission?.id).toEqual(expect.any(String))
@@ -1668,20 +1674,20 @@ it('keeps the original durable draft until its outgoing command has committed', 
   } finally {
     await act(async () => {
       barrier.release()
-      await vi.waitFor(() => expect(ui.session.getSnapshot().submitting).toBe(false))
+      await vi.waitFor(() => expect(fixture.session.getSnapshot().submitting).toBe(false))
       await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
     })
     barrier.restore()
-    act(() => ui.root.unmount())
-    ui.host.remove()
+    await sending
     setClientStorageScope(null)
     await bootstrapClientCapabilities(false, '')
   }
 })
 
 it('does not journal or dispatch an old account draft after switching accounts during retention', async () => {
-  const ui = await mountDurableAttachmentDraft()
-  const original = ui.session.getSnapshot().draft
+  const fixture = await durableAttachmentDraft()
+  let sending: Promise<void> | undefined
+  const original = fixture.session.getSnapshot().draft
   const barrier = pauseOutgoingRetention()
   const writes: string[] = []
   const put = IDBObjectStore.prototype.put
@@ -1695,27 +1701,32 @@ it('does not journal or dispatch an old account draft after switching accounts d
   })
   try {
     await act(async () => {
-      ui.host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      sending = useAgentStore.getState().submitDraft({
+        session: fixture.session,
+        snapshot: original,
+        mode: 'image',
+        onConsumed: () => {},
+        onNotice: () => {},
+      })
       await barrier.waiting
     })
     setClientStorageScope(crypto.randomUUID())
     await act(async () => {
       barrier.release()
-      await vi.waitFor(() => expect(ui.session.getSnapshot().submitting).toBe(false))
+      await vi.waitFor(() => expect(fixture.session.getSnapshot().submitting).toBe(false))
     })
     expect(writes).not.toContain(scopedStorageName(`agent-outgoing:${PROJECT}`))
     expect(await outgoingMessages(PROJECT)).toEqual([])
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
-    setClientStorageScope(ui.account)
-    const recovered = new DraftSession(ui.session.key)
+    setClientStorageScope(fixture.account)
+    const recovered = new DraftSession(fixture.session.key)
     await recovered.ready
     expect(recovered.getSnapshot().unsent).toMatchObject(original)
   } finally {
     barrier.release()
     barrier.restore()
     journalWrites.mockRestore()
-    act(() => ui.root.unmount())
-    ui.host.remove()
+    await sending
     setClientStorageScope(null)
     await bootstrapClientCapabilities(false, '')
   }
@@ -2013,6 +2024,115 @@ it.each([
   } finally {
     failure.mockRestore()
     for (const one of await outgoingMessages(PROJECT)) await forgetOutgoing(PROJECT, one.id)
+    setClientStorageScope(null)
+  }
+})
+
+it('unlocks a submitted draft on acceptance while the assistant stream is still open', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '先受理，稍后完成', references: [] })
+  let stream!: ReadableStreamDefaultController<Uint8Array>
+  turnResponse = () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          stream = controller
+          controller.enqueue(
+            new TextEncoder().encode(
+              encodeAgentFrame(1, {
+                type: 'turnStart',
+                turnId: 'accepted-before-end',
+                userMessageId: 'user-accepted',
+              }),
+            ),
+          )
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    )
+  const consumed = vi.fn()
+  const notice = vi.fn()
+  let settled = false
+  const sending = useAgentStore
+    .getState()
+    .submitDraft({
+      session,
+      snapshot: session.getSnapshot().draft,
+      mode: 'image',
+      onConsumed: consumed,
+      onNotice: notice,
+    })
+    .then(() => {
+      settled = true
+    })
+  try {
+    expect(session.getSnapshot().draft.prompt).toBe('')
+    expect(consumed).toHaveBeenCalledOnce()
+    await vi.waitFor(() =>
+      expect(useAgentStore.getState().activeTurn?.turnId).toBe('accepted-before-end'),
+    )
+    expect(session.getSnapshot().submitting).toBe(false)
+    expect(settled).toBe(false)
+    expect(notice).not.toHaveBeenCalled()
+  } finally {
+    stream?.enqueue(
+      new TextEncoder().encode(
+        encodeAgentFrame(2, {
+          type: 'turnEnd',
+          turnId: 'accepted-before-end',
+          durationMs: 5,
+          stopReason: 'completed',
+          usage: null,
+        }),
+      ),
+    )
+    stream?.close()
+    await sending
+    setClientStorageScope(null)
+  }
+})
+
+it('returns a rejected submission durably without replacing the next draft', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '失败后应保留的消息', references: [] })
+  let rejectTurn!: (response: Response) => void
+  turnResponse = () =>
+    new Promise<Response>((resolve) => {
+      rejectTurn = resolve
+    })
+  const notice = vi.fn()
+  const sending = useAgentStore.getState().submitDraft({
+    session,
+    snapshot: session.getSnapshot().draft,
+    mode: 'image',
+    onConsumed: () => {},
+    onNotice: notice,
+  })
+  try {
+    await vi.waitFor(() => expect(rejectTurn).toBeTypeOf('function'))
+    const posted = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    const body = JSON.parse(String(posted?.[1]?.body))
+    session.update({ prompt: '正在编辑的下一句', references: [] })
+    rejectTurn(Response.json({ error: 'invalid_reference' }, { status: 400 }))
+    await sending
+    expect(session.getSnapshot().draft.prompt).toBe('正在编辑的下一句')
+    expect(session.getSnapshot().unsent?.submission).toMatchObject({
+      text: '失败后应保留的消息',
+      id: body.clientMessageId,
+      params: body.params,
+    })
+    const recovered = new DraftSession(session.key)
+    await recovered.ready
+    expect(recovered.getSnapshot().unsent?.submission?.id).toBe(body.clientMessageId)
+    expect(await outgoingMessages(PROJECT)).toEqual([])
+    expect(notice).toHaveBeenCalledWith('failed')
+  } finally {
+    rejectTurn?.(COMPLETED_TURN())
+    await sending
     setClientStorageScope(null)
   }
 })

@@ -12,17 +12,14 @@ import {
   createCanvasGroup,
   disconnectCanvasNodes,
   type ImageNodeData,
-  type LegacyCanvasElement,
   moveCanvasGroups,
   moveCanvasNodes,
   type PendingGeneration,
   readCanvasDocument,
   reconcileCanvasGroupMembership,
-  reconcileLegacyElements,
   renameCanvasGroup,
   renderScriptDocument,
   type ScriptBrief,
-  synchronizeLegacyElements,
   ungroupCanvasNodes,
   updateCanvasNode,
 } from '@image-playground/shared'
@@ -86,6 +83,7 @@ import {
 } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
+import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import type { NodeBatchPlan } from '../lib/nodeBatch'
@@ -97,7 +95,7 @@ import {
   pasteNodes,
   removeNodes,
 } from '../lib/nodeCanvasActions'
-import { type NodeCanvasDocument, openNodeCanvasDocument } from '../lib/nodeCanvasDocument'
+import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
 import {
   composeNodePrompt,
   flowEdgeIds,
@@ -119,7 +117,6 @@ import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCan
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { commitNodeLook, prepareNodeLook, submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
-import { projectNodeVideoEdits } from '../lib/nodeVideoTools'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import { clearNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import type { CanvasWorkspace } from '../lib/workspaces'
@@ -152,7 +149,6 @@ const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const edgeTypes = { reference: NodeFlowEdge }
-const legacyOrigin = canvasOrigin('system', 'legacy-update')
 const BLANK_IMAGE_DRAFT = '__blank-image__'
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
@@ -2552,57 +2548,17 @@ export default function NodeCanvas({
         document.off('update', recover)
       }
     }
-    let alive = true
-    let opened: NodeCanvasDocument | undefined
-    let projecting = false
-    const projectVideoEdits = () => {
-      if (!opened || !alive) return
-      projecting = true
-      try {
-        projectNodeVideoEdits(workspace.editor, opened)
-      } finally {
-        projecting = false
-      }
-    }
-    let previous = workspace.doc.elements as readonly LegacyCanvasElement[]
-    const queued: Array<readonly [readonly LegacyCanvasElement[], readonly LegacyCanvasElement[]]> =
-      []
-    const unsubscribe = workspace.doc.subscribe(() => {
-      const next = workspace.doc.elements as readonly LegacyCanvasElement[]
-      if (opened && alive && !projecting)
-        synchronizeLegacyElements(opened.doc, previous, next, legacyOrigin)
-      else if (!opened && alive && previous !== next) queued.push([previous, next])
-      previous = next
-    })
+    const controller = new AbortController()
     setCanvas(null)
     setFailed(false)
-    openNodeCanvasDocument(key, () => workspace.doc.elements as readonly LegacyCanvasElement[])
+    void openLocalNodeCanvas(key, workspace.editor, controller.signal)
       .then((one) => {
-        if (!alive) {
-          void one.destroy()
-          return
-        }
-        opened = one
-        reconcileLegacyElements(one.doc, previous, legacyOrigin)
-        // 迁移可能读过中间状态；逐次重放也能接住「添加后撤销」这类净差异为零的变化。
-        for (const [before, after] of queued)
-          synchronizeLegacyElements(one.doc, before, after, legacyOrigin)
-        queued.length = 0
-        one.doc.on('update', projectVideoEdits)
-        projectVideoEdits()
-        resumeNodeGenerations(workspace.editor, one.doc)
-        resumeNodeVideos(workspace.editor, one.doc)
-        setCanvas(one)
+        if (one && !controller.signal.aborted) setCanvas(one)
       })
       .catch(() => {
-        if (alive) setFailed(true)
+        if (!controller.signal.aborted) setFailed(true)
       })
-    return () => {
-      alive = false
-      unsubscribe()
-      opened?.doc.off('update', projectVideoEdits)
-      void opened?.destroy()
-    }
+    return () => controller.abort()
   }, [key, workspace])
   // 位图表一变整个组件就重渲染；挡住它，免得每加一张图都把整块 React Flow 重画一遍。
   const content = useMemo(
