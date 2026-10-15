@@ -1,33 +1,29 @@
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { openPricingSheet } from '../features/pricing/pricingSheetState'
-import { SUPPORTED_LOCALES, useTranslation } from '../i18n'
+import { useTranslation } from '../i18n'
 import { useLocalePicker } from '../i18n/useLocalePicker'
-import { cn } from '../lib/utils'
-import type { ThemeChoice } from '../theme'
-import { THEME_LABEL_KEY } from '../theme/labels'
-import { useTheme } from '../theme/useTheme'
+import DisplaySettingsFields from './DisplaySettingsFields'
 import { Button } from './ui/button'
 import { Icon, type IconName } from './ui/icon'
 
-const THEME_CHOICES: readonly ThemeChoice[] = ['dark', 'light']
-
 /**
- * 未登录时点灰色人形打开的面板。语言和主题在这里改，设置入口不靠登录。
- * 登录后的芽标菜单不走这里。
+ * 未登录时点灰色人形打开的面板。主题在这里改，语言只在顶栏地球。
+ * 帮助与使用指南合成一行，进指南页（常见问题在那一页里）。
+ * 设置直接打开应用设置。登录后的芽标菜单不走这里，但主题开关和页脚是同一套。
  */
 export default function GuestAccountMenu({
   authEnabled,
   onLogin,
   onClose,
+  onOpenSettings,
 }: {
   authEnabled: boolean
   onLogin: () => void
   onClose: () => void
+  onOpenSettings: () => void
 }) {
   const { t } = useTranslation('shell')
-  const { t: tCommon } = useTranslation('common')
-  const { locale, change } = useLocalePicker()
-  const { theme, setChoice } = useTheme()
+  const { locale } = useLocalePicker()
 
   return (
     <div
@@ -71,40 +67,20 @@ export default function GuestAccountMenu({
         <MenuLink
           icon="help"
           label={t('header.guest.help')}
-          href={`${GUIDE_PATHS[locale]}#faq`}
-          onClick={onClose}
-        />
-        <MenuLink
-          icon="guide"
-          label={t('nav.guide')}
           href={GUIDE_PATHS[locale]}
           onClick={onClose}
         />
       </div>
-      <div className="mt-1 flex flex-col gap-1 border-t border-border pt-2">
-        <Segment
-          label={tCommon('locale.label')}
-          icon="language"
-          value={locale}
-          options={SUPPORTED_LOCALES.map((code) => ({
-            value: code,
-            label: tCommon(`locale.${code}` as const),
-            lang: code,
-          }))}
-          onChange={(next) => change(next)}
+      <div className="mt-1 flex flex-col border-t border-border pt-2">
+        <DisplaySettingsFields
+          showLanguage={false}
+          showTheme
+          rowClassName="px-2"
+          iconClassName="size-4"
         />
-        <Segment
-          label={tCommon('theme.label')}
-          icon={theme === 'dark' ? 'dark' : 'light'}
-          value={theme}
-          options={THEME_CHOICES.map((choice) => ({
-            value: choice,
-            label: tCommon(THEME_LABEL_KEY[choice]),
-          }))}
-          onChange={setChoice}
-        />
+        <MenuRow icon="settings" label={t('header.settings')} onClick={onOpenSettings} />
       </div>
-      <div className="flex items-center gap-2 px-2 pt-2 text-xs text-muted-foreground">
+      <div className="mt-1 flex items-center gap-1.5 border-t border-border px-2 pt-3 text-xs text-muted-foreground">
         <a href="/terms" target="_blank" rel="noopener" className="hover:text-foreground">
           {t('nav.terms')}
         </a>
@@ -133,10 +109,10 @@ function MenuRow({
       type="button"
       variant="ghost"
       onClick={onClick}
-      className="h-auto w-full justify-start px-2 py-2.5 font-normal"
+      className="h-11 w-full justify-start gap-3 px-2 font-normal text-foreground"
     >
       <Icon name={icon} className="text-muted-foreground" />
-      <span className="flex-1 text-left">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       {trailing ? <span className="text-xs text-muted-foreground">{trailing}</span> : null}
       <Icon name="chevronRight" className="text-muted-foreground" />
     </Button>
@@ -160,55 +136,11 @@ function MenuLink({
       target="_blank"
       rel="noopener"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 hover:bg-muted"
+      className="flex h-11 w-full items-center gap-3 rounded-lg px-2 text-foreground hover:bg-muted"
     >
       <Icon name={icon} className="text-muted-foreground" />
-      <span className="flex-1">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       <Icon name="chevronRight" className="text-muted-foreground" />
     </a>
-  )
-}
-
-function Segment<T extends string>({
-  label,
-  icon,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  icon: IconName
-  value: T
-  options: readonly { value: T; label: string; lang?: string }[]
-  onChange: (next: T) => void
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-2 py-1.5">
-      <span className="flex items-center gap-2.5">
-        <Icon name={icon} className="text-muted-foreground" />
-        <span>{label}</span>
-      </span>
-      <div role="group" aria-label={label} className="flex rounded-lg bg-muted p-0.5">
-        {options.map((option) => (
-          <Button
-            key={option.value}
-            type="button"
-            size="xs"
-            variant="ghost"
-            lang={option.lang}
-            aria-pressed={value === option.value}
-            className={cn(
-              'h-7 px-2.5 font-normal',
-              value === option.value
-                ? 'bg-card text-foreground shadow-sm hover:bg-card'
-                : 'text-muted-foreground hover:bg-transparent',
-            )}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
-    </div>
   )
 }
