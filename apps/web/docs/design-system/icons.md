@@ -86,6 +86,9 @@ import { Icon } from '@/components/ui/icon'
 | `stop` | 停止生成 | stop |
 | `refresh` | 重试、重新生成 | refresh |
 | `speed` | 速度 | bolt |
+| `gaugeLow` | 思考深度·快速 | gauge（lucide，指针向左） |
+| `gaugeMid` | 思考深度·中等 | gauge（lucide，指针向上） |
+| `gaugeHigh` | 思考深度·深度 | gauge（lucide，指针向右） |
 | `security` | 安全保障 | shield-check |
 | `back` | 返回 | arrow-left |
 | `upscale` | 高清放大 | maximize-square |
