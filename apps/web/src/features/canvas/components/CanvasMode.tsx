@@ -563,6 +563,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             className="studio-layout"
             data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
+            data-batch-wide={
+              messages.some(
+                (message) =>
+                  message.kind === 'tool' &&
+                  (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+                  (message.artifacts?.filter((artifact) => artifact.media === 'image').length ??
+                    0) >= 4,
+              )
+                ? 'true'
+                : undefined
+            }
             data-node-canvas={nodeCanvas && projectView === 'canvas' ? 'true' : undefined}
             data-mobile-view={projectView}
             data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
