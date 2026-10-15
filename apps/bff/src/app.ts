@@ -10,6 +10,7 @@ import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
+import { accountRoutes } from './routes/account'
 import { agentRoutes } from './routes/agent'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
@@ -188,6 +189,7 @@ export const app = new Elysia()
   // commit that is serving.
   .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))
   .use(userAuthRoutes)
+  .use(accountRoutes)
   .use(oauthRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)

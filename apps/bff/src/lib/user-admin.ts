@@ -13,7 +13,7 @@ import { isCapabilityEnabled } from './capabilities'
 import { oauthUsernameCandidates } from './oauth/username'
 import { loadPrivateBffOverlay } from './private-overlay'
 import { consumeRegistrationVerification } from './registration-verification'
-import { createUserSession, hashSessionToken } from './user-session'
+import { createUserSession, hashSessionToken, type SessionClient } from './user-session'
 
 export type UserOperationErrorCode =
   | 'invalid_username'
@@ -81,6 +81,7 @@ interface ProvisionUserOptions {
   source: 'operator' | 'self-registration'
   referralCode?: string
   verification?: { challengeId: string; code: string }
+  client?: SessionClient | null
 }
 
 async function provisionUser(
@@ -150,7 +151,9 @@ async function provisionUser(
         referralCode: options.referralCode,
       })
       const sessionToken =
-        options.source === 'self-registration' ? await createUserSession(id, tx) : null
+        options.source === 'self-registration'
+          ? await createUserSession(id, tx, options.client)
+          : null
       return { ok: true as const, user: created, sessionToken }
     })
     if (!result.ok) throw new UserOperationError(result.verificationError)
@@ -174,6 +177,7 @@ export async function registerUser(
   options: {
     referralCode?: string
     verification?: { challengeId: string; code: string }
+    client?: SessionClient | null
   } = {},
 ): Promise<{ user: OperationalUser; sessionToken: string }> {
   const result = await provisionUser(usernameInput, password, {
@@ -198,7 +202,10 @@ export interface OAuthLoginResult {
 
 export type OAuthLoginOutcome = OAuthLoginResult | { readonly registrationClosed: true }
 
-async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult> {
+async function loginExistingIdentity(
+  userId: string,
+  client?: SessionClient | null,
+): Promise<OAuthLoginResult> {
   return db.transaction(async (tx) => {
     const [current] = await tx
       .select({
@@ -219,7 +226,7 @@ async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult> 
       .where(eq(schema.users.id, current.id))
     return {
       user: { id: current.id, username: current.username },
-      sessionToken: await createUserSession(current.id, tx),
+      sessionToken: await createUserSession(current.id, tx, client),
     }
   })
 }
@@ -252,11 +259,11 @@ async function firstFreeUsernames(candidates: string[]): Promise<string[]> {
 /** Signs in a third-party subject, provisioning an account on first sight. */
 export async function loginWithOAuthIdentity(
   identity: OAuthIdentityInput,
-  options: { allowRegistration: boolean; referralCode?: string },
+  options: { allowRegistration: boolean; referralCode?: string; client?: SessionClient | null },
 ): Promise<OAuthLoginOutcome> {
   const email = identity.email ? normalizeUsername(identity.email) : null
   const existingUserId = await findIdentityUserId(identity)
-  if (existingUserId) return loginExistingIdentity(existingUserId)
+  if (existingUserId) return loginExistingIdentity(existingUserId, options.client)
   if (!options.allowRegistration) return { registrationClosed: true }
 
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
@@ -303,13 +310,16 @@ export async function loginWithOAuthIdentity(
           source: 'self-registration',
           referralCode: options.referralCode,
         })
-        return { user: created, sessionToken: await createUserSession(created.id, tx) }
+        return {
+          user: created,
+          sessionToken: await createUserSession(created.id, tx, options.client),
+        }
       })
     } catch (error) {
       if (!isUniqueViolation(error)) throw error
       // A concurrent callback for the same subject wins the identity index; join its account.
       const raced = await findIdentityUserId(identity)
-      if (raced) return loginExistingIdentity(raced)
+      if (raced) return loginExistingIdentity(raced, options.client)
     }
   }
   throw new UserOperationError('username_taken')
