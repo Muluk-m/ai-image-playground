@@ -23,6 +23,7 @@ beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'pages-release-'))
   await mkdir(join(dist, 'assets'))
   await writeFile(join(dist, 'index.html'), html)
+  await writeFile(join(dist, 'workbench.html'), html)
   await writeFile(join(dist, '_redirects'), pagesRedirects())
   await writeFile(join(dist, 'assets/main-123.js'), 'export {}')
   await writeFile(join(dist, 'assets/lazy-456.js'), 'export default 1')
@@ -95,13 +96,13 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     TERMS_PATH,
     PRIVACY_PATH,
   ]) {
-    expect(rules).toContain(`${path} / 200\n`)
-    if (path !== '/assets') expect(rules).toContain(`${path}/ / 200\n`)
+    expect(rules).toContain(`${path} /workbench.html 200\n`)
+    if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench.html 200\n`)
   }
-  expect(rules).toContain('/assets / 200\n')
+  expect(rules).toContain('/assets /workbench.html 200\n')
   // `/assets/` 落在 `_headers` 的一年 immutable 规则里：不能在那里下发 HTML。
   expect(rules).toContain('/assets/ /assets 301\n')
-  expect(rules).not.toContain('/assets/ / 200')
+  expect(rules).not.toContain('/assets/ /workbench.html 200')
   expect(rules).not.toMatch(/^\/assets\/\*/m)
   expect(rules).not.toMatch(/^\/\*/m)
   expect(await readFile(join(root, 'apps/web/public/404.html'), 'utf8')).toContain('Page not found')
