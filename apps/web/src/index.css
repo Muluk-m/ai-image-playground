@@ -909,7 +909,12 @@
   /* 没有顶栏了：留着这个变量是给还在算偏移的老样式兜底。 */
   --header-height: 0px;
   /* 侧栏在窄屏不占位；宽屏下由入口决定摊开还是收成图标条（见 --app-sidebar-size）。 */
-  --app-sidebar-size: 13rem;
+  --app-sidebar-size: 264px;
+  /* 窄屏内容面板四周 6px；宽屏摊开侧栏时 8px，收起后由 data-sidebar 收成 0。 */
+  --app-inset: 6px;
+  --app-inset-radius: 16px;
+  /* 窄屏顶栏贴边；宽屏账号簇跟着内容面板的缝一起内收。 */
+  --app-header-inset: 0px;
   /* 窄屏顶栏（账号胶囊那一条）的占位。宽屏没有这条栏，保持 0。 */
   --mobile-topbar-height: 0px;
   /* 右上角那颗常驻账号胶囊的占位宽度：各页面标题行照它让位，别被盖住。 */
@@ -921,6 +926,13 @@
 @media (min-width: 768px) {
   :root {
     --app-sidebar-width: var(--app-sidebar-size);
+    --app-inset: 8px;
+    --app-header-inset: var(--app-inset);
+  }
+
+  html[data-sidebar='collapsed'] {
+    --app-inset: 0px;
+    --app-inset-radius: 0px;
   }
 }
 

@@ -34,7 +34,7 @@ export default function LocaleGlobe() {
     <div ref={rootRef} className="relative">
       <Button
         type="button"
-        size="icon-sm"
+        size="icon-lg"
         variant="ghost"
         className="rounded-full"
         aria-label={t('locale.label')}

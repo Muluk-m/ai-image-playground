@@ -108,7 +108,7 @@ spacing:
   3xl: 48px
   page-gutter: 24px
   page-header-height: 56px
-  sidebar-width: 208px
+  sidebar-width: 264px
   control-sm: 28px
   control-md: 32px
   control-lg: 36px

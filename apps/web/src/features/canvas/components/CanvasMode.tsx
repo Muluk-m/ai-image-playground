@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
-import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
@@ -461,8 +460,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   return (
     <div
-      className="studio-shell fixed bottom-0 right-0 z-30"
-      style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
+      className="studio-shell app-inset-panel fixed z-30"
+      style={{
+        top: 'calc(var(--safe-area-top) + var(--header-height) + var(--mobile-topbar-height) + var(--app-inset))',
+        right: 'var(--app-inset)',
+        bottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+        left: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+      }}
     >
       {loading && !loadFailed && (
         <span className="sr-only" role="status">

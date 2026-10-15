@@ -280,11 +280,14 @@ export default function AgentComposer({
   editor,
   welcome = false,
   showCanvasReferences = true,
+  showFollowUpGhost = true,
   productionMode = false,
 }: {
   welcome?: boolean
   showLooks?: boolean
   showCanvasReferences?: boolean
+  /** 整页对话把建议画成可滚动的芯片，输入框里不再钉一句灰色幽灵文字。 */
+  showFollowUpGhost?: boolean
   productionMode?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
@@ -1213,18 +1216,18 @@ export default function AgentComposer({
               role="textbox"
               tabIndex={0}
               aria-label={t('composer.editorAria')}
-              aria-describedby={followUpGhost ? followUpHintId : undefined}
+              aria-describedby={followUpGhost && showFollowUpGhost ? followUpHintId : undefined}
               disabled={loading}
               aria-busy={loading}
               placeholder={
-                followUpGhost
+                followUpGhost && showFollowUpGhost
                   ? undefined
                   : t(`composer:studio.placeholders.${productionMode ? 'video' : creationMode}`)
               }
-              data-follow-up={followUpGhost ? '' : undefined}
+              data-follow-up={followUpGhost && showFollowUpGhost ? '' : undefined}
               className="creation-prompt"
             />
-            {followUpGhost && (
+            {followUpGhost && showFollowUpGhost && (
               <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-center gap-2 text-base leading-[1.75]">
                 <span className="min-w-0 text-muted-foreground" aria-hidden="true">
                   {followUpGhost}
