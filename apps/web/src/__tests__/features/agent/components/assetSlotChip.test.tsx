@@ -1,3 +1,4 @@
+import { submitDraft } from '../../../../features/agent/lib/draftSubmission'
 import { openReferenceStack } from '../../../helpers/radix'
 
 // @vitest-environment jsdom
@@ -216,6 +217,7 @@ beforeEach(async () => {
   })
   send = vi.fn()
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     turn: 'idle',
     conversationId: null,
     createProject: async () => true,
