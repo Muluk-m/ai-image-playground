@@ -26,6 +26,7 @@ RUN --mount=type=bind,source=package.json,target=/tmp/root-package.json \
 FROM pnpm-base AS public-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
+COPY apps/website/package.json ./apps/website/
 COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/db/package.json ./packages/db/

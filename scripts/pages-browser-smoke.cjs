@@ -9,7 +9,7 @@ const MIME = {
   '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json',
 }
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
-const PATHS = ['/', `/p/${PROJECT_ID}`]
+const PATHS = ['/image', `/p/${PROJECT_ID}`]
 
 // Serve the built bytes with Pages' explicit route rewrites; missing chunks never become HTML.
 async function serveDist(dist) {
@@ -290,18 +290,84 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
   }
 }
 
+async function checkMarketing(browser, origin, { local = false, accountsLogin = true, outputDir } = {}) {
+  const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
+  const page = await context.newPage()
+  const errors = []
+  let loginEnabled = accountsLogin
+  let observedCapabilities = local
+  if (!local) await context.route('**/api/capabilities', async route => {
+    const response = await route.fetch()
+    loginEnabled = (await response.json())['accounts:login'] === true
+    observedCapabilities = true
+    await route.fulfill({response})
+  })
+  page.on('pageerror', error => errors.push(error.message))
+  const requiredAsset = request => {
+    const url = new URL(request.url())
+    return ['script','stylesheet'].includes(request.resourceType()) && url.origin === origin && !url.pathname.startsWith('/cdn-cgi/')
+  }
+  page.on('requestfailed', request => { if (requiredAsset(request)) errors.push(`Asset request failed: ${request.url()}`) })
+  page.on('response', response => { if (requiredAsset(response.request()) && !response.ok()) errors.push(`Asset HTTP ${response.status()}: ${response.url()}`) })
+  if (local) await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
+    const fixtures = {
+      '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin},
+      '/api/auth/oauth/providers': {providers:[]},
+    }
+    if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
+    if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
+    if (url.origin !== origin || url.pathname.startsWith('/api/')) throw new Error(`Unexpected marketing request: ${request.method()} ${url.href}`)
+    return route.continue()
+  })
+  try {
+    await page.goto(origin + '/', {waitUntil:'networkidle'})
+    if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
+    if (loginEnabled) {
+      await page.getByRole('heading',{name:/故事，\s*由你发生。/}).waitFor()
+      await page.locator('.site-nav').getByRole('button',{name:'开始创作',exact:true}).click()
+      await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
+      await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
+      if (!(await page.title()).includes('AI 图片、视频与画布创作平台')) throw new Error('Auth changed the marketing title')
+    } else {
+      await page.waitForURL(origin + '/image')
+    }
+    const paths = [['/guide/create/','zh-CN'],['/guide/en/create/','en']]
+    if (loginEnabled) paths.push(['/en/','en'],['/login/','zh-CN'])
+    for (const [path,lang] of paths) {
+      const response=await page.goto(origin+path,{waitUntil:'networkidle'})
+      if (!response?.ok()) throw new Error(`Static page failed: ${path}`)
+      await page.locator('h1').waitFor()
+      if (new URL(page.url()).pathname !== path) throw new Error(`Hydration changed the static URL: ${path}`)
+      if (await page.locator('html').getAttribute('lang') !== lang) throw new Error(`Wrong locale: ${path}`)
+      if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
+    }
+    await page.setViewportSize({width:390,height:844})
+    if (await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)) throw new Error('Login overflows narrow viewport')
+    if (outputDir) {
+      await mkdir(outputDir,{recursive:true})
+      await page.screenshot({path:join(outputDir,'marketing-login-narrow.png')})
+    }
+    if (errors.length) throw new Error(errors.join('\n'))
+    console.log(`PASS marketing, guide locales, ${loginEnabled ? 'login entry' : 'login-disabled redirect'} and narrow layout`)
+  } finally { await context.close() }
+}
+
 async function main() {
   const { chromium } = require('playwright')
   const local = process.argv[2] === '--dist'
   const target = local ? process.argv[3] : process.argv[2]
   if (!target) throw new Error('Usage: pages-browser-smoke.cjs --dist <directory> | <origin>')
-  const html = local ? await readFile(join(resolve(target), 'index.html'), 'utf8') : ''
+  const html = local ? await readFile(join(resolve(target), 'workbench.html'), 'utf8') : ''
   const optionalStyles = (html.match(/<link\b[^>]*data-optional-style[^>]*>/g) || [])
     .map((tag) => /href=["']([^"']+)["']/.exec(tag)?.[1]).filter(Boolean)
   const server = local ? await serveDist(resolve(target)) : null
   let browser
   try {
     browser = await chromium.launch()
+    await checkMarketing(browser, server?.origin || target, {local, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
+    if (local) await checkMarketing(browser, server.origin, {local:true,accountsLogin:false})
     await checkWorkspace(browser, server?.origin || target, {
       local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
@@ -316,5 +382,5 @@ async function main() {
   }
 }
 
-module.exports = { serveDist, checkWorkspace }
+module.exports = { serveDist, checkWorkspace, checkMarketing }
 if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1 })
