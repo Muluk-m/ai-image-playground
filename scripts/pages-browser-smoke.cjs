@@ -187,7 +187,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             { waitUntil: 'domcontentloaded', timeout: timeoutMs })
           if (!response?.ok()) throw new Error(`Page HTTP ${response?.status()}: ${path}`)
           const ready = index === 0 ? '[aria-label="创作"]'
-            : local || nodeCanvas ? '[aria-label="创作画布"] .react-flow'
+            : nodeCanvas ? '[aria-label="创作画布"] .react-flow'
             : '[aria-label="创作画布"] canvas, [aria-label="创作画布"] .react-flow'
           await page.locator(ready).first().waitFor({ timeout: timeoutMs })
           if (nodeCanvas && index === 1) {
