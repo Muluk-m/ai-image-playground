@@ -1,4 +1,4 @@
-import { type InputHTMLAttributes, type ReactNode, useId, useState } from 'react'
+import { type InputHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { parseRatio } from '../../lib/size'
 import { cn } from '../../lib/utils'
@@ -40,16 +40,20 @@ export function composerModelChipClass(size: ComposerControlSize = 'md') {
  */
 export function SettingsPopover({
   summary,
+  summaryContent,
   detail,
   icon,
   badge,
   title,
   dirty = false,
   size = 'md',
+  className,
   onReset,
   children,
 }: {
   summary: string
+  /** 摘要里要并排图标和文字时用它；`summary` 仍是读屏名称。 */
+  summaryContent?: ReactNode
   /** 悬停与读屏多出来的一句，不进可见摘要。 */
   detail?: string
   icon?: ReactNode
@@ -59,14 +63,26 @@ export function SettingsPopover({
   /** 摘要里看不到的参数是否偏离默认值。 */
   dirty?: boolean
   size?: ComposerControlSize
+  className?: string
   onReset?: () => void
   children: () => ReactNode
 }) {
   const { t } = useTranslation('composer')
   const [open, setOpen] = useState(false)
   const titleId = useId()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [iconsOnly, setIconsOnly] = useState(false)
   const accessible = detail ? `${summary} · ${detail}` : summary
   const summaryText = useOverflowTitle<HTMLSpanElement>(summary)
+  useEffect(() => {
+    const node = triggerRef.current?.closest('.creation-composer')
+    if (!node || !summaryContent || typeof ResizeObserver === 'undefined') return
+    const measure = () => setIconsOnly(node.clientWidth <= 400)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [summaryContent])
   return (
     <Popover
       open={open}
@@ -76,17 +92,21 @@ export function SettingsPopover({
     >
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           variant="outline"
           size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
-          title={detail ? `${title}: ${accessible}` : summaryText.title}
+          title={iconsOnly ? summary : detail ? `${title}: ${accessible}` : summaryText.title}
           aria-label={`${title}: ${accessible}`}
           data-dirty={dirty || undefined}
-          className={composerChipClass(size)}
+          className={cn(composerChipClass(size), className)}
         >
           {icon && <span className="flex shrink-0 text-muted-foreground">{icon}</span>}
-          <span ref={summaryText.ref} className="truncate tabular-nums">
-            {summary}
+          <span
+            ref={summaryText.ref}
+            className={summaryContent ? 'min-w-0' : 'truncate tabular-nums'}
+          >
+            {summaryContent ?? summary}
           </span>
           {badge && <span className="flex shrink-0">{badge}</span>}
         </Button>

@@ -155,7 +155,6 @@ function CanvasLoading({
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const { t: tShell } = useTranslation('shell')
-  const { t: tProduction } = useTranslation('production')
   const mobile = useMobileWorkspace()
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
@@ -511,28 +510,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               )}
               {projectView === 'chat' && (
                 <>
-                  {productionEnabled && (
-                    <Button
-                      variant="ghost"
-                      size="default"
-                      type="button"
-                      className="studio-production-trigger"
-                      aria-label={tProduction('entry')}
-                      aria-pressed={productionOpen}
-                      onClick={() => {
-                        const next = !productionOpen
-                        setProductionOpen(next)
-                        safeLocalStorage.setItem(productionViewKey, String(next))
-                        if (next) {
-                          useAgentStore.getState().setMode('video')
-                          setSelectedResultId(null)
-                        }
-                      }}
-                    >
-                      <Icon name="storyboard" />
-                      <span>{tProduction('entry')}</span>
-                    </Button>
-                  )}
                   <Button
                     variant="ghost"
                     size="icon"

@@ -532,6 +532,13 @@ describe('这一轮的观众', () => {
     expect(turnInitialState([], 'image').systemPrompt).not.toContain('look-l1')
   })
 
+  it('图片生成模式要求用原话出图，不再走逐张确认', () => {
+    const prompt = turnInitialState([], 'image', true, 0, audience, new Map(), true).systemPrompt
+    expect(prompt).toContain('这一轮是图片生成')
+    expect(prompt).toContain('用用户原话调用一次生图工具')
+    expect(prompt).not.toContain('用户在卡片中编辑提示词并点击「确认生成」')
+  })
+
   it('旧视频轮也可按需读取图片模板', () => {
     expect(turnInitialState([], 'video', false, 0, audience).systemPrompt).toContain('look-l1')
     expect(expandSkillInvocation('/look-l1 出个片子', 'video', audience)).toContain(
