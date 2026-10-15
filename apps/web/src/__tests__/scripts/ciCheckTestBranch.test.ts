@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { expectCommitIgnoresSigner } from './fixtureGit'
 
 /**
  * 测试环境 workflow 的第一道闸：test 落后 main 就不给构建。
@@ -15,7 +16,18 @@ let repo: string
 function git(...args: string[]): string {
   const result = spawnSync(
     'git',
-    ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-C', repo, ...args],
+    [
+      '-c',
+      'user.name=test',
+      '-c',
+      'user.email=test@example.com',
+      // 夹具提交不继承本机 commit.gpgsign。SSH 签名会间歇卡住数秒到二十多秒。
+      '-c',
+      'commit.gpgsign=false',
+      '-C',
+      repo,
+      ...args,
+    ],
     { encoding: 'utf8' },
   )
   if (result.status !== 0) throw new Error(result.stderr)
@@ -50,9 +62,16 @@ afterEach(() => {
 })
 
 describe('ci-check-test-branch.sh', () => {
+  it('does not run a signer when the environment turns signing on', () => {
+    expectCommitIgnoresSigner(() => {
+      git('commit', '-q', '--allow-empty', '-m', 'still unsigned')
+    })
+  })
+
   it('passes when test already contains main, even with work of its own on top', () => {
     commit('only-on-test.txt', 'x\n', 'test-only work')
 
+    expect(git('cat-file', '-p', 'HEAD')).not.toMatch(/^gpgsig(-sha256)? /m)
     expect(check().status).toBe(0)
   })
 
