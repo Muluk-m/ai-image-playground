@@ -46,3 +46,17 @@ Pi 0.85.1 的 `buildBaseOptions` 默认使用 model.maxTokens，但会按剩余�
 
 本服务使用中转端点，不照搬其 8192 默认值；采用经官方文档和当前上游参数验收的模型登记表。
 模型协议仍有有限输出上限；到达真实上限时继续保留失败处理，不能把不完整工具参数当成完整操作执行。
+
+## 2026-10-15：暂时停用 Claude
+
+深度档切换为 `gpt-6-astra`（high），下一句预测从 Haiku 切换为 `gpt-6-luna`；
+轻量 Luna、中等 Sol 不变。当前额度登记表只保留这三个 GPT 模型。
+
+从生产 VPS 使用现有网关和服务凭据发送真实 Chat Completions：
+- Astra：`max_tokens=128000`、`reasoning_effort=high`，HTTP 200、`finish_reason=stop`，
+  正常返回要求的 JSON（输入 18、输出 11 token）。
+- Luna：使用下一句的 `max_tokens=400`，HTTP 200、`finish_reason=stop`，
+  正常返回要求的 JSON（输入 18、输出 11 token）。
+
+Astra 沿用 100 万输入预算窗口和 128000 输出预算。本次验证参数接受与短响应完成，
+不代表实测满窗口或输出满 128K，也不将上表的旧模型官方额度结论转用为 Astra 的官方额度。
