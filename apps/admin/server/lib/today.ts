@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
+  type ErrorRecoveryState,
+  type ErrorWindow,
   type GenerationActor,
   type GenerationTaskFilters,
   type GenerationTasksResult,
@@ -12,6 +14,7 @@ import {
   todayWindow,
 } from '../../contracts'
 import { getDbHandle } from './db'
+import { errorRecoveryJoins } from './error-recovery'
 import { mapTaskListItem } from './queries'
 import { effectiveLogLevel } from './server-logs'
 
@@ -163,21 +166,39 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   const scanFrom = new Date(Math.min(window.from, recentWindow.from))
   const rows = (await getDbHandle().db.execute(sql`
     WITH errors AS (
-      SELECT 'server' AS source, id, at, service, instance, message, task_id, request_id, group_key AS "group",
+      SELECT 'server' AS source, id, at, service, instance, event, message, task_id, request_id, group_key AS "group",
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields
       FROM server_logs
       WHERE at >= ${scanFrom} AND at <= ${new Date(now)}
         AND ${effectiveLogLevel} IN ('error', 'fatal')
       UNION ALL
-      SELECT 'client' AS source, id, received_at AS at, '前端' AS service, NULL::text AS instance,
+      SELECT 'client' AS source, id, received_at AS at, '前端' AS service, NULL::text AS instance, NULL::text AS event,
         CASE WHEN name IS NULL THEN message ELSE name || ': ' || message END AS message,
         NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack, '{}'::jsonb AS fields
       FROM client_errors
       WHERE received_at >= ${scanFrom} AND received_at <= ${new Date(now)}
-    ), latest AS (
+    ), classified AS (
+      SELECT errors.*,
+        CASE WHEN reconnected.at IS NOT NULL OR task.status = 'completed' THEN 'recovered'
+          WHEN task.status = 'failed' THEN 'unresolved' ELSE 'unknown' END AS recovery_state,
+        CASE WHEN reconnected.at IS NOT NULL THEN '同一隧道连接已重新注册成功'
+          WHEN task.status = 'completed' THEN '关联任务已完成'
+          WHEN task.status = 'failed' THEN '关联任务仍为失败状态'
+          WHEN errors.service = 'cloudflared' THEN '尚无可准确关联的重连成功记录'
+          ELSE '暂无可关联的恢复证据' END AS recovery_reason,
+        COALESCE(reconnected.at, CASE WHEN task.status = 'completed' THEN task.completed_at END) AS recovered_at
+      FROM errors
+      ${errorRecoveryJoins(now)}
+    ), ranked AS (
       SELECT *, COUNT(*) FILTER (WHERE at >= ${new Date(window.from)}) OVER() AS total,
-        COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER() AS recent_total
-      FROM errors ORDER BY at DESC, source, id DESC LIMIT 10
+        COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER() AS recent_total,
+        COUNT(*) FILTER (WHERE at >= ${new Date(window.from)}) OVER (PARTITION BY recovery_state) AS state_total,
+        COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER (PARTITION BY recovery_state) AS state_recent_total,
+        ROW_NUMBER() OVER (ORDER BY at DESC, source, id DESC) AS rank,
+        ROW_NUMBER() OVER (PARTITION BY recovery_state ORDER BY at DESC, source, id DESC) AS state_rank
+      FROM classified
+    ), latest AS (
+      SELECT * FROM ranked WHERE rank <= 10 OR state_rank <= 10
     )
     SELECT latest.*, cause.fields AS cause_fields FROM latest
     LEFT JOIN LATERAL (
@@ -196,6 +217,11 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
     const fields = row.fields as Record<string, unknown> | null
     const status = Number(fields?.status)
     return {
+      recovery: {
+        state: row.recovery_state as ErrorRecoveryState,
+        reason: String(row.recovery_reason),
+        recoveredAt: row.recovered_at == null ? null : epoch(row.recovered_at),
+      },
       source: row.source as TodayErrorItem['source'],
       id: String(row.id),
       at: epoch(row.at),
@@ -212,16 +238,28 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
       reason: logReason(fields) ?? logReason(row.cause_fields),
     }
   })
-  return {
-    window,
-    total: Number(rows[0]?.total ?? 0),
-    entries: entries.filter((entry) => entry.at >= window.from),
-    recent: {
-      window: recentWindow,
-      total: Number(rows[0]?.recent_total ?? 0),
-      entries: entries.filter((entry) => entry.at >= recentWindow.from),
-    },
+  const resultWindow = (window: TimeWindow, recent: boolean): ErrorWindow => {
+    const inWindow = entries.filter((entry) => entry.at >= window.from)
+    const group = (state: ErrorRecoveryState) => ({
+      total: Number(
+        rows.find((row) => row.recovery_state === state)?.[
+          recent ? 'state_recent_total' : 'state_total'
+        ] ?? 0,
+      ),
+      entries: inWindow.filter((entry) => entry.recovery?.state === state).slice(0, 10),
+    })
+    return {
+      window,
+      total: Number(rows[0]?.[recent ? 'recent_total' : 'total'] ?? 0),
+      entries: inWindow.slice(0, 10),
+      recovery: {
+        unresolved: group('unresolved'),
+        unknown: group('unknown'),
+        recovered: group('recovered'),
+      },
+    }
   }
+  return { ...resultWindow(window, false), recent: resultWindow(recentWindow, true) }
 }
 
 export class TaskQueryError extends Error {}
