@@ -1,5 +1,5 @@
 import type { TimelineClip } from './canvasDoc'
-import { TIMELINE_UNKNOWN_SECONDS } from './timeline'
+import { timelineClipRange } from './timelineRange'
 
 /** 一段最短播多久。再短就只剩一两帧，预览里一闪而过、导出也没有意义。 */
 export const MIN_CLIP_SECONDS = 0.5
@@ -13,8 +13,7 @@ function round(seconds: number): number {
 
 /** 这一段实际从源片的哪一秒播到哪一秒。出点缺省播到结尾；源时长未知按占位时长。 */
 export function clipRange(clip: TimelineClip, source: number | undefined) {
-  const end = source ?? clip.out ?? TIMELINE_UNKNOWN_SECONDS
-  return { in: clip.in, out: Math.min(clip.out ?? end, end) }
+  return timelineClipRange(clip, source)
 }
 
 export function moveClip(clips: readonly TimelineClip[], from: number, to: number) {
@@ -41,9 +40,7 @@ export function trimClip(
   if (edge === 'in') {
     const value = round(Math.max(0, Math.min(Math.max(0, seconds), range.out - MIN_CLIP_SECONDS)))
     // 出点本来缺省（播到结尾）就保持缺省：源时长未知时写死一个占位值，会把片子永久截短。
-    return clip.out === undefined
-      ? { elementId: clip.elementId, in: value }
-      : { ...clip, in: value }
+    return { ...clip, in: value }
   }
   // 源时长未知就不知道结尾在哪，出点无从裁起。
   if (source === undefined && clip.out === undefined) return clip

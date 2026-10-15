@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
@@ -41,6 +42,7 @@ import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 import AgentUserMessage from './AgentUserMessage'
+import CanvasAgentWelcome from './CanvasAgentWelcome'
 
 const TABS = [
   { id: 'chat', labelKey: 'label.chat' },
@@ -168,6 +170,7 @@ export default function AgentPanel({
   onViewCanvas,
   onPreviewResult,
   presentation = 'side',
+  dock = 'left',
   searchOpen = false,
   onCloseSearch,
   onPreviewProduction,
@@ -179,6 +182,7 @@ export default function AgentPanel({
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
   presentation?: 'page' | 'side'
+  dock?: 'left' | 'right'
   searchOpen?: boolean
   onCloseSearch?: () => void
   onPreviewProduction?: (pane?: ProductionPane) => void
@@ -206,6 +210,23 @@ export default function AgentPanel({
   const historyCached = useAgentStore((state) => state.historyCached)
   const historyFailed = useAgentStore((state) => state.historyFailed)
   const logRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (dock !== 'right' || presentation !== 'side' || !open || !panelRef.current) return
+    const panel = panelRef.current
+    const measure = () =>
+      document.documentElement.style.setProperty(
+        '--studio-canvas-chat-width',
+        `${panel.offsetWidth}px`,
+      )
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    observer?.observe(panel)
+    return () => {
+      observer?.disconnect()
+      document.documentElement.style.removeProperty('--studio-canvas-chat-width')
+    }
+  }, [dock, presentation, open])
   const followLatest = useRef(true)
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
@@ -287,14 +308,21 @@ export default function AgentPanel({
     setUnseen(false)
   }
 
-  /** 右缘拖宽：按下即捕获指针，宽度跟手，松开时的值已经在 store 里记住了。 */
+  /** 从实际显示宽度开始拖动，避免布局限宽后反向拖动出现空行程。 */
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
     const handle = event.currentTarget
     const originX = event.clientX
-    const originWidth = panelWidth
+    const originWidth = handle.parentElement?.getBoundingClientRect().width || panelWidth
+    const maxWidth =
+      dock === 'right'
+        ? Math.min(480, (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) * 0.42)
+        : Number.POSITIVE_INFINITY
     handle.setPointerCapture(event.pointerId)
-    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + move.clientX - originX)
+    const onMove = (move: PointerEvent) =>
+      setPanelWidth(
+        Math.min(maxWidth, originWidth + (move.clientX - originX) * (dock === 'right' ? -1 : 1)),
+      )
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
@@ -326,7 +354,9 @@ export default function AgentPanel({
 
   return (
     <div
+      ref={panelRef}
       aria-label={t('panel.aria')}
+      data-dock={dock}
       style={presentation === 'side' ? { width: panelWidth } : undefined}
       className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
     >
@@ -337,34 +367,43 @@ export default function AgentPanel({
           aria-label={t('panel.resizeAria')}
           title={t('panel.resizeTitle')}
           onPointerDown={startResize}
-          className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
+          className={`absolute ${dock === 'right' ? '-left-1.5' : '-right-1.5'} top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60`}
         />
       )}
       {presentation === 'side' && (
         <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
-          <div className="flex items-center gap-1.5">
-            {TABS.map((one) => (
-              <Button
-                key={one.id}
-                type="button"
-                variant="ghost"
-                onClick={() => setTab(one.id)}
-                className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
-              >
-                {t(one.labelKey)}
-              </Button>
-            ))}
-          </div>
+          {dock === 'right' ? (
+            <SegmentedTabs
+              label={t('panel.aria')}
+              tabs={TABS.map((one) => ({ value: one.id, label: t(one.labelKey) }))}
+              value={tab === 'layers' ? 'layers' : 'chat'}
+              onChange={setTab}
+            />
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {TABS.map((one) => (
+                <Button
+                  key={one.id}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setTab(one.id)}
+                  className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
+                >
+                  {t(one.labelKey)}
+                </Button>
+              ))}
+            </div>
+          )}
           <Button
             type="button"
             variant="ghost"
             size="icon"
             aria-label={t('panel.collapseAria')}
             title={t('panel.collapseAria')}
-            className="hidden h-7 w-7 shrink-0 rounded-lg text-muted-foreground md:inline-flex"
+            className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
             onClick={() => setOpen(false)}
           >
-            <Icon name="sidebar" />
+            <Icon name={dock === 'right' ? 'minimize' : 'sidebar'} />
           </Button>
         </div>
       )}
@@ -441,15 +480,20 @@ export default function AgentPanel({
               className={
                 presentation === 'page'
                   ? 'studio-agent-log-content'
-                  : 'flex shrink-0 flex-col gap-2.5'
+                  : `flex shrink-0 flex-col gap-2.5 ${dock === 'right' && messages.length === 0 ? 'min-h-full' : ''}`
               }
             >
-              {messages.length === 0 && !historyLoading && !historyFailed && (
-                <div className="studio-chat-empty">
-                  <h3>{t('panel.emptyTitle')}</h3>
-                  <AgentSuggestions className="studio-suggestions" />
-                </div>
-              )}
+              {messages.length === 0 &&
+                !historyLoading &&
+                !historyFailed &&
+                (dock === 'right' && presentation === 'side' ? (
+                  <CanvasAgentWelcome skills={skills} />
+                ) : (
+                  <div className="studio-chat-empty">
+                    <h3>{t('panel.emptyTitle')}</h3>
+                    <AgentSuggestions className="studio-suggestions" />
+                  </div>
+                ))}
               {messages.map((message, index) => {
                 const fetchedRun = fetchedRuns?.starts.get(index)
                 if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null

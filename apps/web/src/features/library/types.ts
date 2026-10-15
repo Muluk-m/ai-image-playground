@@ -9,7 +9,7 @@ import type { TaskParams } from '../../types'
 
 export { lookSkillName } from '@image-playground/shared'
 
-/** 素材的类别：产品或人物。`views` 之前建的素材没有类别，仍是普通参考图。 */
+/** 素材的类别：人物、产品、地点或道具。`views` 之前建的素材没有类别，仍是普通参考图。 */
 export type AssetKind = (typeof ASSET_KINDS)[number]
 /** 背景状态。透明只在生成它的模型原生支持透明输出时才有，不承诺抠图。 */
 export type AssetBackground = (typeof ASSET_BACKGROUNDS)[number]
@@ -25,12 +25,14 @@ export interface AssetView {
 
 /**
  * 素材：同一个主体的一组图，起一个名字。图片本体与缩略图仍在 image store 里，
- * 同一个 imageId 可以出现在多条素材里。`views` 有序且至少一条，第一条是封面。
+ * 同一个 imageId 可以出现在多条素材里。`views` 有序，第一条是封面；空数组表示仅有设定、尚无参考图。
  */
 export interface AssetRecord {
   id: string
   name: string
   kind?: AssetKind
+  description?: string
+  voiceId?: string
   background?: AssetBackground
   views: AssetView[]
   createdAt: number
@@ -39,7 +41,7 @@ export interface AssetRecord {
   lastUsedAt: number
 }
 
-/** 封面：第一条视角的图片。组里至少有一条视角，所以它永远有值。 */
+/** 封面：第一条视角的图片；无图素材返回空字符串。 */
 export function assetCoverImageId(asset: AssetRecord): string {
   return asset.views[0]?.imageId ?? ''
 }

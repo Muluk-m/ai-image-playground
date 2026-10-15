@@ -22,7 +22,7 @@ export const SYNC_LOOK_SLOT_COUNT_MAX = 8
 export type SyncCollection = 'templates' | 'assets' | 'looks'
 
 /** 素材与模板的取值表。界面用的联合类型由它们派生，枚举只在这里存一份。 */
-export const ASSET_KINDS = ['product', 'person'] as const
+export const ASSET_KINDS = ['product', 'person', 'location', 'prop'] as const
 export const ASSET_BACKGROUNDS = ['transparent', 'solid'] as const
 export const ASSET_VIEW_LABELS = ['front', 'side', 'back', 'detail', 'sheet', 'none'] as const
 export const ASSET_VIEW_SOURCES = ['upload', 'generated'] as const
@@ -79,6 +79,8 @@ export interface SyncAssetRecord {
   /** 封面视角的图片 id。`views` 之前的客户端只认这一个字段，所以它一直带着。 */
   readonly imageId: string
   readonly kind?: string
+  readonly description?: string
+  readonly voiceId?: string
   readonly background?: string
   /** 缺席 = `views` 之前的客户端推上来的，服务端按封面补成一张视角。 */
   readonly views?: readonly SyncAssetView[]
@@ -111,7 +113,7 @@ export type SyncLookChange = SyncLookRecord | SyncTombstone
 /** 一条记录要占的素材图：素材是全部视角，模板是参考图加封面。 */
 export function syncAssetImageIds(record: SyncAssetRecord): string[] {
   const views = record.views?.map((view) => view.imageId) ?? []
-  return [...new Set([record.imageId, ...views])]
+  return [...new Set([record.imageId, ...views].filter(Boolean))]
 }
 
 export function syncLookImageIds(record: SyncLookRecord): string[] {

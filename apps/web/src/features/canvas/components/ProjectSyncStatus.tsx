@@ -2,7 +2,8 @@ import { useState, useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import type { CloudProjectSession, ProjectSyncStatus } from '../lib/cloudProjects'
+import type { CanvasCloudSession } from '../lib/cloudNodeProjects'
+import type { ProjectSyncStatus } from '../lib/cloudProjects'
 
 const LABEL_KEY = {
   deleted: 'sync.deleted',
@@ -34,7 +35,7 @@ export default function ProjectSyncStatus({
   session,
   quiet = false,
 }: {
-  session: CloudProjectSession
+  session: CanvasCloudSession
   quiet?: boolean
 }) {
   const { t } = useTranslation(['canvas', 'errors'])

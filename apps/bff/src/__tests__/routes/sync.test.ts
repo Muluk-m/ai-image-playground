@@ -324,6 +324,69 @@ describe('POST /api/sync', () => {
     expect(pulled.body.assets).toEqual([grouped] as never)
   })
 
+  it('syncs imageless locations and props with description and voice, without object uploads', async () => {
+    for (const kind of ['location', 'prop'] as const) {
+      const record = asset({
+        id: kind,
+        imageId: '',
+        views: [],
+        kind,
+        description: '晨光中的空房间',
+        voiceId: 'narrator-1',
+      })
+      const pushed = await sync(deviceA, { version: 0, assets: [record] })
+      expect(pushed.status).toBe(200)
+      expect(pushed.body.rejected).toEqual([])
+    }
+    const pulled = await sync(deviceB, { version: 0 })
+    expect(pulled.body.assets).toHaveLength(2)
+    expect(pulled.body.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'location',
+          imageId: '',
+          views: [],
+          description: '晨光中的空房间',
+          voiceId: 'narrator-1',
+        }),
+        expect.objectContaining({ kind: 'prop', imageId: '', views: [] }),
+      ]),
+    )
+  })
+
+  it('normalizes the empty view synthesized by an older client without rejecting the batch', async () => {
+    const pushed = await sync(deviceA, {
+      version: 0,
+      assets: [asset({ imageId: '', views: [{ imageId: '', label: 'none', source: 'upload' }] })],
+      templates: [template()],
+    })
+    expect(pushed.status).toBe(200)
+    expect(pushed.body.rejected).toEqual([])
+    expect(pushed.body.assets[0]).toMatchObject({ imageId: '', views: [] })
+    expect(pushed.body.templates).toHaveLength(1)
+  })
+
+  it('preserves new metadata from an older client and allows an explicit clear', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+    await sync(deviceA, {
+      version: 0,
+      assets: [asset({ description: 'character', voiceId: 'voice-1' })],
+    })
+    await sync(deviceB, { version: 0, assets: [asset({ name: 'Renamed', updatedAt: 4000 })] })
+    const preserved = await sync(deviceA, { version: 0 })
+    expect(preserved.body.assets[0]).toMatchObject({
+      name: 'Renamed',
+      description: 'character',
+      voiceId: 'voice-1',
+    })
+    await sync(deviceB, {
+      version: 0,
+      assets: [asset({ description: '', voiceId: '', updatedAt: 5000 })],
+    })
+    const cleared = await sync(deviceA, { version: 0 })
+    expect(cleared.body.assets[0]).toMatchObject({ description: '', voiceId: '' })
+  })
+
   it('holds an asset back until every view image is uploaded', async () => {
     await uploadImage(deviceA, 'image-hash-1')
     const pushed = await sync(deviceA, {

@@ -262,7 +262,9 @@ function fromWireAsset(change: SyncAssetChange): AssetRecord | Tombstone {
             label: view.label as AssetView['label'],
             source: view.source as AssetView['source'],
           }))
-        : [{ imageId, label: 'none', source: 'upload' }],
+        : imageId
+          ? [{ imageId, label: 'none', source: 'upload' }]
+          : [],
   }
 }
 

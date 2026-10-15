@@ -1,7 +1,30 @@
 import { AGENT_IMAGE_MAX_N, type AgentToolErrorCode, isAgentToolErrorCode } from './agent'
+import { type CanvasStoryboardData, isCanvasStoryboardData } from './canvas-storyboard'
 import { isVideoGenerationRecord, type VideoGenerationRecord } from './video-generation'
 
 export const PROJECT_NAME_MAX_LENGTH = 120
+/** 复制项目时拼在名称后面的默认词。客户端可以按界面语言另传一个。 */
+export const CANVAS_PROJECT_COPY_SUFFIX = '副本'
+const CANVAS_PROJECT_COPY_SUFFIX_MAX = 24
+
+/**
+ * 副本名称。后缀按写入时的界面语言传入；缺省、过长或含控制字符时用默认词。
+ * 结果仍不超过项目名上限，超长的原名从末尾截掉。
+ */
+export function copiedCanvasProjectName(name: string, suffix?: string): string {
+  const word = acceptedCopySuffix(suffix)
+  const ending = ` ${word}`
+  const room = PROJECT_NAME_MAX_LENGTH - ending.length
+  return `${name.trim().slice(0, Math.max(0, room))}${ending}`
+}
+
+function acceptedCopySuffix(suffix: string | undefined): string {
+  if (typeof suffix !== 'string' || /[\u0000-\u001f]/.test(suffix))
+    return CANVAS_PROJECT_COPY_SUFFIX
+  const word = suffix.trim().replace(/ {2,}/g, ' ')
+  if (!word || word.length > CANVAS_PROJECT_COPY_SUFFIX_MAX) return CANVAS_PROJECT_COPY_SUFFIX
+  return word
+}
 export const PROJECT_PAGE_SIZE = 30
 export const PROJECT_PAGE_MAX_SIZE = 100
 export const PROJECT_DOCUMENT_MAX_BYTES = 512 * 1024
@@ -25,11 +48,13 @@ export interface ProjectImage {
   createdAt?: number
   groupId?: string
   meta?: Record<string, string>
-  /** 有值即 `mediaId` 只是封面，片子在队列里；播放地址由客户端现拼，不存整条 URL。 */
+  /** 有值即 `mediaId` 只是封面，片子由 video.mediaId 或队列引用定位；播放地址由客户端现拼，不存整条 URL。 */
   video?: ProjectVideoRef
 }
 
 export interface ProjectVideoRef {
+  /** Adopted original; unlike the poster, this is the durable video binary. */
+  mediaId?: string
   taskId: string
   outputIndex: number
   generation?: VideoGenerationRecord
@@ -39,8 +64,12 @@ export interface ProjectVideoRef {
 const PROJECT_VIDEO_OUTPUT_MAX = 16
 
 function videoRef(value: unknown): boolean {
-  if (!object(value) || !keys(value, ['taskId', 'outputIndex', 'generation'])) return false
+  if (!object(value) || !keys(value, ['taskId', 'outputIndex', 'generation', 'mediaId']))
+    return false
   return (
+    (value.mediaId === undefined ||
+      (typeof value.mediaId === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.mediaId))) &&
     typeof value.taskId === 'string' &&
     // 它会被拼进播放地址的路径段，只放行 id 字符。
     /^[A-Za-z0-9_-]{1,128}$/.test(value.taskId) &&
@@ -103,6 +132,16 @@ export type ProjectElement =
     }
   | { id: string; type: 'freedraw'; points: number[]; stroke: string; strokeWidth: number }
   | ProjectTimeline
+  | ProjectStoryboard
+
+export interface ProjectStoryboard extends CanvasStoryboardData {
+  id: string
+  type: 'storyboard'
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 /** 时间线只存对同一项目里视频元素的有序引用与入出点（秒），不存媒体。 */
 export interface ProjectTimeline {
@@ -115,11 +154,13 @@ export interface ProjectTimeline {
   clips: { elementId: string; in: number; out?: number }[]
 }
 
+/** Authoring and film export limit. Storage tolerates concurrent additions for later reconciliation. */
 export const PROJECT_TIMELINE_MAX_CLIPS = 64
+const PROJECT_TIMELINE_STORAGE_MAX_CLIPS = 1000
 /** 单段入出点的上限（秒）。上游最长的片子也远不到它，超出只可能是坏数据。 */
 const PROJECT_CLIP_MAX_SECONDS = 3600
 
-function timelineClip(value: unknown): boolean {
+export function isProjectTimelineClip(value: unknown): boolean {
   if (!object(value) || !keys(value, ['elementId', 'in', 'out'])) return false
   const within = (seconds: unknown) =>
     typeof seconds === 'number' &&
@@ -307,6 +348,19 @@ function element(value: unknown): value is ProjectElement {
       value.text.length <= 10000
     )
   }
+  if (value.type === 'storyboard') {
+    return (
+      keys(value, ['id', 'type', 'x', 'y', 'width', 'height', 'shots', 'confirmed']) &&
+      coordinate(value.x) &&
+      coordinate(value.y) &&
+      size(value.width) &&
+      size(value.height) &&
+      isCanvasStoryboardData({
+        shots: value.shots,
+        ...(value.confirmed === undefined ? {} : { confirmed: value.confirmed }),
+      })
+    )
+  }
   if (value.type === 'timeline') {
     return (
       keys(value, ['id', 'type', 'x', 'y', 'width', 'height', 'clips']) &&
@@ -315,8 +369,8 @@ function element(value: unknown): value is ProjectElement {
       size(value.width) &&
       size(value.height) &&
       Array.isArray(value.clips) &&
-      value.clips.length <= PROJECT_TIMELINE_MAX_CLIPS &&
-      value.clips.every(timelineClip)
+      value.clips.length <= PROJECT_TIMELINE_STORAGE_MAX_CLIPS &&
+      value.clips.every(isProjectTimelineClip)
     )
   }
   if (value.type === 'arrow' || value.type === 'freedraw') {
