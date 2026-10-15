@@ -7,7 +7,6 @@ import { Icon } from '../../../components/ui/icon'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
-import { CARD_NOTE } from '../agentStyles'
 import { turnCostWithJobs } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage, AgentTurnFooter } from '../types'
@@ -42,10 +41,10 @@ export default function AgentTurnCost({
     return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} />
 
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
-  const parts: ReactNode[] = []
+  const extra: ReactNode[] = []
   if (failed)
-    parts.push(
-      <span>
+    extra.push(
+      <span key="failed">
         {t(
           footer.error === 'agent_turn_interrupted'
             ? 'cost.interrupted'
@@ -57,56 +56,47 @@ export default function AgentTurnCost({
         )}
       </span>,
     )
-  if (footer.durationMs !== undefined) {
-    parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
-  }
-  if (total) {
-    parts.push(
-      <Button
-        type="button"
-        variant="ghost"
-        aria-expanded={open}
-        className="inline-flex h-auto w-auto gap-1 px-0 py-0 text-label-sm font-normal hover:bg-transparent hover:text-foreground"
-        onClick={() => setOpen(!open)}
-      >
-        {t('cost.spent')} <Credits credits={total} />
-      </Button>,
-    )
-  }
+
+  const breakdown =
+    open && cost ? (
+      <span className="basis-full tabular-nums">
+        {BREAKDOWN.filter(([key]) => cost[key] > 0).map(([key, labelKey], index) => {
+          const amount = formatCount(cost[key])
+          return (
+            <Fragment key={key}>
+              {index > 0 && <span aria-hidden="true"> · </span>}
+              {t(labelKey)} {amount}
+            </Fragment>
+          )
+        })}
+      </span>
+    ) : null
 
   const receipt = (
-    <div className={`studio-agent-turn-cost flex flex-wrap items-center gap-1 ${CARD_NOTE}`}>
-      {parts.map((part, index) => (
-        <Fragment key={index}>
-          {index > 0 && <span aria-hidden="true">·</span>}
-          {part}
-        </Fragment>
-      ))}
-      {failed && footer.error !== 'agent_turn_interrupted' && (
-        <AgentCopyDiagnostic
-          diagnostic={{
-            ...footer.failure,
-            code: footer.error,
-            turnId: footer.turnId,
-            durationMs: footer.durationMs,
-          }}
-        />
-      )}
-      {open && cost && (
-        <span className="basis-full tabular-nums">
-          {BREAKDOWN.filter(([key]) => cost[key] > 0).map(([key, labelKey], index) => {
-            const amount = formatCount(cost[key])
-            return (
-              <Fragment key={key}>
-                {index > 0 && <span aria-hidden="true"> · </span>}
-                {t(labelKey)} {amount}
-              </Fragment>
-            )
-          })}
-        </span>
-      )}
-    </div>
+    <CostLine
+      durationMs={footer.durationMs}
+      amount={total && total > 0 ? total : null}
+      open={open}
+      onToggle={() => setOpen(!open)}
+      extra={
+        <>
+          {extra}
+          {failed && footer.error !== 'agent_turn_interrupted' && (
+            <AgentCopyDiagnostic
+              diagnostic={{
+                ...footer.failure,
+                code: footer.error,
+                turnId: footer.turnId,
+                durationMs: footer.durationMs,
+              }}
+            />
+          )}
+        </>
+      }
+      breakdown={breakdown}
+    />
   )
+  const visible = extra.length > 0 || footer.durationMs !== undefined || (total ?? 0) > 0
   return footer.stopReason === 'aborted' ? (
     <StoppedRun
       reason={t('cost.stopped')}
@@ -122,80 +112,85 @@ export default function AgentTurnCost({
         </Button>
       }
     >
-      {parts.length > 0 && receipt}
+      {visible ? receipt : null}
     </StoppedRun>
-  ) : (
+  ) : visible ? (
     receipt
+  ) : null
+}
+
+/** `28s · 100 积分 · 明细`。明细展开分类或减免，不再用悬浮的箭头。 */
+function CostLine({
+  durationMs,
+  amount,
+  open,
+  onToggle,
+  extra,
+  breakdown,
+}: {
+  durationMs?: number
+  amount: number | null
+  open: boolean
+  onToggle: () => void
+  extra?: ReactNode
+  breakdown?: ReactNode
+}) {
+  const { t } = useTranslation('agent')
+  const duration = durationMs !== undefined ? formatElapsed(durationMs) : null
+  return (
+    <div className="studio-agent-turn-cost flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-sm text-muted-foreground">
+      {extra}
+      {duration && (
+        <span className="tabular-nums" aria-label={t('cost.duration', { duration })}>
+          {duration}
+        </span>
+      )}
+      {amount !== null && (
+        <>
+          {duration && <span aria-hidden="true">·</span>}
+          <span className="tabular-nums">{t('cost.credits', { amount: formatCount(amount) })}</span>
+          <span aria-hidden="true">·</span>
+          <Button
+            type="button"
+            variant="ghost"
+            aria-expanded={open}
+            aria-label={t('cost.receiptToggle')}
+            className="h-auto gap-0 px-0 py-0 text-label-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+            onClick={onToggle}
+          >
+            {t('cost.details')}
+          </Button>
+        </>
+      )}
+      {breakdown}
+    </div>
   )
 }
 
 function ChatFreeReceipt({ cost, durationMs }: { cost: TurnCost; durationMs?: number }) {
-  const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const spent = agentTurnCostTotal(cost)
+  return (
+    <CostLine
+      durationMs={durationMs}
+      amount={spent > 0 ? spent : null}
+      open={open}
+      onToggle={() => setOpen(!open)}
+      breakdown={open ? <ReceiptBreakdown cost={cost} spent={spent} /> : null}
+    />
+  )
+}
+
+function ReceiptBreakdown({ cost, spent }: { cost: TurnCost; spent: number }) {
+  const { t } = useTranslation('agent')
   const waived = cost.chatWaived
   const knownWaiver = typeof waived === 'number' && waived > 0
-
   return (
-    <div className={`flex flex-wrap items-center gap-1.5 ${CARD_NOTE}`}>
-      {durationMs !== undefined && (
-        <span className="mr-0.5 tabular-nums">{formatElapsed(durationMs)}</span>
-      )}
-      {cost.image > 0 && (
-        <span
-          role="group"
-          aria-label={t('cost.imageSpentAria', { amount: formatCount(cost.image) })}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 text-foreground"
-        >
-          <Icon name="image" className="size-3" />
-          <Credits credits={cost.image} />
-        </span>
-      )}
-      {cost.video > 0 && (
-        <span
-          role="group"
-          aria-label={t('cost.videoSpentAria', { amount: formatCount(cost.video) })}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 text-foreground"
-        >
-          <Icon name="video" className="size-3" />
-          <Credits credits={cost.video} />
-        </span>
-      )}
-      <span
-        role="group"
-        aria-label={
-          knownWaiver
-            ? t('cost.waivedAria', { amount: formatCount(waived) })
-            : t('cost.waivedUnknownAria')
-        }
-        className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-1 text-primary"
-      >
-        <Icon name="chat" className="size-3" />
-        {knownWaiver && <Credits credits={waived} struck />}
-        <span className="font-semibold">{t('cost.waivedShort')}</span>
-      </span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        aria-label={t('cost.receiptToggle')}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="ml-auto size-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        <Icon
-          name="chevronDown"
-          className={`size-3 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </Button>
-      {open && (
-        <div className="basis-full rounded-lg border border-border bg-muted/60 px-2.5 py-2 tabular-nums">
-          {knownWaiver && <ReceiptRow label={t('cost.original')} amount={spent + waived} />}
-          <ReceiptRow label={t('cost.chatWaiver')} amount={knownWaiver ? waived : null} negative />
-          <div className="my-1 border-t border-border" />
-          <ReceiptRow label={t('cost.paid')} amount={spent} strong />
-        </div>
-      )}
+    <div className="basis-full rounded-lg px-0 py-1 text-label-sm tabular-nums text-muted-foreground">
+      {knownWaiver && <ReceiptRow label={t('cost.original')} amount={spent + waived} />}
+      <ReceiptRow label={t('cost.chatWaiver')} amount={knownWaiver ? waived : null} negative />
+      <div className="my-1 border-t border-border" />
+      <ReceiptRow label={t('cost.paid')} amount={spent} strong />
     </div>
   )
 }
@@ -214,7 +209,7 @@ function ReceiptRow({
   const { t } = useTranslation('agent')
   return (
     <div
-      className={`flex items-center justify-between py-0.5 ${strong ? 'font-semibold text-foreground' : ''}`}
+      className={`flex items-center justify-between gap-4 py-0.5 ${strong ? 'font-medium text-foreground' : ''}`}
     >
       <span>{label}</span>
       <span className={`inline-flex items-center gap-0.5 ${negative ? 'text-primary' : ''}`}>

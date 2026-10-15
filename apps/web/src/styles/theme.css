@@ -33,7 +33,8 @@
   --input: var(--border);
   --ring: var(--primary);
   --radius: 0.625rem;
-  --sidebar: var(--card);
+  /* 侧栏与内容缝隙比面板更深一档，面板才显得抬起来。 */
+  --sidebar: 90 8% 93%;
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
@@ -78,6 +79,11 @@
   --success: 142 55% 65%;
   --warning: 40 90% 65%;
   --warning-foreground: 35 60% 10%;
+  --sidebar: 120 8% 3.5%;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: 120 6% 10%;
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: 120 5% 12%;
   --membership-free: 156 5.21% 62.35%;
   --membership-basic: 101.19 65.56% 64.71%;
   --membership-plus: 188.63 76.88% 60.98%;
