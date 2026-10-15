@@ -16,7 +16,10 @@ import { CanvasDoc } from '../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../features/canvas/lib/editor'
 import { openCanvasDatabase } from '../../../features/canvas/lib/persistence'
-import { projectRepository } from '../../../features/canvas/lib/projectRepository'
+import {
+  type CanvasProject,
+  projectRepository,
+} from '../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { openCanvas } from '../../helpers/activeProject'
@@ -70,18 +73,13 @@ function active() {
   return state.projects.find((one) => one.id === state.activeId)
 }
 
-it('项目页选「视频」建出来的是视频画布，选「图片」建的是图片画布', async () => {
-  act(() => {
-    root.render(<ProjectsTab search="" />)
-  })
-  clickEntry('视频')
-  await vi.waitFor(() => expect(active()?.kind).toBe('video'))
-
-  act(() => {
-    root.render(<ProjectsTab search="" />)
-  })
-  clickEntry('图片')
-  await vi.waitFor(() => expect(active()?.kind).toBe('image'))
+it('新建画布不再选择图片或视频类型', async () => {
+  act(() => root.render(<ProjectsTab search="" />))
+  const labels = [...host.querySelectorAll('button')].map((one) => one.textContent?.trim())
+  expect(labels).not.toContain('图片')
+  expect(labels).not.toContain('视频')
+  clickEntry('画布')
+  await vi.waitFor(() => expect(active()?.experience).toBe('canvas'))
 })
 
 it('画布类型建出来就定死，后来的写入改不动它', async () => {
@@ -122,7 +120,7 @@ it('这个字段之前不存在，缺它的老记录一律读作图片画布', a
   expect((await projectRepository.update(id, { hasContent: false })).kind).toBe('image')
 })
 
-it('云端文档带着画布类型往返：推上去带，另一台设备读回来认领一次', async () => {
+it('旧云端类型仅透传，另一设备及离线重开不认领或改写本地项目类型', async () => {
   const local = await projectRepository.create('跨设备片子', undefined, true, false, 'video')
   const editor = new CanvasEditor(new CanvasDoc())
   editor.doc.addElements([
@@ -176,7 +174,59 @@ it('云端文档带着画布类型往返：推上去带，另一台设备读回�
     'fetch',
     vi.fn(async () => Response.json({ ...summary, document: writes[0]!.document })),
   )
-  const other = new CloudProjectSession(imported, await openSceneRecord(imported.sceneKey))
+  const otherRecord = await openSceneRecord(imported.sceneKey)
+  const other = new CloudProjectSession(imported, otherRecord)
   await other.load()
-  expect((await projectRepository.list())[0]?.kind).toBe('video')
+  expect((await projectRepository.list())[0]?.kind).toBe('image')
+  await otherRecord.persist()
+  other.dispose()
+  vi.stubGlobal('navigator', { onLine: false })
+  const reopenedRecord = await openSceneRecord(imported.sceneKey)
+  const forks: CanvasProject[] = []
+  const reopened = new CloudProjectSession(imported, reopenedRecord, undefined, (copy) =>
+    forks.push(copy),
+  )
+  await reopened.load()
+  expect(reopened.getSnapshot().status).toBe('offline')
+  reopenedRecord.editor.doc.updateElements([{ id: 'note', patch: { text: '修改分镜' } }])
+  vi.stubGlobal('navigator', { onLine: true })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string)
+      writes.push(body)
+      return Response.json({ ...summary, revision: body.baseRevision + 1 })
+    }),
+  )
+  await reopened.sync()
+  expect(writes[writes.length - 1]?.document.kind).toBe('video')
+  expect((await projectRepository.list())[0]?.kind).toBe('image')
+  const cloudDocument = structuredClone(writes[writes.length - 1]!.document)
+  reopenedRecord.editor.doc.updateElements([
+    { id: 'note', patch: { text: 'conflicting local edit' } },
+  ])
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      return init?.method === 'PUT'
+        ? Response.json({ error: 'project_conflict', revision: 3 }, { status: 409 })
+        : Response.json({ ...summary, revision: 3, document: cloudDocument })
+    }),
+  )
+  await reopened.sync()
+  await vi.waitFor(() => expect(forks).toHaveLength(1))
+  expect(forks[0]?.kind).toBe('video')
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string)
+      writes.push(body)
+      return Response.json({ ...summary, id: forks[0]!.id, revision: body.baseRevision + 1 })
+    }),
+  )
+  const copy = new CloudProjectSession(forks[0]!, await openSceneRecord(forks[0]!.sceneKey))
+  await copy.load()
+  expect(writes[writes.length - 1]?.document.kind).toBe('video')
+  copy.dispose()
+  reopened.dispose()
 })

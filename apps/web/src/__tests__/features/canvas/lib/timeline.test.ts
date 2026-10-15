@@ -203,3 +203,11 @@ describe('片段', () => {
     expect(segment!.width).toBe(5 * TIMELINE_PX_PER_SECOND)
   })
 })
+
+it('new timeline references inherit the source video trim range', () => {
+  addVideo('trimmed', 0, 10)
+  doc.updateElements([{ id: 'trimmed', patch: { meta: { videoTrimIn: '2', videoTrimOut: '7' } } }])
+  editor.setSelectedElements(['trimmed'])
+  addSelectionToTimeline(editor)
+  expect(timelines()[0]!.clips).toEqual([{ elementId: 'trimmed', in: 2, out: 7 }])
+})

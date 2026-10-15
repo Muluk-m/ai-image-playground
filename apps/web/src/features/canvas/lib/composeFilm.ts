@@ -3,15 +3,22 @@ import {
   AudioSample,
   AudioSampleSource,
   BlobSource,
-  BufferTarget,
   CanvasSink,
   CanvasSource,
   Input,
   Mp4OutputFormat,
   Output,
   QUALITY_HIGH,
+  type Target,
 } from 'mediabunny'
-import { clipFrameCount, FILM_FPS, FILM_MAX_SECONDS, FILM_SAMPLE_RATE, fitAudio } from './filmSpec'
+import {
+  clipFrameCount,
+  FILM_FPS,
+  FILM_MAX_CLIPS,
+  FILM_MAX_SECONDS,
+  FILM_SAMPLE_RATE,
+  fitAudio,
+} from './filmSpec'
 
 export interface ComposeClip {
   blob: Blob
@@ -43,85 +50,84 @@ function even(value: number): number {
  * onProgress 收到 0–1。
  */
 export async function composeFilm(
-  clips: readonly ComposeClip[],
+  count: number,
+  loadClip: (index: number) => Promise<ComposeClip>,
+  target: Target,
   onProgress: (fraction: number) => void,
-): Promise<ArrayBuffer> {
-  const inputs = clips.map(
-    (clip) => new Input({ formats: ALL_FORMATS, source: new BlobSource(clip.blob) }),
-  )
-  const tracks = await Promise.all(
-    inputs.map(async (input, index) => {
-      const track = await input.getPrimaryVideoTrack().catch(() => null)
-      if (!track || !(await track.canDecode())) throw new ComposeError('unreadable', index + 1)
-      return { track, seconds: await input.computeDuration() }
-    }),
-  )
-  const frameCounts = tracks.map((t, index) => clipFrameCount(clips[index]!, t.seconds, FILM_FPS))
-  const totalFrames = frameCounts.reduce((sum, n) => sum + n, 0)
-  if (totalFrames / FILM_FPS > FILM_MAX_SECONDS + 1) throw new ComposeError('tooLong')
-
-  const width = even(tracks[0]!.track.displayWidth)
-  const height = even(tracks[0]!.track.displayHeight)
-  const canvas = new OffscreenCanvas(width, height)
-  const ctx = canvas.getContext('2d')!
+): Promise<void> {
+  if (!Number.isInteger(count) || count < 1 || count > FILM_MAX_CLIPS)
+    throw new ComposeError('tooLong')
   const output = new Output({
-    format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
-    target: new BufferTarget(),
+    format: new Mp4OutputFormat({ fastStart: false }),
+    target,
   })
-  // Safari 默认（quality）模式编到第 5～8 帧后不再产出，实时模式两家都能跑完（ADR 0010）。
-  const video = new CanvasSource(canvas, {
-    codec: 'avc',
-    quality: QUALITY_HIGH,
-    latencyMode: 'realtime',
-  })
+  let video: CanvasSource | undefined
+  let canvas: OffscreenCanvas | undefined
   const audio = new AudioSampleSource({ codec: 'aac', bitrate: 128e3 })
-  output.addVideoTrack(video, { frameRate: FILM_FPS })
-  output.addAudioTrack(audio)
-  await output.start()
-
   let written = 0
   try {
-    for (let i = 0; i < clips.length; i += 1) {
-      const clip = clips[i]!
-      const { track } = tracks[i]!
-      const frames = frameCounts[i]!
-      const offset = written / FILM_FPS
-      const times = Array.from({ length: frames }, (_, k) => clip.in + k / FILM_FPS)
-      let k = 0
-      for await (const got of new CanvasSink(track, { poolSize: 2 }).canvasesAtTimestamps(times)) {
-        ctx.fillStyle = '#000'
-        ctx.fillRect(0, 0, width, height)
-        if (got) {
-          const { width: sw, height: sh } = got.canvas
-          const scale = Math.min(width / sw, height / sh)
-          const w = sw * scale
-          const h = sh * scale
-          ctx.drawImage(got.canvas, (width - w) / 2, (height - h) / 2, w, h)
+    for (let i = 0; i < count; i += 1) {
+      const clip = await loadClip(i)
+      const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(clip.blob) })
+      try {
+        const track = await input.getPrimaryVideoTrack().catch(() => null)
+        if (!track || !(await track.canDecode())) throw new ComposeError('unreadable', i + 1)
+        const frames = clipFrameCount(clip, await input.computeDuration(), FILM_FPS)
+        if ((written + frames) / FILM_FPS > FILM_MAX_SECONDS) throw new ComposeError('tooLong')
+        if (!canvas) {
+          canvas = new OffscreenCanvas(even(track.displayWidth), even(track.displayHeight))
+          // Safari quality 模式会卡住；继续使用 ADR 0010 已验收的 realtime 模式。
+          video = new CanvasSource(canvas, {
+            codec: 'avc',
+            quality: QUALITY_HIGH,
+            latencyMode: 'realtime',
+          })
+          output.addVideoTrack(video, { frameRate: FILM_FPS })
+          output.addAudioTrack(audio)
+          await output.start()
         }
-        await video.add(offset + k / FILM_FPS, 1 / FILM_FPS)
-        k += 1
-        written += 1
-        if (written % 15 === 0) onProgress(written / totalFrames)
+        const { width, height } = canvas
+        const ctx = canvas.getContext('2d')!
+        const offset = written / FILM_FPS
+        const times = Array.from({ length: frames }, (_, k) => clip.in + k / FILM_FPS)
+        let k = 0
+        for await (const got of new CanvasSink(track, { poolSize: 2 }).canvasesAtTimestamps(
+          times,
+        )) {
+          ctx.fillStyle = '#000'
+          ctx.fillRect(0, 0, width, height)
+          if (got) {
+            const { width: sw, height: sh } = got.canvas
+            const scale = Math.min(width / sw, height / sh)
+            const w = sw * scale,
+              h = sh * scale
+            ctx.drawImage(got.canvas, (width - w) / 2, (height - h) / 2, w, h)
+          }
+          await video!.add(offset + k / FILM_FPS, 1 / FILM_FPS)
+          k += 1
+          written += 1
+          if (written % 15 === 0) onProgress((i + k / frames) / count)
+        }
+        const sample = new AudioSample({
+          data: fitAudio(clip.audio, Math.round((frames / FILM_FPS) * FILM_SAMPLE_RATE)),
+          format: 'f32-planar',
+          numberOfChannels: 2,
+          sampleRate: FILM_SAMPLE_RATE,
+          timestamp: offset,
+        })
+        try {
+          await audio.add(sample)
+        } finally {
+          sample.close()
+        }
+      } finally {
+        input.dispose()
       }
-      // 音频按画面帧数定长，缺的补静音，每段首尾都对齐画面。
-      const audioFrames = Math.round((frames / FILM_FPS) * FILM_SAMPLE_RATE)
-      const sample = new AudioSample({
-        data: fitAudio(clip.audio, audioFrames),
-        format: 'f32-planar',
-        numberOfChannels: 2,
-        sampleRate: FILM_SAMPLE_RATE,
-        timestamp: offset,
-      })
-      await audio.add(sample)
-      sample.close()
     }
     await output.finalize()
   } catch (err) {
     await output.cancel().catch(() => {})
     throw err
-  } finally {
-    for (const input of inputs) input.dispose()
   }
   onProgress(1)
-  return (output.target as BufferTarget).buffer!
 }

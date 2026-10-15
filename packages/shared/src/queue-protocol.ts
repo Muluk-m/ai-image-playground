@@ -83,6 +83,8 @@ export const QUEUE_PROMPT_MAX_CHARS = 32_000
  */
 export interface SubmitRequest {
   prompt: string
+  /** Canvas candidates expire with the queue unless explicitly adopted as project media. */
+  output_retention?: 'candidate'
   size?: string
   /**
    * OpenAI 协议层面是 'auto' | 'low' | 'medium' | 'high'；这里放宽为 string

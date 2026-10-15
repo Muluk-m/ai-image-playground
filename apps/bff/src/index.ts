@@ -1,22 +1,19 @@
-import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
+import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeOldClientErrors } from './lib/client-errors'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
+import { startHttpServer } from './lib/httpServer'
 import { log } from './lib/logger'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
-import { withRequestContext } from './lib/request-context'
 import { startServerLogs } from './lib/server-logs'
-
-// 与 Cloudflare 的请求体上限对齐：生产流量经它进来，超过的本来就到不了这里；直连源站时
-// 也不该放进更大的。前端提交前会把参考图压到长边 2048，正常一次远小于这个数。
-const MAX_REQUEST_BODY_SIZE_BYTES = 100 * 1024 * 1024
 
 const stopServerLogs = startServerLogs()
 config.assertValid()
@@ -156,18 +153,7 @@ if (config.corsOrigins === '*') {
   )
 }
 
-// 不用 app.listen：每个请求要先套上 request id 的上下文，日志才能按请求串起来。
-// 代价是 Elysia 的 onStart / onStop 钩子与 `.use(import(...))` 懒加载路由不再生效，别往这上面加。
-const server = Bun.serve({
-  port: config.port,
-  // app.listen 原本替我们关掉的开发模式：开着时未捕获的错误会回带调用栈的错误页。
-  development: false,
-  idleTimeout: SERVER_IDLE_TIMEOUT_SEC,
-  maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
-  fetch: withRequestContext((request) => app.fetch(request)),
-})
-// 路由靠 context.server 取对端地址（requestIP）做限流，自己起的 server 要交给 Elysia。
-app.server = server
+const server = startHttpServer(app, { port: config.port })
 log.info(
   {
     event: 'listen',
@@ -232,6 +218,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
   clearInterval(apiMinutesTimer)
 
   try {
+    // Close idle canvas sockets after task drain so HTTP shutdown can finish.
+    await canvasSyncRooms.close()
     await server.stop()
   } catch (err) {
     log.error(

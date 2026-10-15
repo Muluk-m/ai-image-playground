@@ -212,7 +212,6 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     loadAgentExperience(conversationId, userId, source),
   ])
   const { experience } = resolved
-  const audience: AgentTurnAudience = { ...loadedAudience, experience }
   let content =
     source.kind === 'wake'
       ? await wakeContent(conversationId, owner, turnId, history, source.wake)
@@ -228,6 +227,11 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   }
   // chat 不把旧客户端残留的画布上下文带给模型或图片解析器。
   const turnContent = experience === 'chat' ? { ...content, canvas: undefined } : content
+  const audience: AgentTurnAudience = {
+    ...loadedAudience,
+    experience,
+    nodeCanvas: turnContent.canvas?.selectedNodeIds !== undefined,
+  }
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，
   // 不留孤儿对象。范围到事务提交为止——提交之后那条用户消息已经指着这些图了。

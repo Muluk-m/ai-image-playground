@@ -1,4 +1,5 @@
 import type { AgentConversationView } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import {
   AGENT_CONVERSATION_KEY,
   accountScope,
@@ -8,10 +9,11 @@ import {
 import { flushOnPageHide } from '../../../lib/flushOnPageHide'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
 import { currentCanvasProject, restoreCloudProject, useCanvasProjectStore } from '../projectStore'
-import type { CloudProjectSession } from './cloudProjects'
+import type { CanvasCloudSession } from './cloudNodeProjects'
 import { readPersistedScene } from './persistence'
 import {
   cloudProjectsEnabled,
+  copyCloudProject,
   getCloudProject,
   PROJECT_REQUEST_TIMEOUT_MS,
   restoreDeletedCloudProject,
@@ -78,7 +80,7 @@ function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
  * 只读：不像 `currentCanvasWorkspace()` 那样顺手建一个——在发送路径上建工作区会抢在
  * 首条消息绑定画布之前占住 `current`，绑定随之失败。
  */
-export function openCanvasCloudSession(): CloudProjectSession | undefined {
+export function openCanvasCloudSession(): CanvasCloudSession | undefined {
   return current?.cloud
 }
 
@@ -383,4 +385,21 @@ export async function copyDeletedProjectLocally(id: string): Promise<CanvasProje
   if (!isCurrent()) throw new Error('account_changed')
   useCanvasProjectStore.getState().updateListed(copy)
   return copy
+}
+
+/** 把已提交的节点画布复制成一个新项目。正在编辑的那一份先推上去，副本不带走会话。 */
+export async function copyCloudCanvasProject(id: string): Promise<CanvasProject> {
+  const isCurrent = accountScope()
+  const session: CanvasCloudSession | undefined = openCanvasCloudSession()
+  if (session?.projectId === id) await session.sync()
+  if (!isCurrent()) throw new Error('account_changed')
+  const summary = await copyCloudProject(
+    id,
+    i18next.getFixedT(null, 'canvas')('grid.copyNameSuffix'),
+  )
+  if (!isCurrent()) throw new Error('account_changed')
+  const project = await restoreCloudProject(summary)
+  if (!isCurrent()) throw new Error('account_changed')
+  useCanvasProjectStore.getState().updateListed(project)
+  return project
 }

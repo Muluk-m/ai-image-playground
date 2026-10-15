@@ -287,6 +287,7 @@ describe('tool declarations in the estimate', () => {
       'viewVideo',
       'readLibrary',
       'readCanvas',
+      'arrangeTimeline',
       'editCanvasObject',
       'arrangeCanvas',
       // 联网工具没有开关，所以它们在任何部署里都随清单发出去；取图那两个要登录，这里没有。
@@ -531,10 +532,11 @@ describe('这一轮的观众', () => {
     expect(turnInitialState([], 'image').systemPrompt).not.toContain('look-l1')
   })
 
-  it('视频轮不列模板，也不认它的斜杠命令', () => {
-    // 模板钉的是出图模型与尺寸；内置模板同样只放在 `image/` 下。
-    expect(turnInitialState([], 'video', false, 0, audience).systemPrompt).not.toContain('look-l1')
-    expect(expandSkillInvocation('/look-l1 出个片子', 'video', audience)).toBe('/look-l1 出个片子')
+  it('旧视频轮也可按需读取图片模板', () => {
+    expect(turnInitialState([], 'video', false, 0, audience).systemPrompt).toContain('look-l1')
+    expect(expandSkillInvocation('/look-l1 出个片子', 'video', audience)).toContain(
+      '<skill name="look-l1"',
+    )
   })
 
   it('`/look-<id>` 与内置技能走同一条注入路', () => {

@@ -160,6 +160,7 @@ describe('扇出规则只有一份', () => {
       {
         settings,
         profile: getActiveApiProfile(settings),
+        outputRetention: 'candidate',
         params: { ...DEFAULT_PARAMS, n: 3 },
         variants: [{ prompt: '一只猫', inputImageDataUrls: [], context: 'a' }],
       },
@@ -167,6 +168,11 @@ describe('扇出规则只有一份', () => {
     )
 
     expect(opened.map((unit) => unit.params.n)).toEqual([1, 1, 1])
+    expect(opened.map((unit) => unit.outputRetention)).toEqual([
+      'candidate',
+      'candidate',
+      'candidate',
+    ])
     expect(new Set(opened.map((unit) => unit.clientRequestId)).size).toBe(3)
   })
 

@@ -1,6 +1,7 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import {
   and,
+  asc,
   eq,
   exists,
   gt,
@@ -272,48 +273,97 @@ export async function purgeOldTasks(
   // 清之前先把它们所在的会话结算一遍，结算失败的会话这一轮不清，留给下次。
   const unsettled = await settleAgentJobsBeforePurge(expired)
   await snapshotAgentBatchesBeforePurge(expired)
+  const purgeable = and(
+    expired,
+    notExists(
+      db
+        .select({ id: schema.agent_batch_attempts.task_id })
+        .from(schema.agent_batch_attempts)
+        .where(
+          and(
+            eq(schema.agent_batch_attempts.task_id, schema.tasks.id),
+            or(
+              isNull(schema.agent_batch_attempts.terminal_snapshot),
+              sql`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown'`,
+            ),
+          ),
+        ),
+    ),
+    unsettled.length === 0
+      ? undefined
+      : or(
+          isNull(schema.tasks.agent_conversation_id),
+          notInArray(schema.tasks.agent_conversation_id, unsettled),
+        ),
+    // Old owned commands must remain replayable until their durable receipt is adopted.
+    or(
+      isNull(schema.tasks.user_id),
+      isNull(schema.tasks.client_request_id),
+      exists(
+        db
+          .select({ id: schema.generation_commands.task_id })
+          .from(schema.generation_commands)
+          .where(
+            and(
+              eq(schema.generation_commands.user_id, schema.tasks.user_id),
+              eq(schema.generation_commands.command_id, schema.tasks.client_request_id),
+              eq(schema.generation_commands.task_id, schema.tasks.id),
+            ),
+          ),
+      ),
+    ),
+  )
+  // Candidate spool objects have no bucket lifecycle. Keep their task row on cleanup failure,
+  // so the next maintenance pass retries, and lock it against concurrent reconciliation.
+  let candidatesRemoved = 0
+  let afterId: string | undefined
+  while (true) {
+    const batch = await db.transaction(async (tx) => {
+      const candidates = await tx
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(
+          and(
+            purgeable,
+            sql`${schema.tasks.request_payload}->>'output_retention' = 'candidate'`,
+            afterId === undefined ? undefined : gt(schema.tasks.id, afterId),
+          ),
+        )
+        .orderBy(asc(schema.tasks.id))
+        .limit(100)
+        .for('update', { skipLocked: true })
+      let count = 0
+      for (const task of candidates) {
+        try {
+          await objectStore().deletePrefix(`${task.id}/`)
+          await durableMediaStore().deletePrefix(`${task.id}/`)
+        } catch (error) {
+          log.warn(
+            {
+              event: 'object_store.candidate_cleanup_deferred',
+              taskId: task.id,
+              err: String(error),
+            },
+            'candidate cleanup failed; retaining task for retry',
+          )
+          continue
+        }
+        await tx.delete(schema.tasks).where(eq(schema.tasks.id, task.id))
+        count++
+      }
+      return { count, scanned: candidates.length, lastId: candidates.at(-1)?.id }
+    })
+    candidatesRemoved += batch.count
+    // Move past failures in this pass; retry them next time without starving later tasks.
+    afterId = batch.lastId
+    if (batch.scanned < 100) break
+  }
   const deleted = await db
     .delete(schema.tasks)
     .where(
       and(
-        expired,
-        notExists(
-          db
-            .select({ id: schema.agent_batch_attempts.task_id })
-            .from(schema.agent_batch_attempts)
-            .where(
-              and(
-                eq(schema.agent_batch_attempts.task_id, schema.tasks.id),
-                or(
-                  isNull(schema.agent_batch_attempts.terminal_snapshot),
-                  sql`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown'`,
-                ),
-              ),
-            ),
-        ),
-        unsettled.length === 0
-          ? undefined
-          : or(
-              isNull(schema.tasks.agent_conversation_id),
-              notInArray(schema.tasks.agent_conversation_id, unsettled),
-            ),
-        // Old owned commands must remain replayable until their durable receipt is adopted.
-        or(
-          isNull(schema.tasks.user_id),
-          isNull(schema.tasks.client_request_id),
-          exists(
-            db
-              .select({ id: schema.generation_commands.task_id })
-              .from(schema.generation_commands)
-              .where(
-                and(
-                  eq(schema.generation_commands.user_id, schema.tasks.user_id),
-                  eq(schema.generation_commands.command_id, schema.tasks.client_request_id),
-                  eq(schema.generation_commands.task_id, schema.tasks.id),
-                ),
-              ),
-          ),
-        ),
+        purgeable,
+        sql`${schema.tasks.request_payload}->>'output_retention' IS DISTINCT FROM 'candidate'`,
       ),
     )
     .returning({
@@ -332,7 +382,7 @@ export async function purgeOldTasks(
       )
     }
   }
-  return deleted.length
+  return deleted.length + candidatesRemoved
 }
 
 /** 宿主机采样只为看近几天的趋势；留久了这张表自己就成了吃磁盘的那个。 */

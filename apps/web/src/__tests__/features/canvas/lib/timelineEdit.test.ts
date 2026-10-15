@@ -91,3 +91,13 @@ describe('审查补充', () => {
     expect(followSelection(null, { kind: 'remove', index: 0 })).toBeNull()
   })
 })
+
+it('preserves duplicate source slot identity when reordered and trimmed without an out point', () => {
+  const duplicates = [
+    { elementId: 'a', in: 0, slotKey: 'first' },
+    { elementId: 'a', in: 1, slotKey: 'second' },
+  ]
+  const moved = moveClip(duplicates, 1, 0)
+  expect(trimClip(moved[0], 'in', 2, 10)).toEqual({ elementId: 'a', in: 2, slotKey: 'second' })
+  expect(moved[1]).toEqual(duplicates[0])
+})

@@ -295,6 +295,8 @@ export const user_assets = pgTable(
     image_id: text('image_id'),
     /** 产品或人物；`views` 之前建的素材没有类别。 */
     kind: text('kind'),
+    description: text('description'),
+    voice_id: text('voice_id'),
     /** 透明或纯色。 */
     background: text('background'),
     /** 有序视角 `[{ imageId, label, source }]`，第一条是封面。旧行为 null，读路径按封面补一条。 */
@@ -402,6 +404,56 @@ export const canvas_projects = pgTable(
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
     uniqueIndex('idx_canvas_projects_conversation').on(t.conversation_id),
+  ],
+)
+
+/** Increment log and compacted snapshot. Legacy document is retained independently of the read model. */
+export const canvas_documents = pgTable('canvas_documents', {
+  project_id: text('project_id')
+    .primaryKey()
+    .references(() => canvas_projects.id, { onDelete: 'cascade' }),
+  snapshot: text('snapshot').notNull(),
+  sequence: integer('sequence').notNull().default(0),
+  compacted_sequence: integer('compacted_sequence').notNull().default(0),
+  compacted_at: epochMs('compacted_at').notNull(),
+  legacy_document: bunJsonb('legacy_document').$type<ProjectDocument>().notNull(),
+  migrated_at: epochMs('migrated_at').notNull(),
+})
+export const canvas_updates = pgTable(
+  'canvas_updates',
+  {
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_documents.project_id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    update: text('update').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.project_id, t.sequence] })],
+)
+
+/** Durable reversible Agent commands; ownership follows the project. */
+export const canvas_commands = pgTable(
+  'canvas_commands',
+  {
+    id: text('id').primaryKey(),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_documents.project_id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    label: text('label').notNull(),
+    before: text('before').notNull(),
+    update: text('update').notNull(),
+    reversed: boolean('reversed').notNull().default(false),
+    revision: integer('revision').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_canvas_commands_call').on(t.project_id, t.turn_id, t.tool_call_id),
+    index('idx_canvas_commands_project_created').on(t.project_id, t.created_at),
   ],
 )
 

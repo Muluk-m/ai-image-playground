@@ -1,4 +1,4 @@
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import type { CanvasEditor } from './editor'
 
 /** 画布上的一个可播放对象。位图是封面，片子在服务端。 */
@@ -23,7 +23,7 @@ export function canvasVideos(editor: CanvasEditor): CanvasVideo[] {
       width: element.width,
       height: element.height,
       rotation: element.rotation,
-      url: queueOutputUrl(element.video.taskId, element.video.outputIndex),
+      url: videoOutputUrl(element.video),
     })
   }
   return videos

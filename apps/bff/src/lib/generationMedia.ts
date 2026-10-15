@@ -246,6 +246,9 @@ export async function archiveGenerationOutputs(
   request: PersistedSubmitRequest,
   missing: ReadonlySet<number> = new Set(),
 ) {
+  // Worker/reconciliation still spool and checkpoint the originals before completing.
+  // Only adoption into a project promotes candidate bytes into capacity-counted media.
+  if (request.output_retention === 'candidate') return []
   return withMediaTransfer(async () => {
     const links: GenerationMediaLink[] = []
     for (const image of extractMeta(provider, payload).images) {

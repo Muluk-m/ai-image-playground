@@ -47,7 +47,8 @@ const templateSchema = t.Object({
 })
 
 const assetViewSchema = t.Object({
-  imageId: syncId,
+  // Older clients synthesize one empty view when pulling an imageless asset.
+  imageId: t.String({ maxLength: SYNC_ID_MAX_LENGTH }),
   label: t.UnionEnum([...ASSET_VIEW_LABELS]),
   source: t.UnionEnum([...ASSET_VIEW_SOURCES]),
 })
@@ -56,7 +57,9 @@ const assetSchema = t.Object({
   id: syncId,
   name: t.String({ maxLength: SYNC_NAME_MAX_LENGTH }),
   /** 封面。`views` 之前的客户端只推这一个字段，服务端据它补出唯一那条视角。 */
-  imageId: syncId,
+  imageId: t.String({ maxLength: SYNC_ID_MAX_LENGTH }),
+  description: t.Optional(t.String({ maxLength: SYNC_PROMPT_MAX_LENGTH })),
+  voiceId: t.Optional(t.String({ maxLength: SYNC_ID_MAX_LENGTH })),
   kind: t.Optional(t.UnionEnum([...ASSET_KINDS])),
   background: t.Optional(t.UnionEnum([...ASSET_BACKGROUNDS])),
   views: t.Optional(t.Array(assetViewSchema, { maxItems: SYNC_ASSET_VIEWS_MAX })),
