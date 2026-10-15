@@ -91,6 +91,7 @@ export function modelHistorySignature(input: {
   readonly reasoningEffort?: string
   readonly mode: AgentMode
   readonly autoSubmit: boolean
+  readonly directImage?: boolean
   readonly audience: AgentTurnAudience
 }): string {
   const { conversationId, owner, model, thinkingDepth, mode, autoSubmit, audience } = input
@@ -101,7 +102,7 @@ export function modelHistorySignature(input: {
     thinkingDepth,
     providerInstance: input.providerInstance,
     reasoningEffort: input.reasoningEffort,
-    system: systemPrompt(mode, autoSubmit, audience),
+    system: systemPrompt(mode, autoSubmit, audience, input.directImage === true),
     tools: agentToolDeclarations(mode, audience),
     skills: visibleAgentSkills(mode, audience)
       .map(({ name, content }) => ({ name, content }))

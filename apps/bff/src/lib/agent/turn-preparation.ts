@@ -280,6 +280,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         reasoningEffort: selectedRuntime.effort,
         mode: content.mode,
         autoSubmit: content.params?.autoSubmit === true,
+        directImage: content.params?.directImage === true,
         audience,
       })
       const messages = await readModelHistory({
@@ -435,7 +436,8 @@ function turnInputOf(
     mode: content.mode,
     reviewImageIds: [...content.reviewImageIds, ...(note?.reviewImageIds ?? [])],
     ...(note ? { note: note.text } : {}),
-    autoSubmit: content.params?.autoSubmit === true,
+    autoSubmit: content.params?.autoSubmit === true || content.params?.directImage === true,
+    directImage: content.params?.directImage === true,
     selectionHistoryStart: content.selectionHistoryStart,
     audience,
     ...(skillTexts.size > 0 ? { skillTexts } : {}),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { queueParamsFor } from '../../../lib/agent/tools/queueParams'
+import { queueParamsFor, requestedImageCount } from '../../../lib/agent/tools/queueParams'
 
 describe('轮参数映射进队列请求', () => {
   it('size 为 auto 视同没选，不往上游发', () => {
@@ -34,6 +34,13 @@ describe('轮参数映射进队列请求', () => {
     expect(
       queueParamsFor('gemini', { size: '1024x1536', gemini_aspect_ratio: '16:9' }),
     ).toMatchObject({ aspect_ratio: '16:9' })
+  })
+
+  it('工具没写张数时沿用用户本轮选择的张数', () => {
+    expect(requestedImageCount(undefined, 4)).toBe(4)
+    expect(requestedImageCount(2, 4)).toBe(2)
+    expect(requestedImageCount(undefined, undefined)).toBe(1)
+    expect(requestedImageCount(99, 4)).toBe(10)
   })
 
   it('gemini 系不带 openai 才认的输出格式', () => {

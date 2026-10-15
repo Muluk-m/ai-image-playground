@@ -157,19 +157,22 @@ describe('首屏的生成设置', () => {
     expect(group('格式')).not.toBeNull()
   })
 
-  it('交给智能体时保留模型参数，张数由它自己定', () => {
+  it('交给智能体时保留画幅与思考深度，张数由它自己定', () => {
     remount('canvas')
     expect(settingsChip().getAttribute('aria-label')).not.toContain('张')
     const group = openSettings()
-    expect(group('比例')).not.toBeNull()
+    expect(group('画幅')).not.toBeNull()
+    expect(group('思考深度')).not.toBeNull()
+    expect(group('张数')).toBeNull()
     expect(group('数量')).toBeNull()
-    expect(group('质量')).not.toBeNull()
-    expect(group('格式')).not.toBeNull()
+    expect(group('质量')).toBeNull()
+    expect(group('格式')).toBeNull()
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
   })
 
   it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
     remount('chat')
-    expect(openSettings()('数量')).toBeNull()
+    expect(openSettings()('张数')).toBeNull()
     expect(editor().getAttribute('data-placeholder')).toContain('梳理思路')
     expect(useStore.getState().createTarget).toBe('chat')
   })
@@ -236,7 +239,7 @@ describe('首屏的生成设置', () => {
     act(() => useStore.getState().setParams({ n: 1 }))
   })
 
-  it('Gemini 模型下留的是比例与分辨率，思考强度归智能体', () => {
+  it('Gemini 模型下智能体胶囊只留画幅与思考深度，张数由它自己定', () => {
     setChannels([
       {
         id: 'gemini',
@@ -269,10 +272,11 @@ describe('首屏的生成设置', () => {
     remount('canvas')
 
     const group = openSettings()
-    expect(group('比例')).not.toBeNull()
-    expect(group('分辨率')).not.toBeNull()
-    expect(group('思考')).not.toBeNull()
-    expect(group('数量')).toBeNull()
+    expect(group('画幅')).not.toBeNull()
+    expect(group('思考深度')).not.toBeNull()
+    expect(group('分辨率')).toBeNull()
+    expect(group('张数')).toBeNull()
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
   })
 })
 
