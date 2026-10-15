@@ -69,7 +69,6 @@
     "locateTitle": "Find these results on the canvas",
     "place": "Add to canvas",
     "viewPrompt": "View prompt",
-    "editResult": "Continue editing",
     "regenerate": "Generate again",
     "regenerateRequest": "Generate another image using this prompt. Keep the subject and main composition, with some variation in details: {{prompt}}",
     "moreActions": "More actions",
@@ -81,6 +80,11 @@
     "closePreview": "Close preview",
     "zoomResult": "Expand",
     "downloadResult": "Download",
+    "downloadAll": "Download all",
+    "removeBackground": "Remove background",
+    "batchCount_one": "{{count}} image",
+    "batchCount_other": "{{count}} images",
+    "costDetail": "Details",
     "editOnCanvas": "Edit on canvas",
     "useAsReference": "Use as reference",
     "inpaint": "Inpaint",
@@ -219,7 +223,16 @@
     "continue": "Continue conversation",
     "continuePrompt": "Continue"
   },
+  "imageAction": {
+    "removeBackground": "Remove background",
+    "running": "Removing the background…",
+    "failed": "Background removal did not finish",
+    "dismiss": "Remove this step"
+  },
   "composer": {
+    "quantity": "Image count",
+    "quantityDecrease": "Fewer images",
+    "quantityIncrease": "More images",
     "editorAria": "Message the agent",
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",

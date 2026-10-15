@@ -102,10 +102,10 @@ it.each([
     if (matches) {
       expect(image?.getAttribute('src')).toContain('visible-card')
       expect(canvas.thumbnail).not.toHaveBeenCalled()
-      const download = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent === '下载',
+      const erase = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes('擦除'),
       )!
-      expect(download.disabled).toBe(true)
+      expect(erase.disabled).toBe(true)
     } else {
       expect(image).toBeNull()
       expect(canvas.thumbnail).toHaveBeenCalled()
@@ -190,19 +190,16 @@ it('previews, switches and enlarges results without entering the canvas', async 
       (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
     )
     expect(document.body.querySelector('[data-testid="zoomed"]')).not.toBeNull()
-    act(() =>
-      (document.body.querySelector('.studio-artifact-pane-edit') as HTMLButtonElement).click(),
-    )
-    expect(onViewCanvas).toHaveBeenCalledWith(['second'])
+    expect(document.body.querySelector('.studio-artifact-pane-edit')).toBeNull()
     act(() =>
       (
         document.body.querySelector('.studio-artifact-pane-tools button') as HTMLButtonElement
       ).click(),
     )
     expect(document.body.querySelector('[data-testid="edit-dialog"]')?.textContent).toContain(
-      'inpaint',
+      'erase',
     )
-    expect(onViewCanvas).toHaveBeenCalledTimes(1)
+    expect(onViewCanvas).not.toHaveBeenCalled()
     await act(async () =>
       (
         document.body.querySelector(
@@ -216,7 +213,7 @@ it('previews, switches and enlarges results without entering the canvas', async 
         {
           imageId: 'second',
           name: message.title,
-          editAction: 'inpaint',
+          editAction: 'erase',
           dataUrl: 'data:image/png;base64,edited',
           maskDataUrl: 'data:image/png;base64,mask',
         },
@@ -272,9 +269,9 @@ it('keeps all image edit shortcuts in the Agent edit dialog', async () => {
         />,
       ),
     )
-    for (const action of ['inpaint', 'erase', 'crop', 'outpaint']) {
+    for (const action of ['erase', 'crop']) {
       const button = document.body.querySelectorAll('.studio-artifact-pane-tools button')[
-        ['inpaint', 'erase', 'crop', 'outpaint'].indexOf(action)
+        ['erase', 'crop'].indexOf(action)
       ] as HTMLButtonElement
       act(() => button.click())
       expect(document.body.querySelector('[data-testid="edit-dialog"]')?.textContent).toContain(
@@ -327,8 +324,10 @@ it('keeps chat result actions inside the conversation when no canvas callback is
       root.render(<AgentArtifactPane message={message} onSelect={vi.fn()} onClose={vi.fn()} />),
     )
     expect(document.body.querySelector('.studio-artifact-pane-canvas-action')).toBeNull()
-    expect(document.body.textContent).toContain('局部重绘')
-    expect(document.body.textContent).toContain('下载')
+    expect(document.body.textContent).toContain('放大查看')
+    expect(document.body.textContent).toContain('擦除')
+    expect(document.body.textContent).not.toContain('局部重绘')
+    expect(document.body.textContent).not.toContain('扩图')
     expect(document.body.textContent).not.toContain('在画布中编辑')
   } finally {
     act(() => root.unmount())
@@ -360,8 +359,9 @@ it('shows the existing result while the original is delayed and upgrades when it
     ).toContain('canvas')
     expect(document.body.textContent).not.toContain('正在载入产物')
     expect(
-      (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
-        .disabled,
+      [...document.body.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('擦除'),
+      )?.disabled,
     ).toBe(true)
     act(() =>
       (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
@@ -377,8 +377,9 @@ it('shows the existing result while the original is delayed and upgrades when it
       document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
     ).toContain('original')
     expect(
-      (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
-        .disabled,
+      [...document.body.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('擦除'),
+      )?.disabled,
     ).toBe(false)
   } finally {
     act(() => root.unmount())

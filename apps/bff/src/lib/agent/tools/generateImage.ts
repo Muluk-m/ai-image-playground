@@ -2,7 +2,7 @@ import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { designPrompt } from '../design-intent'
 import { defineAgentTool } from './adapter'
-import { agentImageCount, imageCountParameter, reviewParameter } from './queueParams'
+import { imageCountParameter, requestedImageCount, reviewParameter } from './queueParams'
 import { draftQueueTask, resolveAgentModel } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
@@ -49,16 +49,16 @@ export const generateImage = defineAgentTool({
   description:
     '按提示词发起一次生图，结果显示在对话的产物卡片中。可用 n 指定同一画面的版本数；改已有的图用 editImage。提交前要不要先等用户确认由系统决定，见系统提示词里的生成流程那一段——工具返回的那句话会说清这一次到底提交了没有，照它说。',
   guidance:
-    '用户要新图时调生图工具。先判断他是不是要用自己的提示词直出：不是口语、有结构有格式、各方面都写清楚的提示词（关键词串、英文 prompt、分行标签、带参数）大概率是，这时原文一字不改作为 prompt，不填 designIntent；拿不准是要原样用还是要你加工时，用澄清工具让他在「按原文直出」与「补全后再生成」之间选。不是直出时先确定这张图要表达什么、观众第一眼看什么，再填 designIntent；它会并入最终可编辑的提示词。用户要求具体时只整理成简报，不另加创意；只给笼统想法时按适用技能做美术指导，确定用途、焦点与视线顺序、构图、光线、配色和质感，让每一项为表达目标服务。方向不明且不同解读会明显改变结果时才用澄清工具。不添加请求里没暗示的人物、道具、品牌、文案；图中文字逐字引用。调用前一句话说清替用户定了什么，拟稿后这一轮就结束。未要求多张时只出一张；同一画面的多个版本用 n，不同方向分别调用。不要为同一件事调第二次。',
+    '用户要新图时调生图工具。先判断他是不是要用自己的提示词直出：不是口语、有结构有格式、各方面都写清楚的提示词（关键词串、英文 prompt、分行标签、带参数）大概率是，这时原文一字不改作为 prompt，不填 designIntent；拿不准是要原样用还是要你加工时，用澄清工具让他在「按原文直出」与「补全后再生成」之间选。不是直出时先确定这张图要表达什么、观众第一眼看什么，再填 designIntent；它会并入最终可编辑的提示词。用户要求具体时只整理成简报，不另加创意；只给笼统想法时按适用技能做美术指导，确定用途、焦点与视线顺序、构图、光线、配色和质感，让每一项为表达目标服务。方向不明且不同解读会明显改变结果时才用澄清工具。不添加请求里没暗示的人物、道具、品牌、文案；图中文字逐字引用。调用前一句话说清替用户定了什么，拟稿后这一轮就结束。用户没在这句话里说明张数时不要填 n，沿用他在输入框选择的张数；他说了张数才填 n。不同方向分别调用。不要为同一件事调第二次。',
   parameters,
   onError: 'abort',
   target: (params) => resolveAgentModel('image', params?.model),
-  call({ prompt, designIntent, n }) {
+  call({ prompt, designIntent, n }, _mode, turn) {
     const written = typeof prompt === 'string' ? prompt : undefined
     const finalPrompt = written ? designPrompt(written, designIntent) : undefined
     return {
       title: written?.trim() ? agentTitleLine(written, TITLE_MAX_CHARS) : '生图',
-      outputCount: agentImageCount({ n }),
+      outputCount: requestedImageCount(n, turn?.n),
       ...(finalPrompt ? { prompt: finalPrompt } : {}),
     }
   },
@@ -70,7 +70,7 @@ export const generateImage = defineAgentTool({
         media: 'image',
         toolCallId,
         prompt: designPrompt(params.prompt, params.designIntent),
-        n: params.n,
+        n: requestedImageCount(params.n, context.params?.n),
         review: params.reviewAfterCompletion === true,
       },
       signal,

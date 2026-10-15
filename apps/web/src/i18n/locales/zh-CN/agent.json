@@ -65,7 +65,6 @@
     "locateTitle": "在画布上定位这些产物",
     "place": "放入画布",
     "viewPrompt": "查看提示词",
-    "editResult": "继续编辑",
     "regenerate": "再次生成",
     "regenerateRequest": "请基于这组提示词再次生成图片，保留主题与主要构图，可在细节上做变化：{{prompt}}",
     "moreActions": "更多操作",
@@ -77,8 +76,12 @@
     "closePreview": "关闭预览",
     "zoomResult": "放大查看",
     "downloadResult": "下载",
+    "downloadAll": "全部下载",
+    "removeBackground": "去背景",
+    "batchCount_other": "{{count}} 张",
+    "costDetail": "明细",
     "editOnCanvas": "在画布中编辑",
-    "useAsReference": "用作参考图",
+    "useAsReference": "用作参考",
     "inpaint": "局部重绘",
     "erase": "擦除",
     "crop": "裁剪",
@@ -205,7 +208,16 @@
     "continue": "继续对话",
     "continuePrompt": "继续"
   },
+  "imageAction": {
+    "removeBackground": "去背景",
+    "running": "正在去背景…",
+    "failed": "去背景没有完成",
+    "dismiss": "移除这一步"
+  },
   "composer": {
+    "quantity": "生成张数",
+    "quantityDecrease": "减少张数",
+    "quantityIncrease": "增加张数",
     "editorAria": "对智能体说",
     "drawMaskAria": "给参考图 {{label}} 画遮罩",
     "editMaskAria": "修改参考图 {{label}} 的遮罩",

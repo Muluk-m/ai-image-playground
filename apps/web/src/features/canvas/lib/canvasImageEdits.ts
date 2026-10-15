@@ -84,7 +84,7 @@ export async function applyCanvasCrop(
  * 主体逐像素保留，回来之后在本地把那块纯色键掉（`removeKeyedBackgroundFromDataUrl`），
  * 透明边缘由本地算法给。代价是主体本身仍可能被模型轻微重绘，这是这条上游能做到的上限。
  */
-const CUTOUT_INSTRUCTION =
+export const CUTOUT_INSTRUCTION =
   '只替换背景，主体保持逐像素不变：不要重画、不要改动主体的轮廓、颜色、细节、姿态与位置。' +
   '把主体之外的全部区域换成纯绿色 #00FF00 的纯色背景，不要渐变、阴影、地面、倒影、纹理或光照变化；' +
   '若主体本身含有绿色/青色/荧光绿，改用纯品红 #FF00FF。' +

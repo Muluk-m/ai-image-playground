@@ -25,6 +25,7 @@ import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { useStore } from '../../../../store'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -1803,6 +1804,64 @@ describe('AgentPanel', () => {
 
       expect(host.querySelector('button[aria-label^="现在插话"]')).toBeNull()
     })
+  })
+
+  it('把去背景画成原图缩略、结果和费用，移除后从对话里消失', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'imageAction',
+          id: 'step-1',
+          turnId: 'turn-1',
+          sourceMessageId: 'tool-1',
+          artifactId: 'agent_image_1',
+          action: 'removeBackground',
+          status: 'succeeded',
+          thumbnail: CANVAS_THUMBNAIL,
+          resultSource: SERVER_IMAGE,
+          durationMs: 3000,
+          credits: 2,
+        },
+      ],
+    })
+    render()
+
+    const step = host.querySelector('section[aria-label="去背景"]')!
+    expect(step).not.toBeNull()
+    expect(step.querySelector('img')?.getAttribute('src')).toBe(CANVAS_THUMBNAIL)
+    expect(step.querySelector('img[alt="去背景"]')?.getAttribute('src')).toBe(SERVER_IMAGE)
+    expect(step.textContent).toContain('3s')
+    expect(step.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('2')
+
+    act(() => {
+      step.querySelector<HTMLButtonElement>('button[aria-label="移除这一步"]')!.click()
+    })
+    expect(host.querySelector('section[aria-label="去背景"]')).toBeNull()
+    expect(useAgentStore.getState().messages).toEqual([])
+  })
+
+  it('生成张数在 1 到 10 之间增减', () => {
+    act(() => {
+      useStore.setState({ params: { ...useStore.getState().params, n: 1 } })
+    })
+    render()
+
+    const group = host.querySelector('[aria-label="生成张数"]')!
+    const decrease = group.querySelector<HTMLButtonElement>('button[aria-label="减少张数"]')!
+    const increase = group.querySelector<HTMLButtonElement>('button[aria-label="增加张数"]')!
+    expect(decrease.disabled).toBe(true)
+    expect(group.textContent).toContain('1')
+
+    act(() => increase.click())
+    expect(useStore.getState().params.n).toBe(2)
+    expect(host.querySelector('[aria-label="生成张数"]')?.textContent).toContain('2')
+
+    act(() => {
+      useStore.setState({ params: { ...useStore.getState().params, n: 10 } })
+    })
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="增加张数"]')!.disabled).toBe(
+      true,
+    )
   })
 })
 

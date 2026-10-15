@@ -84,7 +84,7 @@ export function defineAgentTool<P extends TSchema>(
     declaration,
     ...(definition.available ? { available: definition.available } : {}),
     // 起跑这一刻按静态 schema 宽松换算就够：`currentParameters()` 只改说明，不改形状。
-    call: (args, mode) => definition.call(leniently(definition.parameters, args), mode),
+    call: (args, mode, turn) => definition.call(leniently(definition.parameters, args), mode, turn),
     ...(definition.target
       ? {
           snapshot: (args: unknown, mode: AgentMode, params: AgentTurnParams | undefined) => {
