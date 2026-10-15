@@ -1,4 +1,4 @@
-import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
+import { AGENT_IMAGE_MAX_N, AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
 import {
   type KeyboardEvent,
   useCallback,
@@ -273,6 +273,38 @@ function canvasReference(
 ): AgentReference | undefined {
   const image = canvas.find((one) => one.imageId === imageId)
   return image && { id: image.imageId, dataUrl: image.dataUrl }
+}
+
+function QuantityStepper() {
+  const { t } = useTranslation('agent')
+  const count = useStore((state) => state.params.n)
+  const setParams = useStore((state) => state.setParams)
+  const value = Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(count) || 1))
+  return (
+    <div className="creation-quantity" role="group" aria-label={t('composer.quantity')}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={t('composer.quantityDecrease')}
+        disabled={value <= 1}
+        onClick={() => setParams({ n: value - 1 })}
+      >
+        −
+      </Button>
+      <span>{value}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={t('composer.quantityIncrease')}
+        disabled={value >= AGENT_IMAGE_MAX_N}
+        onClick={() => setParams({ n: value + 1 })}
+      >
+        +
+      </Button>
+    </div>
+  )
 }
 
 export default function AgentComposer({
@@ -1280,40 +1312,43 @@ export default function AgentComposer({
             )
           }
           action={
-            <CreationSend
-              busy={!stopMode && (uploadingCount > 0 || submitting)}
-              streaming={stopMode}
-              aria-label={
-                stopMode
-                  ? t('composer.abort')
-                  : submitting
-                    ? t('composer.sending')
+            <>
+              {mode !== 'video' && <QuantityStepper />}
+              <CreationSend
+                busy={!stopMode && (uploadingCount > 0 || submitting)}
+                streaming={stopMode}
+                aria-label={
+                  stopMode
+                    ? t('composer.abort')
+                    : submitting
+                      ? t('composer.sending')
+                      : uploadsBlocked
+                        ? (referenceStatus ?? t('composer.sendAndCreate'))
+                        : running
+                          ? t('composer.queue')
+                          : t('composer.sendAndCreate')
+                }
+                title={
+                  stopMode
+                    ? t('composer.abortTitle')
                     : uploadsBlocked
-                      ? (referenceStatus ?? t('composer.sendAndCreate'))
+                      ? referenceStatus
                       : running
                         ? t('composer.queue')
-                        : t('composer.sendAndCreate')
-              }
-              title={
-                stopMode
-                  ? t('composer.abortTitle')
-                  : uploadsBlocked
-                    ? referenceStatus
-                    : running
-                      ? t('composer.queue')
-                      : t('composer.sendAndCreateTitle')
-              }
-              disabled={
-                stopMode
-                  ? false
-                  : historyBlocked ||
-                    loading ||
-                    submitting ||
-                    uploadsBlocked ||
-                    !draft.prompt.trim()
-              }
-              onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
-            />
+                        : t('composer.sendAndCreateTitle')
+                }
+                disabled={
+                  stopMode
+                    ? false
+                    : historyBlocked ||
+                      loading ||
+                      submitting ||
+                      uploadsBlocked ||
+                      !draft.prompt.trim()
+                }
+                onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
+              />
+            </>
           }
         >
           {mode === 'video' && !productionMode ? (

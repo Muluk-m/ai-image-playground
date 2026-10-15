@@ -1,5 +1,9 @@
 import type { AgentTurnParams, QueueProvider, SubmitRequest } from '@image-playground/shared'
-import { AGENT_IMAGE_MAX_N, nearestAspectRatio } from '@image-playground/shared'
+import {
+  AGENT_IMAGE_MAX_N,
+  nearestAspectRatio,
+  requestedImageCount,
+} from '@image-playground/shared'
 import { Type } from 'typebox'
 
 export const imageCountParameter = Type.Optional(
@@ -7,9 +11,12 @@ export const imageCountParameter = Type.Optional(
     minimum: 1,
     maximum: AGENT_IMAGE_MAX_N,
     description:
-      '同一提示词生成的张数或版本数。按用户需求选择；未要求多张时默认 1。不同画面或修改方案请分别调用。',
+      '同一提示词生成的张数或版本数。只有用户在这句话里明确说了张数才填；省略时沿用用户在输入框选择的张数。不同画面或修改方案请分别调用。',
   }),
 )
+
+/** 工具显式张数优先，否则沿用用户本轮选择的张数。 */
+export { requestedImageCount }
 
 /** 提交生成任务的工具共用：成功后要不要被唤醒回来复核。失败一律唤醒，不归它管。 */
 export const reviewParameter = Type.Optional(
