@@ -13,6 +13,7 @@ import { compactModelName, ModelLogo } from '../ModelIdentity'
 import SearchField from '../patterns/SearchField'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
+import { OverflowText, useOverflowTitle } from '../ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { type ComposerControlSize, composerModelChipClass } from './SettingsPanel'
 
@@ -22,7 +23,6 @@ export interface ModelChoice {
   profileId: string
   label: string
   description: string
-  title: string
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -46,7 +46,6 @@ export function useModelChoices() {
           profileId: profile.id,
           label: compactModelName(option.id, option.label),
           description: view.name,
-          title: `${option.label} · ${view.name}\n${option.id}`,
         }),
       )
     })
@@ -138,7 +137,6 @@ export function ModelList({
               role="option"
               aria-selected={selected}
               tabIndex={tabStop ? 0 : -1}
-              title={option.title}
               aria-label={`${option.label} · ${option.description}`}
               onClick={() => onPick(option.value)}
               className={cn(
@@ -152,9 +150,10 @@ export function ModelList({
               <span className="min-w-0 flex-1 break-words font-medium text-foreground">
                 {option.label}
               </span>
-              <span className="max-w-20 truncate text-label-sm text-muted-foreground">
-                {option.description}
-              </span>
+              <OverflowText
+                text={option.description}
+                className="max-w-20 truncate text-label-sm text-muted-foreground"
+              />
               {selected && <Icon name="check" />}
             </Button>
           )
@@ -180,8 +179,9 @@ export function ModelSelector({
   const { t } = useTranslation('composer')
   const { options, currentValue, current, pick } = useModelChoices()
   const [open, setOpen] = useState(false)
-  if (options.length === 0 && !label) return null
   const shown = label ?? current?.label ?? t('param.noModel')
+  const name = useOverflowTitle<HTMLSpanElement>(shown, { whenHidden: true })
+  if (options.length === 0 && !label) return null
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -192,7 +192,7 @@ export function ModelSelector({
           role="combobox"
           aria-expanded={open}
           aria-label={`${t('param.model')} ${shown}`}
-          title={label ?? current?.title ?? shown}
+          title={name.title}
           disabled={options.length === 0}
           className={composerModelChipClass(size)}
           onKeyDown={(event) => {
@@ -205,7 +205,9 @@ export function ModelSelector({
           <span className="flex shrink-0 items-center text-muted-foreground">
             {!label && current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
           </span>
-          <span className="creation-model-name min-w-0 truncate">{shown}</span>
+          <span ref={name.ref} className="creation-model-name min-w-0 truncate">
+            {shown}
+          </span>
           <Icon
             name="chevronDown"
             aria-hidden="true"

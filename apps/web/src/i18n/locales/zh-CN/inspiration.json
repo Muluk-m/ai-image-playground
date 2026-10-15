@@ -14,7 +14,6 @@
     "resetFilters": "重置筛选"
   },
   "card": {
-    "titleHint": "{{title}}\n推荐模型：{{model}}",
     "pin": "置顶",
     "unpin": "取消置顶",
     "imageEdit": "图生图",

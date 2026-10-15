@@ -333,10 +333,7 @@ export default function TaskCard({
               >
                 {/* Model */}
                 {showModel && (
-                  <span
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0"
-                    title={task.apiModel}
-                  >
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0">
                     <ModelLogo model={model} />
                     <span>{compactModelName(model, model)}</span>
                   </span>

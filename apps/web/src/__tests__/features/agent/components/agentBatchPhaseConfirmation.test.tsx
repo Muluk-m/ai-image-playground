@@ -285,25 +285,28 @@ it.each([
     ).toBe(true)
     expect(host.textContent).toContain('第二次分析证实边缘有缺口')
     expect(host.textContent).toContain('第 2 次')
-    const firstFinding = host.querySelector('li [title="verified-analysis-a"]')
+    const findingLabel = (root: ParentNode, version: string, attempt: string) =>
+      [...root.querySelectorAll('span')].find(
+        (node) => node.textContent?.includes(version) && node.textContent?.includes(attempt),
+      )
+    const firstFinding = findingLabel(host, '版本 1', '第 2 次')
     expect(firstFinding?.textContent).toContain('版本 1')
     expect(firstFinding?.textContent).toContain('第 2 次')
+    expect(firstFinding?.getAttribute('title')).toBeNull()
     if (multiple) {
-      const followupFinding = host.querySelector('li [title="verified-followup-a"]')
+      const followupFinding = findingLabel(host, '版本 2', '第 1 次')
       expect(followupFinding?.textContent).toContain('版本 2')
       expect(followupFinding?.textContent).toContain('第 1 次')
-      expect(
-        host.querySelector('[title="verified-followup-a"]')?.closest('li')?.textContent,
-      ).toContain('补看证实纹理应保留')
+      expect(followupFinding?.closest('li')?.textContent).toContain('补看证实纹理应保留')
       const generation = [...host.querySelectorAll('details')].find((detail) =>
         detail.querySelector('textarea'),
       )!
-      expect(
-        generation.querySelector('[title="verified-analysis-a"]')?.parentElement?.textContent,
-      ).toContain('第二次分析证实边缘有缺口')
-      expect(
-        generation.querySelector('[title="verified-followup-a"]')?.parentElement?.textContent,
-      ).toContain('补看证实纹理应保留')
+      expect(findingLabel(generation, '版本 1', '第 2 次')?.parentElement?.textContent).toContain(
+        '第二次分析证实边缘有缺口',
+      )
+      expect(findingLabel(generation, '版本 2', '第 1 次')?.parentElement?.textContent).toContain(
+        '补看证实纹理应保留',
+      )
     }
     expect(host.textContent).toContain('本次不包含')
     expect(host.textContent).toContain('输入图 2')

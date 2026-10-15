@@ -170,7 +170,7 @@ function iconButtonLabels(file: ts.SourceFile): number[] {
 export const DESIGN_RULES: readonly DesignRule[] = [
   {
     id: 'icon-button-label',
-    fix: '纯图标 Button 必须有非空 aria-label；共用 Button 会显示同文案的悬停与键盘聚焦提示',
+    fix: '纯图标 Button 必须有非空 aria-label；没有可见文字时，共用 Button 会显示同文案的悬停与键盘聚焦提示。已经显示文字的控件不加 tooltip',
     find: iconButtonLabels,
     extensions: ['tsx'],
   },

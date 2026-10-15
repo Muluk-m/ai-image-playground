@@ -22,7 +22,7 @@ function VideoDetail({
   return (
     <span
       role="img"
-      title={label}
+      title={children ? undefined : label}
       aria-label={label}
       className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1"
     >
@@ -40,10 +40,7 @@ export function AgentVideoDetails({ video }: { video: VideoGenerationRecord }) {
       className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
       aria-label={t('agent:video.parameters')}
     >
-      <span
-        title={model}
-        className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1"
-      >
+      <span className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-1">
         <ModelLogo model={video.model} />
         {model}
       </span>

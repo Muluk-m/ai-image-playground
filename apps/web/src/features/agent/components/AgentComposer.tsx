@@ -32,6 +32,7 @@ import SuggestionMenu, {
 } from '../../../components/SuggestionMenu'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import {
   Select,
   SelectContent,
@@ -1000,9 +1001,7 @@ export default function AgentComposer({
           className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-xs"
         >
           <span className={`shrink-0 text-label-sm ${INK_3}`}>{t('draft.unsent')}</span>
-          <span className={`min-w-0 flex-1 truncate ${INK}`} title={unsent.prompt}>
-            {unsent.prompt}
-          </span>
+          <OverflowText text={unsent.prompt} className={`min-w-0 flex-1 truncate ${INK}`} />
           {unsent.references.length > 0 && (
             <span className={`shrink-0 text-label-sm ${INK_3}`}>
               {t('queue.references', { count: unsent.references.length })}
