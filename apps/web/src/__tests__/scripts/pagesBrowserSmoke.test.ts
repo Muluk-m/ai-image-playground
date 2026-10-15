@@ -23,7 +23,7 @@ beforeEach(async () => {
   await mkdir(join(dist, 'assets'))
   await writeFile(
     join(dist, '_redirects'),
-    '/image /workbench.html 200\n/p/:project /workbench.html 200\n/assets/ /assets 301\n',
+    '/image /workbench 200\n/p/:project /workbench 200\n/assets/ /assets 301\n',
   )
   await writeFile(join(dist, 'index.html'), html)
   await writeFile(join(dist, 'workbench.html'), html)

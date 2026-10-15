@@ -29,7 +29,7 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
   for (const line of redirects.split('\n')) {
     const [source, target, status] = line.trim().split(/\s+/)
     if (status !== '200') continue
-    const entry = await readFile(resolve(dist, target === '/' ? 'index.html' : target.slice(1)), 'utf8')
+    const entry = await readFile(resolve(dist, target === '/' ? 'index.html' : target === '/workbench' ? 'workbench.html' : target.slice(1)), 'utf8')
     const routeIdentity = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(entry)?.[0]
     if (!routeIdentity) throw new Error(`Missing identity for ${target}`)
     const path = source.replace(':project', 'startup-release-check')
