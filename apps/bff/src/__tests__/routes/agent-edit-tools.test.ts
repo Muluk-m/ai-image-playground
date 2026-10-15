@@ -1179,7 +1179,6 @@ it('applies the saved product-depth model and its separate reasoning effort to a
   const { defaultAgentModelSettings } = await import('../../lib/agent/provider-settings')
   const { saveAgentModelSettings } = await import('../../lib/agent/model-settings-store')
   const settings = defaultAgentModelSettings()
-  settings.providers[0]!.baseUrl = 'https://gateway.test/v1'
   settings.providers[0]!.secretRef = 'UPSTREAM_API_KEY'
   settings.profiles.deep = { ...settings.profiles.fast, reasoning: 'high' }
   await saveAgentModelSettings({ revision: 0, settings }, 'test')

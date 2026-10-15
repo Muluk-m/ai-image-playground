@@ -1,3 +1,4 @@
+import { isIP } from 'node:net'
 import {
   type Api,
   createModels,
@@ -12,6 +13,7 @@ import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
 import {
   AGENT_PROFILE_KEYS,
   AGENT_PROVIDER_APIS,
+  AGENT_PROVIDER_SECRET_REFS,
   type AgentConfiguredModel,
   type AgentModelSettings,
   type AgentProviderSettings,
@@ -22,6 +24,7 @@ import {
 } from '@image-playground/shared'
 import { config } from '../../config'
 import { resolveChatApiKey } from '../resolveApiKey'
+import { isPublicAddress } from '../safeFetch'
 import { isObject } from '../type-guards'
 import { agentThinking } from './thinking'
 
@@ -169,6 +172,10 @@ export function validateAgentModelSettings(value: unknown): AgentModelSettings {
     if (provider.template !== 'custom' && !builtins.some((item) => item.id === provider.template))
       invalid('未知 Pi Provider')
     if (typeof provider.baseUrl !== 'string') invalid('API 地址无效')
+    const legacyGateway =
+      id === 'upstream-gateway' &&
+      provider.template === 'custom' &&
+      provider.baseUrl === `${config.upstream.baseUrl}/v1`
     if (provider.baseUrl) {
       let url: URL
       try {
@@ -176,19 +183,28 @@ export function validateAgentModelSettings(value: unknown): AgentModelSettings {
       } catch {
         invalid('API 地址无效')
       }
-      const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      const hostname = url.hostname.replace(/^\[(.*)\]$/, '$1')
       if (
-        (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) ||
+        !legacyGateway &&
+        (hostname === 'localhost' || (isIP(hostname) && !isPublicAddress(hostname)))
+      )
+        invalid('新的 Provider 必须使用公网 API 地址')
+      if (
+        (url.protocol !== 'https:' && !(url.protocol === 'http:' && legacyGateway)) ||
         url.username ||
         url.password ||
         url.search ||
         url.hash
       )
-        invalid('API 地址必须使用 HTTPS（本机允许 HTTP），且不能包含凭证、查询参数或片段')
+        invalid('API 地址必须使用 HTTPS（已有部署网关除外），且不能包含凭证、查询参数或片段')
     } else if (provider.template === 'custom') invalid('自定义 Provider 需要 API 地址')
     if (
       typeof provider.secretRef !== 'string' ||
-      (!/^[A-Z][A-Z0-9_]{0,127}$/.test(provider.secretRef) &&
+      (!(
+        AGENT_PROVIDER_SECRET_REFS.includes(
+          provider.secretRef as (typeof AGENT_PROVIDER_SECRET_REFS)[number],
+        ) || /^AGENT_PROVIDER_[A-Z0-9_]{1,80}_API_KEY$/.test(provider.secretRef)
+      ) &&
         !(
           id === 'upstream-gateway' &&
           provider.secretRef === '' &&
@@ -196,7 +212,9 @@ export function validateAgentModelSettings(value: unknown): AgentModelSettings {
           provider.baseUrl === `${config.upstream.baseUrl}/v1`
         ))
     )
-      invalid('密钥引用必须是服务端环境变量名；只有未改地址的现有网关可以沿用原凭证')
+      invalid(
+        '请使用允许的 API key 环境变量或 AGENT_PROVIDER_*_API_KEY；仅原地址的现有网关可沿用凭证',
+      )
     if (!Array.isArray(provider.models) || provider.models.length > 200)
       invalid('自定义模型列表无效')
     const modelIds = new Set<string>()
@@ -217,6 +235,8 @@ export function validateAgentModelSettings(value: unknown): AgentModelSettings {
     if (!provider) invalid(`${key} 档位引用了不存在的 Provider`)
     const model = configuredModels(provider).find((item) => item.id === profile.modelId)
     if (!model) invalid(`${key} 档位引用了不存在的模型`)
+    if (!model.input.includes('image'))
+      invalid(`${key} 档位需要支持图片输入的模型，以便使用视觉工具`)
     if (!getSupportedThinkingLevels(model).includes(profile.reasoning as ModelReasoningLevel))
       invalid(`${key} 档位的模型不支持所选推理强度`)
   }
@@ -312,6 +332,15 @@ export function configuredAgentRuntime(settings: AgentModelSettings, depth?: Age
       auth: { apiKey: { name: provider.name, resolve: async () => ({ auth: { apiKey } }) } },
     }),
   )
-  return { model, models, effort: profile.reasoning, providerId: provider.id }
+  return {
+    model,
+    models,
+    effort: profile.reasoning,
+    providerId: provider.id,
+    trustedGateway:
+      provider.id === 'upstream-gateway' &&
+      provider.template === 'custom' &&
+      provider.baseUrl === `${config.upstream.baseUrl}/v1`,
+  }
 }
 export type ConfiguredAgentRuntime = ReturnType<typeof configuredAgentRuntime>

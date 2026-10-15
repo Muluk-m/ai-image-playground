@@ -59,7 +59,23 @@ export interface AgentProviderTemplate {
   models: AgentConfiguredModel[]
 }
 
+/** Other provider credentials must use the dedicated AGENT_PROVIDER_*_API_KEY namespace. */
+export const AGENT_PROVIDER_SECRET_REFS = [
+  'UPSTREAM_API_KEY',
+  'UPSTREAM_OPENAI_API_KEY',
+  'UPSTREAM_CLAUDE_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'GROQ_API_KEY',
+  'XAI_API_KEY',
+  'MISTRAL_API_KEY',
+] as const
+
 export interface AgentModelSettingsView {
+  validationError?: string
+
   revision: number
   settings: AgentModelSettings
   templates: AgentProviderTemplate[]

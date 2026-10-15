@@ -8,18 +8,23 @@ process.env.UPSTREAM_API_KEY = 'legacy-fixture-key'
 process.env.AGENT_CHAT_MODEL = 'gpt-6-luna'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = ''
-process.env.TEST_PROVIDER_KEY = 'provider-fixture-secret'
+process.env.AGENT_PROVIDER_TEST_API_KEY = 'provider-fixture-secret'
 const { app } = await import('../../app')
+const { _setSafeFetchForTesting } = await import('../../lib/safeFetch')
 const { db, schema, close } = await import('../../db/client')
 const { resolveConfiguredAgentRuntime } = await import('../../lib/agent/model-settings-store')
 const { agentStreamFn, setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { completionStream } = await import('../helpers/agentStubs')
 
 beforeEach(async () => {
+  _setSafeFetchForTesting({ resolve: async () => [{ address: '8.8.8.8', family: 4 }] })
   await db.delete(schema.agent_model_settings)
   await db.delete(schema.operator_audits)
 })
-afterEach(() => setAgentFetchForTesting())
+afterEach(() => {
+  setAgentFetchForTesting()
+  _setSafeFetchForTesting()
+})
 afterAll(close)
 const endpoint = 'http://localhost/internal/admin/agent-models'
 function request(method = 'GET', body?: unknown, authenticated = true) {
@@ -123,7 +128,7 @@ it('freezes provider, credential, model and effort for the whole turn while the 
     name: 'Second',
     template: 'custom',
     baseUrl: 'https://provider.example/v1',
-    secretRef: 'TEST_PROVIDER_KEY',
+    secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
     models: [
       {
         id: 'same-model',
@@ -163,8 +168,8 @@ it('freezes provider, credential, model and effort for the whole turn while the 
     expect((await stream.result()).stopReason).toBe('stop')
   }
   expect(calls.map((call) => call.url)).toEqual([
-    'https://provider.example/v1/chat/completions',
-    'https://next.example/v1/chat/completions',
+    'https://8.8.8.8/v1/chat/completions',
+    'https://8.8.8.8/v1/chat/completions',
   ])
   expect(calls.map((call) => call.body.reasoning_effort)).toEqual(['low', 'high'])
   expect(calls[0]?.authorization).toBe('Bearer provider-fixture-secret')
@@ -184,7 +189,7 @@ it.each([
     name: 'Native',
     template,
     baseUrl: 'https://native.example',
-    secretRef: 'TEST_PROVIDER_KEY',
+    secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
     models: [],
   })
   view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: 'low' }
@@ -229,7 +234,7 @@ it.each([
 
 it('fails an unconfigured selected provider without borrowing the gateway credential', async () => {
   const { settings } = await initial()
-  settings.providers[0]!.secretRef = 'MISSING_PROVIDER_FIXTURE_KEY'
+  settings.providers[0]!.secretRef = 'AGENT_PROVIDER_MISSING_API_KEY'
   expect((await request('PUT', { revision: 0, settings })).status).toBe(200)
   expect((await initial()).credentialReady['upstream-gateway']).toBe(false)
   await expect(resolveConfiguredAgentRuntime('fast')).rejects.toThrow('尚未配置服务端密钥')
@@ -258,4 +263,51 @@ it('preserves the legacy system role when the selected gateway effort is off', a
   })
   expect((await stream.result()).stopReason).toBe('stop')
   expect(payload?.messages[0]?.role).toBe('system')
+})
+
+it('rejects non-provider environment secrets, private endpoints and text-only profile models', async () => {
+  for (const secretRef of ['DATABASE_URL', 'INTERNAL_API_TOKEN', 'AWS_SECRET_ACCESS_KEY']) {
+    const { settings } = await initial()
+    settings.providers[0]!.secretRef = secretRef
+    expect((await request('PUT', { revision: 0, settings })).status).toBe(400)
+  }
+  for (const baseUrl of ['https://127.0.0.1/v1', 'https://169.254.169.254', 'https://[::1]/v1']) {
+    const { settings } = await initial()
+    settings.providers[0]!.baseUrl = baseUrl
+    settings.providers[0]!.secretRef = 'OPENAI_API_KEY'
+    expect((await request('PUT', { revision: 0, settings })).status).toBe(400)
+  }
+  const { settings } = await initial()
+  settings.providers[0]!.models[0]!.imageInput = false
+  expect((await request('PUT', { revision: 0, settings })).status).toBe(400)
+})
+
+it('lets admin repair a damaged stored configuration without silently using fallback models for turns', async () => {
+  const { settings } = await initial()
+  await request('PUT', { revision: 0, settings })
+  await db.update(schema.agent_model_settings).set({ settings: {} as typeof settings })
+  const damaged = await initial()
+  expect(damaged.validationError).toContain('保存的模型配置无效')
+  expect(damaged.revision).toBe(1)
+  await expect(resolveConfiguredAgentRuntime('fast')).rejects.toThrow('保存的模型配置无效')
+  expect(
+    (await request('PUT', { revision: damaged.revision, settings: damaged.settings })).status,
+  ).toBe(200)
+  expect((await initial()).validationError).toBeUndefined()
+})
+
+it('preserves an existing deployment HTTP gateway while rejecting newly configured HTTP targets', async () => {
+  const { config } = await import('../../config')
+  const original = config.upstream.baseUrl
+  try {
+    config.upstream.baseUrl = 'http://gateway:8080'
+    const { settings } = await initial()
+    expect((await request('PUT', { revision: 0, settings })).status).toBe(200)
+    expect((await resolveConfiguredAgentRuntime()).trustedGateway).toBe(true)
+    settings.providers[0]!.baseUrl = 'http://other-gateway:8080/v1'
+    settings.providers[0]!.secretRef = 'UPSTREAM_API_KEY'
+    expect((await request('PUT', { revision: 1, settings })).status).toBe(400)
+  } finally {
+    config.upstream.baseUrl = original
+  }
 })
