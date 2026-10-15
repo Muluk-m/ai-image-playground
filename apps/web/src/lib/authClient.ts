@@ -6,7 +6,11 @@ import {
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
-import { isClientCapabilityEnabled } from './clientCapabilities'
+import {
+  applySessionCapabilityGrants,
+  isClientCapabilityEnabled,
+  readSessionCapabilityGrants,
+} from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
@@ -51,7 +55,11 @@ async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUserView> {
-  const result = await authJson<{ user: AuthUserView }>('/api/auth/me', { signal })
+  const result = await authJson<{ user: AuthUserView; canvasCapabilities?: unknown }>(
+    '/api/auth/me',
+    { signal },
+  )
+  applySessionCapabilityGrants(readSessionCapabilityGrants(result.canvasCapabilities))
   return result.user
 }
 
@@ -135,6 +143,7 @@ export function oauthStartUrl(provider: string, referralCode?: string): string {
 
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
+  applySessionCapabilityGrants(null)
   noteBrowserSession(null)
 }
 

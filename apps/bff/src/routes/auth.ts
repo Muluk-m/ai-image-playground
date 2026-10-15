@@ -10,7 +10,11 @@ import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { accountProfileView } from '../lib/account-profile-view'
-import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import {
+  capabilityUnavailable,
+  isCapabilityEnabled,
+  isCapabilityEnabledForUser,
+} from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
 import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
 import {
@@ -267,7 +271,14 @@ export const userAuthRoutes = new Elysia()
   .get('/api/auth/me', ({ authUser, status }) => {
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     if (!authUser) return status(401, { error: 'unauthorized' })
-    return { user: authUser }
+    return {
+      user: authUser,
+      canvasCapabilities: {
+        'canvas:blank-generate': isCapabilityEnabledForUser('canvas:blank-generate', authUser.id),
+        'canvas:node-run': isCapabilityEnabledForUser('canvas:node-run', authUser.id),
+        'canvas:script': isCapabilityEnabledForUser('canvas:script', authUser.id),
+      },
+    }
   })
   .get('/api/auth/login-methods', async ({ authUser, status }) => {
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')

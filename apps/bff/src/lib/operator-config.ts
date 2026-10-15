@@ -18,9 +18,17 @@ import { isObject } from './type-guards'
 
 export type OperatorValueSource = 'default' | 'file' | `preset:${string}`
 
+/** 只允许把尚未对全站开放的节点画布子功能发给指定用户。不能借此打开其它能力。 */
+export const USER_GRANTABLE_CAPABILITIES = [
+  'canvas:blank-generate',
+  'canvas:node-run',
+  'canvas:script',
+] as const satisfies readonly CapabilityKey[]
+
 export interface ResolvedOperatorConfig {
   readonly capabilities: CapabilityValues
   readonly capabilitySources: Readonly<Record<CapabilityKey, OperatorValueSource>>
+  readonly capabilityUsers: Readonly<Record<string, readonly CapabilityKey[]>>
   readonly quotas: QuotaValues
   readonly quotaSources: Readonly<Record<QuotaKey, OperatorValueSource>>
   readonly channelsFile: string | null
@@ -39,6 +47,7 @@ interface ParsedOperatorConfig {
   readonly preset?: string
   readonly presets: Readonly<Record<string, ParsedPreset>>
   readonly capabilities: ParsedCapabilityValues
+  readonly capabilityUsers: Readonly<Record<string, readonly CapabilityKey[]>>
   readonly quotas: ParsedQuotaValues
   readonly channelsFile: string | null
 }
@@ -91,6 +100,35 @@ function parseQuotas(value: unknown): ParsedQuotaValues {
   return parsed
 }
 
+function parseCapabilityUsers(value: unknown): Readonly<Record<string, readonly CapabilityKey[]>> {
+  if (value === undefined) return {}
+  if (!isObject(value)) throw new Error('operator config capabilityUsers must be an object')
+  const users: Record<string, CapabilityKey[]> = {}
+  for (const [userId, granted] of Object.entries(value)) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(userId)) {
+      throw new Error(`operator config capabilityUsers has an invalid user id: ${userId}`)
+    }
+    if (!Array.isArray(granted)) {
+      throw new Error(`operator config capabilityUsers.${userId} must be an array`)
+    }
+    const keys: CapabilityKey[] = []
+    for (const key of granted) {
+      if (
+        typeof key !== 'string' ||
+        !USER_GRANTABLE_CAPABILITIES.includes(key as (typeof USER_GRANTABLE_CAPABILITIES)[number])
+      ) {
+        throw new Error(
+          `operator config capabilityUsers.${userId} contains an unsupported capability`,
+        )
+      }
+      const capability = key as CapabilityKey
+      if (!keys.includes(capability)) keys.push(capability)
+    }
+    users[userId] = keys
+  }
+  return users
+}
+
 function parsePresets(value: unknown): Readonly<Record<string, ParsedPreset>> {
   if (value === undefined) return {}
   if (!isObject(value)) throw new Error('operator config presets must be an object')
@@ -114,7 +152,7 @@ function parseOperatorConfig(value: unknown): ParsedOperatorConfig {
   if (!isObject(value)) throw new Error('operator config must be a JSON object')
   assertOnlyKeys(
     value,
-    ['preset', 'presets', 'capabilities', 'quotas', 'channelsFile'],
+    ['preset', 'presets', 'capabilities', 'capabilityUsers', 'quotas', 'channelsFile'],
     'operator config',
   )
 
@@ -138,6 +176,7 @@ function parseOperatorConfig(value: unknown): ParsedOperatorConfig {
     preset,
     presets,
     capabilities: parseCapabilities(value.capabilities, 'operator config capabilities'),
+    capabilityUsers: parseCapabilityUsers(value.capabilityUsers),
     quotas: parseQuotas(value.quotas),
     channelsFile: typeof value.channelsFile === 'string' ? value.channelsFile.trim() : null,
   }
@@ -161,6 +200,7 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
   return {
     capabilities,
     capabilitySources,
+    capabilityUsers: {},
     quotas,
     quotaSources,
     channelsFile: null,
@@ -173,6 +213,11 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
 function applyCapabilityDependencies(capabilities: Record<CapabilityKey, boolean>): void {
   if (!capabilities['accounts:login']) capabilities['accounts:sync'] = false
   if (!capabilities['agent:chat']) capabilities['agent:production'] = false
+  if (!capabilities['canvas:nodes']) {
+    capabilities['canvas:blank-generate'] = false
+    capabilities['canvas:node-run'] = false
+    capabilities['canvas:script'] = false
+  }
 }
 
 function assertCapabilityCompatibility(capabilities: CapabilityValues): void {
@@ -242,12 +287,24 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
   return {
     capabilities,
     capabilitySources,
+    capabilityUsers: parsed.capabilityUsers,
     quotas,
     quotaSources,
     channelsFile: parsed.channelsFile,
     file,
     loaded: true,
   }
+}
+
+/** 全站开关优先。按用户加开只在节点画布本身已经打开时生效，并且只能加开，不能关掉全站已开的能力。 */
+export function userHasCapability(
+  config: ResolvedOperatorConfig,
+  key: CapabilityKey,
+  userId: string | null | undefined,
+): boolean {
+  if (config.capabilities[key]) return true
+  if (!userId || !config.capabilities['canvas:nodes']) return false
+  return config.capabilityUsers[userId]?.includes(key) ?? false
 }
 
 export function loadOperatorConfig(file: string | null): ResolvedOperatorConfig {
