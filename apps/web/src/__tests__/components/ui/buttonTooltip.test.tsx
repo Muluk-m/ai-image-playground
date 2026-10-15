@@ -131,7 +131,7 @@ it('does not turn a visible label into a tooltip', async () => {
   expect(buttons[0].getAttribute('aria-label')).toBe('编辑')
   expect(document.querySelector('[role="tooltip"]')).toBeNull()
   await act(async () => buttons[1].focus())
-  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('关闭')
+  expect(document.querySelector('[role="tooltip"]')).toBeNull()
 })
 
 it('lets an intermediary trigger own the disabled reason and normal action label', async () => {
@@ -162,7 +162,7 @@ it('closes the previous tooltip across independent providers', async () => {
           <Icon name="edit" />
         </Button>
         <Button size="icon" aria-label="保存">
-          <Icon name="close" />
+          <Icon name="download" />
         </Button>
       </>,
     ),

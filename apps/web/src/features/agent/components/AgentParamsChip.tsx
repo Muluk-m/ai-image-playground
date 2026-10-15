@@ -6,6 +6,7 @@ import {
   useModelChoices,
 } from '../../../components/composer/ModelSelector'
 import {
+  RatioGrid,
   RatioShape,
   SettingsPopover,
   SettingsSection,
@@ -154,8 +155,8 @@ export default function AgentParamsChip({
   const ratioLabel = ratio === 'auto' ? t('composer:settings.autoOption') : ratio
   const summaryParts = [
     modelLabel,
-    ratio !== 'auto' ? ratio : '',
     showThinking ? labels[depth] : '',
+    ratio !== 'auto' ? ratio : '',
     imageMode ? t('composer:settings.count', { count }) : '',
   ].filter(Boolean)
   const summary = summaryParts.join(' · ')
@@ -221,15 +222,6 @@ export default function AgentParamsChip({
         <span className="creation-params-segments">
           <span className="flex shrink-0">{modelIcon}</span>
           <span className="creation-params-text">{modelLabel}</span>
-          {ratio !== 'auto' && (
-            <>
-              <span className="creation-params-text" aria-hidden="true">
-                ·
-              </span>
-              <RatioShape ratio={ratio} />
-              <span className="creation-params-text">{ratio}</span>
-            </>
-          )}
           {showThinking && (
             <>
               <span className="creation-params-text" aria-hidden="true">
@@ -237,6 +229,15 @@ export default function AgentParamsChip({
               </span>
               <ThinkingDepthMark depth={depth} />
               <span className="creation-params-text">{labels[depth]}</span>
+            </>
+          )}
+          {ratio !== 'auto' && (
+            <>
+              <span className="creation-params-text" aria-hidden="true">
+                ·
+              </span>
+              <RatioShape ratio={ratio} />
+              <span className="creation-params-text">{ratio}</span>
             </>
           )}
           {imageMode && (
@@ -286,16 +287,11 @@ export default function AgentParamsChip({
             )}
           </SettingsSection>
           <SettingsSection title={t('params.ratio')}>
-            <SettingsSegmented
+            <RatioGrid
               label={t('params.ratio')}
               options={ratios.map((value) => ({
                 value,
-                label: (
-                  <span className="inline-flex items-center justify-center gap-1">
-                    <RatioShape ratio={value} />
-                    {value === 'auto' ? t('composer:settings.autoOption') : value}
-                  </span>
-                ),
+                label: value === 'auto' ? t('composer:settings.autoOption') : value,
               }))}
               value={ratio}
               onChange={setRatio}
@@ -322,9 +318,6 @@ export default function AgentParamsChip({
                 checked={autoSubmit}
                 onChange={(value) => useAgentStore.getState().setAutoSubmit(value)}
               />
-              <p className="text-label-sm leading-relaxed text-muted-foreground">
-                {t('params.countByAgent')}
-              </p>
             </>
           )}
         </>

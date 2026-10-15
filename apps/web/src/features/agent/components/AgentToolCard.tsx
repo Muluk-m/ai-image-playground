@@ -481,23 +481,22 @@ function GeneratingTile({
 }) {
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
-  const waiting = progress.phase === 'queued' || progress.phase === 'submitted' || index > 0
-  const label = waiting
-    ? index === 0 && progress.phase !== 'queued'
-      ? (text ?? t(`job.phase.${progress.phase}`))
-      : t('job.queueSlot', { position: index === 0 ? 1 : index })
-    : (text ?? t(`job.phase.${progress.phase}`))
+  const queuedSlot = progress.phase === 'queued' || index > 0
+  const label = text ?? t(`job.phase.${progress.phase}`)
   return (
     <div className="studio-agent-inline-tile" data-pending="true">
       <ImageGeneration
         generating={progress.phase !== 'delivering'}
-        className="absolute inset-0 aspect-auto h-full w-full rounded-none"
+        className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
       />
-      <div className="studio-agent-tile-status">
-        {index === 0 && progress.phase !== 'queued' ? (
-          <JobProgress label={label} className="w-full" />
+      <div className="studio-agent-tile-face">
+        <Icon name={queuedSlot ? 'clock' : 'image'} className="text-muted-foreground" />
+        {queuedSlot ? (
+          <span className="studio-agent-tile-caption">
+            {t('job.queueSlotShort', { position: index + 1 })}
+          </span>
         ) : (
-          <span>{label}</span>
+          <JobProgress label={label} className="studio-agent-tile-progress w-full" />
         )}
       </div>
     </div>
@@ -562,6 +561,7 @@ function StandardAgentToolCard({
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [costOpen, setCostOpen] = useState(false)
   const [maskBusy, setMaskBusy] = useState(false)
+  const [toolsFor, setToolsFor] = useState<string | null>(null)
   const [maskEdit, setMaskEdit] = useState<{
     action: Extract<ArtifactEditAction, 'inpaint' | 'outpaint'>
     artifactId: string
@@ -959,46 +959,62 @@ function StandardAgentToolCard({
     }
     const renderTile = (tile: (typeof tiles)[number], index: number) => (
       <div
-        className="studio-agent-inline-tile"
+        className="studio-agent-inline-tile-wrap"
         key={tile.id}
-        style={{
-          aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
-          ...(generatedImage &&
-            !batch &&
-            !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
-        }}
+        data-tools={toolsFor === tile.id ? 'open' : undefined}
       >
-        <Button
-          type="button"
-          variant="ghost"
-          className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
-          aria-label={
-            onPreviewResult
-              ? t('tool.openResultNumber', { number: index + 1 })
-              : t('tool.openCanvas')
-          }
-          disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-          onClick={() => openPreviewResult(tile.id)}
+        <div
+          className="studio-agent-inline-tile"
+          style={{
+            aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
+            ...(generatedImage &&
+              !batch &&
+              !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
+          }}
         >
-          {tile.source ? (
-            <img
-              src={tile.source}
-              alt={t('tool.resultNumber', { number: index + 1 })}
-              loading="lazy"
-              onLoad={(event) => {
-                const { naturalWidth, naturalHeight } = event.currentTarget
-                if (naturalWidth && naturalHeight)
-                  setImageRatios((ratios) => ({
-                    ...ratios,
-                    [tile.id]: naturalWidth / naturalHeight,
-                  }))
-              }}
-            />
-          ) : (
-            <span>{t('tool.previewUnavailable')}</span>
-          )}
-          {tile.media === 'video' && <PlayBadge />}
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
+            aria-label={
+              onPreviewResult
+                ? t('tool.openResultNumber', { number: index + 1 })
+                : t('tool.openCanvas')
+            }
+            autoTooltip={false}
+            disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
+            onClick={(event) => {
+              const coarse =
+                typeof window.matchMedia === 'function' &&
+                window.matchMedia('(hover: none)').matches
+              if (coarse && toolsFor !== tile.id) {
+                event.stopPropagation()
+                setToolsFor(tile.id)
+                return
+              }
+              openPreviewResult(tile.id)
+            }}
+          >
+            {tile.source ? (
+              <img
+                src={tile.source}
+                alt={t('tool.resultNumber', { number: index + 1 })}
+                loading="lazy"
+                onLoad={(event) => {
+                  const { naturalWidth, naturalHeight } = event.currentTarget
+                  if (naturalWidth && naturalHeight)
+                    setImageRatios((ratios) => ({
+                      ...ratios,
+                      [tile.id]: naturalWidth / naturalHeight,
+                    }))
+                }}
+              />
+            ) : (
+              <span>{t('tool.previewUnavailable')}</span>
+            )}
+            {tile.media === 'video' && <PlayBadge />}
+          </Button>
+        </div>
         <div className="studio-agent-inline-actions">
           {generatedImage && tile.media !== 'video' ? (
             <>
