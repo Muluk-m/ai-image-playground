@@ -12,6 +12,8 @@ if (origin && (new URL(origin).origin !== origin || !/^https?:\/\//.test(origin)
 }
 export default defineConfig({
   publicDir: '../web/public',
+  // Start prerenders through Vite preview; keep its listener and fetch on the same address family.
+  preview: { host: '127.0.0.1' },
   resolve: {
     alias: { '@': resolve(import.meta.dirname, '../web/src') },
     dedupe: ['react', 'react-dom'],
