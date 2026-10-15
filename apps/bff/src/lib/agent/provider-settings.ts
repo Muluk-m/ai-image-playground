@@ -287,6 +287,15 @@ export function configuredAgentRuntime(settings: AgentModelSettings, depth?: Age
   if (!provider) invalid('所选 Provider 不存在')
   const model = configuredModels(provider).find((item) => item.id === profile.modelId)
   if (!model) invalid('所选模型不存在')
+  // The legacy gateway used a non-reasoning model for the default/off profile.
+  // Preserve its system-message wire role even though the configurable model also exposes effort levels.
+  if (
+    provider.id === 'upstream-gateway' &&
+    model.api === 'openai-completions' &&
+    profile.reasoning === 'off'
+  ) {
+    model.compat = { ...model.compat, supportsDeveloperRole: false }
+  }
   const apiKey = provider.secretRef
     ? process.env[provider.secretRef]?.trim()
     : resolveChatApiKey(model.id)
