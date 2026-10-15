@@ -6,26 +6,22 @@ import remarkGfm from 'remark-gfm'
  * 助手回复用的 Markdown 渲染。模型习惯用列表、加粗、代码回答，原样显示星号与短横
  * 读起来像乱码。样式手写而不引 typography 插件：颜色跟随语义 token、字号以 xs 为主。
  */
-const BLOCK = 'my-1.5 first:mt-0 last:mb-0'
-const LIST = `${BLOCK} flex flex-col gap-0.5 pl-4`
+const BLOCK = 'my-2 first:mt-0 last:mb-0'
+const LIST =
+  'my-2 flex list-outside flex-col gap-1 pl-5 first:mt-0 last:mb-0 marker:text-muted-foreground'
+const HEADING = 'mb-1 mt-4 font-medium text-foreground first:mt-0'
 
 const components: ComponentProps<typeof Markdown>['components'] = {
   p: ({ node: _node, ...props }) => <p className={BLOCK} {...props} />,
   ul: ({ node: _node, ...props }) => <ul className={`${LIST} list-disc`} {...props} />,
   ol: ({ node: _node, ...props }) => <ol className={`${LIST} list-decimal`} {...props} />,
-  li: ({ node: _node, ...props }) => <li className="pl-0.5" {...props} />,
+  li: ({ node: _node, ...props }) => <li className="pl-1" {...props} />,
   strong: ({ node: _node, ...props }) => (
-    <strong className="font-semibold text-foreground" {...props} />
+    <strong className="font-medium text-foreground" {...props} />
   ),
-  h1: ({ node: _node, ...props }) => (
-    <p className={`${BLOCK} font-semibold text-foreground`} {...props} />
-  ),
-  h2: ({ node: _node, ...props }) => (
-    <p className={`${BLOCK} font-semibold text-foreground`} {...props} />
-  ),
-  h3: ({ node: _node, ...props }) => (
-    <p className={`${BLOCK} font-semibold text-foreground`} {...props} />
-  ),
+  h1: ({ node: _node, ...props }) => <h2 className={HEADING} {...props} />,
+  h2: ({ node: _node, ...props }) => <h3 className={HEADING} {...props} />,
+  h3: ({ node: _node, ...props }) => <h4 className={HEADING} {...props} />,
   a: ({ node: _node, ...props }) => (
     <a
       className="text-primary underline decoration-primary/40 hover:text-primary"

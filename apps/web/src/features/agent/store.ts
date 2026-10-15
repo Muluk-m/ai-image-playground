@@ -88,6 +88,11 @@ import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroun
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
 import { browserConversationPrefetch } from './lib/conversationPrefetch'
+import {
+  type DraftSubmissionDispatch,
+  type DraftSubmissionInput,
+  submitDraft,
+} from './lib/draftSubmission'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
 import { agentJobUnsettled } from './lib/jobProgress'
@@ -278,13 +283,8 @@ export interface AgentState {
     replay?: TurnSubmissionReplay,
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
-    /** 输入框接回失败消息后，日志停止自动重发；先等草稿落盘。 */
-    onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
-    localPersistence?: {
-      stage(submission: UnsentTurnSubmission): Promise<void>
-      committed(id: string): void
-    },
   ): Promise<void | 'cancelled'>
+  submitDraft(input: DraftSubmissionInput): Promise<void>
   abort(): Promise<void>
   retryReturnedMessages(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -1617,7 +1617,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       })),
   }
 
-  return {
+  const initial: Omit<AgentState, 'send' | 'submitDraft'> & { send: DraftSubmissionDispatch } = {
     open: true,
     tab: 'chat',
     conversationId: null,
@@ -2593,5 +2593,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }
       return { confirmed, failure: null }
     },
+  }
+  return {
+    ...initial,
+    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride) =>
+      initial.send(text, references, onAccepted, mode, clientMessageId, replay, modelOverride),
+    submitDraft: (input) => submitDraft(input, initial.send),
   }
 })

@@ -62,8 +62,6 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
-  attachmentSourceOwner,
-  hasLocalAttachmentSources,
   localAttachmentFailure,
   localAttachmentIdentity,
   readAttachmentUpload,
@@ -121,7 +119,7 @@ import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
 import { referenceTileLabel } from '../lib/imageMentions'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
-import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
+import { agentPromptHistory } from '../lib/promptHistory'
 import {
   type AgentDraft,
   type AgentReference,
@@ -129,7 +127,6 @@ import {
   agentAdmission,
   attachReference,
   clearReferenceMask,
-  draftForSubmit,
   hasDraftContent,
   type ReferenceTransport,
   referenceDisplayNames,
@@ -283,11 +280,14 @@ export default function AgentComposer({
   editor,
   welcome = false,
   showCanvasReferences = true,
+  showFollowUpGhost = true,
   productionMode = false,
 }: {
   welcome?: boolean
   showLooks?: boolean
   showCanvasReferences?: boolean
+  /** 整页对话把建议画成可滚动的芯片，输入框里不再钉一句灰色幽灵文字。 */
+  showFollowUpGhost?: boolean
   productionMode?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
@@ -861,87 +861,22 @@ export default function AgentComposer({
 
   const submit = () => {
     if (loading || submitting || historyBlocked || uploadsBlocked) return
-    const submission = draftForSubmit(draft)
-    if (!submission.text.trim()) return
-    // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
-    const snapshot = draft
-    const handoff = hasLocalAttachmentSources(snapshot)
-      ? attachmentSourceOwner(`sending:${crypto.randomUUID()}`)
-      : undefined
-    const releaseSubmission = session.beginSubmission()
-    const sameAccount = accountScope()
-    let stagedId: string | undefined
-    let accepted = false
-    let returnedToDraft = false
-    const restore = (cancelled = false) => {
-      returnedToDraft = true
-      useStore
-        .getState()
-        .showToast(
-          cancelled ? t('composer.abortedToast') : t('composer.sendFailedToast'),
-          cancelled ? 'info' : 'error',
-        )
-      // 这几秒里用户要是已经开始打下一句，别把它冲掉。
-      setDraft((current) =>
-        current.prompt.trim() || current.references.length
-          ? current
-          : { ...snapshot, submission: undefined },
-      )
-    }
-    const acceptLocalDraft = () => {
-      if (stagedId) session.acceptSubmission(stagedId)
-      else session.accept(snapshot)
-      selection.sent()
-      browsingRef.current = null
-    }
-    const send = () => {
-      if (!sameAccount()) throw new Error('media_scope_changed')
-      if (!handoff) acceptLocalDraft()
-      return useAgentStore.getState().send(
-        snapshot.submission?.text ?? submission.text,
-        snapshot.submission?.references ?? submission.references,
-        () => {
-          accepted = true
-          if (handoff) acceptLocalDraft()
-          if (sameAccount()) rememberAgentPrompt(snapshot.prompt)
-          releaseSubmission()
-        },
-        snapshot.submission?.mode ?? mode,
-        snapshot.submission?.id,
-        snapshot.submission,
-        undefined,
-        async (retry) => {
-          returnedToDraft = true
-          useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
-          return session.returnUnsent({ ...snapshot, submission: retry })
-        },
-        handoff
-          ? {
-              stage: async (command) => {
-                if (!sameAccount()) throw new Error('media_scope_changed')
-                stagedId = command.id
-                await session.stageSubmission(snapshot, command)
-              },
-              committed: () => acceptLocalDraft(),
-            }
-          : undefined,
-      )
-    }
-    void (handoff ? handoff.retain(snapshot).then(send) : send())
-      .then(
-        (outcome) => {
-          if (!accepted && !returnedToDraft) restore(outcome === 'cancelled')
-        },
-        () => restore(),
-      )
-      .finally(async () => {
-        try {
-          await session.flush()
-          if (!session.getSnapshot().error) await handoff?.release().catch(() => {})
-        } finally {
-          releaseSubmission()
-        }
-      })
+    void useAgentStore.getState().submitDraft({
+      session,
+      snapshot: draft,
+      mode,
+      onConsumed: () => {
+        selection.sent()
+        browsingRef.current = null
+      },
+      onNotice: (notice) =>
+        useStore
+          .getState()
+          .showToast(
+            notice === 'cancelled' ? t('composer.abortedToast') : t('composer.sendFailedToast'),
+            notice === 'cancelled' ? 'info' : 'error',
+          ),
+    })
   }
 
   /**
@@ -1281,18 +1216,18 @@ export default function AgentComposer({
               role="textbox"
               tabIndex={0}
               aria-label={t('composer.editorAria')}
-              aria-describedby={followUpGhost ? followUpHintId : undefined}
+              aria-describedby={followUpGhost && showFollowUpGhost ? followUpHintId : undefined}
               disabled={loading}
               aria-busy={loading}
               placeholder={
-                followUpGhost
+                followUpGhost && showFollowUpGhost
                   ? undefined
                   : t(`composer:studio.placeholders.${productionMode ? 'video' : creationMode}`)
               }
-              data-follow-up={followUpGhost ? '' : undefined}
+              data-follow-up={followUpGhost && showFollowUpGhost ? '' : undefined}
               className="creation-prompt"
             />
-            {followUpGhost && (
+            {followUpGhost && showFollowUpGhost && (
               <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-center gap-2 text-base leading-[1.75]">
                 <span className="min-w-0 text-muted-foreground" aria-hidden="true">
                   {followUpGhost}

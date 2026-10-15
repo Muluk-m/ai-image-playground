@@ -102,10 +102,12 @@ describe('the header', () => {
     })
     expect(document.body.textContent).toContain('未登录')
     expect(document.body.textContent).toContain('免费体验')
-    expect(document.body.textContent).toContain('帮助中心')
-    expect(document.body.textContent).toContain('使用指南')
-    expect(document.body.textContent).toContain('界面语言')
+    expect(document.body.textContent).toContain('帮助与指南')
+    expect(document.body.textContent).not.toContain('帮助中心')
+    expect(document.body.textContent).not.toContain('使用指南')
+    expect(document.body.textContent).not.toContain('界面语言')
     expect(document.body.textContent).toContain('主题')
+    expect(document.body.textContent).toContain('设置')
     expect(document.body.textContent).toContain('服务条款')
     click('登录 / 注册')
     expect(login).toHaveBeenCalledTimes(2)
@@ -128,6 +130,17 @@ describe('the header', () => {
     expect([...document.querySelectorAll('button')].some((one) => one.textContent === '资产')).toBe(
       false,
     )
+  })
+
+  it('语言和访客菜单是 40px 图标，画布窄屏也留着深色顶栏', () => {
+    act(() => root.render(<Header />))
+    expect(host.querySelector('[aria-label="界面语言"]')?.className).toContain('size-10')
+    expect(host.querySelector('[aria-label="打开应用菜单"]')?.className).toContain('size-10')
+    expect(host.querySelector('.studio-mobile-topbar')).not.toBeNull()
+
+    act(() => useStore.setState({ appMode: 'canvas' }))
+    expect(host.querySelector('.studio-mobile-topbar')).not.toBeNull()
+    expect(document.querySelector('header')).toBeNull()
   })
 })
 

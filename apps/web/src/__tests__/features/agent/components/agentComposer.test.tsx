@@ -1,3 +1,4 @@
+import { submitDraft } from '../../../../features/agent/lib/draftSubmission'
 import { openReferenceStack } from '../../../helpers/radix'
 
 // @vitest-environment jsdom
@@ -130,6 +131,7 @@ beforeEach(async () => {
     async () => {},
   )
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     messages: [],
     turn: 'idle',
     stopping: false,

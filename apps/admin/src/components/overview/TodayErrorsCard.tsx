@@ -4,6 +4,7 @@ import { ErrorState, PendingState } from '@/components/Page'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTodayErrors } from '@/lib/queries'
+import type { ErrorRecoveryState } from '../../../contracts'
 
 export function TodayErrorsCard() {
   const query = useTodayErrors()
@@ -11,11 +12,28 @@ export function TodayErrorsCard() {
   const period = selectedPeriod === 'recent' && query.data?.recent ? 'recent' : 'today'
   const selected = period === 'recent' ? query.data?.recent : query.data
   const window = selected?.window
+  const [selectedState, setState] = useState<ErrorRecoveryState | null>(null)
+  // During a rolling release an older API has no recovery evidence: keep its records unknown.
+  const recovery = selected?.recovery ?? {
+    unresolved: { total: 0, entries: [] },
+    unknown: { total: selected?.total ?? 0, entries: selected?.entries ?? [] },
+    recovered: { total: 0, entries: [] },
+  }
+  const state =
+    selectedState ??
+    (recovery.unresolved.total ? 'unresolved' : recovery.unknown.total ? 'unknown' : 'unresolved')
+  const entries = recovery[state].entries
+  const tone =
+    state === 'recovered'
+      ? 'text-success'
+      : state === 'unresolved'
+        ? 'text-danger'
+        : 'text-muted-foreground'
 
   return (
     <Card className="min-w-0">
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
-        <CardTitle className="text-sm">错误日志</CardTitle>
+        <CardTitle className="text-sm">错误与恢复</CardTitle>
         <Link
           to="/logs"
           search={{ ...window, level: 'error' }}
@@ -55,16 +73,34 @@ export function TodayErrorsCard() {
                 </span>
               </Button>
             </div>
+            <div className="grid grid-cols-3 gap-2" aria-label="错误恢复状态">
+              {recoveryStates.map(({ key, label }) => (
+                <Button
+                  key={key}
+                  variant={state === key ? 'secondary' : 'outline'}
+                  className="h-auto flex-col gap-1 px-2 py-2"
+                  aria-pressed={state === key}
+                  onClick={() => setState(key)}
+                >
+                  <span className="text-xs">{label}</span>
+                  <span
+                    className={`text-lg font-semibold tabular-nums ${key === 'recovered' ? 'text-success' : key === 'unresolved' && recovery[key].total ? 'text-danger' : 'text-muted-foreground'}`}
+                  >
+                    {recovery[key].total} 条
+                  </span>
+                </Button>
+              ))}
+            </div>
             <p className="text-xs text-muted-foreground">
-              历史记录会保留，累计数量不代表当前未恢复的故障数。
+              已恢复有后续成功记录；待确认缺少恢复证据。数量按错误记录统计，原始日志保留。
             </p>
-            {selected?.entries.length ? (
+            {entries.length ? (
               <div
                 role="log"
                 aria-label={period === 'recent' ? '最近 15 分钟错误终端' : '今日错误终端'}
                 className="max-h-96 overflow-auto rounded-md bg-muted/30 p-3 font-mono text-xs"
               >
-                {selected.entries.map((entry) => (
+                {entries.map((entry) => (
                   <div className="mb-4 last:mb-0" key={`${entry.source}:${entry.id}`}>
                     <div className="flex items-baseline gap-2 text-muted-foreground">
                       <time dateTime={new Date(entry.at).toISOString()}>
@@ -75,12 +111,21 @@ export function TodayErrorsCard() {
                           hour12: false,
                         })}
                       </time>
-                      <span className="text-danger">{entry.service}</span>
+                      <span className={tone}>{entry.service}</span>
+                      <span className={tone}>
+                        {recoveryStates.find((item) => item.key === state)?.label}
+                      </span>
                     </div>
+                    <p className={`mt-1 ${tone}`}>
+                      {entry.recovery?.reason ?? '暂无可关联的恢复证据'}
+                      {entry.recovery?.recoveredAt != null
+                        ? ` · 恢复于 ${new Date(entry.recovery.recoveredAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}`
+                        : ''}
+                    </p>
                     {entry.route || entry.status ? (
                       <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                         {entry.status ? (
-                          <span className="font-semibold text-danger">HTTP {entry.status}</span>
+                          <span className={`font-semibold ${tone}`}>HTTP {entry.status}</span>
                         ) : null}
                         {entry.route ? (
                           <code className="min-w-0 break-all">{entry.route}</code>
@@ -109,6 +154,22 @@ export function TodayErrorsCard() {
                     ) : null}
                     <div className="mt-1 text-xs">
                       <div className="flex flex-wrap gap-2">
+                        {entry.recovery?.recoveredAt != null &&
+                        entry.service === 'cloudflared' &&
+                        entry.instance ? (
+                          <Button size="sm" variant="outline" asChild>
+                            <Link
+                              to="/logs"
+                              search={{
+                                from: entry.at - 1000,
+                                to: entry.recovery.recoveredAt + 1000,
+                                instance: entry.instance,
+                              }}
+                            >
+                              恢复记录 →
+                            </Link>
+                          </Button>
+                        ) : null}
                         {entry.task_id ? (
                           <Button size="sm" variant="outline" asChild>
                             <Link to="/tasks" search={{ ...window, task: entry.task_id }}>
@@ -158,12 +219,20 @@ export function TodayErrorsCard() {
               </div>
             ) : (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                {period === 'recent' ? '最近 15 分钟没有新增错误日志' : '今天没有采集到错误日志'}
+                {!selected?.total
+                  ? period === 'recent'
+                    ? '最近 15 分钟没有新增错误日志'
+                    : '今天没有采集到错误日志'
+                  : state === 'unresolved'
+                    ? '当前范围没有确认未恢复的错误'
+                    : state === 'recovered'
+                      ? '当前范围没有已确认恢复的错误'
+                      : '当前范围没有待确认的错误'}
               </p>
             )}
             <p className="text-xs text-muted-foreground">
               {period === 'recent' ? '最近 15 分钟' : '今日（北京时间）'} · 服务端 ERROR / FATAL
-              与浏览器异常 · 最新 10 条 · 每 30 秒刷新
+              与浏览器异常 · 每类最新 10 条 · 每 30 秒刷新
             </p>
           </>
         ) : query.isError ? (
@@ -208,3 +277,9 @@ function errorReason(reason?: string | null, code?: string | null) {
   if (reason) return translation ? `${translation}（${reason}）` : reason
   return translation ?? '未记录具体错误原因，可查看相关日志。'
 }
+
+const recoveryStates = [
+  { key: 'unresolved', label: '未恢复' },
+  { key: 'unknown', label: '待确认' },
+  { key: 'recovered', label: '已恢复' },
+] as const

@@ -1,5 +1,11 @@
 .studio-shell { background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .studio-layout { display: flex; position: relative; height: 100%; width: 100%; }
+/* 主内容是抬起的圆角面板，缝隙露出更深的侧栏底。侧栏收起时变量把缝和圆角收成 0。 */
+.app-inset-panel {
+  background: hsl(var(--background));
+  border-radius: var(--app-inset-radius, 0px);
+  overflow: hidden;
+}
 .studio-project-viewbar {
   position: absolute; inset: 0 0 auto; z-index: 415; height: 56px;
   display: flex; align-items: center; gap: 8px;
@@ -8,7 +14,7 @@
 }
 .studio-project-viewbar > .studio-agent-project { flex: 0 1 auto; min-width: 0; }
 /* 对话视图的项目栏就是页头（DESIGN.md「页头」）：底部分割线，项目名是标题而不是一张卡片。 */
-.studio-project-viewbar--chat { border-bottom: 1px solid hsl(var(--border)); }
+.studio-project-viewbar--chat { border-bottom: 0; }
 .studio-project-viewbar--chat .studio-project-pill { width: auto; height: 40px; border-color: transparent; background: transparent; }
 .studio-project-viewbar--chat .studio-project-pill-name { font-size: theme('fontSize.title'); }
 .studio-project-viewbar--chat .studio-project-pill-toggle { background: transparent; }
@@ -36,11 +42,13 @@
 .studio-layout[data-project-view="chat"] .studio-chat-column--page > .studio-sidebar { margin: 0 auto; }
 .studio-sidebar--page .studio-agent-page-toolbar { min-height: 48px; padding-right: 8px; }
 .studio-sidebar--page .studio-agent-log { gap: 16px; padding: 8px 4px 14px; }
-.studio-sidebar--page .studio-agent-reply { font-size: theme('fontSize.sm'); line-height: 1.7; }
+.studio-sidebar--page .studio-agent-reply { font-size: theme('fontSize.base'); line-height: 1.7; }
 .studio-sidebar--page .studio-agent-user-message {
   max-width: min(76%, 560px); padding: 9px 13px; font-size: theme('fontSize.body-sm'); line-height: 1.55;
 }
-.studio-sidebar--page .studio-agent-turn-cost { margin-top: 4px; padding-top: 8px; color: hsl(var(--muted-foreground)); }
+.studio-sidebar--page .studio-agent-turn-cost { margin-top: 2px; color: hsl(var(--muted-foreground)); }
+.studio-sidebar--page .studio-agent-reply-actions { color: hsl(var(--muted-foreground)); }
+.studio-follow-ups { position: static; }
 .studio-sidebar--page .studio-agent-composer { padding: 8px 0 14px; }
 .studio-sidebar--page [data-slot="composer-bar"] { gap: 8px; padding: 11px 12px; }
 .studio-sidebar--page .studio-agent-composer [role="textbox"] { min-height: 48px; }
@@ -226,14 +234,16 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   }
   .studio-sidebar--page .studio-agent-result-media > * { height: 176px; }
   .studio-project-viewbar {
-    height: 104px; align-items: flex-start;
-    padding: 8px calc(var(--studio-header-actions-width, 40px) + 24px) 0 8px;
+    position: fixed; top: 0; right: 0; left: 0; z-index: 35;
+    height: var(--mobile-topbar-height); align-items: center;
+    padding: 0 calc(var(--studio-header-actions-width, 40px) + 16px) 0 8px;
+    background: transparent; border: 0;
   }
   .studio-project-viewbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
   .studio-project-switch { position: absolute; top: 62px; left: 8px; margin-left: 0; }
-  .studio-layout[data-project-view] { padding-top: 104px; }
-  .studio-layout[data-project-view] > .studio-canvas { inset: 104px 0 0; height: calc(100% - 104px); }
-  .studio-layout[data-project-view="chat"] > .studio-chat-column { padding: 0 8px 8px; }
+  .studio-layout[data-project-view] { padding-top: 0; }
+  .studio-layout[data-project-view] > .studio-canvas { inset: 0; height: 100%; }
+  .studio-layout[data-project-view="chat"] > .studio-chat-column { padding: 0 12px 8px; }
   .studio-layout[data-project-view="canvas"] > .studio-chat-column { display: none; }
   /* Agent 项目在手机画布视图里：对话列收成底部抽屉，胶囊展开，下拉按钮收起。 */
   .studio-layout[data-project-view="canvas"][data-mobile-chat="open"] > .studio-chat-column {
@@ -270,8 +280,8 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
    数字和 .studio-header-float 的 padding、控件高度绑在一起，改一边要改另一边。 */
 :root {
   --studio-account-cluster-top: calc((56px - var(--studio-account-cluster-control) - var(--studio-account-cluster-pad) * 2) / 2);
-  --studio-account-cluster-pad: 3px;
-  --studio-account-cluster-control: 2rem;
+  --studio-account-cluster-pad: 0px;
+  --studio-account-cluster-control: 40px;
   --studio-account-cluster-clearance: calc(
     var(--studio-account-cluster-top) + var(--studio-account-cluster-pad) * 2 +
       var(--studio-account-cluster-control) + 0.75rem
@@ -283,23 +293,36 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   background: transparent;
   box-shadow: none;
 }
-.studio-header-float > button {
-  height: 28px;
+.studio-header-float,
+.studio-global-account {
+  align-items: center;
+}
+.studio-header-float > button,
+.studio-header-float button,
+.studio-global-account > * > button {
+  height: 40px;
+  min-height: 40px;
   border: 0;
-  border-radius: 8px;
   box-shadow: none;
 }
-.studio-header-float > * > button { border-radius: 9999px; }
+.studio-header-float button[aria-haspopup="menu"] {
+  width: 40px;
+  min-width: 40px;
+  border-radius: 9999px;
+}
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .studio-header-float { top: var(--workspace-viewport-top, 0px); }
   .studio-header-float button { min-width: 40px; min-height: 40px; }
   .studio-mobile-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .studio-shell {
-    top: calc(var(--workspace-viewport-top, 0px) + var(--safe-area-top) + var(--header-height)) !important;
-    bottom: auto; height: calc(var(--workspace-viewport-height, 100dvh) - var(--safe-area-top) - var(--header-height) - var(--mobile-nav-height));
+    top: calc(var(--mobile-topbar-height) + var(--app-inset)) !important;
+    right: var(--app-inset) !important;
+    bottom: calc(var(--mobile-nav-height) + var(--app-inset)) !important;
+    left: var(--app-inset) !important;
+    height: auto;
   }
-  .studio-layout { padding-top: 56px; }
+  .studio-layout { padding-top: 0; }
   /* 对话列铺满：桌面那套 min-width 360 + 左边距在 390 宽的屏上直接溢出。 */
   .studio-chat-column { min-width: 0; width: 100%; margin: 0; padding: 0 8px 8px; }
   .studio-chat-column > .studio-sidebar { border-radius: 16px; }
@@ -414,14 +437,9 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   html[data-home='true'] .studio-home-intro { padding-top: 24px; }
   html[data-home='true'] .studio-mobile-topbar {
     border-bottom-width: 0;
-    background-color: transparent;
+    background-color: hsl(var(--sidebar));
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-  }
-  /* 点阵和光晕从屏幕顶上铺下来，顶栏不再盖住它们。 */
-  html[data-home='true'] .studio-home-backdrop {
-    top: calc(-1 * var(--mobile-topbar-height));
-    height: calc(max(680px, 100vh) + var(--mobile-topbar-height));
   }
   [data-home-main] .creation-composer { --creation-space: 20px; }
 }
@@ -768,15 +786,12 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   .studio-artifact-pane-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 }
 
-/* 对话是完整阅读面；产物跟在回复里，只有点开时才进入详情。 */
-.studio-chat-column--page > .studio-sidebar { width: min(1400px, 100%) !important; }
-@media (min-width: 1000px) {
-  .studio-chat-column--page > .studio-sidebar { width: min(1400px, calc(100% - 96px)) !important; }
-}
+/* 对话列大约 760px，在面板里居中。产物跟在回复里，只有点开时才进入详情。 */
+.studio-chat-column--page > .studio-sidebar { width: min(760px, 100%) !important; }
 .studio-sidebar--page .studio-agent-log { gap: 20px; padding-top: 24px; }
-.studio-sidebar--page .studio-agent-reply { font-size: theme('fontSize.title'); line-height: 1.75; }
+.studio-sidebar--page .studio-agent-reply { font-size: theme('fontSize.base'); line-height: 1.7; }
 .studio-sidebar--page .studio-agent-user-message { font-size: theme('fontSize.sm'); }
-.studio-assets-trigger { display: grid; flex: 0 0 36px; width: 36px; height: 36px; margin-left: auto; place-items: center; border-radius: 10px; color: hsl(var(--muted-foreground)); }
+.studio-assets-trigger { display: grid; flex: 0 0 40px; width: 40px; height: 40px; margin-left: auto; place-items: center; border-radius: 10px; color: hsl(var(--muted-foreground)); }
 .studio-assets-trigger:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
 .studio-agent-inline-result { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .studio-agent-inline-meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
@@ -1001,12 +1016,12 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-layout[data-project-view="chat"] > .studio-chat-column--page { padding-inline: 0; }
 .studio-layout[data-project-view="chat"] .studio-chat-column--page > .studio-sidebar { width: 100% !important; }
 .studio-sidebar--page .studio-agent-log { display: block; padding: 24px 0 14px; }
-.studio-agent-log-content { display: flex; flex-direction: column; gap: 20px; width: min(1400px, calc(100% - 96px)); min-height: 100%; margin-inline: auto; }
+.studio-agent-log-content { display: flex; flex-direction: column; gap: 20px; width: min(760px, 100%); min-height: 100%; margin-inline: auto; }
 .studio-agent-message-block { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
 .studio-agent-message-block:empty { display: none; }
 .studio-sidebar--page .studio-agent-composer,
 .studio-sidebar--page .studio-agent-pending-drafts,
-.studio-sidebar--page .studio-agent-message-queue { width: min(1400px, calc(100% - 96px)); margin-inline: auto; }
+.studio-sidebar--page .studio-agent-message-queue { width: min(760px, 100%); margin-inline: auto; }
 .studio-search-trigger { margin-left: auto; }
 .studio-search-trigger + .studio-assets-trigger { margin-left: 0; }
 .studio-conversation-search { position: absolute; z-index: 6; top: 10px; right: 30px; display: flex; align-items: flex-start; gap: 6px; width: min(420px, calc(100% - 32px)); padding: 7px; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 18px 55px hsl(var(--scrim) / .25); }
@@ -1200,7 +1215,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 /* The node conversation is a full-height dock; the canvas keeps its own header clearance. */
 .studio-layout[data-node-canvas="true"] { padding-top: 0; }
 .studio-layout[data-node-canvas="true"] > .studio-canvas { margin-top: 56px; height: calc(100% - 56px); }
-body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) + 16px); }
+/* 右侧对话栏打开时让出它的宽度；宽屏再加内容面板的缝。 */
+body .studio-global-account {
+  top: calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset));
+  right: calc(var(--studio-canvas-chat-width, 0px) + 12px + var(--app-header-inset));
+}
 .studio-layout[data-node-canvas="true"] > .studio-chat-column {
   display: flex; position: relative; order: 3; flex: 0 0 auto; min-width: 0;
   width: auto; max-width: min(480px, 42%); margin: 0; padding: 0;
@@ -1249,7 +1268,7 @@ body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) +
 .studio-node-navigation { bottom: 18px; left: 16px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
 .studio-node-zoom-trigger { min-width: 76px; gap: 6px; padding: 0 8px; }
 .studio-node-arrange-confirm { position: absolute; bottom: calc(100% + 12px); left: 0; width: 256px; max-width: calc(100vw - 32px); padding: 16px; display: grid; gap: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--popover)); box-shadow: var(--shadow-popover); }
-.studio-node-history { position: fixed; top: calc(var(--safe-area-top) + 8px); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px); z-index: 40; height: 40px; padding: 4px; border-radius: 12px; }
+.studio-node-history { position: fixed; top: calc(var(--safe-area-top) + 8px + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: 40px; padding: 4px; border-radius: 12px; }
 .studio-node-history button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 @media (pointer: coarse), (max-width: 767px) {
   .studio-node-history { top: calc(var(--safe-area-top) + 4px); height: 48px; padding: 1px; }

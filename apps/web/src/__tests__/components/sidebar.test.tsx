@@ -7,7 +7,7 @@ import Sidebar from '../../components/Sidebar'
 import type { CanvasProject } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
-import { installAppRouting } from '../../lib/appRoute'
+import { installWorkbenchNavigation } from '../../lib/navigation/workbenchNavigation'
 import { useStore } from '../../store'
 
 vi.mock('../../lib/channels/videoChannels', async (importOriginal) => ({
@@ -56,15 +56,16 @@ it('顶部三项：创作 / 探索 / 资产，选中的那个自己标出来', (
   expect(useStore.getState().appMode).toBe('library')
 })
 
-it('对话与画布用两个标签切换，查看全部打开项目列表', () => {
-  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
-  expect(entry('画布').getAttribute('aria-pressed')).toBe('false')
+it('对话与画布分成两区，各自能新建，查看全部打开项目列表', () => {
+  expect(host.textContent).toContain('对话')
+  expect(host.textContent).toContain('画布')
   expect(entry('新建对话')).toBeDefined()
-
-  act(() => entry('画布').click())
-  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
   expect(entry('新建画布')).toBeDefined()
-  expect(useStore.getState().appMode).toBe('image')
+  expect(
+    [...host.querySelectorAll('button')].some(
+      (button) => button.textContent === '对话' || button.getAttribute('aria-label') === '对话',
+    ),
+  ).toBe(false)
 
   act(() => entry('查看全部').click())
   expect(useStore.getState().appMode).toBe('library')
@@ -83,18 +84,22 @@ it('宽屏侧栏可收起并重新展开', () => {
 
   act(() => entry('主导航').click())
 
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('264px')
   expect(host.querySelectorAll('nav')).toHaveLength(2)
+  const nav = host.querySelector('nav')
+  expect(nav?.className).toContain('bg-sidebar')
+  expect(nav?.className).not.toContain('border-r')
 })
 
-it('品牌在侧栏里，不再挂在顶栏上', () => {
-  expect(host.textContent).toContain('幕芽')
+it('品牌在侧栏里，用字标而不是纯文字', () => {
+  expect(host.querySelector('img[src="/brand/muvloom-wordmark-dark.svg"]')).not.toBeNull()
+  expect(entry('幕芽')).toBeDefined()
 })
 
 it('画布左上角 Logo 返回创作首页并更新地址', () => {
   window.history.replaceState(null, '', '/p/canvas-example')
   act(() => useStore.setState({ appMode: 'canvas', sidebarExpanded: false }))
-  const stop = installAppRouting()
+  const stop = installWorkbenchNavigation()
   try {
     act(() => entry('主页').click())
     expect(useStore.getState().appMode).toBe('image')
@@ -140,7 +145,7 @@ it('同一会话的云端与旧本机存档只列一个入口，旧链接仍标�
   expect(useCanvasProjectStore.getState().projects).toHaveLength(2)
 })
 
-it('每个标签最多列五条，切换后只列那一种', () => {
+it('对话和画布同时列出，每区最多五条，空项目用图标缩略图', () => {
   act(() =>
     useCanvasProjectStore.setState({
       projects: [...seed('chat', 7), ...seed('canvas', 3)],
@@ -151,15 +156,24 @@ it('每个标签最多列五条，切换后只列那一种', () => {
   const rows = (prefix: string) =>
     [...host.querySelectorAll('span.truncate')].filter((one) => one.textContent?.startsWith(prefix))
   expect(rows('chat-')).toHaveLength(5)
-  expect(rows('canvas-')).toHaveLength(0)
-
-  act(() => entry('画布').click())
-  expect(rows('chat-')).toHaveLength(0)
   expect(rows('canvas-')).toHaveLength(3)
+  expect(host.querySelectorAll('[data-project-thumb="chat"]')).toHaveLength(5)
+  expect(host.querySelectorAll('[data-project-thumb="canvas"]')).toHaveLength(3)
 })
 
-it('当前项目恢复或切换后，标签跟到它那一类', () => {
-  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+it('有封面的项目用封面图', () => {
+  act(() =>
+    useCanvasProjectStore.setState({
+      projects: [{ ...seed('chat', 1)[0]!, cover: 'https://example.com/cover.jpg' }],
+      cloudCatalog: {},
+      loaded: true,
+    }),
+  )
+  const thumb = host.querySelector('[data-project-thumb="cover"] img')
+  expect(thumb?.getAttribute('src')).toBe('https://example.com/cover.jpg')
+})
+
+it('进入画布后，当前项目在对应一行高亮', () => {
   act(() =>
     useCanvasProjectStore.setState({
       projects: [...seed('chat', 2), ...seed('canvas', 2)],
@@ -168,15 +182,17 @@ it('当前项目恢复或切换后，标签跟到它那一类', () => {
       loaded: true,
     }),
   )
-  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+  expect(host.querySelector('.bg-accent')).toBeNull()
 
-  act(() => entry('对话').click())
-  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+  act(() => useStore.setState({ appMode: 'canvas', sidebarExpanded: true }))
+  const active = [...host.querySelectorAll('span.truncate')].find(
+    (el) => el.textContent === 'canvas-1',
+  )
+  expect(active?.closest('.group\\/row')?.className).toContain('bg-accent')
 
   act(() => useCanvasProjectStore.setState({ activeId: 'chat-0' }))
-  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
-  act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
-  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+  const next = [...host.querySelectorAll('span.truncate')].find((el) => el.textContent === 'chat-0')
+  expect(next?.closest('.group\\/row')?.className).toContain('bg-accent')
 })
 
 it('进入对话默认摊开宽栏，进入画布才收起', () => {
@@ -191,7 +207,7 @@ it('进入对话默认摊开宽栏，进入画布才收起', () => {
   // 首页发出一条对话：切进工作台，侧栏保持摊开。
   act(() => useStore.getState().setAppMode('canvas'))
   expect(host.querySelectorAll('nav')).toHaveLength(2)
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('264px')
 
   act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
   expect(host.querySelectorAll('nav')).toHaveLength(1)
