@@ -11,6 +11,11 @@ import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 import { openCanvas } from '../../helpers/activeProject'
+import {
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+} from '../../helpers/cloudNodeProtocol'
 
 const conversationId = '163f0e81-1295-4d5c-bf87-0dca82631420'
 afterEach(async () => {
@@ -26,12 +31,16 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const calls: string[] = []
   let saved = false
+  const created = new Map<string, Record<string, unknown>>()
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
     calls.push(`${method} ${url}`)
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.endsWith('/projects')) return Response.json({ projects: [], nextCursor: null })
     if (url.endsWith('/conversation')) {
       expect(saved).toBe(true)
@@ -40,17 +49,24 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
       })
     }
     if (url.includes('/projects/')) {
-      if (method === 'GET') return Response.json({ error: 'project_not_found' }, { status: 404 })
+      const id = projectIdFromUrl(url)
+      if (method === 'GET') {
+        const stored = created.get(id)
+        if (!stored) return Response.json({ error: 'project_not_found' }, { status: 404 })
+        return Response.json(stored)
+      }
       const body = JSON.parse(init!.body as string)
       saved = true
-      return Response.json({
-        id: url.split('/').pop(),
+      const stored = {
+        id,
         ...body,
         revision: body.baseRevision + 1,
         createdAt: 1,
         updatedAt: 1,
         elementCount: 0,
-      })
+      }
+      created.set(id, stored)
+      return Response.json(stored)
     }
     if (url.endsWith('/messages'))
       return Response.json({
@@ -127,11 +143,14 @@ it('重新打开项目读取另一设备绑定的会话，历史加载失败重�
   }
   const requests: string[] = []
   let failHistory = true
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     requests.push(`${init?.method ?? 'GET'} ${url}`)
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
     if (url.includes('/projects/'))
       return Response.json({ ...project, conversationId, document: { version: 1, elements: [] } })
@@ -198,18 +217,41 @@ it('云端详情半天不回也立刻打开项目：本机那份就够开', asyn
     conversationId,
   }
   let detailAsked = false
+  const created = new Map<string, Record<string, unknown>>()
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
-    // 项目详情永不回。这正是生产上那 1.5s 的极端形态：它不该挡住切换。
-    // 只挂住读；写是保存旧画布那一路，挂住它测的就不是这件事了。
+    // 这个项目的详情永不回。这正是生产上那 1.5s 的极端形态：它不该挡住切换。
+    // 首页新建的项目仍要能落成空画布，挂住它测的就不是这件事了。
     if (url.includes('/projects/')) {
-      if (method !== 'GET') return Response.json({ ...project, elementCount: 0 })
-      detailAsked = true
-      return new Promise<Response>(() => {})
+      const id = projectIdFromUrl(url)
+      if (id === project.id && method === 'GET') {
+        detailAsked = true
+        return new Promise<Response>(() => {})
+      }
+      if (method === 'GET') {
+        const stored = created.get(id)
+        if (!stored) return Response.json({ error: 'project_not_found' }, { status: 404 })
+        return Response.json(stored)
+      }
+      const body = JSON.parse(String(init?.body))
+      const stored = {
+        id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 1,
+        elementCount: 0,
+        document: body.document,
+      }
+      created.set(id, stored)
+      return Response.json(stored)
     }
     if (url.endsWith('/messages'))
       return Response.json({ messages: [], turns: [], activeTurn: null })

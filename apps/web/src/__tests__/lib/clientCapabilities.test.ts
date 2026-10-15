@@ -1,7 +1,6 @@
 import type { ClientCapabilityKey } from '@image-playground/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  applySessionCapabilityGrants,
   bootstrapClientCapabilities,
   getClientCapabilityManifest,
   isClientCapabilityEnabled,
@@ -34,22 +33,6 @@ describe('client capability bootstrap', () => {
     expect(getClientCapabilityManifest()).not.toHaveProperty('generation:byok')
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
     expect(supportsProjectDocumentIdentity()).toBe(true)
-  })
-
-  it('adds canvas sub-features for the signed-in user and drops them after logout', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ ...allCapabilitiesOff(), 'canvas:nodes': true })),
-    )
-    await bootstrapClientCapabilities(true, 'https://bff.example.com')
-    expect(isClientCapabilityEnabled('canvas:script')).toBe(false)
-    applySessionCapabilityGrants({ 'canvas:script': true, 'canvas:blank-generate': true })
-    expect(isClientCapabilityEnabled('canvas:script')).toBe(true)
-    expect(isClientCapabilityEnabled('canvas:blank-generate')).toBe(true)
-    expect(isClientCapabilityEnabled('canvas:node-run')).toBe(false)
-    applySessionCapabilityGrants(null)
-    expect(isClientCapabilityEnabled('canvas:script')).toBe(false)
-    expect(isClientCapabilityEnabled('canvas:nodes')).toBe(true)
   })
 
   it('keeps known capabilities enabled when an older server omits newer keys', async () => {
