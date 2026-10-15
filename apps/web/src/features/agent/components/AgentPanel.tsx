@@ -39,7 +39,6 @@ import AgentGenerationPlan from './AgentGenerationPlan'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentImageActionStepView from './AgentImageActionStep'
 import AgentMessageQueue from './AgentMessageQueue'
-import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
 import AgentSaveCard from './AgentSaveCard'
 import AgentSuggestions from './AgentSuggestions'
@@ -734,7 +733,6 @@ export default function AgentPanel({
         </div>
       )}
 
-      {tab === 'chat' && <AgentPendingDrafts />}
       {tab === 'chat' && <AgentMessageQueue />}
       {tab === 'chat' && (
         <AgentComposer
