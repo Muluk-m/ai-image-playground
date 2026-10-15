@@ -4,7 +4,8 @@ name: AI Code Review
 # 照抄公司 qiliangjia/qlj-action-tools 的 code-review workflow：那是私有组织仓库，个人仓库
 # `uses:` 不到它，也继承不到组织级 secret，所以步骤内联在这里，key 配成本仓库的 CI_LLM_API_KEY。
 #
-# 首次评审 base→head 全量 diff；之后每次 push 只审 before→head 的增量。
+# 首次评审 merge-base→head 全量 diff；之后仅当 before 位于当前 PR 分叉点与 head 之间时审增量，否则回退全量。
+# 发布前校验当前 head 和 PR 文件清单；过期结果不发布，范围外意见只保留在 Job Summary。
 # 想完整复评：在 PR 里评论 `/review`。
 
 on:
@@ -109,28 +110,29 @@ jobs:
           PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
         run: |
           git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null \
-            || git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" || true
+            || git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
             || git fetch --no-tags origin "pull/${PR_NUMBER}/head" \
-            || git fetch --no-tags origin "$HEAD_SHA" || true
+            || git fetch --no-tags origin "$HEAD_SHA"
 
-          FULL_BASE_SHA="$(git rev-parse "origin/${BASE_REF}^{commit}" 2>/dev/null || true)"
-          if [ -z "$FULL_BASE_SHA" ]; then
-            echo "::error::Unable to resolve full-review base origin/${BASE_REF}"
+          # 必须使用当前 PR 分叉点；无法确定时停止，不能拿主干头替代。
+          if ! FULL_BASE_SHA="$(git merge-base "origin/${BASE_REF}" "$HEAD_SHA")"; then
+            echo "::error::Unable to resolve PR merge-base for origin/${BASE_REF} and ${HEAD_SHA}"
             exit 1
           fi
 
-          # 全量评审从分叉点算起：直接拿 main 头，main 前进后 diff 会混进主干新增内容的反向删除。
-          FROM_SHA="$(git merge-base "$FULL_BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$FULL_BASE_SHA")"
+          FROM_SHA="$FULL_BASE_SHA"
           REVIEW_SCOPE="full"
           if [ -n "$BASE_SHA" ]; then
             git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
               || git fetch --no-tags origin "$BASE_SHA" || true
-            if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-              FROM_SHA="$(git rev-parse "${BASE_SHA}^{commit}")"
+            if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+              && git merge-base --is-ancestor "$FULL_BASE_SHA" "$BASE_SHA" \
+              && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
+              FROM_SHA="$(git rev-parse --verify "${BASE_SHA}^{commit}")"
               REVIEW_SCOPE="incremental"
             else
-              echo "::warning::Incremental base ${BASE_SHA} is unavailable; falling back to full review from origin/${BASE_REF}"
+              echo "::warning::Incremental base ${BASE_SHA} is unavailable or outside the current PR ancestry; falling back to full review from ${FULL_BASE_SHA}"
             fi
           fi
 
@@ -189,6 +191,27 @@ jobs:
             const wantSummary = process.env.JOB_SUMMARY === 'true';
             const { owner, repo } = context.repo;
 
+            // 发布前核对当前 head 与 PR 文件范围；失败时不发布未经确认的结果。
+            let changedPaths;
+            try {
+              const { data: currentPr } = await github.rest.pulls.get({
+                owner, repo, pull_number: prNumber,
+              });
+              if (currentPr.head.sha !== commitSha) {
+                core.warning(`Review result is stale: reviewed ${commitSha}, current PR head is ${currentPr.head.sha}; skipping publication`);
+                await core.summary.addRaw(`## AI Code Review (ocr)\n\n评审结果已过期：评审 head 为 \`${commitSha}\`，当前 PR head 为 \`${currentPr.head.sha}\`。已跳过发布；这不代表当前 PR 没有问题。`).write();
+                return;
+              }
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner, repo, pull_number: prNumber, per_page: 100,
+              });
+              changedPaths = new Set(files.map(file => file.filename));
+            } catch (e) {
+              core.warning(`Unable to verify current PR scope; skipping publication: ${e.message}`);
+              await core.summary.addRaw(`## AI Code Review (ocr)\n\n无法确认当前 PR 的 head 或变更文件范围，已跳过发布未经验证的评审结果。\n\n${fencedBlock(e.message)}`).write();
+              return;
+            }
+
             // ---- 读取 ocr 输出 ----
             let result = null;
             try {
@@ -202,9 +225,19 @@ jobs:
               return;
             }
 
-            const comments = result.comments || [];
+            const allComments = result.comments || [];
+            const comments = allComments.filter(c => changedPaths.has(c.path));
+            const excluded = allComments.filter(c => !changedPaths.has(c.path));
             const warnings = result.warnings || [];
             core.setOutput('issue_count', String(comments.length));
+            if (excluded.length > 0) {
+              core.warning(`Excluded ${excluded.length} review comments outside the current PR changed files`);
+              let excludedSummary = `## 已排除：不属于当前 PR 变更文件的评审意见\n\n以下 ${excluded.length} 条意见不计入 PR 问题数，也不会发布到 PR。\n`;
+              for (const c of excluded) excludedSummary += `\n---\n\n${formatCommentMarkdown(c)}\n`;
+              if (comments.length === 0) excludedSummary += '\n所有意见均已排除；本次不发布评审，也不将此结果视为 PR 没有问题。\n';
+              await core.summary.addRaw(excludedSummary).write();
+              if (comments.length === 0) return;
+            }
 
             // ---- 无问题 ----
             if (comments.length === 0) {
