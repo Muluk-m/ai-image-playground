@@ -38,6 +38,7 @@ interface RegistrationPanelProps {
   onRequestVerification: (email: string) => Promise<RegistrationVerificationChallenge | null>
   onRegister: (credentials: RegistrationCredentials) => void
   children?: ReactNode
+  plansHref?: string
   invitationField?: ReactNode
 }
 
@@ -50,6 +51,7 @@ export function RegistrationPanel({
   onRegister,
   children,
   invitationField,
+  plansHref,
 }: RegistrationPanelProps) {
   const { t } = useTranslation('auth')
   const [email, setEmail] = useState('')
@@ -318,7 +320,7 @@ export function RegistrationPanel({
           </Button>
         </p>
       )}
-      <AuthConsent kind="registration" />
+      <AuthConsent plansHref={plansHref} kind="registration" />
     </div>
   )
 }

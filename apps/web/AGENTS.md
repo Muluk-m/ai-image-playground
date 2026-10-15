@@ -188,23 +188,10 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 
 ## 使用指南与 SEO
 
-- 使用指南是**构建期渲染的静态页**，不是 SPA 路由：每种语言一个首页（`/guide/`、`/guide/en/`）加每章
-  一页（`/guide/<章节 id>/`）。[`src/seo/vitePlugin.ts`](./src/seo/vitePlugin.ts) 在 `transformIndexHtml`
-  里把 `guide/**/index.html` 占位文件整页替换成 [`features/guide/render.ts`](./src/features/guide/render.ts)
-  的输出，并产出站内搜索索引 `<root>search.json`；浏览器端（`features/guide/client.ts`）只做目录高亮、
-  搜索弹窗与复制按钮。正文、结构化数据都在 HTML 里，爬虫不必执行脚本。
-- 内容是纯数据：`features/guide/content/zh-CN.ts` 与 `en.ts`，**两份结构必须一致**（同样的章节、锚点、
-  区块、截图与编号，`render.test.ts` 守着，站内链接失效也会让它红）。`[[标签]]` 写的是界面原文，改了
-  按钮文案要同步改指南。**新增章节**要同时加两种语言的内容、`render.ts` 里的章节图标，以及
-  `guide/<id>/index.html`、`guide/en/<id>/index.html` 两个占位文件（Vite 入口由内容推导，缺文件构建即失败）。
-- 截图在 `public/guide-assets/<zh|en>/`，只收 WebP（构建期读尺寸写进 width/height）。截图上的编号圆点
-  坐标是百分比，重新截图后要一起更新。
-- `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 由 `scripts/pages-release.sh` 按版本传给构建：有源才写 canonical、
-  hreflang、JSON-LD 与 `sitemap.xml`；`SEARCH_INDEXING=false`（内部站、测试站）时 `robots.txt` 整站
-  Disallow、给页面加 noindex，并且不产出 `sitemap.xml` 与 `llms.txt`。首页仍是 SPA，只在 head 里补元信息，
-  社交分享图是 `public/og/muvloom-og.jpg`。
-- `llms.txt` 的源稿是 [`src/seo/llms.txt`](./src/seo/llms.txt)。构建时丢掉含 `{{…}}` 占位符的句子，
-  以及指向尚未登记页面的链接；有 `PUBLIC_ORIGIN` 才把生产域名换成绝对地址。不要把未在页面上可见的 FAQ 写进 JSON-LD。
-- 公开页面登记在 [`src/seo/pages.ts`](./src/seo/pages.ts)。工作台路由、指南（由内容推导）和
-  `PRERENDERED_PAGES`（以后的着陆页、`/blog`）合进同一份 sitemap。指南有可靠的构建日期才写 `lastmod`，
-  有独立语言地址才写 hreflang。`/image` 与 `/` 是同一份文档，sitemap 只列根地址。
+- 公共官网和指南由 `apps/website` 的 TanStack Start 在构建期预渲染，详情见该目录的 AGENTS.md。
+- 指南纯数据保留在 `src/features/guide/content/{zh-CN,en}.ts`，两份结构必须一致。章节与锚点保持兼容；
+  新增章节只需修改两份内容，不再创建 HTML 占位文件。渲染与站内链接回归在 `apps/website/src/__tests__/`。
+- 截图在 `public/guide-assets/<zh|en>/`，使用 WebP。界面文案修改时也同步指南里的 `[[标签]]`。
+- Web 构建先输出工作台，再调用官网构建并合并为 `dist`。`index.html` 是官网，`workbench.html` 是工作台。
+  Pages、BFF、nginx 仅为明确的工作台路径回退到后者，缺失页面和资源必须返回 404。
+- `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 继续由 Pages 发布脚本按版本传入，内部站/测试站禁止收录。

@@ -30,8 +30,10 @@
 !apps/*/scripts
 # 按后缀放行 Vite 的 HTML 入口；漏掉入口会在 Rollup 构建时报错。
 !apps/*/*.html
-# 使用指南的入口在子目录（构建产物 /guide/、/guide/en/ 按目录索引访问）。
-!apps/web/guide
+# 官网预渲染与静态合包的构建期入口。
+!apps/website/compose.mjs
+!apps/website/seo.ts
+!apps/website/imageSizes.ts
 !apps/*/vite.config.ts
 # tailwind.config.js / postcss.config.js
 !apps/*/*.config.js

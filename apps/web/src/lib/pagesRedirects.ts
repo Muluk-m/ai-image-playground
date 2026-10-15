@@ -30,8 +30,8 @@ export function pagesRedirects(): string {
     PRIVACY_PATH,
   ]
   const rules = routes.flatMap((route) => [
-    `${route} / 200`,
-    route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ / 200`,
+    `${route} /workbench.html 200`,
+    route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ /workbench.html 200`,
   ])
   return `# Generated from src/lib/appPaths.ts. Missing assets must remain 404.\n${rules.join('\n')}\n`
 }
