@@ -1,6 +1,10 @@
 import { CLIENT_ERROR_LIMITS, CLIENT_ERRORS_PATH } from '@image-playground/shared'
 import { Elysia } from 'elysia'
-import { parseClientErrorBatch, recordClientErrors } from '../lib/client-errors'
+import {
+  parseClientErrorBatch,
+  recordClientErrorRecoveries,
+  recordClientErrors,
+} from '../lib/client-errors'
 import { clientAddress } from '../lib/http'
 import { log } from '../lib/logger'
 import { createWindowLimiter } from '../lib/rate-limit'
@@ -55,16 +59,18 @@ export const clientErrorRoutes = new Elysia().post(
     if (batch.deviceId && limiter.over(`device:${batch.deviceId}`, PER_DEVICE_PER_MINUTE)) {
       return status(429, { error: 'rate_limited' })
     }
-    if (batch.errors.length === 0) return status(204, null)
+    if (batch.errors.length === 0 && batch.recoveries.length === 0) return status(204, null)
 
     try {
       const token = cookie[USER_SESSION_COOKIE]?.value
       const user = typeof token === 'string' && token ? await resolveUserSession(token) : null
-      await recordClientErrors(batch.errors, {
+      const meta = {
         deviceId: batch.deviceId,
         userId: user?.id ?? null,
         userAgent: request.headers.get('user-agent'),
-      })
+      }
+      await recordClientErrors(batch.errors, meta)
+      await recordClientErrorRecoveries(batch.recoveries, meta)
     } catch (err) {
       log.error({ event: 'client_errors.record_failed', err }, 'failed to record client errors')
       return status(503, { error: 'unavailable' })

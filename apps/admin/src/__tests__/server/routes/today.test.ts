@@ -412,3 +412,52 @@ describe('today generation overview', () => {
     expect((await request('/api/overview/errors')).status).toBe(200)
   })
 })
+
+it('only marks the exact device/account/catalog incident recovered, regardless of beacon order', async () => {
+  const now = to + 8 * 86400_000
+  const incidentId = crypto.randomUUID()
+  const failure = {
+    kind: 'error' as const,
+    message: 'Project catalog unavailable',
+    fingerprint: 'catalog-test',
+    received_at: now - 1000,
+    device_id: 'catalog-device',
+    user_id: 'today-user',
+    context: { incidentId, operation: 'project.catalog' },
+  }
+  await writer.db.insert(writer.schema.client_errors).values([
+    { ...failure, id: 'catalog-match' },
+    { ...failure, id: 'catalog-other-device', device_id: 'other-device' },
+    { ...failure, id: 'catalog-other-account', user_id: null },
+    {
+      ...failure,
+      id: 'catalog-other-incident',
+      context: { incidentId: crypto.randomUUID(), operation: 'project.catalog' },
+    },
+    {
+      ...failure,
+      id: 'catalog-other-operation',
+      context: { incidentId, operation: 'project.open' },
+    },
+    { ...failure, id: 'catalog-legacy', context: null },
+  ])
+  await writer.db.insert(writer.schema.client_error_recoveries).values({
+    id: crypto.randomUUID(),
+    incident_id: incidentId,
+    operation: 'project.catalog',
+    device_id: 'catalog-device',
+    user_id: 'today-user',
+    received_at: now - 2000,
+  })
+  const result = await getTodayErrors(now)
+  expect(result.total).toBe(6)
+  expect(result.entries.find((e) => e.id === 'catalog-match')?.recovery).toMatchObject({
+    state: 'recovered',
+    recoveredAt: now - 1000,
+  })
+  for (const entry of result.entries.filter((e) => e.id !== 'catalog-match'))
+    expect(entry.recovery?.state).toBe('unknown')
+  expect(result.entries.find((e) => e.id === 'catalog-legacy')?.recovery?.reason).toContain(
+    '未记录恢复标识',
+  )
+})
