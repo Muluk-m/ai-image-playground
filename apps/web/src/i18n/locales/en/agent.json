@@ -203,6 +203,8 @@
   "cost": {
     "duration": "Took {{duration}}",
     "spent": "Spent",
+    "credits": "{{amount}} credits",
+    "details": "Details",
     "image": "Image",
     "imageSpentAria": "Image generation charged {{amount}} credits",
     "videoSpentAria": "Video generation charged {{amount}} credits",

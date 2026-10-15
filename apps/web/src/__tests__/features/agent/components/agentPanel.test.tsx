@@ -1137,11 +1137,10 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本轮耗时 1m 10s')
-    const toggle = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith('消耗'),
-    )!
-    expect(toggle.textContent).toBe('消耗 127')
+    expect(host.querySelector('[aria-label="本轮耗时 1m 10s"]')?.textContent).toBe('1m 10s')
+    expect(host.textContent).toContain('127 积分')
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    expect(toggle.textContent).toBe('明细')
 
     act(() => toggle.click())
     expect(host.textContent).toContain('对话 42 · 生图 85')
@@ -1202,8 +1201,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
-    expect(host.querySelector('del')?.textContent).toBe('20')
+    expect(host.textContent).toContain('100 积分')
+    expect(host.querySelector('del')).toBeNull()
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
     const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
     act(() => toggle.click())
@@ -1231,7 +1230,7 @@ describe('AgentPanel', () => {
     }
     useAgentStore.setState({ messages: [job], turns: { 'turn-1': footer } })
     render()
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).toBeNull()
+    expect(host.textContent).not.toContain('100 积分')
     expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
 
     act(() =>
@@ -1239,7 +1238,7 @@ describe('AgentPanel', () => {
         messages: [{ ...job, status: 'succeeded', job: { ...job.job!, chargedCredits: 100 } }],
       }),
     )
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.textContent).toContain('100 积分')
     const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
     act(() => toggle.click())
     expect(host.textContent).toContain('原价120')
@@ -1258,7 +1257,8 @@ describe('AgentPanel', () => {
         turns: { 'turn-1': footer },
       }),
     )
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.textContent).toContain('100 积分')
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).not.toBeNull()
   })
 
   it('限免开启后翻旧的收费轮，不把已经实扣的对话积分划掉', async () => {
@@ -1285,11 +1285,11 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('消耗 127')
+    expect(host.textContent).toContain('127 积分')
     expect(host.querySelector('del')).toBeNull()
   })
 
-  it('限免关闭后，已记录减免的历史轮仍显示划掉的原价', () => {
+  it('限免关闭后，已记录减免的历史轮展开后仍显示原价与减免', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -1312,8 +1312,13 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.querySelector('del')?.textContent).toBe('20')
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.textContent).toContain('100 积分')
+    expect(host.querySelector('del')).toBeNull()
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    act(() => toggle.click())
+    expect(host.textContent).toContain('原价120')
+    expect(host.textContent).toContain('对话减免−20')
+    expect(host.textContent).toContain('实扣100')
   })
 
   it('当前限免开关不把没有减免记录的旧零费用轮误标为对话减免', async () => {
@@ -1341,7 +1346,7 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
-    expect(host.textContent).toContain('本轮耗时 24s')
+    expect(host.querySelector('[aria-label="本轮耗时 24s"]')?.textContent).toBe('24s')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
   })
 
@@ -1408,8 +1413,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent?.match(/本轮耗时 12s/g)).toHaveLength(1)
-    expect(host.textContent?.indexOf('本轮耗时')).toBeGreaterThan(host.textContent!.indexOf('好的'))
+    expect(host.querySelectorAll('[aria-label="本轮耗时 12s"]')).toHaveLength(1)
+    expect(host.textContent?.indexOf('12s')).toBeGreaterThan(host.textContent!.indexOf('好的'))
   })
 
   it('进行中的轮不写预扣，末尾亮状态行', () => {
@@ -1521,7 +1526,7 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('本轮失败')
-    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.querySelector('[aria-label="本轮耗时 12s"]')?.textContent).toBe('12s')
     expect(host.textContent).not.toContain('未扣积分')
     expect(host.textContent).not.toContain('本轮免费')
   })
@@ -1643,7 +1648,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.querySelector('[aria-label="本轮耗时 12s"]')?.textContent).toBe('12s')
+    expect(host.textContent).not.toContain('积分')
     expect(host.textContent).not.toContain('消耗')
     expect(host.textContent).not.toContain('已用')
   })

@@ -122,80 +122,92 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   if (isPricingPath(pathname)) return <PricingPage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
+  const page =
+    appMode === 'explore' ? (
+      <ExplorePage />
+    ) : appMode === 'library' ? (
+      <LibraryPage />
+    ) : appMode === 'tools' ? (
+      <ToolboxPage />
+    ) : (
+      <>
+        <main
+          data-home-main
+          data-drag-select-surface
+          className="relative pb-24"
+          onPointerMove={(event) => {
+            if (event.pointerType !== 'mouse') return
+            const backdrop = homeBackdropRef.current
+            if (!backdrop) return
+            const bounds = backdrop.getBoundingClientRect()
+            if (event.clientY > bounds.bottom) {
+              backdrop.removeAttribute('data-pointer-active')
+              return
+            }
+            backdrop.style.setProperty('--pointer-x', `${event.clientX - bounds.left}px`)
+            backdrop.style.setProperty('--pointer-y', `${event.clientY - bounds.top}px`)
+            backdrop.dataset.pointerActive = 'true'
+          }}
+          onPointerLeave={() => homeBackdropRef.current?.removeAttribute('data-pointer-active')}
+        >
+          <div ref={homeBackdropRef} aria-hidden="true" className="studio-home-backdrop">
+            <div className="studio-home-backdrop__glow studio-home-backdrop__glow--a" />
+            <div className="studio-home-backdrop__glow studio-home-backdrop__glow--b" />
+            <div className="studio-home-backdrop__glow studio-home-backdrop__glow--c" />
+            <div className="studio-home-backdrop__grain" />
+            <div className="studio-home-backdrop__grid" />
+            <div className="studio-home-backdrop__hover" />
+          </div>
+          <div className="safe-area-x relative mx-auto max-w-6xl">
+            <div className="studio-home-intro text-center">
+              <h1 className="text-headline font-semibold leading-tight sm:text-display">
+                {t('hero.titleLead')}
+                <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
+              </h1>
+              <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
+            </div>
+            {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
+            <div className="studio-home-create pt-8 md:pt-5">
+              <CreateTargetSwitch />
+              <div className="pt-6 md:pt-4">
+                <InputBar inline />
+              </div>
+            </div>
+            {/* 对话创作页签：场景起手句在上，灵感 chip 下移保留。 */}
+            {createTarget === 'chat' ? <SkillStarterGuide /> : null}
+            <InspirationChips />
+            {createTarget !== 'generate' ? (
+              <HeroCanvasProjects experience={createTarget === 'video' ? 'canvas' : createTarget} />
+            ) : (
+              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
+            )}
+          </div>
+        </main>
+        <TaskBulkActions />
+      </>
+    )
+
   return (
     <>
-      <Header />
-      <Sidebar />
-      <div
-        style={{ paddingLeft: 'var(--app-sidebar-width)' }}
-        className={appMode === 'canvas' ? undefined : 'mobile-topbar-offset'}
-      >
+      <div className="app-chrome min-h-dvh bg-sidebar">
+        <Header />
+        <Sidebar />
         {appMode === 'canvas' ? (
           <CanvasMode />
-        ) : appMode === 'explore' ? (
-          <ExplorePage />
-        ) : appMode === 'library' ? (
-          <LibraryPage />
-        ) : appMode === 'tools' ? (
-          <ToolboxPage />
         ) : (
-          <>
-            <main
-              data-home-main
-              data-drag-select-surface
-              className="relative pb-24"
-              onPointerMove={(event) => {
-                if (event.pointerType !== 'mouse') return
-                const backdrop = homeBackdropRef.current
-                if (!backdrop) return
-                const bounds = backdrop.getBoundingClientRect()
-                if (event.clientY > bounds.bottom) {
-                  backdrop.removeAttribute('data-pointer-active')
-                  return
-                }
-                backdrop.style.setProperty('--pointer-x', `${event.clientX - bounds.left}px`)
-                backdrop.style.setProperty('--pointer-y', `${event.clientY - bounds.top}px`)
-                backdrop.dataset.pointerActive = 'true'
-              }}
-              onPointerLeave={() => homeBackdropRef.current?.removeAttribute('data-pointer-active')}
-            >
-              <div ref={homeBackdropRef} aria-hidden="true" className="studio-home-backdrop">
-                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--a" />
-                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--b" />
-                <div className="studio-home-backdrop__glow studio-home-backdrop__glow--c" />
-                <div className="studio-home-backdrop__grain" />
-                <div className="studio-home-backdrop__grid" />
-                <div className="studio-home-backdrop__hover" />
-              </div>
-              <div className="safe-area-x relative mx-auto max-w-6xl">
-                <div className="studio-home-intro text-center">
-                  <h1 className="text-headline font-semibold leading-tight sm:text-display">
-                    {t('hero.titleLead')}
-                    <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
-                  </h1>
-                  <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
-                </div>
-                {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
-                <div className="studio-home-create pt-8 md:pt-5">
-                  <CreateTargetSwitch />
-                  <div className="pt-6 md:pt-4">
-                    <InputBar inline />
-                  </div>
-                </div>
-                {/* 对话创作页签：场景起手句在上，灵感 chip 下移保留。 */}
-                {createTarget === 'chat' ? <SkillStarterGuide /> : null}
-                <InspirationChips />
-                {createTarget !== 'generate' ? (
-                  <HeroCanvasProjects
-                    experience={createTarget === 'video' ? 'canvas' : createTarget}
-                  />
-                ) : (
-                  <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
-                )}
-              </div>
-            </main>
-            <TaskBulkActions />
-          </>
+          <div
+            className="app-inset-panel"
+            style={{
+              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
+              marginRight: 'var(--app-inset)',
+              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+              minHeight:
+                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
+            }}
+          >
+            {page}
+          </div>
         )}
       </div>
       <DetailModal />

@@ -189,6 +189,8 @@
   "cost": {
     "duration": "本轮耗时 {{duration}}",
     "spent": "消耗",
+    "credits": "{{amount}} 积分",
+    "details": "明细",
     "image": "生图",
     "imageSpentAria": "生图实扣 {{amount}} 积分",
     "videoSpentAria": "生视频实扣 {{amount}} 积分",
