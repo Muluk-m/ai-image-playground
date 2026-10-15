@@ -100,3 +100,7 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 
 不直接使用。悬停提示统一用 `Hint`（assistant-ui/elements/tooltip-icon-button），它在 Tooltip 原语上
 加了统一的延迟、样式，以及「打开模态时收起所有提示」的约定。
+
+已经显示文字、功能一目了然的控件不加 tooltip。纯图标按钮用 `aria-label` 作为悬停与聚焦提示；
+带文字的按钮不会因为有 `aria-label` 再弹一层。文字被裁成省略号时，用 `OverflowText` /
+`useOverflowTitle` 只在真正溢出时显示同一段完整文字，不要附上模型 id 等内部标识。
