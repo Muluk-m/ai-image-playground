@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ICONS } from '../../../../components/ui/icon'
 import AgentParamsChip from '../../../../features/agent/components/AgentParamsChip'
 import { useAgentStore } from '../../../../features/agent/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
@@ -37,6 +38,14 @@ function toggle(): void {
 /** 卡片挂在 body 上；按分组名找。 */
 function group(label: string): Element | null {
   return document.body.querySelector(`[role="group"][aria-label="${label}"]`)
+}
+
+function depthPath(root: ParentNode, depth: string): string {
+  return root.querySelector(`[data-thinking-depth="${depth}"] path`)?.getAttribute('d') ?? ''
+}
+
+function glyphPath(line: string): string {
+  return line.match(/d="([^"]+)"/)?.[1] ?? ''
 }
 
 function option(groupLabel: string, text: string): HTMLButtonElement {
@@ -280,14 +289,17 @@ it('仅支持比例的模型在自定义里填预设比例：仍回显实际比�
 it('selects and remembers thinking depth independently of the image model', () => {
   render()
   toggle()
-  expect(trigger().querySelector('[data-thinking-depth="medium"]')).not.toBeNull()
+  expect(depthPath(trigger(), 'medium')).toBe(glyphPath(ICONS.gaugeMid.line))
+  expect(depthPath(option('思考深度', '快速'), 'fast')).toBe(glyphPath(ICONS.gaugeLow.line))
+  expect(depthPath(option('思考深度', '中等'), 'medium')).toBe(glyphPath(ICONS.gaugeMid.line))
+  expect(depthPath(option('思考深度', '深度'), 'deep')).toBe(glyphPath(ICONS.gaugeHigh.line))
 
   act(() => option('思考深度', '深度').click())
   expect(option('思考深度', '深度').getAttribute('aria-pressed')).toBe('true')
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
-  // 侧栏放不下「思考：深度」，收起后用刻度标在画幅后面；读屏名仍带上这一档。
-  expect(trigger().querySelector('[data-thinking-depth="deep"]')).not.toBeNull()
+  // 侧栏放不下「思考：深度」，收起后用仪表指针标在画幅后面；读屏名仍带上这一档。
+  expect(depthPath(trigger(), 'deep')).toBe(glyphPath(ICONS.gaugeHigh.line))
   expect(trigger().textContent).not.toContain('深度')
   expect(trigger().getAttribute('aria-label')).toContain('思考：深度')
   expect(trigger().hasAttribute('data-dirty')).toBe(false)
@@ -300,7 +312,7 @@ it('制作模式仅调整思考深度，不显示图片摘要或修改全局图�
   const buttons = host.querySelectorAll<HTMLButtonElement>('button')
   expect(buttons).toHaveLength(1)
   expect(buttons[0]!.textContent).toContain('思考：')
-  expect(buttons[0]!.querySelector('[data-thinking-depth="medium"]')).not.toBeNull()
+  expect(depthPath(buttons[0]!, 'medium')).toBe(glyphPath(ICONS.gaugeMid.line))
   expect(buttons[0]!.textContent).not.toContain('自动尺寸')
   act(() => buttons[0]!.click())
   expect(group('思考深度')).not.toBeNull()
