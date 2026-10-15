@@ -2,7 +2,60 @@ import { afterEach, expect, it } from 'bun:test'
 import { providerFetch } from '../../../lib/agent/provider-fetch'
 import { _setSafeFetchForTesting } from '../../../lib/safeFetch'
 
+process.env.PORT = '0'
+process.env.DATABASE_URL = 'postgres://unused/unused'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.OPERATOR_CONFIG_FILE = ''
+const { AgentRequestBudgetError, guardedAgentFetch } = await import(
+  '../../../lib/agent/outbound-budget'
+)
+
 afterEach(() => _setSafeFetchForTesting())
+
+it('preserves Request properties and rejects inherited stream bodies before dispatch', async () => {
+  _setSafeFetchForTesting({ resolve: async () => [{ address: '8.8.8.8', family: 4 }] })
+  let dispatched = 0
+  let rejected = 0
+  let options: RequestInit | undefined
+  const fetch = providerFetch(
+    guardedAgentFetch(
+      async (_input, init) => {
+        options = init
+        return new Response('ok')
+      },
+      {
+        onDispatch: async () => {
+          dispatched++
+        },
+        onRejected: async () => {
+          rejected++
+        },
+      },
+    ),
+    'https://provider.example',
+  )
+  const controller = new AbortController()
+  const request = new Request('https://provider.example/messages', {
+    method: 'POST',
+    headers: { authorization: 'Bearer fixture' },
+    body: '{}',
+    signal: controller.signal,
+  })
+  await expect(fetch(request)).rejects.toBeInstanceOf(AgentRequestBudgetError)
+  await expect(fetch(request, { body: undefined })).rejects.toBeInstanceOf(AgentRequestBudgetError)
+  expect(dispatched).toBe(0)
+  expect(rejected).toBe(2)
+  await fetch(request, { body: '{"replacement":true}' })
+  expect(dispatched).toBe(1)
+  expect(options?.method).toBe('POST')
+  expect(options?.body).toBe('{"replacement":true}')
+  expect(new Headers(options?.headers).get('authorization')).toBe('Bearer fixture')
+  expect(options?.signal).toBe(request.signal)
+  controller.abort()
+  await expect(fetch(request, { body: '{}' })).rejects.toThrow()
+  expect(dispatched).toBe(1)
+})
 
 it('pins a public DNS result and preserves the authenticated host and TLS name', async () => {
   _setSafeFetchForTesting({ resolve: async () => [{ address: '8.8.8.8', family: 4 }] })
