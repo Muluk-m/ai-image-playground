@@ -21,8 +21,12 @@ const goodScript =
 beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'pages-browser-'))
   await mkdir(join(dist, 'assets'))
-  await writeFile(join(dist, '_redirects'), '/p/:project / 200\n/assets/ /assets 301\n')
+  await writeFile(
+    join(dist, '_redirects'),
+    '/image /workbench.html 200\n/p/:project /workbench.html 200\n/assets/ /assets 301\n',
+  )
   await writeFile(join(dist, 'index.html'), html)
+  await writeFile(join(dist, 'workbench.html'), html)
   await writeFile(join(dist, 'assets/main.js'), goodScript)
   server = await serveDist(dist)
 })
