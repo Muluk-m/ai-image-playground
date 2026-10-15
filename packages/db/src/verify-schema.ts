@@ -2,6 +2,7 @@ import { SQL } from 'bun'
 import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
+  'agent_model_settings',
   'analysis_tasks',
   'analysis_model_calls',
   'agent_batch_attempts',
@@ -59,6 +60,7 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'agent_model_settings_pkey',
   'analysis_tasks_pkey',
   'analysis_model_calls_pkey',
   'idx_analysis_tasks_item_attempt',

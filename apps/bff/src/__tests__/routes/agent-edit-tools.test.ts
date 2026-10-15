@@ -261,6 +261,7 @@ async function giveAsset(userId: string, name: string, imageId: string): Promise
 }
 
 beforeEach(async () => {
+  await db.delete(schema.agent_model_settings)
   storage = new InMemoryObjectStore()
   setObjectStoreForTesting(storage)
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
@@ -1173,6 +1174,23 @@ for (const [depth, model, effort, contextWindow, credential] of [
     expect(agentModel(depth).contextWindow).toBe(contextWindow)
   })
 }
+
+it('applies the saved product-depth model and its separate reasoning effort to a real turn', async () => {
+  const { defaultAgentModelSettings } = await import('../../lib/agent/provider-settings')
+  const { saveAgentModelSettings } = await import('../../lib/agent/model-settings-store')
+  const settings = defaultAgentModelSettings()
+  settings.providers[0]!.baseUrl = 'https://gateway.test/v1'
+  settings.providers[0]!.secretRef = 'UPSTREAM_API_KEY'
+  settings.profiles.deep = { ...settings.profiles.fast, reasoning: 'high' }
+  await saveAgentModelSettings({ revision: 0, settings }, 'test')
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('configured')]))
+  const id = await startConversation()
+  await runTurn(id, 'hello', { params: { thinkingDepth: 'deep' } })
+  expect(calls[0]?.model).toBe('gpt-6-luna')
+  expect(calls[0]?.reasoning_effort).toBe('high')
+  expect(calls[0]?.authorization).toBe('Bearer fixture-upstream-key')
+})
 
 it('rejects an empty selection before storing a message or submitting a task', async () => {
   const conversationId = await startConversation()
