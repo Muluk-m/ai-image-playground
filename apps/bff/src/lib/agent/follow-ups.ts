@@ -134,6 +134,8 @@ async function askFollowUpModel(prompt: string, userText: string): Promise<unkno
       prompt,
       maxTokens: FOLLOW_UP_MAX_TOKENS,
       timeoutMs: FOLLOW_UP_TIMEOUT_MS,
+      // Luna can finish with plain text despite the prompt; require JSON on the wire too.
+      responseFormat: 'json_object',
     },
     (value) => (normalizeFollowUpLines(value, userText).length > 0 ? value : null),
   )
