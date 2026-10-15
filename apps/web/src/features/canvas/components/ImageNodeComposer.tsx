@@ -40,6 +40,7 @@ export default function ImageNodeComposer({
   position,
   onChange,
   onSubmit,
+  templates = false,
 }: {
   resultTools?: ReactNode
   referenceTools?: ReactNode
@@ -54,6 +55,7 @@ export default function ImageNodeComposer({
   position: { left: number; top: number }
   onChange: (value: string) => void
   onSubmit: (temporaryReferences: string[]) => void
+  templates?: boolean
 }) {
   const { t } = useTranslation('canvas')
   const uploadInput = useRef<HTMLInputElement>(null)
@@ -71,7 +73,7 @@ export default function ImageNodeComposer({
     model: clientProfileToApiProfile(profile).model,
     quantity: Math.max(1, count),
   })
-  const activeLook = useActiveLook((state) => state.look)
+  const activeLook = useActiveLook((state) => (templates ? state.look : null))
   const libraryAssets = useLibraryStore((state) => state.assets)
   const lookImages = useMemo(
     () => references.flatMap((reference) => (reference.fileId ? [{ id: reference.fileId }] : [])),
@@ -143,7 +145,7 @@ export default function ImageNodeComposer({
             ))}
           </div>
         )}
-        {activeLook && (
+        {templates && activeLook && (
           <LookCapsule
             look={activeLook}
             issue={
@@ -194,7 +196,7 @@ export default function ImageNodeComposer({
         )}
         <ParamControls showCount />
       </CreationToolbar>
-      <LookChips onPick={applyLookToComposer} />
+      {templates && <LookChips onPick={applyLookToComposer} />}
       <input
         ref={uploadInput}
         type="file"
