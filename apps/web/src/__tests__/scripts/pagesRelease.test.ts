@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -14,6 +15,7 @@ import {
 import { PROJECT_ROUTE_PATTERN, pagesRedirects } from '../../lib/pagesRedirects'
 
 const root = resolve(__dirname, '../../../../..')
+const { serveDist } = createRequire(import.meta.url)(join(root, 'scripts/pages-browser-smoke.cjs'))
 const { verifyPagesRelease, verifyPagesReleaseWithRetry } = await import(
   pathToFileURL(join(root, 'scripts/verify-pages-release.mjs')).href
 )
@@ -46,6 +48,32 @@ const good = async (url: URL) => {
 }
 it('verifies deployed bytes and real missing-resource behavior', async () => {
   await verifyPagesRelease('https://example.test', dist, good)
+})
+it('keeps deep links on their incoming URLs under Pages clean-HTML routing', async () => {
+  const server = await serveDist(dist)
+  try {
+    for (const path of ['/image', '/p/example', '/pricing']) {
+      const response = await fetch(server.origin + path, { redirect: 'manual' })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('location')).toBeNull()
+      expect(await response.text()).toBe(html)
+    }
+    await verifyPagesRelease(server.origin, dist)
+  } finally {
+    await server.close()
+  }
+})
+it('catches the production incident: an html rewrite target redirects the deep link', async () => {
+  await writeFile(join(dist, '_redirects'), '/image /workbench.html 200\n')
+  const server = await serveDist(dist)
+  try {
+    const response = await fetch(`${server.origin}/image`, { redirect: 'manual' })
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe('/workbench')
+    await expect(verifyPagesRelease(server.origin, dist)).rejects.toThrow('fetch failed')
+  } finally {
+    await server.close()
+  }
 })
 it('rejects the incident: HTML cached under a successful JS URL', async () => {
   await expect(
@@ -96,13 +124,13 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     TERMS_PATH,
     PRIVACY_PATH,
   ]) {
-    expect(rules).toContain(`${path} /workbench.html 200\n`)
-    if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench.html 200\n`)
+    expect(rules).toContain(`${path} /workbench 200\n`)
+    if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench 200\n`)
   }
-  expect(rules).toContain('/assets /workbench.html 200\n')
+  expect(rules).toContain('/assets /workbench 200\n')
   // `/assets/` 落在 `_headers` 的一年 immutable 规则里：不能在那里下发 HTML。
   expect(rules).toContain('/assets/ /assets 301\n')
-  expect(rules).not.toContain('/assets/ /workbench.html 200')
+  expect(rules).not.toContain('/assets/ /workbench 200')
   expect(rules).not.toMatch(/^\/assets\/\*/m)
   expect(rules).not.toMatch(/^\/\*/m)
   expect(await readFile(join(root, 'apps/web/public/404.html'), 'utf8')).toContain('Page not found')

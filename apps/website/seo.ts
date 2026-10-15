@@ -8,7 +8,7 @@ export function seoFiles(origin: string, indexing: boolean): Record<string, stri
   const files: Record<string, string> = {
     'site-pages.json': JSON.stringify(pageList),
     'robots.txt': indexing
-      ? `User-agent: *\nAllow: /\nDisallow: /workbench.html\n${origin ? `Sitemap: ${origin}/sitemap.xml\n` : ''}`
+      ? `User-agent: *\nAllow: /\nDisallow: /workbench\n${origin ? `Sitemap: ${origin}/sitemap.xml\n` : ''}`
       : 'User-agent: *\nDisallow: /\n',
   }
   if (indexing && origin) {
