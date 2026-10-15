@@ -1042,3 +1042,33 @@ it('shows the fetched image and a link back to where it came from', async () => 
     act(() => root.unmount())
   }
 })
+
+it('shows which canvas nodes a read used without replaying their full document', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    act(() =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'read',
+            turnId: 'turn',
+            toolCallId: 'read-call',
+            toolName: 'readCanvas',
+            title: '看画布',
+            status: 'succeeded',
+            canvasRead: [
+              { id: 'script-1', name: '第一幕' },
+              { id: 'image-2', name: '角色' },
+            ],
+          }}
+        />,
+      ),
+    )
+    expect(host.textContent).toContain('第一幕 (script-1)')
+    expect(host.textContent).toContain('角色 (image-2)')
+  } finally {
+    act(() => root.unmount())
+  }
+})

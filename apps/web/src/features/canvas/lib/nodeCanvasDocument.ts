@@ -3,16 +3,19 @@ import {
   canvasOrigin,
   createCanvasUndoManager,
   importLegacyElements,
+  initializeCanvasTexts,
   type LegacyCanvasElement,
 } from '@image-playground/shared'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
+import { scopedStorageName } from '../../../lib/authScope'
+import type { CanvasHistory } from './nodeCanvasHistory'
 
 /** 本机节点画布：一个项目一份 `Y.Doc`，存在它自己的 IndexedDB 库里，旧存档只读不写。 */
 export interface NodeCanvasDocument {
   readonly doc: Y.Doc
   readonly origin: CanvasOrigin
-  readonly undo: Y.UndoManager
+  readonly undo: CanvasHistory
   destroy(): Promise<void>
 }
 
@@ -50,9 +53,9 @@ async function migratePersistedDocument(
         // 外层 origin 阻止持久化监听器另开写事务；本次更新由当前事务原子提交。
         doc.transact(() => {
           for (const update of request.result) Y.applyUpdate(doc, update)
-          if (doc.getMap('meta').get('legacyImported')) return
-          importLegacyElements(doc, legacy(), importOrigin)
-          updates.add(Y.encodeStateAsUpdate(doc))
+          const imported = doc.getMap('meta').get('legacyImported')
+          if (!imported) importLegacyElements(doc, legacy(), importOrigin)
+          if (initializeCanvasTexts(doc) || !imported) updates.add(Y.encodeStateAsUpdate(doc))
         }, persistence)
       } catch (error) {
         failure = error
@@ -70,7 +73,7 @@ export async function openNodeCanvasDocument(
   sceneKey: string,
   legacy: () => readonly LegacyCanvasElement[],
 ): Promise<NodeCanvasDocument> {
-  const doc = new Y.Doc()
+  const doc = new Y.Doc({ guid: scopedStorageName(nodeCanvasDatabaseName(sceneKey)) })
   const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(sceneKey), doc)
   try {
     await migratePersistedDocument(persistence, doc, legacy)

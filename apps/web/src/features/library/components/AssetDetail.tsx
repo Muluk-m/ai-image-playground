@@ -1,8 +1,9 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import Badge from '../../../components/patterns/Badge'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { storeImageFromFile, useStore } from '../../../store'
@@ -23,6 +24,26 @@ export default function AssetDetail({
   const attachAsset = useLibraryStore((s) => s.attachAsset)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [draftDescription, setDescription] = useState<string | null>(null)
+  const description = draftDescription ?? asset.description ?? ''
+  const [saving, setSaving] = useState(false)
+  const writing = useRef(false)
+  const saveDescription = async () => {
+    if (writing.current) return
+    const latest = useLibraryStore.getState().assets.find((one) => one.id === asset.id)
+    if (!latest) return
+    writing.current = true
+    setSaving(true)
+    try {
+      await saveAssetRecord({ ...latest, description: description.trim() })
+      setDescription(null)
+    } catch {
+      useStore.getState().showToast(t('asset.saveFailed'), 'error')
+    } finally {
+      writing.current = false
+      setSaving(false)
+    }
+  }
 
   /** 选进来的图追加成新视角；一次超过阈值先问一声，确认了才存图写库。 */
   const addViews = (files: File[]) => {
@@ -32,23 +53,32 @@ export default function AssetDetail({
   }
 
   const appendViews = async (images: File[]) => {
-    const stored = await Promise.all(
-      images.map((file) => storeImageFromFile(file, { compress: true })),
-    )
-    await saveAssetRecord({
-      id: asset.id,
-      name: asset.name,
-      kind: asset.kind,
-      background: asset.background,
-      views: [
-        ...asset.views,
-        ...stored.map((image) => ({
-          imageId: image.id,
-          label: 'none' as const,
-          source: 'upload' as const,
-        })),
-      ],
-    })
+    if (writing.current) return
+    writing.current = true
+    setSaving(true)
+    try {
+      const stored = await Promise.all(
+        images.map((file) => storeImageFromFile(file, { compress: true })),
+      )
+      const latest = useLibraryStore.getState().assets.find((one) => one.id === asset.id)
+      if (!latest) return
+      await saveAssetRecord({
+        ...latest,
+        views: [
+          ...latest.views,
+          ...stored.map((image) => ({
+            imageId: image.id,
+            label: 'none' as const,
+            source: 'upload' as const,
+          })),
+        ],
+      })
+    } catch {
+      useStore.getState().showToast(t('asset.saveFailed'), 'error')
+    } finally {
+      writing.current = false
+      setSaving(false)
+    }
   }
 
   return (
@@ -65,6 +95,7 @@ export default function AssetDetail({
             </Badge>
           )}
           <Button
+            disabled={asset.views.length === 0}
             type="button"
             variant="ghost"
             size="sm"
@@ -89,6 +120,33 @@ export default function AssetDetail({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <form
+            className="mb-5 space-y-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveDescription()
+            }}
+          >
+            <label className="block text-sm">
+              {t('createAsset.description')}
+              <Textarea
+                className="mt-2"
+                value={description}
+                disabled={saving}
+                rows={3}
+                maxLength={20000}
+                placeholder={t('createAsset.descriptionPlaceholder')}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </label>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={saving || description === (asset.description ?? '')}
+            >
+              {t('common:action.save')}
+            </Button>
+          </form>
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {asset.views.map((view, index) => (
               <li key={view.imageId} className="flex flex-col gap-1">
@@ -116,6 +174,7 @@ export default function AssetDetail({
               <Button
                 type="button"
                 variant="outline"
+                disabled={saving}
                 onClick={() => fileInputRef.current?.click()}
                 className="aspect-square h-auto w-full flex-col gap-1 whitespace-normal rounded-xl border-dashed border-border text-xs font-normal text-muted-foreground hover:border-primary hover:bg-transparent hover:text-foreground"
               >
@@ -125,6 +184,7 @@ export default function AssetDetail({
               <input
                 ref={fileInputRef}
                 type="file"
+                disabled={saving}
                 accept="image/*"
                 multiple
                 className="hidden"

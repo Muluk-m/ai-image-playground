@@ -36,6 +36,7 @@ import type { VisualWorkset } from '../visual-workset'
 export interface AgentToolAudience {
   readonly userId: string | null
   readonly experience?: 'chat' | 'canvas'
+  readonly nodeCanvas?: boolean
 }
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
@@ -95,6 +96,8 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  readonly canvasRun?: import('@image-playground/shared').AgentCanvasRunProposal
+  readonly canvasRead?: readonly { id: string; name: string }[]
   readonly clarification?: AgentClarificationBlock
   /** 拟稿时冻结的实际视频参数，确认前即展示给用户。 */
   readonly video?: VideoGenerationRecord
@@ -155,7 +158,7 @@ export interface AgentToolCall {
 
 export interface AgentToolDefinition<P extends TSchema = TSchema> {
   readonly name: AgentToolName
-  /** 哪些创作类型看得见这个工具。视频轮也要生图改图——首帧要先画出来再改。 */
+  /** 旧工具分类元数据；不再作为权限过滤，实际可用性由 available 决定。 */
   readonly modes: readonly AgentMode[]
   /** 面板与模型清单上的短名。 */
   readonly label: string

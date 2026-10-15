@@ -64,16 +64,6 @@ export function normalizeParamsForSettings(
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 
-  if (
-    activeProfile.source === 'user-byok' &&
-    activeProfile.kind === 'openai-compat' &&
-    activeProfile.preferences.codexCli
-  ) {
-    // 注意只用 codexCli 判定，不用 capabilities.quality：channel capability 缺 quality
-    // 只影响 UI 显隐，不在归一化层重置（保持既有线上行为）。
-    nextParams.quality = DEFAULT_PARAMS.quality
-  }
-
   const caps = getParamCapabilities(activeProfile, nextParams.output_format)
   if (!caps.compression) {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression

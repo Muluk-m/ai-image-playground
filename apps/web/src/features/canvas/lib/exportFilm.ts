@@ -1,9 +1,9 @@
-import { zipSync } from 'fflate'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
-import type { ComposeClip } from './composeFilm'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
+import { createFilmFile, filmStorageSupported } from './filmFile'
 import { composeInWorker, decodeClipAudio, FilmExportError } from './filmPipeline'
 import type { FilmClip } from './filmSpec'
+import { zipFilmClips } from './filmZip'
 
 export { FilmExportError, type FilmExportFailure } from './filmPipeline'
 
@@ -18,7 +18,8 @@ export function filmExportSupported(): Promise<boolean> {
       typeof VideoEncoder === 'undefined' ||
       typeof AudioEncoder === 'undefined' ||
       typeof OffscreenCanvas === 'undefined' ||
-      typeof Worker === 'undefined'
+      typeof Worker === 'undefined' ||
+      !filmStorageSupported()
     )
       return false
     const { canEncodeAudio, canEncodeVideo } = await import('mediabunny')
@@ -34,7 +35,7 @@ export function filmExportSupported(): Promise<boolean> {
 async function fetchClip(clip: FilmClip, position: number, signal: AbortSignal): Promise<Blob> {
   let res: Response
   try {
-    res = await authenticatedBffFetch(queueOutputUrl(clip.taskId, clip.outputIndex), { signal })
+    res = await authenticatedBffFetch(videoOutputUrl(clip), { signal })
   } catch (err) {
     if (signal.aborted) throw err
     throw new FilmExportError('fetch', position)
@@ -43,10 +44,7 @@ async function fetchClip(clip: FilmClip, position: number, signal: AbortSignal):
   return res.blob()
 }
 
-/**
- * 把一条时间线合成成 mp4：先逐段下载源片、解出音轨，再交给 Worker 编码。
- * 进度：下载占前 20%，编码占后 80%。
- */
+/** 逐段获取与解码，Worker 输出带背压写入 OPFS，返回磁盘支持的 Blob。 */
 export async function exportFilm(
   clips: readonly FilmClip[],
   options: {
@@ -55,27 +53,32 @@ export async function exportFilm(
   },
 ): Promise<Blob> {
   const { signal, onProgress } = options
-  const prepared: ComposeClip[] = []
-  onProgress('fetching', 0)
-  for (let i = 0; i < clips.length; i += 1) {
-    const clip = clips[i]!
-    const blob = await fetchClip(clip, i + 1, signal)
+  signal.throwIfAborted()
+  const file = await createFilmFile()
+  try {
     signal.throwIfAborted()
-    const audio = await decodeClipAudio(blob, clip)
-    signal.throwIfAborted()
-    prepared.push({
-      blob,
-      in: clip.in,
-      ...(clip.out === undefined ? {} : { out: clip.out }),
-      audio,
+    const worker = new Worker(new URL('./filmWorker.ts', import.meta.url), { type: 'module' })
+    await composeInWorker(worker, clips.length, signal, {
+      async loadClip(index) {
+        onProgress('fetching', index / clips.length)
+        const clip = clips[index]!
+        const blob = await fetchClip(clip, index + 1, signal)
+        signal.throwIfAborted()
+        const audio = await decodeClipAudio(blob, clip)
+        signal.throwIfAborted()
+        return { blob, in: clip.in, ...(clip.out === undefined ? {} : { out: clip.out }), audio }
+      },
+      write: (chunk) => file.write(chunk),
+      onProgress: (fraction) => onProgress('encoding', fraction),
     })
-    onProgress('fetching', ((i + 1) / clips.length) * 0.2)
+    signal.throwIfAborted()
+    const blob = await file.finish()
+    signal.throwIfAborted()
+    return blob
+  } catch (error) {
+    await file.discard()
+    throw error
   }
-  const worker = new Worker(new URL('./filmWorker.ts', import.meta.url), { type: 'module' })
-  const buffer = await composeInWorker(worker, prepared, signal, (fraction) =>
-    onProgress('encoding', 0.2 + fraction * 0.8),
-  )
-  return new Blob([buffer], { type: 'video/mp4' })
 }
 
 /** 不能编码时的回退：把各段原片按时间线顺序打成一个 zip，不裁剪、不重编码。 */
@@ -83,12 +86,11 @@ export async function zipTimelineClips(
   clips: readonly FilmClip[],
   signal: AbortSignal,
 ): Promise<Blob> {
-  const files: Record<string, Uint8Array> = {}
-  for (let i = 0; i < clips.length; i += 1) {
-    const blob = await fetchClip(clips[i]!, i + 1, signal)
-    files[`${String(i + 1).padStart(2, '0')}-${clips[i]!.taskId}.mp4`] = new Uint8Array(
-      await blob.arrayBuffer(),
-    )
-  }
-  return new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' })
+  return zipFilmClips(
+    clips.map((clip, index) => ({
+      name: `${String(index + 1).padStart(2, '0')}-${clip.taskId}.mp4`,
+      load: () => fetchClip(clip, index + 1, signal),
+    })),
+    signal,
+  )
 }

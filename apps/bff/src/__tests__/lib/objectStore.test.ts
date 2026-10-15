@@ -1,5 +1,6 @@
 import { describe, expect, it, spyOn } from 'bun:test'
 import { normalizeKeyPrefix } from '../../lib/objectKeyPrefix'
+import { stubGlobalFetch } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { createDurableMediaStore } = await import('../../lib/durableMediaStore')
@@ -299,4 +300,43 @@ it('实际临时前缀的45天过期规则不触及项目原件，授权地址�
   const signed = new URL(durable.sign('objects/owner/media/original', 'GET'))
   expect(signed.pathname).toBe('/durable/image-playground-paid/objects/owner/media/original')
   expect(signed.searchParams.get('expiresIn')).toBe('600')
+})
+
+it('cancels a streamed PUT even after the destination has consumed all input', async () => {
+  const client = new FakeS3Client()
+  const subject = store(client, 'paid/')
+  const controller = new AbortController()
+  let consumed!: () => void
+  const inputEnded = new Promise<void>((resolve) => {
+    consumed = resolve
+  })
+  let sent: RequestInit | undefined
+  const restore = stubGlobalFetch(async (_url, init) => {
+    sent = init
+    await new Response(init?.body).arrayBuffer()
+    consumed()
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+    })
+  })
+  try {
+    const pending = subject.writeStream(
+      'video.mp4',
+      new Blob(['video']).stream(),
+      'video/mp4',
+      5,
+      controller.signal,
+    )
+    const rejected = pending.catch((error) => error)
+    await inputEnded
+    controller.abort(new Error('cancel upload'))
+    expect((await rejected).message).toBe('cancel upload')
+    expect(sent).toMatchObject({
+      method: 'PUT',
+      signal: controller.signal,
+      headers: { 'content-type': 'video/mp4', 'content-length': '5' },
+    })
+  } finally {
+    restore()
+  }
 })

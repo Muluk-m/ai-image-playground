@@ -150,6 +150,7 @@ export function elementBounds(el: CanvasEl): Box {
     }
     case 'text':
     case 'placeholder':
+    case 'storyboard':
     case 'timeline':
       return new Box(el.x, el.y, el.width, el.height)
   }
@@ -174,6 +175,7 @@ async function buildExportNode(
       return new Konva.Text(textProps(el))
     case 'placeholder':
     // 时间线是编排用的 UI，不是画面内容：导出 / 栅格化选区时不画它。
+    case 'storyboard':
     case 'timeline':
       return null
   }

@@ -34,11 +34,13 @@ export default function VideoPresetRows({
   support,
   draft,
   aspectFollowsFirstFrame,
+  onChange,
 }: {
   support: VideoModelSupport
   draft: Pick<VideoDraft, 'model' | 'duration' | 'aspectRatio' | 'resolution' | 'voices'>
   /** 图生时画幅跟着首帧走，这一行只读。 */
   aspectFollowsFirstFrame: boolean
+  onChange?: (patch: Partial<VideoDraft>) => void
 }) {
   const { t } = useTranslation('video')
   const durations = videoDurationsForResolution(support, draft.resolution)
@@ -59,7 +61,9 @@ export default function VideoPresetRows({
                 disabled: !durations.includes(duration),
               }))}
               value={draft.duration}
-              onChange={(duration) => useVideoStore.getState().setDuration(duration)}
+              onChange={(duration) =>
+                onChange ? onChange({ duration }) : useVideoStore.getState().setDuration(duration)
+              }
             />
           </div>
           {compactDurations && (
@@ -67,7 +71,8 @@ export default function VideoPresetRows({
               value={quickDurations.includes(draft.duration) ? '' : String(draft.duration)}
               onValueChange={(value) => {
                 const duration = durations.find((one) => String(one) === value)
-                if (duration !== undefined) useVideoStore.getState().setDuration(duration)
+                if (duration !== undefined)
+                  onChange ? onChange({ duration }) : useVideoStore.getState().setDuration(duration)
               }}
             >
               <SelectTrigger
@@ -98,7 +103,11 @@ export default function VideoPresetRows({
         options={VIDEO_ASPECT_RATIOS.filter((ratio) => support.aspectRatios.includes(ratio))}
         value={draft.aspectRatio}
         render={(ratio) => ratio}
-        onChange={(ratio) => useVideoStore.getState().setAspectRatio(ratio)}
+        onChange={(ratio) =>
+          onChange
+            ? onChange({ aspectRatio: ratio })
+            : useVideoStore.getState().setAspectRatio(ratio)
+        }
         disabled={aspectFollowsFirstFrame}
         note={aspectFollowsFirstFrame ? t('aspect.followsFirstFrame') : undefined}
       />
@@ -119,9 +128,11 @@ export default function VideoPresetRows({
         optionDisabled={(resolution) =>
           !videoDurationsForResolution(support, resolution).includes(draft.duration)
         }
-        onChange={(resolution) => useVideoStore.getState().setResolution(resolution)}
+        onChange={(resolution) =>
+          onChange ? onChange({ resolution }) : useVideoStore.getState().setResolution(resolution)
+        }
       />
-      <VoiceChoices support={support} draft={draft} />
+      <VoiceChoices support={support} draft={draft} onChange={onChange} />
     </>
   )
 }
@@ -134,16 +145,19 @@ function voiceLabelKey(id: string): `voice.${VideoPresetVoice}` | null {
 function VoiceChoices({
   support,
   draft,
+  onChange,
 }: {
   support: VideoModelSupport
   draft: Pick<VideoDraft, 'voices'>
+  onChange?: (patch: Partial<VideoDraft>) => void
 }) {
   const voices = support.voices
   const { t } = useTranslation('video')
   if (!voices) return null
   const selected = draft.voices ?? []
   const remaining = VIDEO_PRESET_VOICES.filter((id) => !selected.includes(id))
-  const setVoices = (next: readonly string[]) => useVideoStore.getState().setVoices(next)
+  const setVoices = (next: readonly string[]) =>
+    onChange ? onChange({ voices: [...next] }) : useVideoStore.getState().setVoices(next)
   return (
     <SettingsSection title={t('field.voices')}>
       <div className="flex flex-wrap items-center gap-1.5">

@@ -51,7 +51,7 @@ async function inactiveModels(): Promise<ReadonlySet<string>> {
  * 就等于对全互联网公开。
  *
  * 没配 channels.json 或 channels.json 是空数组时返回 `{ channels: [] }`，前端
- * 自动退化为「仅 BYOK 可用」。
+ * 没有可生成的平台模型。
  */
 export const channelsRoutes = new Elysia().get(
   '/api/channels',

@@ -27,7 +27,7 @@ describe('auth-scoped browser storage', () => {
 
   it('never maps two different ids onto the same namespace', () => {
     // 编码必须是单射的：有损替换会让 `a/b` 和 `a_b` 落进同一个命名空间，
-    // 两个账号就会共用 localStorage 设置、IndexedDB 图片与 BYOK 配置。
+    // 两个账号就会共用 localStorage 设置与 IndexedDB 图片。
     setClientStorageScope('a/b')
     const slashed = scopedStorageName('db')
     setClientStorageScope('a_b')

@@ -2,7 +2,7 @@ import { zipSync } from 'fflate'
 import { i18next } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { dataUrlToBlob } from '../../../lib/canvasImage'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import type { CanvasDoc, ImageEl } from './canvasDoc'
@@ -75,9 +75,7 @@ async function elementBlob(
   try {
     if (element.video) {
       // 播放地址要带登录态，不能直接交给 <a href>。
-      const res = await authenticatedBffFetch(
-        queueOutputUrl(element.video.taskId, element.video.outputIndex),
-      )
+      const res = await authenticatedBffFetch(videoOutputUrl(element.video))
       if (!res.ok) return null
       return { blob: await res.blob(), ext: 'mp4' }
     }

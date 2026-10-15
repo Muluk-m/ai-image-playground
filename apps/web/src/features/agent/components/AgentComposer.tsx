@@ -404,6 +404,13 @@ export default function AgentComposer({
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：整组读取 → 进引用区。
   // 一次进来的图多了先问一声：整份文件夹误拖进来时，确认框比事后逐张删引用便宜。
   const attachmentRevision = useRef(0)
+  // 读文件是异步的。卸载后把代次拨走，晚到的结果不能写进下一次挂载的草稿。
+  useEffect(
+    () => () => {
+      attachmentRevision.current += 1
+    },
+    [],
+  )
   const attachFiles = (files: File[]) => {
     const revision = attachmentRevision.current
     if (loading) {
@@ -555,21 +562,14 @@ export default function AgentComposer({
   // 做不了视频的部署里视频轮不该出现，存下来的旧草稿也按图片算——
   // 服务端在那种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
   const videoAvailable = isVideoModeAvailable()
-  const projectKind = useCanvasProjectStore((state) =>
-    state.projects.find((one) => one.id === state.activeId)?.kind === 'video' ? 'video' : 'image',
-  )
   const createTarget = useStore((state) => state.createTarget)
   const creationMode =
     createTarget === 'video' ? 'video' : createTarget === 'generate' ? 'image' : 'agent'
   useEffect(() => {
     const store = useStore.getState()
     const saved = store.projectCreationTargets[session.key]
-    store.setCreateTarget(
-      saved === 'video' && !videoAvailable
-        ? 'chat'
-        : (saved ?? (projectKind === 'video' && videoAvailable ? 'video' : 'chat')),
-    )
-  }, [session.key, projectKind, videoAvailable])
+    store.setCreateTarget(saved === 'video' && !videoAvailable ? 'chat' : (saved ?? 'chat'))
+  }, [session.key, videoAvailable])
   const mode = productionMode || (videoAvailable && creationMode === 'video') ? 'video' : 'image'
   // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
   const setSessionMode = useAgentStore((state) => state.setMode)

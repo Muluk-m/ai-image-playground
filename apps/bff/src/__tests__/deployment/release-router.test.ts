@@ -91,4 +91,93 @@ describe('release router', () => {
     expect(await response.text()).toBe('finished after stop')
     expect(await child.exited).toBe(0)
   })
+
+  it('relays binary canvas frames and the public host, cookie and origin', async () => {
+    let seen: { host: string; cookie: string | null; origin: string | null } | undefined
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(request, bunServer) {
+        if (request.headers.get('upgrade') !== 'websocket') return new Response('ok')
+        const url = new URL(request.url)
+        seen = {
+          host: url.host,
+          cookie: request.headers.get('cookie'),
+          origin: request.headers.get('origin'),
+        }
+        if (!bunServer.upgrade(request)) return new Response('upgrade failed', { status: 426 })
+        return undefined
+      },
+      websocket: {
+        open(ws) {
+          ws.send('ready')
+        },
+        message(ws, message) {
+          ws.send(message)
+        },
+      },
+    })
+    cleanups.push(() => upstream.stop(true))
+    const dir = await mkdtemp(join(tmpdir(), 'aip-router-ws-'))
+    cleanups.push(() => rm(dir, { recursive: true, force: true }))
+    await writeFile(
+      join(dir, 'route.json'),
+      JSON.stringify({ origin: `http://localhost:${upstream.port}` }),
+    )
+    const port = await freePort()
+    const child = Bun.spawn(['bun', router], {
+      env: {
+        ...process.env,
+        RELEASE_ROUTE_FILE: join(dir, 'route.json'),
+        RELEASE_ROUTER_PORT: String(port),
+        RELEASE_ORIGIN_PORT: String(upstream.port),
+      },
+      stdout: 'ignore',
+      stderr: 'ignore',
+    })
+    cleanups.push(() => child.kill('SIGKILL'))
+    await waitUntilListening(port)
+
+    // lib.dom's constructor has no header argument. Bun's overload does, and the router must see them.
+    const Socket = WebSocket as unknown as {
+      new (url: string, options: Bun.WebSocketOptions): WebSocket
+    }
+    const socket = new Socket(`ws://127.0.0.1:${port}/api/projects/one/canvas/ws`, {
+      headers: {
+        cookie: 'image_playground_session=session-token',
+        host: 'api.new.example',
+        origin: 'https://test.muvloom.online',
+      },
+    })
+    cleanups.push(() => socket.close())
+    const frames: Array<string | number[]> = []
+    socket.binaryType = 'arraybuffer'
+    socket.addEventListener('message', (event) => {
+      frames.push(
+        typeof event.data === 'string'
+          ? event.data
+          : [...new Uint8Array(event.data as ArrayBuffer)],
+      )
+    })
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('socket did not open')), 3_000)
+      socket.addEventListener('open', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      socket.addEventListener('error', () => {
+        clearTimeout(timer)
+        reject(new Error('socket failed'))
+      })
+    })
+    socket.send(new Uint8Array([9, 8, 7]))
+    for (let attempt = 0; attempt < 40 && frames.length < 2; attempt++) await Bun.sleep(25)
+
+    expect(seen).toEqual({
+      host: 'api.new.example',
+      cookie: 'image_playground_session=session-token',
+      origin: 'https://test.muvloom.online',
+    })
+    expect(frames).toEqual(['ready', [9, 8, 7]])
+  })
 })

@@ -1,47 +1,26 @@
 import { i18next } from '../i18n'
-import type {
-  ApiMode,
-  AppSettings,
-  CustomProviderContentType,
-  CustomProviderDefinition,
-  CustomProviderFileMapping,
-  CustomProviderPollMapping,
-  CustomProviderRequestMethod,
-  CustomProviderResultMapping,
-  CustomProviderSubmitMapping,
-  CustomProviderTemplate,
-} from '../types'
+import type { ApiMode, AppSettings } from '../types'
+import { channelsSettled } from './channels/channelStore'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
-import type {
-  BuiltinEdgeProfile,
-  ClientProfile,
-  ProviderKind,
-  PublicChannel,
-  UserByokPreferences,
-  UserByokProfile,
-} from './channels/types'
-import { readRuntimeEnv } from './runtimeEnv'
+import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from './channels/types'
 
-// ===== 常量 =====
-
-const DEFAULT_BASE_URL =
-  readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
-// BYOK `apiProxy` 偏好的默认值。CF Pages Functions `/api-proxy/` 反代被移除后没了
-// "整个部署强制走同源代理"的开关；这里恒定 false，用户依旧可以在 UI 手动勾选
-// 走 dev-proxy.config.json（开发期 CORS / 鉴权调试用）。
-const DEFAULT_OPENAI_API_PROXY = false
-
-export const DEFAULT_IMAGES_MODEL = 'gpt-image-2.5-flare'
-export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
-export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-image'
-export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
 export const DEFAULT_API_TIMEOUT = 600
+
+/**
+ * 渠道还没装载时的占位。不写入 settings.profiles，也不带密钥。
+ * 提交路径看到空 channelId 会停下来，而不是发出去。
+ */
+export const EMPTY_PLATFORM_PROFILE: BuiltinEdgeProfile = {
+  id: '',
+  source: 'builtin-edge',
+  channelId: '',
+  selectedModelId: '',
+}
 
 /**
  * 超时必须是正数：`setTimeout(() => controller.abort(), 0)` 会在请求发出的同一个 tick
  * 把它掐断，浏览器只丢下一句 `The user aborted a request.`，看着像用户点了取消。
- * 手输的 0/负数、导入的 profile、渠道下发的 defaults 都走这里退回默认值。
+ * 渠道下发的 defaults 走这里退回默认值。
  */
 export function normalizeApiTimeout(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -49,372 +28,8 @@ export function normalizeApiTimeout(value: unknown): number {
     : DEFAULT_API_TIMEOUT
 }
 
-const BUILT_IN_PROVIDER_IDS = new Set<string>(['openai', 'gemini', 'openai-compat'])
-
-const DEFAULT_CUSTOM_PROVIDER_PATHS = {
-  generationPath: 'images/generations',
-  editPath: 'images/edits',
-  taskPath: 'images/tasks/{task_id}',
-}
-const DEFAULT_GENERATE_BODY = {
-  model: '$profile.model',
-  prompt: '$prompt',
-  size: '$params.size',
-  quality: '$params.quality',
-  output_format: '$params.output_format',
-  moderation: '$params.moderation',
-  output_compression: '$params.output_compression',
-  n: '$params.n',
-}
-const DEFAULT_EDIT_BODY = DEFAULT_GENERATE_BODY
-const DEFAULT_OPENAI_RESULT: CustomProviderResultMapping = {
-  imageUrlPaths: ['data.*.url'],
-  b64JsonPaths: ['data.*.b64_json'],
-}
-const DEFAULT_EDIT_FILES: CustomProviderFileMapping[] = [
-  { field: 'image[]', source: 'inputImages', array: true },
-  { field: 'mask', source: 'mask' },
-]
-
-// ===== Custom provider normalize（与 ClientProfile 解耦，留作 UI 导入/导出能力） =====
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isCustomProviderTemplate(value: unknown): value is CustomProviderTemplate {
-  return value === 'http-image'
-}
-
-function normalizeProviderPath(value: unknown, fallback: string): string {
-  return (typeof value === 'string' && value.trim() ? value : fallback)
-    .trim()
-    .replace(/^\/+/, '')
-    .replace(/^v1\//, '')
-}
-
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(
-      (entry): entry is [string, string | number | boolean] =>
-        typeof entry[0] === 'string' && ['string', 'number', 'boolean'].includes(typeof entry[1]),
-    )
-    .map(([key, item]) => [key, String(item)] as const)
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-function normalizeStringArray(value: unknown, fallback: string[]): string[] {
-  return Array.isArray(value)
-    ? value
-        .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
-        .map((item) => item.trim())
-    : fallback
-}
-
-function normalizeRequestMethod(
-  value: unknown,
-  fallback: CustomProviderRequestMethod = 'POST',
-): CustomProviderRequestMethod {
-  return value === 'GET' || value === 'POST' ? value : fallback
-}
-
-function normalizeContentType(
-  value: unknown,
-  fallback: CustomProviderContentType = 'json',
-): CustomProviderContentType {
-  return value === 'multipart' ? 'multipart' : fallback
-}
-
-function normalizeBodyTemplate(
-  value: unknown,
-  fallback: Record<string, unknown>,
-): Record<string, unknown> {
-  return isRecord(value) ? value : fallback
-}
-
-function normalizeFileMappings(
-  value: unknown,
-  fallback: CustomProviderFileMapping[] = [],
-): CustomProviderFileMapping[] {
-  if (!Array.isArray(value)) return fallback
-  const files = value
-    .map((item): CustomProviderFileMapping | null => {
-      if (!isRecord(item) || typeof item.field !== 'string' || !item.field.trim()) return null
-      if (item.source !== 'inputImages' && item.source !== 'mask') return null
-      return {
-        field: item.field.trim(),
-        source: item.source,
-        array: Boolean(item.array),
-      }
-    })
-    .filter((item): item is CustomProviderFileMapping => Boolean(item))
-  return files.length ? files : fallback
-}
-
-function normalizeResultMapping(
-  value: unknown,
-  fallback: CustomProviderResultMapping = DEFAULT_OPENAI_RESULT,
-): CustomProviderResultMapping {
-  const record = isRecord(value) ? value : {}
-  return {
-    imageUrlPaths: normalizeStringArray(record.imageUrlPaths, fallback.imageUrlPaths ?? []),
-    b64JsonPaths: normalizeStringArray(record.b64JsonPaths, fallback.b64JsonPaths ?? []),
-  }
-}
-
-function normalizeSubmitMapping(
-  value: unknown,
-  fallback: CustomProviderSubmitMapping,
-): CustomProviderSubmitMapping {
-  const record = isRecord(value) ? value : {}
-  const contentType = normalizeContentType(record.contentType, fallback.contentType ?? 'json')
-  return {
-    path: normalizeProviderPath(record.path, fallback.path),
-    method: normalizeRequestMethod(record.method, fallback.method ?? 'POST'),
-    contentType,
-    query: normalizeStringRecord(record.query) ?? fallback.query,
-    body: normalizeBodyTemplate(
-      record.body,
-      fallback.body ?? (contentType === 'multipart' ? DEFAULT_EDIT_BODY : DEFAULT_GENERATE_BODY),
-    ),
-    files:
-      contentType === 'multipart' ? normalizeFileMappings(record.files, fallback.files) : undefined,
-    taskIdPath:
-      typeof record.taskIdPath === 'string' && record.taskIdPath.trim()
-        ? record.taskIdPath.trim()
-        : fallback.taskIdPath,
-    result: normalizeResultMapping(record.result, fallback.result ?? DEFAULT_OPENAI_RESULT),
-  }
-}
-
-function normalizePollMapping(
-  value: unknown,
-  fallback?: CustomProviderPollMapping,
-): CustomProviderPollMapping | undefined {
-  if (!isRecord(value) && !fallback) return undefined
-  const record = isRecord(value) ? value : {}
-  const path = normalizeProviderPath(
-    record.path,
-    fallback?.path ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath,
-  )
-  const statusPath =
-    typeof record.statusPath === 'string' && record.statusPath.trim()
-      ? record.statusPath.trim()
-      : fallback?.statusPath
-  if (!statusPath) return undefined
-
-  return {
-    path,
-    method: normalizeRequestMethod(record.method, fallback?.method ?? 'GET'),
-    query: normalizeStringRecord(record.query) ?? fallback?.query,
-    intervalSeconds:
-      typeof record.intervalSeconds === 'number' && Number.isFinite(record.intervalSeconds)
-        ? Math.max(1, record.intervalSeconds)
-        : (fallback?.intervalSeconds ?? 5),
-    statusPath,
-    successValues: normalizeStringArray(
-      record.successValues,
-      fallback?.successValues ?? ['SUCCESS', 'succeeded', 'completed', 'COMPLETED'],
-    ),
-    failureValues: normalizeStringArray(
-      record.failureValues,
-      fallback?.failureValues ?? ['FAILURE', 'failed', 'error', 'FAILED', 'cancelled'],
-    ),
-    errorPath:
-      typeof record.errorPath === 'string' && record.errorPath.trim()
-        ? record.errorPath.trim()
-        : fallback?.errorPath,
-    result: normalizeResultMapping(record.result, fallback?.result ?? DEFAULT_OPENAI_RESULT),
-  }
-}
-
-function legacyCustomProviderToManifest(
-  record: Record<string, unknown>,
-): Record<string, unknown> | null {
-  if (record.template !== 'openai-compatible' && record.template !== 'openai-compatible-async')
-    return null
-  const isAsync = record.template === 'openai-compatible-async'
-  const taskResultPath =
-    typeof record.taskResultPath === 'string' && record.taskResultPath.trim()
-      ? record.taskResultPath.trim()
-      : 'data.data'
-  return {
-    id: record.id,
-    name: record.name,
-    template: 'http-image',
-    submit: {
-      path: record.generationPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.generationPath,
-      method: 'POST',
-      contentType: 'json',
-      query: isAsync ? (normalizeStringRecord(record.submitQuery) ?? { async: 'true' }) : undefined,
-      body: DEFAULT_GENERATE_BODY,
-      taskIdPath: isAsync ? (record.taskIdPath ?? 'data') : undefined,
-      result: DEFAULT_OPENAI_RESULT,
-    },
-    editSubmit: {
-      path: record.editPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.editPath,
-      method: 'POST',
-      contentType: 'multipart',
-      query: isAsync ? (normalizeStringRecord(record.submitQuery) ?? { async: 'true' }) : undefined,
-      body: DEFAULT_EDIT_BODY,
-      files: DEFAULT_EDIT_FILES,
-      taskIdPath: isAsync ? (record.taskIdPath ?? 'data') : undefined,
-      result: DEFAULT_OPENAI_RESULT,
-    },
-    poll: isAsync
-      ? {
-          path: record.taskPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath,
-          method: 'GET',
-          statusPath: record.taskStatusPath ?? 'data.status',
-          successValues: normalizeStringArray(record.taskSuccessValues, [
-            'SUCCESS',
-            'succeeded',
-            'completed',
-            'COMPLETED',
-          ]),
-          failureValues: normalizeStringArray(record.taskFailureValues, [
-            'FAILURE',
-            'failed',
-            'error',
-            'FAILED',
-          ]),
-          errorPath: 'data.fail_reason',
-          intervalSeconds:
-            typeof record.pollIntervalSeconds === 'number' ? record.pollIntervalSeconds : 5,
-          result: {
-            imageUrlPaths: [`${taskResultPath}.data.*.url`],
-            b64JsonPaths: [`${taskResultPath}.data.*.b64_json`],
-          },
-        }
-      : undefined,
-  }
-}
-
-function createCustomProviderId(name: string, usedIds: Set<string>): string {
-  const slug =
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'custom'
-  let id = `custom-${slug}`
-  let index = 2
-  while (usedIds.has(id) || BUILT_IN_PROVIDER_IDS.has(id)) {
-    id = `custom-${slug}-${index}`
-    index += 1
-  }
-  usedIds.add(id)
-  return id
-}
-
-export function normalizeCustomProviderDefinition(
-  input: unknown,
-  usedIds = new Set<string>(),
-): CustomProviderDefinition | null {
-  if (!input || typeof input !== 'object') return null
-  const rawRecord = input as Record<string, unknown>
-  const record = legacyCustomProviderToManifest(rawRecord) ?? rawRecord
-  const template =
-    record.template == null
-      ? 'http-image'
-      : isCustomProviderTemplate(record.template)
-        ? record.template
-        : null
-  if (!template || !isRecord(record.submit)) return null
-
-  const rawName =
-    typeof record.name === 'string' && record.name.trim()
-      ? record.name.trim()
-      : i18next.t('profile.customProviderName', { ns: 'lib' })
-  const id =
-    typeof record.id === 'string' &&
-    record.id.trim() &&
-    !BUILT_IN_PROVIDER_IDS.has(record.id.trim()) &&
-    !usedIds.has(record.id.trim())
-      ? record.id.trim()
-      : createCustomProviderId(rawName, usedIds)
-  usedIds.add(id)
-
-  return {
-    id,
-    name: rawName,
-    template,
-    submit: normalizeSubmitMapping(record.submit, {
-      path: DEFAULT_CUSTOM_PROVIDER_PATHS.generationPath,
-      method: 'POST',
-      contentType: 'json',
-      body: DEFAULT_GENERATE_BODY,
-      result: DEFAULT_OPENAI_RESULT,
-    }),
-    editSubmit: isRecord(record.editSubmit)
-      ? normalizeSubmitMapping(record.editSubmit, {
-          path: DEFAULT_CUSTOM_PROVIDER_PATHS.editPath,
-          method: 'POST',
-          contentType: 'multipart',
-          body: DEFAULT_EDIT_BODY,
-          files: DEFAULT_EDIT_FILES,
-          result: DEFAULT_OPENAI_RESULT,
-        })
-      : undefined,
-    poll: normalizePollMapping(record.poll),
-  }
-}
-
-export function normalizeCustomProviderDefinitions(input: unknown): CustomProviderDefinition[] {
-  const usedIds = new Set<string>()
-  const list = Array.isArray(input) ? input : []
-  return list
-    .map((item) => normalizeCustomProviderDefinition(item, usedIds))
-    .filter((item): item is CustomProviderDefinition => Boolean(item))
-}
-
-// ===== ClientProfile factories =====
-
-export function createDefaultByokPreferences(
-  overrides: Partial<UserByokPreferences> = {},
-): UserByokPreferences {
-  return {
-    apiMode: 'images',
-    timeout: DEFAULT_API_TIMEOUT,
-    codexCli: false,
-    apiProxy: DEFAULT_OPENAI_API_PROXY,
-    ...overrides,
-  }
-}
-
-export function createDefaultOpenAIByokProfile(
-  overrides: Partial<UserByokProfile> = {},
-): UserByokProfile {
-  return {
-    id: DEFAULT_OPENAI_PROFILE_ID,
-    source: 'user-byok',
-    name: i18next.t('profile.defaultName', { ns: 'lib' }),
-    kind: 'openai-compat',
-    baseUrl: DEFAULT_BASE_URL,
-    apiKey: '',
-    models: [DEFAULT_IMAGES_MODEL],
-    selectedModelId: DEFAULT_IMAGES_MODEL,
-    preferences: createDefaultByokPreferences(),
-    ...overrides,
-  }
-}
-
-export function createDefaultGeminiByokProfile(
-  overrides: Partial<UserByokProfile> = {},
-): UserByokProfile {
-  return {
-    id: `gemini-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-    source: 'user-byok',
-    name: i18next.t('profile.newName', { ns: 'lib' }),
-    kind: 'gemini',
-    baseUrl: DEFAULT_GEMINI_BASE_URL,
-    apiKey: '',
-    models: [DEFAULT_GEMINI_MODEL],
-    selectedModelId: DEFAULT_GEMINI_MODEL,
-    preferences: createDefaultByokPreferences({ apiProxy: false }),
-    ...overrides,
-  }
 }
 
 export function builtinEdgeProfileId(channelId: string): string {
@@ -428,145 +43,41 @@ export function createBuiltinEdgeProfile(
   return { id: builtinEdgeProfileId(channelId), source: 'builtin-edge', channelId, selectedModelId }
 }
 
-// ===== ClientProfile normalize =====
-
-function normalizeByokPreferences(
-  record: Record<string, unknown>,
-  kind: ProviderKind,
-): UserByokPreferences {
-  return {
-    apiMode: record.apiMode === 'responses' ? 'responses' : 'images',
-    timeout: normalizeApiTimeout(record.timeout),
-    codexCli: kind === 'gemini' ? false : Boolean(record.codexCli),
-    apiProxy:
-      kind === 'gemini'
-        ? false
-        : typeof record.apiProxy === 'boolean'
-          ? record.apiProxy
-          : DEFAULT_OPENAI_API_PROXY,
-    responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
-  }
-}
-
-function normalizeProviderKind(value: unknown): ProviderKind {
-  if (value === 'gemini') return 'gemini'
-  if (value === 'http-template') return 'http-template'
-  return 'openai-compat'
-}
-
+/** 只认平台渠道。旧的 user-byok / 自定义端点记录返回 null，调用方丢掉。 */
 export function normalizeClientProfile(input: unknown): ClientProfile | null {
-  if (!isRecord(input)) return null
-
-  if (input.source === 'builtin-edge') {
-    if (typeof input.channelId !== 'string' || !input.channelId.trim()) return null
-    if (typeof input.selectedModelId !== 'string' || !input.selectedModelId.trim()) return null
-    return {
-      id:
-        typeof input.id === 'string' && input.id.trim()
-          ? input.id
-          : builtinEdgeProfileId(input.channelId),
-      source: 'builtin-edge',
-      channelId: input.channelId,
-      selectedModelId: input.selectedModelId,
-    }
-  }
-
-  if (input.source !== 'user-byok') return null
-
-  const kind = normalizeProviderKind(input.kind)
-  const name =
-    typeof input.name === 'string' && input.name.trim()
-      ? input.name
-      : i18next.t('profile.newName', { ns: 'lib' })
-  const id =
-    typeof input.id === 'string' && input.id.trim()
-      ? input.id
-      : `byok-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-
-  const baseUrl =
-    typeof input.baseUrl === 'string' && input.baseUrl
-      ? input.baseUrl
-      : kind === 'gemini'
-        ? DEFAULT_GEMINI_BASE_URL
-        : DEFAULT_BASE_URL
-  const apiKey = typeof input.apiKey === 'string' ? input.apiKey : ''
-
-  const rawModels = Array.isArray(input.models)
-    ? input.models
-        .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
-        .map((m) => m.trim())
-    : []
-  const defaultModel = kind === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_IMAGES_MODEL
-  const models = rawModels.length ? Array.from(new Set(rawModels)) : [defaultModel]
-
-  const rawSelected =
-    typeof input.selectedModelId === 'string' && input.selectedModelId.trim()
-      ? input.selectedModelId.trim()
-      : ''
-  const selectedModelId = models.includes(rawSelected) ? rawSelected : models[0]
-
-  const preferences = normalizeByokPreferences(
-    isRecord(input.preferences) ? input.preferences : {},
-    kind,
-  )
-
+  if (!isRecord(input) || input.source !== 'builtin-edge') return null
+  if (typeof input.channelId !== 'string' || !input.channelId.trim()) return null
+  if (typeof input.selectedModelId !== 'string' || !input.selectedModelId.trim()) return null
   return {
-    id,
-    source: 'user-byok',
-    name,
-    kind,
-    baseUrl,
-    apiKey,
-    models,
-    selectedModelId,
-    preferences,
+    id:
+      typeof input.id === 'string' && input.id.trim()
+        ? input.id
+        : builtinEdgeProfileId(input.channelId),
+    source: 'builtin-edge',
+    channelId: input.channelId,
+    selectedModelId: input.selectedModelId,
   }
 }
 
-// ===== Builtin-edge profile 注入 =====
-
-function injectBuiltinEdgeProfiles(userProfiles: ClientProfile[]): ClientProfile[] {
+function injectBuiltinEdgeProfiles(stored: ClientProfile[]): ClientProfile[] {
   const channels = getPublicChannels()
-  const existingByChannelId = new Map(
-    userProfiles
-      .filter((p): p is BuiltinEdgeProfile => p.source === 'builtin-edge')
-      .map((p) => [p.channelId, p]),
-  )
+  // 清单还在路上时，留下已经存好的平台档案。空数组这时不是「没有渠道」，
+  // 不能把用户选的模型清掉；清单到达后再校验、再回退。
+  if (!channelsSettled()) return stored
+  const existingByChannelId = new Map(stored.map((profile) => [profile.channelId, profile]))
 
   const builtinProfiles: BuiltinEdgeProfile[] = []
   for (const channel of channels) {
     if (!channel.models.length) continue
     const existing = existingByChannelId.get(channel.id)
-    if (existing && channel.models.some((m) => m.id === existing.selectedModelId)) {
+    if (existing && channel.models.some((model) => model.id === existing.selectedModelId)) {
       builtinProfiles.push(existing)
     } else {
       builtinProfiles.push(createBuiltinEdgeProfile(channel.id, channel.models[0].id))
     }
   }
-
-  let userByokProfiles = userProfiles.filter((p): p is UserByokProfile => p.source === 'user-byok')
-  // store hydrate 时 channelStore 还没装载，normalizeSettings 看到 profiles 全空
-  // 会 fallback 创建一个未配置的默认 OpenAI BYOK，等 channels 装载完它已经赖在
-  // state.profiles 里持久化下去。本次 normalize 时 channels 已就位，把这个
-  // synthetic fallback 清掉，避免「内置 channel 列表里夹一个空 BYOK 默认」。
-  if (builtinProfiles.length > 0) {
-    userByokProfiles = userByokProfiles.filter((p) => !isUntouchedDefaultOpenAIByok(p))
-  }
-  return [...builtinProfiles, ...userByokProfiles]
+  return builtinProfiles
 }
-
-/** hydrate 时机问题的特征：未编辑过的默认 OpenAI BYOK profile。 */
-function isUntouchedDefaultOpenAIByok(p: UserByokProfile): boolean {
-  return (
-    p.id === DEFAULT_OPENAI_PROFILE_ID &&
-    p.apiKey === '' &&
-    p.kind === 'openai-compat' &&
-    p.baseUrl === DEFAULT_BASE_URL &&
-    p.selectedModelId === DEFAULT_IMAGES_MODEL
-  )
-}
-
-// ===== normalizeSettings =====
 
 // 已经经过 normalizeSettings 的对象短路返回自身，避免 store / UI / dispatch 路径上的重复正规化。
 // 缓存跟着 channel 列表走：store hydrate 早于 channel 装载，那一轮的结果既没有内置 profile
@@ -574,6 +85,14 @@ function isUntouchedDefaultOpenAIByok(p: UserByokProfile): boolean {
 let normalizedSettingsCache = new WeakSet<AppSettings>()
 let cachedAgainstChannels: PublicChannel[] | null = null
 
+function booleanSetting(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+/**
+ * 正规化设置。旧 localStorage / 导入包里的 user-byok profile 与 customProviders 直接丢掉，
+ * 活动配置若指着被丢掉的档案，落到当前渠道列表的第一个平台渠道。
+ */
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
   const channels = getPublicChannels()
   if (channels !== cachedAgainstChannels) {
@@ -584,397 +103,89 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     return input as AppSettings
   }
   const record = isRecord(input) ? input : {}
-  const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
 
   const rawProfiles = Array.isArray(record.profiles)
     ? record.profiles
-        .map((p) => normalizeClientProfile(p))
-        .filter((p): p is ClientProfile => Boolean(p))
+        .map((profile) => normalizeClientProfile(profile))
+        .filter((profile): profile is ClientProfile => Boolean(profile))
     : []
 
   const profiles = injectBuiltinEdgeProfiles(rawProfiles)
-  const profilesWithFallback = profiles.length ? profiles : [createDefaultOpenAIByokProfile()]
-
   const requestedActive = typeof record.activeProfileId === 'string' ? record.activeProfileId : ''
-  const activeProfileId = profilesWithFallback.some((p) => p.id === requestedActive)
+  const activeProfileId = profiles.some((profile) => profile.id === requestedActive)
     ? requestedActive
-    : profilesWithFallback[0].id
+    : (profiles[0]?.id ?? '')
 
   const result: AppSettings = {
-    customProviders,
-    clearInputAfterSubmit:
-      typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
-    persistInputOnRestart:
-      typeof record.persistInputOnRestart === 'boolean' ? record.persistInputOnRestart : true,
-    alwaysShowRetryButton:
-      typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
-    enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : true,
-    profiles: profilesWithFallback,
+    clearInputAfterSubmit: booleanSetting(record.clearInputAfterSubmit, false),
+    persistInputOnRestart: booleanSetting(record.persistInputOnRestart, true),
+    alwaysShowRetryButton: booleanSetting(record.alwaysShowRetryButton, false),
+    enterSubmit: booleanSetting(record.enterSubmit, true),
+    profiles,
     activeProfileId,
   }
   normalizedSettingsCache.add(result)
   return result
 }
 
-// ===== Active profile / labels =====
-
 export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): ClientProfile {
   const normalized = normalizeSettings(settings)
   return (
-    normalized.profiles.find((p) => p.id === normalized.activeProfileId) ?? normalized.profiles[0]
+    normalized.profiles.find((profile) => profile.id === normalized.activeProfileId) ??
+    normalized.profiles[0] ??
+    EMPTY_PLATFORM_PROFILE
   )
-}
-
-export function getCustomProviderDefinition(
-  settings: Partial<AppSettings> | unknown,
-  providerId: string,
-): CustomProviderDefinition | null {
-  const normalized = normalizeSettings(settings)
-  return normalized.customProviders.find((item) => item.id === providerId) ?? null
-}
-
-export function getProviderKindLabel(kind: ProviderKind): string {
-  if (kind === 'gemini') return 'Gemini'
-  if (kind === 'openai-compat') return 'OpenAI'
-  return i18next.t('profile.httpTemplate', { ns: 'lib' })
 }
 
 export function getApiProviderLabel(
-  settings: Partial<AppSettings> | unknown,
-  kindOrCustomId: string,
+  _settings: Partial<AppSettings> | unknown,
+  kindOrId: string,
 ): string {
-  if (kindOrCustomId === 'gemini') return 'Gemini'
-  if (kindOrCustomId === 'openai' || kindOrCustomId === 'openai-compat') return 'OpenAI'
-  return getCustomProviderDefinition(settings, kindOrCustomId)?.name ?? kindOrCustomId
+  if (kindOrId === 'gemini' || kindOrId === 'gemini-queue') return 'Gemini'
+  if (kindOrId === 'openai' || kindOrId === 'openai-compat' || kindOrId === 'openai-queue') {
+    return 'OpenAI'
+  }
+  return kindOrId
 }
 
-// ===== validate =====
-
 export function validateClientProfile(profile: ClientProfile): string | null {
-  if (profile.source === 'builtin-edge') {
-    if (!profile.selectedModelId.trim()) return i18next.t('profile.missingModelId', { ns: 'lib' })
-    return null
+  if (!profile.channelId.trim() || !profile.selectedModelId.trim()) {
+    return i18next.t('profile.missingModelId', { ns: 'lib' })
   }
-  if (!profile.name.trim()) return i18next.t('profile.missingName', { ns: 'lib' })
-  if (!profile.baseUrl.trim()) return i18next.t('profile.missingApiUrl', { ns: 'lib' })
-  if (!profile.apiKey.trim()) return i18next.t('profile.missingApiKey', { ns: 'lib' })
-  if (!profile.selectedModelId.trim()) return i18next.t('profile.missingModelId', { ns: 'lib' })
   return null
 }
 
-// ===== switch kind =====
-
-export function switchByokProfileKind(
-  profile: UserByokProfile,
-  kind: ProviderKind,
-): UserByokProfile {
-  if (profile.kind === kind) return profile
-
-  if (kind === 'gemini') {
-    return {
-      ...profile,
-      kind,
-      baseUrl: DEFAULT_GEMINI_BASE_URL,
-      models: [DEFAULT_GEMINI_MODEL],
-      selectedModelId: DEFAULT_GEMINI_MODEL,
-      preferences: {
-        ...profile.preferences,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-        responseFormatB64Json: undefined,
-      },
-    }
-  }
-
-  const models = profile.models.length ? profile.models : [DEFAULT_IMAGES_MODEL]
-  return {
-    ...profile,
-    kind: kind === 'http-template' ? 'http-template' : 'openai-compat',
-    baseUrl: profile.baseUrl || DEFAULT_BASE_URL,
-    models,
-    selectedModelId: models.includes(profile.selectedModelId) ? profile.selectedModelId : models[0],
-    preferences: profile.preferences,
-  }
-}
-
-// ===== dedup / merge =====
-
-function getByokDedupKey(profile: UserByokProfile): string {
-  return JSON.stringify([
-    profile.kind,
-    profile.baseUrl.trim().replace(/\/+$/, '').toLowerCase(),
-    profile.apiKey.trim(),
-    profile.selectedModelId.trim(),
-    profile.preferences.apiMode,
-  ])
-}
-
-function getByokConnectionKey(profile: UserByokProfile): string {
-  return JSON.stringify([
-    profile.kind,
-    profile.baseUrl.trim().replace(/\/+$/, '').toLowerCase(),
-    profile.selectedModelId.trim(),
-    profile.preferences.apiMode,
-  ])
-}
-
-export function findEquivalentClientProfile(
-  settings: Partial<AppSettings> | unknown,
-  candidate: ClientProfile,
-): ClientProfile | null {
-  const normalized = normalizeSettings(settings)
-  if (candidate.source === 'builtin-edge') {
-    return (
-      normalized.profiles.find(
-        (p): p is BuiltinEdgeProfile =>
-          p.source === 'builtin-edge' && p.channelId === candidate.channelId,
-      ) ?? null
-    )
-  }
-  const dedupKey = getByokDedupKey(candidate)
-  const exact = normalized.profiles.find(
-    (p): p is UserByokProfile => p.source === 'user-byok' && getByokDedupKey(p) === dedupKey,
-  )
-  if (exact) return exact
-  if (candidate.apiKey.trim()) return null
-  const connKey = getByokConnectionKey(candidate)
-  return (
-    normalized.profiles.find(
-      (p): p is UserByokProfile => p.source === 'user-byok' && getByokConnectionKey(p) === connKey,
-    ) ?? null
-  )
-}
-
-function hasOnlyDefaultProfile(settings: AppSettings): boolean {
-  const byok = settings.profiles.filter((p): p is UserByokProfile => p.source === 'user-byok')
-  if (byok.length !== 1) return false
-  if (settings.customProviders.length) return false
-  const only = byok[0]
-  return (
-    only.id === DEFAULT_OPENAI_PROFILE_ID &&
-    only.apiKey === '' &&
-    only.kind === 'openai-compat' &&
-    only.baseUrl === DEFAULT_BASE_URL &&
-    only.selectedModelId === DEFAULT_IMAGES_MODEL
-  )
-}
-
-function createImportedProfileId(kind: ProviderKind, usedIds: Set<string>): string {
-  let id = `${kind}-imported-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-  while (usedIds.has(id)) {
-    id = `${kind}-imported-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-  }
-  usedIds.add(id)
-  return id
-}
-
-function dedupeByokProfiles(profiles: UserByokProfile[]): UserByokProfile[] {
-  const seen = new Set<string>()
-  return profiles.filter((p) => {
-    const key = getByokDedupKey(p)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function getCustomProviderDedupKey(provider: CustomProviderDefinition): string {
-  return JSON.stringify([
-    provider.name,
-    provider.template ?? 'http-image',
-    provider.submit,
-    provider.editSubmit ?? null,
-    provider.poll ?? null,
-  ])
-}
-
-function mergeImportedCustomProviders(
-  current: CustomProviderDefinition[],
-  imported: CustomProviderDefinition[],
-): CustomProviderDefinition[] {
-  const providers = [...current]
-  const usedIds = new Set(providers.map((p) => p.id))
-  const existingKeys = new Map(providers.map((p) => [getCustomProviderDedupKey(p), p.id] as const))
-
-  for (const provider of imported) {
-    if (existingKeys.has(getCustomProviderDedupKey(provider))) continue
-    const normalized = normalizeCustomProviderDefinition(provider, usedIds)
-    if (!normalized) continue
-    providers.push(normalized)
-    existingKeys.set(getCustomProviderDedupKey(normalized), normalized.id)
-  }
-  return providers
-}
-
+/** 导入只带使用习惯。档案、密钥、自定义端点一律不进来。 */
 export function mergeImportedSettings(
   currentSettings: Partial<AppSettings> | unknown,
   importedSettings: Partial<AppSettings> | unknown,
 ): AppSettings {
   const current = normalizeSettings(currentSettings)
-  const importedRaw = normalizeSettings(importedSettings)
-  const importedByok = dedupeByokProfiles(
-    importedRaw.profiles.filter((p): p is UserByokProfile => p.source === 'user-byok'),
-  )
-  const imported: AppSettings = {
-    ...importedRaw,
-    profiles: [...importedRaw.profiles.filter((p) => p.source === 'builtin-edge'), ...importedByok],
-  }
-
-  if (hasOnlyDefaultProfile(current)) {
-    return imported
-  }
-
-  const currentByok = current.profiles.filter((p): p is UserByokProfile => p.source === 'user-byok')
-  const usedIds = new Set(current.profiles.map((p) => p.id))
-  const existingKeys = new Set(currentByok.map(getByokDedupKey))
-
-  const customProviders = mergeImportedCustomProviders(
-    current.customProviders,
-    imported.customProviders,
-  )
-
-  const newByok = importedByok
-    .filter((p) => !existingKeys.has(getByokDedupKey(p)))
-    .map((p) => {
-      if (!usedIds.has(p.id)) {
-        usedIds.add(p.id)
-        return p
-      }
-      return { ...p, id: createImportedProfileId(p.kind, usedIds) }
-    })
-
+  const imported = isRecord(importedSettings) ? importedSettings : {}
   return normalizeSettings({
     ...current,
-    customProviders,
-    profiles: [...currentByok, ...newByok],
+    clearInputAfterSubmit: booleanSetting(
+      imported.clearInputAfterSubmit,
+      current.clearInputAfterSubmit,
+    ),
+    persistInputOnRestart: booleanSetting(
+      imported.persistInputOnRestart,
+      current.persistInputOnRestart,
+    ),
+    alwaysShowRetryButton: booleanSetting(
+      imported.alwaysShowRetryButton,
+      current.alwaysShowRetryButton,
+    ),
+    enterSubmit: booleanSetting(imported.enterSubmit, current.enterSubmit),
+    profiles: current.profiles,
     activeProfileId: current.activeProfileId,
   })
 }
 
-// ===== Import helpers（UI 自定义服务商 JSON 导入入口）=====
-
-function stripMarkdownCodeFence(text: string): string {
-  const trimmed = text.trim()
-  const match = trimmed.match(/^```[^\r\n]*\r?\n([\s\S]*?)\r?\n```$/)
-  return match ? match[1].trim() : trimmed
-}
-
-export interface ImportedProviderSettings {
-  customProviders: CustomProviderDefinition[]
-  profiles: ClientProfile[]
-}
-
-function validateImportedProfileRecord(input: unknown) {
-  if (!isRecord(input)) return
-  const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl.trim() : ''
-  if (baseUrl && (baseUrl.startsWith('[') || baseUrl.includes(']('))) {
-    throw new Error(i18next.t('profile.importMarkdownLink', { ns: 'lib' }))
-  }
-  if (
-    typeof input.apiMode === 'string' &&
-    input.apiMode !== 'images' &&
-    input.apiMode !== 'responses'
-  ) {
-    throw new Error(i18next.t('profile.importBadApiMode', { ns: 'lib' }))
-  }
-}
-
-/** 从旧 ApiProfile 形态（含 provider/model 字段）派生 UserByokProfile，专用于 import 路径。 */
-function legacyProfileRecordToByok(record: Record<string, unknown>): UserByokProfile | null {
-  const kind: ProviderKind = record.provider === 'gemini' ? 'gemini' : 'openai-compat'
-  const baseUrl =
-    typeof record.baseUrl === 'string' && record.baseUrl
-      ? record.baseUrl
-      : kind === 'gemini'
-        ? DEFAULT_GEMINI_BASE_URL
-        : DEFAULT_BASE_URL
-  const apiKey = typeof record.apiKey === 'string' ? record.apiKey : ''
-  const name =
-    typeof record.name === 'string' && record.name.trim()
-      ? record.name
-      : i18next.t('profile.importedName', { ns: 'lib' })
-  const model =
-    typeof record.model === 'string' && record.model.trim()
-      ? record.model.trim()
-      : kind === 'gemini'
-        ? DEFAULT_GEMINI_MODEL
-        : DEFAULT_IMAGES_MODEL
-  const id =
-    typeof record.id === 'string' && record.id.trim()
-      ? record.id
-      : `byok-import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-
-  return {
-    id,
-    source: 'user-byok',
-    name,
-    kind,
-    baseUrl,
-    apiKey,
-    models: [model],
-    selectedModelId: model,
-    preferences: normalizeByokPreferences(record, kind),
-  }
-}
-
-export function importCustomProviderSettingsFromJson(
-  jsonText: string,
-  existingProviders: CustomProviderDefinition[] = [],
-): ImportedProviderSettings {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stripMarkdownCodeFence(jsonText))
-  } catch {
-    throw new Error(i18next.t('profile.importInvalidJson', { ns: 'lib' }))
-  }
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error(i18next.t('profile.importRootNotObject', { ns: 'lib' }))
-  }
-  const record = parsed as Record<string, unknown>
-
-  if (Array.isArray(record.customProviders)) {
-    const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
-    if (customProviders.length === 0) {
-      throw new Error(i18next.t('profile.importNoValidProviders', { ns: 'lib' }))
-    }
-    const profiles: ClientProfile[] = Array.isArray(record.profiles)
-      ? record.profiles
-          .map((item) => {
-            validateImportedProfileRecord(item)
-            return item
-          })
-          .map((item) =>
-            isRecord(item) && item.source === 'user-byok'
-              ? normalizeClientProfile(item)
-              : isRecord(item)
-                ? legacyProfileRecordToByok(item)
-                : null,
-          )
-          .filter((p): p is ClientProfile => Boolean(p))
-      : []
-    return { customProviders, profiles }
-  }
-
-  const usedIds = new Set(existingProviders.map((p) => p.id))
-  const direct = normalizeCustomProviderDefinition(parsed, usedIds)
-  if (direct) return { customProviders: [direct], profiles: [] }
-
-  throw new Error(i18next.t('profile.importUnrecognized', { ns: 'lib' }))
-}
-
-export function importCustomProviderDefinitionFromJson(
-  jsonText: string,
-  existingProviders: CustomProviderDefinition[] = [],
-): CustomProviderDefinition {
-  const result = importCustomProviderSettingsFromJson(jsonText, existingProviders)
-  return result.customProviders[0]
-}
-
-// ===== Flat ApiProfile view =====
-// ClientProfile 的扁平视图，给以 dedup-key / task-match / settings 表单为代表的扁平场景使用。
-// builtin-edge profile 的 baseUrl 是 edge proxy 路径，apiKey 始终为空。
-
+/**
+ * 平台渠道的扁平视图。baseUrl 是稳定哨兵（不会被拿去 fetch），apiKey 恒为空：
+ * 真正的上游地址和密钥只在 BFF。
+ */
 export interface ApiProfile {
   id: string
   name: string
@@ -990,98 +201,25 @@ export interface ApiProfile {
   models?: string[]
 }
 
-function kindToLegacyProvider(kind: ProviderKind): string {
-  if (kind === 'gemini') return 'gemini'
-  return 'openai'
-}
-
-function legacyProviderToKind(provider: string): ProviderKind {
-  if (provider === 'gemini') return 'gemini'
-  return 'openai-compat'
-}
-
 export function clientProfileToApiProfile(profile: ClientProfile): ApiProfile {
-  if (profile.source === 'builtin-edge') {
-    const channel = getPublicChannel(profile.channelId)
-    return {
-      id: profile.id,
-      name: channel?.label ?? profile.channelId,
-      provider: channel?.kind === 'gemini-queue' ? 'gemini' : 'openai',
-      // sentinel base — 不会被真实 fetch 用到（builtin-edge dispatch 走 queueClient
-      // + runtime config 的 bff.baseUrl），但 codexCli prompt cache 等以 baseUrl
-      // 为 key 的逻辑需要每个 channel 拿到稳定且互不相同的字符串。
-      baseUrl: `channel:${profile.channelId}`,
-      apiKey: '',
-      model: profile.selectedModelId,
-      timeout: normalizeApiTimeout(channel?.defaults.timeout),
-      apiMode: channel?.defaults.apiMode ?? 'images',
-      codexCli: channel?.defaults.codexCli ?? false,
-      apiProxy: false,
-      responseFormatB64Json: channel?.defaults.responseFormatB64Json,
-      models: channel?.models.map((m) => m.id),
-    }
-  }
+  const channel = profile.channelId ? getPublicChannel(profile.channelId) : undefined
   return {
     id: profile.id,
-    name: profile.name,
-    provider: kindToLegacyProvider(profile.kind),
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
+    name: channel?.label ?? profile.channelId,
+    provider: channel?.kind === 'gemini-queue' ? 'gemini' : 'openai',
+    baseUrl: profile.channelId ? `channel:${profile.channelId}` : '',
+    apiKey: '',
     model: profile.selectedModelId,
-    timeout: normalizeApiTimeout(profile.preferences.timeout),
-    apiMode: profile.preferences.apiMode,
-    codexCli: profile.preferences.codexCli,
-    apiProxy: profile.preferences.apiProxy,
-    responseFormatB64Json: profile.preferences.responseFormatB64Json,
-    models: profile.models,
+    timeout: normalizeApiTimeout(channel?.defaults.timeout),
+    apiMode: channel?.defaults.apiMode ?? 'images',
+    codexCli: channel?.defaults.codexCli ?? false,
+    apiProxy: false,
+    responseFormatB64Json: channel?.defaults.responseFormatB64Json,
+    models: channel?.models.map((model) => model.id),
   }
 }
-
-export function apiProfileToClientProfile(profile: ApiProfile): ClientProfile {
-  // 如果 id 命中已知 channel，恢复为 builtin-edge 形态以保留 source 语义。
-  const channel = getPublicChannel(profile.id)
-  if (channel) {
-    const validModel = channel.models.some((m) => m.id === profile.model)
-      ? profile.model
-      : (channel.models[0]?.id ?? profile.model)
-    return {
-      id: profile.id,
-      source: 'builtin-edge',
-      channelId: profile.id,
-      selectedModelId: validModel,
-    }
-  }
-  const kind = legacyProviderToKind(profile.provider)
-  const models = profile.models && profile.models.length ? profile.models : [profile.model]
-  return {
-    id: profile.id,
-    source: 'user-byok',
-    name: profile.name,
-    kind,
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
-    models,
-    selectedModelId: models.includes(profile.model) ? profile.model : models[0],
-    preferences: {
-      apiMode: profile.apiMode,
-      timeout: normalizeApiTimeout(profile.timeout),
-      codexCli: profile.codexCli,
-      apiProxy: profile.apiProxy,
-      responseFormatB64Json: profile.responseFormatB64Json,
-    },
-  }
-}
-
-export function isBuiltinProfile(
-  profile: ClientProfile | null | undefined,
-): profile is BuiltinEdgeProfile {
-  return profile?.source === 'builtin-edge'
-}
-
-// ===== DEFAULT_SETTINGS =====
 
 export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
-  customProviders: [],
   profiles: [],
   activeProfileId: '',
   clearInputAfterSubmit: false,

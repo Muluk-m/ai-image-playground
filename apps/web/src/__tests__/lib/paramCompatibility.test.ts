@@ -1,12 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../lib/apiProfiles'
-import type {
-  ChannelCapability,
-  ClientProfile,
-  PublicChannel,
-  UserByokPreferences,
-  UserByokProfile,
-} from '../../lib/channels/types'
+import type { ChannelCapability, ClientProfile, PublicChannel } from '../../lib/channels/types'
 import {
   getOutputImageLimitForSettings,
   getParamCapabilities,
@@ -24,45 +18,34 @@ beforeEach(() => {
   mockChannels.list = []
 })
 
-/** preferences 允许只给关心的字段，其余由 normalizeSettings 补默认值。 */
-type ByokOverrides = Partial<Omit<UserByokProfile, 'id' | 'source' | 'preferences'>> & {
-  preferences?: Partial<UserByokPreferences>
+function useChannel(
+  kind: PublicChannel['kind'],
+  modelId: string,
+  defaults: PublicChannel['defaults'] = { apiMode: 'images', timeout: 600 },
+  capabilities: ChannelCapability[] = ['generate', 'edit', 'quality', 'size'],
+): ClientProfile {
+  const channel: PublicChannel = {
+    id: 'c1',
+    kind,
+    label: kind === 'gemini-queue' ? 'Gemini' : 'OpenAI',
+    models: [{ id: modelId, label: modelId, capabilities }],
+    defaults,
+  }
+  mockChannels.list = [channel]
+  return { id: 'c1', source: 'builtin-edge', channelId: 'c1', selectedModelId: modelId }
 }
 
-function byokSettings(overrides: ByokOverrides = {}): AppSettings {
+function settingsFor(profile: ClientProfile): AppSettings {
   return normalizeSettings({
     ...DEFAULT_SETTINGS,
-    profiles: [
-      {
-        id: 'p1',
-        source: 'user-byok',
-        name: 'P',
-        kind: 'openai-compat',
-        baseUrl: 'https://x.test/v1',
-        apiKey: 'k',
-        ...overrides,
-      },
-    ],
-    activeProfileId: 'p1',
+    profiles: [profile],
+    activeProfileId: profile.id,
   })
 }
 
-function byokProfile(overrides: ByokOverrides = {}): ClientProfile {
-  return getActiveApiProfile(byokSettings(overrides))
-}
-
-/** 注册一条只声明 capabilities 的 builtin-edge channel，返回选中它的 profile。 */
+/** 注册一条只声明 capabilities 的平台渠道，返回选中它的 profile。 */
 function builtinProfile(capabilities: ChannelCapability[]): ClientProfile {
-  mockChannels.list = [
-    {
-      id: 'c1',
-      kind: 'openai-queue',
-      label: 'C',
-      models: [{ id: 'm1', label: 'M', capabilities }],
-      defaults: { apiMode: 'images', timeout: 600 },
-    },
-  ]
-  return { id: 'bp', source: 'builtin-edge', channelId: 'c1', selectedModelId: 'm1' }
+  return useChannel('openai-queue', 'm1', { apiMode: 'images', timeout: 600 }, capabilities)
 }
 
 describe('parameter compatibility', () => {
@@ -84,58 +67,60 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings(params, settings).transparent_output).toBe(false)
   })
 
-  it('resets leftover transparent_output on gemini profiles where the toggle is hidden', () => {
+  it('resets leftover transparent_output on gemini channels where the toggle is hidden', () => {
     const params = { ...DEFAULT_PARAMS, transparent_output: true }
+    const settings = settingsFor(useChannel('gemini-queue', 'gemini-3.1-flash-image'))
 
-    expect(
-      normalizeParamsForSettings(params, byokSettings({ kind: 'gemini' })).transparent_output,
-    ).toBe(false)
+    expect(normalizeParamsForSettings(params, settings).transparent_output).toBe(false)
   })
 
-  it('keeps explicit no_rewrite choice across gemini profiles (guard is provider-gated at dispatch)', () => {
+  it('keeps explicit no_rewrite choice across gemini channels (guard is provider-gated at dispatch)', () => {
     const params = { ...DEFAULT_PARAMS, no_rewrite: false }
+    const settings = settingsFor(useChannel('gemini-queue', 'gemini-3.1-flash-image'))
 
-    expect(normalizeParamsForSettings(params, byokSettings({ kind: 'gemini' })).no_rewrite).toBe(
-      false,
-    )
+    expect(normalizeParamsForSettings(params, settings).no_rewrite).toBe(false)
   })
 })
 
 describe('getParamCapabilities', () => {
   it('jpeg: transparent toggle off, compression on', () => {
-    const caps = getParamCapabilities(byokProfile(), 'jpeg')
+    const caps = getParamCapabilities(useChannel('openai-queue', 'gpt-image-2'), 'jpeg')
     expect(caps.transparentOutput).toBe(false)
     expect(caps.compression).toBe(true)
   })
 
-  it('gemini profile: transparent toggle always off', () => {
-    expect(getParamCapabilities(byokProfile({ kind: 'gemini' }), 'png').transparentOutput).toBe(
-      false,
-    )
+  it('gemini channel: transparent toggle always off', () => {
+    expect(
+      getParamCapabilities(useChannel('gemini-queue', 'gemini-3.1-flash-image'), 'png')
+        .transparentOutput,
+    ).toBe(false)
   })
 
-  it('gemini profile on a gemini model: image size and thinking level are offered', () => {
-    const profile = byokProfile({ kind: 'gemini', models: ['gemini-3.1-flash-image'] })
+  it('gemini channel on a gemini model: image size and thinking level are offered', () => {
+    const profile = useChannel('gemini-queue', 'gemini-3.1-flash-image')
     expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(true)
   })
 
-  // 同一条 gemini 协议也能指到 imagen 这类模型，那些认不得分辨率与思考级别。
-  it('gemini profile on a non-gemini model: image size and thinking level are withheld', () => {
-    const profile = byokProfile({ kind: 'gemini', models: ['imagen-4.0-generate'] })
+  it('gemini channel on a non-gemini model: image size and thinking level are withheld', () => {
+    const profile = useChannel('gemini-queue', 'imagen-4.0-generate')
     expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(false)
   })
 
-  it('a gemini model behind an openai-compatible gateway: still withheld', () => {
-    const profile = byokProfile({ kind: 'openai-compat', models: ['gemini-3.1-flash-image'] })
+  it('a gemini model behind an openai channel: still withheld', () => {
+    const profile = useChannel('openai-queue', 'gemini-3.1-flash-image')
     expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(false)
   })
 
-  it('codexCli profile: quality off', () => {
-    const profile = byokProfile({ preferences: { codexCli: true } })
+  it('codexCli channel: quality off', () => {
+    const profile = useChannel('openai-queue', 'gpt-image-2', {
+      apiMode: 'images',
+      timeout: 600,
+      codexCli: true,
+    })
     expect(getParamCapabilities(profile, 'png').quality).toBe(false)
   })
 
-  it('builtin-edge channel without quality capability: quality off', () => {
+  it('platform channel without quality capability: quality off', () => {
     mockChannels.list = [
       {
         id: 'c1',
@@ -153,19 +138,26 @@ describe('getParamCapabilities', () => {
     expect(getParamCapabilities(getActiveApiProfile(settings), 'png').quality).toBe(false)
   })
 
-  it('builtin-edge channel without size capability: size off', () => {
+  it('platform channel without size capability: size off', () => {
     const profile = builtinProfile(['generate', 'edit'])
 
     expect(getParamCapabilities(profile, 'png').size).toBe(false)
   })
 
-  it('builtin-edge channel with size capability: size on', () => {
+  it('platform channel with size capability: size on', () => {
     const profile = builtinProfile(['generate', 'edit', 'size'])
 
     expect(getParamCapabilities(profile, 'png').size).toBe(true)
   })
 
-  it('BYOK profile without declared capabilities: size on', () => {
-    expect(getParamCapabilities(byokProfile(), 'png').size).toBe(true)
+  it('channel not loaded yet: size stays available', () => {
+    mockChannels.list = []
+    const profile: ClientProfile = {
+      id: 'c1',
+      source: 'builtin-edge',
+      channelId: 'c1',
+      selectedModelId: 'm1',
+    }
+    expect(getParamCapabilities(profile, 'png').size).toBe(true)
   })
 })

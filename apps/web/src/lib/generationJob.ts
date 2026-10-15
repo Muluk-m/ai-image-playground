@@ -9,6 +9,7 @@ import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
 import { isClientCapabilityEnabled } from './clientCapabilities'
+import { resolveMediaSource } from './cloudMedia'
 import type { CallApiResult } from './imageApiShared'
 import {
   getPrivateSubmissionGuard,
@@ -35,9 +36,7 @@ export interface GenerationCharge {
 /** 上游给回来的可恢复句柄。宿主要把它落进持久记录，刷新后才接得回去。 */
 export type GenerationReference =
   /** BFF 队列的 request_id：有它就能跳过 submit 续 poll。 */
-  | { kind: 'queue'; requestId: string }
-  /** 自定义服务商的任务号：由宿主自己的恢复轮询接手。 */
-  | { kind: 'custom'; taskId: string }
+  { kind: 'queue'; requestId: string }
 
 /** 终局失败：分类 + 按分类映射好的人话（ADR-0006：按码判，不把上游原文糊给用户）。 */
 export interface GenerationFailure {
@@ -61,6 +60,7 @@ export interface GenerationVariant<C> {
 
 /** 起一批生成要知道的全部。 */
 export interface GenerationSpec<C> {
+  outputRetention?: 'candidate'
   settings: AppSettings
   /** 这次用的配置档案（已定模型）：门禁按它的模型计价，扇出按它的能力决定。 */
   profile: ClientProfile
@@ -73,6 +73,7 @@ export interface GenerationSpec<C> {
 
 /** 扇出之后的一条任务：这一条发什么、带什么幂等键，`params.n` 已经折好。 */
 export interface GenerationUnit<C> {
+  outputRetention?: 'candidate'
   prompt: string
   params: TaskParams
   inputImageDataUrls: string[]
@@ -96,6 +97,7 @@ export interface GenerationResend {
 
 /** 一条已经有宿主记录的任务要接着跑什么。 */
 export interface GenerationResumption {
+  outputRetention?: 'candidate'
   settings: AppSettings
   /** 续 poll 那条路送给上游的那句。重发那条路由 `resend` 一并给。 */
   prompt: string
@@ -148,7 +150,7 @@ export function admitGeneration(
   source: ClientProfile['source'],
   charge: GenerationCharge,
 ): boolean {
-  // BYOK 浏览器直连上游，不需要账号；内置渠道要经 BFF 的队列，没账号发不出去。
+  // 生成走平台渠道，要经 BFF 的队列，没账号发不出去。
   if (source === 'builtin-edge' && !requireAccount()) return false
   const guard = getPrivateSubmissionGuard(charge)
   if (!guard.blocked) return true
@@ -207,6 +209,7 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
   for (const variant of spec.variants) {
     for (let index = 0; index < fanOut; index++) {
       const unit: GenerationUnit<C> = {
+        outputRetention: spec.outputRetention,
         prompt: variant.prompt,
         params,
         inputImageDataUrls: variant.inputImageDataUrls,
@@ -240,6 +243,7 @@ export function resumeGeneration<H>(
       async () => {
         const sent = await resend?.()
         return {
+          outputRetention: input.outputRetention,
           prompt: sent?.prompt ?? input.prompt,
           params: input.params,
           inputImageDataUrls: sent?.inputImageDataUrls ?? [],
@@ -283,16 +287,18 @@ async function runUnit<H>(
     await report.persisted?.(handle)
     return callImageApi({
       settings,
+      outputRetention: unit.outputRetention,
       prompt: unit.prompt,
       params: unit.params,
-      inputImageDataUrls: unit.inputImageDataUrls,
+      inputImageDataUrls: await Promise.all(
+        unit.inputImageDataUrls.map((source) => resolveMediaSource(source, 'original', true)),
+      ),
       ...(unit.maskDataUrl ? { maskDataUrl: unit.maskDataUrl } : {}),
       clientRequestId: unit.clientRequestId,
       onQueueSubmitted: (requestId) => {
         report.accepted(handle, { kind: 'queue', requestId })
         notifyPrivateSubmissionAccepted()
       },
-      onCustomTaskEnqueued: (task) => report.accepted(handle, { kind: 'custom', ...task }),
       onQueueStatus: (phase) => report.progress(handle, phase),
     })
   })

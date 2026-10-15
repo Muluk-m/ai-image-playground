@@ -78,7 +78,7 @@ log.warn = warn
  */
 const AUDIENCE_TOOL_NAMES: Readonly<Record<AgentMode, readonly string[]>> = {
   image: ['saveAsset', 'saveLook'],
-  video: [],
+  video: ['saveAsset', 'saveLook'],
 }
 
 /** 这个 mode 这一轮真的能调到的工具名。技能正文引用别的工具，模型只会照着编。 */
