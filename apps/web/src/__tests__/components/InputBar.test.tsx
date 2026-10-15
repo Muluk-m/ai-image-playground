@@ -167,7 +167,7 @@ describe('首屏的生成设置', () => {
     expect(group('数量')).toBeNull()
     expect(group('质量')).toBeNull()
     expect(group('格式')).toBeNull()
-    expect(document.body.textContent).toContain('张数由 Agent 按需求决定')
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
   })
 
   it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
@@ -276,7 +276,7 @@ describe('首屏的生成设置', () => {
     expect(group('思考深度')).not.toBeNull()
     expect(group('分辨率')).toBeNull()
     expect(group('张数')).toBeNull()
-    expect(document.body.textContent).toContain('张数由 Agent 按需求决定')
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
   })
 })
 

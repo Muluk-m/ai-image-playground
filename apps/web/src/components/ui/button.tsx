@@ -3,7 +3,38 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { cn } from '../../lib/utils'
+import { Icon } from './icon'
 import { Hint } from './tooltip'
+
+/** 图形本身就是约定（关闭、返回、搜索），不再配文字，也不再弹提示。 */
+const OBVIOUS_ICONS = new Set(['close', 'search', 'back', 'chevronLeft'])
+
+function obviousIconOnly(node: React.ReactNode): boolean {
+  const names: string[] = []
+  let other = false
+  const walk = (child: React.ReactNode) => {
+    if (child == null || typeof child === 'boolean') return
+    if (typeof child === 'string' || typeof child === 'number') {
+      if (String(child).trim() !== '') other = true
+      return
+    }
+    if (Array.isArray(child)) {
+      for (const one of child) walk(one)
+      return
+    }
+    if (!React.isValidElement(child)) return
+    const props = child.props as { name?: unknown; className?: unknown; children?: React.ReactNode }
+    const className = typeof props.className === 'string' ? props.className : ''
+    if (className.split(/\s+/).includes('sr-only')) return
+    if (child.type === Icon && typeof props.name === 'string') {
+      names.push(props.name)
+      return
+    }
+    walk(props.children)
+  }
+  walk(node)
+  return names.length > 0 && !other && names.every((name) => OBVIOUS_ICONS.has(name))
+}
 
 /** 按钮里已经有可见文字时，aria-label 只留给读屏，不再变成悬停提示。 */
 function hasVisibleText(node: React.ReactNode): boolean {
@@ -63,10 +94,14 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, autoTooltip = true, title, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
-    const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
+    const obvious = obviousIconOnly(props.children)
+    const hasTooltip = obvious || !autoTooltip || props['data-tooltip-trigger']
     // 纯图标才用 aria-label 做提示。有可见文字时只认调用方显式传入的 title
     //（溢出后的完整文字、禁用原因），不要把读屏名称再弹一层。
-    const label = title || (hasVisibleText(props.children) ? undefined : props['aria-label'])
+    // 关闭、返回、搜索这类约定图标连 title 也不弹。
+    const label = obvious
+      ? undefined
+      : title || (hasVisibleText(props.children) ? undefined : props['aria-label'])
     const button = (
       <Comp
         className={cn(
@@ -74,7 +109,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           label && !asChild && 'disabled:pointer-events-auto',
         )}
         ref={ref}
-        aria-description={title}
+        aria-description={obvious ? undefined : title}
         {...props}
       />
     )
