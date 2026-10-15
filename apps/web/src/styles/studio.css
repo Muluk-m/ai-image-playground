@@ -862,7 +862,7 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-agent-action-step-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
 .studio-agent-action-step-foot p { display: flex; align-items: center; gap: 8px; }
 .studio-agent-action-step-note { color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
-.studio-layout[data-batch-wide="true"] > .studio-chat-column.studio-chat-column--page > .studio-sidebar {
+.studio-layout[data-batch-wide="true"]:not([data-project-view="chat"]) > .studio-chat-column.studio-chat-column--page > .studio-sidebar {
   width: min(880px, 100%) !important;
 }
 @media (hover: none) {
@@ -1067,6 +1067,10 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-sidebar--page .studio-agent-composer,
 .studio-sidebar--page .studio-agent-pending-drafts,
 .studio-sidebar--page .studio-agent-message-queue { width: min(760px, 100%); margin-inline: auto; }
+.studio-layout[data-batch-wide="true"] .studio-agent-log-content,
+.studio-layout[data-batch-wide="true"] .studio-sidebar--page .studio-agent-composer,
+.studio-layout[data-batch-wide="true"] .studio-sidebar--page .studio-agent-pending-drafts,
+.studio-layout[data-batch-wide="true"] .studio-sidebar--page .studio-agent-message-queue { width: min(880px, 100%); }
 .studio-search-trigger { margin-left: auto; }
 .studio-search-trigger + .studio-assets-trigger { margin-left: 0; }
 .studio-conversation-search { position: absolute; z-index: 6; top: 10px; right: 30px; display: flex; align-items: flex-start; gap: 6px; width: min(420px, calc(100% - 32px)); padding: 7px; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 18px 55px hsl(var(--scrim) / .25); }
@@ -1110,7 +1114,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-agent-log-content,
   .studio-sidebar--page .studio-agent-composer,
   .studio-sidebar--page .studio-agent-pending-drafts,
-  .studio-sidebar--page .studio-agent-message-queue { width: calc(100% - 24px); }
+  .studio-sidebar--page .studio-agent-message-queue,
+  .studio-layout[data-batch-wide="true"] .studio-agent-log-content,
+  .studio-layout[data-batch-wide="true"] .studio-sidebar--page .studio-agent-composer,
+  .studio-layout[data-batch-wide="true"] .studio-sidebar--page .studio-agent-pending-drafts,
+  .studio-layout[data-batch-wide="true"] .studio-sidebar--page .studio-agent-message-queue { width: calc(100% - 24px); }
   .studio-sidebar--page .studio-agent-log { padding: 12px 0; }
   .studio-conversation-search { top: 4px; right: 8px; }
   .studio-assets-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
