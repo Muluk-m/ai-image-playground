@@ -216,6 +216,7 @@
   },
   "composer": {
     "quantity": "生成张数",
+    "quantityValue_other": "生成 {{count}} 张",
     "quantityDecrease": "减少张数",
     "quantityIncrease": "增加张数",
     "editorAria": "对智能体说",
