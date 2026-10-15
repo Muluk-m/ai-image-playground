@@ -1840,40 +1840,61 @@ describe('AgentPanel', () => {
     expect(useAgentStore.getState().messages).toEqual([])
   })
 
-  it('生成张数在 1 到 10 之间增减，悬停说明跟着当前张数走', async () => {
+  it('智能体模式没有张数步进器，图片生成模式才在胶囊里选张数', () => {
+    render()
+    expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
+    const capsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
+    act(() => capsule.click())
+    expect(document.body.textContent).toContain('张数由 Agent 按需求决定')
+    expect(document.body.querySelector('[aria-label="张数"]')).toBeNull()
+
     act(() => {
-      useStore.setState({ params: { ...useStore.getState().params, n: 1 } })
+      useStore.setState({ createTarget: 'generate' })
+    })
+    const imageCapsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
+    if (imageCapsule.getAttribute('aria-expanded') !== 'true') act(() => imageCapsule.click())
+    const counts = [
+      ...(document.body.querySelector('[aria-label="张数"]')?.querySelectorAll('button') ?? []),
+    ].map((node) => node.textContent)
+    expect(counts).toEqual(['1', '2', '3', '4', '6', '8'])
+    expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
+    act(() => {
+      useStore.setState({ createTarget: 'chat' })
+    })
+  })
+
+  it('同一轮待确认的生图收成一张计划，取消勾选改张数，取消不请求接口', () => {
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+    const draft = (id: string, title: string, n: number): AgentToolMessage => ({
+      kind: 'tool',
+      id,
+      turnId: 'turn-plan',
+      toolCallId: id,
+      toolName: 'generateImage',
+      title,
+      prompt: `${title}的提示词`,
+      status: 'awaiting_confirmation',
+      snapshot: { mode: 'image', args: { n } },
+    })
+    useAgentStore.setState({
+      conversationId: 'conversation-plan',
+      messages: [draft('a', '主宣传', 1), draft('b', '卖点', 2)],
     })
     render()
 
-    const group = host.querySelector('[aria-label="生成张数"]')!
-    const decrease = group.querySelector<HTMLButtonElement>('button[aria-label="减少张数"]')!
-    const increase = group.querySelector<HTMLButtonElement>('button[aria-label="增加张数"]')!
-    const count = group.querySelector('span')!
-    expect(decrease.disabled).toBe(true)
-    expect(decrease.getAttribute('aria-label')).toBe('减少张数')
-    expect(increase.getAttribute('aria-label')).toBe('增加张数')
-    expect(group.textContent).toContain('1')
-
-    await act(async () => count.focus())
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('生成 1 张')
-    await act(async () => increase.focus())
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('增加张数')
-
-    act(() => increase.click())
-    expect(useStore.getState().params.n).toBe(2)
-    expect(host.querySelector('[aria-label="生成张数"]')?.textContent).toContain('2')
-    await act(async () => host.querySelector<HTMLElement>('[aria-label="生成张数"] span')!.focus())
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('生成 2 张')
-
+    expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(1)
+    expect(host.textContent).toContain('全部生成（3）')
+    expect(host.textContent).not.toContain('确认生成')
     act(() => {
-      useStore.setState({ params: { ...useStore.getState().params, n: 10 } })
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="卖点"]')?.click()
     })
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="增加张数"]')!.disabled).toBe(
-      true,
-    )
-    await act(async () => host.querySelector<HTMLElement>('[aria-label="生成张数"] span')!.focus())
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('生成 10 张')
+    expect(host.textContent).toContain('全部生成（1）')
+    act(() => {
+      ;[...host.querySelectorAll('button')].find((button) => button.textContent === '取消')?.click()
+    })
+    expect(host.textContent).toContain('未生成')
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('/confirmations')
   })
 })
 

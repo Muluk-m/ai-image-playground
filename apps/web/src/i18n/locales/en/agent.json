@@ -180,6 +180,18 @@
     "allFailed_one": "Stopped after confirming {{count}}. Please retry the rest one by one.",
     "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one."
   },
+  "plan": {
+    "title": "Generation plan",
+    "summary_one": "{{count}} image",
+    "summary_other": "{{count}} images",
+    "hint": "Click a row to edit its prompt. Uncheck a row to skip it.",
+    "generate_one": "Generate all ({{count}})",
+    "generate_other": "Generate all ({{count}})",
+    "cancel": "Cancel",
+    "restore": "Review again",
+    "dismissed": "Not generated",
+    "promptAria": "Edit prompt"
+  },
   "toolFailure": {
     "recharge": "Top up",
     "login": "Sign in",
@@ -230,11 +242,6 @@
     "dismiss": "Remove this step"
   },
   "composer": {
-    "quantity": "Image count",
-    "quantityValue_one": "Generate {{count}} image",
-    "quantityValue_other": "Generate {{count}} images",
-    "quantityDecrease": "Fewer images",
-    "quantityIncrease": "More images",
     "editorAria": "Message the agent",
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",
@@ -294,7 +301,13 @@
     "interjectAria": "Interject now: {{text}}"
   },
   "params": {
-    "note": "The agent decides how many images to make. Setting changes apply from the next turn.",
+    "model": "Model",
+    "modelAuto": "Smart",
+    "modelAutoOption": "Smart (auto model)",
+    "ratio": "Aspect",
+    "outputCount": "Count",
+    "countUnit": "images",
+    "countByAgent": "The agent decides how many images to make.",
     "thinkingFast": "Fast",
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
@@ -490,6 +503,8 @@
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
+    "queueSlot": "Queued · #{{position}}",
+    "doneCount": "{{done}}/{{total}} done",
     "progressAria": "Generation progress",
     "cancel": "Cancel job",
     "cancelling": "Cancelling…",

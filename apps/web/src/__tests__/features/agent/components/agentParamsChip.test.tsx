@@ -27,8 +27,8 @@ function trigger(): HTMLButtonElement {
   return host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
 }
 
-function modelTrigger(): HTMLButtonElement {
-  return host.querySelector<HTMLButtonElement>('button[role="combobox"]')!
+function modelField(): HTMLButtonElement {
+  return document.body.querySelector<HTMLButtonElement>('button[aria-label="模型"]')!
 }
 
 function toggle(): void {
@@ -57,7 +57,7 @@ function option(groupLabel: string, text: string): HTMLButtonElement {
 }
 
 beforeEach(() => {
-  useAgentStore.setState({ thinkingDepth: 'medium' })
+  useAgentStore.setState({ thinkingDepth: 'medium', modelAuto: true })
   setChannels([])
   useStore.setState({ params: { ...DEFAULT_PARAMS } })
   host = document.createElement('div')
@@ -109,14 +109,13 @@ describe('智能体输入框的生成设置', () => {
     render()
     toggle()
 
-    act(() => option('比例', '16:9').click())
+    act(() => option('画幅', '16:9').click())
     expect(useStore.getState().params.size).toBe('1280x720')
-    expect(option('比例', '16:9').getAttribute('aria-pressed')).toBe('true')
-    expect(trigger().getAttribute('aria-label')).toContain('16:9 · 1K')
-
-    act(() => option('分辨率', '2K').click())
-    expect(useStore.getState().params.size).toBe('2560x1440')
+    expect(option('画幅', '16:9').getAttribute('aria-pressed')).toBe('true')
+    expect(trigger().getAttribute('aria-label')).toContain('16:9')
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
+    expect(group('张数')).toBeNull()
+    expect(document.body.textContent).toContain('张数由 Agent 按需求决定')
 
     const done = [...document.body.querySelectorAll('button')].find(
       (node) => node.textContent === '完成',
@@ -136,8 +135,8 @@ describe('智能体输入框的生成设置', () => {
     )
     act(() => reset?.click())
     expect(useStore.getState().params.size).toBe('auto')
-    expect(useStore.getState().params.quality).toBe('auto')
     expect(useAgentStore.getState().thinkingDepth).toBe('medium')
+    expect(useAgentStore.getState().modelAuto).toBe(true)
   })
 })
 
@@ -188,9 +187,9 @@ describe('gemini 专属参数跟着当前模型走', () => {
     render()
     toggle()
 
-    expect(group('比例')).not.toBeNull()
-    expect(group('分辨率')).not.toBeNull()
-    expect(group('思考')).not.toBeNull()
+    expect(group('画幅')).not.toBeNull()
+    expect(group('分辨率')).toBeNull()
+    expect(group('思考深度')).not.toBeNull()
   })
 
   // 同一个 Gemini profile 也能指到别的模型；分辨率与思考级别只有 Gemini 图像模型认。
@@ -199,9 +198,9 @@ describe('gemini 专属参数跟着当前模型走', () => {
     render()
     toggle()
 
-    expect(group('比例')).not.toBeNull()
+    expect(group('画幅')).not.toBeNull()
     expect(group('分辨率')).toBeNull()
-    expect(group('思考')).toBeNull()
+    expect(group('思考深度')).not.toBeNull()
   })
 
   it('不走 gemini 协议时一项都不给', () => {
@@ -209,7 +208,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
     render()
     toggle()
 
-    expect(group('思考')).toBeNull()
+    expect(group('分辨率')).toBeNull()
   })
 })
 
@@ -242,11 +241,11 @@ it('仅支持比例的模型在摘要和卡片中都显示比例，不给分辨�
   expect(trigger().getAttribute('aria-label')).toContain('3:2')
   expect(trigger().getAttribute('aria-label')).not.toContain('1536')
   toggle()
-  expect(option('比例', '3:2').getAttribute('aria-pressed')).toBe('true')
+  expect(option('画幅', '3:2').getAttribute('aria-pressed')).toBe('true')
   expect(group('分辨率')).toBeNull()
 })
 
-it('仅支持比例的模型在自定义里填预设比例：仍回显实际比例', () => {
+it('画幅只提供固定几档，选中后写回尺寸并显示在胶囊上', () => {
   setChannels([
     {
       id: 'ratio',
@@ -272,18 +271,10 @@ it('仅支持比例的模型在自定义里填预设比例：仍回显实际比�
   })
   render()
   toggle()
-  act(() => option('比例', '自定义').click())
-  const input = () =>
-    document.body.querySelector<HTMLInputElement>('input[aria-label="输入自定义比例"]')
-  act(() => {
-    const el = input()!
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, '16:9')
-    el.dispatchEvent(new Event('input', { bubbles: true }))
-    el.focus()
-  })
-  act(() => input()?.blur())
+  expect(group('画幅')?.textContent).not.toContain('自定义')
+  act(() => option('画幅', '16:9').click())
   expect(useStore.getState().params.size).toBe('1280x720')
-  expect(input()?.value).toBe('16:9')
+  expect(trigger().getAttribute('aria-label')).toContain('16:9')
 })
 
 it('selects and remembers thinking depth independently of the image model', () => {
@@ -300,8 +291,8 @@ it('selects and remembers thinking depth independently of the image model', () =
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
   // 侧栏放不下「思考：深度」，收起后用仪表指针标在画幅后面；读屏名仍带上这一档。
   expect(depthPath(trigger(), 'deep')).toBe(glyphPath(ICONS.gaugeHigh.line))
-  expect(trigger().textContent).not.toContain('深度')
-  expect(trigger().getAttribute('aria-label')).toContain('思考：深度')
+  expect(trigger().textContent).toContain('深度')
+  expect(trigger().getAttribute('aria-label')).toContain('深度')
   expect(trigger().hasAttribute('data-dirty')).toBe(false)
 })
 
@@ -316,13 +307,13 @@ it('制作模式仅调整思考深度，不显示图片摘要或修改全局图�
   expect(buttons[0]!.textContent).not.toContain('自动尺寸')
   act(() => buttons[0]!.click())
   expect(group('思考深度')).not.toBeNull()
-  expect(group('比例')).toBeNull()
+  expect(group('画幅')).toBeNull()
   act(() => option('思考深度', '深度').click())
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(useStore.getState().params).toEqual(initialParams)
 })
 
-it('模型独立快选，切换后参数摘要只保留画幅，参数卡片不含模型列表', () => {
+it('模型和画幅收在同一颗胶囊里，点选具体模型后摘要改用模型名', () => {
   setChannels([
     {
       id: 'duo',
@@ -350,25 +341,25 @@ it('模型独立快选，切换后参数摘要只保留画幅，参数卡片不�
     },
   })
   render()
-  expect(modelTrigger().getAttribute('aria-label')).toContain('Image 2')
+  expect(host.querySelector('[role="combobox"]')).toBeNull()
+  expect(trigger().getAttribute('aria-label')).toContain('智能')
   expect(trigger().getAttribute('aria-label')).not.toContain('Image 2')
-  act(() => modelTrigger().click())
+  toggle()
+  act(() => modelField().click())
   const flare = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
     node.textContent?.includes('Image 2.5 Flare'),
   ) as HTMLButtonElement
   act(() => flare.click())
   const profile = useStore.getState().settings.profiles[0] as { selectedModelId?: string }
   expect(profile.selectedModelId).toBe('gpt-image-2.5-flare')
-  expect(modelTrigger().getAttribute('aria-expanded')).toBe('false')
-  expect(modelTrigger().getAttribute('aria-label')).toContain('Image 2.5 Flare')
-  expect(trigger().getAttribute('aria-label')).not.toContain('Image 2.5 Flare')
-  toggle()
-  expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  expect(useAgentStore.getState().modelAuto).toBe(false)
+  expect(trigger().getAttribute('aria-label')).toContain('Image 2.5 Flare')
   const sections = [...document.body.querySelectorAll('section h3')].map((node) => node.textContent)
-  expect(sections.indexOf('比例')).toBeLessThan(sections.indexOf('思考深度'))
+  expect(sections.indexOf('模型')).toBeLessThan(sections.indexOf('画幅'))
+  expect(sections.indexOf('画幅')).toBeLessThan(sections.indexOf('思考深度'))
 })
 
-it('出图模式在卡片里切换，开着时 chip 上带闪电标记', () => {
+it('直接出图只在卡片里切换，胶囊上不再单独挂闪电', () => {
   useAgentStore.setState({ autoSubmit: false })
   render()
   expect(trigger().querySelector('[aria-label="直接出图"]')).toBeNull()
@@ -376,7 +367,22 @@ it('出图模式在卡片里切换，开着时 chip 上带闪电标记', () => {
   const toggleSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!
   act(() => toggleSwitch.click())
   expect(useAgentStore.getState().autoSubmit).toBe(true)
-  expect(trigger().querySelector('[aria-label="直接出图"]')).not.toBeNull()
+  expect(trigger().querySelector('[aria-label="直接出图"]')).toBeNull()
+  expect(document.body.querySelector('[role="switch"]')).not.toBeNull()
+})
+
+it('图片生成模式在胶囊里写张数，面板只有 1、2、3、4、6、8', () => {
+  act(() => root.render(<AgentParamsChip imageMode />))
+  toggle()
+  expect(group('思考深度')).toBeNull()
+  expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
+  const counts = [...(group('张数')?.querySelectorAll('button') ?? [])].map(
+    (node) => node.textContent,
+  )
+  expect(counts).toEqual(['1', '2', '3', '4', '6', '8'])
+  act(() => option('张数', '6').click())
+  expect(useStore.getState().params.n).toBe(6)
+  expect(trigger().getAttribute('aria-label')).toContain('6 张')
 })
 
 it('模型列表可用方向键在选项间移动焦点', () => {
@@ -407,9 +413,10 @@ it('模型列表可用方向键在选项间移动焦点', () => {
     },
   })
   render()
-  act(() => modelTrigger().click())
+  toggle()
+  act(() => modelField().click())
   const options = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')]
-  expect(options.map((node) => node.tabIndex)).toEqual([0, -1])
+  expect(options.map((node) => node.tabIndex)).toEqual([0, -1, -1])
   options[0]!.focus()
   act(() => {
     options[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))

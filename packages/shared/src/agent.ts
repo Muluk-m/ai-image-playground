@@ -319,6 +319,11 @@ export interface AgentTurnParams {
    * 一轮最多自动提交 {@link AGENT_AUTO_SUBMIT_MAX_PER_TURN} 次，超出的照常退回等待确认。
    */
   readonly autoSubmit?: true
+  /**
+   * 图片生成模式：用用户原话调用一次生图工具，不追问、不改写成另一套方案，张数用本轮 `n`。
+   * 只认显式 `true`，并且要和 `autoSubmit` 一起送，工具才会当场提交。
+   */
+  readonly directImage?: true
   readonly size?: string
   readonly quality?: string
   readonly output_format?: string
