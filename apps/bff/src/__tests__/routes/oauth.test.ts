@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { DEFAULT_AVATAR_PATH } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -302,7 +303,16 @@ describe('oauth callback', () => {
     const me = await request('/api/auth/me', {
       cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
     })
-    expect(await me.json()).toEqual({ user: { id: user?.id, username: 'creator@example.com' } })
+    expect(await me.json()).toEqual({
+      user: {
+        id: user?.id,
+        username: 'creator@example.com',
+        nickname: null,
+        bio: null,
+        avatar_url: DEFAULT_AVATAR_PATH,
+        avatar_is_default: true,
+      },
+    })
   })
 
   it('reuses the account on a second login for the same subject', async () => {
