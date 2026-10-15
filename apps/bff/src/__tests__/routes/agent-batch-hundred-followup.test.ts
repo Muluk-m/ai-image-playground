@@ -17,6 +17,13 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../batch-execution-operator-config.json',
 )
 const billing = installRecordingTaskHooks()
+
+/** 分析行没有 ORDER BY，完成先后会换物理顺序。比对的是同一批行，不是返回顺序。 */
+function analysisRows<T extends { item_key: string; task_id: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort(
+    (a, b) => a.item_key.localeCompare(b.item_key) || a.task_id.localeCompare(b.task_id),
+  )
+}
 const { db, schema, close } = await import('../../db/client')
 const { config } = await import('../../config')
 const { loadPrivateBffOverlay, _setPrivateBffOverlayForTesting } = await import(
@@ -289,7 +296,7 @@ it('adds a paid inspection after 100 originals and generates from explicitly ret
       .select()
       .from(schema.analysis_tasks)
       .where(eq(schema.analysis_tasks.batch_id, id))
-    expect(currentTasks).toEqual(previous)
+    expect(analysisRows(currentTasks)).toEqual(analysisRows(previous))
     const confirming = {
       commandId: 'confirm-detail',
       expectedVersion: 2,
@@ -391,10 +398,15 @@ it('adds a paid inspection after 100 originals and generates from explicitly ret
       2,
     )
     expect(
-      (
-        await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.batch_id, id))
-      ).filter((task) => task.item_key !== 'detail-zero'),
-    ).toEqual(previous)
+      analysisRows(
+        (
+          await db
+            .select()
+            .from(schema.analysis_tasks)
+            .where(eq(schema.analysis_tasks.batch_id, id))
+        ).filter((task) => task.item_key !== 'detail-zero'),
+      ),
+    ).toEqual(analysisRows(previous))
     expect(
       (
         await db
