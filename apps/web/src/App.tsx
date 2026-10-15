@@ -19,7 +19,6 @@ import UpdateBanner from './components/UpdateBanner'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
-import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
@@ -32,8 +31,8 @@ import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
-import { installAppRouting } from './lib/appRoute'
 import { dragTargetIsImage } from './lib/dragTarget'
+import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
 import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
@@ -62,8 +61,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [homeChrome])
 
-  useEffect(installAppRouting, [])
-  useEffect(installProjectNavigation, [])
+  useEffect(installWorkbenchNavigation, [])
   // 会话检查和懒加载期间闪屏继续盖着；工作台这一帧才淡出。
   useEffect(() => {
     signalBootReady()
