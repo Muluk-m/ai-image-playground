@@ -8,6 +8,11 @@ import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
+import {
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+} from '../helpers/cloudNodeProtocol'
 
 it('回收站展示到期日并从实际恢复入口恢复项目身份', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -111,26 +116,51 @@ it('实际项目列表回收站把过期项目的本机编辑存为新身份，�
   ])
   await (await openSceneRecord(local.sceneKey, { editor })).persist()
   const writes: string[] = []
+  const created = new Map<string, { name: string; revision: number; document: unknown }>()
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
+    const method = init?.method ?? 'GET'
     if (url.endsWith('/capabilities')) return Response.json({ 'accounts:sync': true })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.endsWith('/trash') || url.endsWith('/projects'))
       return Response.json({ projects: [], deletedIds: [id], nextCursor: null })
-    if (url.endsWith(`/projects/${id}`))
+    if (!url.includes('/projects/'))
+      return Response.json({ conversations: [], messages: [], turns: [], activeTurn: null })
+    const projectId = projectIdFromUrl(url)
+    if (projectId === id && method === 'GET')
       return Response.json({ error: 'project_deleted' }, { status: 410 })
-    if (init?.method === 'PUT' && url.includes('/projects/')) {
+    if (method === 'PUT') {
       writes.push(url)
-      const body = JSON.parse(init.body as string)
+      const body = JSON.parse(String(init?.body))
+      const row = {
+        name: body.name as string,
+        revision: (body.baseRevision as number) + 1,
+        document: body.document,
+      }
+      created.set(projectId, row)
       return Response.json({
-        id: url.split('/').pop(),
-        name: body.name,
-        revision: body.baseRevision + 1,
+        id: projectId,
+        name: row.name,
+        revision: row.revision,
         createdAt: 1,
         updatedAt: 3,
-        elementCount: body.document.elements.length,
+        elementCount: 1,
+        document: row.document,
       })
     }
-    return Response.json({ conversations: [], messages: [], turns: [], activeTurn: null })
+    const row = created.get(projectId)
+    if (!row) return Response.json({ error: 'project_not_found' }, { status: 404 })
+    return Response.json({
+      id: projectId,
+      name: row.name,
+      revision: row.revision,
+      createdAt: 1,
+      updatedAt: 3,
+      elementCount: 1,
+      document: row.document,
+    })
   })
   await bootstrapClientCapabilities(true, 'http://bff.test')
   useCanvasProjectStore.setState({

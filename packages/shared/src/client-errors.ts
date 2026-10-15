@@ -42,8 +42,15 @@ export interface ClientErrorReport {
   context?: Record<string, unknown>
 }
 
+/** Exact failure token; success events never count as errors. */
+export interface ClientErrorRecovery {
+  incidentId: string
+  operation: 'project.catalog'
+}
+
 export interface ClientErrorBatch {
   /** 匿名设备 ID。beacon 带不了自定义头，只能放在请求体里。 */
   deviceId?: string
   errors: ClientErrorReport[]
+  recoveries?: ClientErrorRecovery[]
 }
