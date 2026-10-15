@@ -186,6 +186,12 @@ export const EXPECTED_COLUMNS = [
   'agent_batch_plans.confirmation',
   'agent_batch_items.source_analysis',
   'agent_conversations.production',
+  'users.nickname',
+  'users.bio',
+  'users.avatar_key',
+  'user_sessions.user_agent',
+  'user_sessions.ip',
+  'user_sessions.last_active_at',
 ] as const
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */

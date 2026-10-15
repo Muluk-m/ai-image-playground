@@ -3,15 +3,16 @@ import type { AuthUserView } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { config } from '../config'
 import { isCapabilityEnabled } from './capabilities'
-import { resolveUserSession, USER_SESSION_COOKIE } from './user-session'
+import { resolveUserSession, sessionClientFromRequest, USER_SESSION_COOKIE } from './user-session'
 
 /** Resolve a valid cookie independently from whether new logins are enabled. */
 export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
   { as: 'scoped' },
-  async ({ cookie }) => {
+  async ({ cookie, request, server }) => {
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
-    return { authUser: await resolveUserSession(token) }
+    const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
+    return { authUser: await resolveUserSession(token, client) }
   },
 )
 
@@ -35,7 +36,7 @@ export const requireInternalService = new Elysia({
  * requireUser, so service identity cannot submit, cancel, or otherwise act as a user.
  */
 export const requireUserOrService = new Elysia({ name: 'require-user-or-service' })
-  .derive({ as: 'scoped' }, async ({ cookie, request }) => {
+  .derive({ as: 'scoped' }, async ({ cookie, request, server }) => {
     if (hasInternalServiceIdentity(request)) {
       return {
         authUser: null as AuthUserView | null,
@@ -44,8 +45,9 @@ export const requireUserOrService = new Elysia({ name: 'require-user-or-service'
     }
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
+    const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
     return {
-      authUser: await resolveUserSession(token),
+      authUser: await resolveUserSession(token, client),
       serviceIdentity: false,
     }
   })
@@ -57,10 +59,11 @@ export const requireUserOrService = new Elysia({ name: 'require-user-or-service'
 
 /** Account login is the only deployment capability; ownership remains a row-level fact. */
 export const requireUser = new Elysia({ name: 'require-user' })
-  .derive({ as: 'scoped' }, async ({ cookie }) => {
+  .derive({ as: 'scoped' }, async ({ cookie, request, server }) => {
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
-    return { authUser: await resolveUserSession(token) }
+    const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
+    return { authUser: await resolveUserSession(token, client) }
   })
   .onBeforeHandle({ as: 'scoped' }, ({ authUser, status }) => {
     if (isCapabilityEnabled('accounts:login') && !authUser) {

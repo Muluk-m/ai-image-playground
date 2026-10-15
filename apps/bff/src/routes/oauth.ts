@@ -25,7 +25,7 @@ import {
   unlinkOAuthIdentity,
 } from '../lib/user-admin'
 import { resolveAuthUser } from '../lib/user-auth'
-import { setUserSessionCookie } from '../lib/user-session'
+import { sessionClientFromRequest, setUserSessionCookie } from '../lib/user-session'
 
 const STATE_COOKIE = 'image_playground_oauth_state'
 const STATE_TTL_SECONDS = 600
@@ -207,7 +207,7 @@ export const oauthRoutes = new Elysia()
   )
   .get(
     '/api/auth/oauth/:provider/callback',
-    async ({ authUser, cookie, params, query, request, status }) => {
+    async ({ authUser, cookie, params, query, request, server, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
       const resolved = resolveOAuthProvider(params.provider)
       if (!resolved) return status(404, { error: 'provider_unavailable' })
@@ -268,6 +268,7 @@ export const oauthRoutes = new Elysia()
         result = await loginWithOAuthIdentity(claim, {
           allowRegistration: isCapabilityEnabled('accounts:self-register'),
           referralCode,
+          client: sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null),
         })
       } catch (error) {
         if (
