@@ -14,6 +14,7 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from '../../lib/authScope'
+import { projectActivated } from '../../lib/navigation/address'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
 import {
@@ -25,7 +26,7 @@ import {
   ProjectRequestError,
 } from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
-import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './lib/projectRoute'
+import { readProjectRoute, resolveProjectRoute } from './lib/projectRoute'
 import { canvasSceneKey } from './lib/workspaceKeys'
 
 interface ProjectState {
@@ -236,9 +237,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
-    // 只有人已经在画布上（项目地址）才改地址。根地址属于创作入口，活动项目不该把它劫持成 `/p/<项目>`。
-    if (readProjectRoute(globalThis.location?.pathname ?? '/') !== null)
-      writeProjectRoute(id, replaceRoute)
+    projectActivated(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)
