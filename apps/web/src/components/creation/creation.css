@@ -122,7 +122,11 @@
 .creation-params-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .creation-params-mark { font-variant-numeric: tabular-nums; }
 @container creation-composer (max-width: 400px) {
+ .creation-params-capsule { flex: 0 0 auto; overflow: visible; }
  .creation-params-capsule .creation-params-text { display: none; }
+ .creation-params-segments { gap: 8px; overflow: visible; }
+ .creation-params-segments > span { flex: 0 0 auto; }
+ .creation-params-segments svg { width: 16px; height: 16px; }
 }
 
 .creation-toolbar-status { grid-column: 1 / -1; overflow-wrap: anywhere; @apply text-label-sm; }

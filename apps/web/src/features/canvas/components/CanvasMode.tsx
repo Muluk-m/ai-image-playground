@@ -516,7 +516,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     type="button"
                     className="studio-assets-trigger studio-search-trigger"
                     aria-label="搜索当前对话"
-                    title="搜索当前对话"
+                    autoTooltip={false}
                     onClick={() => setSearchOpen(true)}
                   >
                     <Icon name="search" />

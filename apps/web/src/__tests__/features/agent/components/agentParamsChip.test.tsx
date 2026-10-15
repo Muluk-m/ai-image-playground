@@ -115,7 +115,7 @@ describe('智能体输入框的生成设置', () => {
     expect(trigger().getAttribute('aria-label')).toContain('16:9')
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
     expect(group('张数')).toBeNull()
-    expect(document.body.textContent).toContain('张数由 Agent 按需求决定')
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
 
     const done = [...document.body.querySelectorAll('button')].find(
       (node) => node.textContent === '完成',

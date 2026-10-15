@@ -1845,8 +1845,9 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
     const capsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
     act(() => capsule.click())
-    expect(document.body.textContent).toContain('张数由 Agent 按需求决定')
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
     expect(document.body.querySelector('[aria-label="张数"]')).toBeNull()
+    expect(document.body.querySelector('[aria-label="画幅"]')).not.toBeNull()
 
     act(() => {
       useStore.setState({ createTarget: 'generate' })
