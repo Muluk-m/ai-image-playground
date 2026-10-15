@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { expectCommitIgnoresSigner } from './fixtureGit'
 
 /**
  * 发布镜像改走私有 GHCR：构建端逐个推送镜像并把仓库 digest 记进 images.tsv，发布目录只剩脚本、
@@ -81,7 +82,18 @@ esac
 function git(dir: string, ...args: string[]) {
   const result = spawnSync(
     'git',
-    ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-C', dir, ...args],
+    [
+      '-c',
+      'user.name=test',
+      '-c',
+      'user.email=test@example.com',
+      // 夹具提交不继承本机 commit.gpgsign。SSH 签名会间歇卡住数秒到二十多秒，beforeEach 随之超过 vitest 默认 10s。
+      '-c',
+      'commit.gpgsign=false',
+      '-C',
+      dir,
+      ...args,
+    ],
     { encoding: 'utf8' },
   )
   if (result.status !== 0) throw new Error(result.stderr)
@@ -168,6 +180,20 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('build-vps-release.sh, registry transport (default)', () => {
+  it('leaves fixture commits unsigned', () => {
+    // %G? 对验不了的 SSH 签名也印 N。SHA-256 仓库的签名头是 gpgsig-sha256。
+    expect(git(checkout, 'cat-file', '-p', 'HEAD')).not.toMatch(/^gpgsig(-sha256)? /m)
+    expect(git(join(checkout, 'private'), 'cat-file', '-p', 'HEAD')).not.toMatch(
+      /^gpgsig(-sha256)? /m,
+    )
+  })
+
+  it('does not run a signer when the environment turns signing on', () => {
+    expectCommitIgnoresSigner(() => {
+      git(checkout, 'commit', '--allow-empty', '-qm', 'still unsigned')
+    })
+  })
+
   it('pushes every image from buildx to GHCR and records its repository digest in images.tsv', () => {
     writeFileSync(join(root, 'logged-in'), '')
     const result = build()
