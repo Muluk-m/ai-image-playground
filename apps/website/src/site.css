@@ -27,6 +27,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 .site-hero-copy { position: absolute; top: 33%; left: 5%; right: 5%; text-align: center; opacity: calc(1 - var(--out)); transform: translateY(calc(var(--out) * -35px)); }
 .site-eyebrow { font-size: theme('fontSize.xs'); letter-spacing: .15em; color: hsl(var(--muted-foreground)); }
 .site-hero .site-eyebrow { color: hsl(var(--on-media)); }
+.site-title-phrase { display: inline-block; white-space: nowrap; }
 :where(.site-hero-copy) h1 { font-size: var(--site-display); line-height: 1.2; letter-spacing: -.065em; font-weight: 500; margin: 24px 0 32px; }
 .site-hero-action { margin: auto; height: auto; display: flex; gap: 32px; border: 1px solid hsl(var(--on-media) / .35); background: hsl(var(--scrim) / .55); backdrop-filter: blur(12px); border-radius: 9999px; color: hsl(var(--on-media)); padding: 10px 12px 10px 24px; }
 .site-hero-action > span { display: grid; place-items: center; border-radius: 50%; width: 40px; height: 40px; background: var(--creation-selected-start); color: var(--creation-selected-foreground); transition: transform .3s; }

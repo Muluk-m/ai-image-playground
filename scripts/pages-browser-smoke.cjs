@@ -294,6 +294,14 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
   const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
   const page = await context.newPage()
   const errors = []
+  let loginEnabled = accountsLogin
+  let observedCapabilities = local
+  if (!local) await context.route('**/api/capabilities', async route => {
+    const response = await route.fetch()
+    loginEnabled = (await response.json())['accounts:login'] === true
+    observedCapabilities = true
+    await route.fulfill({response})
+  })
   page.on('pageerror', error => errors.push(error.message))
   if (local) await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
@@ -308,10 +316,8 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     return route.continue()
   })
   try {
-    const capabilitiesResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/capabilities')
     await page.goto(origin + '/', {waitUntil:'networkidle'})
-    const capabilities = await (await capabilitiesResponse).json()
-    const loginEnabled = capabilities['accounts:login'] === true
+    if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
     if (loginEnabled) {
       await page.getByRole('heading',{name:'故事，由你发生。',exact:true}).waitFor()
       await page.locator('.site-nav').getByRole('button',{name:'开始创作',exact:true}).click()
@@ -327,6 +333,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       const response=await page.goto(origin+path,{waitUntil:'networkidle'})
       if (!response?.ok()) throw new Error(`Static page failed: ${path}`)
       await page.locator('h1').waitFor()
+      if (new URL(page.url()).pathname !== path) throw new Error(`Hydration changed the static URL: ${path}`)
       if (await page.locator('html').getAttribute('lang') !== lang) throw new Error(`Wrong locale: ${path}`)
       if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
     }

@@ -242,7 +242,16 @@ function Home({
           <div data-intro>{navigation}</div>
           <div className="site-hero-copy" data-intro>
             <span className="site-eyebrow">{text.kicker}</span>
-            <h1>{text.title}</h1>
+            <h1>
+              {locale === 'zh-CN'
+                ? text.title.split('，').map((phrase, index) => (
+                    <span className="site-title-phrase" key={phrase}>
+                      {phrase}
+                      {index === 0 ? '，' : ''}
+                    </span>
+                  ))
+                : text.title}
+            </h1>
             <Button className="site-hero-action" onClick={start}>
               {text.start}
               <span>

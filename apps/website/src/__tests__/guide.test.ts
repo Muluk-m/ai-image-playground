@@ -25,6 +25,9 @@ it('renders every old guide link and anchor without requiring JavaScript', () =>
       .map((page) => [page.path, renderToStaticMarkup(createElement(Guide, { page }))]),
   )
   for (const path of ['/guide/', '/guide/en/']) expect(pages.get(path)).toContain('id="chapters"')
+  expect(pages.get('/guide/create/')).toContain(
+    '<strong><span class="guide-ui">智能比例 Auto</span></strong>',
+  )
   for (const [from, html] of pages) {
     expect(html).toContain('<h1>')
     for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
