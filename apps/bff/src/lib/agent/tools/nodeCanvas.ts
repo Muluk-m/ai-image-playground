@@ -21,7 +21,7 @@ import { type Static, Type } from 'typebox'
 import * as Y from 'yjs'
 import { executeCanvasCommand } from '../../canvasCommands'
 import { accessCanvasDocument } from '../../canvasSyncStore'
-import { isCapabilityEnabled, isCapabilityEnabledForUser } from '../../capabilities'
+import { isCapabilityEnabled } from '../../capabilities'
 import { agentCanvasProject } from '../node-canvas-view'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
@@ -70,12 +70,8 @@ const available = (_mode: unknown, audience?: AgentToolAudience) =>
     audience?.userId &&
       audience.nodeCanvas &&
       audience.experience === 'canvas' &&
-      isCapabilityEnabled('canvas:nodes') &&
       isCapabilityEnabled('accounts:sync'),
   )
-const featureAvailable =
-  (key: 'canvas:node-run' | 'canvas:script') => (_mode: unknown, audience?: AgentToolAudience) =>
-    available(_mode, audience) && isCapabilityEnabledForUser(key, audience?.userId)
 const guidance =
   '修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。'
 const invalid = (message: string): never => {
@@ -327,7 +323,7 @@ export const runNodes = defineAgentTool({
   name: 'runNodes',
   label: '建议运行节点',
   modes,
-  available: featureAvailable('canvas:node-run'),
+  available,
   onError: 'continue',
   guidance:
     '先 readCanvas 确认节点。只给出运行建议，不能把工具成功当作生成完成；用户须在对话卡检查预估并在画布二次确认。',
@@ -339,7 +335,7 @@ export const runNodes = defineAgentTool({
   call: () => ({ title: '建议运行节点' }),
   execute: (context) => async (_callId, params) => {
     if (
-      !featureAvailable('canvas:node-run')(context.mode, {
+      !available(context.mode, {
         ...context,
         nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
       })
@@ -381,7 +377,7 @@ export const applyScriptPlan = defineAgentTool({
   name: 'applyScriptPlan',
   label: '拆分剧本',
   modes,
-  available: featureAvailable('canvas:script'),
+  available,
   onError: 'continue',
   guidance:
     '用户要求拆剧本或续写第 N 集时使用。把已有文本节点拆成无图素材和分镜表并连线；续写只追加该集，不覆盖已有集。不生成媒体，不计费。',
@@ -426,7 +422,7 @@ export const applyScriptPlan = defineAgentTool({
   call: () => ({ title: '拆分剧本' }),
   execute: (context) => async (callId, params) => {
     if (
-      !featureAvailable('canvas:script')(context.mode, {
+      !available(context.mode, {
         ...context,
         nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
       })

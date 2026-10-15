@@ -18,7 +18,7 @@ import {
 } from '@image-playground/shared'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { isCapabilityEnabled, isCapabilityEnabledForUser } from '../capabilities'
+import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import {
   type AgentSkillStarterMeta,
@@ -423,9 +423,7 @@ export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  const skills = [...agentSkills(mode), ...audience.looks]
-  if (isCapabilityEnabledForUser('canvas:script', audience.userId)) return skills
-  return skills.filter((skill) => skill.name !== 'script-briefs')
+  return [...agentSkills(mode), ...audience.looks]
 }
 
 /**
@@ -551,8 +549,6 @@ export async function resolveAgentSkill(
   userId: string | null,
 ): Promise<AgentSkill | undefined> {
   const builtin = findAgentSkill(mode, name)
-  if (builtin?.name === 'script-briefs' && !isCapabilityEnabledForUser('canvas:script', userId))
-    return undefined
   if (builtin || !userId || !name.startsWith(LOOK_SKILL_NAME_PREFIX)) return builtin
   return readUserLook(userId, name.slice(LOOK_SKILL_NAME_PREFIX.length))
 }
