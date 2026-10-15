@@ -540,12 +540,14 @@ function StandardAgentToolCard({
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
   }
-  if (message.canvasRun)
+  if (message.canvasRun) {
+    if (!isClientCapabilityEnabled('canvas:node-run')) return null
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
         <AgentNodeRunCard proposal={message.canvasRun} />
       </div>
     )
+  }
   if (message.status === 'awaiting_confirmation') {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>

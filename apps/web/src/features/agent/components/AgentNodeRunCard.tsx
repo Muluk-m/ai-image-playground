@@ -4,6 +4,7 @@ import { ApprovalCard } from '../../../components/assistant-ui/elements/approval
 import Credits from '../../../components/Credits'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import NodeBatchJobs from '../../canvas/components/NodeBatchJobs'
 import { CARD_NOTE } from '../agentStyles'
@@ -27,7 +28,7 @@ export default function AgentNodeRunCard({ proposal }: { proposal: AgentCanvasRu
       disabled={!plan || Boolean(error) || plan.blocked}
       allowOnceLabel={t('nodeRun.review')}
       onAllowOnce={() => {
-        if (!bridge || !plan) return
+        if (!isClientCapabilityEnabled('canvas:node-run') || !bridge || !plan) return
         setChanged(!bridge.review(proposal, plan.signature))
       }}
     >

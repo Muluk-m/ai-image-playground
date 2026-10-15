@@ -8,6 +8,7 @@ import {
   evaluateCapability,
   hasCapability,
   loadOperatorConfig,
+  userHasCapability,
 } from '../../lib/operator-config'
 
 const appRoot = resolve(import.meta.dir, '../../..')
@@ -197,6 +198,46 @@ describe('operator config', () => {
     expect(() => evaluateCapability(resolved, 'unknown:capability')).not.toThrow()
     expect(evaluateCapability(resolved, 'unknown:capability')).toBe(false)
   })
+})
+
+it('grants unreleased canvas features to one user without opening them for everyone', () => {
+  const file = temporaryFile(
+    JSON.stringify({
+      capabilities: {
+        'accounts:login': true,
+        'accounts:sync': true,
+        'canvas:nodes': true,
+      },
+      capabilityUsers: {
+        'user-allowed': ['canvas:blank-generate', 'canvas:node-run', 'canvas:script'],
+      },
+    }),
+  )
+  const resolved = loadOperatorConfig(file)
+  expect(resolved.capabilities['canvas:blank-generate']).toBe(false)
+  expect(resolved.capabilities['canvas:script']).toBe(false)
+  expect(userHasCapability(resolved, 'canvas:script', 'user-allowed')).toBe(true)
+  expect(userHasCapability(resolved, 'canvas:node-run', 'someone-else')).toBe(false)
+  expect(userHasCapability(resolved, 'canvas:nodes', 'user-allowed')).toBe(true)
+
+  const closedCanvas = loadOperatorConfig(
+    temporaryFile(
+      JSON.stringify({
+        capabilities: { 'canvas:nodes': false },
+        capabilityUsers: { 'user-allowed': ['canvas:script'] },
+      }),
+    ),
+  )
+  expect(userHasCapability(closedCanvas, 'canvas:script', 'user-allowed')).toBe(false)
+  expect(() =>
+    loadOperatorConfig(
+      temporaryFile(
+        JSON.stringify({
+          capabilityUsers: { 'user-allowed': ['accounts:login'] },
+        }),
+      ),
+    ),
+  ).toThrow('unsupported capability')
 })
 
 it('only advertises bulk attachments after explicit resource limits and dependencies are ready', () => {
