@@ -106,10 +106,6 @@ export default function Header() {
         ref={headerActionsRef}
         data-no-drag-select
         className="studio-global-account fixed z-40 flex items-center gap-3"
-        style={{
-          top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset))',
-          right: 'calc(12px + var(--app-header-inset))',
-        }}
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
