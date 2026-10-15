@@ -14,6 +14,9 @@ const failure =
   'ERR failed to serve incoming request error="Error shutting down control stream: rpc: connection closed"'
 const warning =
   'WRN Serve tunnel error error="Error shutting down control stream: rpc: connection closed"'
+const edgeFailure =
+  'ERR failed to serve incoming request error="Error shutting down control stream: client disconnected"'
+const edgeWarning = 'WRN Serve tunnel error error="connection with edge closed"'
 function log(
   id: string,
   at: number,
@@ -108,6 +111,122 @@ describe('evidence-backed error recovery', () => {
     ).toBeDefined()
   })
 
+  it('recovers both production edge-disconnect variants using loss, warning and registration evidence', async () => {
+    const cases = [
+      {
+        id: 'edge-internal',
+        at: Date.parse('2026-10-15T06:11:23.245Z'),
+        recoveredAt: Date.parse('2026-10-15T06:11:24.832Z'),
+        index: 0,
+      },
+      {
+        id: 'edge-paid',
+        at: Date.parse('2026-10-15T08:54:16.146Z'),
+        recoveredAt: Date.parse('2026-10-15T08:54:23.971Z'),
+        index: 1,
+      },
+    ]
+    for (const entry of cases) {
+      await writer.db
+        .insert(writer.schema.server_logs)
+        .values([
+          log(entry.id, entry.at, edgeFailure, entry.id, 'error'),
+          log(
+            `${entry.id}-lost`,
+            entry.at,
+            `INF Lost connection with the edge connIndex=${entry.index}`,
+            entry.id,
+          ),
+          log(
+            `${entry.id}-warning`,
+            entry.at,
+            `${edgeWarning} connIndex=${entry.index}`,
+            entry.id,
+            'warn',
+          ),
+          log(
+            `${entry.id}-ok`,
+            entry.recoveredAt,
+            `INF Registered tunnel connection connIndex=${entry.index}`,
+            entry.id,
+          ),
+        ])
+    }
+    const data = await getTodayErrors(Date.parse('2026-10-15T08:55:00Z'))
+    for (const entry of cases) {
+      expect(data.recovery?.recovered.entries.find((item) => item.id === entry.id)).toMatchObject({
+        recovery: { state: 'recovered', recoveredAt: entry.recoveredAt },
+      })
+    }
+  })
+
+  it('leaves edge disconnects unconfirmed when loss or recovery evidence is missing, mismatched or ambiguous', async () => {
+    const snapshot = now + 7 * 86400_000
+    const at = snapshot - 60_000
+    const cases = [
+      'missing-loss',
+      'wrong-loss-index',
+      'wrong-loss-instance',
+      'unrelated-warning',
+      'missing-recovery',
+      'wrong-recovery-index',
+      'wrong-recovery-instance',
+      'ambiguous-edge',
+      'ambiguous-partial-loss',
+      'recovery-before-loss',
+      'future-recovery',
+      'earlier-recovery',
+    ]
+    for (const id of cases) {
+      const rows = [
+        log(id, at, edgeFailure, id, 'error'),
+        log(
+          `${id}-warning`,
+          at,
+          `${id === 'unrelated-warning' ? warning : edgeWarning} connIndex=0`,
+          id,
+          'warn',
+        ),
+      ]
+      if (id !== 'missing-loss')
+        rows.push(
+          log(
+            `${id}-lost`,
+            id === 'recovery-before-loss' ? at + 1000 : at,
+            `INF Lost connection with the edge connIndex=${id === 'wrong-loss-index' ? 1 : 0}`,
+            id === 'wrong-loss-instance' ? 'other-tunnel' : id,
+          ),
+        )
+      if (id !== 'missing-recovery')
+        rows.push(
+          log(
+            `${id}-ok`,
+            id === 'recovery-before-loss'
+              ? at + 500
+              : id === 'future-recovery'
+                ? snapshot + 1
+                : id === 'earlier-recovery'
+                  ? at - 1
+                  : at + 8000,
+            `INF Registered tunnel connection connIndex=${id === 'wrong-recovery-index' ? 1 : 0}`,
+            id === 'wrong-recovery-instance' ? 'other-tunnel' : id,
+          ),
+        )
+      if (id === 'ambiguous-partial-loss')
+        rows.push(log(`${id}-warning-2`, at, `${edgeWarning} connIndex=1`, id, 'warn'))
+      if (id === 'ambiguous-edge')
+        rows.push(
+          log(`${id}-lost-2`, at, 'INF Lost connection with the edge connIndex=1', id),
+          log(`${id}-warning-2`, at, `${edgeWarning} connIndex=1`, id, 'warn'),
+        )
+      await writer.db.insert(writer.schema.server_logs).values(rows)
+    }
+    const data = await getTodayErrors(snapshot)
+    expect(data.recovery?.recovered.total).toBe(0)
+    expect(data.recovery?.unknown.total).toBe(cases.length)
+    expect(data.recovery?.unknown.entries).toHaveLength(10)
+  })
+
   it('counts all records and retains each status beyond the latest ten, without treating quiet client errors as recovered', async () => {
     const later = now + 86400_000
     const at = later - 3600_000
@@ -189,11 +308,15 @@ describe('evidence-backed error recovery', () => {
     await writer.db.execute(sql`
       INSERT INTO server_logs (id, at, service, instance, level, version, message, fields, group_key)
       SELECT 'load-failure-' || i, ${new Date(start)}::timestamptz + i * interval '10 seconds',
-        'cloudflared', 'load-tunnel', 'error', '', ${`2026-10-20T00:00:00Z ${failure}`}, '{}'::jsonb, 'load'
+        'cloudflared', 'load-tunnel', 'error', '', ${`2026-10-20T00:00:00Z ${edgeFailure}`}, '{}'::jsonb, 'load'
       FROM generate_series(1, 1000) i
       UNION ALL
       SELECT 'load-warning-' || i, ${new Date(start)}::timestamptz + i * interval '10 seconds' + interval '100 milliseconds',
-        'cloudflared', 'load-tunnel', 'warn', '', ${`2026-10-20T00:00:00Z ${warning} connIndex=0`}, '{}'::jsonb, 'load'
+        'cloudflared', 'load-tunnel', 'warn', '', ${`2026-10-20T00:00:00Z ${edgeWarning} connIndex=0`}, '{}'::jsonb, 'load'
+      FROM generate_series(1, 1000) i
+      UNION ALL
+      SELECT 'load-loss-' || i, ${new Date(start)}::timestamptz + i * interval '10 seconds',
+        'cloudflared', 'load-tunnel', 'info', '', '2026-10-20T00:00:00Z INF Lost connection with the edge connIndex=0', '{}'::jsonb, 'load'
       FROM generate_series(1, 1000) i
       UNION ALL
       SELECT 'load-noise-' || i, ${new Date(start)}::timestamptz + i * interval '200 milliseconds',
