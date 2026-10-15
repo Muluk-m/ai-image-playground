@@ -67,12 +67,9 @@ function describe(error: unknown): Pick<ClientErrorReport, 'name' | 'message' | 
       stack: clip(errorField(error, 'stack'), CLIENT_ERROR_LIMITS.stack),
     }
   }
-  if (typeof error === 'string') return { message: error }
-  try {
-    return { message: JSON.stringify(error) ?? String(error) }
-  } catch {
-    return { message: String(error) }
-  }
+  if (error !== null && (typeof error === 'object' || typeof error === 'function'))
+    return { message: 'Non-error rejection' }
+  return { message: String(error) }
 }
 
 /** Only diagnostic fields, bounded and cycle-safe; never serialize arbitrary error objects. */
@@ -83,7 +80,7 @@ function errorCauses(error: unknown): Record<string, unknown>[] {
   while (current !== undefined && !seen.has(current) && causes.length < 4) {
     seen.add(current)
     const detail =
-      current && typeof current === 'object'
+      current && (typeof current === 'object' || typeof current === 'function')
         ? {
             name: clip(errorField(current, 'name'), 200),
             message: clip(errorField(current, 'message'), 1000) ?? 'Non-error cause',
@@ -108,6 +105,7 @@ function errorCauses(error: unknown): Record<string, unknown>[] {
 function boundedContext(
   context: Record<string, unknown> | undefined,
   causes: Record<string, unknown>[],
+  compactOnly = false,
 ): Record<string, unknown> | undefined {
   if (!context && !causes.length) return undefined
   const fits = (candidate: Record<string, unknown>) => {
@@ -117,21 +115,29 @@ function boundedContext(
       return false
     }
   }
-  const full = causes.length ? { ...context, causes } : { ...context }
-  if (fits(full)) return full
-  const withoutStacks = causes.map(({ stack: _stack, ...cause }) => cause)
-  const compact = { ...context, ...(causes.length ? { causes: withoutStacks } : {}) }
-  if (fits(compact)) return compact
+  try {
+    if (!compactOnly) {
+      const full = causes.length ? { ...context, causes } : { ...context }
+      if (fits(full)) return full
+      const withoutStacks = causes.map(({ stack: _stack, ...cause }) => cause)
+      const compact = { ...context, ...(causes.length ? { causes: withoutStacks } : {}) }
+      if (fits(compact)) return compact
+    }
+  } catch {
+    // Enumerable accessors may throw while copying context, before JSON serialization.
+  }
   // Arbitrary caller context may itself be too large or cyclic. Preserve bounded identity
   // and the diagnostic allowlist rather than letting the server discard everything.
   const essential = {
-    operation: clip(context?.operation, 80),
-    stage: clip(context?.stage, 80),
-    incidentId: clip(context?.incidentId, 64),
-    ...(typeof context?.online === 'boolean' ? { online: context.online } : {}),
+    operation: clip(errorField(context, 'operation'), 80),
+    stage: clip(errorField(context, 'stage'), 80),
+    incidentId: clip(errorField(context, 'incidentId'), 64),
+    ...(typeof errorField(context, 'online') === 'boolean'
+      ? { online: errorField(context, 'online') }
+      : {}),
     ...(causes.length
       ? {
-          causes: causes.map((cause) => ({
+          causes: (compactOnly ? causes.slice(-1) : causes).map((cause) => ({
             name: clip(cause.name, 100),
             message: clip(cause.message, 250),
             code: clip(cause.code, 100),
@@ -163,9 +169,10 @@ export function reportClientError(
   const described = describe(error)
   if (IGNORED_MESSAGES.some((pattern) => pattern.test(described.message))) return false
   const causes = errorCauses(error)
-  const key = `${kind}\u0000${described.name ?? ''}\u0000${described.message}\u0000${context?.stage ?? ''}\u0000${causes.map((cause) => cause.name).join(':')}`
+  const key = `${kind}\u0000${described.name ?? ''}\u0000${described.message}\u0000${clip(errorField(context, 'stage'), 80) ?? ''}\u0000${causes.map((cause) => cause.name).join(':')}`
   const seen = repeats.get(key) ?? 0
   if (seen >= MAX_REPEATS) return false
+  const diagnosticContext = boundedContext(context, causes)
   repeats.set(key, seen + 1)
   accepted += 1
   if (error instanceof Error) reportedErrors.add(error)
@@ -176,7 +183,7 @@ export function reportClientError(
     stack: clip(described.stack, CLIENT_ERROR_LIMITS.stack),
     url: clip(currentUrl(), CLIENT_ERROR_LIMITS.url),
     release: currentRelease(),
-    context: boundedContext(context, causes),
+    context: diagnosticContext,
   })
   scheduleFlush()
   return true
@@ -188,12 +195,13 @@ export function reportRecoverableClientError(
   context: Record<string, unknown> & { operation: ClientErrorRecovery['operation'] },
 ): () => void {
   const incidentId = crypto.randomUUID()
-  const recorded = reportClientError('error', error, { ...context, incidentId })
+  const operation = errorField(context, 'operation')
+  const recorded = reportClientError('error', error, { ...boundedContext(context, []), incidentId })
   let recovered = false
   return () => {
-    if (!recorded || recovered || endpoint === null) return
+    if (!recorded || recovered || endpoint === null || operation !== 'project.catalog') return
     recovered = true
-    recoveries.push({ incidentId, operation: context.operation })
+    recoveries.push({ incidentId, operation })
     scheduleFlush()
   }
 }
@@ -241,6 +249,15 @@ export function flushClientErrors(): void {
     const slimmed = [
       report,
       { ...report, stack: report.stack?.slice(0, 2000) },
+      {
+        ...report,
+        stack: report.stack?.slice(0, 500),
+        context: boundedContext(
+          report.context,
+          Array.isArray(report.context?.causes) ? report.context.causes : [],
+          true,
+        ),
+      },
       { ...report, context: undefined, stack: report.stack?.slice(0, 2000) },
     ].find((candidate) => fits(encode([candidate])))
     if (slimmed) batch = [slimmed]
