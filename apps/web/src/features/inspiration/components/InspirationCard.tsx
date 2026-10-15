@@ -28,14 +28,12 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
   }
 
   return (
-    <article
-      title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
-      className="group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring"
-    >
+    <article className="group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
       <Button
         type="button"
         variant="ghost"
         onClick={onClick}
+        autoTooltip={false}
         aria-label={item.title}
         className="absolute inset-0 z-0 h-auto rounded-2xl p-0 hover:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
       />

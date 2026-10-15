@@ -4,6 +4,7 @@ import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import { remapImageMentionsForOrder } from '../../../lib/promptImageMentions'
 import { referenceAdmission, referenceRefusalMessage } from '../../../lib/referenceDraft'
+import { noteUserSubmittedTasks } from '../../../lib/submittedTaskAttention'
 import {
   ensureImageCached,
   isModelAvailableForProfile,
@@ -197,6 +198,7 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
       ),
     )
     if (!ids.length) return false
+    noteUserSubmittedTasks(ids)
     if (!operation.isEdited()) {
       if (store.settings.clearInputAfterSubmit) {
         store.setPrompt('')

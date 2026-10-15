@@ -3,6 +3,7 @@ import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
@@ -143,7 +144,6 @@ export default function AgentCreationsGallery({
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => toggle(work.id)}
-                  title={name}
                   className={`!h-auto !whitespace-normal !p-0 group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-background`}
                 >
                   {src ? (
@@ -169,9 +169,10 @@ export default function AgentCreationsGallery({
                   >
                     <Icon name="check" />
                   </span>
-                  <span className="block truncate px-2 py-1.5 text-label-sm text-foreground">
-                    {name}
-                  </span>
+                  <OverflowText
+                    text={name}
+                    className="block truncate px-2 py-1.5 text-label-sm text-foreground"
+                  />
                 </Button>
               )
             })}

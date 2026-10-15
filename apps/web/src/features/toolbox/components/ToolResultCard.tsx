@@ -1,5 +1,6 @@
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { formatLabel } from '../lib/encode'
 import { formatBytes, sizeDeltaLabel } from '../lib/naming'
@@ -46,9 +47,7 @@ export default function ToolResultCard({
         </Button>
       </div>
       <div className="space-y-1 p-3 text-xs">
-        <div className="truncate font-medium" title={item.name}>
-          {item.name}
-        </div>
+        <OverflowText as="div" text={item.name} className="truncate font-medium" />
         {result?.status === 'failed' ? (
           <FailureText failure={result.failure} />
         ) : done ? (
