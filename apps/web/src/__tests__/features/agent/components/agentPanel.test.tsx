@@ -25,6 +25,7 @@ import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { useStore } from '../../../../store'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -1803,6 +1804,98 @@ describe('AgentPanel', () => {
 
       expect(host.querySelector('button[aria-label^="现在插话"]')).toBeNull()
     })
+  })
+
+  it('把去背景画成原图缩略、结果和费用，移除后从对话里消失', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'imageAction',
+          id: 'step-1',
+          turnId: 'turn-1',
+          sourceMessageId: 'tool-1',
+          artifactId: 'agent_image_1',
+          action: 'removeBackground',
+          status: 'succeeded',
+          thumbnail: CANVAS_THUMBNAIL,
+          resultSource: SERVER_IMAGE,
+          durationMs: 3000,
+          credits: 2,
+        },
+      ],
+    })
+    render()
+
+    const step = host.querySelector('section[aria-label="去背景"]')!
+    expect(step).not.toBeNull()
+    expect(step.querySelector('img')?.getAttribute('src')).toBe(CANVAS_THUMBNAIL)
+    expect(step.querySelector('img[alt="去背景"]')?.getAttribute('src')).toBe(SERVER_IMAGE)
+    expect(step.textContent).toContain('3s')
+    expect(step.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('2')
+
+    act(() => {
+      step.querySelector<HTMLButtonElement>('button[aria-label="移除这一步"]')!.click()
+    })
+    expect(host.querySelector('section[aria-label="去背景"]')).toBeNull()
+    expect(useAgentStore.getState().messages).toEqual([])
+  })
+
+  it('智能体模式没有张数步进器，图片生成模式才在胶囊里选张数', () => {
+    render()
+    expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
+    const capsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
+    act(() => capsule.click())
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
+    expect(document.body.querySelector('[aria-label="张数"]')).toBeNull()
+    expect(document.body.querySelector('[aria-label="画幅"]')).not.toBeNull()
+
+    act(() => {
+      useStore.setState({ createTarget: 'generate' })
+    })
+    const imageCapsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
+    if (imageCapsule.getAttribute('aria-expanded') !== 'true') act(() => imageCapsule.click())
+    const counts = [
+      ...(document.body.querySelector('[aria-label="张数"]')?.querySelectorAll('button') ?? []),
+    ].map((node) => node.textContent)
+    expect(counts).toEqual(['1', '2', '3', '4', '6', '8'])
+    expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
+    act(() => {
+      useStore.setState({ createTarget: 'chat' })
+    })
+  })
+
+  it('同一轮待确认的生图收成一张计划，取消勾选改张数，取消不请求接口', () => {
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+    const draft = (id: string, title: string, n: number): AgentToolMessage => ({
+      kind: 'tool',
+      id,
+      turnId: 'turn-plan',
+      toolCallId: id,
+      toolName: 'generateImage',
+      title,
+      prompt: `${title}的提示词`,
+      status: 'awaiting_confirmation',
+      snapshot: { mode: 'image', args: { n } },
+    })
+    useAgentStore.setState({
+      conversationId: 'conversation-plan',
+      messages: [draft('a', '主宣传', 1), draft('b', '卖点', 2)],
+    })
+    render()
+
+    expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(1)
+    expect(host.textContent).toContain('全部生成（3）')
+    expect(host.textContent).not.toContain('确认生成')
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="卖点"]')?.click()
+    })
+    expect(host.textContent).toContain('全部生成（1）')
+    act(() => {
+      ;[...host.querySelectorAll('button')].find((button) => button.textContent === '取消')?.click()
+    })
+    expect(host.textContent).toContain('未生成')
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('/confirmations')
   })
 })
 

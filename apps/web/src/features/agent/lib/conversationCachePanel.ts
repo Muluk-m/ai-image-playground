@@ -1,4 +1,9 @@
-import type { AgentPanelMessage, AgentTextMessage, AgentTurnFooter } from '../types'
+import type {
+  AgentImageActionStep,
+  AgentPanelMessage,
+  AgentTextMessage,
+  AgentTurnFooter,
+} from '../types'
 import type { AgentPanelState } from './panelMessages'
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -39,6 +44,10 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
         question: raw.question,
         options: raw.options,
       })
+    } else if (raw.kind === 'imageAction') {
+      const step = cachedImageAction(raw, identity)
+      if (!step) return null
+      messages.push(step)
     } else if (raw.kind === 'tool') {
       if (typeof raw.title !== 'string' || typeof raw.toolCallId !== 'string') return null
       const status = raw.status
@@ -91,6 +100,32 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
     })
   }
   return { messages, turns }
+}
+
+function cachedImageAction(
+  raw: Record<string, unknown>,
+  identity: { id: string; turnId: string },
+): AgentImageActionStep | null {
+  if (
+    raw.action !== 'removeBackground' ||
+    (raw.status !== 'running' && raw.status !== 'succeeded' && raw.status !== 'failed') ||
+    typeof raw.sourceMessageId !== 'string' ||
+    typeof raw.artifactId !== 'string'
+  )
+    return null
+  return {
+    ...identity,
+    kind: 'imageAction',
+    action: 'removeBackground',
+    status: raw.status,
+    sourceMessageId: raw.sourceMessageId,
+    artifactId: raw.artifactId,
+    ...(typeof raw.thumbnail === 'string' ? { thumbnail: raw.thumbnail } : {}),
+    ...(typeof raw.resultSource === 'string' ? { resultSource: raw.resultSource } : {}),
+    ...(finite(raw.durationMs) ? { durationMs: raw.durationMs } : {}),
+    ...(finite(raw.credits) ? { credits: raw.credits } : {}),
+    ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+  }
 }
 
 function cachedReferences(value: unknown): NonNullable<AgentTextMessage['references']> | null {

@@ -113,9 +113,12 @@ import {
 } from './lib/outgoingJournal'
 import {
   answerableClarificationId,
+  appendImageAction,
   dropUnsettledMessages,
+  mergeLocalImageActions,
   panelMessage,
   panelStateFromHistory,
+  patchImageAction,
   reconcileToolCard,
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
@@ -167,6 +170,12 @@ function readThinkingDepth(): AgentThinkingDepth {
  */
 const AUTO_SUBMIT_KEY = 'image-playground-agent-auto-submit'
 
+/** 智能体模式默认不指定模型，让部署默认去选。用户点过具体模型之后才记住。 */
+const MODEL_AUTO_KEY = 'image-playground-agent-model-auto'
+function readModelAuto(): boolean {
+  return safeLocalStorage.getItem(MODEL_AUTO_KEY) !== '0'
+}
+
 /**
  * 确认一张草稿卡的结局。界面只按它在卡上说一句话、给一个出路（ADR 0006），不读服务端文字：
  *
@@ -192,6 +201,9 @@ export interface AgentState {
    */
   autoSubmit: boolean
   setAutoSubmit(autoSubmit: boolean): void
+  /** 智能体模式用「智能」选模型。图片生成模式始终用当前模型，不读这个开关。 */
+  modelAuto: boolean
+  setModelAuto(modelAuto: boolean): void
   /**
    * 这个会话此刻在做什么。输入框上的开关是它的唯一写入口，草稿仍然负责持久化；
    * 放在 store 里是因为「代用户发一轮」的入口（澄清作答等）看不见输入框，
@@ -293,6 +305,12 @@ export interface AgentState {
   interjectQueued(queueId: string): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
+  appendImageAction(step: import('./types').AgentImageActionStep): void
+  patchImageAction(
+    id: string,
+    patch: Partial<Omit<import('./types').AgentImageActionStep, 'kind' | 'id'>>,
+  ): void
+  dismissImageAction(id: string): void
   /**
    * 单独取消这张结果卡提交的后台任务；服务端按原桶退回，卡随即换成取消后的结局。
    * 还在重试队列里排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
@@ -851,10 +869,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       : []
     set({
       ...history,
-      messages: [
-        ...history.messages.map((message) => reconcileToolCard(shown.get(message.id), message)),
-        ...pending,
-      ],
+      messages: mergeLocalImageActions(
+        [
+          ...history.messages.map((message) => reconcileToolCard(shown.get(message.id), message)),
+          ...pending,
+        ],
+        get().messages,
+      ),
       queue: [...(taken.queue ?? [])],
       ...(options.join
         ? {
@@ -1311,10 +1332,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
   /** 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。 */
   const currentTurnParams = (mode: AgentMode) => {
-    const { params, settings } = useStore.getState()
-    const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+    const { params, settings, createTarget } = useStore.getState()
+    const imageDirect = createTarget === 'generate' && mode !== 'video'
+    const selected = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+    const model = imageDirect || !get().modelAuto ? selected : undefined
     return {
-      ...toAgentTurnParams(params, model, get().autoSubmit),
+      ...toAgentTurnParams(params, model, imageDirect || get().autoSubmit, {
+        includeCount: imageDirect,
+      }),
+      ...(imageDirect ? { directImage: true as const } : {}),
       thinkingDepth: get().thinkingDepth,
       ...(mode === 'video' && useVideoStore.getState().draft.model
         ? {
@@ -1655,6 +1681,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     setAutoSubmit: (autoSubmit) => {
       safeLocalStorage.setItem(AUTO_SUBMIT_KEY, autoSubmit ? '1' : '0')
       set({ autoSubmit })
+    },
+    modelAuto: readModelAuto(),
+    setModelAuto: (modelAuto) => {
+      safeLocalStorage.setItem(MODEL_AUTO_KEY, modelAuto ? '1' : '0')
+      set({ modelAuto })
     },
 
     followBatchWake(conversationId, batchId, version) {
@@ -2403,6 +2434,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (message?.kind !== 'tool') return
       if (message.status === 'succeeded' && deliverable(message))
         await delivery.placeOnCanvas(message)
+    },
+
+    appendImageAction(step) {
+      set((state) => ({ messages: appendImageAction(state.messages, step) }))
+    },
+
+    patchImageAction(id, patch) {
+      set((state) => ({ messages: patchImageAction(state.messages, id, patch) }))
+    },
+
+    dismissImageAction(id) {
+      set((state) => ({ messages: state.messages.filter((message) => message.id !== id) }))
     },
 
     async cancelJob(messageId) {

@@ -14,7 +14,6 @@ import { fetchedCanvasId } from '../lib/artifactDelivery'
 import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
 import { INLINE_RESULT_THUMBNAIL_SCALE } from '../lib/artifactPreview'
 import { previewArtifactBitmap } from '../lib/artifactSource'
-import { attachFilesToComposer } from '../lib/attachments'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
@@ -75,7 +74,7 @@ export default function AgentArtifactPane({
   initialPreview,
   onSelect,
   onClose,
-  onViewCanvas,
+  onViewCanvas: _onViewCanvas,
   presentation = 'overlay',
 }: {
   presentation?: 'panel' | 'overlay'
@@ -195,23 +194,6 @@ export default function AgentArtifactPane({
     source ??
     (preview?.id === active.id ? preview.source : null) ??
     (initialPreview?.id === active.id ? initialPreview.source : null)
-  const download = () => {
-    if (!source && !active.videoUrl) return
-    const link = document.createElement('a')
-    link.href = active.media === 'video' ? active.videoUrl! : source!
-    const mime = source?.match(/^data:image\/(png|jpeg|webp|gif)/)?.[1]
-    link.download = `muvloom-${active.id}.${active.media === 'video' ? 'mp4' : mime === 'jpeg' ? 'jpg' : (mime ?? 'png')}`
-    link.click()
-  }
-  const useAsReference = async () => {
-    if (!source || active.media !== 'image') return
-    const blob = await fetch(source)
-      .then((response) => response.blob())
-      .catch(() => null)
-    if (!blob) return
-    const file = new File([blob], `muvloom-${active.id}.png`, { type: blob.type || 'image/png' })
-    if (attachFilesToComposer([file])) onClose()
-  }
   const startEdit = (action: ArtifactEditAction) => {
     if (!source || active.media !== 'image') return
     if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) {
@@ -366,16 +348,6 @@ export default function AgentArtifactPane({
       )}
       <div className="studio-artifact-pane-foot">
         <div className="studio-artifact-pane-primary">
-          <Button
-            type="button"
-            variant="ghost"
-            className={PRIMARY_ACTION}
-            onClick={download}
-            disabled={!source && !active.videoUrl}
-          >
-            <Icon name="download" />
-            {t('tool.downloadResult')}
-          </Button>
           {!loading && !source && displaySource && (
             <Button
               type="button"
@@ -428,43 +400,10 @@ export default function AgentArtifactPane({
                 <Icon name="zoomIn" />
                 {t('tool.zoomResult')}
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className={TOOL_ACTION}
-                onClick={() => void useAsReference()}
-              >
-                <Icon name="imageAdd" />
-                {t('tool.useAsReference')}
-              </Button>
-            </div>
-          )}
-          {active.media === 'image' && onViewCanvas && (
-            <div className="studio-artifact-pane-canvas-action">
-              <Button
-                type="button"
-                variant="ghost"
-                className={`studio-artifact-pane-edit ${TOOL_ACTION}`}
-                onClick={() => onViewCanvas([active.id])}
-              >
-                <Icon name="images" />
-                {t('tool.editOnCanvas')}
-                <Icon name="arrowRight" />
-              </Button>
             </div>
           )}
           {active.media === 'image' && (
             <div className="studio-artifact-pane-tools">
-              <Button
-                type="button"
-                variant="ghost"
-                className={TOOL_ACTION}
-                onClick={() => startEdit('inpaint')}
-                disabled={!source}
-              >
-                <Icon name="brush" />
-                {t('tool.inpaint')}
-              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -484,16 +423,6 @@ export default function AgentArtifactPane({
               >
                 <Icon name="crop" />
                 {t('tool.crop')}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className={TOOL_ACTION}
-                onClick={() => startEdit('outpaint')}
-                disabled={!source}
-              >
-                <Icon name="outpaint" />
-                {t('tool.outpaint')}
               </Button>
             </div>
           )}
