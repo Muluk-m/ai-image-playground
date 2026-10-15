@@ -11,6 +11,10 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
     const response = await fetcher(new URL(path, origin), { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]), redirect: 'error' })
     return { response, bytes: Buffer.from(await response.arrayBuffer()) }
   }
+  const rejectCachedHtml = (response, label) => {
+    if (/immutable|(?:s-maxage|max-age)=[1-9]/i.test(response.headers.get('cache-control') ?? ''))
+      throw new Error(`${label} is cached long-lived`)
+  }
   const localHtml = await readFile(resolve(dist, 'index.html'), 'utf8')
   // The identity is a sha256 of the whole HTML, so a match means this exact entry and startup guard.
   const identity = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(localHtml)?.[0]
@@ -19,6 +23,7 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
   if (!page.ok || !page.headers.get('content-type')?.includes('text/html')) {
     throw new Error('Homepage did not return HTML')
   }
+  rejectCachedHtml(page, 'Homepage')
   if (!html.toString().includes(identity)) throw new Error('Homepage references another release')
   const redirects = await readFile(resolve(dist, '_redirects'), 'utf8')
   for (const line of redirects.split('\n')) {
@@ -61,12 +66,15 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
     const entry = await readFile(resolve(dist, `.${path}index.html`), 'utf8')
     const expected = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(entry)?.[0]
     const { response, bytes } = await get(path)
+    rejectCachedHtml(response, `Static page ${path}`)
     if (!expected || !response.ok || !bytes.toString().includes(expected)) throw new Error(`Static page differs: ${path}`)
   }
-  const { response: missing } = await get(`/assets/release-check-missing-${randomUUID()}.js`)
-  const policy = missing.headers.get('cache-control') ?? ''
-  if (missing.status !== 404 || /immutable|(?:s-maxage|max-age)=[1-9]/i.test(policy) || !/no-store|no-cache|max-age=0/i.test(policy)) {
-    throw new Error(`Missing asset must return a non-reusable 404: ${missing.status} ${policy}`)
+  for (const directory of ['assets', 'website-assets']) {
+    const { response: missing } = await get(`/${directory}/release-check-missing-${randomUUID()}.js`)
+    const policy = missing.headers.get('cache-control') ?? ''
+    if (missing.status !== 404 || /immutable|(?:s-maxage|max-age)=[1-9]/i.test(policy) || !/no-store|no-cache|max-age=0/i.test(policy)) {
+      throw new Error(`Missing asset must return a non-reusable 404: ${directory} ${missing.status} ${policy}`)
+    }
   }
   console.log(`Verified homepage, ${assets.length} JS/CSS files, and missing-asset 404 at ${origin}`)
 }

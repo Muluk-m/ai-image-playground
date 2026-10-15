@@ -303,6 +303,12 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     await route.fulfill({response})
   })
   page.on('pageerror', error => errors.push(error.message))
+  const requiredAsset = request => {
+    const url = new URL(request.url())
+    return ['script','stylesheet'].includes(request.resourceType()) && url.origin === origin && !url.pathname.startsWith('/cdn-cgi/')
+  }
+  page.on('requestfailed', request => { if (requiredAsset(request)) errors.push(`Asset request failed: ${request.url()}`) })
+  page.on('response', response => { if (requiredAsset(response.request()) && !response.ok()) errors.push(`Asset HTTP ${response.status()}: ${response.url()}`) })
   if (local) await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
     if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
@@ -319,7 +325,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     await page.goto(origin + '/', {waitUntil:'networkidle'})
     if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
     if (loginEnabled) {
-      await page.getByRole('heading',{name:'故事，由你发生。',exact:true}).waitFor()
+      await page.getByRole('heading',{name:/故事，\s*由你发生。/}).waitFor()
       await page.locator('.site-nav').getByRole('button',{name:'开始创作',exact:true}).click()
       await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
       await page.getByRole('button',{name:'关闭登录框',exact:true}).click()

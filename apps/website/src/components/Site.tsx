@@ -4,6 +4,7 @@ import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { alternatePage, copy, editions, type Locale, type SitePage, scenarios } from '../catalog'
 import { structuredData } from '../guideData'
+import { AuthBoundary } from './AuthBoundary'
 import { Guide } from './Guide'
 
 const Auth = lazy(() => import('./SiteAuth'))
@@ -104,20 +105,29 @@ export function Site({ page }: { page: SitePage }) {
         </main>
       ) : null}
       {mounted && (page.kind === 'home' || page.kind === 'login' || login) ? (
-        <Suspense
-          fallback={
-            <p className="site-connect" role="status">
-              {text.loading}
-            </p>
-          }
+        <AuthBoundary
+          locale={page.locale}
+          visible={login || page.kind === 'login'}
+          onClose={() => {
+            if (page.kind === 'login') location.assign(page.locale === 'en' ? '/en/' : '/')
+            else setLogin(false)
+          }}
         >
-          <Auth
-            locale={page.locale}
-            page={page.kind}
-            open={login}
-            onClose={() => setLogin(false)}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <p className="site-connect" role="status">
+                {text.loading}
+              </p>
+            }
+          >
+            <Auth
+              locale={page.locale}
+              page={page.kind}
+              open={login}
+              onClose={() => setLogin(false)}
+            />
+          </Suspense>
+        </AuthBoundary>
       ) : null}
       {page.kind !== 'login' ? (
         <footer className="site-footer">

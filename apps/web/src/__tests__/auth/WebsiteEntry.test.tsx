@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { AuthBoundary } from '../../../../website/src/components/AuthBoundary'
 import SiteAuth from '../../../../website/src/components/SiteAuth'
 
 const state = vi.hoisted(() => ({
@@ -101,4 +102,32 @@ it('enters the workbench when login is disabled by the deployment', async () => 
   state.login = false
   await render()
   expect(replace).toHaveBeenCalledExactlyOnceWith('/image')
+})
+
+it('keeps a failed auth chunk recoverable without replacing the website', async () => {
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  function BrokenChunk(): never {
+    throw new Error('chunk unavailable')
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <AuthBoundary locale="zh-CN" visible={false} onClose={() => {}}>
+          <BrokenChunk />
+        </AuthBoundary>,
+      ),
+    )
+    expect(host.textContent).toBe('')
+    await act(async () =>
+      root.render(
+        <AuthBoundary locale="zh-CN" visible onClose={() => {}}>
+          <BrokenChunk />
+        </AuthBoundary>,
+      ),
+    )
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('暂时无法连接')
+    expect(document.body.textContent).toContain('重试')
+  } finally {
+    consoleError.mockRestore()
+  }
 })

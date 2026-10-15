@@ -38,5 +38,6 @@ export default defineConfig({
     react(),
     seoPlugin(origin, process.env.SEARCH_INDEXING !== 'false'),
   ],
+  // The preceding web build owns public assets; compose adds website output without replacing them.
   build: { copyPublicDir: false, assetsDir: 'website-assets' },
 })

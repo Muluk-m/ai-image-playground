@@ -177,3 +177,30 @@ it('stops retrying a persistently broken release at the deadline', async () => {
     }),
   ).rejects.toThrow()
 })
+
+it.each(['/', '/guide/'])('rejects long-lived static HTML at %s', async (path) => {
+  await mkdir(join(dist, 'guide'))
+  await writeFile(join(dist, 'guide/index.html'), html)
+  await writeFile(
+    join(dist, 'site-pages.json'),
+    JSON.stringify([{ path: '/' }, { path: '/guide/' }]),
+  )
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === path
+        ? new Response(html, {
+            headers: { 'content-type': 'text/html', 'cache-control': 'public, max-age=3600' },
+          })
+        : good(url),
+    ),
+  ).rejects.toThrow('cached long-lived')
+})
+it('rejects a missing website chunk even when workbench missing assets are correct', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname.startsWith('/website-assets/release-check-missing-')
+        ? new Response(html)
+        : good(url),
+    ),
+  ).rejects.toThrow('Missing asset')
+})

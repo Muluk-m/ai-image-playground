@@ -37,7 +37,7 @@ function Inline({ text }: { text: string }) {
   )
 }
 function GuideBlock({ block, locale }: { block: Block; locale: Locale }) {
-  const [copied, setCopied] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   switch (block.type) {
     case 'p':
       return (
@@ -133,15 +133,19 @@ function GuideBlock({ block, locale }: { block: Block; locale: Locale }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              void navigator.clipboard
-                .writeText(block.text)
-                .then(() => setCopied(true))
-                .catch(() => setCopied(false))
-            }
+            onClick={async () => {
+              try {
+                const { copyTextToClipboard } = await import('../../../web/src/lib/clipboard')
+                await copyTextToClipboard(block.text)
+                setCopyStatus('copied')
+              } catch {
+                setCopyStatus('failed')
+              }
+            }}
           >
-            {copied ? copy[locale].copied : copy[locale].copy}
+            {copyStatus === 'copied' ? copy[locale].copied : copy[locale].copy}
           </Button>
+          {copyStatus === 'failed' ? <p role="status">{copy[locale].copyFailed}</p> : null}
         </section>
       )
   }
