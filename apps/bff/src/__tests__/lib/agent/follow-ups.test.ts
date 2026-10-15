@@ -1,9 +1,10 @@
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentMessageView } from '@image-playground/shared'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_follow_ups')
 process.env.PORT = '0'
+process.env.AGENT_FOLLOWUP_MODEL = 'fixture-follow-up-model'
 
 const {
   followUpLimitsForTesting,
@@ -15,7 +16,9 @@ const {
   setFollowUpRetryDelayForTesting,
   suggestFollowUps,
 } = await import('../../../lib/agent/follow-ups')
-const { ChatTimeoutError, ChatUpstreamError } = await import('../../../lib/chatCompletion')
+const { ChatTimeoutError, ChatUpstreamError, setChatFetchForTesting } = await import(
+  '../../../lib/chatCompletion'
+)
 const { listAgentTurnSummaries, recordAgentTurnSummary } = await import(
   '../../../lib/agent/turn-summary'
 )
@@ -48,7 +51,37 @@ afterAll(async () => {
   await closeDb()
 })
 
+afterEach(() => setChatFetchForTesting())
+
 describe('下一句的句子', () => {
+  it('在真实 chat 请求接缝要求 JSON，保留句子校验与原有预算', async () => {
+    const requests: Record<string, unknown>[] = []
+    setChatFetchForTesting(async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      requests.push(body)
+      // 线上复现：没有响应格式约束时，正常结束的回答也可能只是纯文本。
+      const content =
+        body.response_format?.type === 'json_object'
+          ? '{"lines":["请把生成的海报发给我看看。"]}'
+          : '请把生成的海报发给我看看。'
+      return new Response(
+        JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }] }),
+      )
+    })
+    const lines = await suggestFollowUps({
+      userText: '把八个产品替换成浴缸，保留编号，改成黑五促销海报。',
+      assistantText: '本批次已完成 1 项任务。',
+      recentContext: '用户：把八个产品替换成浴缸，保留编号，改成黑五促销海报。',
+    })
+    expect(lines).toEqual(['请把生成的海报发给我看看。'])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      model: 'fixture-follow-up-model',
+      max_tokens: 400,
+      response_format: { type: 'json_object' },
+    })
+  })
+
   it('丢掉空句、重复、超长和用户刚说的那句，只留第一句预测', () => {
     const user = '画一张秋日海报'
     expect(
