@@ -21,6 +21,7 @@ import { setClientStorageScope } from '../../../../lib/authScope'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { getSelectedImageMentionLabel } from '../../../../lib/promptImageMentions'
+import { submittedTaskSnapshot } from '../../../../lib/submittedTaskAttention'
 import { useStore } from '../../../../store'
 import { DEFAULT_PARAMS } from '../../../../types'
 
@@ -414,6 +415,7 @@ it('a material mention follows the selected sheet even when its front is also a 
   vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline after task creation'))
   expect(await submitWithLook(look([{ kind: 'image', imageId: front }]), 'template')).toBe(true)
   expect(useStore.getState().tasks[0].inputImageIds).toEqual([sheet, front])
+  expect(submittedTaskSnapshot()).toContain(useStore.getState().tasks[0].id)
   expect(useStore.getState().tasks[0].prompt).toContain(`Edit ${getSelectedImageMentionLabel(0)}`)
 })
 
@@ -519,6 +521,7 @@ it('a full-page departure discards the pending template while login navigation p
   setClientStorageScope('alice')
   await resumePendingSubmission()
   expect(useStore.getState().tasks).toHaveLength(1)
+  expect(submittedTaskSnapshot()).not.toContain(useStore.getState().tasks[0].id)
 })
 
 it('login navigation exemption is consumed before a later departure from the back cache', async () => {
