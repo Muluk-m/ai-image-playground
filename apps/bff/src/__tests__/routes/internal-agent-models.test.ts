@@ -240,3 +240,22 @@ it('rejects protocols that cannot participate in request budget and dispatch acc
   Object.assign(settings.providers[0]!.models[0]!, { api: 'google-generative-ai' })
   expect((await request('PUT', { revision: 0, settings })).status).toBe(400)
 })
+
+it('preserves the legacy system role when the selected gateway effort is off', async () => {
+  const runtime = await resolveConfiguredAgentRuntime()
+  let payload: { messages: { role: string }[] } | undefined
+  setAgentFetchForTesting(async (_input, init) => {
+    payload = JSON.parse(String(init?.body))
+    return completionStream('ok')
+  })
+  const stream = await agentStreamFn(
+    undefined,
+    {},
+    runtime,
+  )(runtime.model, {
+    systemPrompt: 'System instructions',
+    messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
+  })
+  expect((await stream.result()).stopReason).toBe('stop')
+  expect(payload?.messages[0]?.role).toBe('system')
+})
