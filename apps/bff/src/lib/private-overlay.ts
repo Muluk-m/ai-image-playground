@@ -103,6 +103,11 @@ export interface PrivateTaskHooks {
     source: 'operator' | 'self-registration'
     referralCode?: string
   }): Promise<void>
+  /**
+   * 用户注销、公开库还没删 users 行时调用。私有账本如果外键指着这个用户，要在这里删掉。
+   * 可选（先扩后缩）：钉住的 overlay 还没有这一项时，公开库照常注销。
+   */
+  onUserDeleted?(input: { tx: BffTransaction; userId: string }): Promise<void>
   runMaintenance(now: number): Promise<void>
   /** Worker-only integrations; absent in older overlays. */
   runWorkerMaintenance?(now: number): Promise<void>

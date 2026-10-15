@@ -9,6 +9,7 @@ import {
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { accountProfileView } from '../lib/account-profile-view'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
 import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
@@ -27,6 +28,7 @@ import {
   clearUserSessionCookie,
   createUserSession,
   revokeUserSession,
+  sessionClientFromRequest,
   setUserSessionCookie,
   USER_SESSION_COOKIE,
 } from '../lib/user-session'
@@ -119,6 +121,7 @@ export const userAuthRoutes = new Elysia()
       try {
         registration = await registerUser(body.username, body.password, {
           referralCode: body.referral_code,
+          client: sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null),
           verification: isCapabilityEnabled('accounts:email-verification')
             ? body.verification_id && body.verification_code
               ? { challengeId: body.verification_id, code: body.verification_code }
@@ -145,7 +148,16 @@ export const userAuthRoutes = new Elysia()
 
       const { sessionToken, user } = registration
       setUserSessionCookie(cookie, sessionToken)
-      return status(201, { user: { id: user.id, username: user.username } })
+      return status(201, {
+        user: accountProfileView({
+          id: user.id,
+          username: user.username,
+          nickname: null,
+          bio: null,
+          avatar_key: null,
+          updated_at: user.updated_at,
+        }),
+      })
     },
     {
       body: t.Object({
@@ -162,7 +174,8 @@ export const userAuthRoutes = new Elysia()
     async ({ body, cookie, request, server, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
 
-      const key = clientAddress(request, server?.requestIP(request)?.address ?? null)
+      const peer = server?.requestIP(request)?.address ?? null
+      const key = clientAddress(request, peer)
       const username = normalizeUsername(body.username)
       if (sourceLimiter.isLocked(key) || accountLimiter.isLocked(username)) {
         return status(429, { error: 'rate_limited' })
@@ -197,6 +210,10 @@ export const userAuthRoutes = new Elysia()
             password_hash: schema.users.password_hash,
             status: schema.users.status,
             username: schema.users.username,
+            nickname: schema.users.nickname,
+            bio: schema.users.bio,
+            avatar_key: schema.users.avatar_key,
+            updated_at: schema.users.updated_at,
           })
           .from(schema.users)
           .where(eq(schema.users.id, user.id))
@@ -215,8 +232,12 @@ export const userAuthRoutes = new Elysia()
           .set({ last_login_at: now, updated_at: now })
           .where(eq(schema.users.id, current.id))
 
-        const token = await createUserSession(current.id, tx)
-        return { token, user: { id: current.id, username: current.username } }
+        const token = await createUserSession(
+          current.id,
+          tx,
+          sessionClientFromRequest(request, peer),
+        )
+        return { token, user: accountProfileView({ ...current, updated_at: now }) }
       })
       if (!authenticated) {
         sourceLimiter.recordFailure(key)
