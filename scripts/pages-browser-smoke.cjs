@@ -89,8 +89,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         if (request.resourceType() === 'stylesheet' && optionalStyles.includes(url.href))
           return route.fulfill({ contentType: 'text/css', body: '' })
         const fixtures = {
-          '/api/capabilities': { 'accounts:login': true, 'generation:byok': true,
-            ...(nodeCanvas ? { 'canvas:nodes': true } : {}) },
+          '/api/capabilities': { 'accounts:login': true, 'generation:byok': true },
           '/api/channels': { channels: [] },
           '/api/agent/skills': { skills: [] },
           '/api/inspirations/manifest': {
@@ -188,8 +187,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             { waitUntil: 'domcontentloaded', timeout: timeoutMs })
           if (!response?.ok()) throw new Error(`Page HTTP ${response?.status()}: ${path}`)
           const ready = index === 0 ? '[aria-label="创作"]'
-            : nodeCanvas ? '[aria-label="创作画布"] .react-flow'
-            : local ? '[aria-label="创作画布"] canvas'
+            : local || nodeCanvas ? '[aria-label="创作画布"] .react-flow'
             : '[aria-label="创作画布"] canvas, [aria-label="创作画布"] .react-flow'
           await page.locator(ready).first().waitFor({ timeout: timeoutMs })
           if (nodeCanvas && index === 1) {
@@ -273,7 +271,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         await mkdir(outputDir, { recursive: true })
         await page.screenshot({ path: join(outputDir, `${label}.png`) })
       }
-      console.log(`PASS ${path}${nodeCanvas ? ' (canvas:nodes on)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
+      console.log(`PASS ${path}${nodeCanvas ? ' (node canvas)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
     } catch (error) {
       if (outputDir) {
         await mkdir(outputDir, { recursive: true })

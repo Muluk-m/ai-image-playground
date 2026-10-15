@@ -37,7 +37,6 @@ import {
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { shouldUseNodeCanvas } from '../lib/nodeCanvasGate'
-import { cloudProjectsEnabled } from '../lib/projectClient'
 import { projectExperience } from '../lib/projectRepository'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -202,10 +201,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
-  const nodeCanvas = shouldUseNodeCanvas(project, {
-    capability: isClientCapabilityEnabled('canvas:nodes'),
-    cloudProjects: cloudProjectsEnabled(),
-  })
+  const nodeCanvas = shouldUseNodeCanvas(project)
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)

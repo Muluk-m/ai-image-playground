@@ -312,11 +312,6 @@ describe('oauth callback', () => {
         avatar_url: DEFAULT_AVATAR_PATH,
         avatar_is_default: true,
       },
-      canvasCapabilities: {
-        'canvas:blank-generate': false,
-        'canvas:node-run': false,
-        'canvas:script': false,
-      },
     })
   })
 
