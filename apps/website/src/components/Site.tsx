@@ -124,6 +124,7 @@ export function Site({ page }: { page: SitePage }) {
               locale={page.locale}
               page={page.kind}
               open={login}
+              onOpen={start}
               onClose={() => setLogin(false)}
             />
           </Suspense>

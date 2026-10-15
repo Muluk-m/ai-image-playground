@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Input } from '../../../web/src/components/ui/input'
 import type { Block, GuideFaq } from '../../../web/src/features/guide/model'
+import { copyTextToClipboard } from '../../../web/src/lib/clipboardText'
 import { copy, editions, type Locale, type SitePage } from '../catalog'
 import { searchGuide } from '../guideData'
 
@@ -135,7 +136,6 @@ function GuideBlock({ block, locale }: { block: Block; locale: Locale }) {
             size="sm"
             onClick={async () => {
               try {
-                const { copyTextToClipboard } = await import('../../../web/src/lib/clipboard')
                 await copyTextToClipboard(block.text)
                 setCopyStatus('copied')
               } catch {
