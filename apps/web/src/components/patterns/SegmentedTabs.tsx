@@ -6,7 +6,7 @@ export interface SegmentedTab<T extends string> {
   label: ReactNode
 }
 
-/** 页内切换：28px 胶囊页签，选中态 accent 底。多个页面共用同一种长相。 */
+/** 页内切换：28px 胶囊页签，选中态用芽绿浅底与芽绿文字。 */
 export default function SegmentedTabs<T extends string>({
   tabs,
   value,
@@ -32,7 +32,7 @@ export default function SegmentedTabs<T extends string>({
             className={cn(
               'h-7 shrink-0 whitespace-nowrap rounded-full px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               active
-                ? 'bg-accent font-medium text-foreground'
+                ? 'bg-primary/15 font-medium text-primary'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             )}
           >
