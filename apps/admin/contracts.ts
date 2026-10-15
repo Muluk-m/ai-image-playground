@@ -652,7 +652,21 @@ export interface GenerationTasksResult {
   nextCursor: string | null
 }
 
+export type ErrorRecoveryState = 'unresolved' | 'recovered' | 'unknown'
+
+export interface ErrorRecovery {
+  state: ErrorRecoveryState
+  reason: string
+  recoveredAt: number | null
+}
+
+export interface ErrorRecoveryGroup {
+  total: number
+  entries: TodayErrorItem[]
+}
+
 export interface TodayErrorItem {
+  recovery?: ErrorRecovery
   route?: string | null
   status?: number | null
   errorCode?: string | null
@@ -669,9 +683,13 @@ export interface TodayErrorItem {
   stack: string | null
 }
 
-export interface TodayErrorsResult {
+export interface ErrorWindow {
   window: TimeWindow
   total: number
   entries: TodayErrorItem[]
-  recent?: { window: TimeWindow; total: number; entries: TodayErrorItem[] }
+  recovery?: Record<ErrorRecoveryState, ErrorRecoveryGroup>
+}
+
+export interface TodayErrorsResult extends ErrorWindow {
+  recent?: ErrorWindow
 }
