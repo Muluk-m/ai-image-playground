@@ -6,6 +6,7 @@ import {
   configureErrorReporting,
   flushClientErrors,
   reportClientError,
+  reportRecoverableClientError,
 } from '../../lib/errorReporting'
 
 /** jsdom's Blob has no `text()`. */
@@ -96,4 +97,70 @@ it('splits batches by encoded size so long multibyte stacks still arrive', async
   expect(bodies.length).toBeGreaterThan(1)
   expect(bodies.flatMap((sent) => sent.body.errors)).toHaveLength(8)
   for (const [, blob] of sendBeacon.mock.calls) expect(blob.size).toBeLessThanOrEqual(24 * 1024)
+})
+
+it('preserves a bounded cause chain and reports a handled Error instance only once', async () => {
+  configureErrorReporting('')
+  const original = new DOMException('Storage temporarily unavailable', 'UnknownError')
+  const error = Object.assign(new Error('Project catalog unavailable'), { cause: original })
+  reportClientError('error', error, { operation: 'project.catalog', stage: 'read-local' })
+  reportClientError('rejection', error)
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  expect(sent?.body.errors).toHaveLength(1)
+  expect(sent?.body.errors[0].context).toMatchObject({
+    stage: 'read-local',
+    causes: [{ name: 'UnknownError', message: 'Storage temporarily unavailable' }],
+  })
+})
+
+it('terminates cyclic causes without serializing arbitrary error properties', async () => {
+  configureErrorReporting('')
+  const cause = Object.assign(new Error('underlying'), { token: 'never-serialize' })
+  const error = Object.assign(new Error('outer'), { cause })
+  Reflect.set(cause, 'cause', error)
+  reportClientError('error', error)
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  expect(sent?.body.errors[0].context.causes).toHaveLength(1)
+  expect(JSON.stringify(sent?.body)).not.toContain('never-serialize')
+})
+
+it('sends recovery evidence only after explicit success, separately from errors and only once', async () => {
+  configureErrorReporting('')
+  const recovered = reportRecoverableClientError(new Error('failed'), {
+    operation: 'project.catalog',
+    stage: 'read-local',
+  })
+  flushClientErrors()
+  const [failure] = await sentBodies()
+  expect(failure?.body.recoveries).toBeUndefined()
+  recovered()
+  recovered()
+  flushClientErrors()
+  const bodies = await sentBodies()
+  expect(bodies).toHaveLength(2)
+  expect(bodies[1]?.body).toMatchObject({
+    errors: [],
+    recoveries: [
+      {
+        incidentId: failure?.body.errors[0].context.incidentId,
+        operation: 'project.catalog',
+      },
+    ],
+  })
+})
+
+it('retains diagnosis and recovery identity when a multibyte stack exceeds the payload budget', async () => {
+  configureErrorReporting('')
+  const error = Object.assign(new Error('Project catalog unavailable'), {
+    cause: new DOMException('Storage unavailable', 'UnknownError'),
+  })
+  error.stack = '堆栈'.repeat(4000)
+  reportRecoverableClientError(error, { operation: 'project.catalog', stage: 'read-local' })
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  expect(sent?.body.errors[0].context.incidentId).toEqual(expect.any(String))
+  expect(sent?.body.errors[0].context.causes[0].name).toBe('UnknownError')
+  expect(sendBeacon.mock.calls[0]?.[1].size).toBeLessThanOrEqual(24 * 1024)
 })

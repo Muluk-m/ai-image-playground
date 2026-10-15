@@ -11,6 +11,7 @@ import {
   projectEntryName,
   projectExperience,
 } from '../features/canvas/lib/projectRepository'
+import { readProjectRoute } from '../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
@@ -51,6 +52,22 @@ const SIDEBAR_WIDTH = '264px'
  */
 export default function Sidebar() {
   const { t } = useTranslation('shell')
+  const { t: tCanvas } = useTranslation('canvas')
+  const { t: tLibrary } = useTranslation('library')
+  const projectError = useCanvasProjectStore((state) => state.error)
+  const [retrying, setRetrying] = useState(false)
+  const retryCatalog = async () => {
+    setRetrying(true)
+    try {
+      await useCanvasProjectStore.getState().load()
+      // A deep link may also have failed while the catalog was unavailable. Retry its owner.
+      if (readProjectRoute()) window.dispatchEvent(new PopStateEvent('popstate'))
+    } catch {
+      // The store records the original failure and exposes the retryable error below.
+    } finally {
+      setRetrying(false)
+    }
+  }
   const { theme } = useTheme()
   const appMode = useStore((state) => state.appMode)
   const setAppMode = useStore((state) => state.setAppMode)
@@ -67,7 +84,12 @@ export default function Sidebar() {
   const toggleSidebar = () => useStore.setState({ sidebarExpanded: !expanded })
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
-    void useCanvasProjectStore.getState().load()
+    void useCanvasProjectStore
+      .getState()
+      .load()
+      .catch(() => {
+        // Store-owned diagnostics; the sidebar renders the failure instead of leaking a rejection.
+      })
   }, [])
   // 宽度由一个变量说了算：主区、画布与输入框都照它让位。收起时内容面板铺满，不再留缝。
   useEffect(() => {
@@ -176,6 +198,21 @@ export default function Sidebar() {
             </Button>
           </div>
           {NAV_APP_MODES.map(item)}
+          {projectError ? (
+            <div role="alert" className="px-3 py-2 text-body-sm text-muted-foreground">
+              <p>{tCanvas('project.loadFailed')}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                disabled={retrying}
+                onClick={() => void retryCatalog()}
+              >
+                {tLibrary('panel.reloadProjects')}
+              </Button>
+            </div>
+          ) : null}
           <ProjectSection
             label={t('nav.chats')}
             addLabel={t('nav.newChat')}

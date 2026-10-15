@@ -20,6 +20,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.delete(schema.client_errors)
+  await db.delete(schema.client_error_recoveries)
 })
 
 let address = 0
@@ -107,4 +108,63 @@ describe('POST /api/client-errors', () => {
     expect(await purgeOldClientErrors(30 * 24 * 3600_000, Date.now() + 31 * 24 * 3600_000)).toBe(1)
     expect(await db.select().from(schema.client_errors)).toHaveLength(0)
   })
+})
+
+it('stores exact recovery evidence separately even when it arrives before the error', async () => {
+  const incidentId = crypto.randomUUID()
+  expect(
+    (
+      await report({
+        deviceId: 'device-fixture-recovery',
+        errors: [],
+        recoveries: [
+          { incidentId, operation: 'project.catalog' },
+          { incidentId: 'invalid', operation: 'project.catalog' },
+          { incidentId, operation: 'unrelated' },
+        ],
+      })
+    ).status,
+  ).toBe(204)
+  expect(await db.select().from(schema.client_errors)).toHaveLength(0)
+  const evidence = await db.select().from(schema.client_error_recoveries)
+  expect(evidence).toHaveLength(1)
+  expect(evidence[0]).toMatchObject({
+    incident_id: incidentId,
+    device_id: 'device-fixture-recovery',
+    user_id: null,
+  })
+  await report({
+    deviceId: 'device-fixture-recovery',
+    errors: [
+      { kind: 'error', message: 'failed', context: { incidentId, operation: 'project.catalog' } },
+    ],
+  })
+  expect(await db.select().from(schema.client_errors)).toHaveLength(1)
+  await purgeOldClientErrors(1, Date.now() + 100)
+  expect(await db.select().from(schema.client_error_recoveries)).toHaveLength(0)
+})
+
+it('does not accept unidentifiable recovery events', async () => {
+  await report({
+    errors: [],
+    recoveries: [{ incidentId: crypto.randomUUID(), operation: 'project.catalog' }],
+  })
+  expect(await db.select().from(schema.client_error_recoveries)).toHaveLength(0)
+})
+
+it('separates catalog failure causes while retaining grouping across builds', async () => {
+  await report({
+    errors: ['UnknownError', 'QuotaExceededError', 'UnknownError'].map((name, index) => ({
+      kind: 'error',
+      message: 'Project catalog unavailable',
+      stack: stackAt(index === 0 ? 'App-BxY12z9a.js' : 'App-Qr0p55Lm.js', index + 1),
+      context: {
+        operation: 'project.catalog',
+        stage: 'read-local',
+        causes: [{ name, message: 'storage failed' }],
+      },
+    })),
+  })
+  const rows = await db.select().from(schema.client_errors)
+  expect(new Set(rows.map((row) => row.fingerprint)).size).toBe(2)
 })
