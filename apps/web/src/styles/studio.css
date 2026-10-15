@@ -1215,7 +1215,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 /* The node conversation is a full-height dock; the canvas keeps its own header clearance. */
 .studio-layout[data-node-canvas="true"] { padding-top: 0; }
 .studio-layout[data-node-canvas="true"] > .studio-canvas { margin-top: 56px; height: calc(100% - 56px); }
-body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) + 16px); }
+/* 右侧对话栏打开时让出它的宽度；宽屏再加内容面板的缝。 */
+body .studio-global-account {
+  top: calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset));
+  right: calc(var(--studio-canvas-chat-width, 0px) + 12px + var(--app-header-inset));
+}
 .studio-layout[data-node-canvas="true"] > .studio-chat-column {
   display: flex; position: relative; order: 3; flex: 0 0 auto; min-width: 0;
   width: auto; max-width: min(480px, 42%); margin: 0; padding: 0;
@@ -1264,7 +1268,7 @@ body .studio-global-account { right: calc(var(--studio-canvas-chat-width, 0px) +
 .studio-node-navigation { bottom: 18px; left: 16px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
 .studio-node-zoom-trigger { min-width: 76px; gap: 6px; padding: 0 8px; }
 .studio-node-arrange-confirm { position: absolute; bottom: calc(100% + 12px); left: 0; width: 256px; max-width: calc(100vw - 32px); padding: 16px; display: grid; gap: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--popover)); box-shadow: var(--shadow-popover); }
-.studio-node-history { position: fixed; top: calc(var(--safe-area-top) + 8px); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px); z-index: 40; height: 40px; padding: 4px; border-radius: 12px; }
+.studio-node-history { position: fixed; top: calc(var(--safe-area-top) + 8px + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: 40px; padding: 4px; border-radius: 12px; }
 .studio-node-history button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 @media (pointer: coarse), (max-width: 767px) {
   .studio-node-history { top: calc(var(--safe-area-top) + 4px); height: 48px; padding: 1px; }
