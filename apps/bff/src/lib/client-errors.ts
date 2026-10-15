@@ -138,9 +138,9 @@ export function clientErrorFingerprint(report: ClientErrorReport): string {
     const causes = report.context.causes
     const cause = Array.isArray(causes) ? causes.at(-1) : undefined
     parts.push(
-      String(report.context.stage ?? ''),
-      String(cause?.name ?? ''),
-      String(cause?.code ?? ''),
+      clip(report.context.stage, 80) ?? '',
+      clip(cause?.name, CLIENT_ERROR_LIMITS.name) ?? '',
+      clip(cause?.code, 200) ?? '',
     )
   }
   return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16)

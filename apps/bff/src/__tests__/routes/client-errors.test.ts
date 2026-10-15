@@ -168,3 +168,21 @@ it('separates catalog failure causes while retaining grouping across builds', as
   const rows = await db.select().from(schema.client_errors)
   expect(new Set(rows.map((row) => row.fingerprint)).size).toBe(2)
 })
+
+it('does not let malformed diagnostic fields reject an otherwise valid error batch', async () => {
+  const response = await report({
+    errors: [
+      {
+        kind: 'error',
+        message: 'Project catalog unavailable',
+        context: {
+          operation: 'project.catalog',
+          stage: { toString: null },
+          causes: [{ name: { toString: null }, code: { toString: null } }],
+        },
+      },
+    ],
+  })
+  expect(response.status).toBe(204)
+  expect(await db.select().from(schema.client_errors)).toHaveLength(1)
+})

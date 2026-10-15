@@ -226,3 +226,63 @@ it('retains incident identity when unrelated context is oversized or cyclic', as
     causes: [{ name: 'Error', message: 'original' }],
   })
 })
+
+it('queues a recoverable diagnostic even when enumerable context getters throw', async () => {
+  configureErrorReporting('')
+  const context = {
+    operation: 'project.catalog' as const,
+    stage: 'read-local',
+    get extra() {
+      throw new Error('getter failed')
+    },
+  }
+  const error = Object.assign(new Error('catalog failed'), { cause: new Error('original') })
+  const recovered = reportRecoverableClientError(error, context)
+  reportClientError('rejection', error)
+  flushClientErrors()
+  recovered()
+  flushClientErrors()
+  const [failure, success] = await sentBodies()
+  expect(failure?.body.errors).toHaveLength(1)
+  expect(failure?.body.errors[0].context).toMatchObject({
+    operation: 'project.catalog',
+    stage: 'read-local',
+    causes: [{ name: 'Error', message: 'original' }],
+  })
+  expect(success?.body.recoveries[0].incidentId).toBe(failure?.body.errors[0].context.incidentId)
+})
+
+it('ignores inaccessible diagnostic identity fields without throwing or losing the error', async () => {
+  configureErrorReporting('')
+  const context = {
+    get stage() {
+      throw new Error('getter failed')
+    },
+    get online() {
+      throw new Error('getter failed')
+    },
+  }
+  expect(() => reportClientError('error', new Error('original'), context)).not.toThrow()
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  expect(sent?.body.errors[0].message).toBe('original')
+})
+
+it('keeps the root cause and incident within the HTTP byte limit for multibyte context', async () => {
+  configureErrorReporting('')
+  let cause: unknown
+  for (let i = 0; i < 4; i++)
+    cause = Object.assign(new Error('原因'.repeat(500)), { cause, stack: '堆栈'.repeat(750) })
+  const error = Object.assign(new Error('catalog failed'), { cause, stack: '堆栈'.repeat(4000) })
+  reportRecoverableClientError(error, { operation: 'project.catalog', stage: 'read-local' })
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  const context = sent?.body.errors[0].context
+  expect(context).toMatchObject({
+    operation: 'project.catalog',
+    stage: 'read-local',
+    incidentId: expect.any(String),
+  })
+  expect(context.causes.at(-1).message).toContain('原因')
+  expect(sendBeacon.mock.calls[0]?.[1].size).toBeLessThanOrEqual(24 * 1024)
+})
