@@ -22,7 +22,20 @@ describe('GET /api/capabilities', () => {
       .sort()
 
     expect(response.status).toBe(200)
-    expect(Object.keys(body).sort()).toEqual([...exposedKeys, 'projectDocumentIdentity'].sort())
+    expect(Object.keys(body).sort()).toEqual(
+      [
+        ...exposedKeys,
+        'canvas:nodes',
+        'canvas:blank-generate',
+        'canvas:node-run',
+        'canvas:script',
+        'projectDocumentIdentity',
+      ].sort(),
+    )
+    expect(body['canvas:nodes']).toBe(true)
+    expect(body['canvas:blank-generate']).toBe(true)
+    expect(body['canvas:node-run']).toBe(true)
+    expect(body['canvas:script']).toBe(true)
     expect(body.projectDocumentIdentity).toBe(true)
     expect(body['accounts:login']).toBe(true)
     expect(body['accounts:self-register']).toBe(false)

@@ -541,7 +541,6 @@ function StandardAgentToolCard({
     else agentCanvasSink()?.focus(canvasIds)
   }
   if (message.canvasRun) {
-    if (!isClientCapabilityEnabled('canvas:node-run')) return null
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
         <AgentNodeRunCard proposal={message.canvasRun} />
