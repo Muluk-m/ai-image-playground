@@ -3,8 +3,12 @@ import { fetchFollowUps } from './agentClient'
 import { answerableClarificationId } from './panelMessages'
 
 const EMPTY: readonly string[] = []
-const ATTEMPTS = 10
-const INTERVAL_MS = 2_000
+/**
+ * 第一拍马上问，之后按这张表退避，间隔加起来 45 秒。
+ * 后端单次最多 30 秒，超时还会再问一次；45 秒盖住「第一次用满、第二次较快答上」。
+ * 两次都拖满约 60 秒时，这次界面不再等，句子仍会落库，刷新后从历史里读到。
+ */
+const POLL_BACKOFF_MS = [2_000, 2_000, 3_000, 4_000, 5_000, 6_000, 7_000, 8_000, 8_000]
 
 type FollowUpReader = (conversationId: string, turnId: string) => Promise<readonly string[] | null>
 
@@ -32,7 +36,8 @@ export function shouldPollFollowUps(input: {
 }
 
 /**
- * 输入框上方要显示的句子。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
+ * 可以显示的下一句。正在跑、历史没就绪、欢迎页、输入框里已经有字，都不显示。
+ * 界面把第一句当成用户最可能打的下一句，画成输入框里的灰色幽灵文字。
  * 返回的空数组是稳定引用，避免订阅每次都拿到新数组。
  */
 export function visibleFollowUps(input: {
@@ -72,7 +77,31 @@ function readyTurn(
 }
 
 /**
- * 终帧之后问几次。null 是还在生成，空数组是已经没有可显示的。
+ * 空输入框上的幽灵文字怎么响应按键。Tab，以及光标已在末尾时的右方向键，把句子填进输入框。
+ * Esc 只关掉这一次，不发送。带修饰键或正在组字时不拦截。
+ */
+export function followUpGhostAction(
+  event: {
+    readonly key: string
+    readonly shiftKey: boolean
+    readonly altKey: boolean
+    readonly ctrlKey: boolean
+    readonly metaKey: boolean
+    readonly isComposing: boolean
+  },
+  caretAtEnd: boolean,
+): 'accept' | 'dismiss' | null {
+  if (event.isComposing || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+    return null
+  }
+  if (event.key === 'Escape') return 'dismiss'
+  if (event.key === 'Tab' || (event.key === 'ArrowRight' && caretAtEnd)) return 'accept'
+  return null
+}
+
+/**
+ * 终帧之后问到大约 45 秒。读到 null 是还在生成，继续等。
+ * 读到空数组是已经定了（失败，或没有可用的句子），立刻停，别把失败当成还在等。
  * 问满或中途不该再问，就停。
  */
 export async function pollFollowUps(
@@ -82,8 +111,8 @@ export async function pollFollowUps(
   read: FollowUpReader = currentReader(),
   wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 ): Promise<readonly string[] | null> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    if (attempt > 0) await wait(INTERVAL_MS)
+  for (let attempt = 0; attempt < POLL_BACKOFF_MS.length + 1; attempt += 1) {
+    if (attempt > 0) await wait(POLL_BACKOFF_MS[attempt - 1] ?? 0)
     if (!still()) return null
     try {
       const lines = await read(conversationId, turnId)

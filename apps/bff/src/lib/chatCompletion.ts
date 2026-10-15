@@ -310,7 +310,7 @@ const CLASSIFIER_USAGE = {
  * 重复撞墙），`502` / `overloaded` / `socket hang up` 这类才是瞬时故障。这份清单跟着各家
  * 上游的措辞漂移，自己在本仓库养一份不划算——所以把错误折成一条最小的 assistant 消息喂给它。
  */
-function isTransientChatError(error: unknown, model: string): boolean {
+export function isTransientChatError(error: unknown, model: string): boolean {
   // 超时是我们自己切的 deadline，不是上游的毛病：重试只会把这一轮的总耗时翻倍。
   if (error instanceof ChatTimeoutError || error instanceof AgentRequestBudgetError) return false
   const failed: AssistantMessage = {
