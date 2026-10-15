@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from '../../components/Sidebar'
-import type { CanvasProject } from '../../features/canvas/lib/projectRepository'
+import { type CanvasProject, projectRepository } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
 import { installWorkbenchNavigation } from '../../lib/navigation/workbenchNavigation'
@@ -24,13 +24,16 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 
-beforeEach(() => {
+beforeEach(async () => {
   useStore.setState({ appMode: 'image', sidebarExpanded: null })
   useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
-  act(() => root.render(<Sidebar />))
+  await act(async () => {
+    root.render(<Sidebar />)
+    await useCanvasProjectStore.getState().load()
+  })
 })
 
 afterEach(() => {
@@ -211,4 +214,30 @@ it('进入对话或画布都默认摊开宽栏', () => {
   act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
   expect(host.querySelectorAll('nav')).toHaveLength(2)
   expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('264px')
+})
+
+it('shows a catalog failure with a working retry instead of leaking an unhandled rejection', async () => {
+  await act(async () => {
+    await useCanvasProjectStore.getState().load()
+  })
+  act(() => root.unmount())
+  useCanvasProjectStore.setState({ loaded: false, error: null })
+  const read = vi
+    .spyOn(projectRepository, 'list')
+    .mockRejectedValueOnce(new DOMException('Temporarily unavailable', 'UnknownError'))
+  root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(<Sidebar />)
+    })
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('重新加载')
+    await act(async () => {
+      entry('重新加载').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await useCanvasProjectStore.getState().load()
+    })
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+    expect(useCanvasProjectStore.getState().loaded).toBe(true)
+  } finally {
+    read.mockRestore()
+  }
 })

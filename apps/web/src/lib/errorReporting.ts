@@ -13,6 +13,7 @@ import {
   CLIENT_ERRORS_PATH,
   type ClientErrorBatch,
   type ClientErrorKind,
+  type ClientErrorRecovery,
   type ClientErrorReport,
 } from '@image-playground/shared'
 import { BUILD_META_NAME } from '../boot/constants'
@@ -37,6 +38,8 @@ const IGNORED_MESSAGES = [/ResizeObserver loop/]
 
 let endpoint: string | null | undefined
 const pending: ClientErrorReport[] = []
+const recoveries: ClientErrorRecovery[] = []
+let reportedErrors = new WeakSet<Error>()
 const repeats = new Map<string, number>()
 let accepted = 0
 let flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -45,16 +48,107 @@ function clip(value: unknown, max: number): string | undefined {
   return typeof value === 'string' && value ? value.slice(0, max) : undefined
 }
 
-function describe(error: unknown): Pick<ClientErrorReport, 'name' | 'message' | 'stack'> {
-  if (error instanceof Error) {
-    return { name: error.name, message: error.message || error.name, stack: error.stack }
-  }
-  if (typeof error === 'string') return { message: error }
+function errorField(error: unknown, key: string): unknown {
   try {
-    return { message: JSON.stringify(error) ?? String(error) }
+    return error && typeof error === 'object' ? Reflect.get(error, key) : undefined
   } catch {
-    return { message: String(error) }
+    return undefined
   }
+}
+
+function describe(error: unknown): Pick<ClientErrorReport, 'name' | 'message' | 'stack'> {
+  // DOMException and cross-realm errors need not inherit this realm's Error.
+  const message = errorField(error, 'message')
+  const name = errorField(error, 'name')
+  if (typeof message === 'string') {
+    return {
+      name: clip(name, CLIENT_ERROR_LIMITS.name),
+      message: message || String(name ?? 'Error'),
+      stack: clip(errorField(error, 'stack'), CLIENT_ERROR_LIMITS.stack),
+    }
+  }
+  if (error !== null && (typeof error === 'object' || typeof error === 'function'))
+    return { message: 'Non-error rejection' }
+  return { message: String(error) }
+}
+
+/** Only diagnostic fields, bounded and cycle-safe; never serialize arbitrary error objects. */
+function errorCauses(error: unknown): Record<string, unknown>[] {
+  const causes: Record<string, unknown>[] = []
+  const seen = new Set<unknown>([error])
+  let current = errorField(error, 'cause')
+  while (current !== undefined && !seen.has(current) && causes.length < 4) {
+    seen.add(current)
+    const detail =
+      current && (typeof current === 'object' || typeof current === 'function')
+        ? {
+            name: clip(errorField(current, 'name'), 200),
+            message: clip(errorField(current, 'message'), 1000) ?? 'Non-error cause',
+            stack: clip(errorField(current, 'stack'), 1500),
+          }
+        : describe(current)
+    const status = errorField(current, 'status')
+    const code = errorField(current, 'code')
+    causes.push({
+      name: clip(detail.name, 200),
+      message: clip(detail.message, 1000),
+      stack: clip(detail.stack, 1500),
+      ...(typeof status === 'number' ? { status } : {}),
+      ...(typeof code === 'string' ? { code: clip(code, 200) } : {}),
+    })
+    current = errorField(current, 'cause')
+  }
+  return causes
+}
+
+/** Match the server's JSON character limit before queueing, not only the HTTP byte budget. */
+function boundedContext(
+  context: Record<string, unknown> | undefined,
+  causes: Record<string, unknown>[],
+  compactOnly = false,
+): Record<string, unknown> | undefined {
+  if (!context && !causes.length) return undefined
+  const fits = (candidate: Record<string, unknown>) => {
+    try {
+      return JSON.stringify(candidate).length <= CLIENT_ERROR_LIMITS.context
+    } catch {
+      return false
+    }
+  }
+  try {
+    if (!compactOnly) {
+      const full = causes.length ? { ...context, causes } : { ...context }
+      if (fits(full)) return full
+      const withoutStacks = causes.map(({ stack: _stack, ...cause }) => cause)
+      const compact = { ...context, ...(causes.length ? { causes: withoutStacks } : {}) }
+      if (fits(compact)) return compact
+    }
+  } catch {
+    // Enumerable accessors may throw while copying context, before JSON serialization.
+  }
+  // Arbitrary caller context may itself be too large or cyclic. Preserve bounded identity
+  // and the diagnostic allowlist rather than letting the server discard everything.
+  const essential = {
+    operation: clip(errorField(context, 'operation'), 80),
+    stage: clip(errorField(context, 'stage'), 80),
+    incidentId: clip(errorField(context, 'incidentId'), 64),
+    ...(typeof errorField(context, 'online') === 'boolean'
+      ? { online: errorField(context, 'online') }
+      : {}),
+    ...(causes.length
+      ? {
+          causes: (compactOnly ? causes.slice(-1) : causes).map((cause) => ({
+            name: clip(errorField(cause, 'name'), 200),
+            message: clip(errorField(cause, 'message'), 250),
+            code: clip(errorField(cause, 'code'), 200),
+            ...(typeof errorField(cause, 'status') === 'number'
+              ? { status: errorField(cause, 'status') }
+              : {}),
+          })),
+        }
+      : {}),
+  }
+  return fits(essential) ? essential : undefined
 }
 
 function currentRelease(): string | undefined {
@@ -71,15 +165,19 @@ export function reportClientError(
   kind: ClientErrorKind,
   error: unknown,
   context?: Record<string, unknown>,
-): void {
-  if (endpoint === null || accepted >= MAX_REPORTS_PER_PAGE) return
+): boolean {
+  if (endpoint === null || accepted >= MAX_REPORTS_PER_PAGE) return false
+  if (error instanceof Error && reportedErrors.has(error)) return false
   const described = describe(error)
-  if (IGNORED_MESSAGES.some((pattern) => pattern.test(described.message))) return
-  const key = `${kind}\u0000${described.name ?? ''}\u0000${described.message}`
+  if (IGNORED_MESSAGES.some((pattern) => pattern.test(described.message))) return false
+  const causes = errorCauses(error)
+  const key = `${kind}\u0000${described.name ?? ''}\u0000${described.message}\u0000${clip(errorField(context, 'stage'), 80) ?? ''}\u0000${causes.map((cause) => cause.name).join(':')}`
   const seen = repeats.get(key) ?? 0
-  if (seen >= MAX_REPEATS) return
+  if (seen >= MAX_REPEATS) return false
+  const diagnosticContext = boundedContext(context, causes)
   repeats.set(key, seen + 1)
   accepted += 1
+  if (error instanceof Error) reportedErrors.add(error)
   pending.push({
     kind,
     name: clip(described.name, CLIENT_ERROR_LIMITS.name),
@@ -87,9 +185,27 @@ export function reportClientError(
     stack: clip(described.stack, CLIENT_ERROR_LIMITS.stack),
     url: clip(currentUrl(), CLIENT_ERROR_LIMITS.url),
     release: currentRelease(),
-    context,
+    context: diagnosticContext,
   })
   scheduleFlush()
+  return true
+}
+
+/** Caller invokes the returned closure only after this same operation really succeeds. */
+export function reportRecoverableClientError(
+  error: Error,
+  context: Record<string, unknown> & { operation: ClientErrorRecovery['operation'] },
+): () => void {
+  const incidentId = crypto.randomUUID()
+  const operation = errorField(context, 'operation')
+  const recorded = reportClientError('error', error, { ...boundedContext(context, []), incidentId })
+  let recovered = false
+  return () => {
+    if (!recorded || recovered || endpoint === null || operation !== 'project.catalog') return
+    recovered = true
+    recoveries.push({ incidentId, operation })
+    scheduleFlush()
+  }
 }
 
 function scheduleFlush(): void {
@@ -131,10 +247,19 @@ export function flushClientErrors(): void {
     }
     batch = []
     queue.shift()
-    // 单条就超限（超长的 context、满是中文的栈）：依次去掉 context、缩短栈，保住错误本身。
+    // 单条超限先缩短栈，尽量保住原始原因与恢复标识；context 自身过大时才丢弃。
     const slimmed = [
       report,
-      { ...report, context: undefined },
+      { ...report, stack: report.stack?.slice(0, 2000) },
+      {
+        ...report,
+        stack: report.stack?.slice(0, 500),
+        context: boundedContext(
+          report.context,
+          Array.isArray(report.context?.causes) ? report.context.causes : [],
+          true,
+        ),
+      },
       { ...report, context: undefined, stack: report.stack?.slice(0, 2000) },
     ].find((candidate) => fits(encode([candidate])))
     if (slimmed) batch = [slimmed]
@@ -142,6 +267,24 @@ export function flushClientErrors(): void {
   if (batch.length > 0 && !sendBatch(batch)) {
     pending.unshift(...batch)
     scheduleFlush()
+    return
+  }
+  // Use the same keepalive budget as errors; a recovery can arrive before its error on the wire.
+  while (recoveries.length) {
+    const next = recoveries.slice(0, CLIENT_ERROR_LIMITS.batch)
+    const body = JSON.stringify({
+      deviceId,
+      errors: [],
+      recoveries: next,
+    } satisfies ClientErrorBatch)
+    const size = encoder.encode(body).byteLength
+    if (size > budget) {
+      scheduleFlush()
+      return
+    }
+    budget -= size
+    recoveries.splice(0, next.length)
+    send(endpoint, body)
   }
 }
 
@@ -168,10 +311,11 @@ export function configureErrorReporting(baseUrl: string | null): void {
   if (baseUrl === null) {
     endpoint = null
     pending.length = 0
+    recoveries.length = 0
     return
   }
   endpoint = `${baseUrl.replace(/\/+$/, '')}${CLIENT_ERRORS_PATH}`
-  if (pending.length > 0) scheduleFlush()
+  if (pending.length > 0 || recoveries.length > 0) scheduleFlush()
 }
 
 export function installErrorReporting(target: Window = window): void {
@@ -192,6 +336,8 @@ export function installErrorReporting(target: Window = window): void {
 export function _resetErrorReportingForTesting(): void {
   endpoint = undefined
   pending.length = 0
+  recoveries.length = 0
+  reportedErrors = new WeakSet()
   repeats.clear()
   accepted = 0
   if (flushTimer !== undefined) clearTimeout(flushTimer)
