@@ -3,6 +3,7 @@ import {
   CLIENT_ERROR_KINDS,
   CLIENT_ERROR_LIMITS,
   type ClientErrorKind,
+  type ClientErrorRecovery,
   type ClientErrorReport,
 } from '@image-playground/shared'
 import { inArray, lt } from 'drizzle-orm'
@@ -13,6 +14,7 @@ export const CLIENT_ERROR_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 export interface ParsedClientErrorBatch {
   deviceId: string | null
   errors: ClientErrorReport[]
+  recoveries: ClientErrorRecovery[]
 }
 
 const KINDS = new Set<string>(CLIENT_ERROR_KINDS)
@@ -58,7 +60,11 @@ export function parseClientErrorBatch(raw: string): ParsedClientErrorBatch | nul
     return null
   }
   if (!body || typeof body !== 'object') return null
-  const { deviceId, errors } = body as { deviceId?: unknown; errors?: unknown }
+  const { deviceId, errors, recoveries } = body as {
+    deviceId?: unknown
+    errors?: unknown
+    recoveries?: unknown
+  }
   if (!Array.isArray(errors)) return null
   const device = typeof deviceId === 'string' && /^[\w-]{8,64}$/.test(deviceId) ? deviceId : null
   const parsed: ClientErrorReport[] = []
@@ -77,7 +83,23 @@ export function parseClientErrorBatch(raw: string): ParsedClientErrorBatch | nul
       context: clipContext(entry.context),
     })
   }
-  return { deviceId: device, errors: parsed }
+  const recovered: ClientErrorRecovery[] = []
+  if (device && Array.isArray(recoveries)) {
+    for (const item of recoveries.slice(0, CLIENT_ERROR_LIMITS.batch)) {
+      if (!item || typeof item !== 'object') continue
+      const entry = item as Record<string, unknown>
+      if (
+        entry.operation !== 'project.catalog' ||
+        typeof entry.incidentId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          entry.incidentId,
+        )
+      )
+        continue
+      recovered.push({ incidentId: entry.incidentId, operation: entry.operation })
+    }
+  }
+  return { deviceId: device, errors: parsed, recoveries: recovered }
 }
 
 /** 把每次都会变的部分（数字、ID、地址）换成占位符，同一类错误才能落进同一组。 */
@@ -112,6 +134,15 @@ export function clientErrorFingerprint(report: ClientErrorReport): string {
     report.kind === 'boot'
       ? [report.kind, report.message]
       : [report.kind, report.name ?? '', normalizeMessage(report.message), topFrame(report.stack)]
+  if (report.context?.operation === 'project.catalog') {
+    const causes = report.context.causes
+    const cause = Array.isArray(causes) ? causes.at(-1) : undefined
+    parts.push(
+      String(report.context.stage ?? ''),
+      String(cause?.name ?? ''),
+      String(cause?.code ?? ''),
+    )
+  }
   return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16)
 }
 
@@ -147,6 +178,25 @@ export async function recordClientErrors(
   )
 }
 
+export async function recordClientErrorRecoveries(
+  recoveries: readonly ClientErrorRecovery[],
+  meta: ClientErrorMeta,
+  now = Date.now(),
+): Promise<void> {
+  if (!meta.deviceId || !recoveries.length) return
+  const deviceId = meta.deviceId
+  await db.insert(schema.client_error_recoveries).values(
+    recoveries.map((recovery) => ({
+      id: randomUUID(),
+      incident_id: recovery.incidentId,
+      operation: recovery.operation,
+      received_at: now,
+      device_id: deviceId,
+      user_id: meta.userId,
+    })),
+  )
+}
+
 const PURGE_BATCH = 5000
 /** 一轮最多删这么多批，积压留给下一轮，不拖住同一维护循环里的其他步骤。 */
 const PURGE_BATCHES_PER_ROUND = 10
@@ -168,6 +218,18 @@ export async function purgeOldClientErrors(
       .where(inArray(schema.client_errors.id, expired))
       .returning({ id: schema.client_errors.id })
     removed += rows.length
+    if (rows.length < PURGE_BATCH) break
+  }
+  const expiredRecoveries = db
+    .select({ id: schema.client_error_recoveries.id })
+    .from(schema.client_error_recoveries)
+    .where(lt(schema.client_error_recoveries.received_at, now - retentionMs))
+    .limit(PURGE_BATCH)
+  for (let round = 0; round < PURGE_BATCHES_PER_ROUND; round += 1) {
+    const rows = await db
+      .delete(schema.client_error_recoveries)
+      .where(inArray(schema.client_error_recoveries.id, expiredRecoveries))
+      .returning({ id: schema.client_error_recoveries.id })
     if (rows.length < PURGE_BATCH) break
   }
   return removed
