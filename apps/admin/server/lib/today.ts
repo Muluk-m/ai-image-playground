@@ -14,7 +14,7 @@ import {
   todayWindow,
 } from '../../contracts'
 import { getDbHandle } from './db'
-import { errorRecoveryJoins } from './error-recovery'
+import { errorRecoveryJoins, tunnelRecoveryEvents } from './error-recovery'
 import { mapTaskListItem } from './queries'
 import { effectiveLogLevel } from './server-logs'
 
@@ -165,7 +165,7 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   const recentWindow = { from: now - 15 * 60_000, to: now }
   const scanFrom = new Date(Math.min(window.from, recentWindow.from))
   const rows = (await getDbHandle().db.execute(sql`
-    WITH errors AS (
+    WITH ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
       SELECT 'server' AS source, id, at, service, instance, event, message, task_id, request_id, group_key AS "group",
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields
       FROM server_logs

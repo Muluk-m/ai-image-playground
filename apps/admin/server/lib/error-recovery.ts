@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm'
 
+/** Parse reconnect records once per window, including when many errors have no later success. */
+export function tunnelRecoveryEvents(from: Date, now: number) {
+  return sql`tunnel_reconnections AS MATERIALIZED (
+    SELECT instance, at, id, substring(message from 'connIndex=([0-9]+)') AS conn_index
+    FROM server_logs
+    WHERE service = 'cloudflared' AND at >= ${from} AND at <= ${new Date(now)}
+      AND message LIKE '% INF Registered tunnel connection %'
+  )`
+}
+
 /** Recovery requires the same task or tunnel connection; silence and unrelated successes prove nothing. */
 export function errorRecoveryJoins(now: number) {
   return sql`
@@ -23,12 +33,11 @@ export function errorRecoveryJoins(now: number) {
         AND substring(related.message from 'error="([^"]+)"') = substring(errors.message from 'error="([^"]+)"')
     ) connection ON true
     LEFT JOIN LATERAL (
-      SELECT registered.at FROM server_logs registered
+      SELECT registered.at FROM tunnel_reconnections registered
       WHERE connection.conn_index IS NOT NULL
-        AND registered.service = 'cloudflared' AND registered.instance = errors.instance
-        AND registered.at > GREATEST(errors.at, connection.warning_at) AND registered.at <= ${new Date(now)}
-        AND registered.message LIKE '% INF Registered tunnel connection %'
-        AND substring(registered.message from 'connIndex=([0-9]+)') = connection.conn_index
+        AND registered.instance = errors.instance
+        AND registered.at > GREATEST(errors.at, connection.warning_at)
+        AND registered.conn_index = connection.conn_index
       ORDER BY registered.at ASC, registered.id ASC LIMIT 1
     ) reconnected ON true
   `

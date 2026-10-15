@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { sql } from 'drizzle-orm'
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
@@ -180,6 +181,30 @@ describe('evidence-backed error recovery', () => {
       id: 'task-recovered',
       recovery: { recoveredAt: at + 1000 },
     })
+  })
+
+  it('keeps repeated failures unknown amid a large window of unrelated tunnel logs', async () => {
+    const end = now + 5 * 86400_000
+    const start = end - 6 * 3600_000
+    await writer.db.execute(sql`
+      INSERT INTO server_logs (id, at, service, instance, level, version, message, fields, group_key)
+      SELECT 'load-failure-' || i, ${new Date(start)}::timestamptz + i * interval '10 seconds',
+        'cloudflared', 'load-tunnel', 'error', '', ${`2026-10-20T00:00:00Z ${failure}`}, '{}'::jsonb, 'load'
+      FROM generate_series(1, 1000) i
+      UNION ALL
+      SELECT 'load-warning-' || i, ${new Date(start)}::timestamptz + i * interval '10 seconds' + interval '100 milliseconds',
+        'cloudflared', 'load-tunnel', 'warn', '', ${`2026-10-20T00:00:00Z ${warning} connIndex=0`}, '{}'::jsonb, 'load'
+      FROM generate_series(1, 1000) i
+      UNION ALL
+      SELECT 'load-noise-' || i, ${new Date(start)}::timestamptz + i * interval '200 milliseconds',
+        'cloudflared', 'load-tunnel', 'info', '', 'INF unrelated tunnel message', '{}'::jsonb, 'load'
+      FROM generate_series(1, 50000) i
+    `)
+    const data = await getTodayErrors(end)
+    expect(data.total).toBe(1000)
+    expect(data.recovery?.unknown.total).toBe(1000)
+    expect(data.recovery?.unknown.entries).toHaveLength(10)
+    expect(data.recovery?.recovered.total).toBe(0)
   })
 
   it('can recover an error across midnight while counting it only in the recent window', async () => {
