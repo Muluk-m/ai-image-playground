@@ -1142,13 +1142,19 @@ it('lays four generated images in one row with meta tags, hover tools and a wide
     expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('2K')
     expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('1:1')
     expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('4 张')
-    expect(host.querySelector('button[aria-label="全部下载"]')).toBeTruthy()
+    expect(host.querySelectorAll('button[aria-label="全部下载"]')).toHaveLength(1)
+    expect(host.querySelector('button[aria-label="下载"]')).toBeNull()
     expect(host.querySelector('button[aria-label="再次生成"]')).toBeTruthy()
+    expect(host.querySelector('button[aria-label="复制提示词"]')).toBeTruthy()
+    expect(host.querySelector('button[aria-label="更多操作"]')).toBeTruthy()
     const tileTools = host.querySelectorAll('button[aria-label="去背景"]')
     expect(tileTools).toHaveLength(4)
-    expect(host.querySelector('button[aria-label="局部重绘"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="扩图"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="用作参考"]')).toBeTruthy()
+    for (const label of ['用作参考', '局部重绘', '扩图', '去背景', '在画布中编辑']) {
+      const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+      expect(button, label).toBeTruthy()
+      expect(button.getAttribute('aria-label')).toBe(label)
+      expect(button.hasAttribute('data-tooltip-trigger')).toBe(true)
+    }
     cutout.run.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="去背景"]')!.click())
     expect(cutout.run).toHaveBeenCalledWith(

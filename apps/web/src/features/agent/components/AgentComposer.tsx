@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select'
+import { Hint } from '../../../components/ui/tooltip'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import {
@@ -280,6 +281,7 @@ function QuantityStepper() {
   const count = useStore((state) => state.params.n)
   const setParams = useStore((state) => state.setParams)
   const value = Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(count) || 1))
+  const summary = t('composer.quantityValue', { count: value })
   return (
     <div className="creation-quantity" role="group" aria-label={t('composer.quantity')}>
       <Button
@@ -287,17 +289,21 @@ function QuantityStepper() {
         variant="ghost"
         size="icon-sm"
         aria-label={t('composer.quantityDecrease')}
+        title={t('composer.quantityDecrease')}
         disabled={value <= 1}
         onClick={() => setParams({ n: value - 1 })}
       >
         −
       </Button>
-      <span>{value}</span>
+      <Hint tooltip={summary}>
+        <span tabIndex={0}>{value}</span>
+      </Hint>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
         aria-label={t('composer.quantityIncrease')}
+        title={t('composer.quantityIncrease')}
         disabled={value >= AGENT_IMAGE_MAX_N}
         onClick={() => setParams({ n: value + 1 })}
       >
