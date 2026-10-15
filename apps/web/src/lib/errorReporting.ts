@@ -82,7 +82,14 @@ function errorCauses(error: unknown): Record<string, unknown>[] {
   let current = errorField(error, 'cause')
   while (current !== undefined && !seen.has(current) && causes.length < 4) {
     seen.add(current)
-    const detail = describe(current)
+    const detail =
+      current && typeof current === 'object'
+        ? {
+            name: clip(errorField(current, 'name'), 200),
+            message: clip(errorField(current, 'message'), 1000) ?? 'Non-error cause',
+            stack: clip(errorField(current, 'stack'), 1500),
+          }
+        : describe(current)
     const status = errorField(current, 'status')
     const code = errorField(current, 'code')
     causes.push({
@@ -95,6 +102,45 @@ function errorCauses(error: unknown): Record<string, unknown>[] {
     current = errorField(current, 'cause')
   }
   return causes
+}
+
+/** Match the server's JSON character limit before queueing, not only the HTTP byte budget. */
+function boundedContext(
+  context: Record<string, unknown> | undefined,
+  causes: Record<string, unknown>[],
+): Record<string, unknown> | undefined {
+  if (!context && !causes.length) return undefined
+  const fits = (candidate: Record<string, unknown>) => {
+    try {
+      return JSON.stringify(candidate).length <= CLIENT_ERROR_LIMITS.context
+    } catch {
+      return false
+    }
+  }
+  const full = causes.length ? { ...context, causes } : { ...context }
+  if (fits(full)) return full
+  const withoutStacks = causes.map(({ stack: _stack, ...cause }) => cause)
+  const compact = { ...context, ...(causes.length ? { causes: withoutStacks } : {}) }
+  if (fits(compact)) return compact
+  // Arbitrary caller context may itself be too large or cyclic. Preserve bounded identity
+  // and the diagnostic allowlist rather than letting the server discard everything.
+  const essential = {
+    operation: clip(context?.operation, 80),
+    stage: clip(context?.stage, 80),
+    incidentId: clip(context?.incidentId, 64),
+    ...(typeof context?.online === 'boolean' ? { online: context.online } : {}),
+    ...(causes.length
+      ? {
+          causes: causes.map((cause) => ({
+            name: clip(cause.name, 100),
+            message: clip(cause.message, 250),
+            code: clip(cause.code, 100),
+            status: cause.status,
+          })),
+        }
+      : {}),
+  }
+  return fits(essential) ? essential : undefined
 }
 
 function currentRelease(): string | undefined {
@@ -130,7 +176,7 @@ export function reportClientError(
     stack: clip(described.stack, CLIENT_ERROR_LIMITS.stack),
     url: clip(currentUrl(), CLIENT_ERROR_LIMITS.url),
     release: currentRelease(),
-    context: causes.length ? { ...context, causes } : context,
+    context: boundedContext(context, causes),
   })
   scheduleFlush()
   return true
