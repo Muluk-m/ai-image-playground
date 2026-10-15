@@ -4,6 +4,7 @@ import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImagePreview } from '../../../components/Lightbox'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -391,9 +392,7 @@ export default function AgentArtifactPane({
             </span>
           )}
         </div>
-        <p className="studio-artifact-pane-caption" title={message.title}>
-          {message.title}
-        </p>
+        <OverflowText as="p" text={message.title} className="studio-artifact-pane-caption" />
         {message.prompt && (
           <section className="studio-artifact-pane-prompt">
             <div>

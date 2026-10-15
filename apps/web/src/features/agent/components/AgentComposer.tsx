@@ -33,6 +33,7 @@ import SuggestionMenu, {
 } from '../../../components/SuggestionMenu'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import {
   Select,
   SelectContent,
@@ -68,7 +69,7 @@ import {
   readAttachmentUpload,
   readLocalAttachment,
 } from '../../../lib/localAttachmentSources'
-import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
+import { getAtImageQuery } from '../../../lib/promptImageMentions'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
 import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
@@ -117,6 +118,7 @@ import {
 import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
 import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
+import { referenceTileLabel } from '../lib/imageMentions'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
@@ -625,9 +627,9 @@ export default function AgentComposer({
     commandLabel: skillInvocation?.skill.title,
     commandChip: skillInvocation && <AgentSkillBadge skill={skillInvocation.skill} />,
     parseCommand: getSlashSkillQuery,
-    renderMention: (imageIndex) => {
+    renderMention: (imageIndex, label) => {
       const reference = draft.references[imageIndex]
-      if (!reference) return null
+      if (!reference || !label) return null
       const mentionUpload = attachmentUploadState(uploadReference(reference))
       return (
         <>
@@ -637,9 +639,7 @@ export default function AgentComposer({
             failed={mentionUpload === 'failed'}
             className="h-6 w-6 shrink-0 rounded object-cover"
           />
-          {referenceNames[imageIndex] && (
-            <span className="max-w-36 truncate">{referenceNames[imageIndex]}</span>
-          )}
+          <span className="max-w-36 truncate">{label}</span>
         </>
       )
     },
@@ -1036,9 +1036,7 @@ export default function AgentComposer({
           className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-xs"
         >
           <span className={`shrink-0 text-label-sm ${INK_3}`}>{t('draft.unsent')}</span>
-          <span className={`min-w-0 flex-1 truncate ${INK}`} title={unsent.prompt}>
-            {unsent.prompt}
-          </span>
+          <OverflowText text={unsent.prompt} className={`min-w-0 flex-1 truncate ${INK}`} />
           {unsent.references.length > 0 && (
             <span className={`shrink-0 text-label-sm ${INK_3}`}>
               {t('queue.references', { count: unsent.references.length })}
@@ -1095,17 +1093,19 @@ export default function AgentComposer({
               failed={Boolean(failedReference)}
               uploading={uploadingCount > 0}
               status={referenceStatus}
-              previews={draft.references
-                .slice(-3)
-                .map((reference) => (
+              previews={draft.references.slice(-3).map((reference, offset) => {
+                const index =
+                  draft.references.length - Math.min(draft.references.length, 3) + offset
+                return (
                   <ComposerAttachmentThumb
                     key={reference.id}
                     src={reference.dataUrl}
                     className="h-full w-full object-cover"
                     frameClassName="h-full w-full"
-                    alt={reference.name ?? ''}
+                    alt={referenceTileLabel(index, reference.name, reference.id)}
                   />
-                ))}
+                )
+              })}
               add={
                 <Button
                   variant="ghost"
@@ -1160,7 +1160,12 @@ export default function AgentComposer({
                       !attachmentUploadState(uploadReference(reference))
                     )
                       return null
-                    const label = referenceNames[index] ?? getImageMentionLabel(index)
+                    const label = referenceTileLabel(
+                      index,
+                      reference.name,
+                      reference.id,
+                      referenceNames[index],
+                    )
                     const masked = Boolean(reference.maskDataUrl)
                     const uploadState = attachmentUploadState(uploadReference(reference))
                     const uploadError = attachmentUploadError(uploadReference(reference))

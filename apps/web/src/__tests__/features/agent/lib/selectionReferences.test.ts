@@ -144,7 +144,7 @@ describe('跟着画布选区走的引用', () => {
     selection.follow(doc, draft.update)
     // 用户接着 `@` 了这张自动带进来的图。
     draft.update((current) => attachReference(current, current.references[0]!, 0, 0).draft)
-    expect(visible(draft.current)).toBe('@图1')
+    expect(visible(draft.current)).toBe('图片 1')
 
     doc.setSelection([])
     selection.follow(doc, draft.update)

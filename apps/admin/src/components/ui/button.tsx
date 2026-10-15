@@ -5,6 +5,18 @@ import * as React from 'react'
 import { cn } from '../../lib/utils'
 import { Hint } from './tooltip'
 
+/** 按钮里已经有可见文字时，aria-label 只留给读屏，不再变成悬停提示。 */
+function hasVisibleText(node: React.ReactNode): boolean {
+  if (node == null || typeof node === 'boolean') return false
+  if (typeof node === 'string' || typeof node === 'number') return String(node).trim() !== ''
+  if (Array.isArray(node)) return node.some(hasVisibleText)
+  if (!React.isValidElement(node)) return false
+  const props = node.props as { children?: React.ReactNode; className?: unknown }
+  const className = typeof props.className === 'string' ? props.className : ''
+  if (className.split(/\s+/).includes('sr-only')) return false
+  return hasVisibleText(props.children)
+}
+
 const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
@@ -52,7 +64,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, autoTooltip = true, title, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
     const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
-    const label = title || props['aria-label']
+    // 纯图标才用 aria-label 做提示。有可见文字时只认调用方显式传入的 title
+    //（溢出后的完整文字、禁用原因），不要把读屏名称再弹一层。
+    const label = title || (hasVisibleText(props.children) ? undefined : props['aria-label'])
     const button = (
       <Comp
         className={cn(

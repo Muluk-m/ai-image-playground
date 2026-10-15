@@ -9,6 +9,7 @@ import {
 } from '../../../components/assistant-ui/elements/video-player'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -237,12 +238,11 @@ export default function AgentVideoToolCard({
       )}
       <div className={cn('flex min-w-0 flex-col', hasMedia ? 'gap-2 px-3 pb-2 pt-2.5' : 'gap-3')}>
         {hasMedia ? (
-          <p
+          <OverflowText
+            as="p"
+            text={message.title}
             className="line-clamp-2 break-words text-body-sm font-semibold leading-normal"
-            title={message.title}
-          >
-            {message.title}
-          </p>
+          />
         ) : message.status !== 'failed' || message.errorCode === 'cancelled' ? (
           <div className="flex items-start gap-2 text-sm font-medium">
             <Icon name="video" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

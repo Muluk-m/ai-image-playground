@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 
 import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
@@ -211,9 +212,10 @@ const WorkCard = memo(function WorkCard({
           </span>
         </div>
       )}
-      <span className="block truncate px-2.5 pb-1 pt-2 text-label-sm text-foreground" title={name}>
-        {name}
-      </span>
+      <OverflowText
+        text={name}
+        className="block truncate px-2.5 pb-1 pt-2 text-label-sm text-foreground"
+      />
       {element.type === 'image' && element.naturalWidth && element.naturalHeight && (
         <span className="block px-2.5 pb-2 text-label-sm text-muted-foreground tabular-nums">
           {element.naturalWidth} × {element.naturalHeight}
@@ -283,9 +285,11 @@ export default function AgentCreations({
       {groups.map((group) => (
         <section key={group.id} aria-label={group.title}>
           <div className="mb-2.5 flex items-start justify-between gap-2">
-            <h3 className="line-clamp-2 text-xs font-medium text-foreground" title={group.title}>
-              {group.title}
-            </h3>
+            <OverflowText
+              as="h3"
+              text={group.title}
+              className="line-clamp-2 text-xs font-medium text-foreground"
+            />
             <span className="shrink-0 text-label-sm text-muted-foreground">
               {t('creations.itemCount', { count: group.items.length })}
             </span>
