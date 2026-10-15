@@ -164,3 +164,65 @@ it('retains diagnosis and recovery identity when a multibyte stack exceeds the p
   expect(sent?.body.errors[0].context.causes[0].name).toBe('UnknownError')
   expect(sendBeacon.mock.calls[0]?.[1].size).toBeLessThanOrEqual(24 * 1024)
 })
+
+it('does not upload arbitrary properties of an object cause without a message', async () => {
+  configureErrorReporting('')
+  const cause = {
+    token: 'private-token',
+    response: { body: 'private-response' },
+    name: 'RemoteFailure',
+    status: 502,
+    code: 'bad_gateway',
+  }
+  reportClientError('error', Object.assign(new Error('Failed'), { cause }))
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  expect(sent?.body.errors[0].context.causes).toEqual([
+    { name: 'RemoteFailure', message: 'Non-error cause', status: 502, code: 'bad_gateway' },
+  ])
+  expect(JSON.stringify(sent?.body)).not.toContain('private-')
+})
+
+it('bounds escaped cause chains to the server context limit while retaining recovery identity', async () => {
+  configureErrorReporting('')
+  let cause: unknown
+  for (let i = 0; i < 4; i++)
+    cause = Object.assign(new Error('\\'.repeat(1000)), { cause, stack: '\n'.repeat(1500) })
+  const recovered = reportRecoverableClientError(
+    Object.assign(new Error('catalog failed'), { cause }),
+    { operation: 'project.catalog', stage: 'read-local' },
+  )
+  flushClientErrors()
+  recovered()
+  flushClientErrors()
+  const [failure, success] = await sentBodies()
+  const context = failure?.body.errors[0].context
+  expect(JSON.stringify(context).length).toBeLessThanOrEqual(16 * 1024)
+  expect(context).toMatchObject({
+    operation: 'project.catalog',
+    stage: 'read-local',
+    incidentId: expect.any(String),
+  })
+  expect(context.causes).toHaveLength(4)
+  expect(success?.body.recoveries[0].incidentId).toBe(context.incidentId)
+})
+
+it('retains incident identity when unrelated context is oversized or cyclic', async () => {
+  configureErrorReporting('')
+  const extra: Record<string, unknown> = { text: 'x'.repeat(20 * 1024) }
+  extra.self = extra
+  reportRecoverableClientError(
+    Object.assign(new Error('failed'), { cause: new Error('original') }),
+    { operation: 'project.catalog', stage: 'read-local', extra },
+  )
+  flushClientErrors()
+  const [sent] = await sentBodies()
+  const context = sent?.body.errors[0].context
+  expect(JSON.stringify(context).length).toBeLessThanOrEqual(16 * 1024)
+  expect(context).toMatchObject({
+    operation: 'project.catalog',
+    stage: 'read-local',
+    incidentId: expect.any(String),
+    causes: [{ name: 'Error', message: 'original' }],
+  })
+})
