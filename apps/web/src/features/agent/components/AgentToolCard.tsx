@@ -1018,12 +1018,6 @@ function StandardAgentToolCard({
                   onClick={() => onViewCanvas([tile.id])}
                 />
               )}
-              <TileTool
-                label={t('tool.downloadResult')}
-                icon="download"
-                disabled={downloading.has(tile.id)}
-                onClick={() => void downloadTile(tile)}
-              />
             </>
           ) : (
             <>
