@@ -16,9 +16,17 @@ export async function readAgentModelSettings() {
     .select()
     .from(schema.agent_model_settings)
     .where(eq(schema.agent_model_settings.id, 'agent'))
-  return row
-    ? { revision: row.revision, settings: row.settings }
-    : { revision: 0, settings: defaultAgentModelSettings() }
+  if (!row) return { revision: 0, settings: defaultAgentModelSettings() }
+  try {
+    return { revision: row.revision, settings: validateAgentModelSettings(row.settings) }
+  } catch (error) {
+    if (!(error instanceof AgentSettingsError)) throw error
+    return {
+      revision: row.revision,
+      settings: defaultAgentModelSettings(),
+      validationError: `保存的模型配置无效：${error.message}。当前显示默认配置，修复并保存后才能继续对话。`,
+    }
+  }
 }
 
 export async function agentModelSettingsView(): Promise<AgentModelSettingsView> {
@@ -79,6 +87,7 @@ export async function saveAgentModelSettings(body: unknown, operator: string): P
 }
 
 export async function resolveConfiguredAgentRuntime(depth?: AgentThinkingDepth) {
-  const { settings } = await readAgentModelSettings()
-  return configuredAgentRuntime(settings, depth)
+  const current = await readAgentModelSettings()
+  if (current.validationError) throw new AgentSettingsError(current.validationError, 503)
+  return configuredAgentRuntime(current.settings, depth)
 }

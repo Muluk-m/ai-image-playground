@@ -1,6 +1,7 @@
 import {
   AGENT_PROFILE_KEYS,
   AGENT_PROVIDER_APIS,
+  AGENT_PROVIDER_SECRET_REFS,
   type AgentConfiguredModel,
   type AgentModelSettings,
   type AgentModelSettingsView,
@@ -103,12 +104,13 @@ export function AgentModelSettingsForm({
   error,
 }: {
   initial: AgentModelSettingsView
-  save: (settings: AgentModelSettings) => Promise<void>
+  save: (settings: AgentModelSettings, revision: number) => Promise<AgentModelSettingsView | void>
   pending: boolean
   error: string | null
 }) {
+  const [baseline, setBaseline] = useState(initial)
   const [settings, setSettings] = useState(() => structuredClone(initial.settings))
-  const dirty = JSON.stringify(settings) !== JSON.stringify(initial.settings)
+  const dirty = JSON.stringify(settings) !== JSON.stringify(baseline.settings)
   function updateProvider(index: number, next: AgentProviderSettings) {
     setSettings((current) => ({
       ...current,
@@ -123,17 +125,51 @@ export function AgentModelSettingsForm({
         ?.models.map((model) => [model.id, model]),
     )
     for (const model of provider.models) models.set(model.id, model)
-    return [...models.values()]
+    return [...models.values()].filter((model) => model.imageInput)
+  }
+  const invalidProfiles = AGENT_PROFILE_KEYS.filter((key) => {
+    const profile = settings.profiles[key]
+    const provider = settings.providers.find((item) => item.id === profile.providerId)
+    const model = modelsFor(provider).find((item) => item.id === profile.modelId)
+    return !model || !model.reasoningLevels.includes(profile.reasoning)
+  })
+  function discard() {
+    setBaseline(initial)
+    setSettings(structuredClone(initial.settings))
+  }
+  async function submit() {
+    if (invalidProfiles.length) return
+    const saved = await save(settings, baseline.revision)
+    if (saved) {
+      setBaseline(saved)
+      setSettings(structuredClone(saved.settings))
+    }
   }
   return (
     <form
       className="space-y-6"
       onSubmit={(event) => {
         event.preventDefault()
-        void save(settings)
+        void submit()
       }}
     >
       <fieldset disabled={pending} className="space-y-6">
+        {initial.validationError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {initial.validationError}
+          </p>
+        ) : null}
+        {initial.revision !== baseline.revision ? (
+          <p role="status" className="text-sm text-destructive">
+            服务器配置已有新版本，当前草稿已保留。请先放弃修改并载入新配置，再重新编辑。
+          </p>
+        ) : null}
+        {invalidProfiles.length ? (
+          <p role="alert" className="text-sm text-destructive">
+            请重新选择以下档位的模型和推理强度：
+            {invalidProfiles.map((key) => DEPTH_LABELS[key]).join('、')}。模型必须支持图片输入。
+          </p>
+        ) : null}
         <section className="space-y-4 rounded-lg border p-4">
           <div>
             <h2 className="font-semibold">产品档位</h2>
@@ -207,7 +243,9 @@ export function AgentModelSettingsForm({
             <h2 className="font-semibold">Provider 接入</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               从 Pi 厂商目录选择模型，或添加自定义 API
-              与模型。密钥填服务端环境变量名，真实密钥由部署环境管理。
+              与模型。仅显示支持图片输入的模型，确保视觉工具可用。密钥使用专用环境变量名，真实密钥由部署环境管理。
+              支持的密钥引用：{AGENT_PROVIDER_SECRET_REFS.join('、')}，或
+              AGENT_PROVIDER_名称_API_KEY。
             </p>
           </div>
           {settings.providers.map((provider, index) => (
@@ -263,15 +301,23 @@ export function AgentModelSettingsForm({
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-          <Button type="submit" disabled={!dirty || pending}>
+          <Button
+            type="submit"
+            disabled={
+              (!dirty && !initial.validationError) ||
+              pending ||
+              invalidProfiles.length > 0 ||
+              initial.revision !== baseline.revision
+            }
+          >
             <Save className="mr-2 size-4" />
             {pending ? '保存中…' : '保存配置'}
           </Button>
           <Button
             type="button"
             variant="outline"
-            disabled={!dirty || pending}
-            onClick={() => setSettings(structuredClone(initial.settings))}
+            disabled={(!dirty && initial.revision === baseline.revision) || pending}
+            onClick={discard}
           >
             放弃修改
           </Button>

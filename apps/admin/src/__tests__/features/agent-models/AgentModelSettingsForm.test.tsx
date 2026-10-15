@@ -81,3 +81,46 @@ it('lets operators add a model draft and retains edits when saving fails', () =>
     'EXAMPLE_API_KEY',
   )
 })
+
+it('retains a draft when a refreshed server revision arrives, until explicitly discarded', () => {
+  const initial = fixture()
+  const save = vi.fn(async () => {})
+  const rendered = render(
+    <AgentModelSettingsForm initial={initial} save={save} pending={false} error={null} />,
+  )
+  fireEvent.change(screen.getByRole('textbox', { name: 'example · 名称' }), {
+    target: { value: 'My draft' },
+  })
+  const newer = structuredClone(initial)
+  newer.revision++
+  newer.settings.providers[0]!.name = 'Server edit'
+  rendered.rerender(
+    <AgentModelSettingsForm initial={newer} save={save} pending={false} error={null} />,
+  )
+  expect(screen.getByRole('textbox', { name: 'example · 名称' })).toHaveValue('My draft')
+  expect(screen.getByRole('status')).toHaveTextContent('当前草稿已保留')
+  expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '放弃修改' }))
+  expect(screen.getByRole('textbox', { name: 'example · 名称' })).toHaveValue('Server edit')
+})
+
+it('identifies every broken depth after a provider template change and prevents saving', async () => {
+  const initial = fixture()
+  initial.templates.push({
+    id: 'anthropic',
+    name: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    models: [],
+  })
+  initial.templates[0]!.models = initial.settings.providers[0]!.models
+  initial.settings.providers[0]!.models = []
+  render(
+    <AgentModelSettingsForm initial={initial} save={async () => {}} pending={false} error={null} />,
+  )
+  fireEvent.keyDown(screen.getByRole('combobox', { name: 'example · Pi Provider' }), {
+    key: 'ArrowDown',
+  })
+  fireEvent.click(await screen.findByRole('option', { name: 'Anthropic' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('默认、快速、普通、深度')
+  expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled()
+})

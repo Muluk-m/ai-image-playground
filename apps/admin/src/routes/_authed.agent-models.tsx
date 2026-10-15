@@ -18,9 +18,9 @@ function AgentModelsPage() {
   })
   const [saved, setSaved] = useState(false)
   const update = useMutation({
-    mutationFn: (settings: AgentModelSettings) =>
+    mutationFn: ({ settings, revision }: { settings: AgentModelSettings; revision: number }) =>
       apiClient.put<AgentModelSettingsView>('/api/agent-models', {
-        revision: query.data?.revision,
+        revision,
         settings,
       }),
     onSuccess: (data) => {
@@ -51,14 +51,13 @@ function AgentModelsPage() {
             </p>
           ) : null}
           <AgentModelSettingsForm
-            key={query.data.revision}
             initial={query.data}
             pending={update.isPending}
             error={error}
-            save={async (settings) => {
+            save={async (settings, revision) => {
               setSaved(false)
               try {
-                await update.mutateAsync(settings)
+                return await update.mutateAsync({ settings, revision })
               } catch {
                 /* The mutation error is rendered above the save button. */
               }
