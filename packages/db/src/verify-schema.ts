@@ -41,6 +41,7 @@ export const EXPECTED_TABLES = [
   'operator_audits',
   'api_minutes',
   'client_errors',
+  'client_error_recoveries',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -61,6 +62,9 @@ export const EXPECTED_TABLES = [
 
 export const EXPECTED_INDEXES = [
   'agent_model_settings_pkey',
+  'client_error_recoveries_pkey',
+  'idx_client_error_recoveries_incident',
+  'idx_client_error_recoveries_received',
   'analysis_tasks_pkey',
   'analysis_model_calls_pkey',
   'idx_analysis_tasks_item_attempt',

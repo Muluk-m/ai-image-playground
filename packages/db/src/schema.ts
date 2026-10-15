@@ -1260,6 +1260,23 @@ export const client_errors = pgTable(
   ],
 )
 
+/** Success evidence is separate from error counts and may arrive before the failure beacon. */
+export const client_error_recoveries = pgTable(
+  'client_error_recoveries',
+  {
+    id: text('id').primaryKey(),
+    incident_id: text('incident_id').notNull(),
+    operation: text('operation').notNull(),
+    received_at: epochMs('received_at').notNull(),
+    device_id: text('device_id').notNull(),
+    user_id: text('user_id'),
+  },
+  (t) => [
+    index('idx_client_error_recoveries_incident').on(t.incident_id, t.device_id),
+    index('idx_client_error_recoveries_received').on(t.received_at),
+  ],
+)
+
 export const media_objects = pgTable(
   'media_objects',
   {

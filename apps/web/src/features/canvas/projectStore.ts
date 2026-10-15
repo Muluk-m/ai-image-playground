@@ -14,6 +14,7 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from '../../lib/authScope'
+import { reportRecoverableClientError } from '../../lib/errorReporting'
 import { projectActivated } from '../../lib/navigation/address'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
@@ -23,7 +24,6 @@ import {
   getCloudProject,
   listCloudProjects,
   PROJECT_REQUEST_TIMEOUT_MS,
-  ProjectRequestError,
 } from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
 import { readProjectRoute, resolveProjectRoute } from './lib/projectRoute'
@@ -58,6 +58,7 @@ interface ProjectState {
 }
 
 let loading: Promise<void> | undefined
+const catalogFailures: { isCurrent: () => boolean; recovered: () => void }[] = []
 
 /**
  * 深链接指向的云端项目在这台机器上取不到。原因是「这个部署有账号体系而访客还没登录」时，
@@ -124,9 +125,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   async load() {
     if (get().loaded) return
     if (loading) return loading
+    const isCurrent = accountScope()
+    let stage = 'read-local'
     loading = (async () => {
       try {
         let projects = await projectRepository.list()
+        stage = 'migrate-legacy'
         for (const legacy of await projectRepository.legacyScenes()) {
           if (!projects.some((one) => one.sceneKey === legacy.sceneKey))
             projects.push(await projectRepository.create(UNTITLED_PROJECT, legacy))
@@ -140,6 +144,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         // A known project can open from IndexedDB while the cloud catalog refreshes in the
         // background. Unknown links still need the catalog before their route can be resolved.
         if (!hasCachedRoute) {
+          stage = 'refresh-cloud'
           await get().refreshCloud()
           projects = [...get().projects]
         }
@@ -147,20 +152,13 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         const conversationId = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
         const route = readProjectRoute()
         const routeId = route ? resolveProjectRoute(route, projects) : null
+        // The catalog is usable even when a deep link is missing, forbidden or offline.
+        // Navigation resolves that project separately and owns its route error.
         if (routeId && !projects.some((one) => one.id === routeId)) {
-          if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
-          // 云端那份取不回来（链路抖、超时）不该把整个目录判死：本机项目照常列出来，
-          // 只标一句云端列表没刷上，用户还能接着用离线的那些。
-          try {
-            projects.push(
-              await restoreCloudProject(
-                await getCloudProject(routeId, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS)),
-              ),
-            )
-          } catch (error) {
-            if (error instanceof ProjectRequestError && error.status === 404) throw error
-            set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
-          }
+          set({ projects, loaded: true, error: null, activeId: null })
+          for (const failure of catalogFailures.splice(0))
+            if (failure.isCurrent()) failure.recovered()
+          return
         }
         const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
         // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
@@ -178,6 +176,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           active ??= available[0]
         }
         if (!active) {
+          stage = 'create-local'
           // 首页那条不挂上次那段会话：挂上去就等于把它又拉回来了。场景键仍取未绑定会话的那把，
           // 首次发送前留下的草稿才认得出自己属于这个起手工作区。
           const bound = route ? conversationId : null
@@ -190,12 +189,25 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
                 })
           projects.push(active)
         }
+        stage = 'activate'
         set({ projects, loaded: true, error: null })
         if (readProjectRoute() === route) get().activate(active.id, true)
         if (hasCachedRoute) void get().refreshCloud()
-      } catch {
-        set({ error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
-        throw new Error('Project catalog unavailable')
+        for (const failure of catalogFailures.splice(0))
+          if (failure.isCurrent()) failure.recovered()
+      } catch (cause) {
+        set({ loaded: false, error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
+        const error = Object.assign(new Error('Project catalog unavailable'), { cause })
+        if (catalogFailures.length < 30)
+          catalogFailures.push({
+            isCurrent,
+            recovered: reportRecoverableClientError(error, {
+              operation: 'project.catalog',
+              stage,
+              online: navigator.onLine,
+            }),
+          })
+        throw error
       } finally {
         loading = undefined
       }
