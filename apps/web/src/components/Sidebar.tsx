@@ -57,7 +57,7 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
-  // 对话留着这条宽栏，发出消息也不收。画布默认收起：左上角 logo 回首页，旁边按钮可手动展开。
+  // 对话和画布都留着这条宽栏。用户收起，或从列表里沉浸式打开时，才铺满。
   // 别处默认摊开；用户在当前入口手动开合过，就以他的选择为准。
   const activeProject = projects.find((project) => project.id === activeId)
   const sidebarPreference = useStore((state) => state.sidebarExpanded)
