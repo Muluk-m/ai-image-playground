@@ -540,7 +540,7 @@ function StandardAgentToolCard({
     }
     return false
   })
-  const turnFooter = useAgentStore((state) => state.turns[message.turnId])
+  const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
   const receipt = useMemo(() => {
     if (!turnFooter) return null
