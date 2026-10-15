@@ -208,7 +208,7 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
    * 带上这一轮的创作类型：同一个名字在两个 mode 下未必指同一件事，起跑这一行标签要按
    * 这一轮看得见的那份清单写。
    */
-  call(args: AgentToolArgs<P>, mode: AgentMode): AgentToolCall
+  call(args: AgentToolArgs<P>, mode: AgentMode, turn?: AgentTurnParams): AgentToolCall
   execute(context: AgentToolContext): AgentTool<P, AgentToolDetails>['execute']
 }
 
@@ -234,7 +234,7 @@ export interface AgentToolSpec {
   /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
   declaration(): AgentToolDeclaration
   available?(mode: AgentMode, audience?: AgentToolAudience): boolean
-  call(args: unknown, mode: AgentMode): AgentToolCall
+  call(args: unknown, mode: AgentMode, turn?: AgentTurnParams): AgentToolCall
   /** 起跑时的参数快照，图片 id 由调用方翻译；缺席即这个工具不提交生成任务，不记快照。 */
   snapshot?(
     args: unknown,

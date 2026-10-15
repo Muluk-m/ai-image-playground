@@ -113,9 +113,12 @@ import {
 } from './lib/outgoingJournal'
 import {
   answerableClarificationId,
+  appendImageAction,
   dropUnsettledMessages,
+  mergeLocalImageActions,
   panelMessage,
   panelStateFromHistory,
+  patchImageAction,
   reconcileToolCard,
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
@@ -293,6 +296,12 @@ export interface AgentState {
   interjectQueued(queueId: string): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
+  appendImageAction(step: import('./types').AgentImageActionStep): void
+  patchImageAction(
+    id: string,
+    patch: Partial<Omit<import('./types').AgentImageActionStep, 'kind' | 'id'>>,
+  ): void
+  dismissImageAction(id: string): void
   /**
    * 单独取消这张结果卡提交的后台任务；服务端按原桶退回，卡随即换成取消后的结局。
    * 还在重试队列里排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
@@ -851,10 +860,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       : []
     set({
       ...history,
-      messages: [
-        ...history.messages.map((message) => reconcileToolCard(shown.get(message.id), message)),
-        ...pending,
-      ],
+      messages: mergeLocalImageActions(
+        [
+          ...history.messages.map((message) => reconcileToolCard(shown.get(message.id), message)),
+          ...pending,
+        ],
+        get().messages,
+      ),
       queue: [...(taken.queue ?? [])],
       ...(options.join
         ? {
@@ -2403,6 +2415,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (message?.kind !== 'tool') return
       if (message.status === 'succeeded' && deliverable(message))
         await delivery.placeOnCanvas(message)
+    },
+
+    appendImageAction(step) {
+      set((state) => ({ messages: appendImageAction(state.messages, step) }))
+    },
+
+    patchImageAction(id, patch) {
+      set((state) => ({ messages: patchImageAction(state.messages, id, patch) }))
+    },
+
+    dismissImageAction(id) {
+      set((state) => ({ messages: state.messages.filter((message) => message.id !== id) }))
     },
 
     async cancelJob(messageId) {

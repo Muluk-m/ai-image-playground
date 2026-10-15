@@ -102,7 +102,27 @@ export interface AgentClarificationMessage {
   readonly options: readonly string[]
 }
 
-export type AgentPanelMessage = AgentTextMessage | AgentToolMessage | AgentClarificationMessage
+/** 对话里对一张已有图做的本地步骤，例如去背景。不进服务端事件流。 */
+export interface AgentImageActionStep {
+  readonly kind: 'imageAction'
+  readonly id: string
+  readonly turnId: string
+  readonly sourceMessageId: string
+  readonly artifactId: string
+  readonly action: 'removeBackground'
+  readonly status: 'running' | 'succeeded' | 'failed'
+  readonly thumbnail?: string
+  readonly resultSource?: string
+  readonly durationMs?: number
+  readonly credits?: number
+  readonly error?: string
+}
+
+export type AgentPanelMessage =
+  | AgentTextMessage
+  | AgentToolMessage
+  | AgentClarificationMessage
+  | AgentImageActionStep
 
 export type AgentPanelTab = 'chat' | 'history' | 'layers'
 

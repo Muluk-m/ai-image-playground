@@ -1,4 +1,4 @@
-import type { AgentTurnParams } from '@image-playground/shared'
+import { AGENT_IMAGE_MAX_N, type AgentTurnParams } from '@image-playground/shared'
 import type { TaskParams } from '../../../types'
 import { DEFAULT_PARAMS } from '../../../types'
 
@@ -6,7 +6,8 @@ import { DEFAULT_PARAMS } from '../../../types'
  * 工作台的参数 chip → 起轮请求里的生成参数。
  *
  * 只带用户真正改过的项：服务端缺席即按部署默认，送一份全是默认值的对象等于把
- * 前端的默认值强加给后端，两边改默认值的节奏就再也对不上了。张数由工具参数决定；
+ * 前端的默认值强加给后端，两边改默认值的节奏就再也对不上了。张数只有偏离默认才带上，
+ * 工具没写张数时用这一轮的值；
  * 审核强度没有 chip，由服务端建任务时统一兜底（`taskSubmission.ts`），两条路同一处。
  *
  * **透明输出不在这里**，不是漏了：它是往提示词注绿幕再在本地抠色（`lib/transparentImage.ts`），
@@ -39,6 +40,10 @@ export function toAgentTurnParams(
   if (params.gemini_aspect_ratio) next.gemini_aspect_ratio = params.gemini_aspect_ratio
   if (params.gemini_image_size) next.gemini_image_size = params.gemini_image_size
   if (params.gemini_thinking_level) next.gemini_thinking_level = params.gemini_thinking_level
+  if (params.n !== DEFAULT_PARAMS.n) {
+    const count = Math.trunc(params.n)
+    if (count >= 1 && count <= AGENT_IMAGE_MAX_N) next.n = count
+  }
 
   return Object.keys(next).length > 0 ? (next as AgentTurnParams) : undefined
 }

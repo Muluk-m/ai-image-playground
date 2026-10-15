@@ -12,6 +12,7 @@ import type {
 import { agentTextFromBlocks, isAgentToolErrorCode } from '@image-playground/shared'
 import type {
   AgentClarificationMessage,
+  AgentImageActionStep,
   AgentPanelMessage,
   AgentTextMessage,
   AgentToolMessage,
@@ -408,6 +409,43 @@ export function clarificationAnswer(
  */
 export function conversationStarted(messages: readonly AgentPanelMessage[]): boolean {
   return messages.length > 0
+}
+
+/** 去背景这类步骤插在来源图后面。同一 id 再追加时先拿掉旧的。 */
+export function appendImageAction(
+  messages: readonly AgentPanelMessage[],
+  step: AgentImageActionStep,
+): AgentPanelMessage[] {
+  const without = messages.filter((message) => message.id !== step.id)
+  const after = without.findIndex((message) => message.id === step.sourceMessageId)
+  if (after < 0) return [...without, step]
+  return [...without.slice(0, after + 1), step, ...without.slice(after + 1)]
+}
+
+export function patchImageAction(
+  messages: readonly AgentPanelMessage[],
+  id: string,
+  patch: Partial<Omit<AgentImageActionStep, 'kind' | 'id'>>,
+): AgentPanelMessage[] {
+  return messages.map((message) =>
+    message.kind === 'imageAction' && message.id === id ? { ...message, ...patch } : message,
+  )
+}
+
+/**
+ * 服务端快照没有这些步骤。只留下仍属于这份快照里某一轮的，换会话时它们的轮 id 对不上，自然丢掉。
+ */
+export function mergeLocalImageActions(
+  next: readonly AgentPanelMessage[],
+  previous: readonly AgentPanelMessage[],
+): AgentPanelMessage[] {
+  const turnIds = new Set(next.map((message) => message.turnId))
+  const ids = new Set(next.map((message) => message.id))
+  const local = previous.filter(
+    (message): message is AgentImageActionStep =>
+      message.kind === 'imageAction' && !ids.has(message.id) && turnIds.has(message.turnId),
+  )
+  return local.reduce((messages, step) => appendImageAction(messages, step), [...next])
 }
 
 export type AgentActivityPhase = 'sending' | 'thinking' | 'executing' | 'stopping'

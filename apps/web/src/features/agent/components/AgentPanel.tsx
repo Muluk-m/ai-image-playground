@@ -35,6 +35,7 @@ import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentCreations from './AgentCreations'
 import AgentFollowUpChips from './AgentFollowUpChips'
 import AgentHistoryStatus from './AgentHistoryStatus'
+import AgentImageActionStepView from './AgentImageActionStep'
 import AgentMessageQueue from './AgentMessageQueue'
 import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
@@ -119,6 +120,7 @@ function renderMessage(
       />
     )
   }
+  if (message.kind === 'imageAction') return <AgentImageActionStepView message={message} />
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
@@ -243,10 +245,12 @@ export default function AgentPanel({
           ? message.text
           : message.kind === 'tool'
             ? `${message.title} ${message.prompt ?? ''}`
-            : message.question
+            : message.kind === 'imageAction'
+              ? t('imageAction.removeBackground')
+              : message.question
       return text.toLocaleLowerCase().includes(query)
     })
-  }, [messages, search])
+  }, [messages, search, t])
   const locateMessage = (id: string) => {
     setLocated((prev) => ({ id, seq: (prev?.seq ?? 0) + 1 }))
     requestAnimationFrame(() => {
@@ -447,7 +451,9 @@ export default function AgentPanel({
                       ? message.text
                       : message.kind === 'tool'
                         ? message.title
-                        : message.question}
+                        : message.kind === 'imageAction'
+                          ? t('imageAction.removeBackground')
+                          : message.question}
                   </Button>
                 ))
               ) : (
@@ -525,7 +531,7 @@ export default function AgentPanel({
                           </div>
                         ))}
                       </div>
-                      {footer && (
+                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                         <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
                       )}
                     </div>
@@ -569,7 +575,7 @@ export default function AgentPanel({
                         onPreviewProduction,
                         historyCached,
                       )}
-                    {footer && (
+                    {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                       <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
                     )}
                   </div>
@@ -638,6 +644,18 @@ export default function AgentPanel({
         />
       )}
     </div>
+  )
+}
+
+/** 这轮的生图结果自己写出耗时和积分，页脚不再重复一份。 */
+function turnShowsImageReceipt(messages: readonly AgentPanelMessage[], turnId: string): boolean {
+  return messages.some(
+    (message) =>
+      message.turnId === turnId &&
+      message.kind === 'tool' &&
+      (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+      message.status === 'succeeded' &&
+      Boolean(message.artifacts?.some((artifact) => artifact.media === 'image')),
   )
 }
 
