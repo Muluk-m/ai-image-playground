@@ -10,7 +10,12 @@ function Inline({ text }: { text: string }) {
   return (
     <>
       {parts.map((part, i) => {
-        if (part.startsWith('**')) return <strong key={i}>{part.slice(2, -2)}</strong>
+        if (part.startsWith('**'))
+          return (
+            <strong key={i}>
+              <Inline text={part.slice(2, -2)} />
+            </strong>
+          )
         if (part.startsWith('[['))
           return (
             <span className="guide-ui" key={i}>
