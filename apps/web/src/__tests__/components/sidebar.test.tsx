@@ -195,7 +195,7 @@ it('进入画布后，当前项目在对应一行高亮', () => {
   expect(next?.closest('.group\\/row')?.className).toContain('bg-accent')
 })
 
-it('进入对话默认摊开宽栏，进入画布才收起', () => {
+it('进入对话或画布都默认摊开宽栏', () => {
   act(() =>
     useCanvasProjectStore.setState({
       projects: [...seed('chat', 1), ...seed('canvas', 1)],
@@ -204,15 +204,11 @@ it('进入对话默认摊开宽栏，进入画布才收起', () => {
       loaded: true,
     }),
   )
-  // 首页发出一条对话：切进工作台，侧栏保持摊开。
   act(() => useStore.getState().setAppMode('canvas'))
   expect(host.querySelectorAll('nav')).toHaveLength(2)
   expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('264px')
 
   act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
-  expect(host.querySelectorAll('nav')).toHaveLength(1)
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
-
-  act(() => useStore.setState({ sidebarExpanded: true }))
   expect(host.querySelectorAll('nav')).toHaveLength(2)
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('264px')
 })
