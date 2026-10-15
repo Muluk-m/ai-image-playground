@@ -26,7 +26,10 @@ export class ChatUpstreamError extends Error {
 }
 
 export class ChatInvalidResponseError extends Error {
-  constructor() {
+  constructor(
+    readonly model: string,
+    readonly reason: 'missing_content' | 'invalid_json' | 'rejected_value',
+  ) {
     super('Chat model did not return a usable answer')
     this.name = 'ChatInvalidResponseError'
   }
@@ -116,6 +119,8 @@ export interface ChatAsk {
   readonly images?: readonly string[]
   readonly maxTokens: number
   readonly timeoutMs: number
+  /** Opt in only for callers whose upstream supports JSON mode. */
+  readonly responseFormat?: 'json_object'
   /** 每次尝试各报告一次；本地拒绝显式标记零派发与零用量，不包含请求正文。 */
   readonly onAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
@@ -136,10 +141,11 @@ export function askChatModelOnce(ask: ChatOnceAsk): Promise<string | undefined> 
   return requestContent(requestBody(ask), ask, ask)
 }
 
-function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string {
+function requestBody({ model, prompt, images = [], maxTokens, responseFormat }: ChatAsk): string {
   return JSON.stringify({
     model,
     max_tokens: maxTokens,
+    ...(responseFormat ? { response_format: { type: responseFormat } } : {}),
     messages: [
       {
         role: 'user',
@@ -367,15 +373,28 @@ export async function askChatModel<T>(
       await promise
       continue
     }
-    const parsed = content === undefined ? null : parse(extractJson(content))
+    const value = content === undefined ? undefined : extractJson(content)
+    const parsed = content === undefined ? null : parse(value)
     if (parsed) return parsed
+    const responseReason = !content?.trim()
+      ? 'missing_content'
+      : value === undefined
+        ? 'invalid_json'
+        : 'rejected_value'
     if (attempt >= MAX_CHAT_ATTEMPTS || contentRetries >= MAX_CONTENT_RETRIES) {
-      throw new ChatInvalidResponseError()
+      throw new ChatInvalidResponseError(ask.model, responseReason)
     }
     contentRetries += 1
     // 上游是好的，只是这次答歪了：立刻再问一次，等待救不了措辞。
     log.warn(
-      { event: 'agent.chat_retry', attempt, delayMs: 0, reason: 'unusable answer' },
+      {
+        event: 'agent.chat_retry',
+        model: ask.model,
+        attempt,
+        delayMs: 0,
+        reason: 'unusable answer',
+        responseReason,
+      },
       'chat request retried',
     )
   }

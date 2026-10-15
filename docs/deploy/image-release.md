@@ -63,6 +63,23 @@ command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-ac
 | 付费旧域名 | 同一付费项目 | `image.nainma.online` / `api.nainma.online` |
 | 后台 | `muvloom-admin` | `admin.muvloom.online` / `admin-api.muvloom.online` |
 
+### 付费站默认域名跳转
+
+付费 Cloudflare 账号的 Bulk Redirect List `muvloom_pages_canonical` 将
+`ai-image-playground.pages.dev/` 以 301 跳转到 `https://muvloom.online/`，由账号级
+`http_request_redirect` ruleset 的同名规则启用。开启 `subpath_matching`、
+`preserve_path_suffix`、`preserve_query_string`；`include_subdomains=false`，不影响部署预览子域名。
+
+这是账号配置，不在 Pages 构建产物中；Pages 常规发布不会覆盖它。更换付费 Pages 项目或
+`PAID_PUBLIC_ORIGIN` 时同步核对这条规则。不要给默认域名放宽 API CORS：正式域名承载现有登录会话。
+维护已有 ruleset 时只更新该规则，不覆盖账号中的其他规则；回滚时只禁用同名规则。
+
+验收根路径、`/guide/en/?from=redirect-check` 和项目深链接均保留原路径与参数，浏览器跳转后仍保留锚点，
+正式站能读取能力接口并正常展示登录状态。Cloudflare 的 `_redirects` 不支持域名级匹配，
+该配置采用官方 [Pages 默认域名跳转流程](https://developers.cloudflare.com/pages/how-to/redirect-to-custom-domain/)。
+
+### 手动构建与发布
+
 1. 准备两个独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交。付费检出包含已验证提交的 `private/`；内部检出不含 overlay。不要移动其他会话的 `private/` 或重写锁文件。
 2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写两套 `*_PAGES_PROJECT`、`*_BFF_BASE_URL`、`*_PUBLIC_ORIGIN`、`*_CLOUDFLARE_ACCOUNT_ID`；令牌通过 `*_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。两套账号分别验证权限。
 3. 保留付费域名映射：`PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://image.nainma.online":"https://api.nainma.online"}'`，避免旧域名会话失效。保留现有 `*_EXTRA_ASSETS_DIR` 等配置；该目录内容会公开发布。
