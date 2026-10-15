@@ -159,6 +159,7 @@ export default function Header() {
                     auth.login()
                   }}
                   onClose={() => setAccountMenuOpen(false)}
+                  onOpenSettings={openSettings}
                 />
               ) : null}
               {accountMenuOpen && auth.user ? (

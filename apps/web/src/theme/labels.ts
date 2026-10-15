@@ -4,4 +4,5 @@ import type { ThemeChoice } from '.'
 export const THEME_LABEL_KEY = {
   light: 'theme.light',
   dark: 'theme.dark',
+  system: 'theme.system',
 } as const satisfies Record<ThemeChoice, string>

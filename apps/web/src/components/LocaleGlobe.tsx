@@ -5,7 +5,7 @@ import { isInFloatingLayer } from '../lib/dropdown'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 
-/** 顶栏语言开关。头像菜单里的语言下拉仍然保留。 */
+/** 顶栏语言开关。界面语言只在这里改，头像菜单不再放第二份。 */
 export default function LocaleGlobe() {
   const { t } = useTranslation('common')
   const { locale, change } = useLocalePicker()
