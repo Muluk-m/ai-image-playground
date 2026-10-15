@@ -16,6 +16,7 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import type { NodeBatchPlan } from '../../../../features/canvas/lib/nodeBatch'
 import { useAgentNodeRun } from '../../../../features/canvas/lib/useAgentNodeRun'
+import { applySessionCapabilityGrants } from '../../../../lib/clientCapabilities'
 import { useStore } from '../../../../store'
 
 const mocks = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ vi.mock('../../../../features/canvas/lib/nodeBatch', async (original) => ({
   runNodeBatch: mocks.run,
 }))
 it('keeps proposals inert across rendering, checks project and price drift, and submits only after both confirmations', async () => {
+  applySessionCapabilityGrants({ 'canvas:node-run': true })
   const doc = new Y.Doc(),
     origin = canvasOrigin('user', 'test'),
     undo = createCanvasUndoManager(doc, origin)

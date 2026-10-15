@@ -27,6 +27,14 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
   }
   return manifest
 }
+const SESSION_CAPABILITY_KEYS = [
+  'canvas:blank-generate',
+  'canvas:node-run',
+  'canvas:script',
+] as const
+export type SessionCapabilityKey = (typeof SESSION_CAPABILITY_KEYS)[number]
+
+let deploymentManifest = disabledManifest()
 let currentManifest = disabledManifest()
 let projectDocumentIdentity = false
 let attachmentLimits: AttachmentLimits | undefined
@@ -37,7 +45,8 @@ export async function bootstrapClientCapabilities(
   bffBaseUrl: string,
   required = false,
 ): Promise<ClientCapabilityManifest> {
-  currentManifest = disabledManifest()
+  deploymentManifest = disabledManifest()
+  currentManifest = deploymentManifest
   projectDocumentIdentity = false
   attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
@@ -54,7 +63,10 @@ export async function bootstrapClientCapabilities(
       }
     }
     if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
-    if (result?.parsed) currentManifest = result.parsed
+    if (result?.parsed) {
+      deploymentManifest = result.parsed
+      currentManifest = deploymentManifest
+    }
     const body = result?.body
     if (
       result?.parsed?.['agent:attachments'] &&
@@ -125,6 +137,31 @@ export function supportsProjectDocumentIdentity(): boolean {
 
 export function getClientCapabilityManifest(): Readonly<ClientCapabilityManifest> {
   return currentManifest
+}
+
+/** 登录后把当前用户获准的画布子功能叠到部署清单上。传 null 表示回到部署默认。 */
+export function applySessionCapabilityGrants(
+  grants: Partial<Record<SessionCapabilityKey, boolean>> | null,
+): void {
+  const next = { ...deploymentManifest }
+  if (grants) {
+    for (const key of SESSION_CAPABILITY_KEYS) {
+      if (grants[key] === true) next[key] = true
+    }
+  }
+  currentManifest = next
+}
+
+export function readSessionCapabilityGrants(
+  value: unknown,
+): Partial<Record<SessionCapabilityKey, boolean>> | null {
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as Record<string, unknown>
+  const grants: Partial<Record<SessionCapabilityKey, boolean>> = {}
+  for (const key of SESSION_CAPABILITY_KEYS) {
+    if (record[key] === true) grants[key] = true
+  }
+  return grants
 }
 
 export function isClientCapabilityEnabled(key: CapabilityKey): boolean {
