@@ -1840,7 +1840,7 @@ describe('AgentPanel', () => {
     expect(useAgentStore.getState().messages).toEqual([])
   })
 
-  it('生成张数在 1 到 10 之间增减', () => {
+  it('生成张数在 1 到 10 之间增减，悬停说明跟着当前张数走', async () => {
     act(() => {
       useStore.setState({ params: { ...useStore.getState().params, n: 1 } })
     })
@@ -1849,12 +1849,22 @@ describe('AgentPanel', () => {
     const group = host.querySelector('[aria-label="生成张数"]')!
     const decrease = group.querySelector<HTMLButtonElement>('button[aria-label="减少张数"]')!
     const increase = group.querySelector<HTMLButtonElement>('button[aria-label="增加张数"]')!
+    const count = group.querySelector('span')!
     expect(decrease.disabled).toBe(true)
+    expect(decrease.getAttribute('aria-label')).toBe('减少张数')
+    expect(increase.getAttribute('aria-label')).toBe('增加张数')
     expect(group.textContent).toContain('1')
+
+    await act(async () => count.focus())
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('生成 1 张')
+    await act(async () => increase.focus())
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('增加张数')
 
     act(() => increase.click())
     expect(useStore.getState().params.n).toBe(2)
     expect(host.querySelector('[aria-label="生成张数"]')?.textContent).toContain('2')
+    await act(async () => host.querySelector<HTMLElement>('[aria-label="生成张数"] span')!.focus())
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('生成 2 张')
 
     act(() => {
       useStore.setState({ params: { ...useStore.getState().params, n: 10 } })
@@ -1862,6 +1872,8 @@ describe('AgentPanel', () => {
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="增加张数"]')!.disabled).toBe(
       true,
     )
+    await act(async () => host.querySelector<HTMLElement>('[aria-label="生成张数"] span')!.focus())
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('生成 10 张')
   })
 })
 

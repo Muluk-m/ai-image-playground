@@ -231,6 +231,8 @@
   },
   "composer": {
     "quantity": "Image count",
+    "quantityValue_one": "Generate {{count}} image",
+    "quantityValue_other": "Generate {{count}} images",
     "quantityDecrease": "Fewer images",
     "quantityIncrease": "More images",
     "editorAria": "Message the agent",

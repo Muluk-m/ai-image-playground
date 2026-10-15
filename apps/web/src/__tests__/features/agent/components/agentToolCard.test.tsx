@@ -1149,10 +1149,12 @@ it('lays four generated images in one row with meta tags, hover tools and a wide
     expect(host.querySelector('button[aria-label="更多操作"]')).toBeTruthy()
     const tileTools = host.querySelectorAll('button[aria-label="去背景"]')
     expect(tileTools).toHaveLength(4)
-    expect(host.querySelector('button[aria-label="局部重绘"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="扩图"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="用作参考"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="在画布中编辑"]')).toBeTruthy()
+    for (const label of ['用作参考', '局部重绘', '扩图', '去背景', '在画布中编辑']) {
+      const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+      expect(button, label).toBeTruthy()
+      expect(button.getAttribute('aria-label')).toBe(label)
+      expect(button.hasAttribute('data-tooltip-trigger')).toBe(true)
+    }
     cutout.run.mockClear()
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="去背景"]')!.click())
     expect(cutout.run).toHaveBeenCalledWith(
