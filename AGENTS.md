@@ -12,6 +12,8 @@
 
 ## 项目概况
 
+改 web 界面前必须先读 apps/web/DESIGN.md（设计规则的唯一入口）。
+
 `ai-image-playground` — AI 生图工作台。fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，扩展了 Gemini 原生协议、异步队列模式、可选 BFF 后端、内置 channel discovery。
 
 - `apps/web/` — 前端工作台。画布、已缓存产物与配置存浏览器 IndexedDB；完整 Agent 对话存对应 BFF 的 PostgreSQL；本地按账号与 API 地址隔离对话显示快照，空闲时单并发补齐未打开的历史（前台操作立即让路；后台不淘汰已有快照）；不限制条数，按 `apps/web/conversation-cache.config.json` 的 UTF-8 载荷预算（默认 100 MiB，全站点共享）淘汰最久未访问记录，先展示缓存再同步，不作为完整消息备份。
