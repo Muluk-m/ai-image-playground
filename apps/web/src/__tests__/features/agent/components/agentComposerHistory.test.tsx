@@ -1,3 +1,4 @@
+import { submitDraft } from '../../../../features/agent/lib/draftSubmission'
 // @vitest-environment jsdom
 
 import 'fake-indexeddb/auto'
@@ -81,6 +82,7 @@ beforeEach(async () => {
   doc.restore([imageElement('canvas-1', 'file-1')], { 'file-1': PIXEL })
   send = vi.fn()
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     turn: 'idle',
     conversationId: null,
     send: async (text, references, accepted) => {

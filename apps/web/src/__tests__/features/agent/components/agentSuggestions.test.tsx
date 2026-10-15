@@ -1,3 +1,4 @@
+import { submitDraft } from '../../../../features/agent/lib/draftSubmission'
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { act } from 'react'
@@ -90,6 +91,7 @@ beforeEach(async () => {
   useAgentStore.getState().startNewConversation()
   send = vi.fn(async () => 'accepted')
   useAgentStore.setState({
+    submitDraft: (input) => submitDraft(input, useAgentStore.getState().send),
     send: send as never,
     load: async () => {},
     open: true,
