@@ -7,7 +7,7 @@ import Sidebar from '../../components/Sidebar'
 import type { CanvasProject } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
-import { installAppRouting } from '../../lib/appRoute'
+import { installWorkbenchNavigation } from '../../lib/navigation/workbenchNavigation'
 import { useStore } from '../../store'
 
 vi.mock('../../lib/channels/videoChannels', async (importOriginal) => ({
@@ -94,7 +94,7 @@ it('品牌在侧栏里，不再挂在顶栏上', () => {
 it('画布左上角 Logo 返回创作首页并更新地址', () => {
   window.history.replaceState(null, '', '/p/canvas-example')
   act(() => useStore.setState({ appMode: 'canvas', sidebarExpanded: false }))
-  const stop = installAppRouting()
+  const stop = installWorkbenchNavigation()
   try {
     act(() => entry('主页').click())
     expect(useStore.getState().appMode).toBe('image')
