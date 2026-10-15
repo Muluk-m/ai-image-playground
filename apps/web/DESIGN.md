@@ -165,8 +165,8 @@ components:
     height: "{spacing.control-sm}"
     padding: 12px
   segmented-tab-active:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.on-surface}"
+    backgroundColor: "color-mix(in srgb, {colors.primary} 15%, transparent)"
+    textColor: "{colors.primary}"
   page-header:
     backgroundColor: "{colors.background}"
     textColor: "{colors.on-surface}"
@@ -202,7 +202,7 @@ components:
     rounded: "{rounded.xl}"
     height: "{spacing.control-lg}"
   sidebar-item-active:
-    backgroundColor: "{colors.accent}"
+    backgroundColor: "color-mix(in srgb, {colors.primary} 15%, transparent)"
     textColor: "{colors.primary}"
   media-badge:
     backgroundColor: "{colors.scrim}"
@@ -284,7 +284,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `on-primary` 成对使用；同一视图里实心芽绿按钮只有一个。
 - **Background / Surface / Surface-raised**：三级墨绿灰构成层次——页面底、卡片与弹层、
   卡片内的凹槽与 hover 底。层级靠明度差，不靠阴影。
-- **Accent**：选中但不是「主操作」的状态（页签、侧栏当前项），比 surface-raised 略偏绿。
+- **Accent**：一般轻强调表面；页签与侧栏当前项统一使用 `primary/15` 浅底与 `text-primary`，不使用灰底灰字。
 - **On-surface / On-surface-muted**：正文与次要文字只有这两档；禁止再用 `/70`、`/60`
   透明度造第三档灰字。
 - **状态色 success / warning / destructive**：只表达结果与风险，不作装饰。不要用
@@ -401,6 +401,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   仍然留在同一行。上传状态和充值入口另占一行，不挤占发送位置；长模型名截断，
   具体模型仍可打开菜单查看。参考图上的移除是 16px 深色角标，不用危险色。
 - 展开的参考素材统一使用紧凑缩略条：首页、画布、Agent 输入框的单张缩略图固定 **48 × 64px**，间距 **4px**，添加入口同尺寸；不随容器拉伸，超出横向滚动。图片用 `object-fit: cover`，完整内容通过预览查看。缩略图圆角统一 4px，配低对比度 1px 内描边，内部图片不再叠加圆角；悬浮预览按原图比例贴合显示，不加额外边框或留白；标题到素材条间距 12px，素材条与输入区间距 12px。遮罩入口只占缩略图角落，不用整图蒙层遮住图片，也不与图片预览争抢悬停；展开素材不能压缩书写区，首页输入区桌面至少 96px、窄屏至少 84px。
+- **资产 → 素材**：新建入口只在网格第一格（空库、搜索无匹配也保留），打开后提供上传与可用的智能体子路径。卡片封面进入详情；悬停工具栏提供加入参考图、编辑、删除，详情底部只有「加入参考图」使用实心芽绿。资产页折叠侧栏为 64px 图标轨，当前项保持芽绿浅底；顶部默认面板描边图标，悬停或键盘聚焦显示现有品牌芽标，点击展开。画布沉浸导航保持原有行为。
 
 ## Do's and Don'ts
 
@@ -412,7 +413,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 - Don't：用 `text-[Npx]`、`rounded-[Npx]` 这类任意值；需要新档位就加 token。
 - Don't：给只在触屏上成立的操作写 PC 文案（如「长按缩略图」），按指针类型分别给提示。
 - Don't：在界面上解释系统行为；空态最多一句话说明「这里放什么、怎么开始」。
-- Don't：给已经显示文字、功能一目了然的按钮、菜单项或标签再加 tooltip / title。纯图标按钮保留悬停与聚焦提示。文字被裁成省略号时，只在真正溢出时显示同一段完整可见文字，不要附上模型 id 等内部标识。`aria-label` 等无障碍名称保留，但不因此弹出提示。
+- Don't：给已经显示文字、功能一目了然的按钮、菜单项或标签再加 tooltip / title。关闭、返回、搜索、编辑、删除等明显图标不加提示，保留 `aria-label`；用途不明显的图标保留悬停与聚焦提示。文字被裁成省略号时，只在真正溢出时显示同一段完整可见文字，不要附上模型 id 等内部标识。
 - `light-*` 色值是亮色主题的对照组，只经由 `:root:not(.dark)` 生效，不在组件里直接引用。
 
 ## 门禁
@@ -433,7 +434,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 ### 纯图标按钮的标签
 
-所有纯图标按钮必须有简短、可本地化的 `aria-label`，说明动作（如“编辑素材”“删除素材”）。鼠标悬停与键盘聚焦都必须展示可见标签；不能只给读屏名称。共用 `Button` 只在没有可见文字时把 `aria-label` 显示为 Portal Tooltip，避免被卡片、侧栏或弹窗裁切；已有 `Hint` / `TooltipIconButton` 不重复生成提示。禁用的图标按钮仍可悬停查看含义，不能因此变成可点击。
+所有纯图标按钮必须有简短、可本地化的 `aria-label`，说明动作（如“编辑素材”“删除素材”）。关闭、返回、搜索、编辑、删除等明显图标使用 `autoTooltip={false}`，不重复提示；用途不明显的图标在鼠标悬停与键盘聚焦时展示标签。共用 `Button` 默认只在没有可见文字时把 `aria-label` 显示为 Portal Tooltip，避免被卡片、侧栏或弹窗裁切；已有 `Hint` / `TooltipIconButton` 不重复生成提示。禁用的非明显图标仍可悬停查看含义，不能因此变成可点击。
 
 已经写出文字、作用看得懂的控件不加 tooltip。这包括菜单项、带标签的按钮和芯片：不要把可见名称再弹一遍，也不要把模型 id、任务 id、技能 slug 这类内部标识补进提示。调用方显式传入的 `title` 只用于两件事——文字真的被裁成省略号时显示同一段完整文字（名称被收成纯图标时同样显示完整标签），以及控件上看不到的必要原因（例如为什么点不了）。`aria-label` 继续留给读屏，不单独变成悬停提示。
 

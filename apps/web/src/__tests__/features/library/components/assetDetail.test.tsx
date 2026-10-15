@@ -25,6 +25,8 @@ it('follows remote description changes only while the local draft is pristine', 
   try {
     render('A')
     render('B')
+    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="编辑"]')!
+    act(() => edit.click())
     const input = document.querySelector<HTMLTextAreaElement>('textarea')!
     expect(input.value).toBe('B')
     expect(document.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true)
