@@ -3,7 +3,6 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { cn } from '../../lib/utils'
-import { Icon } from './icon'
 import { Hint } from './tooltip'
 
 /** 图形本身就是约定（关闭、返回、搜索），不再配文字，也不再弹提示。 */
@@ -26,7 +25,7 @@ function obviousIconOnly(node: React.ReactNode): boolean {
     const props = child.props as { name?: unknown; className?: unknown; children?: React.ReactNode }
     const className = typeof props.className === 'string' ? props.className : ''
     if (className.split(/\s+/).includes('sr-only')) return
-    if (child.type === Icon && typeof props.name === 'string') {
+    if (typeof props.name === 'string' && props.children == null) {
       names.push(props.name)
       return
     }
