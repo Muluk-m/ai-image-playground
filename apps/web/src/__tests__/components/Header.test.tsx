@@ -131,6 +131,17 @@ describe('the header', () => {
       false,
     )
   })
+
+  it('语言和访客菜单是 40px 图标，画布窄屏也留着深色顶栏', () => {
+    act(() => root.render(<Header />))
+    expect(host.querySelector('[aria-label="界面语言"]')?.className).toContain('size-10')
+    expect(host.querySelector('[aria-label="打开应用菜单"]')?.className).toContain('size-10')
+    expect(host.querySelector('.studio-mobile-topbar')).not.toBeNull()
+
+    act(() => useStore.setState({ appMode: 'canvas' }))
+    expect(host.querySelector('.studio-mobile-topbar')).not.toBeNull()
+    expect(document.querySelector('header')).toBeNull()
+  })
 })
 
 describe('logging out', () => {

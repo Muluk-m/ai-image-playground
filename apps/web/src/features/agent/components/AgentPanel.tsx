@@ -33,6 +33,7 @@ import AgentComposer from './AgentComposer'
 import AgentConnectionHint from './AgentConnectionHint'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentCreations from './AgentCreations'
+import AgentFollowUpChips from './AgentFollowUpChips'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentMessageQueue from './AgentMessageQueue'
 import AgentPendingDrafts from './AgentPendingDrafts'
@@ -576,6 +577,7 @@ export default function AgentPanel({
               })}
               <AgentActivity />
               <AgentHistoryStatus />
+              {presentation === 'page' && <AgentFollowUpChips />}
               {(error || returnedMessagesPending) && !historyFailed && (
                 <ErrorState
                   title={t('panel.errorTitle')}
@@ -632,6 +634,7 @@ export default function AgentPanel({
           editor={editor}
           showLooks={presentation !== 'page' || messages.length === 0}
           showCanvasReferences={presentation !== 'page'}
+          showFollowUpGhost={presentation !== 'page'}
         />
       )}
     </div>
