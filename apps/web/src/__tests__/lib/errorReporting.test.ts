@@ -286,3 +286,36 @@ it('keeps the root cause and incident within the HTTP byte limit for multibyte c
   expect(context.causes.at(-1).message).toContain('原因')
   expect(sendBeacon.mock.calls[0]?.[1].size).toBeLessThanOrEqual(24 * 1024)
 })
+
+it('preserves fingerprint fields when multibyte context requires compact transmission', async () => {
+  configureErrorReporting('')
+  const cause = { name: 'n'.repeat(200), code: 'c'.repeat(200), message: 'original' }
+  for (const extra of ['', '字'.repeat(10000)]) {
+    reportClientError('error', Object.assign(new Error('catalog failed'), { cause }), {
+      operation: 'project.catalog',
+      stage: 'read-local',
+      extra,
+    })
+    flushClientErrors()
+  }
+  const [ordinary, compact] = await sentBodies()
+  const ordinaryContext = ordinary?.body.errors[0].context
+  const compactContext = compact?.body.errors[0].context
+  expect(compactContext.extra).toBeUndefined()
+  expect(compactContext.stage).toBe(ordinaryContext.stage)
+  expect(compactContext.causes[0]).toEqual(ordinaryContext.causes[0])
+})
+
+it('sends malformed caller-supplied causes without losing the remaining queue', async () => {
+  configureErrorReporting('')
+  reportClientError('error', new Error('first'), {
+    causes: [null],
+    extra: '字'.repeat(10000),
+  })
+  reportClientError('error', new Error('second'))
+  expect(() => flushClientErrors()).not.toThrow()
+  const bodies = await sentBodies()
+  expect(
+    bodies.flatMap(({ body }) => body.errors.map((error: { message: string }) => error.message)),
+  ).toEqual(['first', 'second'])
+})

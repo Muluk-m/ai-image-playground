@@ -138,10 +138,12 @@ function boundedContext(
     ...(causes.length
       ? {
           causes: (compactOnly ? causes.slice(-1) : causes).map((cause) => ({
-            name: clip(cause.name, 100),
-            message: clip(cause.message, 250),
-            code: clip(cause.code, 100),
-            status: cause.status,
+            name: clip(errorField(cause, 'name'), 200),
+            message: clip(errorField(cause, 'message'), 250),
+            code: clip(errorField(cause, 'code'), 200),
+            ...(typeof errorField(cause, 'status') === 'number'
+              ? { status: errorField(cause, 'status') }
+              : {}),
           })),
         }
       : {}),
