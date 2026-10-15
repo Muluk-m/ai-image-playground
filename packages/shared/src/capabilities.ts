@@ -15,14 +15,6 @@ export const CAPABILITIES = {
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
-  /** 节点画布（ADR 0022 / 0023）。关着时画布照旧。 */
-  'canvas:nodes': { defaultValue: false, clientExposed: true },
-  /** #1140 空白处生成与节点上的模板胶囊。默认关，可按用户单独开。 */
-  'canvas:blank-generate': { defaultValue: false, clientExposed: true },
-  /** #1161 智能体建议运行节点，以及确认后的真实上游回写。默认关。 */
-  'canvas:node-run': { defaultValue: false, clientExposed: true },
-  /** #1162 剧本设定器与拆剧本。默认关。 */
-  'canvas:script': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
    * （`chatTurnsBilled()`），这一轮的 `cost.chat` 恒为 0；工具产生的生图 / 生视频
@@ -39,6 +31,11 @@ export const CAPABILITIES = {
  * 不要复用这些名字表示新能力。
  */
 export const RETIRED_CAPABILITIES: readonly string[] = [
+  // 节点画布 v1 整份常开，不再由运营配置开关。旧文件里的这些键直接忽略。
+  'canvas:nodes',
+  'canvas:blank-generate',
+  'canvas:node-run',
+  'canvas:script',
   // 联网工具（搜索 / 抓网页 / 取网图 / 抓商品图）不再由能力开关控制，随部署默认在场。
   'agent:web',
   // 用户自带密钥已下线。旧运营配置里的这个开关直接忽略。

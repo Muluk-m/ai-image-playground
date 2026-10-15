@@ -1,11 +1,7 @@
 {
   "capabilities": {
     "accounts:login": true,
-    "accounts:sync": true,
-    "canvas:nodes": true,
-    "canvas:blank-generate": true,
-    "canvas:node-run": true,
-    "canvas:script": true
+    "accounts:sync": true
   },
   "quotas": { "sync:user-projects": 30 }
 }

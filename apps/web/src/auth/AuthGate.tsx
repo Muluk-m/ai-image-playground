@@ -17,7 +17,7 @@ import {
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
-import { applySessionCapabilityGrants, isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
@@ -128,7 +128,6 @@ export function AuthGate() {
           if (cancelled) return
           if (pendingSend) setLoginReason('gated-action')
           noteBrowserSession(null)
-          applySessionCapabilityGrants(null)
           setUser(null)
           setPhase('ready')
           return
@@ -175,7 +174,6 @@ export function AuthGate() {
     if (!accountsLoginEnabled) return
     const expired = () => {
       noteBrowserSession(null)
-      applySessionCapabilityGrants(null)
       setSignedIn(false)
       setUser(null)
       setSessionExpired(true)
