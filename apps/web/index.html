@@ -24,8 +24,9 @@
     <link rel="preload" href="/runtime-config.json" as="fetch" crossorigin="anonymous" />
     <title>幕芽 Muvloom · AI 图片与视频创作工作台</title>
     <style>
-      /* 启动闪屏：HTML 一到就画。芽在原地展开，盖住配置、会话和能力；
-         工作台或故障页画出来之后由内联启动守卫淡出，不再脉冲、也不横移。 */
+      /* 启动闪屏：HTML 一到就画。芽在原地展开，盖住配置、会话和能力。
+         一轮展开结束后停约 1 秒再重播，加载久了也不会停在静止画面上。
+         工作台或故障页画出来之后由内联启动守卫淡出并卸掉。 */
       #boot {
         position: fixed;
         inset: 0;
@@ -112,6 +113,28 @@
         <button id="boot-retry" type="button">重新加载</button>
       </div>
     </div></div>
+    <script id="boot-loop">
+      (() => {
+        const boot = document.getElementById('boot')
+        const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches
+        if (!boot || reduce) return
+        const last = boot.querySelector('.petal:last-of-type')
+        if (!last) return
+        // 与最后一片花瓣结束对齐：delay 400ms + duration 550ms。停在展开后的样子上再重播。
+        const PAUSE_MS = 1000
+        const replay = () => {
+          if (!boot.isConnected || boot.dataset.state) return
+          const nodes = boot.querySelectorAll('.plate, .petal')
+          for (const node of nodes) node.style.animation = 'none'
+          void boot.offsetWidth
+          for (const node of nodes) node.style.animation = ''
+        }
+        last.addEventListener('animationend', (event) => {
+          if (event.target !== last || boot.dataset.state) return
+          window.setTimeout(replay, PAUSE_MS)
+        })
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
