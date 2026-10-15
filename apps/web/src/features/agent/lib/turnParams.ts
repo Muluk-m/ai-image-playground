@@ -2,12 +2,28 @@ import { AGENT_IMAGE_MAX_N, type AgentTurnParams } from '@image-playground/share
 import type { TaskParams } from '../../../types'
 import { DEFAULT_PARAMS } from '../../../types'
 
+/** 图片生成模式的张数档。智能体模式不把张数交给用户。 */
+export const IMAGE_COUNT_CHOICES = [1, 2, 3, 4, 6, 8] as const
+
+/** 旧步进器留下的 5、7、9、10 收到最近的一档；距离相同取较小的那档。 */
+export function snapImageCount(n: number): number {
+  const value = Math.trunc(n)
+  if (!Number.isFinite(value)) return 1
+  let best: number = IMAGE_COUNT_CHOICES[0]
+  for (const choice of IMAGE_COUNT_CHOICES) {
+    const distance = Math.abs(choice - value)
+    const bestDistance = Math.abs(best - value)
+    if (distance < bestDistance || (distance === bestDistance && choice < best)) best = choice
+  }
+  return best
+}
+
 /**
  * 工作台的参数 chip → 起轮请求里的生成参数。
  *
  * 只带用户真正改过的项：服务端缺席即按部署默认，送一份全是默认值的对象等于把
- * 前端的默认值强加给后端，两边改默认值的节奏就再也对不上了。张数只有偏离默认才带上，
- * 工具没写张数时用这一轮的值；
+ * 前端的默认值强加给后端，两边改默认值的节奏就再也对不上了。
+ * 智能体模式不送张数，由模型按需求决定；图片生成模式才带上用户选的那一档。
  * 审核强度没有 chip，由服务端建任务时统一兜底（`taskSubmission.ts`），两条路同一处。
  *
  * **透明输出不在这里**，不是漏了：它是往提示词注绿幕再在本地抠色（`lib/transparentImage.ts`），
@@ -21,6 +37,7 @@ export function toAgentTurnParams(
   params: TaskParams,
   model: string | undefined,
   autoSubmit: boolean,
+  options?: { readonly includeCount?: boolean },
 ): AgentTurnParams | undefined {
   const next: Record<string, unknown> = {}
   if (model) next.model = model
@@ -40,9 +57,9 @@ export function toAgentTurnParams(
   if (params.gemini_aspect_ratio) next.gemini_aspect_ratio = params.gemini_aspect_ratio
   if (params.gemini_image_size) next.gemini_image_size = params.gemini_image_size
   if (params.gemini_thinking_level) next.gemini_thinking_level = params.gemini_thinking_level
-  if (params.n !== DEFAULT_PARAMS.n) {
-    const count = Math.trunc(params.n)
-    if (count >= 1 && count <= AGENT_IMAGE_MAX_N) next.n = count
+  if (options?.includeCount) {
+    const count = snapImageCount(params.n)
+    if (count >= 1 && count <= AGENT_IMAGE_MAX_N && count !== DEFAULT_PARAMS.n) next.n = count
   }
 
   return Object.keys(next).length > 0 ? (next as AgentTurnParams) : undefined

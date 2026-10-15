@@ -3,6 +3,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
+import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
@@ -58,7 +59,11 @@ import AgentArtifactEditDialog from './AgentArtifactEditDialog'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
-import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
+import AgentJobProgress, {
+  AgentJobCancel,
+  useAgentJobProgressText,
+  useAgentToolProgress,
+} from './AgentJobProgress'
 import AgentNodeRunCard from './AgentNodeRunCard'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
@@ -467,6 +472,38 @@ function ratioTag(size: string | undefined, aspect: string | undefined): string 
   return `${width / divisor}:${height / divisor}`
 }
 
+function GeneratingTile({
+  index,
+  progress,
+}: {
+  index: number
+  progress: NonNullable<ReturnType<typeof useAgentToolProgress>>
+}) {
+  const { t } = useTranslation('agent')
+  const text = useAgentJobProgressText(progress)
+  const waiting = progress.phase === 'queued' || progress.phase === 'submitted' || index > 0
+  const label = waiting
+    ? index === 0 && progress.phase !== 'queued'
+      ? (text ?? t(`job.phase.${progress.phase}`))
+      : t('job.queueSlot', { position: index === 0 ? 1 : index })
+    : (text ?? t(`job.phase.${progress.phase}`))
+  return (
+    <div className="studio-agent-inline-tile" data-pending="true">
+      <ImageGeneration
+        generating={progress.phase !== 'delivering'}
+        className="absolute inset-0 aspect-auto h-full w-full rounded-none"
+      />
+      <div className="studio-agent-tile-status">
+        {index === 0 && progress.phase !== 'queued' ? (
+          <JobProgress label={label} className="w-full" />
+        ) : (
+          <span>{label}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function TileTool({
   label,
   icon,
@@ -503,12 +540,15 @@ function StandardAgentToolCard({
   onPreviewResult,
   compactFetched = false,
   onPreviewProduction,
+  embed = false,
 }: {
   message: AgentToolMessage
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
   compactFetched?: boolean
   onPreviewProduction?: (pane?: ProductionPane) => void
+  /** 只交出图块，由同一行的生成计划把多条任务拼在一起。 */
+  embed?: boolean
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const generatedImage = message.toolName === 'generateImage' || message.toolName === 'editImage'
@@ -792,51 +832,27 @@ function StandardAgentToolCard({
   }
   if (imageGenerating && progress) {
     const count = agentDraftOutputCount(message)
-    const params = message.snapshot?.params
-    const provider = message.snapshot?.target?.provider
-    const dimensions =
-      provider && provider !== 'gemini'
-        ? parseRatio(params?.size ?? '')
-        : (parseRatio(params?.gemini_aspect_ratio ?? '') ?? parseRatio(params?.size ?? ''))
-    const ratio = dimensions ? dimensions.width / dimensions.height : 1
-    const width = IMAGE_PREVIEW_MAX_EDGE * Math.min(ratio, 1)
+    const slots = Array.from({ length: count }, (_, index) => (
+      <GeneratingTile key={index} index={index} progress={progress} />
+    ))
+    if (embed) return <>{slots}</>
     return (
       <div
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
-        className="studio-agent-generation-card"
-        // Gallery gaps plus the body's horizontal padding and card borders.
-        style={{ width: count * width + (count - 1) * 5 + 34 }}
+        className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+        data-batch-count={count}
+        style={{ '--batch-count': String(count) } as CSSProperties}
       >
-        <div className="studio-agent-generation-body">
-          <div className="flex min-w-0 items-center gap-2">
-            <OverflowText
-              as="p"
-              text={message.title}
-              className="studio-agent-generation-title flex-1"
-            />
-            {message.prompt && (
-              <AgentIconButton
-                label={t('tool.viewPrompt')}
-                icon="prompt"
-                onClick={() => setPromptOpen(true)}
-              />
-            )}
-            <AgentJobCancel message={message} />
-          </div>
-          <AgentJobProgress progress={progress} />
-          <div className="studio-agent-generation-gallery" aria-hidden="true">
-            {Array.from({ length: count }, (_, index) => (
-              <ImageGeneration
-                key={index}
-                generating={progress.phase !== 'delivering'}
-                className="shrink-0"
-                style={{ width, aspectRatio: ratio }}
-              />
-            ))}
-          </div>
-          <RetryRecord message={message} />
+        <div className="studio-agent-batch-meta">
+          <span>{message.title}</span>
+          <span>{t('job.doneCount', { done: 0, total: count })}</span>
+          <AgentJobCancel message={message} />
         </div>
+        <div className="studio-agent-inline-gallery" data-count={count}>
+          {slots}
+        </div>
+        <RetryRecord message={message} />
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
         )}
@@ -946,9 +962,10 @@ function StandardAgentToolCard({
         className="studio-agent-inline-tile"
         key={tile.id}
         style={{
-          aspectRatio: generatedImage ? (batch ? 1 : groupRatio) : tileRatio(tile),
+          aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
           ...(generatedImage &&
-            !batch && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
+            !batch &&
+            !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
         }}
       >
         <Button
@@ -1079,6 +1096,26 @@ function StandardAgentToolCard({
           message.title,
         ].filter((tag): tag is string => Boolean(tag))
       : []
+    if (embed && generatedImage) {
+      return (
+        <>
+          {tiles.map(renderTile)}
+          {promptOpen && message.prompt && (
+            <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+          )}
+          {maskEdit && (
+            <AgentArtifactEditDialog
+              key={`${maskEdit.artifactId}:${maskEdit.action}`}
+              action={maskEdit.action}
+              source={maskEdit.source}
+              busy={maskBusy}
+              onClose={() => setMaskEdit(null)}
+              onGenerate={generateMask}
+            />
+          )}
+        </>
+      )
+    }
     return (
       <div
         id={agentToolCardDomId(message.id)}
@@ -1472,7 +1509,10 @@ function StandardAgentToolCard({
   )
 }
 
-export default function AgentToolCard(props: Parameters<typeof StandardAgentToolCard>[0]) {
+export default function AgentToolCard({
+  embed,
+  ...props
+}: Parameters<typeof StandardAgentToolCard>[0]) {
   return props.message.batchId ? (
     <AgentBatchPlanCard
       key={props.message.batchId}
@@ -1482,6 +1522,104 @@ export default function AgentToolCard(props: Parameters<typeof StandardAgentTool
   ) : props.message.toolName === 'generateVideo' ? (
     <AgentVideoToolCard key={props.message.id} {...props} />
   ) : (
-    <StandardAgentToolCard {...props} />
+    <StandardAgentToolCard embed={embed} {...props} />
+  )
+}
+
+/** 同一轮里连续的生图任务：完成、生成中、排队的图块排成一行。 */
+export function AgentImageRun({
+  messages,
+  onViewCanvas,
+  onPreviewResult,
+  onPreviewProduction,
+}: {
+  messages: readonly AgentToolMessage[]
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
+  onPreviewProduction?: (pane?: ProductionPane) => void
+}) {
+  const { t } = useTranslation('agent')
+  const total = messages.reduce((sum, message) => {
+    const finished = message.artifacts?.length ?? 0
+    return sum + Math.max(finished, agentDraftOutputCount(message), 1)
+  }, 0)
+  const done = messages.reduce(
+    (sum, message) => sum + (message.status === 'succeeded' ? (message.artifacts?.length ?? 0) : 0),
+    0,
+  )
+  const lead = messages.find((message) => message.prompt) ?? messages[0]
+  return (
+    <div
+      className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+      data-batch-count={total}
+      data-batch-wide={total >= 4 ? 'true' : undefined}
+      style={{ '--batch-count': String(total) } as CSSProperties}
+    >
+      <div className="studio-agent-batch-meta">
+        {lead?.title && <span>{lead.title}</span>}
+        <span>{t('job.doneCount', { done, total })}</span>
+      </div>
+      <div className="studio-agent-inline-gallery" data-count={total}>
+        {messages.map((message) => (
+          <AgentToolCard
+            key={message.id}
+            embed
+            message={message}
+            onViewCanvas={onViewCanvas}
+            onPreviewResult={onPreviewResult}
+            onPreviewProduction={onPreviewProduction}
+          />
+        ))}
+      </div>
+      {lead && (
+        <MessageActions
+          className="mt-3"
+          copyLabel={t('tool.copyPrompt')}
+          regenerateLabel={t('tool.regenerate')}
+          onCopy={
+            lead.prompt ? () => void navigator.clipboard.writeText(lead.prompt ?? '') : undefined
+          }
+          onRegenerate={() =>
+            void useAgentStore
+              .getState()
+              .send(
+                t('tool.regenerateRequest', { prompt: lead.prompt || lead.title }),
+                [],
+                undefined,
+                'image',
+              )
+          }
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="size-8 rounded-xl"
+            aria-label={t('tool.downloadAll')}
+            onClick={() => {
+              for (const message of messages) {
+                for (const artifact of message.artifacts ?? []) {
+                  if (artifact.media === 'video') continue
+                  void previewArtifactBitmap(artifact).then((source) => {
+                    if (!source) return
+                    const link = document.createElement('a')
+                    link.href = source
+                    link.download = `muvloom-${artifact.artifactId}.png`
+                    link.click()
+                  })
+                }
+              }
+            }}
+          >
+            <Icon name="download" />
+          </Button>
+          {messages
+            .filter((message) => message.job && message.status === 'submitted')
+            .map((message) => (
+              <AgentJobCancel key={message.id} message={message} />
+            ))}
+        </MessageActions>
+      )}
+    </div>
   )
 }

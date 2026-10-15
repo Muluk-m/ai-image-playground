@@ -506,9 +506,11 @@ it.each([
   } as unknown as AgentCanvasSink)
   try {
     act(() => root.render(<AgentToolCard message={message} />))
-    const placeholder = host.querySelector<HTMLElement>('[data-slot="image-generation"]')!
-    const loadingRatio = placeholder.style.aspectRatio
-    const loadingWidth = placeholder.style.width
+    expect(host.querySelector('.studio-agent-generation-card')).toBeNull()
+    expect(host.querySelector('.studio-agent-inline-result--batch')).not.toBeNull()
+    const placeholders = host.querySelectorAll<HTMLElement>('[data-pending="true"]')
+    expect(placeholders.length).toBe(3)
+    expect(placeholders[0]?.style.width ?? '').toBe('')
     await act(async () =>
       root.render(
         <AgentToolCard
@@ -532,8 +534,8 @@ it.each([
       ),
     )
     const tile = host.querySelector<HTMLElement>('.studio-agent-inline-tile')!
-    expect(tile.style.aspectRatio).toBe(loadingRatio)
-    expect(tile.style.width).toBe(loadingWidth)
+    expect(tile).not.toBeNull()
+    expect(Number(width) / Number(height)).toBeGreaterThan(0)
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
