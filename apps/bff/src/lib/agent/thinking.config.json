@@ -8,7 +8,7 @@
     "effort": "medium"
   },
   "deep": {
-    "model": "claude-opus-5-5",
+    "model": "gpt-6-astra",
     "effort": "high"
   }
 }
