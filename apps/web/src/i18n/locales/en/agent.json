@@ -297,7 +297,8 @@
     "headingReferences": "Reference images",
     "headingCanvas": "Canvas",
     "headingAssets": "Assets",
-    "headingSkills": "Skills"
+    "headingSkills": "Skills",
+    "imageLabel": "Image {{n}}"
   },
   "activity": {
     "sending": "Sending",

@@ -6,6 +6,7 @@ import AgentUserMessage from '../../../../features/agent/components/AgentUserMes
 import * as agentClient from '../../../../features/agent/lib/agentClient'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentTextMessage } from '../../../../features/agent/types'
+import { ensureLocaleLoaded, i18next } from '../../../../i18n'
 
 vi.mock('../../../../components/Lightbox', () => ({
   ImagePreview: ({ src }: { src: string }) => <img data-original src={src} alt="原图" />,
@@ -100,7 +101,8 @@ it('shows user intent and a named reference while hiding legacy edit scaffolding
   try {
     act(() => root.render(<AgentUserMessage message={message} skills={[]} />))
     expect(host.querySelector('.studio-agent-user-message')?.textContent).toBe('换成 xm')
-    expect(host.querySelector('.agent-image-mention')?.textContent).toBe('@手机海报')
+    expect(host.querySelector('.agent-image-mention')?.textContent).toBe('图片 1')
+    expect(host.textContent).not.toContain('手机海报')
     act(() =>
       root.render(<AgentUserMessage message={{ ...message, references: [] }} skills={[]} />),
     )
@@ -129,22 +131,22 @@ it('folds reference chips past the first row and expands them on request', () =>
   try {
     act(() => root.render(<AgentUserMessage message={message} skills={[]} />))
     expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(8)
-    expect(host.textContent).toContain('@图8')
-    expect(host.textContent).not.toContain('@图9')
+    expect(host.textContent).toContain('图片 8')
+    expect(host.textContent).not.toContain('图片 9')
     const fold = [...host.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('还有 4 张'),
     )
     expect(fold?.getAttribute('aria-expanded')).toBe('false')
     act(() => fold?.click())
     expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(12)
-    expect(host.textContent).toContain('@图12')
+    expect(host.textContent).toContain('图片 12')
     const collapse = [...host.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('收起'),
     )
     expect(collapse?.getAttribute('aria-expanded')).toBe('true')
     act(() => collapse?.click())
     expect(host.querySelectorAll('.agent-image-mention')).toHaveLength(8)
-    expect(host.textContent).not.toContain('@图9')
+    expect(host.textContent).not.toContain('图片 9')
   } finally {
     act(() => root.unmount())
   }
@@ -185,5 +187,62 @@ it('keeps a narrow panel on one row when reference names are long', () => {
     act(() => root.unmount())
     if (original) Object.defineProperty(HTMLElement.prototype, 'clientWidth', original)
     else Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
+  }
+})
+
+it('正文里的 @图片id 收成按参考图序号排列的缩略图胶囊', () => {
+  const hash = 'fdcfd93c4c098c0ce0123456789abcdef0123456789abcdef0123456789abcd'
+  const other = '1d87bf6eca615d0b0123456789abcdef0123456789abcdef0123456789abcd'
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user-hash',
+    turnId: 'turn-hash',
+    role: 'user',
+    streaming: false,
+    text: `@${other} 浴室的场景，@${hash} 能不能把这个 换成 能不能换这个`,
+    references: [
+      { imageId: hash, name: hash, dataUrl: 'data:image/png;base64,YQ==' },
+      { imageId: other, name: other, dataUrl: 'data:image/png;base64,Yg==' },
+    ],
+  }
+  try {
+    act(() => root.render(<AgentUserMessage message={message} skills={[]} />))
+    const chips = [...host.querySelectorAll('.agent-image-mention')]
+    expect(chips.map((chip) => chip.textContent)).toEqual(['图片 2', '图片 1'])
+    expect(host.querySelectorAll('.agent-image-mention img')).toHaveLength(2)
+    expect(host.textContent).toContain('浴室的场景')
+    expect(host.textContent).toContain('能不能把这个 换成 能不能换这个')
+    expect(host.textContent).not.toContain(hash)
+    expect(host.textContent).not.toContain(other)
+    expect(host.textContent).not.toContain('[image ')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('英文界面把同一条消息里的引用显示成 Image N', async () => {
+  await ensureLocaleLoaded('en')
+  await i18next.changeLanguage('en')
+  const hash = 'fdcfd93c4c098c0ce0123456789abcdef0123456789abcdef0123456789abcd'
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user-en',
+    turnId: 'turn-en',
+    role: 'user',
+    streaming: false,
+    text: `keep [image 1]`,
+    references: [{ imageId: hash, name: hash, image: { object: 'archived', mime: 'image/png' } }],
+  }
+  try {
+    act(() => root.render(<AgentUserMessage message={message} skills={[]} />))
+    expect(host.querySelector('.agent-image-mention')?.textContent).toBe('Image 1')
+    expect(host.textContent).not.toContain(hash)
+    expect(host.textContent).not.toContain('[image 1]')
+  } finally {
+    act(() => root.unmount())
   }
 })
