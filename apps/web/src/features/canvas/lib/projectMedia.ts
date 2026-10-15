@@ -3,11 +3,26 @@ import {
   PROJECT_META_VALUE_MAX_CHARS,
   type ProjectDocument,
   type ProjectKind,
+  projectKind,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
+import type { CloudSceneCheckpoint } from './persistence'
+
+/** Keep legacy archive identity independent of the unified canvas UI metadata. */
+export function archivedProjectKind(
+  checkpoint: CloudSceneCheckpoint | undefined,
+): ProjectKind | undefined {
+  if (checkpoint?.legacyKind) return checkpoint.legacyKind
+  try {
+    const document = checkpoint?.savedContent ? JSON.parse(checkpoint.savedContent)?.[1] : undefined
+    return isProjectDocument(document) ? projectKind(document) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export interface MediaBinding {
   id: string

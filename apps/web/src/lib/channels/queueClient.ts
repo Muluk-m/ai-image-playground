@@ -1,4 +1,5 @@
 import {
+  type ProjectVideoRef,
   QUEUE_TIMEOUTS,
   type QueueProvider,
   type ResultImageMeta,
@@ -44,6 +45,13 @@ const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TI
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
 export function queueOutputUrl(taskId: string, outputIndex: number): string {
   return `${bffBaseUrl()}/v1/queue/requests/${taskId}/output/${outputIndex}`
+}
+
+/** Durable project originals keep working after their queue task expires. */
+export function videoOutputUrl(video: ProjectVideoRef): string {
+  return video.mediaId
+    ? `${bffBaseUrl()}/api/media/${video.mediaId}/content`
+    : queueOutputUrl(video.taskId, video.outputIndex)
 }
 
 /**
@@ -158,8 +166,7 @@ async function submit(
   if (!codexCli && opts.params.quality && opts.params.quality !== 'auto')
     body.quality = opts.params.quality
 
-  // 这两支必须逐字对齐 BYOK adapter（openaiCompatibleImageApi / geminiImageApi），
-  // 否则同一组 chip 在自带 key 和队列两条路径下发出去的参数会不一致。
+  // 协议族决定上游 body 里哪些字段要带。改这里要同时看参数卡片，避免界面有开关、请求里没有。
   if (provider === 'openai-compat') {
     body.output_format = opts.params.output_format
     body.moderation = opts.params.moderation
@@ -174,6 +181,7 @@ async function submit(
   }
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
+  if (opts.outputRetention) body.output_retention = opts.outputRetention
   if (opts.maskDataUrl) body.mask = opts.maskDataUrl
   if (clientRequestId) body.client_request_id = clientRequestId
 

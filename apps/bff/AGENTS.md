@@ -14,7 +14,7 @@ BFF 的公开核心只做四件事：
 私有 BFF overlay 可以在这些接缝上增加计费等部署专属能力；它仍必须遵守 BFF
 是唯一写入者、提交与预扣同事务、worker 结算或退回的纪律。
 
-**BFF 不做**：通用协议翻译。`upstream.ts` 只允许已验证的 channel 兼容性适配（端点 / body 形状选择，以及上游不支持多图数量时的 `n` fan-out + 结果合并）；不要把它扩成任意 OpenAI / Gemini 字段转换代理。普通部署的 BYOK profile 完全绕过 BFF（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）；开启 `billing:credits` 的经营部署禁用 BYOK，只允许内置 channel。
+**BFF 不做**：通用协议翻译。`upstream.ts` 只允许已验证的 channel 兼容性适配（端点 / body 形状选择，以及上游不支持多图数量时的 `n` fan-out + 结果合并）；不要把它扩成任意 OpenAI / Gemini 字段转换代理。浏览器不直连上游，生成一律走这里的平台渠道；用户不配置密钥或自定义端点。
 
 ## 内置 channel 机制
 
@@ -51,8 +51,8 @@ BFF 的公开核心只做四件事：
 设计与否决方案见 [ADR 0007](../../docs/adr/0007-agent-skills-progressive-loading.md)。
 
 - 目录约定 `skills/<image|video|shared>/<skill-name>/SKILL.md`，按
-  [agentskills.io](https://agentskills.io) 标准。`shared/` 下的两个 mode 都看得见；同名时
-  mode 专属的那份胜出。同目录可放 `references/*.md` 这类附属文件。
+  [agentskills.io](https://agentskills.io) 标准。图片、视频与 `shared/` 目录合为同一份清单，正文按需读取；
+  共享目录去重，技能标识应全局唯一。同目录可放 `references/*.md` 这类附属文件。
 - frontmatter 只认 `name` 与 `description`。**`name` 必须与父目录同名且是 kebab-case**（框架
   loader 会校验，不符只记 diagnostic 不丢弃）；**`description` 缺席那条技能直接被丢掉**。
 - **正文第一行写一个中文一级标题**（`# 分镜短片`），它就是界面上那个名字（`title`）：标准把
@@ -82,22 +82,22 @@ BFF 的公开核心只做四件事：
   声明过的位）、`scene`（`ecommerce` / `poster` / `scene-character` / `look`）、`verified`（`{date, model, score}`）。
   解析在 [`src/lib/agent/skill-starters.ts`](./src/lib/agent/skill-starters.ts)；目录接口只发算好的布尔
   `verified`，验证记录本身不出 BFF。端点测试在 `src/__tests__/routes/agent-skill-starters.test.ts`。
-- **正文只能引用该 mode 下真实存在的工具名与参数**。图片轮是 generateImage / editImage /
-  readLibrary，视频轮多 generateVideo 与 arrangeTimeline。写了不存在的工具，模型会照着编。
+- **正文只能引用真实存在的工具名与参数**。所有创作轮共用生图、生视频及画布工具，实际可用性仍按
+  部署能力、模型及对话/画布入口过滤；不得承诺本轮未提供的能力。
 - 启动时加载一次并缓存（`ensureAgentSkills()`），diagnostics 打 warn 不 fatal。测试用
   `setAgentSkillsRootForTesting(dir)` 换根目录并丢缓存。
 - **加目录记得同时看 `.dockerignore`**：那是 allowlist，`!apps/bff/skills` 那一行不在就打不进镜像，
   而且构建与启动都不会报错，只会一条技能都没有。路径一律 `import.meta.dir` 解析，镜像里 cwd 是
   `/app`，靠不住。
 - 怎么测：加载与 diagnostics 用临时目录（`src/__tests__/lib/agent/skills.test.ts`），
-  按 mode 过滤工具与系统提示词（`src/__tests__/lib/agent/tools/modes.test.ts`），
+  跨旧 mode 的工具一致性与系统提示词（`src/__tests__/lib/agent/tools/modes.test.ts`），
   端点与 `/skill-name` 显式调用（`src/__tests__/routes/agent-skills.test.ts`）。
   **改 `skills/` 下随仓库发的那几条技能会动到路由测试里的工具清单断言**——`loadSkill` 只在
-  该 mode 有技能时才进清单。
+  有技能时才进清单。
 - **随仓库发的技能有一份体检**（`src/__tests__/lib/agent/shipped-skills.test.ts`）：它加载真实的
   `apps/bff/skills`，断言零 diagnostic、每条有中文一级标题、`description` 含「何时用 / 不处理」
-  且不超过 120 字、`name` 与目录同名、同一 mode 内不重名、正文里反引号包着的工具名都属于该 mode
-  的工具集合（图片技能正文里不许出现 `generateVideo`）、每条都有合法的 `meta.json`（图标非空且
+  且不超过 120 字、`name` 与目录同名、清单内不重名、正文里反引号包着的工具名都属于注册表的
+  工具集合、每条都有合法的 `meta.json`（图标非空且
   两个 mode 合起来互不重复，简介非空、≤30 字、不以「何时用」开头）、系统提示词里不含任何
   `meta.json` 的内容。加技能先看它。
 - **技能条数会推高每轮的预扣**：`description` 进每一轮的系统提示词，条数一多

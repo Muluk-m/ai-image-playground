@@ -48,6 +48,8 @@ export interface AgentCanvasLiveBox {
 export type AgentCanvasLiveElement = AgentCanvasLiveImage | AgentCanvasLiveBox
 
 export interface AgentCanvasSnapshot {
+  /** Node canvas selection at send time; absence identifies a legacy client. */
+  readonly selectedNodeIds?: readonly string[]
   readonly elements: readonly AgentCanvasLiveElement[]
   /** 目录装不下的其余元素个数。有它时，elements 不是用户看见的全部。 */
   readonly omitted?: number
@@ -133,6 +135,17 @@ export function parseAgentCanvasSnapshot(value: unknown): AgentCanvasSnapshot | 
   if (!value || typeof value !== 'object') return undefined
   const elements = (value as { elements?: unknown }).elements
   if (!Array.isArray(elements)) return undefined
+  const selection = (value as { selectedNodeIds?: unknown }).selectedNodeIds
+  const selectedNodeIds = Array.isArray(selection)
+    ? [
+        ...new Set(
+          selection
+            .slice(0, AGENT_CANVAS_SNAPSHOT_MAX)
+            .flatMap((id) => (idOf(id) ? [id as string] : [])),
+        ),
+      ]
+    : undefined
+  const selected = selectedNodeIds ? { selectedNodeIds } : {}
   const reportedOmitted = (value as { omitted?: unknown }).omitted
   const omitted =
     typeof reportedOmitted === 'number' &&
@@ -142,7 +155,8 @@ export function parseAgentCanvasSnapshot(value: unknown): AgentCanvasSnapshot | 
       : 0
   // 不能把截断的前半段当成完整画布；浏览器只会发送上限内的元素及 omitted。
   if (elements.length > AGENT_CANVAS_SNAPSHOT_MAX) return undefined
-  if (elements.length === 0) return omitted ? { elements: [], omitted } : { elements: [] }
+  if (elements.length === 0)
+    return omitted ? { elements: [], omitted, ...selected } : { elements: [], ...selected }
   const seen = new Set<string>()
   const parsed: AgentCanvasLiveElement[] = []
   for (const item of elements) {
@@ -153,5 +167,7 @@ export function parseAgentCanvasSnapshot(value: unknown): AgentCanvasSnapshot | 
   }
   if (parsed.length === 0) return undefined
   const missing = omitted + elements.length - parsed.length
-  return missing > 0 ? { elements: parsed, omitted: missing } : { elements: parsed }
+  return missing > 0
+    ? { elements: parsed, omitted: missing, ...selected }
+    : { elements: parsed, ...selected }
 }

@@ -23,7 +23,6 @@ export const CAPABILITIES = {
    * 各自独立计费，不受影响。前端据此在轮页脚标明这一轮的对话没收钱。
    */
   'billing:chat-free': { defaultValue: false, clientExposed: true },
-  'generation:byok': { defaultValue: false, clientExposed: true },
   'generation:video': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
@@ -36,6 +35,8 @@ export const CAPABILITIES = {
 export const RETIRED_CAPABILITIES: readonly string[] = [
   // 联网工具（搜索 / 抓网页 / 取网图 / 抓商品图）不再由能力开关控制，随部署默认在场。
   'agent:web',
+  // 用户自带密钥已下线。旧运营配置里的这个开关直接忽略。
+  'generation:byok',
   'generation:storyboard',
   'matte:server',
   'remix:analyze',
@@ -106,6 +107,7 @@ export const QUOTAS = {
   'generation:daily-images': { defaultValue: 0 },
   'sync:user-media-bytes': { defaultValue: 10 * 1024 * 1024 * 1024 },
   'sync:attachment-lease-seconds': { defaultValue: 0 },
+  'sync:asset-video-bytes': { defaultValue: 256 * 1024 * 1024 },
   'sync:asset-image-bytes': { defaultValue: MAX_IMAGE_UPLOAD_BYTES },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
   'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },

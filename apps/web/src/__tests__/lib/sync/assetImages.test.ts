@@ -204,6 +204,30 @@ describe('uploading an asset image', () => {
 })
 
 describe('fetching an asset image another device uploaded', () => {
+  it('does not write a late account A download into account B or reuse its in-flight fetch', async () => {
+    useSyncStatus.setState({ enabled: true })
+    await assetStore.applyRemote([asset('a1', 'same-image')])
+    let deliver!: (blob: Blob) => void
+    getAssetImageMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve
+        }),
+    )
+    const first = ensureAssetImage('same-image')
+    await vi.waitFor(() => expect(getAssetImageMock).toHaveBeenCalledTimes(1))
+    setClientStorageScope('bob')
+    await assetStore.applyRemote([asset('b1', 'same-image')])
+    getAssetImageMock.mockResolvedValue(null)
+    const second = ensureAssetImage('same-image')
+    expect(second).not.toBe(first)
+    deliver(new Blob(['alice secret'], { type: 'image/png' }))
+    expect(await first).toBe(false)
+    expect(await second).toBe(false)
+    expect(getAssetImageMock).toHaveBeenCalledTimes(2)
+    expect(await getImage('same-image')).toBeUndefined()
+  })
+
   it('downloads nothing while the app starts up', async () => {
     postSyncMock.mockResolvedValue(response({ assets: [wireAsset('a1', 'image-remote')] }))
 

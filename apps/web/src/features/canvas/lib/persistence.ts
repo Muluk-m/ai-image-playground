@@ -32,6 +32,7 @@ export interface CloudSceneCheckpoint {
   version: 1
   name: string
   revision: number
+  legacyKind?: 'image' | 'video'
   savedContent: string | null
   pending: ProjectWrite | null
   conflict: boolean

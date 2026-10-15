@@ -1,8 +1,10 @@
 import { i18next } from '../../../i18n'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { useStore } from '../../../store'
 import { useCanvasProjectStore } from '../projectStore'
 import { createAgentCanvasSink } from './agentCanvasSink'
 import { type Camera, CanvasDoc, type CanvasEl } from './canvasDoc'
+import { type CanvasCloudSession, CloudNodeProjectSession } from './cloudNodeProjects'
 import { CloudProjectSession } from './cloudProjects'
 import { CanvasEditor, elementBounds } from './editor'
 import { placeImagesIntoTargets } from './placeholderShapeOps'
@@ -48,7 +50,7 @@ export class CanvasWorkspace {
       await this.cloud?.refresh(true)
     },
   })
-  cloud: CloudProjectSession | undefined
+  cloud: CanvasCloudSession | undefined
   /** 云端首次落地或跨设备打开：等画布量出尺寸，把内容一次性框进视野。 */
   private needsInitialFit = false
   private initialViewResolved = false
@@ -71,6 +73,14 @@ export class CanvasWorkspace {
       const project = useCanvasProjectStore
         .getState()
         .projects.find((one) => one.sceneKey === this.record.key)
+      if (project?.cloud && cloudProjectsEnabled() && isClientCapabilityEnabled('canvas:nodes')) {
+        this.cloud ??= new CloudNodeProjectSession(project, this.record, (updated) =>
+          useCanvasProjectStore.getState().updateListed(updated),
+        )
+        await this.cloud.load(hasLocal)
+        this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
+        return
+      }
       if (project?.cloud && cloudProjectsEnabled()) {
         this.cloud ??= new CloudProjectSession(
           project,
@@ -87,7 +97,7 @@ export class CanvasWorkspace {
           },
         )
         if (hasLocal) {
-          background = this.cloud
+          background = this.cloud as CloudProjectSession
           return
         }
         await this.cloud.load(false)

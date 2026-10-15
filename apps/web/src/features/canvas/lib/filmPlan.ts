@@ -1,6 +1,7 @@
 import type { CanvasEl, TimelineClip } from './canvasDoc'
 import { FILM_MAX_CLIPS, FILM_MAX_SECONDS, type FilmClip } from './filmSpec'
 import { isTimelineSource, timelineSeconds } from './timeline'
+import { timelineClipRange } from './timelineRange'
 
 export type FilmRefusal =
   | { kind: 'empty' }
@@ -40,10 +41,12 @@ function toFilmClips(
     // 调用前已确认每段都是带视频的图片元素。
     const { video } = lookup(clip.elementId) as Extract<CanvasEl, { type: 'image' }>
     return {
+      ...(video!.mediaId ? { mediaId: video!.mediaId } : {}),
       taskId: video!.taskId,
       outputIndex: video!.outputIndex,
-      in: clip.in,
-      ...(clip.out === undefined ? {} : { out: clip.out }),
+      ...(video!.generation?.duration !== undefined
+        ? timelineClipRange(clip, video!.generation.duration)
+        : { in: clip.in, ...(clip.out === undefined ? {} : { out: clip.out }) }),
     }
   })
 }

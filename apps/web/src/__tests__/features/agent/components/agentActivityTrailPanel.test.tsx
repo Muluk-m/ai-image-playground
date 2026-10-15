@@ -162,4 +162,48 @@ describe('inspectable read-only tools', () => {
     expect(host.querySelector('a[href="https://example.com/one"]')).not.toBeNull()
     expect(host.querySelector('[data-slot="tool-error"]')).not.toBeNull()
   })
+
+  it('助手回复后仍保留每次联网读取失败的原因和处理入口', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            ...step('t1', 'webSearch', '搜索：小米手机'),
+            status: 'succeeded',
+          } as AgentPanelMessage,
+          {
+            ...step('t2', 'webFetch', '读取网页：www.mi.com'),
+            status: 'failed',
+            errorCode: 'source_unavailable',
+          } as AgentPanelMessage,
+          {
+            ...step('t3', 'webFetch', '读取网页：www.mi.com'),
+            status: 'failed',
+            errorCode: 'source_unavailable',
+          } as AgentPanelMessage,
+          {
+            kind: 'text',
+            id: 'r1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            text: '我换一个来源',
+          } as AgentPanelMessage,
+        ],
+      }),
+    )
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    const failures = log.querySelectorAll('[data-slot="tool-error"]')
+    expect(failures).toHaveLength(2)
+    for (const failure of failures) {
+      expect(failure.textContent).toContain('读取网页：www.mi.com')
+      expect(failure.textContent).toContain('来源网站拒绝或无法提供内容，请换个公开来源')
+      expect(
+        Array.from(failure.querySelectorAll('button')).some(
+          (button) => button.textContent === '让助手重新处理',
+        ),
+      ).toBe(true)
+    }
+    expect(log.textContent).toContain('我换一个来源')
+  })
 })

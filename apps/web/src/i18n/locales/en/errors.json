@@ -4,9 +4,6 @@
     "fallback": "Message recovery failed. Please try again.",
     "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
   },
-  "customProvider": {
-    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again"
-  },
   "login": {
     "invalid_credentials": "That email address or password is not correct",
     "rate_limited": "Too many attempts, please try again later",
@@ -71,6 +68,15 @@
   },
   "projectRecycle": {
     "fallback": "The recycle bin operation failed. Please retry."
+  },
+  "projectCopy": {
+    "project_quota_exceeded": "The project limit is reached. Remove some projects before duplicating.",
+    "project_deleted": "This project was deleted and cannot be duplicated.",
+    "project_not_found": "This project is missing, or this account cannot open it.",
+    "unauthorized": "Your session expired. Sign in again, then duplicate the project.",
+    "canvas_sync_unavailable": "This environment cannot duplicate projects.",
+    "account_changed": "The account changed. Reopen the project, then duplicate it.",
+    "fallback": "Could not duplicate the project. Please retry."
   },
   "agentTool": {
     "upstream_error": "The generation service failed, so nothing came out",

@@ -2,6 +2,13 @@ import { config } from '../config'
 import { type ObjectStore, type S3ClientLike, S3ObjectStore } from './objectStore'
 
 export interface DurableMediaStore extends ObjectStore {
+  writeStream(
+    key: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    size: number,
+    signal: AbortSignal,
+  ): Promise<void>
   sign(key: string, method: 'GET' | 'PUT', contentType?: string): string
 }
 

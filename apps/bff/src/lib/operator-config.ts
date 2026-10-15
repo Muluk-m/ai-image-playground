@@ -187,9 +187,6 @@ function assertCapabilityCompatibility(capabilities: CapabilityValues): void {
   if (!capabilities['accounts:login']) {
     throw new Error('billing:credits requires accounts:login')
   }
-  if (capabilities['generation:byok']) {
-    throw new Error('billing:credits requires generation:byok=false')
-  }
 }
 
 function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): ResolvedOperatorConfig {

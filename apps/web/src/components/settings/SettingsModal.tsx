@@ -1,41 +1,30 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from '../../i18n'
-import { isByokGenerationEnabled } from '../../lib/clientCapabilities'
 import { useStore } from '../../store'
 import Overlay from '../patterns/Overlay'
 import { Button } from '../ui/button'
 import { Icon, type IconName } from '../ui/icon'
-import ApiTab from './ApiTab'
 import DataTab from './DataTab'
 import GeneralTab from './GeneralTab'
 
-type SettingsTab = 'general' | 'data' | 'api'
+type SettingsTab = 'general' | 'data'
 
-/**
- * 设置弹窗的外壳：标题栏、左侧导航、当前页内容。每一页自己管自己的状态。
- *
- * BYOK 关掉的部署里 API 这一页**连内容都不渲染**，不只是藏起导航按钮——
- * activeTab 跨开关保留，只守按钮就会从上一次的选择漏出来。
- */
+/** 设置弹窗的外壳：标题栏、左侧导航、当前页内容。每一页自己管自己的状态。 */
 export default function SettingsModal() {
   const { t } = useTranslation('settings')
   const { t: tCommon } = useTranslation('common')
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
-  const apiFlushRef = useRef<(() => void) | null>(null)
 
   if (!showSettings) return null
 
-  const byokEnabled = isByokGenerationEnabled()
   const tabs: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
     { id: 'general', label: t('tab.general'), icon: 'settingsAdjust' },
     { id: 'data', label: t('tab.data'), icon: 'database' },
-    ...(byokEnabled ? [{ id: 'api' as const, label: t('tab.api'), icon: 'key' as const }] : []),
   ]
 
   const handleClose = () => {
-    apiFlushRef.current?.()
     setShowSettings(false)
   }
 
@@ -93,7 +82,6 @@ export default function SettingsModal() {
             <div className="flex-1 overflow-y-auto overscroll-contain p-5 custom-scrollbar sm:p-6">
               {activeTab === 'general' && <GeneralTab />}
               {activeTab === 'data' && <DataTab />}
-              {activeTab === 'api' && byokEnabled && <ApiTab flushRef={apiFlushRef} />}
             </div>
           </div>
         </div>

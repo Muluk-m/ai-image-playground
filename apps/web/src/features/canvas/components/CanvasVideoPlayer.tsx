@@ -5,10 +5,12 @@ export default function CanvasVideoPlayer({
   src,
   poster,
   onEnded,
+  onTimeChange,
 }: {
   src: string
   poster?: string
   onEnded: () => void
+  onTimeChange?: (seconds: number) => void
 }) {
   const element = useRef<HTMLVideoElement>(null)
 
@@ -41,6 +43,7 @@ export default function CanvasVideoPlayer({
       autoPlay
       onPointerDown={(event) => event.stopPropagation()}
       onEnded={onEnded}
+      onTimeUpdate={(event) => onTimeChange?.(event.currentTarget.currentTime)}
     >
       <track kind="captions" />
     </video>

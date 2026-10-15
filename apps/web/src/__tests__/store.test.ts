@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const failTaskPuts = vi.hoisted(() => new Set<string>())
+
 import type { AssetRecord, LookRecord, TemplateRecord } from '../features/library/types'
-import {
-  createDefaultGeminiByokProfile,
-  createDefaultOpenAIByokProfile,
-  DEFAULT_SETTINGS,
-  normalizeSettings,
-} from '../lib/apiProfiles'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
 import { API_MAX_IMAGES } from '../lib/inputImageLimit'
 import { mergeHistory, type PlatformGenerationRow } from '../lib/platformGenerations'
@@ -23,6 +21,7 @@ vi.mock('../lib/db', () => {
     CURRENT_THUMBNAIL_VERSION: 2,
     getAllTasks: async () => [...tasks.values()],
     putTask: async (task: TaskRecord) => {
+      if (failTaskPuts.has(task.id)) throw new Error('quota')
       tasks.set(task.id, task)
       return task.id
     },
@@ -73,6 +72,17 @@ vi.mock('../lib/db', () => {
 vi.mock('../features/library/lib/assetStore', () => {
   const assets = new Map<string, AssetRecord>()
   return {
+    updateAssetRecord: async (
+      id: string,
+      change: (asset: AssetRecord) => AssetRecord,
+      canWrite = () => true,
+    ) => {
+      const current = assets.get(id)
+      if (!current || !canWrite()) return null
+      const saved = change(current)
+      assets.set(id, saved)
+      return saved
+    },
     assetStore: {
       list: async () => [...assets.values()],
       put: async (asset: AssetRecord) => {
@@ -161,10 +171,21 @@ import { IDBFactory } from 'fake-indexeddb'
 import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
 import { resumePendingSubmission } from '../auth/resumePendingSubmission'
 import { useLibraryStore } from '../features/library/store'
-import { callImageApi } from '../lib/api'
-import { setChannels } from '../lib/channels/channelStore'
+import { callImageApi, resumeQueueImageApi } from '../lib/api'
+import { resetChannelDiscoveryForTests } from '../lib/channels/bootstrapChannels'
+import { resetChannelCatalog, setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
-import { clearImages, getAllImages, getAllTasks, getImage, putImage } from '../lib/db'
+import * as database from '../lib/db'
+import {
+  clearImages,
+  clearTasks,
+  getAllImages,
+  getAllTasks,
+  getImage,
+  putImage,
+  putTask,
+} from '../lib/db'
+import { _setRuntimeConfigForTesting } from '../lib/runtimeConfig'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -225,7 +246,21 @@ describe('mask draft lifecycle in store actions', () => {
     await bootstrapClientCapabilities(false, '')
     // 登录态是模块级的，逐用例归零。
     setSignedIn(false)
-    setChannels([])
+    setChannels([
+      {
+        id: 'default-openai',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [
+          {
+            id: 'gpt-image-2',
+            label: 'GPT Image 2',
+            capabilities: ['generate', 'edit', 'mask', 'quality'],
+          },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -238,7 +273,14 @@ describe('mask draft lifecycle in store actions', () => {
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
-        profiles: [createDefaultOpenAIByokProfile({ apiKey: 'test-key' })],
+        profiles: [
+          {
+            id: 'default-openai',
+            source: 'builtin-edge',
+            channelId: 'default-openai',
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
         activeProfileId: 'default-openai',
       }),
       prompt: 'prompt',
@@ -256,6 +298,10 @@ describe('mask draft lifecycle in store actions', () => {
       showToast: vi.fn(),
       setConfirmDialog: vi.fn(),
     })
+  })
+
+  afterEach(() => {
+    setChannels([])
   })
 
   it('editOutputImage 对输出图打开遮罩编辑器且不破坏已有 mask draft', async () => {
@@ -737,7 +783,7 @@ describe('参考图条的挪动、删除与整条换掉', () => {
 })
 
 describe('interrupted OpenAI running tasks', () => {
-  it('marks legacy and OpenAI running tasks as interrupted', () => {
+  it('interrupts running tasks that cannot be resumed, including old custom-provider tasks', () => {
     const now = 10_000
     const legacyRunning = task({
       id: 'legacy-running',
@@ -773,6 +819,7 @@ describe('interrupted OpenAI running tasks', () => {
     expect(result.interruptedTasks.map((item) => item.id)).toEqual([
       'legacy-running',
       'openai-running',
+      'custom-running',
     ])
     expect(result.tasks.find((item) => item.id === 'legacy-running')).toMatchObject({
       status: 'error',
@@ -786,8 +833,428 @@ describe('interrupted OpenAI running tasks', () => {
       finishedAt: now,
       elapsed: 8_000,
     })
-    expect(result.tasks.find((item) => item.id === 'custom-running')).toEqual(customAsyncRunning)
+    expect(result.tasks.find((item) => item.id === 'custom-running')).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('自带密钥'),
+      customRecoverable: false,
+      finishedAt: now,
+    })
     expect(result.tasks.find((item) => item.id === 'done-task')).toEqual(doneTask)
+  })
+
+  it('marks a stored bring-your-own-key task unrecoverable and still resumes a platform task', () => {
+    const now = 10_000
+    const byok = task({
+      id: 'byok-sync',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      clientRequestId: 'old-byok-key',
+      status: 'running',
+      createdAt: 1_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const platform = task({
+      id: 'platform-running',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      bffRequestId: 'req-platform',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const inflight = task({
+      id: 'platform-inflight',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      clientRequestId: 'idempotent-key',
+      platformTask: true,
+      status: 'running',
+      createdAt: 3_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+
+    const result = markInterruptedOpenAIRunningTasks([byok, platform, inflight], now)
+
+    expect(result.interruptedTasks.map((item) => item.id)).toEqual(['byok-sync'])
+    expect(result.tasks.find((item) => item.id === 'byok-sync')).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('自带密钥'),
+    })
+    expect(result.tasks.find((item) => item.id === 'platform-running')?.status).toBe('running')
+    expect(result.tasks.find((item) => item.id === 'platform-inflight')?.status).toBe('running')
+  })
+})
+
+describe('startup task migration', () => {
+  const channel: PublicChannel = {
+    id: 'default-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(async () => {
+    failTaskPuts.clear()
+    await clearTasks()
+    setChannels([channel])
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      tasks: [],
+    })
+  })
+
+  it('continues platform recovery when retiring an old task cannot be written', async () => {
+    const byok = task({
+      id: 'fail-write-byok',
+      apiProvider: 'openai',
+      apiProfileId: 'default-openai',
+      clientRequestId: 'old-byok-key',
+      status: 'running',
+      createdAt: 1_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const platform = task({
+      id: 'platform-running',
+      apiProvider: 'openai',
+      apiProfileId: channel.id,
+      apiModel: 'gpt-image-2',
+      bffRequestId: 'req-platform',
+      prompt: 'keep going',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    await putTask(byok)
+    await putTask(platform)
+    failTaskPuts.add(byok.id)
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(resumeQueueImageApi).mockReset()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await initStore()
+      expect(
+        errorSpy.mock.calls.some((call) => String(call[0]).includes('failed to persist')),
+      ).toBe(true)
+    } finally {
+      errorSpy.mockRestore()
+      failTaskPuts.clear()
+    }
+
+    expect(vi.mocked(callImageApi)).not.toHaveBeenCalled()
+    expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'keep going' }),
+      'req-platform',
+    )
+    expect(useStore.getState().tasks.find((item) => item.id === byok.id)).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('自带密钥'),
+    })
+  })
+})
+
+describe('startup resume waits for the channel catalog', () => {
+  const gemini: PublicChannel = {
+    id: 'gemini-images',
+    kind: 'gemini-queue',
+    label: 'Gemini',
+    models: [{ id: 'gemini-image', label: 'Gemini', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  afterEach(() => {
+    resetChannelDiscoveryForTests()
+    setChannels([])
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps a running platform task until the catalog arrives, then resumes it', async () => {
+    resetChannelCatalog()
+    _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://bff.test' } })
+    await clearTasks()
+    const running = task({
+      id: 'gemini-running',
+      apiProvider: 'gemini',
+      apiProfileId: gemini.id,
+      apiModel: 'gemini-image',
+      bffRequestId: 'req-gemini',
+      prompt: 'resume later',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    await putTask(running)
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: gemini.id,
+            source: 'builtin-edge',
+            channelId: gemini.id,
+            selectedModelId: 'gemini-image',
+          },
+        ],
+        activeProfileId: gemini.id,
+      }),
+      tasks: [],
+    })
+    vi.mocked(resumeQueueImageApi).mockClear()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('offline', { status: 503 })),
+    )
+    try {
+      await initStore()
+      await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const stored = useStore.getState().tasks.find((item) => item.id === running.id)
+      expect(stored).toMatchObject({ status: 'running', error: null })
+      expect(vi.mocked(resumeQueueImageApi)).not.toHaveBeenCalled()
+
+      setChannels([gemini])
+
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'resume later' }),
+        'req-gemini',
+      )
+      expect(
+        useStore.getState().tasks.find((item) => item.id === running.id)?.error ?? '',
+      ).not.toContain('API 配置')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  async function bootOfflineCatalog(running: TaskRecord) {
+    resetChannelCatalog()
+    _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://bff.test' } })
+    await clearTasks()
+    await putTask(running)
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: gemini.id,
+            source: 'builtin-edge',
+            channelId: gemini.id,
+            selectedModelId: 'gemini-image',
+          },
+        ],
+        activeProfileId: gemini.id,
+      }),
+      tasks: [],
+      prompt: '',
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS },
+    })
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(resumeQueueImageApi).mockClear()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('offline', { status: 503 })),
+    )
+    await initStore()
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return warn
+  }
+
+  it('submits a new task once and resumes only the startup task when the catalog arrives', async () => {
+    const running = task({
+      id: 'gemini-running',
+      apiProvider: 'gemini',
+      apiProfileId: gemini.id,
+      apiModel: 'gemini-image',
+      bffRequestId: 'req-gemini',
+      prompt: 'resume later',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const generated = {
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    }
+    let releaseSubmit: (value: typeof generated) => void = () => {}
+    vi.mocked(callImageApi).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseSubmit = resolve
+        }),
+    )
+    const warn = await bootOfflineCatalog(running)
+    try {
+      useStore.setState({ prompt: 'fresh idea' })
+      const submitting = submitTask()
+      await vi.waitFor(() => expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(1))
+      expect(useStore.getState().tasks.find((item) => item.prompt === 'fresh idea')).toMatchObject({
+        status: 'running',
+        platformTask: true,
+      })
+      expect(vi.mocked(resumeQueueImageApi)).not.toHaveBeenCalled()
+
+      setChannels([gemini])
+
+      expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(callImageApi).mock.calls[0]?.[0]).toMatchObject({ prompt: 'fresh idea' })
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'resume later' }),
+        'req-gemini',
+      )
+
+      releaseSubmit(generated)
+      await submitting
+      await waitUntil(
+        () =>
+          useStore.getState().tasks.find((item) => item.id === running.id)?.status !== 'running',
+        'startup task did not finish resuming',
+      )
+      expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+    } finally {
+      releaseSubmit(generated)
+      warn.mockRestore()
+      vi.mocked(callImageApi).mockImplementation(async () => generated)
+      vi.mocked(resumeQueueImageApi).mockReset()
+    }
+  })
+
+  it('runs one recovery when the same task is resumed twice', async () => {
+    const running = task({
+      id: 'gemini-running',
+      apiProvider: 'gemini',
+      apiProfileId: gemini.id,
+      apiModel: 'gemini-image',
+      bffRequestId: 'req-gemini',
+      prompt: 'resume later',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const generated = {
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    }
+    let releaseResume: (value: typeof generated) => void = () => {}
+    vi.mocked(resumeQueueImageApi).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseResume = resolve
+        }),
+    )
+    const warn = await bootOfflineCatalog(running)
+    try {
+      setChannels([gemini])
+      setChannels([gemini])
+
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(callImageApi)).not.toHaveBeenCalled()
+
+      releaseResume(generated)
+      await waitUntil(
+        () =>
+          useStore.getState().tasks.find((item) => item.id === running.id)?.status !== 'running',
+        'startup task did not finish resuming',
+      )
+      expect(vi.mocked(resumeQueueImageApi)).toHaveBeenCalledTimes(1)
+    } finally {
+      releaseResume(generated)
+      warn.mockRestore()
+      vi.mocked(resumeQueueImageApi).mockReset()
+    }
+  })
+})
+
+describe('saved creation selections before the channel catalog loads', () => {
+  it('keeps the saved model and parameters until the catalog settles', () => {
+    resetChannelCatalog()
+    useStore.setState({
+      createTarget: 'generate',
+      settings: { ...DEFAULT_SETTINGS, profiles: [], activeProfileId: '' },
+      creationSelections: {
+        chat: {
+          params: { ...DEFAULT_PARAMS, size: '1280x720', n: 2 },
+          profileId: 'openai-images',
+          model: 'gpt-image-2.5-sunburst',
+        },
+      },
+      params: { ...DEFAULT_PARAMS },
+    })
+
+    useStore.getState().setCreateTarget('chat')
+
+    expect(useStore.getState().creationSelections.chat).toMatchObject({
+      profileId: 'openai-images',
+      model: 'gpt-image-2.5-sunburst',
+    })
+    expect(useStore.getState().params).toMatchObject({ size: '1280x720', n: 2 })
+  })
+
+  it('drops a saved profile that is gone once the catalog has loaded', () => {
+    setChannels([
+      {
+        id: 'openai-images',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [{ id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
+    useStore.setState({
+      createTarget: 'generate',
+      params: { ...DEFAULT_PARAMS, size: '1024x1024' },
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: 'openai-images',
+            source: 'builtin-edge',
+            channelId: 'openai-images',
+            selectedModelId: 'gpt-image-2.5-flare',
+          },
+        ],
+        activeProfileId: 'openai-images',
+      }),
+      creationSelections: {
+        chat: {
+          params: { ...DEFAULT_PARAMS, size: '1280x720', n: 2 },
+          profileId: 'missing-byok',
+          model: 'gpt-image-2',
+        },
+      },
+    })
+
+    useStore.getState().setCreateTarget('chat')
+
+    expect(useStore.getState().creationSelections.chat).toBeUndefined()
+    expect(useStore.getState().params.size).toBe('1024x1024')
   })
 })
 
@@ -960,17 +1427,42 @@ describe('input persistence setting', () => {
 })
 
 describe('reusing a task', () => {
-  const openaiProfile = createDefaultOpenAIByokProfile({
+  const openaiProfile: BuiltinEdgeProfile = {
     id: 'openai-profile',
-    apiKey: 'openai-key',
-  })
-  const geminiProfile = createDefaultGeminiByokProfile({
+    source: 'builtin-edge',
+    channelId: 'openai-profile',
+    selectedModelId: 'gpt-image-2',
+  }
+  const geminiProfile: BuiltinEdgeProfile = {
     id: 'gemini-profile',
-    name: 'Gemini 配置',
-    apiKey: 'gem-key',
-  })
+    source: 'builtin-edge',
+    channelId: 'gemini-profile',
+    selectedModelId: 'gemini-3.1-flash-image',
+  }
 
   beforeEach(() => {
+    setChannels([
+      {
+        id: 'openai-profile',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+      {
+        id: 'gemini-profile',
+        kind: 'gemini-queue',
+        label: 'Gemini 配置',
+        models: [
+          {
+            id: 'gemini-3.1-flash-image',
+            label: 'Gemini',
+            capabilities: ['generate', 'edit'],
+          },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1046,7 +1538,7 @@ describe('reusing a task', () => {
   })
 })
 
-describe('getPersistedState builtin profile stripping', () => {
+describe('getPersistedState keeps platform profiles', () => {
   beforeEach(() => {
     useStore.setState({
       settings: { ...DEFAULT_SETTINGS },
@@ -1055,8 +1547,16 @@ describe('getPersistedState builtin profile stripping', () => {
     })
   })
 
-  it('removes builtin-edge profiles before persisting', () => {
-    const userProfile = createDefaultOpenAIByokProfile({ id: 'user-1', apiKey: 'user-key' })
+  it('persists the platform profile and drops a retired BYOK record', () => {
+    setChannels([
+      {
+        id: 'test-x',
+        kind: 'openai-queue',
+        label: 'X',
+        models: [{ id: 'm', label: 'M', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
     const builtinEdge = {
       id: 'test-x',
       source: 'builtin-edge' as const,
@@ -1065,19 +1565,66 @@ describe('getPersistedState builtin profile stripping', () => {
     }
     useStore.setState({
       settings: normalizeSettings({
-        profiles: [builtinEdge, userProfile],
-        activeProfileId: userProfile.id,
+        profiles: [builtinEdge, { id: 'user-1', source: 'user-byok', apiKey: 'user-key' } as never],
+        activeProfileId: 'user-1',
       }),
     })
 
     const persisted = getPersistedState(useStore.getState())
 
-    expect(persisted.settings.profiles.find((p) => p.id === 'test-x')).toBeUndefined()
-    expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
+    expect(persisted.settings.profiles.map((profile) => profile.id)).toEqual(['test-x'])
+    expect(persisted.settings.activeProfileId).toBe('test-x')
+    expect(JSON.stringify(persisted.settings)).not.toContain('user-key')
+    setChannels([])
   })
 })
 
 describe('addCompletedCanvasTask', () => {
+  it('does not report a failed task write as persisted and allows the same completion to retry', async () => {
+    const task = {
+      id: 'canvas:storage-retry',
+      prompt: 'retry',
+      params: DEFAULT_PARAMS,
+      images: ['data:image/png;base64,one'],
+    }
+    const saving = vi.spyOn(database, 'putTask').mockRejectedValueOnce(new Error('quota exceeded'))
+    try {
+      expect(await addCompletedCanvasTask(task)).toBe(false)
+      expect(useStore.getState().tasks.some((t) => t.id === task.id)).toBe(false)
+      expect(await addCompletedCanvasTask(task)).toBe(true)
+      expect((await getAllTasks()).find((t) => t.id === task.id)?.outputImages).toHaveLength(1)
+    } finally {
+      saving.mockRestore()
+    }
+  })
+
+  it('preserves favorites and original completion metadata on repeated delivery', async () => {
+    const task = {
+      id: 'canvas:favorite-job',
+      prompt: 'original',
+      params: DEFAULT_PARAMS,
+      images: [],
+      elapsed: 123,
+    }
+    await addCompletedCanvasTask(task)
+    const original = { ...useStore.getState().tasks[0]!, isFavorite: true }
+    useStore.getState().setTasks([original])
+    await addCompletedCanvasTask({ ...task, prompt: 'late recovery', elapsed: 999 })
+    expect(useStore.getState().tasks).toEqual([original])
+  })
+
+  it('upserts a recovered completion by its stable task identity', async () => {
+    useStore.getState().setTasks([])
+    const task = {
+      id: 'canvas:same-job',
+      prompt: 'two devices',
+      params: DEFAULT_PARAMS,
+      images: [],
+    }
+    await Promise.all([addCompletedCanvasTask(task), addCompletedCanvasTask(task)])
+    expect(useStore.getState().tasks.filter((record) => record.id === task.id)).toHaveLength(1)
+  })
+
   beforeEach(() => {
     useStore.setState({ settings: { ...DEFAULT_SETTINGS }, tasks: [] })
   })
@@ -1281,21 +1828,6 @@ describe('submitTask 数量分发（capability n 门控）', () => {
     expectFanOutFour()
   })
 
-  it('BYOK profile（无能力声明，模型名与内置相同也不推断）：count=4 仍是四条 n=1 任务', async () => {
-    setChannels([gptImageChannel])
-    setupCountState(createDefaultOpenAIByokProfile({ apiKey: 'test-key' }))
-
-    await submitTask()
-    await waitUntil(
-      () =>
-        useStore.getState().tasks.length === 4 &&
-        useStore.getState().tasks.every((t) => t.status === 'done'),
-      'fan-out tasks did not finish',
-    )
-
-    expectFanOutFour()
-  })
-
   // 重试原本绕过了提交门禁、扇出与幂等键——三件事都归提交那条路，重试也得走同一条。
   it('重试按扇出规则拆：未声明 n 的渠道，n=4 的失败任务重试出四条 n=1', async () => {
     setChannels([geminiChannel])
@@ -1341,8 +1873,22 @@ describe('submitTask 数量分发（capability n 门控）', () => {
 })
 
 describe('submitTask 槽位批量展开', () => {
+  const slotChannel: PublicChannel = {
+    id: 'slot-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
   function setupSlotState(prompt: string, slotValues: Record<string, string[]>, n: number) {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    setChannels([slotChannel])
+    const profile: BuiltinEdgeProfile = {
+      id: slotChannel.id,
+      source: 'builtin-edge',
+      channelId: slotChannel.id,
+      selectedModelId: slotChannel.models[0].id,
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1365,7 +1911,9 @@ describe('submitTask 槽位批量展开', () => {
     })
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -1426,7 +1974,20 @@ describe('素材引用与模板套用后提交', () => {
   const HALL = 'data:image/png;base64,hall'
 
   function setupState() {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    const channel: PublicChannel = {
+      id: 'asset-openai',
+      kind: 'openai-queue',
+      label: 'OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const profile: BuiltinEdgeProfile = {
+      id: channel.id,
+      source: 'builtin-edge',
+      channelId: channel.id,
+      selectedModelId: channel.models[0].id,
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1465,6 +2026,8 @@ describe('素材引用与模板套用后提交', () => {
   }
 
   beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -1559,13 +2122,44 @@ describe('素材与模板引导标记', () => {
 
 describe('submitPrepared 显式参数提交接缝', () => {
   const PREPARED_IMAGE = 'data:image/png;base64,prepared'
-  const preparedGeminiProfile = createDefaultGeminiByokProfile({
+  const preparedOpenAI: PublicChannel = {
+    id: 'default-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [
+      { id: 'gpt-image-1', label: 'GPT Image 1', capabilities: ['generate', 'edit'] },
+      { id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const preparedGemini: PublicChannel = {
     id: 'gemini-byok',
-    apiKey: 'gemini-key',
-  })
+    kind: 'gemini-queue',
+    label: 'Gemini',
+    models: [
+      {
+        id: 'gemini-3.1-flash-image',
+        label: 'Gemini',
+        capabilities: ['generate', 'edit'],
+      },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const preparedGeminiProfile: BuiltinEdgeProfile = {
+    id: preparedGemini.id,
+    source: 'builtin-edge',
+    channelId: preparedGemini.id,
+    selectedModelId: preparedGemini.models[0].id,
+  }
 
   function setupPreparedState() {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    setChannels([preparedOpenAI, preparedGemini])
+    const profile: BuiltinEdgeProfile = {
+      id: preparedOpenAI.id,
+      source: 'builtin-edge',
+      channelId: preparedOpenAI.id,
+      selectedModelId: 'gpt-image-1',
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1589,6 +2183,8 @@ describe('submitPrepared 显式参数提交接缝', () => {
   }
 
   beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -1697,9 +2293,12 @@ describe('submitPrepared 显式参数提交接缝', () => {
   })
 
   it('explicit model is used by dispatch without changing the selected model', async () => {
-    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
-    profile.models = ['gpt-image-1', 'gpt-image-2']
-    profile.selectedModelId = 'gpt-image-1'
+    const profile: BuiltinEdgeProfile = {
+      id: preparedOpenAI.id,
+      source: 'builtin-edge',
+      channelId: preparedOpenAI.id,
+      selectedModelId: 'gpt-image-1',
+    }
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,

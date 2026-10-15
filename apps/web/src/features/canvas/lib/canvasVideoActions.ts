@@ -6,7 +6,7 @@ import {
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import {
   isVideoModeAvailable,
   type VideoModelOption,
@@ -296,7 +296,7 @@ const FRAME_TIMEOUT_MS = 20_000
 /** 在浏览器里取这段视频的首帧或尾帧。取不到（跨域污染、超时、解码失败）返回 null。 */
 export function captureCanvasVideoFrame(
   video: CanvasVideoRef,
-  which: 'first' | 'last',
+  which: 'first' | 'last' | number,
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const element = document.createElement('video')
@@ -319,6 +319,11 @@ export function captureCanvasVideoFrame(
     element.addEventListener(
       'loadedmetadata',
       () => {
+        if (typeof which === 'number') {
+          if (!Number.isFinite(which) || !Number.isFinite(element.duration)) return settle(null)
+          element.currentTime = Math.max(0.001, Math.min(which, element.duration - 0.05))
+          return
+        }
         if (which === 'first') {
           element.currentTime = 0.001
           return
@@ -332,7 +337,7 @@ export function captureCanvasVideoFrame(
     )
     element.addEventListener('seeked', () => settle(framePng(element)), { signal })
     element.addEventListener('error', () => settle(null), { signal })
-    element.src = queueOutputUrl(video.taskId, video.outputIndex)
+    element.src = videoOutputUrl(video)
     element.load()
   })
 }
@@ -380,9 +385,7 @@ export async function placeCanvasVideoFrame(
 /** 下载这段视频的 mp4。播放地址要带登录态，不能直接给 `<a href>`。 */
 export async function downloadCanvasVideo(node: CanvasVideoNode): Promise<void> {
   try {
-    const res = await authenticatedBffFetch(
-      queueOutputUrl(node.video.taskId, node.video.outputIndex),
-    )
+    const res = await authenticatedBffFetch(videoOutputUrl(node.video))
     if (!res.ok)
       throw new Error(i18next.t('download.fetchFailed', { ns: 'video', status: res.status }))
     downloadBlob(await res.blob(), `video-${node.video.taskId}-${node.video.outputIndex}.mp4`)

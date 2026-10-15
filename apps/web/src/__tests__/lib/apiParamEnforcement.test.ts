@@ -6,24 +6,15 @@ import { normalizeImageSize } from '../../lib/size'
 import { type AppSettings, DEFAULT_PARAMS, type TaskParams } from '../../types'
 
 /**
- * 分发层参数归一化的 wiring 测试：任何路径（工作台 / canvas / 恢复 / 重试）只要穿过
- * callImageApi / resumeQueueImageApi 这个漏斗，到达 adapter 的 params 就必须是合法的。
- * adapter 全部 mock，断言的是「漏斗交出去的参数」，不是 adapter 行为。
+ * 分发层参数归一化的 wiring 测试：任何路径只要穿过 callImageApi / resumeQueueImageApi，
+ * 到达队列适配器的 params 就必须是合法的。
  */
 
 const adapters = vi.hoisted(() => ({
-  openai: vi.fn(async (_opts: unknown) => ({ images: [] as string[] })),
-  gemini: vi.fn(async (_opts: unknown) => ({ images: [] as string[] })),
   queue: vi.fn(async (_opts: unknown) => ({ images: [] as string[] })),
   resumeQueue: vi.fn(async (_opts: unknown) => ({ images: [] as string[] })),
 }))
 
-vi.mock('../../lib/openaiCompatibleImageApi', () => ({
-  callOpenAICompatibleImageApi: adapters.openai,
-}))
-vi.mock('../../lib/geminiImageApi', () => ({
-  callGeminiImageApi: adapters.gemini,
-}))
 vi.mock('../../lib/channels/queueClient', () => ({
   callQueueChannelApi: adapters.queue,
   resumeQueueChannelApi: adapters.resumeQueue,
@@ -53,21 +44,18 @@ const QUEUE_CHANNEL: PublicChannel = {
   defaults: { apiMode: 'images', timeout: 600 },
 }
 
-function byokSettings(kind: 'openai-compat' | 'gemini'): AppSettings {
-  return normalizeSettings({
-    ...DEFAULT_SETTINGS,
-    profiles: [
-      {
-        id: 'p1',
-        source: 'user-byok',
-        name: kind,
-        kind,
-        baseUrl: 'https://x.test/v1',
-        apiKey: 'k',
-      },
-    ],
-    activeProfileId: 'p1',
-  })
+const GEMINI_CHANNEL: PublicChannel = {
+  id: 'c-gemini',
+  kind: 'gemini-queue',
+  label: 'Gemini',
+  models: [
+    {
+      id: 'gemini-3.1-flash-image',
+      label: 'Gemini',
+      capabilities: ['generate', 'edit'],
+    },
+  ],
+  defaults: { apiMode: 'images', timeout: 600 },
 }
 
 /** 把 channel 注册进 mock 列表，并返回选中它的 settings。 */
@@ -90,14 +78,14 @@ function baseOpts(settings: AppSettings, params: TaskParams): CallApiOptions {
   return { settings, prompt: '画一只猫', params, inputImageDataUrls: [] }
 }
 
-/** 漏斗最终交给 adapter 的 params —— 本文件所有断言的取值口。 */
+/** 漏斗最终交给适配器的 params。 */
 function lastParams(adapter: (typeof adapters)[keyof typeof adapters]): TaskParams {
   return (adapter.mock.lastCall?.[0] as CallApiOptions).params
 }
 
 describe('dispatch-layer param enforcement', () => {
-  it('normalizes count / transparent / size before the byok adapter', async () => {
-    const settings = byokSettings('openai-compat')
+  it('normalizes count / transparent / size before the queue adapter', async () => {
+    const settings = useBuiltinChannel(QUEUE_CHANNEL)
     const params = {
       ...DEFAULT_PARAMS,
       n: 12,
@@ -108,39 +96,30 @@ describe('dispatch-layer param enforcement', () => {
 
     await callImageApi(baseOpts(settings, params))
 
-    const received = lastParams(adapters.openai)
+    const received = lastParams(adapters.queue)
     expect(received.n).toBe(10)
     expect(received.transparent_output).toBe(false)
     expect(received.size).toBe(normalizeImageSize('1000x1000'))
   })
 
-  it('resets leftover transparent_output for gemini profiles at dispatch', async () => {
-    const settings = byokSettings('gemini')
+  it('resets leftover transparent_output for gemini channels at dispatch', async () => {
+    const settings = useBuiltinChannel(GEMINI_CHANNEL)
     const params = { ...DEFAULT_PARAMS, transparent_output: true }
 
     await callImageApi(baseOpts(settings, params))
 
-    expect(lastParams(adapters.gemini).transparent_output).toBe(false)
+    expect(lastParams(adapters.queue).transparent_output).toBe(false)
   })
 
   it('keeps legitimate transparent png params untouched (idempotent)', async () => {
-    const settings = byokSettings('openai-compat')
+    const settings = useBuiltinChannel(QUEUE_CHANNEL)
     const params = { ...DEFAULT_PARAMS, output_format: 'png' as const, transparent_output: true }
 
     await callImageApi(baseOpts(settings, params))
 
-    const received = lastParams(adapters.openai)
+    const received = lastParams(adapters.queue)
     expect(received.transparent_output).toBe(true)
     expect(received.output_format).toBe('png')
-  })
-
-  it('normalizes before the builtin-edge queue adapter', async () => {
-    const settings = useBuiltinChannel(QUEUE_CHANNEL)
-    const params = { ...DEFAULT_PARAMS, n: 12 }
-
-    await callImageApi(baseOpts(settings, params))
-
-    expect(lastParams(adapters.queue).n).toBe(10)
   })
 
   it('normalizes on resumeQueueImageApi (canvas recover path)', async () => {

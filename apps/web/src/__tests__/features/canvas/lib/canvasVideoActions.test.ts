@@ -22,14 +22,18 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../../../../lib/channels/queueClient', () => ({
+vi.mock('../../../../lib/channels/queueClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/channels/queueClient')>()),
   submitVideoRequest: mocks.submitVideoRequest,
   awaitQueueOutputs: mocks.awaitQueueOutputs,
-  queueOutputUrl: (id: string, index: number) => `https://bff.test/${id}/${index}`,
 }))
 vi.mock('../../../../lib/channels/channelStore', () => ({
   getStoredChannel: (id: string) => ({ id, kind: 'openai-queue' }),
   getStoredChannels: () => [],
+  setChannels: () => {},
+  channelsSettled: () => true,
+  resetChannelCatalog: () => {},
+  subscribeChannels: () => () => {},
 }))
 vi.mock('../../../../lib/channels/videoChannels', () => ({
   videoModelOptions: () => mocks.options.current,

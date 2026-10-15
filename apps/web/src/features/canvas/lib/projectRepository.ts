@@ -29,10 +29,7 @@ export interface CanvasProject {
   readonly createdAt: number
   readonly updatedAt: number
   readonly hasContent: boolean
-  /**
-   * 这张画布是拿来做图还是做片。建项目时定死，此后只读：`update` 的补丁类型里没有它，
-   * 从云端认领也只认领一次（{@link projectRepository.adoptKind}）。
-   */
+  /** 旧存档兼容字段，只读保留；不控制入口、生成能力或 Agent 工具。 */
   readonly kind: ProjectKind
   /** 工作台入口类型；与图片/视频画布类型分别记录。 */
   readonly experience?: 'chat' | 'canvas'
