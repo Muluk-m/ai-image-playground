@@ -125,10 +125,14 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
   auto: '这一轮是出图模式：生图、生视频与改图工具拟好提示词就当场提交并计费，用户不再逐张确认，所以一次调用就是一次真实花费——想清楚再调，不要试探性地多调。任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。工具回执会说清这一次到底提交了没有：说「等待确认」就是没提交（额度用完或余额不足退回了待确认），这时照对话模式的规矩说话，不要声称已经在生成。复核后若需要新的生成，重新调用一次即可，但不自行付费重试同一件事。',
 }
 
+const DIRECT_IMAGE_LINE =
+  '这一轮是图片生成：不要追问、不要改写成另一套方案，用用户原话调用一次生图工具，张数用本轮参数里的 n。工具会当场提交。'
+
 export function systemPrompt(
   mode: AgentMode,
   autoSubmit: boolean,
   audience: AgentTurnAudience,
+  directImage = false,
 ): string {
   return [
     audience.experience === 'chat'
@@ -146,7 +150,7 @@ export function systemPrompt(
     audience.experience === 'chat'
       ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑；不要承诺结果已写入画布。'
       : '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
-    SUBMIT_LINE[autoSubmit ? 'auto' : 'draft'],
+    directImage ? DIRECT_IMAGE_LINE : SUBMIT_LINE[autoSubmit ? 'auto' : 'draft'],
     '按用户原话及已确认补充执行编辑。区分修改对象、允许变化范围和参考来源；选区限定范围，不表示其中所有内容都要改变。只修改指定实例与属性，保留其余内容；用户明确委托的自由设计应在其授权范围内执行。',
     '参考仅提供用户指定或明确委托的属性。目标、范围、参考用途或必要动作存在实质冲突时，先提出一个具体澄清；信息明确则直接执行。保留要求不得覆盖本次修改目标。',
     '先区分图片的任务关系：逐张独立编辑、同图多版本、目标加参考、依赖前一步产物。用户说每张、全部或逐张修改时，每张都是独立目标，各自写提示词并保留自身上下文；同一主体的照片不自动互为参考。明确指定给各目标的参考仍应带入；只要求修改指定图片时，其余图片不另起任务。独立目标不使用 deferredEdits。',
@@ -269,12 +273,13 @@ export function turnInitialState(
   selectionHistoryStart = history.length,
   audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
+  directImage = false,
 ): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
   return {
-    systemPrompt: systemPrompt(mode, autoSubmit, audience),
+    systemPrompt: systemPrompt(mode, autoSubmit, audience, directImage),
     messages: replayed(history, selectionHistoryStart, skillTexts),
   }
 }
@@ -365,6 +370,8 @@ export interface AgentTurnInput {
   readonly note?: string
   /** 出图模式：系统提示词里生成流程那一句换成另一份，长度不同。 */
   readonly autoSubmit: boolean
+  /** 图片生成：系统提示词改成原话出图，缓存键因此和对话模式分开。 */
+  readonly directImage?: boolean
   /** 选区继承起点：澄清链推导，或改图计划保护时的 0。 */
   readonly selectionHistoryStart: number
   /** 这一轮谁在看：他的模板进技能清单，他看得见的工具才装配。 */
@@ -387,6 +394,7 @@ export function turnInitialStateOf(input: AgentTurnInput): {
     input.selectionHistoryStart,
     input.audience,
     input.skillTexts,
+    input.directImage === true,
   )
   return { ...state, messages: input.modelHistory?.messages ?? state.messages }
 }

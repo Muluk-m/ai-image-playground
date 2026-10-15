@@ -22,6 +22,7 @@ import { ACTIVE_TAB, CARD, CARD_TITLE, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
+import { isProductionDraft } from '../lib/promptDraft'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
@@ -34,13 +35,14 @@ import AgentConnectionHint from './AgentConnectionHint'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentCreations from './AgentCreations'
 import AgentFollowUpChips from './AgentFollowUpChips'
+import AgentGenerationPlan from './AgentGenerationPlan'
 import AgentHistoryStatus from './AgentHistoryStatus'
+import AgentImageActionStepView from './AgentImageActionStep'
 import AgentMessageQueue from './AgentMessageQueue'
-import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
 import AgentSaveCard from './AgentSaveCard'
 import AgentSuggestions from './AgentSuggestions'
-import AgentToolCard from './AgentToolCard'
+import AgentToolCard, { AgentImageRun } from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 import AgentUserMessage from './AgentUserMessage'
 import CanvasAgentWelcome from './CanvasAgentWelcome'
@@ -119,6 +121,7 @@ function renderMessage(
       />
     )
   }
+  if (message.kind === 'imageAction') return <AgentImageActionStepView message={message} />
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
@@ -160,6 +163,58 @@ function fetchedImageRuns(messages: readonly AgentPanelMessage[]) {
       index += 1
     }
     starts.set(start, run)
+  }
+  return { starts, absorbed }
+}
+
+function isImagePlanDraft(message: AgentPanelMessage): message is AgentToolMessage {
+  return (
+    message.kind === 'tool' &&
+    message.status === 'awaiting_confirmation' &&
+    (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+    !isProductionDraft(message)
+  )
+}
+
+function isImageOutput(message: AgentPanelMessage): message is AgentToolMessage {
+  if (message.kind !== 'tool') return false
+  if (message.toolName !== 'generateImage' && message.toolName !== 'editImage') return false
+  if (message.status === 'awaiting_confirmation' || message.canvasRun || message.saveCard)
+    return false
+  if (message.status === 'failed') return false
+  return (
+    message.status === 'running' ||
+    message.status === 'submitted' ||
+    message.status === 'queued' ||
+    message.status === 'succeeded'
+  )
+}
+
+/** 同一轮里连续的同类图片消息收成一张卡或一行图。 */
+function consecutiveImageRuns(
+  messages: readonly AgentPanelMessage[],
+  accept: (message: AgentPanelMessage) => message is AgentToolMessage,
+  minLength: number,
+) {
+  const starts = new Map<number, readonly AgentToolMessage[]>()
+  const absorbed = new Set<number>()
+  for (let index = 0; index < messages.length; ) {
+    const first = messages[index]
+    if (!first || !accept(first)) {
+      index += 1
+      continue
+    }
+    const start = index
+    const run: AgentToolMessage[] = []
+    while (index < messages.length) {
+      const message = messages[index]
+      if (!message || !accept(message) || message.turnId !== first.turnId) break
+      run.push(message)
+      absorbed.add(index)
+      index += 1
+    }
+    if (run.length >= minLength) starts.set(start, run)
+    else absorbed.delete(start)
   }
   return { starts, absorbed }
 }
@@ -243,10 +298,12 @@ export default function AgentPanel({
           ? message.text
           : message.kind === 'tool'
             ? `${message.title} ${message.prompt ?? ''}`
-            : message.question
+            : message.kind === 'imageAction'
+              ? t('imageAction.removeBackground')
+              : message.question
       return text.toLocaleLowerCase().includes(query)
     })
-  }, [messages, search])
+  }, [messages, search, t])
   const locateMessage = (id: string) => {
     setLocated((prev) => ({ id, seq: (prev?.seq ?? 0) + 1 }))
     requestAnimationFrame(() => {
@@ -352,6 +409,8 @@ export default function AgentPanel({
   // 连续的过程步（读画布、看图、读技能）折成一条固定高度的活动轨，不再一步一张空卡。
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
+  const planRuns = consecutiveImageRuns(messages, isImagePlanDraft, 1)
+  const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (
     <div
@@ -447,7 +506,9 @@ export default function AgentPanel({
                       ? message.text
                       : message.kind === 'tool'
                         ? message.title
-                        : message.question}
+                        : message.kind === 'imageAction'
+                          ? t('imageAction.removeBackground')
+                          : message.question}
                   </Button>
                 ))
               ) : (
@@ -496,6 +557,53 @@ export default function AgentPanel({
                   </div>
                 ))}
               {messages.map((message, index) => {
+                const planRun = planRuns.starts.get(index)
+                if (planRuns.absorbed.has(index) && !planRun) return null
+                if (planRun) {
+                  const lastIndex = index + planRun.length - 1
+                  const footer =
+                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
+                  return (
+                    <div
+                      key={`${message.id}:${historyCached}`}
+                      data-agent-message-id={message.id}
+                      className="studio-agent-message-block"
+                    >
+                      <fieldset disabled={historyCached} className="contents">
+                        <AgentGenerationPlan messages={planRun} />
+                      </fieldset>
+                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                      )}
+                    </div>
+                  )
+                }
+                const imageRun = imageRuns.starts.get(index)
+                if (imageRuns.absorbed.has(index) && !imageRun) return null
+                if (imageRun) {
+                  const lastIndex = index + imageRun.length - 1
+                  const footer =
+                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
+                  return (
+                    <div
+                      key={`${message.id}:${historyCached}`}
+                      data-agent-message-id={message.id}
+                      className="studio-agent-message-block"
+                    >
+                      <fieldset disabled={historyCached} className="contents">
+                        <AgentImageRun
+                          messages={imageRun}
+                          onViewCanvas={onViewCanvas}
+                          onPreviewResult={onPreviewResult}
+                          onPreviewProduction={onPreviewProduction}
+                        />
+                      </fieldset>
+                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                      )}
+                    </div>
+                  )
+                }
                 const fetchedRun = fetchedRuns?.starts.get(index)
                 if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
                 if (fetchedRun) {
@@ -525,7 +633,7 @@ export default function AgentPanel({
                           </div>
                         ))}
                       </div>
-                      {footer && (
+                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                         <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
                       )}
                     </div>
@@ -569,7 +677,7 @@ export default function AgentPanel({
                         onPreviewProduction,
                         historyCached,
                       )}
-                    {footer && (
+                    {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                       <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
                     )}
                   </div>
@@ -625,7 +733,6 @@ export default function AgentPanel({
         </div>
       )}
 
-      {tab === 'chat' && <AgentPendingDrafts />}
       {tab === 'chat' && <AgentMessageQueue />}
       {tab === 'chat' && (
         <AgentComposer
@@ -638,6 +745,18 @@ export default function AgentPanel({
         />
       )}
     </div>
+  )
+}
+
+/** 这轮的生图结果自己写出耗时和积分，页脚不再重复一份。 */
+function turnShowsImageReceipt(messages: readonly AgentPanelMessage[], turnId: string): boolean {
+  return messages.some(
+    (message) =>
+      message.turnId === turnId &&
+      message.kind === 'tool' &&
+      (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+      message.status === 'succeeded' &&
+      Boolean(message.artifacts?.some((artifact) => artifact.media === 'image')),
   )
 }
 

@@ -69,7 +69,6 @@
     "locateTitle": "Find these results on the canvas",
     "place": "Add to canvas",
     "viewPrompt": "View prompt",
-    "editResult": "Continue editing",
     "regenerate": "Generate again",
     "regenerateRequest": "Generate another image using this prompt. Keep the subject and main composition, with some variation in details: {{prompt}}",
     "moreActions": "More actions",
@@ -81,6 +80,11 @@
     "closePreview": "Close preview",
     "zoomResult": "Expand",
     "downloadResult": "Download",
+    "downloadAll": "Download all",
+    "removeBackground": "Remove background",
+    "batchCount_one": "{{count}} image",
+    "batchCount_other": "{{count}} images",
+    "costDetail": "Details",
     "editOnCanvas": "Edit on canvas",
     "useAsReference": "Use as reference",
     "inpaint": "Inpaint",
@@ -176,6 +180,18 @@
     "allFailed_one": "Stopped after confirming {{count}}. Please retry the rest one by one.",
     "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one."
   },
+  "plan": {
+    "title": "Generation plan",
+    "summary_one": "{{count}} image",
+    "summary_other": "{{count}} images",
+    "hint": "Click a row to edit its prompt. Uncheck a row to skip it.",
+    "generate_one": "Generate all ({{count}})",
+    "generate_other": "Generate all ({{count}})",
+    "cancel": "Cancel",
+    "restore": "Review again",
+    "dismissed": "Not generated",
+    "promptAria": "Edit prompt"
+  },
   "toolFailure": {
     "recharge": "Top up",
     "login": "Sign in",
@@ -218,6 +234,12 @@
     "stopped": "Stopped",
     "continue": "Continue conversation",
     "continuePrompt": "Continue"
+  },
+  "imageAction": {
+    "removeBackground": "Remove background",
+    "running": "Removing the background…",
+    "failed": "Background removal did not finish",
+    "dismiss": "Remove this step"
   },
   "composer": {
     "editorAria": "Message the agent",
@@ -279,7 +301,12 @@
     "interjectAria": "Interject now: {{text}}"
   },
   "params": {
-    "note": "The agent decides how many images to make. Setting changes apply from the next turn.",
+    "model": "Model",
+    "modelAuto": "Smart",
+    "modelAutoOption": "Smart (auto model)",
+    "ratio": "Aspect",
+    "outputCount": "Count",
+    "countUnit": "images",
     "thinkingFast": "Fast",
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
@@ -475,6 +502,9 @@
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
+    "queueSlot": "Queued · #{{position}}",
+    "queueSlotShort": "#{{position}}",
+    "doneCount": "{{done}}/{{total}} done",
     "progressAria": "Generation progress",
     "cancel": "Cancel job",
     "cancelling": "Cancelling…",

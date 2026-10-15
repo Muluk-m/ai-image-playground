@@ -116,7 +116,19 @@
 .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 40px; }
 .creation-toolbar-mode { min-width: 0; }
 .creation-composer .creation-toolbar button { min-height: 0; min-width: 0; }
-.creation-toolbar-action { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.creation-toolbar-action { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.creation-params-capsule { max-width: 100%; }
+.creation-params-segments { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.creation-params-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creation-params-mark { font-variant-numeric: tabular-nums; }
+@container creation-composer (max-width: 400px) {
+ .creation-params-capsule { flex: 0 0 auto; overflow: visible; }
+ .creation-params-capsule .creation-params-text { display: none; }
+ .creation-params-segments { gap: 8px; overflow: visible; }
+ .creation-params-segments > span { flex: 0 0 auto; }
+ .creation-params-segments svg { width: 16px; height: 16px; }
+}
+
 .creation-toolbar-status { grid-column: 1 / -1; overflow-wrap: anywhere; @apply text-label-sm; }
 .creation-toolbar-status:empty { display: none; }
 .creation-live-controls { display: flex; align-items: center; flex-wrap: nowrap; min-width: 0; gap: 8px; }

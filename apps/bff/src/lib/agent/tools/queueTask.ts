@@ -16,7 +16,7 @@ import { saveGenerationDraft } from '../confirmations'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { bindProductionGeneration } from '../production-generation-binding'
 import { AgentToolError } from './errors'
-import { agentImageCount, queueParamsFor } from './queueParams'
+import { queueParamsFor, requestedImageCount } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
 interface MediaWords {
@@ -44,7 +44,7 @@ export interface QueueTaskInput {
   /** 已经解析好的模型；缺席就按介质现解析。 */
   readonly target?: QueueTarget
   readonly prompt: string
-  /** 图片工具选择的产出张数；与轮上的用户偏好无关。 */
+  /** 图片工具选择的产出张数。缺席时 {@link draftQueueTask} 沿用用户本轮选择的张数。 */
   readonly n?: number
   readonly referenceIds?: readonly string[]
   readonly inputImages?: readonly string[]
@@ -188,7 +188,7 @@ export async function draftQueueTask(
 
   if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
   await context.assertExecution?.()
-  const count = input.media === 'image' ? agentImageCount(input) : 1
+  const count = input.media === 'image' ? requestedImageCount(input.n, context.params?.n) : 1
   // 计划随材料一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
   const plan = context.maskedEditPlan?.carryAfter(submission)
   const bound = await bindProductionGeneration(context, input)
