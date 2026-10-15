@@ -113,7 +113,7 @@ export default function LibraryPage() {
 
   return (
     <main className="flex min-h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col">
-      <PageHeader title={APP_MODE_LABELS.library}>
+      <PageHeader className="md:flex-nowrap">
         <SegmentedTabs
           tabs={TABS.map((one) => ({ value: one, label: t(`tab.${one}`) }))}
           value={tab}
@@ -121,7 +121,7 @@ export default function LibraryPage() {
           label={APP_MODE_LABELS.library}
         />
         <SearchField
-          className="ml-auto"
+          className="ml-auto w-auto shrink-0"
           value={searchKeyword}
           onChange={(event) => setSearch(event.target.value)}
           placeholder={t(SEARCH_PLACEHOLDER[tab])}
