@@ -170,7 +170,14 @@ describe('account profile', () => {
     expect(profile.avatar_url).toBe(DEFAULT_AVATAR_PATH)
 
     const me = await request('/api/auth/me', { session })
-    expect(await me.json()).toEqual({ user: profile })
+    expect(await me.json()).toEqual({
+      user: profile,
+      canvasCapabilities: {
+        'canvas:blank-generate': false,
+        'canvas:node-run': false,
+        'canvas:script': false,
+      },
+    })
   })
 
   it('updates the nickname and bio, and rejects impersonation or an oversized bio', async () => {

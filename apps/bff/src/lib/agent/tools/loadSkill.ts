@@ -5,6 +5,7 @@ import {
   LOOK_SKILL_NAME_PREFIX,
 } from '@image-playground/shared'
 import { Type } from 'typebox'
+import { isCapabilityEnabledForUser } from '../../capabilities'
 import {
   agentSkillInvocation,
   agentSkillLocation,
@@ -130,7 +131,11 @@ async function loadSkillText(
   })
   if (!skill) {
     // 只报内置技能：用户自建的模板不该在这里被一条条念出来，那是他的东西，也念不完。
-    const known = agentSkills(mode).map((one) => one.name)
+    const known = agentSkills(mode)
+      .map((one) => one.name)
+      .filter(
+        (one) => one !== 'script-briefs' || isCapabilityEnabledForUser('canvas:script', userId),
+      )
     return miss(
       known.length > 0
         ? `没有名为 ${name || '(空)'} 的技能。当前可用：${known.join('、')}`
