@@ -30,14 +30,15 @@ export default function SiteAuth({
   page,
   open,
   onClose,
+  onOpen,
 }: {
   locale: Locale
   page: string
   open: boolean
+  onOpen: () => void
   onClose: () => void
 }) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [reopen, setReopen] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const text = copy[locale]
   useEffect(() => {
@@ -70,7 +71,7 @@ export default function SiteAuth({
       }
       const pending = await hasPendingSubmission().catch(() => false)
       if (active) {
-        setReopen(pending || new URLSearchParams(location.search).has(OAUTH_ERROR_QUERY_PARAM))
+        if (pending || new URLSearchParams(location.search).has(OAUTH_ERROR_QUERY_PARAM)) onOpen()
         setStatus('ready')
       }
     }
@@ -81,10 +82,9 @@ export default function SiteAuth({
       active = false
     }
   }, [locale, page, attempt])
-  const visible = open || reopen || page === 'login'
+  const visible = open || page === 'login'
   if (!visible) return null
   const close = () => {
-    setReopen(false)
     void discardPendingSubmission()
     if (page === 'login') location.assign(locale === 'en' ? '/en/' : '/')
     else onClose()

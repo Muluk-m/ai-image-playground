@@ -42,7 +42,8 @@ vi.mock('../../lib/authClient', () => ({
 vi.mock('../../theme', () => ({ initTheme: vi.fn() }))
 let host: HTMLDivElement, root: Root
 const replace = vi.fn(),
-  assign = vi.fn()
+  assign = vi.fn(),
+  onOpen = vi.fn()
 beforeEach(() => {
   state.probe = false
   state.user = null
@@ -51,6 +52,7 @@ beforeEach(() => {
   state.login = true
   replace.mockClear()
   assign.mockClear()
+  onOpen.mockClear()
   vi.stubGlobal('location', { replace, assign, search: '' })
   host = document.createElement('div')
   document.body.append(host)
@@ -64,7 +66,9 @@ afterEach(() => {
 })
 async function render(open = false, page = 'home') {
   await act(async () => {
-    root.render(<SiteAuth locale="zh-CN" page={page} open={open} onClose={() => {}} />)
+    root.render(
+      <SiteAuth locale="zh-CN" page={page} open={open} onOpen={onOpen} onClose={() => {}} />,
+    )
   })
 }
 it('keeps an anonymous homepage visible until the visitor starts creating', async () => {
@@ -84,6 +88,8 @@ it('takes a verified existing session directly to the workbench', async () => {
 it('opens login to recover a pending workbench submission', async () => {
   state.pending = true
   await render()
+  expect(onOpen).toHaveBeenCalledOnce()
+  await render(true)
   expect(document.body.textContent).toContain('Sign in')
 })
 it('enters the workbench after login without submitting a sample prompt', async () => {
