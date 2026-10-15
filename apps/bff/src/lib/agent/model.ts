@@ -12,6 +12,7 @@ import { log } from '../logger'
 import { resolveChatApiKey } from '../resolveApiKey'
 import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget'
 import { observeOverloadResponse } from './overload-response'
+import type { ConfiguredAgentRuntime } from './provider-settings'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { retryOverloadedStream } from './stream-retry'
 import { agentThinking } from './thinking'
@@ -112,8 +113,9 @@ export function agentModel(depth?: AgentThinkingDepth): Model<'openai-completion
 export function agentStreamFn(
   depth?: AgentThinkingDepth,
   observer: AgentDispatchObserver & { onRetry?: (message: AssistantMessage) => Promise<void> } = {},
+  selectedRuntime?: ConfiguredAgentRuntime,
 ): StreamFn {
-  const { models } = runtime(depth)
+  const { models } = selectedRuntime ?? runtime(depth)
   return (model, context, options) => {
     // 证据属于这一份请求、这一轮尝试；网络异常的文本不能替代上游拒绝响应。
     let rejection: ReturnType<typeof observeOverloadResponse> | undefined

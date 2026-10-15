@@ -1,0 +1,13 @@
+# 产品档位与模型推理强度分层配置，调用复用 Pi Provider
+
+用户的快速／普通／深度是产品档位；Pi 的 off／minimal／low／medium／high／xhigh／max 是模型推理强度。两者独立：每个产品档位绑定 Provider 实例、模型 ID 和推理强度，同一模型可以对应多个档位。默认档位覆盖未提交 thinkingDepth 的调用。
+
+后台「Agent 模型」管理 Provider 实例、Pi 厂商目录和自定义模型覆盖。模型身份是 Provider ID + 模型 ID；上下文窗口、输出上限与推理能力来自 Pi 目录，自定义模型必须显式声明这些参数。目录中不存在的模型也可以添加。配置不改变现有按模型 ID 计价的规则；运营选择新模型前需在计费设置中配置对应价格。
+
+配置存在公共 PostgreSQL 的 agent_model_settings 单行记录中，Admin 只代理经认证的内部 BFF API，仍然只有 BFF 写库。一次保存原子替换完整配置，以 revision 拒绝过期覆盖，并写运营审计。真实密钥仍只存在 BFF 环境变量中，后台保存 secretRef，接口只返回是否配置。沿用现有网关凭证只允许保留原有地址，改接入地址必须显式指定凭证引用。
+
+没有数据库配置时从原 thinking.config.json、models.config.json 与 AGENT_CHAT_MODEL 等环境变量生成默认配置，现有网关保持兼容。每轮在估算和预扣之前读取配置并固定运行时；同一轮后续工具循环及重试使用相同 Provider、模型、密钥和推理强度。后台更新影响下一轮，不改变正在执行的轮。模型上下文预算与原生历史缓存继续使用实际选中的模型信息。
+
+协议执行复用 Pi 的 openai-completions、openai-responses、anthropic-messages API，保留原请求字节限制、流式空闲超时、过载证据与逐次派发记账。Pi 0.85.1 的 Google 原生适配器明确拒绝自定义 fetch，不能接入上述保护，因此暂不展示 google-generative-ai，也不接受该协议的自定义模型。Gemini 可以经 Pi 的 OpenRouter 等兼容渠道接入。后续只有在 Pi 提供所需 transport 接缝并通过预算／取消／记账测试后才开放该原生协议；不改全局 fetch，也不绕过保护。
+
+这里配置的是 Agent 对话轮。摘要、搜索等辅助调用和图片／视频生成渠道继续使用原有独立配置；不把生图渠道与对话 Provider 混为同一个注册表。Pi 内置目录升级随依赖版本发布，不在用户请求过程中自动访问厂商模型发现 API。
