@@ -72,11 +72,11 @@ async function enableChatFree(): Promise<void> {
   vi.unstubAllGlobals()
 }
 
-function render(): void {
+function render(dock: 'left' | 'right' = 'left'): void {
   act(() => {
     // 面板只把 editor 转交给创作记录页签；这些用例不点创作记录，给个空壳就够。
     const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
-    root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} />)
+    root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} dock={dock} />)
   })
 }
 
@@ -1567,6 +1567,31 @@ describe('AgentPanel', () => {
     const panel = host.querySelector('[role="separator"]')?.parentElement as HTMLElement
     expect(panel.style.width).toBe('420px')
     expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
+  })
+
+  it('右侧面板可从默认宽度继续拉宽并保存，最多占可用画布区六成', () => {
+    vi.stubGlobal('innerWidth', 1260)
+    host.className = 'studio-layout'
+    Object.defineProperty(host, 'clientWidth', { value: 980 })
+    useAgentStore.setState({ panelWidth: 460 })
+    render('right')
+
+    const handle = host.querySelector('[role="separator"]') as HTMLElement
+    const panel = handle.parentElement as HTMLElement
+    handle.setPointerCapture = vi.fn()
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 800 }))
+      handle.dispatchEvent(new MouseEvent('pointermove', { clientX: 760 }))
+    })
+    expect(panel.style.width).toBe('500px')
+    expect(localStorage.getItem('image-playground.agent_panel_width')).toBe('500')
+
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('pointermove', { clientX: 600 }))
+      handle.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(panel.style.width).toBe('588px')
+    expect(localStorage.getItem('image-playground.agent_panel_width')).toBe('588')
   })
 
   it('失败且没有扣费的轮只标失败与耗时', () => {
