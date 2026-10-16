@@ -353,12 +353,15 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             await page.waitForFunction(
               (id) => {
                 const flow = document.querySelector('.react-flow')?.getBoundingClientRect()
+                const composer = document.querySelector('.studio-node-composer')?.getBoundingClientRect()
                 const node = document.querySelector(`.react-flow__node[data-id="${id}"]`)?.getBoundingClientRect()
-                return Boolean(flow && node &&
+                const nodes = [...document.querySelectorAll('.react-flow__node')]
+                return Boolean(flow && composer && node &&
                   node.x >= flow.x &&
                   node.y >= flow.y &&
                   node.right <= flow.right &&
-                  node.bottom <= flow.bottom)
+                  node.bottom <= flow.bottom &&
+                  nodes.every((element) => element.getBoundingClientRect().bottom <= composer.y + 1))
               },
               uploadedId,
               { timeout: timeoutMs },
@@ -375,14 +378,27 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
               return target?.closest('.react-flow__node')?.getAttribute('data-id') === id
             }, { id: uploadedId, box: mobileUploadBox })
             if (!mobileNodeHit) throw new Error('Uploaded image center is obscured by mobile controls')
-            const title = page.locator('.studio-node-project-title')
+            const modeButton = navigation.getByRole('button', { name: /移动画布|选择/ }).first()
+            await modeButton.click()
+            await navigation.getByRole('button', { name: /选择 \(V\)/, exact: true }).click()
+            await navigation.getByRole('button', { name: /移动画布 \(H\)/, exact: true }).waitFor({
+              state: 'visible', timeout: timeoutMs,
+            })
+            await navigation.getByRole('button', { name: /移动画布 \(H\)/, exact: true }).click()
+            await navigation.getByRole('button', { name: /选择 \(V\)/, exact: true }).waitFor({
+              state: 'visible', timeout: timeoutMs,
+            })
+            const title = page.locator('.studio-node-project-title, .studio-project-viewbar').first()
             const titleBox = await title.boundingBox()
             if (!titleBox) throw new Error('Project title is missing at mobile viewport')
             const titleHit = await page.evaluate(({ x, y }) => {
               const target = document.elementFromPoint(x, y)
-              return Boolean(target?.closest('.studio-node-project-title'))
+              return Boolean(target?.closest('.studio-node-project-title, .studio-project-viewbar'))
             }, { x: titleBox.x + titleBox.width / 2, y: titleBox.y + titleBox.height / 2 })
             if (!titleHit) throw new Error('Project title is obscured by mobile canvas controls')
+            const chatButton = page.getByRole('button', { name: '与 AI 对话', exact: true })
+            await chatButton.click()
+            await page.locator('.studio-chat-column').waitFor({ state: 'visible', timeout: timeoutMs })
             console.log('PASS node canvas: viewport/zoom, uploaded image bounds and composer hit targets on desktop/mobile')
             console.log('PASS node canvas: legacy media/annotation migration, stacking, drag and persisted reload')
           }
