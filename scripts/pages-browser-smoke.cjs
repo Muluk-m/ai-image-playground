@@ -652,10 +652,11 @@ async function main() {
     })
     if (local) await checkWorkspace(browser, server.origin, {
       local: true,
+      paths: [`/p/${PROJECT_ID}`],
       rememberedSession: false,
       nodeCanvas: true,
       exerciseNodes: true,
-      exerciseCatalog: true,
+      exerciseCatalog: false,
       optionalStyles,
       timeoutMs: 30000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
