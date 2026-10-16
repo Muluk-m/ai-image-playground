@@ -99,7 +99,12 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         if (request.resourceType() === 'stylesheet' && optionalStyles.includes(url.href))
           return route.fulfill({ contentType: 'text/css', body: '' })
         const fixtures = {
-          '/api/capabilities': { 'accounts:login': true, 'generation:byok': true },
+          '/api/capabilities': {
+            'accounts:login': true,
+            'generation:byok': true,
+            ...(nodeCanvas && exerciseNodes ? { 'agent:chat': true } : {}),
+          },
+          '/api/auth/oauth/providers': { providers: [] },
           '/api/channels': { channels: [] },
           '/api/agent/skills': { skills: [] },
           '/api/inspirations/manifest': {
@@ -288,6 +293,17 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             for (let i = 0; i < 6; i++) await zoomIn.click()
             const zoomAbove = await zoomLabel()
             if (!(zoomAbove >= 50)) throw new Error(`Zoom-in control did not recover above 50%: ${zoomAbove}`)
+            const caption = page.locator('.studio-node-caption').first()
+            await caption.waitFor({ state: 'visible', timeout: timeoutMs })
+            const captionAtLowZoom = await caption.boundingBox()
+            for (let i = 0; i < 12; i++) await zoomIn.click()
+            const captionAtHighZoom = await caption.boundingBox()
+            if (!captionAtLowZoom || !captionAtHighZoom ||
+              captionAtHighZoom.height > captionAtLowZoom.height * 1.5 ||
+              captionAtLowZoom.height > captionAtHighZoom.height * 1.5)
+              throw new Error(`Node caption scales with canvas zoom: ${JSON.stringify({
+                low: captionAtLowZoom, high: captionAtHighZoom,
+              })}`)
             await page.keyboard.press('Escape')
             const afterZoomBox = await flow.boundingBox()
             if (!afterZoomBox || Math.abs(afterZoomBox.width - flowBox.width) > 2 ||
@@ -366,6 +382,17 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
               uploadedId,
               { timeout: timeoutMs },
             )
+            const composerBox = await page.locator('.studio-node-composer').boundingBox()
+            const mobileNodeGeometry = await page.locator('.react-flow__node').evaluateAll((nodes) =>
+              nodes.map((node) => {
+                const rect = node.getBoundingClientRect()
+                return { id: node.getAttribute('data-id'), bottom: rect.bottom }
+              }),
+            )
+            if (!composerBox || mobileNodeGeometry.some(({ bottom }) => bottom > composerBox.y + 1))
+              throw new Error(`A mobile node is hidden below the composer: ${JSON.stringify({
+                composerBox, nodes: mobileNodeGeometry,
+              })}`)
             const mobileFlowBox = await flow.boundingBox()
             const mobileUploadBox = await uploaded.boundingBox()
             if (!mobileFlowBox || !mobileUploadBox ||
@@ -388,6 +415,9 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             await navigation.getByRole('button', { name: /选择 \(V\)/, exact: true }).waitFor({
               state: 'visible', timeout: timeoutMs,
             })
+            const chatButton = page.getByRole('button', { name: '与 AI 对话', exact: true })
+            await chatButton.click()
+            await page.locator('.studio-chat-column').waitFor({ state: 'visible', timeout: timeoutMs })
             const title = page.locator('.studio-node-project-title, .studio-project-viewbar').first()
             const titleBox = await title.boundingBox()
             if (!titleBox) throw new Error('Project title is missing at mobile viewport')
@@ -396,9 +426,6 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
               return Boolean(target?.closest('.studio-node-project-title, .studio-project-viewbar'))
             }, { x: titleBox.x + titleBox.width / 2, y: titleBox.y + titleBox.height / 2 })
             if (!titleHit) throw new Error('Project title is obscured by mobile canvas controls')
-            const chatButton = page.getByRole('button', { name: '与 AI 对话', exact: true })
-            await chatButton.click()
-            await page.locator('.studio-chat-column').waitFor({ state: 'visible', timeout: timeoutMs })
             console.log('PASS node canvas: viewport/zoom, uploaded image bounds and composer hit targets on desktop/mobile')
             console.log('PASS node canvas: legacy media/annotation migration, stacking, drag and persisted reload')
           }
