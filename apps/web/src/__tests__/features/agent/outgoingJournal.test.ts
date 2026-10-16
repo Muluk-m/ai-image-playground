@@ -45,6 +45,11 @@ import {
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
+import {
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  tolerateCrossRealmDigest,
+} from '../../helpers/cloudNodeProtocol'
 
 const CONVERSATION = 'conversation-1'
 const PROJECT = 'project-1'
@@ -270,6 +275,7 @@ it.each([
 ])('等待原图同步后，引用与发话时画布一致且不带入后续编辑（排队=%s）', async (queued) => {
   openProject(CONVERSATION, 'canvas')
   vi.stubGlobal('crypto', webcrypto)
+  tolerateCrossRealmDigest()
   setClientStorageScope(crypto.randomUUID())
   const source = 'data:image/png;base64,AQID'
   const marked = 'data:image/png;base64,BAUG'
@@ -291,6 +297,7 @@ it.each([
     activeId: project.id,
     loaded: true,
   })
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
@@ -305,6 +312,8 @@ it.each([
         releaseUpload = resolve
       })
     }
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.includes('/api/projects/') && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body))
       return Response.json({
@@ -313,9 +322,20 @@ it.each([
         revision: body.baseRevision + 1,
         createdAt: 1,
         updatedAt: 2,
-        elementCount: body.document.elements.length,
+        elementCount: body.document?.elements?.length ?? 0,
+        document: body.document,
       })
     }
+    if (url.includes('/api/projects/'))
+      return Response.json({
+        id: project.id,
+        name: project.name,
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
     return fetchMock(input, init)
   })
   await bootstrapClientCapabilities(true, 'http://bff.test')

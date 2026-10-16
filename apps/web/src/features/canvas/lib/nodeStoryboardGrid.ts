@@ -200,8 +200,6 @@ export async function splitStoryboardGrid(
         result.id,
         {
           data: { fileId, naturalWidth: tile.width, naturalHeight: tile.height },
-          width: 360,
-          height: (360 * tile.height) / tile.width,
         },
         origin,
       )

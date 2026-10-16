@@ -1,10 +1,13 @@
+import { canvasNodeRegistry, readCanvasDocument } from '@image-playground/shared'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CanvasEditor } from './editor'
-import { PLACEMENT_GAP } from './placement'
+import { nodeCardSize } from './nodeCanvasPlace'
+import { activeNodeCanvas } from './nodeCanvasSelection'
+import { findFreeCanvasPlacement, PLACEMENT_GAP } from './placement'
 
 /**
  * 外部图片导入画布（文件拖入 / 剪贴板粘贴共用）。
- * 展示尺寸夹到最长边 ≤ MAX_SIDE（页面单位）——太大的原图铺满画布没法操作；
+ * 节点画布使用固定媒体卡片；旧画布展示尺寸夹到最长边 ≤ MAX_SIDE（页面单位）。
  * dataUrl 保留原始分辨率，随场景持久化。
  */
 const MAX_SIDE = 720
@@ -31,6 +34,7 @@ export async function importImageFiles(
 ): Promise<number> {
   const imageFiles = files.filter((f) => f.type.startsWith('image/'))
   if (imageFiles.length === 0) return 0
+  const canvas = activeNodeCanvas(editor)
 
   // 逐个容错：一张损坏/解码失败的图不拖垮整批（其余照常导入）
   const results = await Promise.allSettled(
@@ -40,8 +44,8 @@ export async function importImageFiles(
       const scale = Math.min(1, MAX_SIDE / Math.max(width, height))
       return {
         dataUrl,
-        width: width * scale,
-        height: height * scale,
+        width: canvas ? canvasNodeRegistry.image.size.width : width * scale,
+        height: canvas ? canvasNodeRegistry.image.size.height : height * scale,
         name: file.name,
         naturalWidth: width,
         naturalHeight: height,
@@ -107,6 +111,26 @@ export async function importImageFiles(
     }
     y += rowHeight + PLACEMENT_GAP
   })
+  const snapshot = canvas ? readCanvasDocument(canvas.doc) : undefined
+  const offset = findFreeCanvasPlacement(
+    items,
+    snapshot
+      ? [
+          ...snapshot.nodes.map((node) => ({ x: node.x, y: node.y, ...nodeCardSize(node) })),
+          ...(snapshot.groups ?? []),
+        ]
+      : editor.getOccupiedBounds().map((box) => ({
+          x: box.x,
+          y: box.y,
+          width: box.w,
+          height: box.h,
+        })),
+    PLACEMENT_GAP,
+  )
+  for (const item of items) {
+    item.x += offset.x
+    item.y += offset.y
+  }
 
   const ids = editor.placeImages(items)
   if (shouldSelect()) editor.setSelectedElements(ids)

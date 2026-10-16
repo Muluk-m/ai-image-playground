@@ -19,3 +19,7 @@ export function clearNodeCanvasSelection(editor: CanvasEditor, canvas: NodeCanva
 export function nodeCanvasSelection(editor: CanvasEditor): readonly string[] | undefined {
   return selections.get(editor)?.ids
 }
+
+export function activeNodeCanvas(editor: CanvasEditor): NodeCanvasDocument | undefined {
+  return selections.get(editor)?.canvas
+}
