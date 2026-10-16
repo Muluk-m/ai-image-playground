@@ -1376,7 +1376,7 @@ body .studio-global-account {
 .studio-node-history { position: fixed; top: calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: var(--studio-account-cluster-control); padding: 3px; border-radius: 12px; }
 .studio-node-history button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 @media (pointer: coarse), (max-width: 767px) {
-  .studio-node-navigation { bottom: 180px; left: 8px; }
+  .studio-node-navigation { bottom: 180px; left: 64px; }
   .studio-node-chat { right: 8px; bottom: 180px; }
   .studio-node-history { top: calc(var(--safe-area-top) + 4px); height: 48px; padding: 1px; }
   .studio-node-history button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
