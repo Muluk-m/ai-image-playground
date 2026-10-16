@@ -22,8 +22,7 @@ export async function resumePendingSubmission(): Promise<void> {
   const pending = await takePendingSubmission()
   if (!pending) return
   // Canonicalize sends saved by older `/image` workspaces before comparing their context.
-  if (pending.sourcePath && normalizePath(pending.sourcePath) === '/image')
-    pending.sourcePath = '/'
+  if (pending.sourcePath && normalizePath(pending.sourcePath) === '/image') pending.sourcePath = '/'
   if (pending.sourcePath && !returnToSourcePath(pending.sourcePath)) return
   if (pending.kind === 'image') {
     if (pending.ownerScope && pending.ownerScope !== scopedStorageName('pending')) return

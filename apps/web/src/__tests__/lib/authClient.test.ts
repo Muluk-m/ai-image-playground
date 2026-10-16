@@ -267,11 +267,18 @@ describe('auth client', () => {
       setItem: (key: string, value: string) => store.set(key, value),
     })
     vi.stubGlobal('document', {
-      get cookie(): string { throw new Error('blocked') },
-      set cookie(_value: string) { throw new Error('blocked') },
+      get cookie(): string {
+        throw new Error('blocked')
+      },
+      set cookie(_value: string) {
+        throw new Error('blocked')
+      },
     })
     vi.stubGlobal('window', { location: { search: '' } })
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ user: USER })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ user: USER })),
+    )
     await expect(loginUser('alice', 'secret')).resolves.toEqual(USER)
     expect(shouldProbeSession()).toBe(true)
     await expect(logoutUser()).resolves.toBeUndefined()

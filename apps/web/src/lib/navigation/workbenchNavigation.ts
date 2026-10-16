@@ -12,9 +12,9 @@ import {
   APP_MODE_PATHS,
   LEGACY_IMAGE_PATH,
   LEGACY_PROJECTS_PATH,
-  WORKBENCH_ENTRY_PATH,
   normalizePath,
   pathAppMode,
+  WORKBENCH_ENTRY_PATH,
 } from '../appPaths'
 import { writeModeAddress } from './address'
 

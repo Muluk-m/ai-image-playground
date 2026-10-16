@@ -1,5 +1,9 @@
 import './appearance.css'
-import { OAUTH_ERROR_QUERY_PARAM, OAUTH_SESSION_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
+import {
+  OAUTH_ERROR_QUERY_PARAM,
+  OAUTH_SESSION_QUERY_PARAM,
+  type OAuthProviderView,
+} from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../components/patterns/Overlay'
 import { Button } from '../components/ui/button'

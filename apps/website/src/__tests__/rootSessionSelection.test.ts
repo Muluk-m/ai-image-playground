@@ -2,7 +2,14 @@ import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { ROOT_SESSION_SELECTION_SCRIPT } from '../rootSessionSelection'
 
-function select({ cookie = '', remembered = 'null', search = '', pathname = '/', blockedCookie = false, blockedStorage = false } = {}) {
+function select({
+  cookie = '',
+  remembered = 'null',
+  search = '',
+  pathname = '/',
+  blockedCookie = false,
+  blockedStorage = false,
+} = {}) {
   const replace = vi.fn()
   const style = { visibility: '' }
   const document = {
@@ -15,10 +22,12 @@ function select({ cookie = '', remembered = 'null', search = '', pathname = '/',
   runInNewContext(ROOT_SESSION_SELECTION_SCRIPT, {
     URLSearchParams,
     document,
-    localStorage: { getItem: () => {
-      if (blockedStorage) throw new Error('blocked')
-      return remembered
-    } },
+    localStorage: {
+      getItem: () => {
+        if (blockedStorage) throw new Error('blocked')
+        return remembered
+      },
+    },
     location: { pathname, search, hash: '#draft', replace },
   })
   return { replace, style }
@@ -35,10 +44,15 @@ describe('root pre-paint selection', () => {
   ])('hides marketing synchronously before loading the hinted workspace (%j)', (input) => {
     const { replace, style } = select(input)
     expect(style.visibility).toBe('hidden')
-    expect(replace).toHaveBeenCalledExactlyOnceWith(`/workbench${'search' in input ? input.search : ''}#draft`)
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      `/workbench${'search' in input ? input.search : ''}#draft`,
+    )
   })
   it.each([
-    {}, { remembered: 'null' }, { remembered: '{}' }, { remembered: 'broken' },
+    {},
+    { remembered: 'null' },
+    { remembered: '{}' },
+    { remembered: 'broken' },
     { blockedCookie: true, blockedStorage: true },
     { pathname: '/login/', cookie: 'image_playground_signed_in=1' },
     { pathname: '/guide/', cookie: 'image_playground_signed_in=1' },
