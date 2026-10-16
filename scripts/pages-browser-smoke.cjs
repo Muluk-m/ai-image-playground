@@ -300,7 +300,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
   }
 }
 
-async function checkMarketing(browser, origin, { local = false, accountsLogin = true, outputDir } = {}) {
+async function checkMarketing(browser, origin, { local = false, accountsLogin = true, optionalStyles = [], outputDir } = {}) {
   const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
   const page = await context.newPage()
   const errors = []
@@ -321,10 +321,18 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
   page.on('response', response => { if (requiredAsset(response.request()) && !response.ok()) errors.push(`Asset HTTP ${response.status()}: ${response.url()}`) })
   if (local) await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
+    if (request.resourceType() === 'stylesheet' && optionalStyles.includes(url.href))
+      return route.fulfill({contentType:'text/css',body:''})
     if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
     const fixtures = {
       '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin},
       '/api/auth/oauth/providers': {providers:[]},
+      '/api/channels': {channels:[]},
+      '/api/agent/skills': {skills:[]},
+      '/api/inspirations/manifest': {version:1,updatedAt:'2026-01-01T00:00:00Z',items:[{
+        id:'startup-fixture',title:'Startup fixture',prompt:'Fixture',thumbnailUrl:'/pwa-icon.svg',
+        params:{size:'1024x1024'},recommendedModel:'fixture',recommendedProvider:'openai-compat',category:'Fixture',
+      }]},
     }
     if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
     if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
@@ -336,10 +344,12 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
     if (loginEnabled) {
       await page.getByRole('heading',{name:/故事，\s*由你发生。/}).waitFor()
-      await page.locator('.site-nav').getByRole('button',{name:'开始创作',exact:true}).click()
+      await page.locator('.site-nav').getByRole('link',{name:'开始创作',exact:true}).click()
+      await page.waitForURL(url => url.pathname === '/image')
       await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
       await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
-      if (!(await page.title()).includes('AI 图片、视频与画布创作平台')) throw new Error('Auth changed the marketing title')
+      await page.getByRole('button',{name:'创作',exact:true}).waitFor()
+      if (new URL(page.url()).pathname !== '/image') throw new Error('Auth left the workspace')
     } else {
       await page.waitForURL(origin + '/image')
     }
@@ -376,7 +386,7 @@ async function main() {
   let browser
   try {
     browser = await chromium.launch()
-    await checkMarketing(browser, server?.origin || target, {local, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
+    await checkMarketing(browser, server?.origin || target, {local, optionalStyles, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
     if (local) await checkMarketing(browser, server.origin, {local:true,accountsLogin:false})
     await checkWorkspace(browser, server?.origin || target, {
       local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
