@@ -167,6 +167,11 @@ async function checkWorkspace(browser, origin, {
         return route.continue()
       })
     }
+    if (!local) {
+      await context.route('https://startup-api.invalid/api/agent/conversations', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: '{"conversations":[]}' }),
+      )
+    }
     await page.addInitScript((selector) => {
       window.__pagesSmokeMarketingSeen = []
       const install = () => {
