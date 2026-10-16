@@ -205,6 +205,9 @@ jobs:
               const files = await github.paginate(github.rest.pulls.listFiles, {
                 owner, repo, pull_number: prNumber, per_page: 100,
               });
+              if (files.length !== currentPr.changed_files) {
+                throw new Error(`Incomplete PR file list: expected ${currentPr.changed_files}, received ${files.length}`);
+              }
               changedPaths = new Set(files.map(file => file.filename));
             } catch (e) {
               core.warning(`Unable to verify current PR scope; skipping publication: ${e.message}`);
