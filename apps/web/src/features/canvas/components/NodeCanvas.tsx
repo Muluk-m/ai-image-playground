@@ -679,7 +679,10 @@ function boundsOf(
   const liveById = new Map(
     liveNodes
       ?.filter((node) => node.data.node)
-      .map((node) => [node.id, { ...node.data.node!, x: node.position.x, y: node.position.y }] as const),
+      .map(
+        (node) =>
+          [node.id, { ...node.data.node!, x: node.position.x, y: node.position.y }] as const,
+      ),
   )
   const seenNodeIds = new Set<string>()
   for (const group of snapshot.groups ?? []) {
@@ -970,6 +973,8 @@ function Flow({
     duration?: number,
   ) => {
     const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined, nodes)
+    const viewport =
+      bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
     if (!viewport) return
     if (framing.current !== null) {
       clearTimeout(framing.current)
