@@ -21,7 +21,8 @@ import * as React from 'react'
 import { cn } from '../../lib/utils'
 import { Hint } from './tooltip'
 
-/** Admin 直接使用 Lucide 组件，按组件身份识别约定图标。 */
+// Web 使用语义图标名，Admin 直接使用 Lucide；两种调用都识别约定图标。
+const OBVIOUS_ICON_NAMES = new Set(['close', 'search', 'back', 'chevronLeft'])
 const OBVIOUS_ICONS = new Set<React.ElementType>([
   X,
   Search,
@@ -53,9 +54,14 @@ function obviousIconOnly(node: React.ReactNode): boolean {
       return
     }
     if (!React.isValidElement(child)) return
-    const props = child.props as { className?: unknown; children?: React.ReactNode }
+    const props = child.props as { name?: unknown; className?: unknown; children?: React.ReactNode }
     const className = typeof props.className === 'string' ? props.className : ''
     if (className.split(/\s+/).includes('sr-only')) return
+    if (typeof props.name === 'string' && props.children == null) {
+      if (OBVIOUS_ICON_NAMES.has(props.name)) hasIcon = true
+      else other = true
+      return
+    }
     if (OBVIOUS_ICONS.has(child.type as React.ElementType)) {
       hasIcon = true
       return
@@ -131,8 +137,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const obvious = obviousIconOnly(props.children)
     const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
     // 明显图标与可见文字不重复提示；显式 title 仍可解释禁用原因等额外信息。
+    const description = obvious && title === props['aria-label'] ? undefined : title
     const label =
-      title || (obvious || hasVisibleText(props.children) ? undefined : props['aria-label'])
+      description || (obvious || hasVisibleText(props.children) ? undefined : props['aria-label'])
     const button = (
       <Comp
         className={cn(
@@ -140,7 +147,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           label && !asChild && 'disabled:pointer-events-auto',
         )}
         ref={ref}
-        aria-description={title}
+        aria-description={description}
         {...props}
       />
     )
