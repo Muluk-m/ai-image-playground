@@ -48,6 +48,16 @@
 }
 .studio-sidebar--page .studio-agent-turn-cost { margin-top: 2px; color: hsl(var(--muted-foreground)); }
 .studio-sidebar--page .studio-agent-reply-actions { color: hsl(var(--muted-foreground)); }
+.studio-agent-reply-actions [data-slot="message-actions"] {
+  opacity: 0; transition: opacity .15s ease;
+}
+.studio-agent-reply-wrap:hover .studio-agent-reply-actions [data-slot="message-actions"],
+.studio-agent-reply-wrap:focus-within .studio-agent-reply-actions [data-slot="message-actions"] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .studio-agent-reply-actions [data-slot="message-actions"] { opacity: 1; }
+}
 .studio-follow-ups { position: static; }
 .studio-sidebar--page .studio-agent-composer { padding: 8px 0 14px; }
 .studio-sidebar--page [data-slot="composer-bar"] { gap: 8px; padding: 11px 12px; }
@@ -77,9 +87,11 @@
   border-radius: 8px; padding: 0 9px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.label-sm');
   transition: background .15s ease, color .15s ease;
 }
-.studio-agent-result-actions button:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
-.studio-agent-result-actions button:first-child { background: hsl(var(--primary) / .12); color: hsl(var(--primary)); }
-.studio-agent-result-actions button:first-child:hover { background: hsl(var(--primary) / .2); }
+.studio-agent-result-actions button:hover,
+.studio-agent-result-actions button:focus-visible,
+.studio-agent-result-actions button:active {
+  background: hsl(var(--muted)); color: hsl(var(--foreground));
+}
 .studio-sidebar--page .studio-agent-result-card {
   width: min(620px, 100%); min-height: 180px;
   display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 14px;
@@ -287,12 +299,17 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   );
 }
 /* Keep account actions separate and flat; do not frame them in another pill. */
+.studio-header-float,
+.studio-agent-job-inbox {
+  display: flex;
+  align-items: center;
+  min-height: var(--studio-account-cluster-control);
+}
 .studio-header-float {
   padding: var(--studio-account-cluster-pad);
   background: transparent;
   box-shadow: none;
 }
-.studio-header-float,
 .studio-global-account {
   align-items: center;
 }

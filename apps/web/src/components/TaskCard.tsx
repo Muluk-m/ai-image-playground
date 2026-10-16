@@ -5,6 +5,7 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
+import { modelLabel } from '../lib/channels/publicChannels'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
@@ -335,7 +336,7 @@ export default function TaskCard({
                 {showModel && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0">
                     <ModelLogo model={model} />
-                    <span>{compactModelName(model, model)}</span>
+                    <span>{compactModelName(model, modelLabel(model, task.apiProfileId))}</span>
                   </span>
                 )}
                 {/* Mask */}

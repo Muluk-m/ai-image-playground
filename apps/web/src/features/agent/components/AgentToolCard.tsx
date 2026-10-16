@@ -10,6 +10,7 @@ import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
 import Credits from '../../../components/Credits'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
@@ -18,6 +19,7 @@ import { Hint } from '../../../components/ui/tooltip'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { modelLabel } from '../../../lib/channels/publicChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { parseRatio } from '../../../lib/size'
 import { useStore } from '../../../store'
@@ -1101,9 +1103,12 @@ function StandardAgentToolCard({
       </div>
     )
     const params = message.snapshot?.params
+    const model = message.snapshot?.target?.model ?? params?.model
+    const modelName = model
+      ? compactModelName(model, modelLabel(model, message.snapshot?.target?.provider))
+      : null
     const tags = generatedImage
       ? [
-          message.snapshot?.target?.model ?? params?.model,
           params?.gemini_image_size ||
             (params?.size && params.size !== 'auto' ? params.size : undefined),
           ratioTag(params?.size, params?.gemini_aspect_ratio),
@@ -1142,6 +1147,12 @@ function StandardAgentToolCard({
       >
         {generatedImage ? (
           <div className="studio-agent-batch-meta">
+            {model && modelName && (
+              <span className="inline-flex items-center gap-1">
+                <ModelLogo model={model} />
+                <span>{modelName}</span>
+              </span>
+            )}
             {tags.map((tag) => (
               <span key={tag}>{tag}</span>
             ))}
