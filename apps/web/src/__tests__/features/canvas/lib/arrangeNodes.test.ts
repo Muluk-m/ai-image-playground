@@ -25,9 +25,7 @@ it('lays out dependencies left to right and branches without overlapping; previe
   const before = structuredClone(snapshot)
   const positions = new Map(arrangeNodes(snapshot).map((p) => [p.id, p]))
   const mediaSize = nodeCardSize(snapshot.nodes[0]!)
-  expect(positions.get('b')!.x).toBe(
-    positions.get('a')!.x + mediaSize.width + CANVAS_LAYOUT_GAP,
-  )
+  expect(positions.get('b')!.x).toBe(positions.get('a')!.x + mediaSize.width + CANVAS_LAYOUT_GAP)
   expect(positions.get('b')!.x).toBe(positions.get('c')!.x)
   expect(Math.abs(positions.get('b')!.y - positions.get('c')!.y)).toBe(
     mediaSize.height + CANVAS_LAYOUT_GAP,
