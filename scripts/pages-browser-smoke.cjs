@@ -131,7 +131,7 @@ async function checkWorkspace(browser, origin, {
             'generation:byok': true,
             ...(nodeCanvas && exerciseNodes ? { 'agent:chat': true } : {}),
           },
-          '/api/auth/oauth/providers': { providers: [] },
+          '/api/agent/conversations': { conversations: [] },
           '/api/channels': { channels: [] },
           '/api/agent/skills': { skills: [] },
           '/api/inspirations/manifest': {
