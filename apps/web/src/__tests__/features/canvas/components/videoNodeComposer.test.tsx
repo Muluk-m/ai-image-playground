@@ -137,6 +137,8 @@ it('changes offered modes with the node model, swaps frames and submits the node
     mode.value = 'frames'
     mode.dispatchEvent(new Event('change', { bubbles: true }))
   })
+  await act(async () => button('对调首尾帧').focus())
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('对调首尾帧')
   await act(async () => button('对调首尾帧').click())
   await act(async () => button('生成').click())
   expect(mocks.send).toHaveBeenCalledWith(

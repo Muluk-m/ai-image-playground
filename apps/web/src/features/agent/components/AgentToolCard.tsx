@@ -401,6 +401,7 @@ export function AgentRetryWithdraw({
  */
 function RetryRemaining({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation('agent')
+  const { t: common } = useTranslation('common')
   const messages = useAgentStore((state) => state.messages)
   const refusals = useAgentStore((state) => state.retryRefusals)
   const [pending, setPending] = useState(false)
@@ -417,7 +418,8 @@ function RetryRemaining({ message }: { message: AgentToolMessage }) {
       icon="refresh"
       busy={pending}
       disabled={pending}
-      label={t('retry.retryRemaining', { count: remaining.length })}
+      label={common('action.retry')}
+      aria-description={t('retry.retryRemaining', { count: remaining.length })}
       onClick={() => {
         setPending(true)
         void useAgentStore
@@ -1060,7 +1062,7 @@ function StandardAgentToolCard({
                 type="button"
                 variant="ghost"
                 className={INLINE_ACTION}
-                title={onPreviewResult ? t('tool.previewResult') : t('tool.openCanvas')}
+                title={onPreviewResult ? undefined : t('tool.openCanvas')}
                 aria-label={
                   onPreviewResult
                     ? t('tool.openResultNumber', { number: index + 1 })

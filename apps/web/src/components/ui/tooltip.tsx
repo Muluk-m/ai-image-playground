@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react'
 import * as React from 'react'
 
 import { cn } from '../../lib/utils'
+import { iconActionTooltip } from './icon-action-tooltip'
 
 const TooltipProvider = TooltipPrimitive.Provider
 const Tooltip = TooltipPrimitive.Root
@@ -62,6 +63,14 @@ export function Hint({
   className?: string
   children: ReactElement
 }) {
+  const content = iconActionTooltip(
+    tooltip,
+    children.props as {
+      children?: ReactNode
+      'aria-label'?: string
+      'aria-description'?: string
+    },
+  )
   // 没有提示时也保持同一层结构：提示文字随状态出现或消失时，子元素不会被卸载重挂。
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={200}>
@@ -73,7 +82,7 @@ export function Hint({
         <TooltipTrigger asChild data-tooltip-trigger>
           {children}
         </TooltipTrigger>
-        {tooltip ? (
+        {content ? (
           <TooltipContent
             side={side}
             sideOffset={sideOffset}
@@ -82,7 +91,7 @@ export function Hint({
               className,
             )}
           >
-            {tooltip}
+            {content}
           </TooltipContent>
         ) : null}
       </Tooltip>

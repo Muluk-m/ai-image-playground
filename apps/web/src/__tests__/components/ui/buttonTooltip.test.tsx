@@ -28,7 +28,7 @@ it('shows the action label on focus and updates it without remounting the button
   act(() =>
     root.render(
       <Button size="icon" aria-label="编辑素材">
-        <Icon name="edit" />
+        <Icon name="brush" />
       </Button>,
     ),
   )
@@ -38,7 +38,7 @@ it('shows the action label on focus and updates it without remounting the button
   await act(async () =>
     root.render(
       <Button size="icon" aria-label="保存素材">
-        <Icon name="edit" />
+        <Icon name="brush" />
       </Button>,
     ),
   )
@@ -55,7 +55,7 @@ it('keeps one tooltip when an existing Hint supplies a more detailed label', asy
     root.render(
       <Hint tooltip="编辑素材名称">
         <Button size="icon" aria-label="编辑素材">
-          <Icon name="edit" />
+          <Icon name="brush" />
         </Button>
       </Hint>,
     ),
@@ -71,7 +71,7 @@ it('keeps icon action labels inside a card with its own preview hint', async () 
       <Hint tooltip="图片预览">
         <div>
           <Button size="icon" aria-label="添加遮罩">
-            <Icon name="edit" />
+            <Icon name="brush" />
           </Button>
         </div>
       </Hint>,
@@ -160,10 +160,10 @@ it('closes the previous tooltip across independent providers', async () => {
     root.render(
       <>
         <Button size="icon" aria-label="编辑">
-          <Icon name="edit" />
+          <Icon name="brush" />
         </Button>
         <Button size="icon" aria-label="保存">
-          <Icon name="download" />
+          <Icon name="reuse" />
         </Button>
       </>,
     ),

@@ -1,80 +1,10 @@
 import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
-import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowUp,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  Copy,
-  PanelLeft,
-  RefreshCw,
-  Search,
-  Trash2,
-  X,
-} from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from '../../lib/utils'
+import { obviousIconOnly } from './icon-action-tooltip'
 import { Hint } from './tooltip'
-
-// Web 使用语义图标名，Admin 直接使用 Lucide；两种调用都识别约定图标。
-const OBVIOUS_ICON_NAMES = new Set(['close', 'search', 'back', 'chevronLeft'])
-const OBVIOUS_ICONS = new Set<React.ElementType>([
-  X,
-  Search,
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  ChevronDown,
-  ArrowUp,
-  ArrowDown,
-  Copy,
-  Check,
-  Trash2,
-  RefreshCw,
-  PanelLeft,
-])
-
-function obviousIconOnly(node: React.ReactNode): boolean {
-  let hasIcon = false
-  let other = false
-  const walk = (child: React.ReactNode) => {
-    if (child == null || typeof child === 'boolean') return
-    if (typeof child === 'string' || typeof child === 'number') {
-      if (String(child).trim() !== '') other = true
-      return
-    }
-    if (Array.isArray(child)) {
-      for (const one of child) walk(one)
-      return
-    }
-    if (!React.isValidElement(child)) return
-    const props = child.props as { name?: unknown; className?: unknown; children?: React.ReactNode }
-    const className = typeof props.className === 'string' ? props.className : ''
-    if (className.split(/\s+/).includes('sr-only')) return
-    if (typeof props.name === 'string' && props.children == null) {
-      if (OBVIOUS_ICON_NAMES.has(props.name)) hasIcon = true
-      else other = true
-      return
-    }
-    if (OBVIOUS_ICONS.has(child.type as React.ElementType)) {
-      hasIcon = true
-      return
-    }
-    if (typeof child.type === 'string' || child.type === React.Fragment) {
-      walk(props.children)
-    } else {
-      other = true
-    }
-  }
-  walk(node)
-  return hasIcon && !other
-}
 
 /** 按钮里已经有可见文字时，aria-label 只留给读屏，不再变成悬停提示。 */
 function hasVisibleText(node: React.ReactNode): boolean {
@@ -137,7 +67,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const obvious = obviousIconOnly(props.children)
     const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
     // 明显图标与可见文字不重复提示；显式 title 仍可解释禁用原因等额外信息。
-    const description = obvious && title === props['aria-label'] ? undefined : title
+    const description =
+      obvious && title === props['aria-label'] && !props['aria-description'] ? undefined : title
     const label =
       description || (obvious || hasVisibleText(props.children) ? undefined : props['aria-label'])
     const button = (

@@ -294,10 +294,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                   className="creation-add"
                   onClick={() => fileInputRef.current?.click()}
                   title={t('composer:image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-                  aria-label={t('composer:image.attach', {
-                    count: API_MAX_IMAGES,
-                    mb: MAX_IMAGE_MB,
-                  })}
+                  aria-label={t('composer:studio.addReference')}
                 >
                   <Icon name="add" />
                 </Button>

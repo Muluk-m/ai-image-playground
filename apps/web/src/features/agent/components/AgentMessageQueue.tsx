@@ -82,7 +82,6 @@ export default function AgentMessageQueue() {
               aria-label={t(message.failure ? 'queue.dismissAria' : 'queue.withdrawAria', {
                 text: message.text,
               })}
-              title={t(message.failure ? 'queue.dismiss' : 'queue.withdraw')}
               disabled={withdrawing.has(message.id)}
               onClick={() => void settle(message.id, useAgentStore.getState().withdrawQueued)}
             >
