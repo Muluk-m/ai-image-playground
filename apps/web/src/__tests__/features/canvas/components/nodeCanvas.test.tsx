@@ -11,8 +11,8 @@ import {
 } from '@image-playground/shared'
 import {
   act,
-  createElement,
   type CSSProperties,
+  createElement,
   type ElementType,
   type ReactNode,
   useEffect,
@@ -146,27 +146,29 @@ vi.mock('@xyflow/react', () => ({
     return createElement(
       'div',
       { className: 'react-flow', style },
-      ...nodes.filter((node) => !mocks.hiddenNodeIds.has(node.id)).map((node) =>
-        createElement(
-          'div',
-          {
-            key: node.id,
-            className: `react-flow__node${node.selected ? ' selected' : ''}`,
-            'data-node-id': node.id,
-            onClick: (event: unknown) => {
-              onSelectionChange?.({ nodes: [node] })
-              onNodeClick?.(event, node)
+      ...nodes
+        .filter((node) => !mocks.hiddenNodeIds.has(node.id))
+        .map((node) =>
+          createElement(
+            'div',
+            {
+              key: node.id,
+              className: `react-flow__node${node.selected ? ' selected' : ''}`,
+              'data-node-id': node.id,
+              onClick: (event: unknown) => {
+                onSelectionChange?.({ nodes: [node] })
+                onNodeClick?.(event, node)
+              },
+              'data-bounds': JSON.stringify({
+                ...node.position,
+                width: node.width,
+                height: node.height,
+              }),
+              style: { zIndex: node.zIndex },
             },
-            'data-bounds': JSON.stringify({
-              ...node.position,
-              width: node.width,
-              height: node.height,
-            }),
-            style: { zIndex: node.zIndex },
-          },
-          createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
+            createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
+          ),
         ),
-      ),
       children,
       createElement('button', {
         type: 'button',

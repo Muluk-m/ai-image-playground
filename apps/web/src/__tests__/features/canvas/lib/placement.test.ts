@@ -56,9 +56,7 @@ describe('findFreeCanvasPlacement', () => {
       const placed = new Box(rect.x + delta.x, rect.y + delta.y, rect.width, rect.height)
       for (const other of occupied)
         expect(
-          placed.collides(
-            new Box(other.x - 47, other.y - 47, other.width + 94, other.height + 94),
-          ),
+          placed.collides(new Box(other.x - 47, other.y - 47, other.width + 94, other.height + 94)),
         ).toBe(false)
     }
   })

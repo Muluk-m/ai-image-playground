@@ -110,16 +110,17 @@ afterEach(() => {
   else Reflect.deleteProperty(navigator, 'serviceWorker')
 })
 
-it.each(['/workbench', '/workbench.html', '/image/'])(
-  'canonicalizes %s before auth/bootstrap while preserving OAuth and draft suffixes',
-  (path) => {
-    history.replaceState(null, '', `${path}?auth_session=1&keep=1#draft`)
-    const length = history.length
-    installGuard()
-    expect(location.pathname + location.search + location.hash).toBe('/?auth_session=1&keep=1#draft')
-    expect(history.length).toBe(length)
-  },
-)
+it.each([
+  '/workbench',
+  '/workbench.html',
+  '/image/',
+])('canonicalizes %s before auth/bootstrap while preserving OAuth and draft suffixes', (path) => {
+  history.replaceState(null, '', `${path}?auth_session=1&keep=1#draft`)
+  const length = history.length
+  installGuard()
+  expect(location.pathname + location.search + location.hash).toBe('/?auth_session=1&keep=1#draft')
+  expect(history.length).toBe(length)
+})
 
 it('offers recovery when the entry script fails before React exists', () => {
   const script = document.createElement('script')
