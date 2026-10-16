@@ -180,7 +180,10 @@ export default function AgentJobInbox() {
   const finished = [...inbox.finished].reverse()
   const shown = tab === 'running' ? inbox.running.length : finished.length
   return (
-    <div ref={host} className="studio-agent-job-inbox pointer-events-auto relative flex items-center">
+    <div
+      ref={host}
+      className="studio-agent-job-inbox pointer-events-auto relative flex items-center"
+    >
       <Button
         type="button"
         variant="ghost"
