@@ -1,15 +1,47 @@
 import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Copy,
+  PanelLeft,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from '../../lib/utils'
 import { Hint } from './tooltip'
 
-/** 图形本身就是约定（关闭、返回、搜索），不再配文字，也不再弹提示。 */
-const OBVIOUS_ICONS = new Set(['close', 'search', 'back', 'chevronLeft'])
+// Web 使用语义图标名，Admin 直接使用 Lucide；两种调用都识别约定图标。
+const OBVIOUS_ICON_NAMES = new Set(['close', 'search', 'back', 'chevronLeft'])
+const OBVIOUS_ICONS = new Set<React.ElementType>([
+  X,
+  Search,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ArrowUp,
+  ArrowDown,
+  Copy,
+  Check,
+  Trash2,
+  RefreshCw,
+  PanelLeft,
+])
 
 function obviousIconOnly(node: React.ReactNode): boolean {
-  const names: string[] = []
+  let hasIcon = false
   let other = false
   const walk = (child: React.ReactNode) => {
     if (child == null || typeof child === 'boolean') return
@@ -26,13 +58,22 @@ function obviousIconOnly(node: React.ReactNode): boolean {
     const className = typeof props.className === 'string' ? props.className : ''
     if (className.split(/\s+/).includes('sr-only')) return
     if (typeof props.name === 'string' && props.children == null) {
-      names.push(props.name)
+      if (OBVIOUS_ICON_NAMES.has(props.name)) hasIcon = true
+      else other = true
       return
     }
-    walk(props.children)
+    if (OBVIOUS_ICONS.has(child.type as React.ElementType)) {
+      hasIcon = true
+      return
+    }
+    if (typeof child.type === 'string' || child.type === React.Fragment) {
+      walk(props.children)
+    } else {
+      other = true
+    }
   }
   walk(node)
-  return names.length > 0 && !other && names.every((name) => OBVIOUS_ICONS.has(name))
+  return hasIcon && !other
 }
 
 /** 按钮里已经有可见文字时，aria-label 只留给读屏，不再变成悬停提示。 */
@@ -94,13 +135,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, autoTooltip = true, title, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
     const obvious = obviousIconOnly(props.children)
-    const hasTooltip = obvious || !autoTooltip || props['data-tooltip-trigger']
-    // 纯图标才用 aria-label 做提示。有可见文字时只认调用方显式传入的 title
-    //（溢出后的完整文字、禁用原因），不要把读屏名称再弹一层。
-    // 关闭、返回、搜索这类约定图标连 title 也不弹。
-    const label = obvious
-      ? undefined
-      : title || (hasVisibleText(props.children) ? undefined : props['aria-label'])
+    const hasTooltip = !autoTooltip || props['data-tooltip-trigger']
+    // 明显图标与可见文字不重复提示；显式 title 仍可解释禁用原因等额外信息。
+    const description = obvious && title === props['aria-label'] ? undefined : title
+    const label =
+      description || (obvious || hasVisibleText(props.children) ? undefined : props['aria-label'])
     const button = (
       <Comp
         className={cn(
@@ -108,7 +147,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           label && !asChild && 'disabled:pointer-events-auto',
         )}
         ref={ref}
-        aria-description={obvious ? undefined : title}
+        aria-description={description}
         {...props}
       />
     )

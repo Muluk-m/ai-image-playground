@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ChevronRight, Copy, FlaskConical, Trash2, X } from 'lucide-react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -120,7 +121,7 @@ it('does not turn a visible label into a tooltip', async () => {
     root.render(
       <>
         <Button aria-label="编辑">编辑</Button>
-        <Button size="icon" aria-label="关闭">
+        <Button size="icon" aria-label="关闭" title="关闭">
           <Icon name="close" />
         </Button>
       </>,
@@ -173,4 +174,42 @@ it('closes the previous tooltip across independent providers', async () => {
   await act(async () => buttons[1].focus())
   expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1)
   expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('保存')
+})
+
+it('keeps familiar Lucide actions accessible without redundant focus hints', async () => {
+  for (const IconComponent of [X, Copy, ChevronRight, Trash2]) {
+    act(() =>
+      root.render(
+        <Button aria-label="操作" title="操作" size="icon">
+          <IconComponent />
+        </Button>,
+      ),
+    )
+    const button = host.querySelector('button')!
+    await act(async () => button.focus())
+    expect(button.getAttribute('aria-label')).toBe('操作')
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
+    await act(async () => button.blur())
+  }
+})
+
+it('keeps explanations for unfamiliar combinations and explicit reasons', async () => {
+  act(() =>
+    root.render(
+      <Button aria-label="实验操作" size="icon">
+        <X />
+        <FlaskConical />
+      </Button>,
+    ),
+  )
+  await act(async () => host.querySelector('button')!.focus())
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('实验操作')
+  await act(async () =>
+    root.render(
+      <Button aria-label="删除" title="先移除关联再删除" size="icon">
+        <Trash2 />
+      </Button>,
+    ),
+  )
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('先移除关联再删除')
 })

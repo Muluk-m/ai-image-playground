@@ -261,7 +261,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="刷新" onClick={refresh}>
+            <SidebarMenuButton aria-label="刷新" onClick={refresh}>
               <RefreshCw />
               <span>刷新</span>
             </SidebarMenuButton>
