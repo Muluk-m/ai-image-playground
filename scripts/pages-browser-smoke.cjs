@@ -187,7 +187,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
               store.put({ version: 2, elements: [
                 image('fixture-first', 20),
                 { id: 'fixture-arrow', type: 'arrow', points: [50, 50, 240, 80], stroke: '#ff0000', strokeWidth: 3 },
-                image('fixture-last', 200),
+                image('fixture-last', 420),
               ], files: { 'fixture-pixel': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j38sAAAAASUVORK5CYII=' }, camera: { x: 0, y: 0, zoom: 1 } }, `canvas:project:${id}`)
             }
             transaction.oncomplete = () => { db.close(); accept() }
