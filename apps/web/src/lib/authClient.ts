@@ -8,11 +8,7 @@ import {
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
 import { readProjectRoute } from '../features/canvas/lib/projectRoute'
 import { APP_MODE_PATHS, isStandalonePath, normalizePath } from './appPaths'
-import {
-  applySessionCapabilityGrants,
-  isClientCapabilityEnabled,
-  readSessionCapabilityGrants,
-} from './clientCapabilities'
+import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
