@@ -12,7 +12,9 @@
 
 ## 项目概况
 
-改 web 界面前必须先读 apps/web/DESIGN.md（设计规则的唯一入口）。
+改 Web 界面前必须先读 [apps/web/DESIGN.md](apps/web/DESIGN.md)，改 Admin 界面前必须先读
+[后台设计规范](docs/design/admin-design-system.md)。新增或修改按钮、图标操作、tooltip 时，两端都必须遵守
+[图标按钮与提示规则](docs/design/icon-buttons.md)（共享规则的唯一来源）。
 
 `ai-image-playground` — AI 生图工作台。fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，扩展了 Gemini 原生协议、异步队列模式、可选 BFF 后端、内置 channel discovery。
 

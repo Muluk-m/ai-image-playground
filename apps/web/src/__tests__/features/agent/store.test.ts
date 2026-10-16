@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_TURN_MAX_INLINE_REFERENCES, encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
+import { PANEL_MIN_WIDTH } from '../../../features/agent/agentStyles'
 import * as historyCache from '../../../features/agent/lib/conversationCache'
 import { conversationCache } from '../../../features/agent/lib/conversationCache'
 import { DraftSession } from '../../../features/agent/lib/drafts'
@@ -733,7 +733,7 @@ describe('面板宽度', () => {
   it('拖过的宽度夹在最窄与视口六成之间并记进 localStorage', () => {
     vi.stubGlobal('innerWidth', 1000)
     state().setPanelWidth(100)
-    expect(state().panelWidth).toBe(PANEL_WIDTH)
+    expect(state().panelWidth).toBe(PANEL_MIN_WIDTH)
     state().setPanelWidth(5000)
     expect(state().panelWidth).toBe(600)
     state().setPanelWidth(420.4)

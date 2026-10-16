@@ -287,7 +287,7 @@ export default function VideoNodeComposer({
                     disabled={!inputs.first || !inputs.last || busy}
                     onClick={swap}
                   >
-                    <Icon name="refresh" />
+                    <Icon name="replace" />
                   </Button>
                 )}
               </div>

@@ -1,5 +1,6 @@
-/** 面板默认宽度，也是能拖到的最窄。 */
-export const PANEL_WIDTH = 340
+/** 桌面默认留出足够的对话和输入空间；拖拽仍可缩窄。 */
+export const PANEL_DEFAULT_WIDTH = 460
+export const PANEL_MIN_WIDTH = 340
 /** 最宽拖到视口的六成：再宽画布就没地方了。 */
 export const PANEL_MAX_WIDTH_RATIO = 0.6
 
@@ -7,8 +8,8 @@ export function clampPanelWidth(
   width: number,
   viewportWidth: number = globalThis.innerWidth || Number.POSITIVE_INFINITY,
 ): number {
-  const max = Math.max(PANEL_WIDTH, Math.floor(viewportWidth * PANEL_MAX_WIDTH_RATIO))
-  return Math.min(max, Math.max(PANEL_WIDTH, Math.round(width)))
+  const max = Math.max(PANEL_MIN_WIDTH, Math.floor(viewportWidth * PANEL_MAX_WIDTH_RATIO))
+  return Math.min(max, Math.max(PANEL_MIN_WIDTH, Math.round(width)))
 }
 
 export const PANEL_SURFACE = 'border border-border bg-sidebar'

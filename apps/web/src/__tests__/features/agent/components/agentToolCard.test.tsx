@@ -4,11 +4,15 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
-import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
+import AgentToolCard, { AgentImageRun } from '../../../../features/agent/components/AgentToolCard'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentToolMessage } from '../../../../features/agent/types'
+import InspirationDetail from '../../../../features/inspiration/components/InspirationDetail'
+import { useInspirationStore } from '../../../../features/inspiration/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
+import { useStore } from '../../../../store'
 
 const store = vi.hoisted(() => ({
   send: vi.fn(),
@@ -1166,4 +1170,112 @@ it('lays four generated images in one row with meta tags, hover tools and a wide
     act(() => root.unmount())
     setAgentCanvasSink(null)
   }
+})
+
+describe.each([
+  'image',
+  'batch',
+  'artifact',
+  'inspiration',
+] as const)('prompt copy from %s', (entry) => {
+  it.each([
+    'allowed',
+    'missing',
+    'denied',
+    'failed',
+  ] as const)('handles clipboard %s without losing text or feedback', async (mode) => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const prompt = '白底产品图\n保留标签文字'
+    const originalToast = useStore.getState().showToast
+    const showToast = vi.fn()
+    useStore.setState({ showToast })
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const execCommand = Object.getOwnPropertyDescriptor(document, 'execCommand')
+    let copied = ''
+    const writeText = vi.fn(async (text: string) => {
+      if (mode !== 'allowed') throw new DOMException('Denied', 'NotAllowedError')
+      copied = text
+    })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: mode === 'missing' ? undefined : { writeText },
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => {
+        if (mode === 'failed') return false
+        copied = document.querySelector('textarea')?.value ?? ''
+        return true
+      },
+    })
+    const message: AgentToolMessage = {
+      kind: 'tool',
+      id: 'copy',
+      turnId: 'turn',
+      toolCallId: 'call',
+      toolName: 'generateImage',
+      title: '产品图',
+      prompt,
+      status: 'succeeded',
+      delivery: 'placed',
+      artifacts: [
+        { artifactId: 'image', taskId: 'task', outputIndex: 0, media: 'image', mime: 'image/png' },
+      ],
+    }
+    useInspirationStore.setState({
+      detailItemId: 'copy',
+      items: [
+        {
+          id: 'copy',
+          kind: 'showcase',
+          title: '产品图',
+          prompt,
+          thumbnailUrl: 'data:image/png;base64,preview',
+          params: { size: '1024x1024' },
+          recommendedModel: 'gpt-image-2',
+          recommendedProvider: 'openai-compat',
+          category: '产品',
+        },
+      ],
+    })
+    try {
+      await act(async () =>
+        root.render(
+          entry === 'image' ? (
+            <AgentToolCard message={message} />
+          ) : entry === 'batch' ? (
+            <AgentImageRun messages={[message]} />
+          ) : entry === 'artifact' ? (
+            <AgentArtifactPane message={message} onSelect={vi.fn()} onClose={vi.fn()} />
+          ) : (
+            <InspirationDetail />
+          ),
+        ),
+      )
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('button[aria-label="复制提示词"]')!.click(),
+      )
+      if (mode === 'failed') {
+        expect(copied).toBe('')
+        expect(showToast).toHaveBeenCalledWith(expect.stringContaining('复制失败'), 'error')
+        expect(host.querySelector('[role="status"]')).toBeNull()
+      } else {
+        expect(copied).toBe(prompt)
+        if (entry === 'image')
+          expect(host.querySelector('[role="status"]')?.textContent).toBe('复制提示词')
+        else expect(showToast).toHaveBeenCalledWith(expect.stringContaining('已复制'), 'success')
+      }
+    } finally {
+      act(() => root.unmount())
+      host.remove()
+      useStore.setState({ showToast: originalToast })
+      useInspirationStore.setState({ detailItemId: null, items: [] })
+      if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
+      else Reflect.deleteProperty(navigator, 'clipboard')
+      if (execCommand) Object.defineProperty(document, 'execCommand', execCommand)
+      else Reflect.deleteProperty(document, 'execCommand')
+    }
+  })
 })

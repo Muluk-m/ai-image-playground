@@ -31,6 +31,7 @@ import CanvasToolbarButton from './CanvasToolbarButton'
  */
 export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation('canvas')
+  const { t: common } = useTranslation('common')
   const doc = editor.doc
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const settings = useStore((state) => state.settings)
@@ -118,7 +119,8 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
         <CanvasToolbarButton
           compact
           icon={<Icon name="download" />}
-          label={
+          label={common('action.download')}
+          description={
             exportable.length > 0
               ? t('batch.export', { count: exportable.length })
               : t('batch.nothingToExport')
