@@ -19,7 +19,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 .site-scroll-story { height: 176svh; position: relative; }
 .site-hero { --morph: 0; --out: 0; --caption: 0; --mx: 0; --my: 0; position: sticky; top: 0; height: 100svh; min-height: 540px; overflow: hidden; color: hsl(var(--on-media)); }
 .site-hero .site-nav { position: absolute; inset: 0 0 auto; opacity: calc(1 - var(--out)); transform: translateY(calc(var(--out) * -18px)); }
-.site-hero .site-nav-actions > button { background: var(--creation-selected-start); color: var(--creation-selected-foreground); }
+.site-hero .site-nav-actions > button, .site-hero .site-nav-actions > a:not(.site-language) { background: var(--creation-selected-start); color: var(--creation-selected-foreground); }
 .site-visual { position: absolute; inset: 0; overflow: hidden; transform: translateY(calc(var(--morph) * -5%)) scale(calc(1 - var(--morph) * .27)); border-radius: calc(var(--morph) * 12px); transform-origin: 50% 40%; will-change: transform; }
 .site-cover { height: 100%; width: 100%; object-fit: cover; object-position: 68% center; transform: scale(1.035) translate(calc(var(--mx) * -5px), calc(var(--my) * -4px)); transition: transform .55s cubic-bezier(.2,.7,.2,1); }
 .site-shade { position: absolute; inset: 0; background: linear-gradient(180deg, hsl(var(--scrim) / .25), transparent 30%, transparent 60%, hsl(var(--scrim) / .55)); }
@@ -64,7 +64,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 :where(.site-scenarios) a:hover { color: hsl(var(--primary)); }
 .site-closing { text-align: center; padding: 96px 7%; }
 :where(.site-closing) h2 { font-size: var(--site-closing); font-weight: 400; letter-spacing: -.04em; margin: 24px 0 32px; }
-:where(.site-closing) button { border-radius: 9999px; height: 48px; padding-inline: 24px; }
+:where(.site-closing) button, :where(.site-closing) a { border-radius: 9999px; height: 48px; padding-inline: 24px; }
 .site-footer { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; margin: 0 7%; padding: 32px 0; border-top: 1px solid hsl(var(--border)); font-size: theme('fontSize.xs'); color: hsl(var(--muted-foreground)); }
 .site-footer > div { display: flex; flex-wrap: wrap; gap: 24px; }
 .site-footer .site-brand { font-size: theme('fontSize.base'); }
