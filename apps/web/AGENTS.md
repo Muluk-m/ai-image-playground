@@ -1,18 +1,71 @@
 # apps/web
 
-前端工作台内部约定。仓库级约定见根 `AGENTS.md`。
+前端工作台内部约定。仓库级约定见[根 AGENTS.md](../../AGENTS.md)。
 
-## 界面与样式
+## 按需读取
 
-**改界面前先读 [`DESIGN.md`](./DESIGN.md)**（设计规则的唯一入口）。组件用法、分层与图标从其中的「目录 / 入口」进去；
-颜色、字阶、间距等 token 与原则以 DESIGN.md 为准，找不到合适档位就先改它再写代码。缺的组件按设计系统 README 的流程新增，不在业务里手搭；改完到陈列页
-（开发服务器的 `/design.html`）浅色深色各看一眼。`pnpm lint` 带设计门禁，报错时按 DESIGN.md「门禁」处理。
+- **新增或修改界面**：先读 [`DESIGN.md`](./DESIGN.md)，再从其「目录 / 入口」读取组件选型、配方与图标文档。
+  视觉、文案、tooltip 与设计门禁规则统一在那里维护；本文件只规定开发流程与工程边界。
+- **修改文案、语言切换、主题或相关测试**：先读[语言与主题](./docs/agents/display-settings.md)，
+  包括语料注册、响应式翻译、存储格式、首帧初始化与测试约定。
+- **修改公共官网或指南渲染**：先读 [`apps/website/AGENTS.md`](../website/AGENTS.md)；本文件末尾说明与工作台的边界。
+- 测试执行位置、提交检查与发布流程沿用[根 AGENTS.md](../../AGENTS.md)，不在此维护另一套命令。
+
+## 组件检索与复用
+
+新增或修改 UI 时，按以下顺序完成选型，再开始实现：
+
+1. **检索候选**：先查设计系统的「我要做 X → 用哪个」，再用 `rg --files` / `rg` 按用途与行为
+   搜索 `src/components/`、相关 `src/features/`；通用交互同时查 `src/hooks/`、`src/lib/` 与 store。
+   例如查确认删除、复制、空态或上传状态，不能只搜拟新增的组件名。阅读候选的实现、props、
+   实际调用与相关测试，确认已有能力和限制；外部组件检索不能代替这一步。
+2. **优先复用完整能力**：先使用已有业务封装，再评估 props、插槽、组合或兼容扩展；确实不适用
+   时再组合 `patterns/` 与 `ui/`。只用了 `Button` 或 `Dialog`，不等于复用了确认流程、复制反馈、
+   焦点管理和加载状态。具体入口以设计系统速查表与当前源码为准，不在此复制组件清单。
+3. **说明新增理由**：只有复用、组合或兼容扩展仍不能满足需求时才新增通用实现。在变更说明或 PR
+   中记录检索过的候选路径、具体能力缺口与不能扩展的原因；无候选时记录检索范围。
+   文案、图标、颜色、尺寸或页面不同不构成重复实现的理由。
+4. **确定归属**：分层与依赖方向按设计系统的三层约定。feature 组件承载业务数据、权限、事件与内容，
+   通用 UI 和交互继续复用；不向公共组件塞入单页业务，也不为少量相似代码预建通用框架。
+   新增组件按设计系统 README 的流程补用法和陈列页；扩展现有组件须保持已有调用行为。
+
+完成选型时，应能指出本次复用的入口；新增通用实现还须有可审查的缺口说明。
+
+## UI 验收
+
+1. **复用复核**：检查 diff 中新增的组件、基础组件导入与手写交互，确认没有绕过可用的业务封装；
+   新增理由与最终实现一致。涉及公共组件时，检查受影响的现有调用点。
+2. **行为回归**：新增交互、修复缺陷或改变状态行为时，新增或更新保护本次行为的回归测试；
+   缺陷先用可重复的用例或浏览器步骤复现。按影响范围覆盖成功路径及相关边界，例如异步失败、
+   禁用、空态、长文本、键盘操作、焦点恢复、语言切换与可访问名称，不机械扩展到无关场景。
+   断言用户可见结果、可访问状态或对外契约，避免内部 state、完整 class 快照或仅断言能渲染。
+   纯文档、静态样式等低影响修改不为凑数新增单测；布局与视觉问题在真实浏览器验证。
+3. **页面验收**：UI 修改先在开发环境的实际页面操作本次路径，检查桌面与窄屏、浅色与深色；
+   验证相关弹层、滚动、遮挡和焦点行为。涉及设计系统组件时同时检查 `/design.html`，
+   陈列页不能替代实际页面。窄屏模拟仅证明响应式布局，不能报告为真机验收。
+4. **记录证据**：PR 或交付说明列出复用入口、新增理由（如有）、实际运行的检查与结果，
+   UI 改动附关键页面截图或复现步骤，并注明未验证范围。lint / typecheck 通过不能替代复用复核
+   与浏览器验收；合并后的发布与线上核验继续按根约定执行。
+
+测 Radix 组件时复用 [`helpers/radix.ts`](./src/__tests__/helpers/radix.ts)，处理 pointer capture、
+`ResizeObserver` 与 `pointerType: 'mouse'`；现成调用见
+[`agentComposerMode.test.tsx`](./src/__tests__/features/agent/components/agentComposerMode.test.tsx)。
+通过角色查找 checkbox，portal 内容从 `document` 查找；等待明确状态，不用固定 sleep。
+
+## 样式与共享原语
+
+- `ui/` 中与 `apps/admin` 同名的文件必须逐字节一致；以
+  [`parity.test.ts`](./src/__tests__/components/ui/parity.test.ts) 动态发现的共享文件为准。
+  优先在调用点或组合层扩展行为；确需改共享原语时同步两端并验证受影响调用。
+- `ui/` 原语沿用 `@/` 别名，业务与组合层沿用相对路径。依赖和 lockfile 修改按根约定处理。
+- 作用域 CSS 使用低 specificity 的 `:where(.panel) button` 等写法，让 utility 可以覆盖。
+  `.panel button` 这类选择器会压过组件自身的高度、间距等 utility，破坏复用组件布局。
 
 ## 服务商架构
 
-前端 dispatch 入口在 [`src/lib/api.ts`](./src/lib/api.ts) 的 `callImageApi`。唯一路径是平台渠道：`queueClient.ts`，浏览器 → BFF queue（`submit / poll / fetch`）。用户不配置 API key 或自定义端点。旧 localStorage 里的 `user-byok` 档案在 `normalizeSettings` 时丢掉，活动配置落到当前渠道列表的第一个。
+前端 dispatch 入口在 [`src/lib/api.ts`](./src/lib/api.ts) 的 `callImageApi`。唯一路径是平台渠道：[`queueClient.ts`](./src/lib/channels/queueClient.ts)，浏览器 → BFF queue（`submit / poll / fetch`）。用户不配置 API key 或自定义端点。旧 localStorage 里的 `user-byok` 档案在 `normalizeSettings` 时丢掉，活动配置落到当前渠道列表的第一个。
 
-**Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`** — 浏览器 CORS preflight 对常见中转网关只放行前者；后端代理通常两个 header 都接受。
+上游协议与凭据由 BFF 处理，前端不直接构造服务商鉴权 header。
 
 **提交路径一律经 [`src/lib/generationJob.ts`](./src/lib/generationJob.ts)**，不要在调用方自己拼
 生命周期。`startGeneration(spec, sink)` / `resumeGeneration(input, handle, report)` 里收着
@@ -21,143 +74,6 @@ overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人
 宿主只实现 `GenerationSink`：工作台是任务行（`store.ts`），画布是占位框
 （`features/canvas/lib/canvasGenerationSink.ts`）。画布视频走自己的队列协议，
 复用 `admitGeneration` 与 `superviseGeneration`（文档化的第三个调用方）。
-
-## 多语言（i18n）
-
-运行时是 **react-i18next + 结构化 key**，语料是每个 locale 一份 JSON，业务代码只认 key。
-
-- 入口 [`src/i18n/index.ts`](./src/i18n/index.ts)：静态 import 中文 catalog，`initAsync: false`
-  **同步**初始化（这个选项在 i18next v25 之前叫 `initImmediate`）。组件首帧就能拿到译文——
-  `main.tsx` 与测试都是 import 完直接 render，异步初始化会让首帧渲染出 key 而不是文案。
-- **英文语料是按需 chunk**（gzip 约 20 KB）：中文既是默认语言又是 fallback，必须随首屏到；
-  英文只在切过去时由 `ensureLocaleLoaded` 动态 import。所以 `setLocale` 是 **async** 的，
-  调用处要 `void setLocale(...)` 或 `await`。启动时 `main.tsx` 会 `await bootstrapLocale()`。
-- **组件从 `../i18n` 取 `useTranslation`，不要直接 import `react-i18next`**：导入我们这个模块
-  才会触发初始化，绕过去就会出现「先渲染后初始化」。
-- 命名空间即语料文件，现有 14 个：`common` `auth` `errors` `task` `settings` `composer`
-  `shell` `store` `lib` `video` `library` `canvas` `agent` `inspiration`。
-  新 feature 加一个同名 namespace 并在两个 `locales/*/index.ts` 聚合入口里登记，别往 `common` 里堆。
-- key 形如 `<component>.<intent>`，例如 `auth:login.emailPlaceholder`。
-- **跨命名空间取词要把 `common` 一起声明**：`useTranslation('task')` 返回的 `t` 只接受 task 的 key，
-  写 `t('common:action.cancel')` 会 TS2345。正确写法是 `useTranslation(['task', 'common'])`，
-  数组第一项仍是默认命名空间，不带前缀的 key 照常落在 task。另开一个
-  `const { t: tCommon } = useTranslation('common')` 也可以。
-- **非 React 模块用 `i18next.getFixedT(null, '<ns>')`**，不要手写
-  `type Key = Parameters<typeof i18next.t>[0]`——那拿到的是全部命名空间的并集，配上 `ns`
-  反而对不上，key 会失去编译期检查。`getFixedT` 第一个参数传 `null` 表示不钉语言，
-  每次调用仍取当前 locale。
-- **错误文案走 `errors:<flow>.<code>`，叶子名与 BFF 返回的 `error.code` 同名。** 同一个 code 在
-  不同流程下措辞不同（登录的 `rate_limited` ≠ 注册的 `rate_limited`），所以按 flow 分组而不是拍平。
-  每组都要有 `fallback`。
-- **错误与校验提示在 state 里存 key，渲染时才翻译**，切语言后已经显示的报错会跟着变。直接存译文
-  就会卡在切换前的语言上。
-- 复数用 i18next 的 `count` 参数加 `_one` / `_other` 后缀。**后缀是 locale 的属性**：中文只该有
-  `_other`，英文要 `_one` + `_other`；多写的后缀是死 key，少写的会回退。
-- `fallbackLng` 是 `zh-CN`：英文缺 key 时显示中文，而不是把 key 漏给用户。
-- **模块级常量不能存译文**：模块求值发生在 `bootstrapLocale()` 之前，直接 `i18next.t()` 会把
-  中文烤死，切语言后也不会更新。三种已在用的做法，按调用方改动成本选：
-  getter 对象（`store.ts` 的 `APP_MODE_LABELS`，消费方按 `X[key]` 索引，零改动）、
-  惰性函数（`features/video/lib/labels.ts`，消费方加一对括号）、
-  `export let` + `i18next.on('languageChanged')` 重算（`lib/inputImageLimit.ts`，靠 ESM live binding，
-  消费方完全零改动，代价是可变导出）。
-  [`src/__tests__/i18n/liveBindings.test.ts`](./src/__tests__/i18n/liveBindings.test.ts) 钉住第三种。
-- **React 组件只有调用了 `useTranslation()` 才会在切语言时重渲染。** 只用 `i18next.t()` 取值的
-  组件不会。`memo` 包住的子组件要自己调一次，父组件重渲染拦不过去。
-  一次性产出的文案（toast、写进记录的 error）用 `i18next.t()` 直调是对的，它不需要重渲染。
-- **这些中文不要翻**，它们是数据不是文案，翻了会静默改行为：发给大模型的提示词与其中的枚举值、
-  被持久化且参与相等比较的配置名、匹配上游中文报错的正则、写进提示词再被正则反解析的哨兵。
-  界面要显示它们时，另建一张只管显示的查表函数，数据值原样保留。
-- **存储格式与显示标签分开**：引用的哨兵 `@图N` 是存储格式，由 `getSelectedImageMentionLabel` 产出，
-  永不随语言变；创作页胶囊上显示的序号标签由 `getImageMentionLabel` 产出，是界面文案（英文 `@Image 1`）。
-  智能创作的输入框与用户气泡不用素材名或图片 id 当胶囊文案，按这条消息里的参考图序号显示
-  `mentions.imageLabel`（`图片 {{n}}` / `Image {{n}}`），与发给模型的 `[image N]` 对齐。
-  按标签解析器做缓存的 `useMemo` 要把 `i18n.language` 列进依赖。`@` 菜单匹配不分语言。
-- **初值文案**（系统替用户写进数据的第一份文字）按写入那一刻的界面语言取，写完不再翻译、不迁移。
-  例外是「未命名项目」：它表示「没有名字」，存的是固定哨兵，显示时才查译文。
-- **语料里不允许空值**，空字符串一律当漏翻（`catalog.test.ts` 守着）。要按语言隐藏某段界面，
-  写显式规则，例如品牌字标的 `brandNeedsWordmark()`。
-- **主题**在 [`src/theme/`](./src/theme/index.ts)：默认暗色。手动选亮色或暗色就固定；选 `system`
-  才跟随 `prefers-color-scheme`，并且系统一变就跟着变。选择固定在本机（`aip.theme`）。
-  暗色由 `<html>` 上的 `.dark` 决定，Tailwind 是 `darkMode: 'class'`，手写样式用 `.dark …` 选择器，
-  **不要再写 `@media (prefers-color-scheme)`**。系统明暗只在选择是 `system` 时由 JS 读取，
-  要重画就 `subscribeTheme`。首帧脚本 `bootScript.ts` 由 Vite 插件内联进 head，它与 `resolveTheme`
-  是同一条规则的两份实现，`theme.test.ts` 逐格比对；改一边必须改另一边。`theme-color` 由首帧脚本
-  创建并随主题更新；PWA 清单里的颜色改不了，安装态的启动画面固定是暗色，不是 bug。
-- 界面语言与主题是**显示设置**：只存本机、登录前生效、不进同步。语言只有顶栏地球
-  （[`LocaleGlobe`](./src/components/LocaleGlobe.tsx)）。主题只有头像菜单里的三段图标开关
-  （[`ThemeSwitch`](./src/components/ThemeSwitch.tsx)：暗色 / 跟随系统 / 亮色）。
-  公开树与私有 overlay 的两个头像菜单经
-  [`DisplaySettingsMenuItems`](./src/components/DisplaySettingsMenuItems.tsx) /
-  [`DisplaySettingsFields`](./src/components/DisplaySettingsFields.tsx) 用同一份，
-  显示哪些行由 props 决定，不要用 CSS 把某一行藏掉。未登录访客也有这个菜单，所以登录框自己不再带语言与主题控件。
-  标签页标题随语言变，静态 meta 不变。
-- 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
-  切换时同步更新 `document.documentElement.lang`（`index.html` 里写死的 `zh-CN` 只是初值）。
-- **测试里 locale 必须钉死**：jsdom 的 `navigator.languages` 是 `['en-US']`，不钉死的话所有断言
-  中文文案的历史用例会整片变红。已由 [`src/__tests__/setup/i18n.ts`](./src/__tests__/setup/i18n.ts)
-  在每个用例前 `changeLanguage('zh-CN')`，通过 `vite.config.ts` 的 `test.setupFiles` 挂上。
-- `src/i18n/index.ts` 里的 `declare module 'i18next'` 把中文 catalog 的形状喂给 i18next：
-  **写错 key 或漏建 key 在 `pnpm typecheck` 就红**，不用等运行时。因此新增文案要先加中文
-  catalog 再写调用。这段**必须留在 `index.ts` 里**——独立的 `.d.ts` 要靠各 tsconfig 的
-  `include` 捞进来，`private/apps/web/tsconfig.json` 没有捞，那个工程里 key 会退回无类型。
-- [`src/__tests__/i18n/catalog.test.ts`](./src/__tests__/i18n/catalog.test.ts) 守四件事：
-  两种语言 key 集合一致、插值占位符一致、复数后缀覆盖该 locale 的全部 plural category、没有空值。
-  复数那条取**两种语言 plural base 的并集**再逐 locale 检查——只看各自的 base 会漏掉
-  「一边写 `x_one`/`x_other`、另一边写成无后缀的 `x`」这种不对称，运行时缺后缀那边会落空。
-- `pnpm i18n:check` 体检死 key（语料里有、代码里没人引用）。按稳定 id 用模板拼出来的 key
-  字面量搜不到，要把前缀登记进脚本的 `DYNAMIC_PREFIXES`。反方向由类型增强在 typecheck 兜住。
-- 私有 overlay 自带语料与接缝：`private/apps/web/i18n.ts` 导出 `tBilling`，在 overlay 加载时
-  把 `billing` 命名空间注册进同一个 i18next 实例。它不复用公开树的 `declare module`——
-  `CustomTypeOptions.resources` 只能声明一次，两处声明会冲突。
-
-## UI 组件与样式
-
-**交互控件一律用 shadcn 组件，不要手搓原生控件。** 复选框、下拉、对话框、开关这类东西
-自己拿 `<input type="checkbox">` + `appearance-none` 拼，拼出来的既没有统一状态样式，
-也扛不住任何作用域 CSS。
-
-[`components.json`](./components.json) 与 [`src/components/ui/`](./src/components/ui) 已就位，
-token 在 [`src/styles/theme.css`](./src/styles/theme.css)（见
-[`docs/design/creation-studio.md`](../../docs/design/creation-studio.md)），
-`tailwind.config.js` 把它们映射成 `bg-primary` / `border-input` / `ring` 这些类。
-目前有 checkbox、select、label、input、textarea。**`ui/` 下与 `apps/admin` 同名的文件一律
-保持逐字节相同**（现在是 select / label / input，外加 `src/lib/utils.ts`），
-由 [`parity.test.ts`](./src/__tests__/components/ui/parity.test.ts) 守着，改一边就会失败。
-需要改行为时改调用点，别改原语。加组件用 `pnpm dlx shadcn@latest add <name>`，
-**加依赖必须带着 `private/` 重新生成 lockfile**，见仓库根 `AGENTS.md`。
-
-分两层：`src/components/ui/` 是 shadcn 原语，按上游约定用 `@/` 别名，尽量不改，方便
-CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Checkbox` 管勾选框加标签），用相对路径，业务代码只引这一层。
-
-**测 Radix 组件要给 jsdom 补三样东西**：pointer capture、`ResizeObserver`，以及带
-`pointerType: 'mouse'` 的指针事件——Radix 的下拉只认这一种，拿 `MouseEvent` 直接派发
-`pointerdown` 打不开它。勾选框渲染成 `[role="checkbox"]` 的 button 而不是 `<input>`，
-选项渲染在 portal 里要从 `document` 找。现成写法见
-[`helpers/radix.ts`](./src/__tests__/helpers/radix.ts) 与它在
-[`agentComposerMode.test.tsx`](./src/__tests__/features/agent/components/agentComposerMode.test.tsx) 里的用法。
-
-**作用域 CSS 不要用裸元素选择器。** `.panel button { padding: 8px 12px }` 的 specificity 是
-(0,1,1)，压得过 `.h-5`、`.flex` 这类 (0,1,0) 的 utility，容器里所有复用组件会被一起压散
-（2026-09 已下线的导演台出过这事故：勾选框被拉成全宽长条）。必须写成 `:where(.panel) button`，
-把 class 那一位让出去：(0,0,1) 仍然压得过 preflight，但任何一个 utility 都能覆盖它。
-
-**有文字的控件不加 tooltip。** 按钮、菜单项、标签已经写出名称、作用看得懂，就不要再悬停重复，
-也不要把模型 id 之类的内部标识补进提示。纯图标按钮保留 tooltip；文字被裁成省略号时，只在真正溢出时
-显示同一段完整文字。`aria-label` 留给读屏，不因此弹出提示。细则在 [`DESIGN.md`](./DESIGN.md)
-「纯图标按钮的标签」。
-
-**界面上不解释系统行为。** 「点这个会把命令放进输入框交给智能体」「保存后可以在素材页改名」
-「手动保存只存上传图」这类描述能力与流程的句子，是代码注释，不是界面文案：用户看到的必须是
-干净的控件与结果。表达方式只有三种——控件本身的标签（按钮写清动作）、动作发生后的即时反馈
-（toast、卡片状态翻转）、空态里最多一句话说「这里放什么、怎么开始」。原型也遵守同一条，
-原型的说明写在代码注释或 issue 里。需要长解释的功能是设计问题，回去改设计，不要加脚注。
-
-**结构化的东西不能长成裸文本。** 输入框里的 `/技能`、`@图N`、`{槽位}`、模板，列表里的
-类别 / 用途 / 状态，全都是有身份的对象，不是一串字符：一律渲染成带图标或缩略图的胶囊 / 角标，
-图标来自技能的 `meta.json`、素材的封面、既有的 `icons.tsx`。判据：把它从界面上抠出来单独看，
-用户能不能认出它是什么——`/create-asset` 认不出，「✦ 创建素材」认得出。两处输入框（画布智能体、
-创作页生成）对同一种对象必须长得一样，胶囊渲染走同一个组件（`AgentSkillBadge`、`MediaImage`），
-不得各写一份。新加一种对象先给它图标再给它文案。
 
 ## 登录与匿名访客
 
