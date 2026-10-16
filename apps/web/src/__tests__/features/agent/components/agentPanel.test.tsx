@@ -162,6 +162,72 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('保留对话搜索的自动聚焦、匹配、消息定位和关闭', async () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'search-cat',
+          turnId: 'search-turn',
+          role: 'user',
+          text: 'Orange CAT',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'search-dog',
+          turnId: 'other-turn',
+          role: 'user',
+          text: 'Dog',
+          streaming: false,
+        },
+      ],
+    })
+    const close = vi.fn()
+    const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
+    await act(async () =>
+      root.render(
+        <AgentPanel
+          doc={new CanvasDoc()}
+          editor={editor}
+          presentation="page"
+          searchOpen
+          onCloseSearch={close}
+        />,
+      ),
+    )
+    const field = host.querySelector<HTMLInputElement>('.studio-conversation-search input')!
+    expect(document.activeElement).toBe(field)
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    const search = async (value: string) =>
+      act(async () => {
+        setValue.call(field, value)
+        field.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    await search('  cat  ')
+    const results = () => [
+      ...host.querySelectorAll<HTMLButtonElement>('.studio-conversation-search-results button'),
+    ]
+    expect(results().map((button) => button.textContent)).toEqual(['Orange CAT'])
+    const target = host.querySelector<HTMLElement>('[data-agent-message-id="search-cat"]')!
+    const scroll = vi.fn()
+    target.scrollIntoView = scroll
+    await act(async () => {
+      results()[0]!.click()
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+    await search('unmatched')
+    expect(results()).toHaveLength(0)
+    expect(host.querySelector('.studio-conversation-search-results')?.textContent).toContain('没有')
+    await search('')
+    expect(host.querySelector('.studio-conversation-search-results')).toBeNull()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('.studio-conversation-search > button')!.click(),
+    )
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it('把同一轮连续获取的网图收进一条缩略图带，保留预览和来源', async () => {
     const onPreviewResult = vi.fn()
     const image = (id: string, turnId = 'turn-1'): AgentToolMessage => ({
