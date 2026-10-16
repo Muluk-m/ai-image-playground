@@ -26,6 +26,7 @@ function CopyReplyButton({ text }: { text: string }) {
 
   return (
     <MessageActions
+      className={REPLY_ACTION}
       copied={copied}
       copyLabel={copied ? t('reply.copied') : t('reply.copyAria')}
       onCopy={() => {
