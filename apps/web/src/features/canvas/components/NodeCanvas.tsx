@@ -660,7 +660,11 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
 }
 
 /** Use the same display geometry for navigation and culling without rewriting document data. */
-function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | null {
+function boundsOf(
+  snapshot: CanvasSnapshot,
+  ids?: ReadonlySet<string>,
+  liveNodes?: readonly FlowNode[],
+): Rect | null {
   let minX = Number.POSITIVE_INFINITY
   let minY = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
@@ -675,7 +679,10 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
   for (const group of snapshot.groups ?? []) {
     if (!ids || ids.has(group.id)) include(group.x, group.y, group.width, group.height)
   }
-  for (const node of snapshot.nodes) {
+  const live = liveNodes
+    ?.filter((node) => node.data.node)
+    .map((node) => ({ ...node.data.node!, x: node.position.x, y: node.position.y }))
+  for (const node of live ?? snapshot.nodes) {
     if (ids && !ids.has(node.id)) continue
     const { width, height } = nodeCardSize(node)
     include(node.x, node.y, width, height)
@@ -962,7 +969,7 @@ function Flow({
     maxZoom: number,
     duration?: number,
   ) => {
-    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined)
+    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined, nodes)
     const viewport =
       bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
     if (!viewport) return
