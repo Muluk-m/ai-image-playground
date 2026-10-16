@@ -4,6 +4,7 @@ import type {
   ProductionRevision,
 } from '@image-playground/shared'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
@@ -144,20 +145,17 @@ export default function ProductionDocumentPane({
           <Icon name="close" />
         </Button>
       </header>
-      <nav className="production-tabs" aria-label={t('sections')}>
-        {(['setting', 'outline', 'scenes'] as const).map((value) => (
-          <Button
-            variant={tab === value ? 'secondary' : 'ghost'}
-            size="xs"
-            key={value}
-            type="button"
-            aria-pressed={tab === value}
-            onClick={() => setTab(value)}
-          >
-            {t(value)}
-          </Button>
-        ))}
-      </nav>
+      <div className="production-tabs">
+        <SegmentedTabs
+          label={t('sections')}
+          value={tab}
+          onChange={setTab}
+          tabs={(['setting', 'outline', 'scenes'] as const).map((value) => ({
+            value,
+            label: t(value),
+          }))}
+        />
+      </div>
       <div className="production-document-tools">
         {edit.editing ? (
           <>
