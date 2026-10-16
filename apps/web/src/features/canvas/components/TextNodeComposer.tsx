@@ -10,26 +10,19 @@ export default function TextNodeComposer({
   references,
   files,
   value,
-  position,
   onChange,
   onSubmit,
 }: {
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
   value: string
-  position: { left: number; top: number }
   onChange: (value: string) => void
   onSubmit: () => void
 }) {
   const { t } = useTranslation('canvas')
   const canSend = value.trim().length > 0
   return (
-    <NodeComposerFrame
-      label={t('nodes.composerText')}
-      position={position}
-      references={references}
-      files={files}
-    >
+    <NodeComposerFrame label={t('nodes.composerText')} references={references} files={files}>
       <Textarea
         value={value}
         placeholder={t('nodes.composerText')}

@@ -220,6 +220,8 @@ export const app = new Elysia()
   .onRequest(async ({ request, set }) => {
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
+    if (/^\/image\/?$/.test(url.pathname))
+      return new Response(null, { status: 301, headers: { location: `/${url.search}` } })
     const res = await serveStatic(url.pathname, request)
     if (res) {
       set.headers = {}
@@ -230,7 +232,7 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (
-      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|p\/[^/]+)\/?$/.test(
+      /^\/(?:workbench|explore|assets|tools|projects|pricing|terms|privacy|p\/[^/]+)\/?$/.test(
         url.pathname,
       )
     ) {

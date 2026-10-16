@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { compactModelName } from '../../../components/ModelIdentity'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
@@ -45,7 +45,8 @@ export default function AgentSuggestions({ className = '' }: { className?: strin
               <img src={item.thumbnailUrl} alt={item.title} loading="lazy" />
               <div className="agent-inspiration-caption">
                 <div>
-                  <span>
+                  <span className="inline-flex items-center gap-1">
+                    <ModelLogo model={item.recommendedModel} />
                     {compactModelName(item.recommendedModel, modelLabel(item.recommendedModel))}
                   </span>
                   <h4>{item.title}</h4>

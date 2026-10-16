@@ -52,12 +52,15 @@ it('verifies deployed bytes and real missing-resource behavior', async () => {
 it('keeps deep links on their incoming URLs under Pages clean-HTML routing', async () => {
   const server = await serveDist(dist)
   try {
-    for (const path of ['/image', '/p/example', '/pricing']) {
+    for (const path of ['/p/example', '/pricing']) {
       const response = await fetch(server.origin + path, { redirect: 'manual' })
       expect(response.status).toBe(200)
       expect(response.headers.get('location')).toBeNull()
       expect(await response.text()).toBe(html)
     }
+    const legacy = await fetch(`${server.origin}/image?source=legacy`, { redirect: 'manual' })
+    expect(legacy.status).toBe(301)
+    expect(legacy.headers.get('location')).toBe('/?source=legacy')
     await verifyPagesRelease(server.origin, dist)
   } finally {
     await server.close()
@@ -117,7 +120,7 @@ it('rejects long-lived error caching', async () => {
 it('generates SPA fallbacks for every app route without a catch-all asset rewrite', async () => {
   const rules = pagesRedirects()
   for (const path of [
-    ...Object.values(APP_MODE_PATHS),
+    ...Object.values(APP_MODE_PATHS).filter((path) => path !== '/'),
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
     PRICING_PATH,
@@ -128,6 +131,9 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench 200\n`)
   }
   expect(rules).toContain('/assets /workbench 200\n')
+  expect(rules).toContain('/image / 301\n')
+  expect(rules).toContain('/image/ / 301\n')
+  expect(rules).not.toMatch(/^\/ \/workbench/m)
   // `/assets/` 落在 `_headers` 的一年 immutable 规则里：不能在那里下发 HTML。
   expect(rules).toContain('/assets/ /assets 301\n')
   expect(rules).not.toContain('/assets/ /workbench 200')

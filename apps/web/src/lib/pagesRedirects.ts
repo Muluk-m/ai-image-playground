@@ -1,5 +1,6 @@
 import {
   APP_MODE_PATHS,
+  LEGACY_IMAGE_PATH,
   LEGACY_PROJECTS_PATH,
   PRICING_PATH,
   PRIVACY_PATH,
@@ -22,18 +23,23 @@ const HASHED_ASSETS_PATH = '/assets'
  */
 export function pagesRedirects(): string {
   const routes = [
-    ...Object.values(APP_MODE_PATHS),
+    ...Object.values(APP_MODE_PATHS).filter((route) => route !== '/'),
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
     PRICING_PATH,
     TERMS_PATH,
     PRIVACY_PATH,
   ]
-  // Pages redirects .html targets to clean URLs, even inside a 200 rewrite.
-  const rules = routes.flatMap((route) => [
-    `${route} /workbench 200`,
-    route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ /workbench 200`,
-  ])
+  // `/image` is an old public address and must canonicalize to `/`; the hinted-root bootstrap
+  // uses the static workbench.html directly so this redirect cannot loop.
+  const rules = [
+    `${LEGACY_IMAGE_PATH} / 301`,
+    `${LEGACY_IMAGE_PATH}/ / 301`,
+    ...routes.flatMap((route) => [
+      `${route} /workbench 200`,
+      route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ /workbench 200`,
+    ]),
+  ]
   return `# Generated from src/lib/appPaths.ts. Missing assets must remain 404.\n${rules.join('\n')}\n`
 }
 

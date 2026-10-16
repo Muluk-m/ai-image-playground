@@ -8,6 +8,7 @@ import {
   getCurrentUser,
   loginUser,
   logoutUser,
+  oauthLinkUrl,
   oauthStartUrl,
   registerUser,
   shouldProbeSession,
@@ -226,6 +227,9 @@ describe('auth client', () => {
     expect(cookie).toContain('image_playground_signed_in=1')
     expect(cookie).toContain('Secure')
     expect(shouldProbeSession()).toBe(true)
+    await logoutUser()
+    expect(store.get('image-playground.last-storage-user')).toBe('null')
+    expect(cookie).toContain('Max-Age=0')
   })
 
   it('probes the session only when a hint cookie or a remembered user is present', () => {
@@ -256,8 +260,87 @@ describe('auth client', () => {
     expect(shouldProbeSession()).toBe(true)
   })
 
+  it('retains a remembered session when cookie access is blocked', async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+    })
+    vi.stubGlobal('document', {
+      get cookie(): string {
+        throw new Error('blocked')
+      },
+      set cookie(_value: string) {
+        throw new Error('blocked')
+      },
+    })
+    vi.stubGlobal('window', { location: { search: '' } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ user: USER })),
+    )
+    await expect(loginUser('alice', 'secret')).resolves.toEqual(USER)
+    expect(shouldProbeSession()).toBe(true)
+    await expect(logoutUser()).resolves.toBeUndefined()
+    expect(shouldProbeSession()).toBe(false)
+  })
+
   it('points the OAuth start route at the configured BFF origin', () => {
-    expect(oauthStartUrl('google')).toBe('https://bff.example.com/api/auth/oauth/google/start')
+    vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
+    expect(oauthStartUrl('google')).toBe(
+      'https://bff.example.com/api/auth/oauth/google/start?return_to=%2F',
+    )
+  })
+
+  it.each([
+    '/?prompt=hello%20world&login=1#composer',
+    '/assets?tab=projects#recent',
+    '/explore?tag=art#results',
+    '/tools?tool=resize#upload',
+    '/pricing?plan=pro#plans',
+    '/terms#agreement',
+    '/privacy#cookies',
+    '/p/project-123?mode=canvas&selection=a%2Bb#node-2',
+  ])('preserves workspace query and hash for OAuth start and link at %s', (target) => {
+    vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
+    const start = new URL(oauthStartUrl('google', '  invite +&/#?  '))
+    const link = new URL(oauthLinkUrl('google'))
+
+    expect(start.origin).toBe('https://bff.example.com')
+    expect(start.pathname).toBe('/api/auth/oauth/google/start')
+    expect(start.searchParams.get('return_to')).toBe(target)
+    expect(start.searchParams.get('ref')).toBe('invite +&/#?')
+    expect(link.origin).toBe('https://bff.example.com')
+    expect(link.pathname).toBe('/api/auth/oauth/google/link')
+    expect(link.searchParams.get('return_to')).toBe(target)
+    expect(link.searchParams.has('ref')).toBe(false)
+  })
+
+  it.each([
+    '/login?ref=invite#signup',
+    '/guide/start',
+    '/p/',
+    '/p/%FF',
+  ])('defaults website and invalid project entries to / at %s', (target) => {
+    vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/')
+  })
+
+  it('defaults to / without a browser and omits blank referrals', () => {
+    vi.stubGlobal('window', undefined)
+    const start = new URL(oauthStartUrl('google', '  '))
+    expect(start.searchParams.get('return_to')).toBe('/')
+    expect(start.searchParams.has('ref')).toBe(false)
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/')
+  })
+
+  it('defaults oversized workspace targets to /', () => {
+    vi.stubGlobal('window', {
+      location: new URL(`https://app.example.com/?prompt=${'a'.repeat(2048)}`),
+    })
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/')
   })
 
   it('keeps well-formed providers and drops malformed ones', async () => {

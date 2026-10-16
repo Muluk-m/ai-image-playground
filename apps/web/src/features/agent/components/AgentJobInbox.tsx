@@ -180,7 +180,10 @@ export default function AgentJobInbox() {
   const finished = [...inbox.finished].reverse()
   const shown = tab === 'running' ? inbox.running.length : finished.length
   return (
-    <div ref={host} className="pointer-events-auto relative flex flex-col items-end">
+    <div
+      ref={host}
+      className="studio-agent-job-inbox pointer-events-auto relative flex items-center"
+    >
       <Button
         type="button"
         variant="ghost"
@@ -190,7 +193,7 @@ export default function AgentJobInbox() {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
         }}
-        className={`h-10 w-auto gap-1.5 rounded-full bg-transparent px-2.5 text-label-sm font-normal shadow-none ${INK} hover:bg-muted`}
+        className={`h-10 w-auto gap-1.5 rounded-full bg-transparent px-2.5 text-label-sm font-normal leading-none shadow-none ${INK} hover:bg-muted`}
       >
         <Icon name="list" />
         <span>{t('job.inbox.title')}</span>

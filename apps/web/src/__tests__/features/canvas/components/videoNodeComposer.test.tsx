@@ -112,7 +112,6 @@ function Fixture({
       onChange={() => {}}
       onSubmit={mocks.send}
       busy={false}
-      position={{ left: 0, top: 0 }}
       referenceTools={null}
       onPickReference={onPickReference}
       references={['one', 'two'].map((id) => ({ id, fileId: id, kind: 'image', label: id }))}

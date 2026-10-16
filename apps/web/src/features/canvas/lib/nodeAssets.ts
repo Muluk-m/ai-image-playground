@@ -55,8 +55,6 @@ export async function insertAssetNode(
     target.data.meta?.nodePrompt !== originalPrompt
   )
     return null
-  const width = 320
-  const height = dimensions ? Math.max(120, (width * dimensions.height) / dimensions.width) : 220
   const fileId = source ? editor.doc.cacheBitmap(source) : undefined
   let id = ''
   canvas.undo.stopCapturing()
@@ -64,7 +62,6 @@ export async function insertAssetNode(
     id = createNode(canvas, 'image', point, '', {
       nodes: target ? [target] : [],
       side: 'left',
-      size: { width, height },
     })
     updateCanvasNode(
       canvas.doc,

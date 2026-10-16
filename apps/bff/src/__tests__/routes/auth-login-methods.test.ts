@@ -51,6 +51,7 @@ interface Call {
   method?: string
   session?: string | null
   state?: string | null
+  returnTo?: string
   body?: unknown
   clientAddress?: string
 }
@@ -59,6 +60,7 @@ function request(path: string, call: Call = {}): Promise<Response> {
   const cookies = [
     call.session ? `${USER_SESSION_COOKIE}=${encodeURIComponent(call.session)}` : '',
     call.state ? `${STATE_COOKIE}=${encodeURIComponent(call.state)}` : '',
+    call.returnTo ? `image_playground_oauth_return_to=${encodeURIComponent(call.returnTo)}` : '',
   ].filter(Boolean)
   const headers: Record<string, string> = { 'x-forwarded-for': call.clientAddress ?? '10.0.0.1' }
   if (cookies.length > 0) headers.cookie = cookies.join('; ')
@@ -92,8 +94,13 @@ async function loginAccount(username: string, password: string): Promise<Respons
 }
 
 /** Returns the state cookie, whose trailing segment is the state the callback must echo. */
-async function startFlow(kind: 'start' | 'link', session?: string): Promise<string> {
-  const response = await request(`/api/auth/oauth/google/${kind}`, { session })
+async function startFlow(
+  kind: 'start' | 'link',
+  session?: string,
+  returnTo?: string,
+): Promise<string> {
+  const query = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ''
+  const response = await request(`/api/auth/oauth/google/${kind}${query}`, { session })
   expect(response.status).toBe(302)
   const state = new URL(response.headers.get('location') ?? '').searchParams.get('state')
   const cookie = readCookie(response, STATE_COOKIE)
@@ -104,11 +111,32 @@ async function startFlow(kind: 'start' | 'link', session?: string): Promise<stri
   return cookie
 }
 
-function callback(stateCookie: string, session?: string | null): Promise<Response> {
+async function startFlowWithReturnTarget(
+  kind: 'start' | 'link',
+  session: string,
+  returnTo: string,
+): Promise<{ stateCookie: string; returnToCookie: string }> {
+  const response = await request(
+    `/api/auth/oauth/google/${kind}?return_to=${encodeURIComponent(returnTo)}`,
+    { session },
+  )
+  expect(response.status).toBe(302)
+  const stateCookie = readCookie(response, STATE_COOKIE)
+  const returnToCookie = readCookie(response, 'image_playground_oauth_return_to')
+  if (!stateCookie || !returnToCookie) throw new Error(`${kind} issued no OAuth metadata`)
+  return { stateCookie, returnToCookie }
+}
+
+function callback(
+  stateCookie: string,
+  session?: string | null,
+  returnToCookie?: string,
+): Promise<Response> {
   const state = stateCookie.slice(stateCookie.lastIndexOf(':') + 1)
   return request(`/api/auth/oauth/google/callback?code=grant-code&state=${state}`, {
     session,
     state: stateCookie,
+    returnTo: returnToCookie,
   })
 }
 
@@ -271,6 +299,21 @@ describe('identity linking', () => {
         ),
       )
     expect(audit?.operator_id).toBe(user?.id ?? '')
+  })
+
+  it('returns a linked identity to the requested workspace route', async () => {
+    const session = await registerAccount('link-target@example.com', 'initial-secret')
+    const flow = await startFlowWithReturnTarget('link', session, '/assets?keep=1#x')
+    stubGoogle({
+      sub: 'google-subject-link-target',
+      email: 'link-target@example.com',
+      email_verified: true,
+    })
+
+    const response = await callback(flow.stateCookie, session, flow.returnToCookie)
+    expect(response.headers.get('location')).toBe(
+      'https://app.example.com/assets?keep=1&auth_link=google#x',
+    )
   })
 
   it('refuses a subject that already belongs to another account', async () => {

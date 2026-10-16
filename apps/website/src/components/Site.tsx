@@ -101,7 +101,7 @@ export function Site({ page }: { page: SitePage }) {
           <Brand locale={page.locale} />
           <h1>{text.loginTitle}</h1>
           <p>{text.loading}</p>
-          <a href="/image">{text.start} →</a>
+          <a href="/">{text.start} →</a>
         </main>
       ) : null}
       {mounted && (page.kind === 'home' || page.kind === 'login' || login) ? (

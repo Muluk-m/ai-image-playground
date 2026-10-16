@@ -21,6 +21,7 @@ import {
   removeNodes,
 } from '../../../../features/canvas/lib/nodeCanvasActions'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
+import { nodeCardSize } from '../../../../features/canvas/lib/nodeCanvasPlace'
 
 function setup(): NodeCanvasDocument {
   const doc = new Y.Doc(),
@@ -67,6 +68,51 @@ describe('node canvas editing transactions', () => {
     canvas.undo.undo()
     expect(readCanvasDocument(canvas.doc).nodes.map((n) => n.id)).not.toContain(branchId)
   })
+  it('places repeated additions and pasted batches around stored nodes and groups without moving them', () => {
+    const canvas = setup()
+    const originals: string[] = []
+    for (let index = 0; index < 16; index++)
+      originals.push(createNode(canvas, index % 2 ? 'video' : 'image', { x: 0, y: 0 }, '#fff'))
+    createCanvasGroup(canvas.doc, 'frame', [], 'Frame', canvas.origin, {
+      x: -200,
+      y: 6500,
+      width: 400,
+      height: 500,
+    })
+    const before = readCanvasDocument(canvas.doc)
+    const copied = copyNodes(before, originals.slice(0, 3))
+    // Historical cards may have been authored smaller than today's display frame.
+    copied.nodes.forEach((node, index) => {
+      node.width = 32
+      node.height = 32
+      node.x = index * 40
+      node.y = 0
+    })
+    const pasted = pasteNodes(canvas, copied, { x: 0, y: 0 })
+    const snapshot = readCanvasDocument(canvas.doc)
+    expect(snapshot.nodes.filter((node) => originals.includes(node.id))).toEqual(before.nodes)
+    expect(snapshot.groups).toEqual(before.groups)
+    const boxes = [
+      ...snapshot.nodes.map((node) => ({ ...node, ...nodeCardSize(node) })),
+      ...(snapshot.groups ?? []),
+    ]
+    for (let index = 0; index < boxes.length; index++) {
+      const a = boxes[index]!
+      for (const b of boxes.slice(index + 1))
+        expect(
+          a.x + a.width + 48 <= b.x ||
+            b.x + b.width + 48 <= a.x ||
+            a.y + a.height + 48 <= b.y ||
+            b.y + b.height + 48 <= a.y,
+        ).toBe(true)
+    }
+    expect(pasted).toHaveLength(3)
+    canvas.undo.undo()
+    expect(readCanvasDocument(canvas.doc)).toEqual(before)
+    canvas.undo.destroy()
+    canvas.doc.destroy()
+  })
+
   it('writes a popular brief into one undoable text node', () => {
     const canvas = setup()
     const brief = scriptBriefById('sprout-window')!

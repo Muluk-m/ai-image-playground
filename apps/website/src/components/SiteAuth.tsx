@@ -54,7 +54,7 @@ export default function SiteAuth({
       await bootstrapClientCapabilities(true, runtime.bff.baseUrl, true)
       if (!active) return
       if (!isClientCapabilityEnabled('accounts:login')) {
-        if (page === 'home' || page === 'login' || open) location.replace('/image')
+        if (page === 'home' || page === 'login' || open) location.replace('/workbench')
         return
       }
       if (shouldProbeSession()) {
@@ -65,7 +65,7 @@ export default function SiteAuth({
         if (!active) return
         noteBrowserSession(user?.id ?? null)
         if (user && (page === 'home' || page === 'login' || open)) {
-          location.replace('/image')
+          location.replace(`/workbench${location.search}${location.hash}`)
           return
         }
       }
@@ -117,7 +117,7 @@ export default function SiteAuth({
         plansHref="/pricing"
         onClose={close}
         presentation={page === 'login' ? 'page' : 'dialog'}
-        onAuthenticated={() => location.assign('/image')}
+        onAuthenticated={() => location.assign('/workbench?auth_session=1')}
       />
     </Suspense>
   )

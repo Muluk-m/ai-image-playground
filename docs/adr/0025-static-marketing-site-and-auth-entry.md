@@ -22,9 +22,15 @@ structured data, robots, sitemap and llms.txt. Internal/test builds disable inde
 and workbench URLs are not indexable marketing pages.
 
 Anonymous visitors see the website. Start buttons open the shared login form, without accepting or
-submitting a sample prompt. Successful authentication goes to `/image`; authenticated visitors to
-the website root also go there. Existing workbench login dialogs retain pending-submission recovery,
-registration, verification and OAuth behavior. The dedicated login page and modal share this form.
+submitting a sample prompt. The workspace home is `/`; legacy `/image` redirects there. The
+prerendered head uses the non-credential session hint, remembered namespace or OAuth return marker
+to hide marketing before paint and load the clean `/workbench` static entry. Its inline startup guard
+canonicalizes the URL to `/` before authentication and pending-submission recovery. Hints never
+authorize requests or set an account scope; only server session verification does that. Login success
+carries a one-shot session marker even if browser storage is unavailable. The dedicated login page
+and modal retain shared registration, verification and OAuth behavior.
+OAuth defaults to `/` and preserves validated workspace query/hash in state-bound return metadata.
+Legacy `/image` return targets normalize to `/`; origin, path, length and state validation remain mandatory.
 
 ## Validation
 

@@ -6,6 +6,8 @@ import {
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
+import { readProjectRoute } from '../features/canvas/lib/projectRoute'
+import { APP_MODE_PATHS, isStandalonePath, normalizePath } from './appPaths'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
@@ -126,10 +128,25 @@ export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
   }
 }
 
+/** Keep OAuth on the current workspace, never on the marketing or login entry. */
+function oauthReturnTo(): string {
+  if (typeof window === 'undefined') return APP_MODE_PATHS.image
+  const { pathname, search, hash } = window.location
+  const path = normalizePath(pathname)
+  const workspace =
+    Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
+    isStandalonePath(path) ||
+    readProjectRoute(pathname) !== null
+  const target = `${pathname}${search}${hash}`
+  return workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
+    ? target
+    : APP_MODE_PATHS.image
+}
+
 export function oauthStartUrl(provider: string, referralCode?: string): string {
   const code = referralCode?.trim()
   return bffUrl(
-    `/api/auth/oauth/${provider}/start${code ? `?ref=${encodeURIComponent(code)}` : ''}`,
+    `/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(oauthReturnTo())}${code ? `&ref=${encodeURIComponent(code)}` : ''}`,
   )
 }
 
@@ -157,7 +174,7 @@ export async function updateOwnPassword(input: {
 }
 
 export function oauthLinkUrl(provider: string): string {
-  return bffUrl(`/api/auth/oauth/${provider}/link`)
+  return bffUrl(`/api/auth/oauth/${provider}/link?return_to=${encodeURIComponent(oauthReturnTo())}`)
 }
 
 export async function unlinkOAuthProvider(provider: string): Promise<void> {
@@ -186,13 +203,19 @@ const PAGE_HINT_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
  * 登录成功后在页面自己的源上留一份不含凭据的提示，并记住用户 id，刷新才会去请求 /api/auth/me。
  */
 export function noteBrowserSession(userId: string | null): void {
+  // The hint is presentation-only: the server session remains the sole authority.
+  // Both storage and cookies are best effort so privacy mode cannot create a redirect loop.
   rememberStorageUser(userId)
   if (typeof document === 'undefined') return
   const secure = globalThis.location?.protocol === 'https:' ? '; Secure' : ''
-  document.cookie =
-    userId === null
-      ? `${USER_SESSION_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
-      : `${USER_SESSION_HINT_COOKIE}=1; Path=/; Max-Age=${PAGE_HINT_MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+  try {
+    document.cookie =
+      userId === null
+        ? `${USER_SESSION_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+        : `${USER_SESSION_HINT_COOKIE}=1; Path=/; Max-Age=${PAGE_HINT_MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+  } catch {
+    // Cookie access can be blocked by browser policy; the auth bootstrap still works.
+  }
 }
 
 /** OAuth 成功落在前端时带的标记。读过就丢掉，避免刷新反复当作新登录。 */
@@ -214,12 +237,16 @@ export function shouldProbeSession(): boolean {
     const landing = new URLSearchParams(window.location.search).get(OAUTH_SESSION_QUERY_PARAM)
     if (landing === '1') return true
   }
-  if (typeof document !== 'undefined') {
-    const hinted = document.cookie.split(';').some((part) => {
-      const [name, value] = part.trim().split('=')
-      return name === USER_SESSION_HINT_COOKIE && Boolean(value)
-    })
-    if (hinted) return true
+  try {
+    if (typeof document !== 'undefined') {
+      const hinted = document.cookie.split(';').some((part) => {
+        const [name, value] = part.trim().split('=')
+        return name === USER_SESSION_HINT_COOKIE && Boolean(value)
+      })
+      if (hinted) return true
+    }
+  } catch {
+    // A blocked cookie jar must not hide a usable local-storage hint.
   }
   return hasRememberedSignedInUser()
 }

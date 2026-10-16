@@ -48,6 +48,16 @@
 }
 .studio-sidebar--page .studio-agent-turn-cost { margin-top: 2px; color: hsl(var(--muted-foreground)); }
 .studio-sidebar--page .studio-agent-reply-actions { color: hsl(var(--muted-foreground)); }
+.studio-agent-reply-actions [data-slot="message-actions"] {
+  opacity: 0; transition: opacity .15s ease;
+}
+.studio-agent-reply-wrap:hover .studio-agent-reply-actions [data-slot="message-actions"],
+.studio-agent-reply-wrap:focus-within .studio-agent-reply-actions [data-slot="message-actions"] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .studio-agent-reply-actions [data-slot="message-actions"] { opacity: 1; }
+}
 .studio-follow-ups { position: static; }
 .studio-sidebar--page .studio-agent-composer { padding: 8px 0 14px; }
 .studio-sidebar--page [data-slot="composer-bar"] { gap: 8px; padding: 11px 12px; }
@@ -77,9 +87,11 @@
   border-radius: 8px; padding: 0 9px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.label-sm');
   transition: background .15s ease, color .15s ease;
 }
-.studio-agent-result-actions button:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
-.studio-agent-result-actions button:first-child { background: hsl(var(--primary) / .12); color: hsl(var(--primary)); }
-.studio-agent-result-actions button:first-child:hover { background: hsl(var(--primary) / .2); }
+.studio-agent-result-actions button:hover,
+.studio-agent-result-actions button:focus-visible,
+.studio-agent-result-actions button:active {
+  background: hsl(var(--muted)); color: hsl(var(--foreground));
+}
 .studio-sidebar--page .studio-agent-result-card {
   width: min(620px, 100%); min-height: 180px;
   display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 14px;
@@ -287,12 +299,17 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   );
 }
 /* Keep account actions separate and flat; do not frame them in another pill. */
+.studio-header-float,
+.studio-agent-job-inbox {
+  display: flex;
+  align-items: center;
+  min-height: var(--studio-account-cluster-control);
+}
 .studio-header-float {
   padding: var(--studio-account-cluster-pad);
   background: transparent;
   box-shadow: none;
 }
-.studio-header-float,
 .studio-global-account {
   align-items: center;
 }
@@ -1231,17 +1248,18 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .region-prompt-error { margin-top: 6px; font-size: theme('fontSize.xs'); color: hsl(var(--destructive)); }
 
 /* Node canvas (canvas:nodes). Nodes are DOM inside React Flow's viewport; sizes are page units. */
-.studio-node-canvas { position: absolute; inset: 0; }
+.studio-node-canvas { position: absolute; inset: 0; container-type: inline-size; }
 .studio-node-canvas .react-flow { --xy-background-color: transparent; z-index: 1; }
 .studio-node-overview { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
 .studio-node-lod { display: flex; align-items: flex-start; background: hsl(var(--muted) / .72); }
 .studio-node-lod-label { display: block; width: 100%; padding: 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: theme('fontSize.xs'); color: hsl(var(--muted-foreground)); }
 .studio-node-canvas-error { position: absolute; inset: 0; display: grid; place-items: center; color: hsl(var(--muted-foreground)); }
 .studio-node-canvas .react-flow__node { overflow: visible; }
-.studio-node { position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 12px; }
-.react-flow__node.selected > .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
+.studio-node { position: relative; width: 100%; height: 100%; overflow: hidden; border: 1px solid transparent; border-radius: 12px; }
+.react-flow__node.selected > .studio-node { border-color: hsl(var(--primary)); }
+.studio-node-canvas .react-flow__resize-control.line { border-color: transparent; }
 .studio-node--image, .studio-node--video { background: hsl(var(--muted) / .4); }
-.studio-node-media { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; user-select: none; }
+.studio-node-media { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
 .studio-node[data-rotated] { overflow: visible; border-radius: 0; }
 .studio-node-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .studio-node--text {
@@ -1311,9 +1329,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   stroke-width: 2.5;
 }
 .studio-node-composer {
-  position: absolute; z-index: 30; width: min(560px, calc(100% - 24px));
-  transform: translateX(-50%);
+  position: absolute; z-index: 30; left: calc(50% + 80px); bottom: 16px;
+  width: min(560px, calc(100% - 560px)); max-height: calc(100% - 96px);
+  overflow-y: auto; transform: translateX(-50%);
 }
+.studio-node-composer .creation-prompt { border: 0; box-shadow: none; background: transparent; }
 /* The node conversation is a full-height dock; the canvas keeps its own header clearance. */
 .studio-layout[data-node-canvas="true"] { padding-top: 0; }
 .studio-layout[data-node-canvas="true"] > .studio-canvas { margin-top: 56px; height: calc(100% - 56px); }
@@ -1349,7 +1369,9 @@ body .studio-global-account {
 .studio-canvas-agent-welcome h3 { font-size: theme('fontSize.xl'); font-weight: 500; text-align: center; letter-spacing: -.02em; }
 .studio-canvas-agent-starters { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .studio-canvas-agent-starters > button { justify-content: flex-start; gap: 12px; width: 100%; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.sm'); font-weight: 400; }
-.studio-canvas-agent-starters .agent-skill-chip { gap: 12px; color: inherit; font-size: inherit; }
+.studio-canvas-agent-starters .agent-skill-chip { gap: 12px; padding: 0; border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
+.studio-canvas-agent-starters > button > svg,
+.studio-canvas-agent-starters .agent-skill-chip > svg { width: 20px; height: 20px; flex: 0 0 20px; }
 .studio-layout[data-node-canvas="true"] .studio-agent-log { padding: 16px; }
 .studio-layout[data-node-canvas="true"] .studio-agent-composer { padding: 8px 12px 12px; }
 @media (max-width: 767px) {
@@ -1362,21 +1384,19 @@ body .studio-global-account {
 
 /* Node workspace: controls stay at screen scale, media owns the canvas. */
 .studio-node-tools, .studio-node-navigation, .studio-node-history, .studio-node-selection-bar {
-  position: absolute; z-index: 450; display: flex; align-items: center; gap: 4px;
+  position: absolute; z-index: 25; display: flex; align-items: center; gap: 4px;
   padding: 6px; border: 1px solid hsl(var(--border) / .7); border-radius: 16px;
   background: hsl(var(--card) / .94); box-shadow: 0 6px 24px hsl(var(--scrim) / .07); backdrop-filter: blur(16px);
 }
-.studio-node-tools { left: 16px; top: 50%; transform: translateY(-50%); flex-direction: column; padding: 8px; }
-.studio-node-navigation { bottom: 156px; left: 16px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
+.studio-node-tools { left: 16px; top: 50%; transform: translateY(-50%); flex-direction: column; padding: 8px; max-height: calc(100% - 120px); overflow-y: auto; }
+.studio-node-navigation { bottom: 18px; left: 16px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
 .studio-node-zoom-trigger { min-width: 76px; gap: 6px; padding: 0 8px; }
 .studio-node-arrange-confirm { position: absolute; bottom: calc(100% + 12px); left: 0; width: 256px; max-width: calc(100vw - 32px); padding: 16px; display: grid; gap: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--popover)); box-shadow: var(--shadow-popover); }
-.studio-node-history { position: fixed; top: calc(var(--safe-area-top) + 8px + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: 40px; padding: 4px; border-radius: 12px; }
+.studio-node-history { position: fixed; top: calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: var(--studio-account-cluster-control); padding: 3px; border-radius: 12px; }
 .studio-node-history button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 @media (pointer: coarse), (max-width: 767px) {
-  .studio-node-navigation { bottom: 180px; left: 8px; }
-  .studio-node-chat { right: 8px; bottom: 180px; }
-  .studio-node-history { top: calc(var(--safe-area-top) + 4px); height: 48px; padding: 1px; }
-  .studio-node-history button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .studio-node-history { padding: 0; }
+  .studio-node-history button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
 }
 @media (max-width: 767px) {
   body:has(.studio-node-history) .studio-project-viewbar { padding-right: calc(var(--studio-header-actions-width, 40px) + 128px); }
@@ -1386,7 +1406,7 @@ body .studio-global-account {
 .studio-node-tool-divider { width: 1px; height: 22px; background: hsl(var(--border)); margin: 0 3px; }
 .studio-node-tools .studio-node-tool-divider { height: 1px; width: 26px; margin: 5px 0; }
 .studio-node-chat {
-  position: absolute; right: 16px; bottom: 156px; z-index: 451; isolation: isolate; overflow: hidden;
+  position: absolute; right: 16px; bottom: 16px; z-index: 26; isolation: isolate; overflow: hidden;
   height: 40px; gap: 8px; padding: 0 16px 0 8px; border: 1px solid hsl(var(--primary) / .22);
   color: hsl(var(--foreground)); font-size: theme('fontSize.sm'); font-weight: 500;
   background: linear-gradient(175deg, hsl(var(--muted)), hsl(var(--card)) 55%, hsl(var(--primary) / .13));
@@ -1410,7 +1430,7 @@ body .studio-global-account {
 @media (prefers-reduced-motion: reduce) {
   .studio-node-chat, .studio-node-chat-mark img { transition: none; }
 }
-.studio-node-caption { width: 100%; pointer-events: auto; height: 24px; top: -30px; }
+.studio-node-caption { width: calc(100% * var(--studio-node-zoom, 1)); pointer-events: auto; height: 24px; top: calc(-30px / var(--studio-node-zoom, 1)); transform: scale(calc(1 / var(--studio-node-zoom, 1))); transform-origin: top left; }
 .studio-node-upload { top: auto; bottom: 24px; z-index: 2; }
 .studio-node-empty { border: none; background: hsl(var(--muted) / .45); }
 .studio-node-empty > svg { width: 40px; height: 40px; opacity: .4; }
@@ -1420,14 +1440,22 @@ body .studio-global-account {
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { opacity: 1; }
 .studio-node-canvas .react-flow__edge.selected .react-flow__edge-path { stroke: hsl(var(--primary)); stroke-width: 2; }
 .studio-node-reference-picker { z-index: 600; }
-@media (max-width: 640px) {
- .studio-node-tools { left: 8px; padding: 4px; }
- .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
- .studio-node-navigation > :where(button) { min-width: 32px; height: 36px; }
- .studio-node-chat { right: 8px; bottom: 66px; }
- .studio-node-composer { z-index: 28; }
+@container (max-width: 1000px) {
+  .studio-node-composer { left: 50%; bottom: 76px; width: min(560px, calc(100% - 32px)); max-height: calc(100% - 156px); }
 }
-.studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; }
+@container (max-width: 640px) {
+  .studio-node-tools { left: 8px; right: 8px; top: 8px; max-height: none; transform: none; flex-direction: row; padding: 4px; overflow-x: auto; }
+  .studio-layout:has(> .studio-node-project-title) .studio-node-tools { top: 64px; }
+  .studio-node-tools button { flex-shrink: 0; }
+  .studio-node-tools .studio-node-tool-divider { width: 1px; height: 22px; flex-shrink: 0; margin: 0 3px; }
+  .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
+  .studio-node-navigation > button { min-width: 36px; height: 40px; padding-inline: 6px; }
+  .studio-node-navigation .studio-node-zoom-trigger { min-width: 68px; }
+  .studio-node-chat { right: 8px; bottom: 12px; width: 44px; height: 48px; padding: 0; }
+  .studio-node-chat-label { display: none; }
+  .studio-node-composer { width: calc(100% - 16px); }
+}
+.studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; max-width: calc(100% - 32px); }
 .studio-node-media-actions { position: absolute; z-index: 24; display: flex; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { pointer-events: all; }
 

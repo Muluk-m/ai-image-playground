@@ -87,13 +87,16 @@ function callback(
   provider: string,
   query: Record<string, string>,
   stateCookie?: string,
+  returnToCookie?: string,
 ): Promise<Response> {
   const search = new URLSearchParams(query).toString()
+  const cookies = [
+    stateCookie ? `image_playground_oauth_state=${encodeURIComponent(stateCookie)}` : '',
+    returnToCookie ? `image_playground_oauth_return_to=${encodeURIComponent(returnToCookie)}` : '',
+  ].filter(Boolean)
   return request(
     `/api/auth/oauth/${provider}/callback?${search}`,
-    stateCookie
-      ? { cookie: `image_playground_oauth_state=${encodeURIComponent(stateCookie)}` }
-      : {},
+    cookies.length > 0 ? { cookie: cookies.join('; ') } : {},
   )
 }
 
@@ -205,7 +208,112 @@ describe('oauth callback', () => {
     const response = await callback('google', { error: 'access_denied', state }, cookie)
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=access_denied',
+      'https://app.example.com/?auth_error=access_denied&login=1',
+    )
+  })
+
+  it.each([
+    ['/?keep=1#x', '/'],
+    ['/image?keep=1#x', '/'],
+    ['/image/?keep=1#x', '/'],
+    ['/assets?keep=1#x', '/assets'],
+  ])('returns a successful login from %s to canonical %s with query and hash', async (target, path) => {
+    enableGoogle()
+    stubUpstream(
+      googleRoutes({
+        sub: 'google-return-target',
+        email: 'return-target@example.com',
+        email_verified: true,
+        name: 'Return Target',
+      }),
+    )
+    const start = await request(
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent(target)}`,
+    )
+    const location = new URL(start.headers.get('location') ?? '')
+    const state = location.searchParams.get('state') ?? ''
+    const stateCookie = readCookie(start, 'image_playground_oauth_state')
+    const returnToCookie = readCookie(start, 'image_playground_oauth_return_to')
+    if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+
+    const response = await callback(
+      'google',
+      { code: 'code-alpha', state },
+      stateCookie,
+      returnToCookie,
+    )
+    expect(response.headers.get('location')).toBe(
+      `https://app.example.com${path}?keep=1&auth_session=1#x`,
+    )
+  })
+
+  it.each([
+    ['/?keep=1#x', '/'],
+    ['/image?keep=1#x', '/'],
+    ['/image/?keep=1#x', '/'],
+    ['/assets?keep=1#x', '/assets'],
+  ])('returns a denial from %s to canonical %s and opens login', async (target, path) => {
+    enableGoogle()
+    const start = await request(
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent(target)}`,
+    )
+    const location = new URL(start.headers.get('location') ?? '')
+    const state = location.searchParams.get('state') ?? ''
+    const stateCookie = readCookie(start, 'image_playground_oauth_state')
+    const returnToCookie = readCookie(start, 'image_playground_oauth_return_to')
+    if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+
+    const response = await callback(
+      'google',
+      { error: 'access_denied', state },
+      stateCookie,
+      returnToCookie,
+    )
+    expect(response.headers.get('location')).toBe(
+      `https://app.example.com${path}?keep=1&auth_error=access_denied&login=1#x`,
+    )
+  })
+
+  it('defaults malicious return targets and mismatched metadata to the root workspace', async () => {
+    enableGoogle()
+    for (const requested of ['https://evil.example/steal', '//evil.example/steal', '/login']) {
+      const start = await request(
+        `/api/auth/oauth/google/start?return_to=${encodeURIComponent(requested)}`,
+      )
+      const location = new URL(start.headers.get('location') ?? '')
+      const state = location.searchParams.get('state') ?? ''
+      const stateCookie = readCookie(start, 'image_playground_oauth_state')
+      const returnToCookie = readCookie(start, 'image_playground_oauth_return_to')
+      if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+      const response = await callback(
+        'google',
+        { error: 'access_denied', state },
+        stateCookie,
+        returnToCookie,
+      )
+      expect(response.headers.get('location')).toBe(
+        'https://app.example.com/?auth_error=access_denied&login=1',
+      )
+    }
+
+    const first = await request(
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent('/assets')}`,
+    )
+    const firstMetadata = readCookie(first, 'image_playground_oauth_return_to')
+    const second = await request(
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent('/explore')}`,
+    )
+    const secondLocation = new URL(second.headers.get('location') ?? '')
+    const secondStateCookie = readCookie(second, 'image_playground_oauth_state')
+    if (!firstMetadata || !secondStateCookie) throw new Error('start did not issue OAuth cookies')
+    const response = await callback(
+      'google',
+      { error: 'access_denied', state: secondLocation.searchParams.get('state') ?? '' },
+      secondStateCookie,
+      firstMetadata,
+    )
+    expect(response.headers.get('location')).toBe(
+      'https://app.example.com/?auth_error=access_denied&login=1',
     )
   })
 
@@ -217,7 +325,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'bad-code', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=exchange_failed',
+      'https://app.example.com/?auth_error=exchange_failed&login=1',
     )
   })
 
@@ -229,7 +337,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'stale', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=exchange_failed',
+      'https://app.example.com/?auth_error=exchange_failed&login=1',
     )
   })
 
@@ -239,7 +347,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'code-alpha', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=identity_failed',
+      'https://app.example.com/?auth_error=identity_failed&login=1',
     )
   })
 
@@ -252,7 +360,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'code-alpha', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=identity_failed',
+      'https://app.example.com/?auth_error=identity_failed&login=1',
     )
   })
 
@@ -405,7 +513,7 @@ describe('oauth callback', () => {
       second.cookie,
     )
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=account_disabled',
+      'https://app.example.com/?auth_error=account_disabled&login=1',
     )
     expect(readCookie(response, USER_SESSION_COOKIE)).toBeNull()
   })

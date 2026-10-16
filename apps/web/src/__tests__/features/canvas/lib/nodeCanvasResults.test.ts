@@ -90,6 +90,28 @@ it('switches the displayed main result and the legacy consumer, then undoes in o
   expect(canvasMainResult(canvas.doc, 'image')?.id).toBe(old.id)
   await canvas.destroy()
 })
+it.each([
+  { width: 2400, height: 800 },
+  { width: 800, height: 2400 },
+  { width: 48, height: 32 },
+])('preserves the frame through result replacement and undo for $width × $height pixels', async (size) => {
+  const { canvas, editor } = fixture()
+  const next = await candidate(canvas.doc, 'replacement', 'data:image/png;base64,new')
+  mocks.dimensions.mockResolvedValueOnce(size)
+  await selectNodeResult(editor, canvas.doc, next.id, canvas.origin)
+  expect(readCanvasDocument(canvas.doc).nodes[0]).toMatchObject({
+    width: 300,
+    height: 200,
+    data: { naturalWidth: size.width, naturalHeight: size.height },
+  })
+  expect(editor.doc.getElement('image')).toMatchObject({ width: 300, height: 200 })
+  canvas.undo.undo()
+  expect(readCanvasDocument(canvas.doc).nodes[0]).toMatchObject({ width: 300, height: 200 })
+  canvas.undo.redo()
+  expect(readCanvasDocument(canvas.doc).nodes[0]).toMatchObject({ width: 300, height: 200 })
+  await canvas.destroy()
+})
+
 it('keeps the main result unchanged on expiry and ignores a late decode after deletion', async () => {
   const { canvas, editor } = fixture()
   const old = canvasMainResult(canvas.doc, 'image')!.id
@@ -208,12 +230,17 @@ it('selects a durable video after the queue task has expired', async () => {
       video: { taskId: 'expired', outputIndex: 0, mediaId: '11111111-1111-4111-8111-111111111111' },
     },
   })
+  mocks.dimensions.mockResolvedValueOnce({ width: 1080, height: 1920 })
   expect(await selectNodeResult(editor, canvas.doc, next!.id, canvas.origin)).toBe(true)
   expect(mocks.fetch).not.toHaveBeenCalled()
   expect(mocks.poster).toHaveBeenCalledWith(
     expect.stringContaining('/api/media/11111111-1111-4111-8111-111111111111/content'),
   )
   expect(editor.doc.getElement('image')).toMatchObject({
+    width: 300,
+    height: 200,
+    naturalWidth: 1080,
+    naturalHeight: 1920,
     video: { mediaId: '11111111-1111-4111-8111-111111111111' },
   })
   await canvas.destroy()

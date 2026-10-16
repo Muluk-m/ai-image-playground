@@ -106,7 +106,7 @@ it('画布左上角 Logo 返回创作首页并更新地址', () => {
   try {
     act(() => entry('主页').click())
     expect(useStore.getState().appMode).toBe('image')
-    expect(window.location.pathname).toBe('/image')
+    expect(window.location.pathname).toBe('/')
   } finally {
     stop()
     window.history.replaceState(null, '', '/')

@@ -36,6 +36,10 @@ type BootAsset = readonly [src: string, tag: 'script' | 'stylesheet']
 
 function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   return `(()=>{
+  // Canonicalize the static workspace entry before auth and pending-submission bootstrap.
+  if(['/image','/workbench','/workbench.html'].includes(location.pathname.replace(/\\/+$/,''))){
+    history.replaceState(null,'','/'+location.search+location.hash);
+  }
   const requiredAssets=${JSON.stringify(requiredAssets)};
   // Remove legacy cache-first workers even if the application entry cannot execute.
   try{if('serviceWorker' in navigator){

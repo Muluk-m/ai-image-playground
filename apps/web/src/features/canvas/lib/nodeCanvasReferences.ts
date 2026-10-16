@@ -158,12 +158,9 @@ export async function uploadCanvasReference(
   let id = ''
   canvas.undo.stopCapturing()
   canvas.doc.transact(() => {
-    const width = 320,
-      height = Math.max(120, (width * dimensions.height) / dimensions.width)
     id = createNode(canvas, 'image', { x: target.x, y: target.y }, '', {
       nodes: [target],
       side: 'left',
-      size: { width, height },
     })
     updateCanvasNode(
       canvas.doc,

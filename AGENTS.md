@@ -34,15 +34,19 @@
 
 1. `pnpm exec biome check --write .` — 自动修 format + import 排序；然后 `pnpm lint` 二次确认 0 errors（biome.json 自身的 schema deprecation warning/info 是已知 noise，可忽略）。`pnpm format` 只改 format、不动 import 顺序，修 lint 错不要用它。
 2. `pnpm typecheck` — TypeScript 跨包 build 检查
-3. **测试**：本机只跑改动涉及的包（在该包目录 `pnpm test`，Bun 数据库测试可加 `--filter <路径片段>` 收窄；admin 的 `pnpm test` 先跑全部 vitest，`--filter` 只作用于后面的 Bun 部分）；全量测试交 macmini2 或 CI。PostgreSQL 集成测试需要 `TEST_DATABASE_URL`（本机例：`TEST_DATABASE_URL=postgres://qiqian@127.0.0.1:5432/aip_test`），未设置会直接报错失败。
+3. **测试**：按下方云端执行规则，在改动涉及的包目录运行 `pnpm test`，Bun 数据库测试可加 `--filter <路径片段>` 收窄；admin 的 `pnpm test` 先跑全部 vitest，`--filter` 只作用于后面的 Bun 部分。全量测试交云端或 CI。PostgreSQL 集成测试需要执行环境提供 `TEST_DATABASE_URL`，未设置会直接报错失败。
 
-任一项不过就不要 push。
+任一项不过就不要合并或发布；为远端检查所需的工作分支推送例外，不代表验收通过。
 
 CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm lint`、`pnpm typecheck`、
 `apps/web` 构建；公开 workspace 的完整 `pnpm test` 分两个并行 job：web 的 vitest 单独一个，其余包在带 PostgreSQL 的 job 中跑（Bun 数据库测试 4 路并发）；
 `with-overlay` job 再用 `private.lock` 钉住的 overlay 跑 lint / typecheck / build 与私有包测试。
 
 **默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。除非用户明确要求仅本地修改或暂不合并，否则直接完成整条链路，无需再次询问是否部署。
+
+**交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
+
+**重任务在云端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给项目 Codex Cloud；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
 
 ## 测试约定
 

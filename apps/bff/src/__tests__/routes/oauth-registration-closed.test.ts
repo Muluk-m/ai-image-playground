@@ -48,7 +48,7 @@ describe('oauth callback with self-registration disabled', () => {
     )
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=registration_closed',
+      'https://app.example.com/?auth_error=registration_closed&login=1',
     )
     expect(await db.select().from(schema.users)).toHaveLength(0)
     expect(await db.select().from(schema.user_identities)).toHaveLength(0)

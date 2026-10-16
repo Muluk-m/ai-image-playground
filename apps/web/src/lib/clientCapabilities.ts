@@ -39,7 +39,6 @@ export async function bootstrapClientCapabilities(
   required = false,
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
-  projectDocumentIdentity = false
   attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
 
