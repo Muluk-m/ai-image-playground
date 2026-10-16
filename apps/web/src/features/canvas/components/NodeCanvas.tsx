@@ -682,7 +682,7 @@ function boundsOf(
   const live = liveNodes
     ?.filter((node) => node.data.node)
     .map((node) => ({ ...node.data.node!, x: node.position.x, y: node.position.y }))
-  for (const node of live ?? snapshot.nodes) {
+  for (const node of live?.length ? live : snapshot.nodes) {
     if (ids && !ids.has(node.id)) continue
     const { width, height } = nodeCardSize(node)
     include(node.x, node.y, width, height)
