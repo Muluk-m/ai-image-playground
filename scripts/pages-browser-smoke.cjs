@@ -12,6 +12,10 @@ const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 const WORKSPACE_PATHS = ['/', `/p/${PROJECT_ID}`]
 const SESSION_HINT_COOKIE = 'image_playground_signed_in'
 const MARKETING_SELECTOR = '.marketing-site'
+const OPTIONAL_EXTERNAL_STYLESHEETS = new Set([
+  'https://fontsapi.zeoseven.com/442/main/result.css',
+  'https://cdn.jsdelivr.net/npm/@lobehub/webfont-harmony-sans-sc@1.0.0/css/index.css',
+])
 
 // Serve the built bytes with Pages' explicit route rewrites; missing chunks never become HTML.
 async function serveDist(dist) {
@@ -154,17 +158,25 @@ async function checkWorkspace(browser, origin, {
     }
     await page.addInitScript((selector) => {
       window.__pagesSmokeMarketingSeen = []
-      const check = () => {
-        const node = document.querySelector(selector)
-        if (!node) return
-        const style = getComputedStyle(node)
-        if (style.visibility !== 'hidden' && style.display !== 'none')
-          window.__pagesSmokeMarketingSeen.push(location.href)
+      const install = () => {
+        const root = document.documentElement
+        if (!root) {
+          document.addEventListener('DOMContentLoaded', install, { once: true })
+          return
+        }
+        const check = () => {
+          const node = document.querySelector(selector)
+          if (!node) return
+          const style = getComputedStyle(node)
+          if (style.visibility !== 'hidden' && style.display !== 'none')
+            window.__pagesSmokeMarketingSeen.push(location.href)
+        }
+        new MutationObserver(check).observe(root, {
+          childList: true, subtree: true, attributes: true,
+        })
+        check()
       }
-      new MutationObserver(check).observe(document.documentElement, {
-        childList: true, subtree: true, attributes: true,
-      })
-      check()
+      install()
     }, MARKETING_SELECTOR)
     const projectPath = path.startsWith('/p/')
     const label = `${nodeCanvas ? 'nodes-' : ''}${projectPath ? 'project' : 'home'}`
@@ -474,7 +486,8 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
   page.on('response', response => { if (requiredAsset(response.request()) && !response.ok()) errors.push(`Asset HTTP ${response.status()}: ${response.url()}`) })
   if (local) await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
-    if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
+    if (request.resourceType() === 'stylesheet' && OPTIONAL_EXTERNAL_STYLESHEETS.has(url.href))
+      return route.fulfill({ contentType: 'text/css', body: '' })
     const fixtures = {
       '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin,'generation:byok':true},
       '/api/auth/oauth/providers': {providers:[]},
