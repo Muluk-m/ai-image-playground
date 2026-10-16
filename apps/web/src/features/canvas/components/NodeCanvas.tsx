@@ -943,7 +943,7 @@ function Flow({
       ),
     [viewportPlan.painted, nodes],
   )
-  const framing = useRef<Promise<unknown> | null>(null)
+  const framing = useRef<number | null>(null)
   const showFrame = (
     ids: readonly string[] | undefined,
     padding: number,
@@ -955,17 +955,20 @@ function Flow({
     const viewport =
       bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
     if (!viewport) return
-    const transition = Promise.resolve(
-      flowRef.current?.setViewport(viewport, duration ? { duration } : undefined),
-    )
-    framing.current = transition
-    void transition.finally(() => {
-      if (framing.current === transition) framing.current = null
-    })
+    if (framing.current !== null) {
+      clearTimeout(framing.current)
+      framing.current = null
+    }
+    flowRef.current?.setViewport(viewport, duration ? { duration } : undefined)
+    framing.current = duration
+      ? window.setTimeout(() => {
+          framing.current = null
+        }, duration + 100)
+      : null
   }
   const revealNode = (target: CanvasNode) => {
-    // Overlay resize notifications must not cancel an explicit fit animation.
-    if (framing.current) return
+    // React Flow leaves interrupted transitions pending; keep this suppression bounded.
+    if (framing.current !== null) return
     const element = container.current
     const viewport = flowRef.current?.getViewport()
     if (!element?.clientWidth || !element.clientHeight || !viewport) return
