@@ -1325,7 +1325,7 @@ body .studio-global-account {
 }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column {
   display: flex; position: relative; order: 3; flex: 0 0 auto; min-width: 0;
-  width: auto; max-width: min(480px, 42%); margin: 0; padding: 0;
+  width: auto; max-width: 60%; margin: 0; padding: 0;
   z-index: 35; transform-origin: right top;
 }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar {
