@@ -491,7 +491,10 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     const fixtures = {
       '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin,'generation:byok':true},
       '/api/auth/oauth/providers': {providers:[]},
-      '/api/auth/login-methods': { password: false, identities: [] },
+      '/api/me/profile': {
+        id: 'smoke-user', username: 'Smoke User', nickname: null, bio: null,
+        avatar_url: '/pwa-icon.svg', avatar_is_default: true,
+      },
       '/api/auth/me': { user: { id: 'smoke-user', username: 'Smoke User', status: 'active' } },
       '/api/channels': { channels: [] },
       '/api/agent/skills': { skills: [] },
@@ -582,8 +585,6 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
           await mkdir(outputDir,{recursive:true})
           await page.screenshot({path:join(outputDir,'marketing-login-narrow.png')})
         }
-        await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
-        await page.waitForURL(url => url.pathname === '/')
       }
     }
     await page.setViewportSize({width:390,height:844})
