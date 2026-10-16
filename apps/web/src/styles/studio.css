@@ -1370,7 +1370,7 @@ body .studio-global-account {
   background: hsl(var(--card) / .94); box-shadow: 0 6px 24px hsl(var(--scrim) / .07); backdrop-filter: blur(16px);
 }
 .studio-node-tools { left: 16px; top: 50%; transform: translateY(-50%); flex-direction: column; padding: 8px; max-height: calc(100% - 120px); overflow-y: auto; }
-.studio-node-navigation { bottom: 156px; left: 16px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
+.studio-node-navigation { bottom: 156px; left: 64px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
 .studio-node-zoom-trigger { min-width: 76px; gap: 6px; padding: 0 8px; }
 .studio-node-arrange-confirm { position: absolute; bottom: calc(100% + 12px); left: 0; width: 256px; max-width: calc(100vw - 32px); padding: 16px; display: grid; gap: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--popover)); box-shadow: var(--shadow-popover); }
 .studio-node-history { position: fixed; top: calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: var(--studio-account-cluster-control); padding: 3px; border-radius: 12px; }
@@ -1431,10 +1431,10 @@ body .studio-global-account {
   .studio-layout:has(> .studio-node-project-title) .studio-node-tools { top: 64px; }
   .studio-node-tools button { flex-shrink: 0; }
   .studio-node-tools .studio-node-tool-divider { width: 1px; height: 22px; flex-shrink: 0; margin: 0 3px; }
-  .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
+  .studio-node-navigation { left: 64px; bottom: 180px; gap: 0; padding: 3px; }
   .studio-node-navigation > button { min-width: 36px; height: 40px; padding-inline: 6px; }
   .studio-node-navigation .studio-node-zoom-trigger { min-width: 68px; }
-  .studio-node-chat { right: 8px; bottom: 12px; width: 44px; height: 48px; padding: 0; }
+  .studio-node-chat { right: 8px; bottom: 180px; width: 44px; height: 48px; padding: 0; }
   .studio-node-chat-label { display: none; }
   .studio-node-composer { width: calc(100% - 16px); }
 }
