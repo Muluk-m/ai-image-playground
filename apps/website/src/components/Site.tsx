@@ -10,6 +10,7 @@ import { Guide } from './Guide'
 const Auth = lazy(() => import('./SiteAuth'))
 const hero = '/website-assets/creator-hero.webp'
 const board = '/website-assets/creator-storyboard.webp'
+const workspaceEntryHref = '/image?login=1'
 export function Brand({ locale }: { locale: Locale }) {
   return (
     <span className="site-brand">
@@ -20,13 +21,16 @@ export function Brand({ locale }: { locale: Locale }) {
 }
 export function Site({ page }: { page: SitePage }) {
   const text = copy[page.locale]
-  const [login, setLogin] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [art, setArt] = useState(false)
+  const [workspaceHref, setWorkspaceHref] = useState(workspaceEntryHref)
   useEffect(() => {
     setMounted(true)
+    const url = new URL(location.href)
+    url.pathname = '/image'
+    url.searchParams.set('login', '1')
+    setWorkspaceHref(`${url.pathname}${url.search}${url.hash}`)
   }, [])
-  const start = () => setLogin(true)
   const navigation = (
     <nav className="site-nav" aria-label={text.brand}>
       <a href={page.locale === 'en' ? '/en/' : '/'}>
@@ -51,9 +55,11 @@ export function Site({ page }: { page: SitePage }) {
         >
           {page.locale === 'en' ? '中文' : 'EN'}
         </a>
-        <Button onClick={start}>
-          {text.start}
-          <Icon name="arrowRight" />
+        <Button asChild>
+          <a href={workspaceHref}>
+            {text.start}
+            <Icon name="arrowRight" />
+          </a>
         </Button>
       </div>
     </nav>
@@ -63,7 +69,7 @@ export function Site({ page }: { page: SitePage }) {
       {page.kind === 'home' ? (
         <Home
           locale={page.locale}
-          start={start}
+          workspaceHref={workspaceHref}
           navigation={navigation}
           showArt={() => setArt(true)}
         />
@@ -77,9 +83,11 @@ export function Site({ page }: { page: SitePage }) {
               <span className="site-eyebrow">MUVLOOM STUDIO</span>
               <h1>{text[page.scenario!]}</h1>
               <p>{text[`${page.scenario!}Body`]}</p>
-              <Button onClick={start}>
-                {text.start}
-                <Icon name="arrowRight" />
+              <Button asChild>
+                <a href={workspaceHref}>
+                  {text.start}
+                  <Icon name="arrowRight" />
+                </a>
               </Button>
               <img
                 src={page.scenario === 'canvas' ? board : hero}
@@ -101,16 +109,15 @@ export function Site({ page }: { page: SitePage }) {
           <Brand locale={page.locale} />
           <h1>{text.loginTitle}</h1>
           <p>{text.loading}</p>
-          <a href="/image">{text.start} →</a>
+          <a href={workspaceHref}>{text.start} →</a>
         </main>
       ) : null}
-      {mounted && (page.kind === 'home' || page.kind === 'login' || login) ? (
+      {mounted && (page.kind === 'home' || page.kind === 'login') ? (
         <AuthBoundary
           locale={page.locale}
-          visible={login || page.kind === 'login'}
+          visible={page.kind === 'login'}
           onClose={() => {
             if (page.kind === 'login') location.assign(page.locale === 'en' ? '/en/' : '/')
-            else setLogin(false)
           }}
         >
           <Suspense
@@ -120,13 +127,7 @@ export function Site({ page }: { page: SitePage }) {
               </p>
             }
           >
-            <Auth
-              locale={page.locale}
-              page={page.kind}
-              open={login}
-              onOpen={start}
-              onClose={() => setLogin(false)}
-            />
+            <Auth locale={page.locale} page={page.kind} />
           </Suspense>
         </AuthBoundary>
       ) : null}
@@ -159,12 +160,12 @@ export function Site({ page }: { page: SitePage }) {
 }
 function Home({
   locale,
-  start,
+  workspaceHref,
   navigation,
   showArt,
 }: {
   locale: Locale
-  start: () => void
+  workspaceHref: string
   navigation: React.ReactNode
   showArt: () => void
 }) {
@@ -263,11 +264,13 @@ function Home({
                   ))
                 : text.title}
             </h1>
-            <Button className="site-hero-action" onClick={start}>
-              {text.start}
-              <span>
-                <Icon name="arrowRight" />
-              </span>
+            <Button asChild className="site-hero-action">
+              <a href={workspaceHref}>
+                {text.start}
+                <span>
+                  <Icon name="arrowRight" />
+                </span>
+              </a>
             </Button>
           </div>
           <div className="site-picker" data-intro>
@@ -292,8 +295,8 @@ function Home({
           <div className="site-workflow">
             <span>{text.idea}</span>
             <h2>{text.world}</h2>
-            <Button variant="link" onClick={start}>
-              {text.start} ↗
+            <Button asChild variant="link">
+              <a href={workspaceHref}>{text.start} ↗</a>
             </Button>
           </div>
         </div>
@@ -345,9 +348,11 @@ function Home({
       <section className="site-closing">
         <span className="site-eyebrow">MAKE SOMETHING ONLY YOU CAN.</span>
         <h2>{text.next}</h2>
-        <Button onClick={start}>
-          {text.start}
-          <Icon name="arrowRight" />
+        <Button asChild>
+          <a href={workspaceHref}>
+            {text.start}
+            <Icon name="arrowRight" />
+          </a>
         </Button>
       </section>
     </main>
