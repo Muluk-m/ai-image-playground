@@ -35,7 +35,6 @@ import {
   normalizeSettings,
 } from '../../../../lib/apiProfiles'
 import { resetChannelCatalog, setChannels } from '../../../../lib/channels/channelStore'
-import { applySessionCapabilityGrants } from '../../../../lib/clientCapabilities'
 import { useStore } from '../../../../store'
 import { stubPointerApis } from '../../../helpers/radix'
 
@@ -206,7 +205,6 @@ function createCanvas(): NodeCanvasDocument {
   }
 }
 beforeEach(() => {
-  applySessionCapabilityGrants(null)
   stubPointerApis()
   mocks.open.mockReset()
   mocks.submitImage.mockClear()
@@ -412,7 +410,7 @@ it('opens an add menu on a double-click of the empty canvas', async () => {
   expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('文本')
   expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('图片')
   expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('上传')
-  expect(document.body.querySelector('[role="menu"]')?.textContent).not.toContain('剧本设定')
+  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('剧本设定')
   act(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   })
@@ -439,7 +437,7 @@ it('opens viewport-docked workspace image controls for a new image card and keep
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
   expect(added).toMatchObject({ type: 'image', data: {} })
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
-  expect(host.querySelector('.studio-node-composer')).toBeNull()
+  expect(host.querySelector('.studio-node-composer')).not.toBeNull()
   expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image', added!.id])
 })
 
@@ -656,7 +654,6 @@ it('picks compatible references from the canvas without changing the target sele
 })
 
 it('places a popular script brief from the blank canvas menu', async () => {
-  applySessionCapabilityGrants({ 'canvas:script': true })
   await render()
   const surface = host.querySelector('.react-flow')!
   await act(async () =>
@@ -683,7 +680,6 @@ it('places a popular script brief from the blank canvas menu', async () => {
 })
 
 it('creates an image node from the canvas prompt when nothing is selected', async () => {
-  applySessionCapabilityGrants({ 'canvas:blank-generate': true })
   await render()
   const input = document.querySelector(
     'textarea[aria-label="描述你想生成的图片"]',
@@ -719,7 +715,6 @@ it('creates an image node from the canvas prompt when nothing is selected', asyn
 })
 
 it('sends a preset template through the selected image node', async () => {
-  applySessionCapabilityGrants({ 'canvas:blank-generate': true })
   const params = useStore.getState().params
   const settings = useStore.getState().settings
   const noteLookUsed = useLibraryStore.getState().noteLookUsed

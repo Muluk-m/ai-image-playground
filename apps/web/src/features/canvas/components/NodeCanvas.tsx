@@ -64,7 +64,6 @@ import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
@@ -789,8 +788,6 @@ function Flow({
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [scriptPoint, setScriptPoint] = useState<{ x: number; y: number } | null>(null)
   const [blankPrompt, setBlankPrompt] = useState('')
-  const blankGenerate = isClientCapabilityEnabled('canvas:blank-generate')
-  const scriptEnabled = isClientCapabilityEnabled('canvas:script')
   const [addingAsset, setAddingAsset] = useState(false)
   const assetTarget = useRef<string | undefined>(undefined)
   const [referencePick, setReferencePick] = useState<{
@@ -1218,7 +1215,7 @@ function Flow({
     selectNode(id)
   }
   const submitBlankImage = (temporaryReferences: string[]) => {
-    const look = blankGenerate ? useActiveLook.getState().look : null
+    const look = useActiveLook.getState().look
     const prompt = blankPrompt.trim()
     if (!look && !prompt && temporaryReferences.length === 0) return
     if (look && !checkLookSubmission(look, [], useLibraryStore.getState().assets).ok) return
@@ -2047,7 +2044,7 @@ function Flow({
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
-                      {scriptPoint && scriptEnabled && (
+                      {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}
                           onConfirm={placeScript}
@@ -2332,7 +2329,7 @@ function Flow({
                                   { icon: 'delete', label: t('nodes.delete'), onClick: remove },
                                 ]
                               : [
-                                  ...(scriptEnabled && !menu.beside
+                                  ...(!menu.beside
                                     ? [
                                         {
                                           icon: 'notebook' as const,
@@ -2379,7 +2376,7 @@ function Flow({
                           {referenceTools}
                         </NodeComposerFrame>
                       )}
-                      {selectedCount === 0 && !scriptPoint && blankGenerate && (
+                      {selectedCount === 0 && !scriptPoint && (
                         <ImageNodeComposer
                           templates
                           document={canvas.doc}
@@ -2394,7 +2391,7 @@ function Flow({
                       )}
                       {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer
-                          templates={blankGenerate}
+                          templates
                           resultTools={
                             <>
                               <NodeResultPicker
@@ -2436,7 +2433,7 @@ function Flow({
                             setMeta({ nodePrompt: value })
                           }}
                           onSubmit={(temporaryReferences) => {
-                            const look = blankGenerate ? useActiveLook.getState().look : null
+                            const look = useActiveLook.getState().look
                             if (look) {
                               void submitNodeWithLook(
                                 editor,
@@ -2528,7 +2525,7 @@ function Flow({
 }
 
 
-/** 节点画布（`canvas:nodes`）：一个项目的 `Y.Doc` 渲染成 React Flow。 */
+/** 节点画布：一个项目的 `Y.Doc` 渲染成 React Flow。 */
 export default function NodeCanvas({
   workspace,
   active,

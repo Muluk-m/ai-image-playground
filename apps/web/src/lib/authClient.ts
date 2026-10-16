@@ -57,11 +57,7 @@ async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUserView> {
-  const result = await authJson<{ user: AuthUserView; canvasCapabilities?: unknown }>(
-    '/api/auth/me',
-    { signal },
-  )
-  applySessionCapabilityGrants(readSessionCapabilityGrants(result.canvasCapabilities))
+  const result = await authJson<{ user: AuthUserView }>('/api/auth/me', { signal })
   return result.user
 }
 
@@ -160,7 +156,6 @@ export function oauthStartUrl(provider: string, referralCode?: string): string {
 
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
-  applySessionCapabilityGrants(null)
   noteBrowserSession(null)
 }
 
