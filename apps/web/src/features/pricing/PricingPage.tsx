@@ -137,7 +137,7 @@ export default function PricingPage({
       auth.login()
       return
     }
-    navigate('/image')
+    navigate('/')
   }
 
   const leave = () => {

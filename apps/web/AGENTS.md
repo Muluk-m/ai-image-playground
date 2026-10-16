@@ -194,4 +194,7 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 - 截图在 `public/guide-assets/<zh|en>/`，使用 WebP。界面文案修改时也同步指南里的 `[[标签]]`。
 - Web 构建先输出工作台，再调用官网构建并合并为 `dist`。`index.html` 是官网，`workbench.html` 是工作台。
   Pages、BFF、nginx 仅为明确的工作台路径回退到后者，缺失页面和资源必须返回 404。
+  工作台创作首页的 canonical 地址是 `/`；旧 `/image` 301 到根地址。官网的 head 在绘制前读取
+  无凭据的会话提示，把记住的会话送到 `/workbench`，工作台的内联启动脚本先还原 `/`（保留 query/hash）
+  再启动鉴权与待发请求恢复。提示只决定页面展示，不授予身份；只有 `/api/auth/me` 的结果能设置账号 scope。
 - `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 继续由 Pages 发布脚本按版本传入，内部站/测试站禁止收录。
