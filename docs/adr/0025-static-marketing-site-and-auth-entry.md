@@ -29,6 +29,8 @@ canonicalizes the URL to `/` before authentication and pending-submission recove
 authorize requests or set an account scope; only server session verification does that. Login success
 carries a one-shot session marker even if browser storage is unavailable. The dedicated login page
 and modal retain shared registration, verification and OAuth behavior.
+OAuth defaults to `/` and preserves validated workspace query/hash in state-bound return metadata.
+Legacy `/image` return targets normalize to `/`; origin, path, length and state validation remain mandatory.
 
 ## Validation
 
