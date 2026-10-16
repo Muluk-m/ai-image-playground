@@ -40,10 +40,10 @@ vi.mock('../../lib/authClient', () => ({
   shouldProbeSession: () => state.probe,
 }))
 vi.mock('../../theme', () => ({ initTheme: vi.fn() }))
+let host: HTMLDivElement, root: Root
 const replace = vi.fn(),
-  assign = vi.fn()
-let host: HTMLDivElement
-let root: Root
+  assign = vi.fn(),
+  onOpen = vi.fn()
 beforeEach(() => {
   state.probe = false
   state.user = null
@@ -52,13 +52,8 @@ beforeEach(() => {
   state.login = true
   replace.mockClear()
   assign.mockClear()
-  vi.stubGlobal('location', {
-    replace,
-    assign,
-    href: 'https://example.test/',
-    search: '',
-    hash: '',
-  })
+  onOpen.mockClear()
+  vi.stubGlobal('location', { replace, assign, search: '' })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -69,18 +64,18 @@ afterEach(() => {
   host.remove()
   vi.unstubAllGlobals()
 })
-async function render(page = 'home') {
+async function render(open = false, page = 'home') {
   await act(async () => {
-    root.render(<SiteAuth locale="zh-CN" page={page} />)
+    root.render(
+      <SiteAuth locale="zh-CN" page={page} open={open} onOpen={onOpen} onClose={() => {}} />,
+    )
   })
 }
-it('keeps an anonymous homepage visible while the visitor has not started creating', async () => {
+it('keeps an anonymous homepage visible until the visitor starts creating', async () => {
   await render()
   expect(document.body.textContent).not.toContain('Sign in')
   expect(replace).not.toHaveBeenCalled()
-})
-it('renders the dedicated login page with the real sign-in form', async () => {
-  await render('login')
+  await render(true)
   expect(document.body.textContent).toContain('Sign in')
   expect(document.title).toBe('Website page title')
 })
@@ -90,31 +85,21 @@ it('takes a verified existing session directly to the workbench', async () => {
   await render()
   expect(replace).toHaveBeenCalledExactlyOnceWith('/image')
 })
-it('redirects pending workbench submissions to the workspace login entry', async () => {
+it('opens login to recover a pending workbench submission', async () => {
   state.pending = true
   await render()
-  expect(replace).toHaveBeenCalledExactlyOnceWith('/image?login=1')
-})
-it('preserves referral query and hash when moving pending work into the workspace', async () => {
-  state.pending = true
-  vi.stubGlobal('location', {
-    replace,
-    assign,
-    href: 'https://example.test/?ref=campaign#return',
-    search: '?ref=campaign',
-    hash: '#return',
-  })
-  await render()
-  expect(replace).toHaveBeenCalledExactlyOnceWith('/image?ref=campaign&login=1#return')
+  expect(onOpen).toHaveBeenCalledOnce()
+  await render(true)
+  expect(document.body.textContent).toContain('Sign in')
 })
 it('enters the workbench after login without submitting a sample prompt', async () => {
-  await render('login')
+  await render(true)
   await act(async () => host.querySelector('button')!.click())
   expect(assign).toHaveBeenCalledExactlyOnceWith('/image')
 })
 it('keeps a network failure recoverable instead of navigating to a broken workbench', async () => {
   state.failed = true
-  await render('login')
+  await render(true)
   expect(document.body.textContent).toContain('暂时无法连接')
   expect(replace).not.toHaveBeenCalled()
 })
