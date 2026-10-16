@@ -6,8 +6,8 @@ import type {
 } from '@image-playground/shared'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import MediaImage from '../../../components/MediaImage'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -688,10 +688,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               <dt>{t('batch.model')}</dt>
               <dd className="inline-flex items-center gap-1">
                 <ModelLogo model={item.params.model} />
-                {compactModelName(
-                  item.params.model,
-                  modelLabel(item.params.model),
-                )}
+                {compactModelName(item.params.model, modelLabel(item.params.model))}
               </dd>
             </dl>
             <AgentBatchAnalysisEvidence evidence={item.params.evidence} inputs={item.inputs} />
