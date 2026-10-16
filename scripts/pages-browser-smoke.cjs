@@ -436,6 +436,19 @@ async function checkWorkspace(browser, origin, {
             await page.keyboard.press('Escape')
             await page.setViewportSize({ width: 390, height: 844 })
             await navigation.getByRole('button', { name: '适应画布', exact: true }).click()
+            await page.waitForFunction(
+              (id) => {
+                const flow = document.querySelector('.react-flow')?.getBoundingClientRect()
+                const node = document.querySelector(`.react-flow__node[data-id="${id}"]`)?.getBoundingClientRect()
+                return Boolean(flow && node &&
+                  node.x >= flow.x &&
+                  node.y >= flow.y &&
+                  node.right <= flow.right &&
+                  node.bottom <= flow.bottom)
+              },
+              uploadedId,
+              { timeout: timeoutMs },
+            )
             const mobileFlowBox = await flow.boundingBox()
             const mobileUploadBox = await uploaded.boundingBox()
             if (!mobileFlowBox || !mobileUploadBox ||
