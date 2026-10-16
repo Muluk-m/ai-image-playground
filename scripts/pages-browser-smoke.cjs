@@ -136,6 +136,10 @@ async function checkWorkspace(browser, origin, {
               recommendedModel: 'fixture', recommendedProvider: 'openai-compat', category: 'Fixture',
             }],
           },
+          '/api/me/profile': {
+            id: 'smoke-user', username: 'Smoke User', nickname: null, bio: null,
+            avatar_url: '/pwa-icon.svg', avatar_is_default: true,
+          },
           '/api/auth/me': rememberedSession
             ? { user: { id: 'smoke-user', username: 'Smoke User', status: 'active' } }
             : { error: 'unauthorized' },
