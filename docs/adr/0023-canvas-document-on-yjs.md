@@ -26,7 +26,7 @@
 
 ## Dev 实现与兼容边界（#1149）
 
-`canvas:nodes` 与 `accounts:sync` 同时开启时，云项目使用 React Flow + Y.Doc。
+节点画布始终使用 React Flow。`accounts:sync` 开启时，云项目的文档是 Y.Doc。
 `GET /api/projects/:id/canvas` 读取快照，`/canvas/ws` 使用 y-protocols 的同步帧；
 服务端另发提交确认帧，客户端收到 PostgreSQL 提交确认后才标记已保存。
 每次更新在独立候选文档上校验结构、项目归属及媒体/任务引用，失败不写入，也不广播。

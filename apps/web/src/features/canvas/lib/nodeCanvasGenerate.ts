@@ -24,8 +24,6 @@ import { saveAssetNodeResult } from './nodeAssetGeneration'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
 import { persistLocalNodeResults } from './nodeResultPersistence'
 
-/** 与拖进画布的图同一上限：卡片不要铺得比导入的图还大。 */
-const MAX_SIDE = 720
 const generationOrigin: CanvasOrigin = canvasOrigin('system', 'node-generation')
 const resumedDocs = new WeakMap<Y.Doc, Set<string>>()
 function claimResume(doc: Y.Doc, nodeId: string, requestId: string): boolean {
@@ -100,25 +98,20 @@ async function putBitmapOnNode(
 ): Promise<boolean> {
   const node = imageNode(doc, nodeId)
   if (!node) return false
-  let width = node.width
-  let height = node.height
   let naturalWidth: number | undefined
   let naturalHeight: number | undefined
   try {
     const dims = await getImageDimensions(dataUrl)
     naturalWidth = dims.width
     naturalHeight = dims.height
-    const scale = Math.min(1, MAX_SIDE / Math.max(dims.width, dims.height, 1))
-    width = Math.max(1, Math.round(dims.width * scale))
-    height = Math.max(1, Math.round(dims.height * scale))
   } catch {
-    // 量不出尺寸就维持卡片现在的大小。
+    // Intrinsic metadata is optional; a decode must never change the frame.
   }
   const current = imageNode(doc, nodeId)
   if (!current || (onlyIfEmpty && (current.data.fileId || current.data.mediaId))) return false
   const patch = {
-    width,
-    height,
+    width: current.width,
+    height: current.height,
     ...(name ? { name } : {}),
     ...(naturalWidth ? { naturalWidth, naturalHeight } : {}),
   }
@@ -129,24 +122,22 @@ async function putBitmapOnNode(
       {
         id: nodeId,
         dataUrl,
-        x: node.x,
-        y: node.y,
-        width,
-        height,
+        x: current.x,
+        y: current.y,
+        width: current.width,
+        height: current.height,
         ...(name ? { name } : {}),
         ...(naturalWidth ? { naturalWidth, naturalHeight } : {}),
       },
     ])
   }
-  // 空卡第一次落图时，同步会保住原来的几何，这里再把显示尺寸改成图的比例。
+  // Preserve the empty card's metadata when the legacy bitmap bridge fills it.
   const settled = imageNode(doc, nodeId)
   if (settled)
     updateCanvasNode(
       doc,
       nodeId,
       {
-        width,
-        height,
         data: { ...settled.data, meta: { ...node.data.meta, ...settled.data.meta } },
       },
       generationOrigin,

@@ -9,7 +9,15 @@ import {
   readCanvasDocument,
   updateCanvasNode,
 } from '@image-playground/shared'
-import { act, createElement, type ElementType, type ReactNode, useEffect, useRef } from 'react'
+import {
+  act,
+  type CSSProperties,
+  createElement,
+  type ElementType,
+  type ReactNode,
+  useEffect,
+  useRef,
+} from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -20,20 +28,27 @@ import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces
 import { useActiveLook } from '../../../../features/library/lib/activeLook'
 import { useLibraryStore } from '../../../../features/library/store'
 import type { AssetRecord, LookRecord } from '../../../../features/library/types'
+import { i18next } from '../../../../i18n'
 import {
   createBuiltinEdgeProfile,
   DEFAULT_SETTINGS,
   normalizeSettings,
 } from '../../../../lib/apiProfiles'
 import { resetChannelCatalog, setChannels } from '../../../../lib/channels/channelStore'
-import { applySessionCapabilityGrants } from '../../../../lib/clientCapabilities'
 import { useStore } from '../../../../store'
 import { stubPointerApis } from '../../../helpers/radix'
+
+type TestViewport = { x: number; y: number; zoom: number }
 
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   importImages: vi.fn(async () => 1),
   submitImage: vi.fn(() => true),
+  viewport: { x: 0, y: 0, zoom: 1 },
+  move: null as ((viewport: TestViewport) => void) | null,
+  hiddenNodeIds: new Set<string>(),
+  setViewport: vi.fn(),
+  fit: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
   openNodeCanvasDocument: mocks.open,
@@ -53,10 +68,11 @@ vi.mock('@xyflow/react', () => ({
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
   Controls: () => null,
-  NodeResizer: () => null,
+  NodeResizer: ({ isVisible }: { isVisible?: boolean }) =>
+    createElement('div', { 'data-testid': 'node-resizer', 'data-visible': isVisible }),
   SelectionMode: { Partial: 'partial' },
   MiniMap: () => null,
-  getViewportForBounds: () => ({ x: 0, y: 0, zoom: 1 }),
+  getViewportForBounds: mocks.fit,
   Handle: ({
     className,
     children,
@@ -88,6 +104,8 @@ vi.mock('@xyflow/react', () => ({
     onPaneClick,
     onNodeClick,
     onSelectionChange,
+    onMove,
+    style,
   }: {
     nodes: {
       id: string
@@ -102,6 +120,8 @@ vi.mock('@xyflow/react', () => ({
     nodeTypes: Record<string, ElementType>
     children: ReactNode
     onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
+    onMove?: (event: unknown, viewport: TestViewport) => void
+    style?: CSSProperties
     onNodeClick?: (event: unknown, node: { id: string }) => void
     onPaneClick?: () => void
     onInit?: (flow: {
@@ -112,37 +132,43 @@ vi.mock('@xyflow/react', () => ({
   }) => {
     const init = useRef(onInit)
     init.current = onInit
+    mocks.move = (viewport) => {
+      mocks.viewport = viewport
+      onMove?.(null, viewport)
+    }
     useEffect(() => {
       init.current?.({
         screenToFlowPosition: (point) => point,
-        setViewport: () => {},
-        getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+        setViewport: mocks.setViewport,
+        getViewport: () => mocks.viewport,
       })
     }, [])
     return createElement(
       'div',
-      { className: 'react-flow' },
-      ...nodes.map((node) =>
-        createElement(
-          'div',
-          {
-            key: node.id,
-            className: `react-flow__node${node.selected ? ' selected' : ''}`,
-            'data-node-id': node.id,
-            onClick: (event: unknown) => {
-              onSelectionChange?.({ nodes: [node] })
-              onNodeClick?.(event, node)
+      { className: 'react-flow', style },
+      ...nodes
+        .filter((node) => !mocks.hiddenNodeIds.has(node.id))
+        .map((node) =>
+          createElement(
+            'div',
+            {
+              key: node.id,
+              className: `react-flow__node${node.selected ? ' selected' : ''}`,
+              'data-node-id': node.id,
+              onClick: (event: unknown) => {
+                onSelectionChange?.({ nodes: [node] })
+                onNodeClick?.(event, node)
+              },
+              'data-bounds': JSON.stringify({
+                ...node.position,
+                width: node.width,
+                height: node.height,
+              }),
+              style: { zIndex: node.zIndex },
             },
-            'data-bounds': JSON.stringify({
-              ...node.position,
-              width: node.width,
-              height: node.height,
-            }),
-            style: { zIndex: node.zIndex },
-          },
-          createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
+            createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
+          ),
         ),
-      ),
       children,
       createElement('button', {
         type: 'button',
@@ -181,10 +207,13 @@ function createCanvas(): NodeCanvasDocument {
   }
 }
 beforeEach(() => {
-  applySessionCapabilityGrants(null)
   stubPointerApis()
   mocks.open.mockReset()
   mocks.submitImage.mockClear()
+  mocks.viewport = { x: 0, y: 0, zoom: 1 }
+  mocks.hiddenNodeIds.clear()
+  mocks.setViewport.mockClear()
+  mocks.fit.mockClear()
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
   old = new CanvasDoc()
@@ -221,6 +250,88 @@ it('displays images delivered after migration without resetting node edits', asy
     x: 90,
     y: 80,
   })
+})
+
+it('keeps uploaded media mounted below the LOD threshold and restores it after viewport culling', async () => {
+  await render()
+  const picture = host.querySelector<HTMLImageElement>('[data-node-id="image"] img')!
+  const source = picture.src
+  act(() => mocks.move?.({ x: 100, y: 80, zoom: 0.2 }))
+  expect(host.querySelector('[data-node-id="image"] img')).toBe(picture)
+  expect(picture.src).toBe(source)
+  expect(host.querySelector('[data-node-id="image"] [data-lod="card"]')).toBeNull()
+  mocks.hiddenNodeIds.add('image')
+  act(() => mocks.move?.({ x: -5000, y: 80, zoom: 0.2 }))
+  expect(host.querySelector('[data-node-id="image"]')).toBeNull()
+  mocks.hiddenNodeIds.clear()
+  act(() => mocks.move?.({ x: 0, y: 0, zoom: 2.43 }))
+  expect(host.querySelector<HTMLImageElement>('[data-node-id="image"] img')?.src).toBe(source)
+  expect(
+    host.querySelector<HTMLElement>('.react-flow')?.style.getPropertyValue('--studio-node-zoom'),
+  ).toBe('2.43')
+})
+
+it('projects restored media to standard bounds without writing cosmetic updates to the document', async () => {
+  updateCanvasNode(canvas.doc, 'image', { width: 48, height: 2400 }, canvas.origin)
+  const before = readCanvasDocument(canvas.doc)
+  const updates = vi.fn()
+  canvas.doc.on('update', updates)
+  await render()
+  expect(
+    JSON.parse(host.querySelector('[data-node-id="image"]')!.getAttribute('data-bounds')!),
+  ).toEqual({ x: 10, y: 20, width: 360, height: 240 })
+  expect(readCanvasDocument(canvas.doc)).toEqual(before)
+  expect(updates).not.toHaveBeenCalled()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  expect(host.querySelector('[data-node-id="image"] [data-testid="node-resizer"]')).toBeNull()
+  canvas.doc.off('update', updates)
+})
+it.each([
+  { width: 1200, tools: [16, 100, 56, 480], top: 64, left: 88, availableWidth: 1096 },
+  { width: 600, tools: [8, 8, 584, 48], top: 72, left: 16, availableWidth: 568 },
+])('fits inside measured composer and toolbar bounds at $width pixels', async (layout) => {
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const container = host.querySelector<HTMLElement>('.studio-node-canvas')!
+  Object.defineProperties(container, {
+    clientWidth: { value: layout.width },
+    clientHeight: { value: 800 },
+  })
+  container.getBoundingClientRect = () => new DOMRect(0, 0, layout.width, 800)
+  const measure = (selector: string, values: number[]) => {
+    const element = document.querySelector<HTMLElement>(selector)!
+    element.getBoundingClientRect = () => new DOMRect(values[0], values[1], values[2], values[3])
+  }
+  measure('.studio-node-tools', layout.tools)
+  measure('.studio-node-history', [layout.width - 120, 8, 100, 40])
+  measure('.studio-node-navigation', [16, 740, 320, 44])
+  measure('.studio-node-composer', [200, 550, 560, 234])
+  const fit = host.querySelector<HTMLButtonElement>(
+    `[aria-label="${i18next.t('nodes.fit', { ns: 'canvas' })}"]`,
+  )!
+  act(() => fit.click())
+  expect(mocks.fit).toHaveBeenLastCalledWith(
+    { x: 10, y: 20, width: 360, height: 240 },
+    layout.availableWidth,
+    534 - layout.top,
+    0.05,
+    8,
+    0.25,
+  )
+  expect(mocks.setViewport).toHaveBeenLastCalledWith(
+    { x: layout.left, y: layout.top, zoom: 1 },
+    { duration: 250 },
+  )
+  measure('.studio-node-composer', [200, 420, 560, 364])
+  act(() => fit.click())
+  expect(mocks.fit).toHaveBeenLastCalledWith(
+    { x: 10, y: 20, width: 360, height: 240 },
+    layout.availableWidth,
+    404 - layout.top,
+    0.05,
+    8,
+    0.25,
+  )
 })
 
 it('ignores undo while hidden or a modal is open and resumes in the active canvas', async () => {
@@ -281,10 +392,15 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   canvas = createCanvas()
   mocks.open.mockResolvedValue(canvas)
   await render()
+  const poster = host.querySelector('[data-node-id="image"] img')
+  act(() => mocks.move?.({ x: 0, y: 0, zoom: 0.2 }))
+  expect(host.querySelector('[data-node-id="image"] img')).toBe(poster)
+  expect(host.querySelector('[data-node-id="image"] [data-testid="node-resizer"]')).toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="播放"]')!.click())
   const video = host.querySelector('video')!
   expect(video.parentElement!.style.transform).toBe('rotate(30deg)')
   expect(video.closest('[data-rotated]')).not.toBeNull()
+  expect(host.querySelector('[data-node-id="image"] .studio-node-caption')).not.toBeNull()
 })
 
 it('opens an add menu on a double-click of the empty canvas', async () => {
@@ -296,14 +412,14 @@ it('opens an add menu on a double-click of the empty canvas', async () => {
   expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('文本')
   expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('图片')
   expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('上传')
-  expect(document.body.querySelector('[role="menu"]')?.textContent).not.toContain('剧本设定')
+  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('剧本设定')
   act(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   })
   expect(document.body.querySelector('[role="menu"]')).toBeNull()
 })
 
-it('puts the workspace image controls under a new image card and keeps the card', async () => {
+it('opens viewport-docked workspace image controls for a new image card and keeps the card', async () => {
   await render()
   const surface = host.querySelector('.studio-node-canvas')!
   act(() => {
@@ -323,7 +439,7 @@ it('puts the workspace image controls under a new image card and keeps the card'
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
   expect(added).toMatchObject({ type: 'image', data: {} })
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
-  expect(host.querySelector('.studio-node-composer')).toBeNull()
+  expect(host.querySelector('.studio-node-composer')).not.toBeNull()
   expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image', added!.id])
 })
 
@@ -540,7 +656,6 @@ it('picks compatible references from the canvas without changing the target sele
 })
 
 it('places a popular script brief from the blank canvas menu', async () => {
-  applySessionCapabilityGrants({ 'canvas:script': true })
   await render()
   const surface = host.querySelector('.react-flow')!
   await act(async () =>
@@ -567,7 +682,6 @@ it('places a popular script brief from the blank canvas menu', async () => {
 })
 
 it('creates an image node from the canvas prompt when nothing is selected', async () => {
-  applySessionCapabilityGrants({ 'canvas:blank-generate': true })
   await render()
   const input = document.querySelector(
     'textarea[aria-label="描述你想生成的图片"]',
@@ -603,7 +717,6 @@ it('creates an image node from the canvas prompt when nothing is selected', asyn
 })
 
 it('sends a preset template through the selected image node', async () => {
-  applySessionCapabilityGrants({ 'canvas:blank-generate': true })
   const params = useStore.getState().params
   const settings = useStore.getState().settings
   const noteLookUsed = useLibraryStore.getState().noteLookUsed
