@@ -2,6 +2,7 @@ import { type PointerEvent, useMemo, useRef } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
 import { inspirationFacetLabel } from '../lib/labels'
@@ -46,10 +47,10 @@ export default function InspirationDetail() {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(item.prompt)
+      await copyTextToClipboard(item.prompt)
       showToast(t('detail.promptCopied'), 'success')
-    } catch {
-      showToast(t('detail.copyFailed'), 'error')
+    } catch (error) {
+      showToast(getClipboardFailureMessage(t('detail.copyFailed'), error), 'error')
     }
   }
 

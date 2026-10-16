@@ -7,6 +7,7 @@ import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useStore } from '../../../store'
@@ -376,7 +377,18 @@ export default function AgentArtifactPane({
                 variant="ghost"
                 size="icon-sm"
                 className={COPY_BUTTON}
-                onClick={() => void navigator.clipboard.writeText(message.prompt ?? '')}
+                onClick={() => {
+                  void copyTextToClipboard(message.prompt ?? '').then(
+                    () => useStore.getState().showToast(t('promptDialog.copied'), 'success'),
+                    (error) =>
+                      useStore
+                        .getState()
+                        .showToast(
+                          getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                          'error',
+                        ),
+                  )
+                }}
                 aria-label={t('tool.copyPrompt')}
                 title={t('tool.copyPrompt')}
               >
