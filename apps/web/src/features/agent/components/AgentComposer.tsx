@@ -238,7 +238,6 @@ function ComposerAttachmentThumb({
               type="button"
               variant="ghost"
               size="icon"
-              title={t('tool.retryPreview')}
               aria-label={`${t('tool.previewUnavailable')}：${t('tool.retryPreview')} ${alt}`}
               className="absolute bottom-0 right-0 z-10 h-11 w-11 text-destructive"
               onClick={() => void reloadPreview()}
@@ -1280,40 +1279,43 @@ export default function AgentComposer({
             )
           }
           action={
-            <CreationSend
-              busy={!stopMode && (uploadingCount > 0 || submitting)}
-              streaming={stopMode}
-              aria-label={
-                stopMode
-                  ? t('composer.abort')
-                  : submitting
-                    ? t('composer.sending')
+            <>
+              <CreationSend
+                busy={!stopMode && (uploadingCount > 0 || submitting)}
+                streaming={stopMode}
+                aria-description={uploadsBlocked ? (referenceStatus ?? undefined) : undefined}
+                aria-label={
+                  stopMode
+                    ? t('composer.abort')
+                    : submitting
+                      ? t('composer.sending')
+                      : uploadsBlocked
+                        ? (referenceStatus ?? t('composer.sendAndCreate'))
+                        : running
+                          ? t('composer.queue')
+                          : t('composer.sendAndCreate')
+                }
+                title={
+                  stopMode
+                    ? t('composer.abortTitle')
                     : uploadsBlocked
-                      ? (referenceStatus ?? t('composer.sendAndCreate'))
+                      ? referenceStatus
                       : running
                         ? t('composer.queue')
-                        : t('composer.sendAndCreate')
-              }
-              title={
-                stopMode
-                  ? t('composer.abortTitle')
-                  : uploadsBlocked
-                    ? referenceStatus
-                    : running
-                      ? t('composer.queue')
-                      : t('composer.sendAndCreateTitle')
-              }
-              disabled={
-                stopMode
-                  ? false
-                  : historyBlocked ||
-                    loading ||
-                    submitting ||
-                    uploadsBlocked ||
-                    !draft.prompt.trim()
-              }
-              onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
-            />
+                        : t('composer.sendAndCreateTitle')
+                }
+                disabled={
+                  stopMode
+                    ? false
+                    : historyBlocked ||
+                      loading ||
+                      submitting ||
+                      uploadsBlocked ||
+                      !draft.prompt.trim()
+                }
+                onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
+              />
+            </>
           }
         >
           {mode === 'video' && !productionMode ? (
@@ -1324,6 +1326,7 @@ export default function AgentComposer({
             <AgentParamsChip
               generationControls={!productionMode}
               thinkingControls={creationMode !== 'image'}
+              imageMode={creationMode === 'image'}
             />
           )}
         </CreationToolbar>

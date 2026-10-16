@@ -293,7 +293,7 @@ export function agentToolStart(
   params?: AgentTurnParams,
 ): AgentToolStart {
   const spec = find(toolName)
-  const call = spec?.call(args, mode)
+  const call = spec?.call(args, mode, params)
   const anchorObjectId = call?.anchor ? images.identify(call.anchor) : undefined
   const snapshot = spec?.snapshot?.(args, mode, params)
   const imageIds = call?.references?.map((reference) => images.identify(reference))
@@ -318,7 +318,7 @@ export function agentToolStartFromSnapshot(
   toolCallId: string,
   snapshot: AgentToolCallSnapshot,
 ): AgentToolStart {
-  const call = find(toolName)?.call(snapshot.args, snapshot.mode)
+  const call = find(toolName)?.call(snapshot.args, snapshot.mode, snapshot.params)
   return {
     toolCallId,
     toolName,

@@ -48,7 +48,7 @@ export function ImageGallery<T extends GalleryItem>({
           role="group"
           aria-label={itemLabel(index)}
           data-selected={index === selectedIndex || undefined}
-          className="min-w-0 max-w-full shrink-0"
+          className="min-w-0 max-w-full flex-1 basis-0"
           onFocus={() => onSelect(item)}
           onClickCapture={() => onSelect(item)}
         >

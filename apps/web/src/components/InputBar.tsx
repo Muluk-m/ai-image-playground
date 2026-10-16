@@ -1377,7 +1377,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               />
             }
             action={
-              <Hint tooltip={submitBlockedTip || submitTitle || submitLabel}>
+              <Hint
+                tooltip={
+                  submitBlockedTip || (submitTitle !== submitLabel ? submitTitle : undefined)
+                }
+              >
                 <span className="inline-flex">
                   <CreationSend
                     autoTooltip={false}

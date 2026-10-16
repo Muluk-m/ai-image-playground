@@ -10,6 +10,7 @@ import type {
   AgentContentBlock,
   AgentMessageRole,
   AgentMode,
+  AgentModelSettings,
   AgentQueuedMessageFailure,
   AgentQueuedMessageState,
   AgentToolCallSnapshot,
@@ -183,6 +184,13 @@ export const user_identities = pgTable(
     index('idx_user_identities_user_id').on(t.user_id),
   ],
 )
+
+export const agent_model_settings = pgTable('agent_model_settings', {
+  id: text('id').primaryKey(),
+  revision: integer('revision').notNull(),
+  settings: bunJsonb('settings').$type<AgentModelSettings>().notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+})
 
 export const operator_audits = pgTable(
   'operator_audits',
@@ -1249,6 +1257,23 @@ export const client_errors = pgTable(
     index('idx_client_errors_received').on(t.received_at.desc()),
     index('idx_client_errors_fingerprint').on(t.fingerprint, t.received_at.desc()),
     check('client_errors_kind_check', sql`${t.kind} IN ('boot', 'error', 'rejection', 'react')`),
+  ],
+)
+
+/** Success evidence is separate from error counts and may arrive before the failure beacon. */
+export const client_error_recoveries = pgTable(
+  'client_error_recoveries',
+  {
+    id: text('id').primaryKey(),
+    incident_id: text('incident_id').notNull(),
+    operation: text('operation').notNull(),
+    received_at: epochMs('received_at').notNull(),
+    device_id: text('device_id').notNull(),
+    user_id: text('user_id'),
+  },
+  (t) => [
+    index('idx_client_error_recoveries_incident').on(t.incident_id, t.device_id),
+    index('idx_client_error_recoveries_received').on(t.received_at),
   ],
 )
 

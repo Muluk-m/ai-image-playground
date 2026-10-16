@@ -7,7 +7,6 @@ import { defineConfig } from 'vitest/config'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
-import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { optionalFontsPlugin } from './src/styles/fontPlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
@@ -57,7 +56,6 @@ export default defineConfig(() => {
       startupGuardPlugin(),
       react(),
       themeBootPlugin(),
-      seoPlugin({ publicDir: resolve(__dirname, 'public') }),
       pagesRedirectsPlugin(),
       injectSwBuildVersion(),
       chunkCycleGuardPlugin(),
@@ -93,7 +91,6 @@ export default defineConfig(() => {
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
-          ...guideHtmlEntries(__dirname),
         },
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor

@@ -4,7 +4,7 @@ import { requireAgentImages } from '../images'
 import { prepareMaskedEdit } from '../masked-edit'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
-import { agentImageCount, imageCountParameter, reviewParameter } from './queueParams'
+import { imageCountParameter, requestedImageCount, reviewParameter } from './queueParams'
 import { draftQueueTask, resolveAgentModel } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
@@ -93,12 +93,12 @@ export const editImage = defineAgentTool({
   description:
     '在已有的图上发起一次改图，结果显示在对话的产物卡片中，源图不动。一次调用只处理一张目标图，可附明确用途的参考图。卡片上给用户看的是真正会送进上游的那一份执行指令。有选区的局部改图提交成功后系统一定会唤醒你复核候选；目标图遮罩会随请求提交，要求只改圈选部分，调用成功不代表效果已验收。提交前要不要先等用户确认由系统决定，见系统提示词里的生成流程那一段——工具返回的那句话会说清这一次到底提交了没有，照它说。',
   guidance:
-    '改已有图用 editImage。逐张修改时每个目标各调用一次，各自写提示词，默认只带当前目标；明确要求的参考放在目标后面。同一目标同一方案的多版本用 n，未指定张数默认 1；不同角度或方案分别调用。有遮罩时以圈选位置指认对象，不能以其他同名实例替代指定目标。参考图圈选表示参考来源，不是修改对象。用户没说过的颜色、材质、风格不要替他写进提示词。不要为同一件事调第二次。',
+    '改已有图用 editImage。逐张修改时每个目标各调用一次，各自写提示词，默认只带当前目标；明确要求的参考放在目标后面。同一目标同一方案要多张时，用户在这句话里说明了张数才填 n，否则省略并沿用他在输入框选择的张数；不同角度或方案分别调用。有遮罩时以圈选位置指认对象，不能以其他同名实例替代指定目标。参考图圈选表示参考来源，不是修改对象。用户没说过的颜色、材质、风格不要替他写进提示词。不要为同一件事调第二次。',
   parameters,
   // 模型可以换一个图片 id 重试，所以拿不到图不该把整轮拖垮。
   onError: 'continue',
   target: (params) => resolveAgentModel('image', params?.model),
-  call({ prompt, imageIds, selectionBindings, n }) {
+  call({ prompt, imageIds, selectionBindings, n }, _mode, turn) {
     const written = typeof prompt === 'string' ? prompt : undefined
     // 第一张参考图就是被改的那张，产出贴着它放——与执行时的 `anchorObjectId` 取同一项。
     const first = Array.isArray(imageIds) ? imageIds[0] : undefined
@@ -108,7 +108,7 @@ export const editImage = defineAgentTool({
         : written?.trim()
           ? agentTitleLine(written, TITLE_MAX_CHARS)
           : '改图',
-      outputCount: agentImageCount({ n }),
+      outputCount: requestedImageCount(n, turn?.n),
       ...(typeof first === 'string' && first ? { anchor: first } : {}),
       ...(written ? { prompt: written } : {}),
       ...(Array.isArray(imageIds)
@@ -184,7 +184,7 @@ export const editImage = defineAgentTool({
           // 真遮罩编辑的执行指令由服务端按用户原文与选区拼出来：卡上给用户看的、他改的、
           // 确认时提交的都是这一句。
           prompt: prepared?.prompt ?? params.prompt,
-          n: params.n,
+          n: requestedImageCount(params.n, context.params?.n),
           referenceIds: images.map((image) => image.imageId),
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
           ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),

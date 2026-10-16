@@ -65,7 +65,6 @@
     "locateTitle": "在画布上定位这些产物",
     "place": "放入画布",
     "viewPrompt": "查看提示词",
-    "editResult": "继续编辑",
     "regenerate": "再次生成",
     "regenerateRequest": "请基于这组提示词再次生成图片，保留主题与主要构图，可在细节上做变化：{{prompt}}",
     "moreActions": "更多操作",
@@ -77,8 +76,12 @@
     "closePreview": "关闭预览",
     "zoomResult": "放大查看",
     "downloadResult": "下载",
+    "downloadAll": "全部下载",
+    "removeBackground": "去背景",
+    "batchCount_other": "{{count}} 张",
+    "costDetail": "明细",
     "editOnCanvas": "在画布中编辑",
-    "useAsReference": "用作参考图",
+    "useAsReference": "用作参考",
     "inpaint": "局部重绘",
     "erase": "擦除",
     "crop": "裁剪",
@@ -163,6 +166,16 @@
     "allSubmitting": "逐张提交中…",
     "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。"
   },
+  "plan": {
+    "title": "生成计划",
+    "summary_other": "{{count}} 张",
+    "hint": "点击一行可修改提示词，取消勾选即跳过",
+    "generate_other": "全部生成（{{count}}）",
+    "cancel": "取消",
+    "restore": "继续确认",
+    "dismissed": "未生成",
+    "promptAria": "修改提示词"
+  },
   "toolFailure": {
     "recharge": "去充值",
     "login": "去登录",
@@ -204,6 +217,12 @@
     "stopped": "已停止",
     "continue": "继续对话",
     "continuePrompt": "继续"
+  },
+  "imageAction": {
+    "removeBackground": "去背景",
+    "running": "正在去背景…",
+    "failed": "去背景没有完成",
+    "dismiss": "移除这一步"
   },
   "composer": {
     "editorAria": "对智能体说",
@@ -260,7 +279,12 @@
     "interjectAria": "现在插话：{{text}}"
   },
   "params": {
-    "note": "张数由智能体按需求决定。参数改动从下一轮生效。",
+    "model": "模型",
+    "modelAuto": "智能",
+    "modelAutoOption": "智能（自动选模型）",
+    "ratio": "画幅",
+    "outputCount": "张数",
+    "countUnit": "张",
     "thinkingFast": "快速",
     "thinkingMedium": "中等",
     "thinkingDeep": "深度",
@@ -451,6 +475,9 @@
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
+    "queueSlot": "排队中 · 第 {{position}} 位",
+    "queueSlotShort": "第 {{position}} 位",
+    "doneCount": "{{done}}/{{total}} 完成",
     "progressAria": "生成进度",
     "cancel": "取消任务",
     "cancelling": "正在取消…",

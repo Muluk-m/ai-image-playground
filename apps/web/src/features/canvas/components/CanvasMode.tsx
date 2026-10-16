@@ -154,7 +154,6 @@ function CanvasLoading({
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const { t: tShell } = useTranslation('shell')
-  const { t: tProduction } = useTranslation('production')
   const mobile = useMobileWorkspace()
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
@@ -507,35 +506,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               )}
               {projectView === 'chat' && (
                 <>
-                  {productionEnabled && (
-                    <Button
-                      variant="ghost"
-                      size="default"
-                      type="button"
-                      className="studio-production-trigger"
-                      aria-label={tProduction('entry')}
-                      aria-pressed={productionOpen}
-                      onClick={() => {
-                        const next = !productionOpen
-                        setProductionOpen(next)
-                        safeLocalStorage.setItem(productionViewKey, String(next))
-                        if (next) {
-                          useAgentStore.getState().setMode('video')
-                          setSelectedResultId(null)
-                        }
-                      }}
-                    >
-                      <Icon name="storyboard" />
-                      <span>{tProduction('entry')}</span>
-                    </Button>
-                  )}
                   <Button
                     variant="ghost"
                     size="icon"
                     type="button"
                     className="studio-assets-trigger studio-search-trigger"
                     aria-label="搜索当前对话"
-                    title="搜索当前对话"
+                    autoTooltip={false}
                     onClick={() => setSearchOpen(true)}
                   >
                     <Icon name="search" />
@@ -559,6 +536,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             className="studio-layout"
             data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
+            data-batch-wide={
+              messages.some(
+                (message) =>
+                  message.kind === 'tool' &&
+                  (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+                  (message.artifacts?.filter((artifact) => artifact.media === 'image').length ??
+                    0) >= 4,
+              )
+                ? 'true'
+                : undefined
+            }
             data-node-canvas={nodeCanvas && projectView === 'canvas' ? 'true' : undefined}
             data-mobile-view={projectView}
             data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
@@ -764,7 +752,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   type="button"
                   className="studio-open-chat"
                   onClick={() => setOpen(true)}
-                  title={t('sidebar.openChat')}
                 >
                   <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                   {t('sidebar.openChat')}
