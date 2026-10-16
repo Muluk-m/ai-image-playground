@@ -750,6 +750,18 @@ function viewportForCanvasBounds(
   if (!container?.clientWidth || !container.clientHeight) return null
   const area = availableCanvasArea(container)
   const viewport = getViewportForBounds(bounds, area.width, area.height, minZoom, maxZoom, padding)
+  const maxFitZoom = Math.min(
+    area.width / Math.max(1, bounds.width * (1 + padding * 2)),
+    area.height / Math.max(1, bounds.height * (1 + padding * 2)),
+  )
+  if (viewport.zoom > maxFitZoom) {
+    const zoom = Math.max(minZoom, maxFitZoom)
+    return {
+      x: area.x + area.width / 2 - (bounds.x + bounds.width / 2) * zoom,
+      y: area.y + area.height / 2 - (bounds.y + bounds.height / 2) * zoom,
+      zoom,
+    }
+  }
   return { ...viewport, x: viewport.x + area.x, y: viewport.y + area.y }
 }
 
