@@ -25,6 +25,7 @@
 ### SegmentedTabs
 
 页内切换几个视图：28px 胶囊页签，选中态 accent 底。必须传 `label` 说明这组页签切换的是什么（读屏用）。
+需要占满一行并等分选项时传 `fullWidth`；默认保持按内容宽度排列。
 互斥的**参数档位**（比例、质量）不用它，用设置卡片里的 `SettingsSegmented`。
 
 ### SearchField

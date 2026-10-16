@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImagePreview } from '../../../components/Lightbox'
 import Overlay from '../../../components/patterns/Overlay'
 import SearchField from '../../../components/patterns/SearchField'
+import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
 import { Icon } from '../../../components/ui/icon'
@@ -318,31 +319,17 @@ export default function AgentAssetDrawer({
             <Icon name="close" />
           </Button>
         </header>
-        <div
-          className="mx-5 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
-          role="group"
-          aria-label={t('assets.scope')}
-        >
-          <Button
-            variant="ghost"
-            type="button"
-            size="xs"
-            className="text-muted-foreground aria-pressed:bg-card aria-pressed:text-foreground"
-            aria-pressed={scope === 'session'}
-            onClick={() => setScope('session')}
-          >
-            {t('assets.session')}
-          </Button>
-          <Button
-            variant="ghost"
-            type="button"
-            size="xs"
-            className="text-muted-foreground aria-pressed:bg-card aria-pressed:text-foreground"
-            aria-pressed={scope === 'all'}
-            onClick={() => setScope('all')}
-          >
-            {t('assets.all')}
-          </Button>
+        <div className="px-5">
+          <SegmentedTabs
+            fullWidth
+            label={t('assets.scope')}
+            value={scope}
+            onChange={setScope}
+            tabs={[
+              { value: 'session', label: t('assets.session') },
+              { value: 'all', label: t('assets.all') },
+            ]}
+          />
         </div>
         <div className="px-5">
           <SearchField
@@ -353,20 +340,16 @@ export default function AgentAssetDrawer({
             aria-label={t('assets.search')}
           />
         </div>
-        <div className="flex gap-1 px-5 py-3" role="group" aria-label={t('assets.media')}>
-          {(['all', 'image', 'video'] as const).map((one) => (
-            <Button
-              variant="ghost"
-              key={one}
-              type="button"
-              size="xs"
-              className="text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground"
-              aria-pressed={media === one}
-              onClick={() => setMedia(one)}
-            >
-              {t(one === 'all' ? 'assets.allMedia' : `assets.${one}`)}
-            </Button>
-          ))}
+        <div className="px-5 py-3">
+          <SegmentedTabs
+            label={t('assets.media')}
+            value={media}
+            onChange={setMedia}
+            tabs={(['all', 'image', 'video'] as const).map((value) => ({
+              value,
+              label: t(value === 'all' ? 'assets.allMedia' : `assets.${value}`),
+            }))}
+          />
         </div>
         <div
           className="studio-assets-grid"

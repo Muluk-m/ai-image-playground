@@ -453,3 +453,52 @@ it('contains keyboard focus and background scroll, then returns focus to the ope
   expect(document.body.style.overflow).toBe(overflow)
   opener.remove()
 })
+
+it('filters images and videos without losing checked assets when switching back', async () => {
+  const video: AgentToolMessage = {
+    ...item('video'),
+    artifacts: [
+      { artifactId: 'video', media: 'video', taskId: 'video', outputIndex: 0, mime: 'video/mp4' },
+    ],
+  }
+  await act(async () =>
+    root.render(
+      <AgentAssetDrawer
+        messages={[item('image'), video]}
+        onClose={() => {}}
+        onPreview={() => {}}
+      />,
+    ),
+  )
+  const filter = async (name: string) => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="group"] button')].find(
+      (button) => button.textContent === name,
+    )!
+    await act(async () => button.click())
+    expect(button.getAttribute('aria-pressed')).toBe('true')
+  }
+  await act(async () =>
+    document
+      .querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="选择 Result image"]')!
+      .click(),
+  )
+  await filter('视频')
+  expect(
+    [...document.querySelectorAll('.studio-assets-card [role="checkbox"]')].map((node) =>
+      node.getAttribute('aria-label'),
+    ),
+  ).toEqual(['选择 Result video'])
+  await filter('图片')
+  expect(
+    [...document.querySelectorAll('.studio-assets-card [role="checkbox"]')].map((node) =>
+      node.getAttribute('aria-label'),
+    ),
+  ).toEqual(['选择 Result image'])
+  expect(
+    document
+      .querySelector('[role="checkbox"][aria-label="选择 Result image"]')
+      ?.getAttribute('aria-checked'),
+  ).toBe('true')
+  await filter('全部')
+  expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(2)
+})
