@@ -160,3 +160,102 @@ describe('CreateRecordDialog', () => {
     expect(document.querySelectorAll('img')).toHaveLength(1)
   })
 })
+
+it('keeps a nested file drag active and isolates the drop from the outer page', async () => {
+  const outerDrop = vi.fn()
+  document.addEventListener('drop', outerDrop)
+  const save = vi.fn().mockResolvedValue(undefined)
+  try {
+    act(() =>
+      root.render(
+        <CreateRecordDialog kind="asset" agentReady={false} onClose={vi.fn()} onSave={save} />,
+      ),
+    )
+    const child = button('从本地添加')
+    const zone = child.parentElement!.parentElement!
+    const file = new File(['image'], 'product.png', { type: 'image/png' })
+    const drag = (target: Element, type: string, types = ['Files']) => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'dataTransfer', { value: { types, files: [file], items: [] } })
+      target.dispatchEvent(event)
+    }
+    act(() => {
+      drag(zone, 'dragenter')
+      drag(child, 'dragenter')
+      drag(child, 'dragleave')
+    })
+    expect(zone.className).toContain('border-primary')
+    await act(async () => drag(zone, 'drop'))
+    expect(outerDrop).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('form img')).toHaveLength(1)
+    act(() => drag(zone, 'dragenter', ['text/plain']))
+    expect(zone.className).not.toContain('border-primary')
+  } finally {
+    document.removeEventListener('drop', outerDrop)
+  }
+})
+
+it.each(['asset', 'look'] as const)('preserves folder import rules for %s', async (kind) => {
+  act(() =>
+    root.render(
+      <CreateRecordDialog kind={kind} agentReady={false} onClose={vi.fn()} onSave={vi.fn()} />,
+    ),
+  )
+  const files = [1, 2, 3, 4].map((n) => new File(['image'], `${n}.png`, { type: 'image/png' }))
+  const entry = {
+    name: '产品参考',
+    isDirectory: true,
+    isFile: false,
+    createReader: () => {
+      let done = false
+      return {
+        readEntries: (receive: (entries: unknown[]) => void) => {
+          receive(
+            done
+              ? []
+              : files.map((file) => ({
+                  name: file.name,
+                  isFile: true,
+                  isDirectory: false,
+                  file: (receiveFile: (file: File) => void) => receiveFile(file),
+                })),
+          )
+          done = true
+        },
+      }
+    },
+  }
+  // readEntries callbacks are asynchronous in browsers.
+  const originalReader = entry.createReader
+  entry.createReader = () => {
+    const reader = originalReader()
+    return {
+      readEntries: (receive) => {
+        queueMicrotask(() => reader.readEntries(receive))
+      },
+    }
+  }
+  const event = new Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', {
+    value: {
+      types: ['Files'],
+      files: [],
+      items: [{ kind: 'file', webkitGetAsEntry: () => entry }],
+    },
+  })
+  await act(async () => document.querySelector('[data-image-dropzone]')!.dispatchEvent(event))
+  if (kind === 'asset') {
+    expect(document.querySelectorAll('form img')).toHaveLength(0)
+    const confirm = vi.mocked(useStore.getState().setConfirmDialog).mock.calls[0]?.[0]
+    expect(confirm).toBeDefined()
+    act(() => confirm?.action())
+    expect(document.querySelectorAll('form img')).toHaveLength(4)
+    expect(document.querySelector<HTMLInputElement>('input[maxlength="20"]')?.value).toBe(
+      '产品参考',
+    )
+  } else {
+    expect(useStore.getState().setConfirmDialog).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('form img')).toHaveLength(1)
+    expect(document.querySelector<HTMLInputElement>('input[maxlength="20"]')?.value).toBe('')
+  }
+})
