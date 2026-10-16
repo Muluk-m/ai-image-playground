@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
+import Overlay from '../../../../components/patterns/Overlay'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 
@@ -294,7 +295,7 @@ it('keeps the preview open when a higher dialog consumes Escape', async () => {
   const root = createRoot(host)
   const onClose = vi.fn()
   const consumeEscape = (event: KeyboardEvent) => event.preventDefault()
-  window.addEventListener('keydown', consumeEscape)
+  document.addEventListener('keydown', consumeEscape)
   try {
     await act(async () =>
       root.render(
@@ -307,11 +308,13 @@ it('keeps the preview open when a higher dialog consumes Escape', async () => {
       ),
     )
     act(() =>
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
     )
     expect(onClose).not.toHaveBeenCalled()
   } finally {
-    window.removeEventListener('keydown', consumeEscape)
+    document.removeEventListener('keydown', consumeEscape)
     act(() => root.unmount())
   }
 })
@@ -476,6 +479,82 @@ it('keeps a fetched preview visible and retries the original after a failure', a
     expect(
       document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-failed'),
     ).toBe('false')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it.each([
+  'overlay',
+  'panel',
+] as const)('applies modal focus and scroll behavior only to %s presentation', async (presentation) => {
+  const host = document.createElement('div')
+  const opener = document.createElement('button')
+  document.body.append(host, opener)
+  opener.focus()
+  const root = createRoot(host)
+  const overflow = document.body.style.overflow
+  try {
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          presentation={presentation}
+          message={message}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      ),
+    )
+    if (presentation === 'overlay') {
+      expect(document.body.style.overflow).toBe('hidden')
+      expect(document.activeElement).not.toBe(opener)
+      opener.focus()
+      act(() =>
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+        ),
+      )
+      expect(document.activeElement).not.toBe(opener)
+    } else {
+      expect(document.body.style.overflow).toBe(overflow)
+      expect(document.activeElement).toBe(opener)
+    }
+  } finally {
+    act(() => root.unmount())
+    expect(document.activeElement).toBe(opener)
+    expect(document.body.style.overflow).toBe(overflow)
+    host.remove()
+    opener.remove()
+  }
+})
+
+it('closes a nested review dialog before the artifact preview', async () => {
+  const root = createRoot(document.createElement('div'))
+  const onClose = vi.fn()
+  const closeNested = vi.fn()
+  const pane = <AgentArtifactPane message={message} onSelect={vi.fn()} onClose={onClose} />
+  try {
+    await act(async () => root.render(pane))
+    await act(async () =>
+      root.render(
+        <>
+          {pane}
+          <Overlay tier="artifact" onClose={closeNested}>
+            <button>编辑</button>
+          </Overlay>
+        </>,
+      ),
+    )
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    )
+    expect(closeNested).toHaveBeenCalledOnce()
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => root.render(<>{pane}</>))
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    )
+    expect(onClose).toHaveBeenCalledOnce()
   } finally {
     act(() => root.unmount())
   }

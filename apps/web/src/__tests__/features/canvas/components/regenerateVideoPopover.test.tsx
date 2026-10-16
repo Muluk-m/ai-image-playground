@@ -94,6 +94,11 @@ describe('改参数重新生成弹窗', () => {
     act(() =>
       root.render(<RegenerateVideoPopover editor={editor} node={node} onClose={() => {}} />),
     )
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent).toBe(
+      '改参数重新生成',
+    )
+    expect(dialog.querySelector('button[aria-label="关闭"]')).not.toBeNull()
     expect(useVideoStore.getState().draft.duration).toBe(15)
     act(() => root.render(<div />))
     expect(useVideoStore.getState().draft).toMatchObject({ duration: 5, aspectRatio: '16:9' })

@@ -361,6 +361,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 | 模态 | 50 / 100 / 110 | Overlay 的 modal / raised / alert |
 | 画布浮层 | 400–430 | 画布工具条、批量条 |
 | 定位浮层 | 600 | Radix Popover |
+| 资源抽屉 | 900 | Overlay 的 assets |
 | 产物审阅 | 1000–1200 | artifact pane 与其上的 Overlay |
 | 通知 | 1390 / 1400 | 更新横幅 / Toast |
 | 提示 | 1450 | Tooltip |

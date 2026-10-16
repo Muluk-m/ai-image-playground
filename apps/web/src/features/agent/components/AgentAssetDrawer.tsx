@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
+import Overlay from '../../../components/patterns/Overlay'
 import SearchField from '../../../components/patterns/SearchField'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
@@ -8,7 +8,7 @@ import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { blobDataUrl } from '../../../lib/cloudMedia'
 import { assetExportSource } from '../../image-export/sources'
-import { openImageExport, useImageExportStore } from '../../image-export/store'
+import { openImageExport } from '../../image-export/store'
 import {
   fetchBatchPlan,
   fetchConversations,
@@ -63,8 +63,6 @@ export default function AgentAssetDrawer({
   const [batchLoading, setBatchLoading] = useState(false)
   const [batchFailed, setBatchFailed] = useState(false)
   const [sourcePreview, setSourcePreview] = useState<string | null>(null)
-  const sourcePreviewRef = useRef<string | null>(null)
-  sourcePreviewRef.current = sourcePreview
   const previewToken = useRef(0)
   const gridRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
@@ -292,28 +290,14 @@ export default function AgentAssetDrawer({
     previewToken.current += 1
     setSourcePreview(null)
   }
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      // 原图预览自己吃掉这一下；这里再关，会连抽屉一起收掉。
-      if (
-        event.key !== 'Escape' ||
-        event.defaultPrevented ||
-        sourcePreviewRef.current ||
-        useImageExportStore.getState().request
-      )
-        return
-      onClose()
-    }
-    window.addEventListener('keydown', escape)
-    return () => window.removeEventListener('keydown', escape)
-  }, [onClose])
-  return createPortal(
-    <div
+  return (
+    <Overlay
+      onClose={onClose}
+      tier="assets"
+      layout="fill"
+      backdrop="none"
+      role="none"
       className="studio-assets-overlay"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
     >
       <aside
         className="studio-assets-drawer"
@@ -504,10 +488,11 @@ export default function AgentAssetDrawer({
             {selectedCount ? t('assets.exportCount', { count: selectedCount }) : t('assets.export')}
           </Button>
         </footer>
-        {sourcePreview && <ImagePreview src={sourcePreview} onClose={closeSource} />}
+        {sourcePreview && (
+          <ImagePreview tier="artifact" src={sourcePreview} onClose={closeSource} />
+        )}
       </aside>
-    </div>,
-    document.body,
+    </Overlay>
   )
 }
 

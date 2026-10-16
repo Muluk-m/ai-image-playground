@@ -1,8 +1,8 @@
 import { snapVideoKeyframeTimestamp, videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
-import Overlay from '../../../components/patterns/Overlay'
+import { LABEL } from '../../../components/panelStyles'
+import Dialog from '../../../components/patterns/Dialog'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -107,152 +107,12 @@ export default function ReferenceVideoPopover({
   const keyframeCount = items.filter((item) => item.role === 'keyframe').length
 
   return (
-    <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
-        <h3 className={`${PANEL_TITLE} mb-1`}>
-          {t('referenceVideo.title', { count: items.length })}
-        </h3>
-        <p className="mb-3 text-xs text-muted-foreground">{t('referenceVideo.hint')}</p>
-
-        <ol aria-label={t('referenceVideo.listAria')} className="mb-3 flex flex-col gap-1.5">
-          {items.map((item, index) => (
-            <li
-              key={item.entry.imageId}
-              draggable
-              data-input-id={item.entry.imageId}
-              onDragStart={(event) => {
-                // Firefox 不 setData 就不开始拖。
-                event.dataTransfer.setData('text/plain', item.entry.imageId)
-                event.dataTransfer.effectAllowed = 'move'
-                setDragging(index)
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault()
-                if (dragging !== null && dragging !== index)
-                  setItems((current) => moveInputItem(current, dragging, index))
-                setDragging(null)
-              }}
-              onDragEnd={() => setDragging(null)}
-              className={`flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 ${dragging === index ? 'opacity-50' : ''}`}
-            >
-              <Icon name="drag" className="shrink-0 cursor-grab text-muted-foreground" />
-              <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                {inputLabel(items, index)}
-              </span>
-              <InputThumb editor={editor} imageId={item.entry.imageId} />
-              {/* 拖动之外给键盘一条路：往前挪一位。 */}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label={t('referenceVideo.moveUp', { no: index + 1 })}
-                disabled={index === 0}
-                onClick={() => setItems((current) => moveInputItem(current, index, index - 1))}
-                className="ml-auto text-muted-foreground"
-              >
-                <Icon name="chevronUp" />
-              </Button>
-              <Select
-                value={item.role}
-                onValueChange={(role) =>
-                  setItems((current) =>
-                    setInputRole(current, index, role as VideoInputRole, draft.duration),
-                  )
-                }
-              >
-                <SelectTrigger
-                  aria-label={t('referenceVideo.roleAria', { no: index + 1 })}
-                  className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
-                >
-                  <SelectValue>{roleLabel(item.role)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="reference">{roleLabel('reference')}</SelectItem>
-                  {/* 模型接不住的帧不给选，免得选完只看到一句驳回。 */}
-                  {framesAllowed && option?.support.firstFrame !== false && (
-                    <SelectItem value="first">{roleLabel('first')}</SelectItem>
-                  )}
-                  {framesAllowed && option?.support.lastFrame !== false && (
-                    <SelectItem value="last">{roleLabel('last')}</SelectItem>
-                  )}
-                  {keyframeMax !== undefined && (
-                    <SelectItem
-                      value="keyframe"
-                      disabled={item.role !== 'keyframe' && keyframeCount >= keyframeMax}
-                    >
-                      {roleLabel('keyframe')}
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              {item.role === 'keyframe' && (
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  max={draft.duration}
-                  step={1 / 3}
-                  aria-label={t('referenceVideo.timestampAria', { no: index + 1 })}
-                  value={timestampFieldValue(item.timestampSeconds)}
-                  onChange={(event) => {
-                    const snapped = snapVideoKeyframeTimestamp(
-                      event.target.valueAsNumber,
-                      draft.duration,
-                    )
-                    if (snapped === null) return
-                    setItems((current) => setKeyframeTimestamp(current, index, snapped))
-                  }}
-                  className="h-8 w-16 rounded-full border-0 bg-muted px-2 text-xs shadow-none"
-                />
-              )}
-            </li>
-          ))}
-        </ol>
-
-        <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
-        <Textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={4}
-          aria-label={t('video:field.description')}
-          placeholder={t('referenceVideo.placeholder')}
-          className="resize-none"
-        />
-
-        <div className="mt-3 flex flex-col gap-2">
-          {option && (
-            <>
-              <Select
-                value={draft.model}
-                onValueChange={(model) => useVideoStore.getState().setModel(model)}
-              >
-                <SelectTrigger
-                  aria-label={t('video:field.model')}
-                  className="h-8 w-auto gap-1.5 self-start rounded-full border-0 bg-muted px-2.5 text-xs"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((one) => (
-                    <SelectItem key={one.modelId} value={one.modelId}>
-                      {one.support.referenceImages
-                        ? one.label
-                        : t('referenceVideo.modelWithoutReferences', { label: one.label })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <VideoPresetRows
-                support={option.support}
-                draft={draft}
-                aspectFollowsFirstFrame={hasFrames}
-              />
-            </>
-          )}
-        </div>
-
-        <div className={`${PANEL_SECTION} mt-4`}>
+    <Dialog
+      onClose={onClose}
+      tier="raised"
+      title={t('referenceVideo.title', { count: items.length })}
+      footer={
+        <div className="w-full">
           {refusal && (
             <p role="alert" className="mb-1.5 text-label-sm text-destructive">
               {refusal}
@@ -282,8 +142,148 @@ export default function ReferenceVideoPopover({
             )}
           </Button>
         </div>
+      }
+    >
+      <p className="mb-3 text-xs text-muted-foreground">{t('referenceVideo.hint')}</p>
+
+      <ol aria-label={t('referenceVideo.listAria')} className="mb-3 flex flex-col gap-1.5">
+        {items.map((item, index) => (
+          <li
+            key={item.entry.imageId}
+            draggable
+            data-input-id={item.entry.imageId}
+            onDragStart={(event) => {
+              // Firefox 不 setData 就不开始拖。
+              event.dataTransfer.setData('text/plain', item.entry.imageId)
+              event.dataTransfer.effectAllowed = 'move'
+              setDragging(index)
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault()
+              if (dragging !== null && dragging !== index)
+                setItems((current) => moveInputItem(current, dragging, index))
+              setDragging(null)
+            }}
+            onDragEnd={() => setDragging(null)}
+            className={`flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 ${dragging === index ? 'opacity-50' : ''}`}
+          >
+            <Icon name="drag" className="shrink-0 cursor-grab text-muted-foreground" />
+            <span className="w-12 shrink-0 text-xs text-muted-foreground">
+              {inputLabel(items, index)}
+            </span>
+            <InputThumb editor={editor} imageId={item.entry.imageId} />
+            {/* 拖动之外给键盘一条路：往前挪一位。 */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={t('referenceVideo.moveUp', { no: index + 1 })}
+              disabled={index === 0}
+              onClick={() => setItems((current) => moveInputItem(current, index, index - 1))}
+              className="ml-auto text-muted-foreground"
+            >
+              <Icon name="chevronUp" />
+            </Button>
+            <Select
+              value={item.role}
+              onValueChange={(role) =>
+                setItems((current) =>
+                  setInputRole(current, index, role as VideoInputRole, draft.duration),
+                )
+              }
+            >
+              <SelectTrigger
+                aria-label={t('referenceVideo.roleAria', { no: index + 1 })}
+                className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
+              >
+                <SelectValue>{roleLabel(item.role)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="reference">{roleLabel('reference')}</SelectItem>
+                {/* 模型接不住的帧不给选，免得选完只看到一句驳回。 */}
+                {framesAllowed && option?.support.firstFrame !== false && (
+                  <SelectItem value="first">{roleLabel('first')}</SelectItem>
+                )}
+                {framesAllowed && option?.support.lastFrame !== false && (
+                  <SelectItem value="last">{roleLabel('last')}</SelectItem>
+                )}
+                {keyframeMax !== undefined && (
+                  <SelectItem
+                    value="keyframe"
+                    disabled={item.role !== 'keyframe' && keyframeCount >= keyframeMax}
+                  >
+                    {roleLabel('keyframe')}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {item.role === 'keyframe' && (
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={draft.duration}
+                step={1 / 3}
+                aria-label={t('referenceVideo.timestampAria', { no: index + 1 })}
+                value={timestampFieldValue(item.timestampSeconds)}
+                onChange={(event) => {
+                  const snapped = snapVideoKeyframeTimestamp(
+                    event.target.valueAsNumber,
+                    draft.duration,
+                  )
+                  if (snapped === null) return
+                  setItems((current) => setKeyframeTimestamp(current, index, snapped))
+                }}
+                className="h-8 w-16 rounded-full border-0 bg-muted px-2 text-xs shadow-none"
+              />
+            )}
+          </li>
+        ))}
+      </ol>
+
+      <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
+      <Textarea
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        rows={4}
+        aria-label={t('video:field.description')}
+        placeholder={t('referenceVideo.placeholder')}
+        className="resize-none"
+      />
+
+      <div className="mt-3 flex flex-col gap-2">
+        {option && (
+          <>
+            <Select
+              value={draft.model}
+              onValueChange={(model) => useVideoStore.getState().setModel(model)}
+            >
+              <SelectTrigger
+                aria-label={t('video:field.model')}
+                className="h-8 w-auto gap-1.5 self-start rounded-full border-0 bg-muted px-2.5 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((one) => (
+                  <SelectItem key={one.modelId} value={one.modelId}>
+                    {one.support.referenceImages
+                      ? one.label
+                      : t('referenceVideo.modelWithoutReferences', { label: one.label })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <VideoPresetRows
+              support={option.support}
+              draft={draft}
+              aspectFollowsFirstFrame={hasFrames}
+            />
+          </>
+        )}
       </div>
-    </Overlay>
+    </Dialog>
   )
 }
 
