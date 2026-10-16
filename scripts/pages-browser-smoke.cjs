@@ -505,12 +505,12 @@ async function checkWorkspace(browser, origin, {
             await navigation.getByRole('button', { name: /选择 \(V\)/, exact: true }).waitFor({
               state: 'visible', timeout: timeoutMs,
             })
-            const title = page.locator('.studio-node-project-title, .studio-project-viewbar').first()
+            const title = page.locator('.studio-node-project-title, .studio-project-viewbar .studio-project-pill').first()
             const titleBox = await title.boundingBox()
             if (!titleBox) throw new Error('Project title is missing at mobile viewport')
             const titleHit = await page.evaluate(({ x, y }) => {
               const target = document.elementFromPoint(x, y)
-              return Boolean(target?.closest('.studio-node-project-title, .studio-project-viewbar'))
+              return Boolean(target?.closest('.studio-node-project-title, .studio-project-viewbar .studio-project-pill'))
             }, { x: titleBox.x + titleBox.width / 2, y: titleBox.y + titleBox.height / 2 })
             if (!titleHit) throw new Error('Project title is obscured by mobile canvas controls')
             const chatButton = page.getByRole('button', { name: '与 AI 对话', exact: true })
