@@ -31,6 +31,22 @@ const App = lazy(() => import('../App'))
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 
+/**
+ * `login=1` is a one-shot intent used by entry points that cannot open the
+ * dialog themselves (a fresh page or a logout reload). Do not consume it until
+ * the session probe has settled: a signed-in user must never see a login
+ * dialog, and an unresolved probe must not make the marketing/workspace
+ * boundary visible.
+ */
+function consumeLoginIntent(open?: () => void): void {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (url.searchParams.get('login') !== '1') return
+  url.searchParams.delete('login')
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  open?.()
+}
+
 export function LoadingScreen() {
   const { t } = useTranslation('auth')
   return (
@@ -101,6 +117,7 @@ export function AuthGate() {
           if (cancelled) return
           setClientStorageScope(id)
           setPhase('ready')
+          consumeLoginIntent()
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
@@ -131,6 +148,7 @@ export function AuthGate() {
           applySessionCapabilityGrants(null)
           setUser(null)
           setPhase('ready')
+          consumeLoginIntent(() => setLoginReason('gated-action'))
           return
         }
         const [adopted] = await Promise.all([
@@ -145,6 +163,7 @@ export function AuthGate() {
           noteBrowserSession(currentUser.id)
           setUser(currentUser)
           setPhase('ready')
+          consumeLoginIntent()
         }
       } catch {
         if (cancelled) return
@@ -187,11 +206,24 @@ export function AuthGate() {
   useEffect(() => subscribeLoginPrompt(setLoginReason), [])
 
   const logout = useCallback(async (clearLocalData: boolean) => {
+    let signedOut = false
     try {
       await logoutUser()
-      noteBrowserSession(null)
+      signedOut = true
       if (clearLocalData) await clearScopedClientStorage()
     } finally {
+      // Keep the existing session hint when the API rejected logout: reloading
+      // must probe the server session rather than silently presenting a guest UI.
+      if (signedOut) {
+        noteBrowserSession(null)
+        // A reload is required here because several account-scoped stores are
+        // module singletons. Keep the exact workspace URL while asking the next
+        // boot to open the dialog; this prevents the old account's in-memory
+        // state from surviving an account switch.
+        const url = new URL(window.location.href)
+        url.searchParams.set('login', '1')
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+      }
       window.location.reload()
     }
   }, [])

@@ -164,6 +164,11 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 **开着 `accounts:login` 的部署照常挂载工作台**：`/api/auth/me` 答 401 时 `AuthGate`
 保持匿名 scope，只有需要账号的动作才弹 [`LoginDialog`](./src/auth/LoginDialog.tsx)。
 成功登录仍 reload 当前地址：重启时先 `adoptAnonymousStorage()`，再挂工作台与恢复待发请求。
+退出登录也保留当前路径、查询串与 hash，带一次性的 `login=1` 重启；会话解析完成后
+匿名用户打开登录框，已登录用户只消费参数不弹框。这样重建模块级账号 store 时不会短暂展示旧账号数据。
+官网「开始创作」先进入 `/image?login=1`，登录框只在工作台打开。OAuth 发起时携带
+工作台相对地址 `return_to`；BFF 校验并绑定到本次 state，回调直接回原工作台地址，
+未提供或无效时落到 `/image`，不经官网首页中转。
 
 - [`loginPrompt.ts`](./src/auth/loginPrompt.ts) 是统一弹框接缝。需要账号的动作在发请求前走
   `requireAccount()`；单次动作默认停下，不落任务行或 toast。生成提交与首屏画布发送例外：
