@@ -24,14 +24,20 @@ import { copy, type Locale } from '../catalog'
 const LoginDialog = lazy(() =>
   import('../../../web/src/auth/LoginDialog').then((module) => ({ default: module.LoginDialog })),
 )
-function workspaceEntryUrl() {
-  const url = new URL(location.href)
-  url.pathname = '/image'
-  url.searchParams.set('login', '1')
-  return `${url.pathname}${url.search}${url.hash}`
-}
 
-export default function SiteAuth({ locale, page }: { locale: Locale; page: string }) {
+export default function SiteAuth({
+  locale,
+  page,
+  open,
+  onClose,
+  onOpen,
+}: {
+  locale: Locale
+  page: string
+  open: boolean
+  onOpen: () => void
+  onClose: () => void
+}) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [attempt, setAttempt] = useState(0)
   const text = copy[locale]
@@ -48,7 +54,7 @@ export default function SiteAuth({ locale, page }: { locale: Locale; page: strin
       await bootstrapClientCapabilities(true, runtime.bff.baseUrl, true)
       if (!active) return
       if (!isClientCapabilityEnabled('accounts:login')) {
-        if (page === 'home' || page === 'login') location.replace('/image')
+        if (page === 'home' || page === 'login' || open) location.replace('/image')
         return
       }
       if (shouldProbeSession()) {
@@ -58,17 +64,14 @@ export default function SiteAuth({ locale, page }: { locale: Locale; page: strin
         })
         if (!active) return
         noteBrowserSession(user?.id ?? null)
-        if (user && (page === 'home' || page === 'login')) {
+        if (user && (page === 'home' || page === 'login' || open)) {
           location.replace('/image')
           return
         }
       }
       const pending = await hasPendingSubmission().catch(() => false)
       if (active) {
-        const needsLogin =
-          page === 'home' &&
-          (pending || new URLSearchParams(location.search).has(OAUTH_ERROR_QUERY_PARAM))
-        if (needsLogin) location.replace(workspaceEntryUrl())
+        if (pending || new URLSearchParams(location.search).has(OAUTH_ERROR_QUERY_PARAM)) onOpen()
         setStatus('ready')
       }
     }
@@ -79,11 +82,12 @@ export default function SiteAuth({ locale, page }: { locale: Locale; page: strin
       active = false
     }
   }, [locale, page, attempt])
-  const visible = page === 'login'
+  const visible = open || page === 'login'
   if (!visible) return null
   const close = () => {
     void discardPendingSubmission()
-    location.assign(locale === 'en' ? '/en/' : '/')
+    if (page === 'login') location.assign(locale === 'en' ? '/en/' : '/')
+    else onClose()
   }
   if (status !== 'ready')
     return (
@@ -112,7 +116,7 @@ export default function SiteAuth({ locale, page }: { locale: Locale; page: strin
       <LoginDialog
         plansHref="/pricing"
         onClose={close}
-        presentation="page"
+        presentation={page === 'login' ? 'page' : 'dialog'}
         onAuthenticated={() => location.assign('/image')}
       />
     </Suspense>
