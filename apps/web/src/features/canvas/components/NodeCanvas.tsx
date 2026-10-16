@@ -693,9 +693,8 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
 function availableCanvasArea(container: HTMLElement): Rect {
   const flow = container.querySelector<HTMLElement>('.react-flow') ?? container
   const flowRect = flow.getBoundingClientRect()
-  const bounds = flowRect.width > 0 && flowRect.height > 0
-    ? flowRect
-    : container.getBoundingClientRect()
+  const bounds =
+    flowRect.width > 0 && flowRect.height > 0 ? flowRect : container.getBoundingClientRect()
   const width = flow.clientWidth || container.clientWidth
   const height = flow.clientHeight || container.clientHeight
   let left = 16
