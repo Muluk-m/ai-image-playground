@@ -288,12 +288,12 @@ describe('auth client', () => {
   it('points the OAuth start route at the configured BFF origin', () => {
     vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
     expect(oauthStartUrl('google')).toBe(
-      'https://bff.example.com/api/auth/oauth/google/start?return_to=%2Fimage',
+      'https://bff.example.com/api/auth/oauth/google/start?return_to=%2F',
     )
   })
 
   it.each([
-    '/image?prompt=hello%20world&login=1#composer',
+    '/?prompt=hello%20world&login=1#composer',
     '/assets?tab=projects#recent',
     '/explore?tag=art#results',
     '/tools?tool=resize#upload',
@@ -317,31 +317,30 @@ describe('auth client', () => {
   })
 
   it.each([
-    '/',
     '/login?ref=invite#signup',
     '/guide/start',
     '/p/',
     '/p/%FF',
-  ])('defaults website and invalid project entries to /image at %s', (target) => {
+  ])('defaults website and invalid project entries to / at %s', (target) => {
     vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
-    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/image')
-    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/image')
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/')
   })
 
-  it('defaults to /image without a browser and omits blank referrals', () => {
+  it('defaults to / without a browser and omits blank referrals', () => {
     vi.stubGlobal('window', undefined)
     const start = new URL(oauthStartUrl('google', '  '))
-    expect(start.searchParams.get('return_to')).toBe('/image')
+    expect(start.searchParams.get('return_to')).toBe('/')
     expect(start.searchParams.has('ref')).toBe(false)
-    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/image')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/')
   })
 
-  it('defaults oversized workspace targets to /image', () => {
+  it('defaults oversized workspace targets to /', () => {
     vi.stubGlobal('window', {
-      location: new URL(`https://app.example.com/image?prompt=${'a'.repeat(2048)}`),
+      location: new URL(`https://app.example.com/?prompt=${'a'.repeat(2048)}`),
     })
-    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/image')
-    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/image')
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/')
   })
 
   it('keeps well-formed providers and drops malformed ones', async () => {

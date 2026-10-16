@@ -32,16 +32,16 @@ const STATE_COOKIE = 'image_playground_oauth_state'
 const RETURN_TO_COOKIE = 'image_playground_oauth_return_to'
 const STATE_TTL_SECONDS = 600
 const RETURN_TO_MAX_LENGTH = 2048
-const DEFAULT_RETURN_TO = '/image'
-const WORKSPACE_PATHS = new Set([
-  '/image',
-  '/assets',
-  '/explore',
-  '/tools',
-  '/pricing',
-  '/terms',
-  '/privacy',
-])
+const DEFAULT_RETURN_TO = '/'
+const WORKSPACE_PATHS: Record<string, true> = {
+  '/': true,
+  '/assets': true,
+  '/explore': true,
+  '/tools': true,
+  '/pricing': true,
+  '/terms': true,
+  '/privacy': true,
+}
 
 const STATE_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -115,10 +115,12 @@ function validateReturnTarget(request: Request, requested: unknown): string {
       ? parsed.pathname.slice(0, -1)
       : parsed.pathname
   const isProjectRoute = /^\/p\/[^/]+$/.test(normalizedPath)
-  if (!WORKSPACE_PATHS.has(normalizedPath) && !isProjectRoute) {
+  const canonicalRoute = normalizedPath === '/image' ? DEFAULT_RETURN_TO : normalizedPath
+  if (!Object.hasOwn(WORKSPACE_PATHS, canonicalRoute) && !isProjectRoute) {
     return DEFAULT_RETURN_TO
   }
-  const target = `${parsed.pathname}${parsed.search}${parsed.hash}`
+  const pathname = normalizedPath === '/image' ? DEFAULT_RETURN_TO : parsed.pathname
+  const target = `${pathname}${parsed.search}${parsed.hash}`
   return target.length <= RETURN_TO_MAX_LENGTH ? target : DEFAULT_RETURN_TO
 }
 

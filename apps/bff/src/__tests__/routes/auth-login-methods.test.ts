@@ -150,7 +150,7 @@ async function loginMethods(session: string): Promise<LoginMethodsView> {
 async function oauthOnlyAccount(subject: string, email: string): Promise<string> {
   stubGoogle({ sub: subject, email, email_verified: true, name: 'Creator' })
   const response = await callback(await startFlow('start'))
-  expect(response.headers.get('location')).toBe('https://app.example.com/image?auth_session=1')
+  expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
   const session = readCookie(response, USER_SESSION_COOKIE)
   if (!session) throw new Error('oauth login issued no session')
   return session
@@ -275,7 +275,7 @@ describe('identity linking', () => {
 
     const response = await callback(stateCookie, session)
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('https://app.example.com/image?auth_link=google')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_link=google')
     // A link must never mint a session; the caller is already signed in.
     expect(readCookie(response, USER_SESSION_COOKIE)).toBeNull()
 
@@ -324,7 +324,7 @@ describe('identity linking', () => {
 
     const response = await callback(stateCookie, session)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_link_error=identity_taken',
+      'https://app.example.com/?auth_link_error=identity_taken',
     )
     expect((await loginMethods(session)).identities).toEqual([])
     expect(await db.select().from(schema.user_identities)).toHaveLength(1)
@@ -338,7 +338,7 @@ describe('identity linking', () => {
 
     const response = await callback(stateCookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_link_error=unauthenticated',
+      'https://app.example.com/?auth_link_error=unauthenticated',
     )
     expect(await db.select().from(schema.user_identities)).toHaveLength(0)
     expect(await db.select().from(schema.users)).toHaveLength(1)
@@ -352,7 +352,7 @@ describe('identity linking', () => {
 
     const response = await callback(stateCookie, switched)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_link_error=unauthenticated',
+      'https://app.example.com/?auth_link_error=unauthenticated',
     )
     expect(await db.select().from(schema.user_identities)).toHaveLength(0)
   })
@@ -367,7 +367,7 @@ describe('identity linking', () => {
       { session, state: stateCookie },
     )
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_link_error=access_denied',
+      'https://app.example.com/?auth_link_error=access_denied',
     )
   })
 
@@ -378,7 +378,7 @@ describe('identity linking', () => {
     // The mode lives in the state cookie, so a login flow finished by a signed-in browser
     // provisions its own account instead of silently joining the open session.
     const response = await callback(await startFlow('start'), session)
-    expect(response.headers.get('location')).toBe('https://app.example.com/image?auth_session=1')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
     expect((await loginMethods(session)).identities).toEqual([])
     expect(await db.select().from(schema.users)).toHaveLength(2)
   })

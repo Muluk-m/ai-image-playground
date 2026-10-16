@@ -208,11 +208,16 @@ describe('oauth callback', () => {
     const response = await callback('google', { error: 'access_denied', state }, cookie)
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=access_denied&login=1',
+      'https://app.example.com/?auth_error=access_denied&login=1',
     )
   })
 
-  it('returns a successful login to the requested workspace route with query and hash', async () => {
+  it.each([
+    ['/?keep=1#x', '/'],
+    ['/image?keep=1#x', '/'],
+    ['/image/?keep=1#x', '/'],
+    ['/assets?keep=1#x', '/assets'],
+  ])('returns a successful login from %s to canonical %s with query and hash', async (target, path) => {
     enableGoogle()
     stubUpstream(
       googleRoutes({
@@ -223,7 +228,7 @@ describe('oauth callback', () => {
       }),
     )
     const start = await request(
-      `/api/auth/oauth/google/start?return_to=${encodeURIComponent('/assets?keep=1#x')}`,
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent(target)}`,
     )
     const location = new URL(start.headers.get('location') ?? '')
     const state = location.searchParams.get('state') ?? ''
@@ -238,14 +243,19 @@ describe('oauth callback', () => {
       returnToCookie,
     )
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/assets?keep=1&auth_session=1#x',
+      `https://app.example.com${path}?keep=1&auth_session=1#x`,
     )
   })
 
-  it('returns a denial to the requested workspace route and opens login', async () => {
+  it.each([
+    ['/?keep=1#x', '/'],
+    ['/image?keep=1#x', '/'],
+    ['/image/?keep=1#x', '/'],
+    ['/assets?keep=1#x', '/assets'],
+  ])('returns a denial from %s to canonical %s and opens login', async (target, path) => {
     enableGoogle()
     const start = await request(
-      `/api/auth/oauth/google/start?return_to=${encodeURIComponent('/assets?keep=1#x')}`,
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent(target)}`,
     )
     const location = new URL(start.headers.get('location') ?? '')
     const state = location.searchParams.get('state') ?? ''
@@ -260,13 +270,13 @@ describe('oauth callback', () => {
       returnToCookie,
     )
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/assets?keep=1&auth_error=access_denied&login=1#x',
+      `https://app.example.com${path}?keep=1&auth_error=access_denied&login=1#x`,
     )
   })
 
-  it('defaults malicious return targets and mismatched metadata to the image workspace', async () => {
+  it('defaults malicious return targets and mismatched metadata to the root workspace', async () => {
     enableGoogle()
-    for (const requested of ['https://evil.example/steal', '//evil.example/steal', '/']) {
+    for (const requested of ['https://evil.example/steal', '//evil.example/steal', '/login']) {
       const start = await request(
         `/api/auth/oauth/google/start?return_to=${encodeURIComponent(requested)}`,
       )
@@ -282,7 +292,7 @@ describe('oauth callback', () => {
         returnToCookie,
       )
       expect(response.headers.get('location')).toBe(
-        'https://app.example.com/image?auth_error=access_denied&login=1',
+        'https://app.example.com/?auth_error=access_denied&login=1',
       )
     }
 
@@ -303,7 +313,7 @@ describe('oauth callback', () => {
       firstMetadata,
     )
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=access_denied&login=1',
+      'https://app.example.com/?auth_error=access_denied&login=1',
     )
   })
 
@@ -315,7 +325,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'bad-code', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=exchange_failed&login=1',
+      'https://app.example.com/?auth_error=exchange_failed&login=1',
     )
   })
 
@@ -327,7 +337,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'stale', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=exchange_failed&login=1',
+      'https://app.example.com/?auth_error=exchange_failed&login=1',
     )
   })
 
@@ -337,7 +347,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'code-alpha', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=identity_failed&login=1',
+      'https://app.example.com/?auth_error=identity_failed&login=1',
     )
   })
 
@@ -350,7 +360,7 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     const response = await callback('google', { code: 'code-alpha', state }, cookie)
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=identity_failed&login=1',
+      'https://app.example.com/?auth_error=identity_failed&login=1',
     )
   })
 
@@ -368,7 +378,7 @@ describe('oauth callback', () => {
     const response = await callback('google', { code: 'code-alpha', state }, cookie)
 
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('https://app.example.com/image?auth_session=1')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
 
     const exchange = new URLSearchParams(calls[0]?.body ?? '')
     expect(exchange.get('grant_type')).toBe('authorization_code')
@@ -433,7 +443,7 @@ describe('oauth callback', () => {
       second.cookie,
     )
 
-    expect(response.headers.get('location')).toBe('https://app.example.com/image?auth_session=1')
+    expect(response.headers.get('location')).toBe('https://app.example.com/?auth_session=1')
     expect(await db.select().from(schema.users)).toHaveLength(1)
     expect(await db.select().from(schema.user_identities)).toHaveLength(1)
     expect(createdUserIds).toHaveLength(1)
@@ -503,7 +513,7 @@ describe('oauth callback', () => {
       second.cookie,
     )
     expect(response.headers.get('location')).toBe(
-      'https://app.example.com/image?auth_error=account_disabled&login=1',
+      'https://app.example.com/?auth_error=account_disabled&login=1',
     )
     expect(readCookie(response, USER_SESSION_COOKIE)).toBeNull()
   })
