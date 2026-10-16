@@ -109,7 +109,9 @@ async function checkWorkspace(browser, origin, {
         && url.origin === new URL(origin).origin && !url.pathname.startsWith('/cdn-cgi/')
     }
     page.on('requestfailed', (request) => {
-      if (isRequiredAsset(request))
+      // Navigating away legitimately aborts lazy chunks from the previous document.
+      // Startup failures still surface through page errors, readiness timeouts, or HTTP errors.
+      if (isRequiredAsset(request) && request.failure()?.errorText !== 'net::ERR_ABORTED')
         fail(`Asset request failed: ${request.url()} ${request.failure()?.errorText}`)
     })
     page.on('response', (response) => {
@@ -482,7 +484,10 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     const url = new URL(request.url())
     return ['script','stylesheet'].includes(request.resourceType()) && url.origin === origin && !url.pathname.startsWith('/cdn-cgi/')
   }
-  page.on('requestfailed', request => { if (requiredAsset(request)) errors.push(`Asset request failed: ${request.url()}`) })
+  page.on('requestfailed', request => {
+    if (requiredAsset(request) && request.failure()?.errorText !== 'net::ERR_ABORTED')
+      errors.push(`Asset request failed: ${request.url()} ${request.failure()?.errorText}`)
+  })
   page.on('response', response => { if (requiredAsset(response.request()) && !response.ok()) errors.push(`Asset HTTP ${response.status()}: ${response.url()}`) })
   if (local) await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url())
