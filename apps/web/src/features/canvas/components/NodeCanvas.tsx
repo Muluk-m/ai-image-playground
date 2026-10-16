@@ -691,10 +691,11 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
 
 /** Overlay footprints are measured in screen pixels; changing composer height must not hide nodes. */
 function availableCanvasArea(container: HTMLElement): Rect {
-  const bounds = container.getBoundingClientRect()
+  const flow = container.querySelector<HTMLElement>('.react-flow') ?? container
+  const bounds = flow.getBoundingClientRect()
   let left = 16
   let top = 16
-  let bottom = container.clientHeight - 16
+  let bottom = flow.clientHeight - 16
   const visible = (element: Element) => {
     const rect = element.getBoundingClientRect()
     return rect.width > 0 &&
@@ -730,7 +731,7 @@ function availableCanvasArea(container: HTMLElement): Rect {
   return {
     x: left,
     y: top,
-    width: Math.max(1, container.clientWidth - left - 16),
+    width: Math.max(1, flow.clientWidth - left - 16),
     height: Math.max(1, bottom - top),
   }
 }
