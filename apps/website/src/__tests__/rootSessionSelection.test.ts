@@ -2,14 +2,9 @@ import { runInNewContext } from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { ROOT_SESSION_SELECTION_SCRIPT } from '../rootSessionSelection'
 
-function select({
-  cookie = '',
-  remembered = 'null',
-  search = '',
-  pathname = '/',
-  blockedCookie = false,
-  blockedStorage = false,
-} = {}) {
+ @ours
+ @ours
+ @ours
   const replace = vi.fn()
   const style = { visibility: '' }
   const document = {
