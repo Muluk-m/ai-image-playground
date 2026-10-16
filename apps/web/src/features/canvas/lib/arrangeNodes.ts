@@ -1,5 +1,5 @@
 import type { CanvasSnapshot } from '@image-playground/shared'
-import { TEXT_CARD_HEIGHT, TEXT_CARD_WIDTH } from './nodeCanvasPlace'
+import { nodeCardSize } from './nodeCanvasPlace'
 
 export type CanvasPlacement = { id: string; x: number; y: number }
 
@@ -7,14 +7,26 @@ export type CanvasPlacement = { id: string; x: number; y: number }
 export function arrangeNodes(snapshot: CanvasSnapshot): CanvasPlacement[] {
   const groups = snapshot.groups ?? []
   const owner = new Map(groups.flatMap((g) => g.members.map((id) => [id, g.id] as const)))
+  const groupBounds = new Map(groups.map((group) => [group.id, { ...group }]))
+  for (const node of snapshot.nodes) {
+    const groupId = owner.get(node.id)
+    const bounds = groupId ? groupBounds.get(groupId) : undefined
+    if (!bounds) continue
+    const size = nodeCardSize(node)
+    const right = Math.max(bounds.x + bounds.width, node.x + size.width)
+    const bottom = Math.max(bounds.y + bounds.height, node.y + size.height)
+    bounds.x = Math.min(bounds.x, node.x)
+    bounds.y = Math.min(bounds.y, node.y)
+    bounds.width = right - bounds.x
+    bounds.height = bottom - bounds.y
+  }
   const boxes = [
-    ...groups,
+    ...groupBounds.values(),
     ...snapshot.nodes
       .filter((n) => !owner.has(n.id))
       .map((n) => ({
         ...n,
-        width: n.type === 'text' ? Math.max(n.width, TEXT_CARD_WIDTH) : n.width,
-        height: n.type === 'text' ? Math.max(n.height, TEXT_CARD_HEIGHT) : n.height,
+        ...nodeCardSize(n),
       })),
   ].sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id))
   if (!boxes.length) return []
@@ -95,6 +107,14 @@ export function arrangeNodes(snapshot: CanvasSnapshot): CanvasPlacement[] {
       })
     x += cluster.width + 168
     rowHeight = Math.max(rowHeight, cluster.height)
+  }
+  // Layout positions refer to the hull; return authored group origins so member offsets survive.
+  for (const group of groups) {
+    const position = placed.get(group.id)
+    const bounds = groupBounds.get(group.id)!
+    if (!position) continue
+    position.x += group.x - bounds.x
+    position.y += group.y - bounds.y
   }
   for (const node of snapshot.nodes) {
     const group = groups.find((g) => g.id === owner.get(node.id))
