@@ -380,7 +380,7 @@ async function checkWorkspace(browser, origin, {
               Math.abs(afterZoomBox.height - flowBox.height) > 2)
               throw new Error(`Canvas frame changed size during zoom: ${JSON.stringify({ flowBox, afterZoomBox })}`)
             const upload = page.locator(
-              '.studio-node-canvas input[type="file"][aria-hidden="true"][tabindex="-1"]',
+              '.studio-node-canvas input.sr-only[type="file"][aria-hidden="true"][tabindex="-1"]',
             )
             await upload.waitFor({ state: 'attached', timeout: timeoutMs })
             const beforeIds = await page.locator('.react-flow__node').evaluateAll((nodes) =>
