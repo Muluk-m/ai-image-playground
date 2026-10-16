@@ -8,7 +8,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { downloadBlob } from '../lib/downloadImages'
 import { loadImageOriginal } from '../lib/imageSource'
 import { useStore } from '../store'
-import Overlay from './patterns/Overlay'
+import Overlay, { type OverlayTier } from './patterns/Overlay'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 
@@ -195,12 +195,14 @@ export default function Lightbox() {
 /** Preview canvas pixels without importing them into generation history. */
 export function ImagePreview({
   src,
+  tier,
   onClose,
   originalPending = false,
   originalFailed = false,
   onRetryOriginal,
 }: {
   src: string
+  tier?: OverlayTier
   onClose: () => void
   originalPending?: boolean
   originalFailed?: boolean
@@ -208,6 +210,7 @@ export function ImagePreview({
 }) {
   return (
     <LightboxInner
+      tier={tier}
       src={src}
       originalPending={originalPending}
       originalFailed={originalFailed}
@@ -224,6 +227,7 @@ export function ImagePreview({
 }
 
 interface LightboxInnerProps {
+  tier?: OverlayTier
   src: string
   /** 展示的还是缩略图，原图仍在读：下载得等真像素，界面也要说清楚。 */
   originalPending?: boolean
@@ -241,6 +245,7 @@ interface LightboxInnerProps {
 
 /** 内部组件：保证挂载时 DOM 已经存在，所有 ref / effect 都可靠 */
 function LightboxInner({
+  tier = 'raised',
   src,
   originalPending = false,
   originalFailed = false,
@@ -620,7 +625,7 @@ function LightboxInner({
   return (
     <Overlay
       onClose={onClose}
-      tier="raised"
+      tier={tier}
       backdrop="none"
       layout="fill"
       label={t('lightbox.dialog')}

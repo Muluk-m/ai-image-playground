@@ -18,6 +18,7 @@ import { Hint } from '../../../components/ui/tooltip'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { parseRatio } from '../../../lib/size'
 import { useStore } from '../../../store'
@@ -1210,10 +1211,19 @@ function StandardAgentToolCard({
               onCopy={
                 message.prompt
                   ? () => {
-                      void navigator.clipboard.writeText(message.prompt ?? '').then(() => {
-                        setCopiedPrompt(true)
-                        window.setTimeout(() => setCopiedPrompt(false), 1500)
-                      })
+                      void copyTextToClipboard(message.prompt ?? '').then(
+                        () => {
+                          setCopiedPrompt(true)
+                          window.setTimeout(() => setCopiedPrompt(false), 1500)
+                        },
+                        (error) =>
+                          useStore
+                            .getState()
+                            .showToast(
+                              getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                              'error',
+                            ),
+                      )
                     }
                   : undefined
               }
@@ -1595,7 +1605,20 @@ export function AgentImageRun({
           copyLabel={t('tool.copyPrompt')}
           regenerateLabel={t('tool.regenerate')}
           onCopy={
-            lead.prompt ? () => void navigator.clipboard.writeText(lead.prompt ?? '') : undefined
+            lead.prompt
+              ? () => {
+                  void copyTextToClipboard(lead.prompt ?? '').then(
+                    () => useStore.getState().showToast(t('promptDialog.copied'), 'success'),
+                    (error) =>
+                      useStore
+                        .getState()
+                        .showToast(
+                          getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                          'error',
+                        ),
+                  )
+                }
+              : undefined
           }
           onRegenerate={() =>
             void useAgentStore

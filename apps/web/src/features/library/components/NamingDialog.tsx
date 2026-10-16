@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
-import Overlay from '../../../components/patterns/Overlay'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
@@ -29,6 +29,7 @@ export default function NamingDialog({
 }: NamingDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState(defaultName)
+  const formId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -38,15 +39,29 @@ export default function NamingDialog({
   const finalName = name.trim() || defaultName.trim()
 
   return (
-    <Overlay onClose={onCancel} tier="raised">
+    <Dialog
+      onClose={onCancel}
+      tier="raised"
+      title={title}
+      className="max-w-sm"
+      footer={
+        <>
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            {t('action.cancel')}
+          </Button>
+          <Button type="submit" form={formId} size="sm" disabled={!finalName}>
+            {t('action.save')}
+          </Button>
+        </>
+      }
+    >
       <form
+        id={formId}
         onSubmit={(e) => {
           e.preventDefault()
           if (finalName) onSave(finalName)
         }}
-        className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border"
       >
-        <h3 className="text-base font-semibold text-foreground">{title}</h3>
         {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
 
         <div className="mt-4 flex items-center gap-3">
@@ -64,16 +79,7 @@ export default function NamingDialog({
             className="min-w-0 flex-1 rounded-xl"
           />
         </div>
-
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            {t('action.cancel')}
-          </Button>
-          <Button type="submit" size="sm" disabled={!finalName}>
-            {t('action.save')}
-          </Button>
-        </div>
       </form>
-    </Overlay>
+    </Dialog>
   )
 }
