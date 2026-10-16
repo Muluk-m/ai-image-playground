@@ -189,11 +189,13 @@ function fireDrag(target: Element, type: string, files: File[]): void {
 }
 
 /** 读文件与压缩都是异步的，等它们落进引用区。 */
-async function attached(): Promise<string[]> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20))
+async function attached(count = 1): Promise<string[]> {
+  return vi.waitFor(async () => {
+    await act(async () => {})
+    const sources = [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
+    expect(sources).toHaveLength(count)
+    return sources
   })
-  return [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
 }
 
 /** 隐藏的 file input 在 jsdom 里选不到真文件，塞一份进去再派 change。 */
@@ -266,7 +268,7 @@ describe('智能体输入框', () => {
     const zone = host.querySelector('[data-image-dropzone]')!
     fireDrag(zone, 'drop', [png('1.png'), png('2.png'), png('3.png'), png('4.png')])
 
-    expect(await attached()).toHaveLength(0)
+    expect(await attached(0)).toHaveLength(0)
     const dialog = useStore.getState().confirmDialog
     if (!dialog) throw new Error('missing confirm dialog')
 
@@ -283,9 +285,9 @@ describe('智能体输入框', () => {
     const zone = host.querySelector('[data-image-dropzone]')!
     fireDrag(zone, 'drop', [png('1.png'), png('2.png'), png('3.png'), png('4.png')])
 
-    expect(await attached()).toHaveLength(0)
+    expect(await attached(0)).toHaveLength(0)
     act(() => useStore.getState().setConfirmDialog(null))
-    expect(await attached()).toHaveLength(0)
+    expect(await attached(0)).toHaveLength(0)
 
     type('先只说话')
     click('发送并拟提示词')
@@ -310,7 +312,7 @@ describe('智能体输入框', () => {
       editor().dispatchEvent(event)
     })
 
-    expect(await attached()).toHaveLength(3)
+    expect(await attached(3)).toHaveLength(3)
     expect(useStore.getState().confirmDialog).toBeNull()
   })
 
@@ -338,7 +340,7 @@ describe('智能体输入框', () => {
         expect(agentDraft(null).getSnapshot().draft.references).toHaveLength(2),
       )
     })
-    expect(await attached()).toHaveLength(2)
+    expect(await attached(2)).toHaveLength(2)
     expect(host.querySelector('img[alt="2"]')).not.toBeNull()
   })
 

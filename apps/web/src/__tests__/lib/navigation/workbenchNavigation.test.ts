@@ -89,7 +89,15 @@ it('leaves the initial root intact but canonicalizes a later return after subscr
   useStore.getState().setAppMode('library')
   popTo('/')
   expect(useStore.getState().appMode).toBe('image')
-  expect(location.pathname).toBe('/image')
+  expect(location.pathname).toBe('/')
+})
+it('canonicalizes the workbench static entry before syncing the workspace mode', () => {
+  useStore.setState({ appMode: 'canvas' })
+  history.replaceState(null, '', '/workbench.html?source=legacy#canvas')
+  cleanup = installWorkbenchNavigation()
+  expect(useStore.getState().appMode).toBe('image')
+  expect(location.pathname).toBe('/')
+  expect(location.search + location.hash).toBe('?source=legacy#canvas')
 })
 
 it('corrects an old address on same-project activation without adding history or losing the suffix', async () => {
@@ -230,11 +238,11 @@ it.each([
 })
 
 describe('pathAppMode', () => {
-  it('maps the image and library addresses, folds the legacy projects address into library, and leaves the rest to other routes', () => {
-    expect(pathAppMode('/image')).toBe('image')
+  it('maps the canonical root and library addresses, folding legacy projects into library', () => {
+    expect(pathAppMode('/')).toBe('image')
+    expect(pathAppMode('/image')).toBeNull()
     expect(pathAppMode('/assets')).toBe('library')
     expect(pathAppMode('/projects/')).toBe('library')
-    expect(pathAppMode('/')).toBeNull()
     expect(pathAppMode('/p/abc')).toBeNull()
     expect(pathAppMode('/pricing')).toBeNull()
     expect(pathAppMode('/pricing/')).toBeNull()
@@ -253,7 +261,7 @@ describe('installWorkbenchNavigation', () => {
     const before = history.length
 
     useStore.getState().setAppMode('image')
-    expect(location.pathname).toBe('/image')
+    expect(location.pathname).toBe('/')
     useStore.getState().setAppMode('explore')
     expect(location.pathname).toBe('/explore')
     useStore.getState().setAppMode('canvas')
@@ -311,6 +319,6 @@ describe('installWorkbenchNavigation', () => {
     useCanvasProjectStore.setState({ activeId: 'project-1' })
     popTo('/')
     expect(useStore.getState().appMode).toBe('image')
-    expect(location.pathname).toBe('/image')
+    expect(location.pathname).toBe('/')
   })
 })

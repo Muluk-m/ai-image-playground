@@ -180,7 +180,6 @@ export function prepareStoryboardFrames(
         createNode(canvas, 'image', { x: 0, y: 0 }, '', {
           nodes: [{ ...board, y: board.y + index * 408 }],
           side: 'right',
-          size: { width: 360, height: 240 },
         })
       const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === frameId)!
       if (node.type !== 'image') continue
@@ -217,7 +216,6 @@ export function prepareStoryboardFrames(
           createNode(canvas, 'image', { x: 0, y: 0 }, '', {
             nodes: [board],
             side: 'right',
-            size: { width: 480, height: 360 },
           })
         const grid = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === gridId)!
         if (grid.type !== 'image') continue

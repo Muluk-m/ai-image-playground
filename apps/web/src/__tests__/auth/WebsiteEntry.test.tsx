@@ -53,7 +53,7 @@ beforeEach(() => {
   replace.mockClear()
   assign.mockClear()
   onOpen.mockClear()
-  vi.stubGlobal('location', { replace, assign, search: '' })
+  vi.stubGlobal('location', { replace, assign, search: '', hash: '' })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -83,7 +83,7 @@ it('takes a verified existing session directly to the workbench', async () => {
   state.probe = true
   state.user = { id: 'fixture' }
   await render()
-  expect(replace).toHaveBeenCalledExactlyOnceWith('/image')
+  expect(replace).toHaveBeenCalledExactlyOnceWith('/workbench')
 })
 it('opens login to recover a pending workbench submission', async () => {
   state.pending = true
@@ -95,7 +95,7 @@ it('opens login to recover a pending workbench submission', async () => {
 it('enters the workbench after login without submitting a sample prompt', async () => {
   await render(true)
   await act(async () => host.querySelector('button')!.click())
-  expect(assign).toHaveBeenCalledExactlyOnceWith('/image')
+  expect(assign).toHaveBeenCalledExactlyOnceWith('/workbench?auth_session=1')
 })
 it('keeps a network failure recoverable instead of navigating to a broken workbench', async () => {
   state.failed = true
@@ -107,7 +107,7 @@ it('keeps a network failure recoverable instead of navigating to a broken workbe
 it('enters the workbench when login is disabled by the deployment', async () => {
   state.login = false
   await render()
-  expect(replace).toHaveBeenCalledExactlyOnceWith('/image')
+  expect(replace).toHaveBeenCalledExactlyOnceWith('/workbench')
 })
 
 it('keeps a failed auth chunk recoverable without replacing the website', async () => {

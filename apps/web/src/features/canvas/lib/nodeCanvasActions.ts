@@ -14,6 +14,8 @@ import {
 } from '@image-playground/shared'
 import { newElementId } from './canvasDoc'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
+import { nodeCardSize } from './nodeCanvasPlace'
+import { findFreeCanvasPlacement, PLACEMENT_GAP } from './placement'
 
 export type CreateNodeKind = 'text' | 'image' | 'video' | 'timeline' | 'storyboard'
 export function nodeKind(node: CanvasNode): CreateNodeKind | 'timeline' {
@@ -27,14 +29,17 @@ export function createNode(
   beside?: {
     nodes: readonly CanvasNode[]
     side: 'left' | 'right'
-    size?: { width: number; height: number }
   },
   text?: { name?: string; text?: string; prompt?: string },
 ): string {
   const id = newElementId()
-  const { width, height } = beside?.size ?? canvasNodeRegistry[kind].size
-  const occupied = readCanvasDocument(canvas.doc).nodes
-  const anchors = beside?.nodes ?? []
+  const { width, height } = canvasNodeRegistry[kind].size
+  const snapshot = readCanvasDocument(canvas.doc)
+  const occupied = [
+    ...snapshot.nodes.map((node) => ({ ...node, ...nodeCardSize(node) })),
+    ...(snapshot.groups ?? []),
+  ]
+  const anchors = beside?.nodes.map((node) => ({ ...node, ...nodeCardSize(node) })) ?? []
   const gap = 168
   const x = anchors.length
     ? beside?.side === 'left'
@@ -42,16 +47,8 @@ export function createNode(
       : Math.max(...anchors.map((n) => n.x + n.width)) + gap
     : point.x - width / 2
   const preferredY = anchors.length ? Math.min(...anchors.map((n) => n.y)) : point.y - height / 2
-  const column = occupied.filter((n) => x < n.x + n.width + gap && x + width + gap > n.x)
-  // Keep siblings in one column, choosing the nearest free slot above or below the anchor.
-  const candidates = [
-    preferredY,
-    ...column.flatMap((n) => [n.y + n.height + gap, n.y - height - gap]),
-  ].sort((a, b) => Math.abs(a - preferredY) - Math.abs(b - preferredY) || b - a)
-  const y =
-    candidates.find((candidate) =>
-      column.every((n) => candidate >= n.y + n.height + gap || candidate + height + gap <= n.y),
-    ) ?? preferredY
+  const offset = findFreeCanvasPlacement([{ x, y: preferredY, width, height }], occupied, gap)
+  const y = preferredY + offset.y
   canvas.undo.stopCapturing()
   insertCanvasNode(
     canvas.doc,
@@ -130,6 +127,28 @@ export function pasteNodes(
   if (!boxes.length) return []
   const x = Math.min(...boxes.map((n) => n.x))
   const y = Math.min(...boxes.map((n) => n.y))
+  const placed = new Map<string, { x: number; y: number; width: number; height: number }>()
+  for (const node of copied.nodes) {
+    const box = { x: node.x - x + point.x, y: node.y - y + point.y, ...nodeCardSize(node) }
+    const offset = findFreeCanvasPlacement([box], [...placed.values()], PLACEMENT_GAP)
+    placed.set(node.id, { ...box, x: box.x + offset.x, y: box.y + offset.y })
+  }
+  const snapshot = readCanvasDocument(canvas.doc)
+  const offset = findFreeCanvasPlacement(
+    [
+      ...placed.values(),
+      ...(copied.groups ?? []).map((group) => ({
+        ...group,
+        x: group.x - x + point.x,
+        y: group.y - y + point.y,
+      })),
+    ],
+    [
+      ...snapshot.nodes.map((node) => ({ ...node, ...nodeCardSize(node) })),
+      ...(snapshot.groups ?? []),
+    ],
+    PLACEMENT_GAP,
+  )
   const groupIds: string[] = []
   const ids = new Map(copied.nodes.map((n) => [n.id, newElementId()]))
   canvas.undo.stopCapturing()
@@ -192,9 +211,10 @@ export function pasteNodes(
         }
         data.meta = meta
       }
+      const box = placed.get(node.id)!
       insertCanvasNode(
         canvas.doc,
-        { ...node, id: ids.get(node.id)!, x: node.x - x + point.x, y: node.y - y + point.y, data },
+        { ...node, ...box, id: ids.get(node.id)!, x: box.x + offset.x, y: box.y + offset.y, data },
         canvas.origin,
       )
     }
@@ -223,6 +243,10 @@ export function pasteNodes(
     }
     for (const group of copied.groups ?? []) {
       const id = newElementId()
+      const moved = copied.nodes.some(
+        (node) =>
+          group.members.includes(node.id) && placed.get(node.id)!.y !== node.y - y + point.y,
+      )
       if (
         createCanvasGroup(
           canvas.doc,
@@ -230,12 +254,14 @@ export function pasteNodes(
           group.members.flatMap((id) => ids.get(id) ?? []),
           group.name,
           canvas.origin,
-          {
-            x: group.x - x + point.x,
-            y: group.y - y + point.y,
-            width: group.width,
-            height: group.height,
-          },
+          moved
+            ? undefined
+            : {
+                x: group.x - x + point.x + offset.x,
+                y: group.y - y + point.y + offset.y,
+                width: group.width,
+                height: group.height,
+              },
         )
       )
         groupIds.push(id)

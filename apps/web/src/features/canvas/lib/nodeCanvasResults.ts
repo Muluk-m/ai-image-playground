@@ -148,7 +148,7 @@ async function prepareResult(
   doc: Y.Doc,
   result: CanvasResult,
   video?: CanvasResultDisplay['video'],
-): Promise<{ data: CanvasResultDisplay; width: number; height: number } | null> {
+): Promise<{ data: CanvasResultDisplay } | null> {
   let source: string
   let display: CanvasResultDisplay = {}
   if (result.kind === 'video') {
@@ -183,8 +183,7 @@ async function prepareResult(
     naturalWidth: dimensions.width,
     naturalHeight: dimensions.height,
   }
-  const scale = Math.max(1, node.width) / dimensions.width
-  return { data: display, width: dimensions.width * scale, height: dimensions.height * scale }
+  return { data: display }
 }
 
 /** Resolve pixels first; a failed/expired candidate leaves the current main result unchanged. */
@@ -274,7 +273,6 @@ async function spreadResults(
       const id = createNode(canvas, result.kind, { x: source.x, y: source.y }, '', {
         nodes: [source],
         side: 'right',
-        size: projection,
       })
       cacheCanvasResultDisplay(canvas.doc, result.id, projection.data, system)
       const retained = canvasResults(canvas.doc, nodeId).find((item) => item.id === result.id)!

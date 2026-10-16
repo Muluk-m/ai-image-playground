@@ -1,10 +1,15 @@
 /** 除画布外每个入口的地址。画布用项目地址 `/p/<项目>`，没有项目时是 `/`。 */
 export const APP_MODE_PATHS = {
-  image: '/image',
+  /** 创作页的 canonical 地址是站点根，旧 `/image` 规范化跳到这里。 */
+  image: '/',
   explore: '/explore',
   library: '/assets',
   tools: '/tools',
 } as const
+
+/** 工作台静态入口；仅供首页的会话选择脚本使用，不是公开 canonical 地址。 */
+export const WORKBENCH_ENTRY_PATH = '/workbench'
+export const LEGACY_IMAGE_PATH = '/image'
 
 export type RoutedAppMode = keyof typeof APP_MODE_PATHS
 
@@ -40,7 +45,7 @@ export function isStandalonePath(pathname: string): boolean {
   return path === PRICING_PATH || path === TERMS_PATH || path === PRIVACY_PATH
 }
 
-/** 地址属于某个入口时返回它；其余（项目地址、`/`、定价页、未知路径）返回 null。 */
+/** 地址属于某个入口时返回它；旧 `/image` 由工作台启动同步规范化，其他未知路径返回 null。 */
 export function pathAppMode(pathname: string): RoutedAppMode | null {
   const path = normalizePath(pathname)
   if (path === LEGACY_PROJECTS_PATH) return 'library'

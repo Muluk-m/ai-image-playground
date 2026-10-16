@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import {
   OAUTH_ERROR_QUERY_PARAM,
@@ -28,7 +29,19 @@ import { resolveAuthUser } from '../lib/user-auth'
 import { sessionClientFromRequest, setUserSessionCookie } from '../lib/user-session'
 
 const STATE_COOKIE = 'image_playground_oauth_state'
+const RETURN_TO_COOKIE = 'image_playground_oauth_return_to'
 const STATE_TTL_SECONDS = 600
+const RETURN_TO_MAX_LENGTH = 2048
+const DEFAULT_RETURN_TO = '/'
+const WORKSPACE_PATHS: Record<string, true> = {
+  '/': true,
+  '/assets': true,
+  '/explore': true,
+  '/tools': true,
+  '/pricing': true,
+  '/terms': true,
+  '/privacy': true,
+}
 
 const STATE_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -71,6 +84,50 @@ function frontendOrigin(request: Request): string {
   return (config.corsOriginList[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
+function validateReturnTarget(request: Request, requested: unknown): string {
+  if (
+    typeof requested !== 'string' ||
+    requested.length === 0 ||
+    requested.length > RETURN_TO_MAX_LENGTH ||
+    !requested.startsWith('/') ||
+    requested.startsWith('//') ||
+    /[\u0000-\u001f\u007f\\]/.test(requested) ||
+    /%5c/i.test(requested)
+  ) {
+    return DEFAULT_RETURN_TO
+  }
+
+  let parsed: URL
+  let origin: URL
+  try {
+    const baseOrigin = frontendOrigin(request)
+    parsed = new URL(requested, baseOrigin)
+    origin = new URL(baseOrigin)
+  } catch {
+    return DEFAULT_RETURN_TO
+  }
+  if (parsed.origin !== origin.origin || parsed.username || parsed.password) {
+    return DEFAULT_RETURN_TO
+  }
+
+  const normalizedPath =
+    parsed.pathname.length > 1 && parsed.pathname.endsWith('/')
+      ? parsed.pathname.slice(0, -1)
+      : parsed.pathname
+  const isProjectRoute = /^\/p\/[^/]+$/.test(normalizedPath)
+  const canonicalRoute = normalizedPath === '/image' ? DEFAULT_RETURN_TO : normalizedPath
+  if (!Object.hasOwn(WORKSPACE_PATHS, canonicalRoute) && !isProjectRoute) {
+    return DEFAULT_RETURN_TO
+  }
+  const pathname = normalizedPath === '/image' ? DEFAULT_RETURN_TO : parsed.pathname
+  const target = `${pathname}${parsed.search}${parsed.hash}`
+  return target.length <= RETURN_TO_MAX_LENGTH ? target : DEFAULT_RETURN_TO
+}
+
+function encodeReturnMetadata(provider: string, state: string, target: string): string {
+  return `${provider}:${state}:${Buffer.from(target, 'utf8').toString('base64url')}`
+}
+
 function redirectUri(request: Request, provider: string): string {
   return `${bffOrigin(request)}/api/auth/oauth/${provider}/callback`
 }
@@ -79,26 +136,32 @@ function redirectTo(target: string): Response {
   return new Response(null, { status: 302, headers: { location: target } })
 }
 
-function successRedirect(request: Request): Response {
-  const url = new URL(`${frontendOrigin(request)}/`)
+function successRedirect(request: Request, target: string): Response {
+  const url = new URL(target, frontendOrigin(request))
   url.searchParams.set(OAUTH_SESSION_QUERY_PARAM, '1')
   return redirectTo(url.toString())
 }
 
 function failureRedirect(
   request: Request,
+  target: string,
   code: CallbackErrorCode,
   referralCode?: string,
 ): Response {
-  const url = new URL(`${frontendOrigin(request)}/`)
+  const url = new URL(target, frontendOrigin(request))
   url.searchParams.set(OAUTH_ERROR_QUERY_PARAM, code)
+  url.searchParams.set('login', '1')
   if (referralCode) url.searchParams.set('ref', referralCode)
   return redirectTo(url.toString())
 }
 
 /** Link outcomes land on the workbench, where the login screen that reads auth_error never renders. */
-function linkRedirect(request: Request, result: LinkErrorCode | { linked: string }): Response {
-  const url = new URL(`${frontendOrigin(request)}/`)
+function linkRedirect(
+  request: Request,
+  target: string,
+  result: LinkErrorCode | { linked: string },
+): Response {
+  const url = new URL(target, frontendOrigin(request))
   if (typeof result === 'string') url.searchParams.set(OAUTH_LINK_ERROR_QUERY_PARAM, result)
   else url.searchParams.set(OAUTH_LINK_QUERY_PARAM, result.linked)
   return redirectTo(url.toString())
@@ -147,6 +210,24 @@ function parseState(issued: unknown, providerId: string): ParsedState | null {
   return { mode: 'link', userId: rest.slice(0, separator), state: rest.slice(separator + 1) }
 }
 
+function returnTargetFromMetadata(
+  request: Request,
+  metadata: unknown,
+  providerId: string,
+  issued: ParsedState | null,
+): string {
+  if (typeof metadata !== 'string' || !issued) return DEFAULT_RETURN_TO
+  const prefix = `${providerId}:${issued.state}:`
+  if (!metadata.startsWith(prefix)) return DEFAULT_RETURN_TO
+  try {
+    const encodedTarget = metadata.slice(prefix.length)
+    const target = Buffer.from(encodedTarget, 'base64url').toString('utf8')
+    return validateReturnTarget(request, target)
+  } catch {
+    return DEFAULT_RETURN_TO
+  }
+}
+
 export const oauthRoutes = new Elysia()
   .use(resolveAuthUser)
   .get('/api/auth/oauth/providers', ({ status }) => {
@@ -162,35 +243,51 @@ export const oauthRoutes = new Elysia()
 
       const nonce = randomBytes(32).toString('base64url')
       const referralCode = query.ref?.trim()
+      const returnTarget = validateReturnTarget(request, query.return_to)
       // The complete state is compared at callback, binding attribution to the same nonce.
       const state = referralCode ? `${nonce}:${referralCode}` : nonce
       cookie[STATE_COOKIE].set({
         ...STATE_COOKIE_OPTIONS,
         value: `${resolved.definition.id}:login:${state}`,
       })
+      cookie[RETURN_TO_COOKIE].set({
+        ...STATE_COOKIE_OPTIONS,
+        value: encodeReturnMetadata(resolved.definition.id, state, returnTarget),
+      })
       return authorizeRedirect(request, resolved, state)
     },
     {
       params: t.Object({ provider: t.String() }),
-      query: t.Object({ ref: t.Optional(t.String({ maxLength: 64 })) }),
+      query: t.Object({
+        ref: t.Optional(t.String({ maxLength: 64 })),
+        return_to: t.Optional(t.String()),
+      }),
     },
   )
   .get(
     '/api/auth/oauth/:provider/link',
-    ({ authUser, cookie, params, request, status }) => {
+    ({ authUser, cookie, params, query, request, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
       if (!authUser) return status(401, { error: 'unauthorized' })
       const resolved = resolveOAuthProvider(params.provider)
       if (!resolved) return status(404, { error: 'provider_unavailable' })
 
       const state = randomBytes(32).toString('base64url')
+      const returnTarget = validateReturnTarget(request, query.return_to)
       cookie[STATE_COOKIE].set({
         ...STATE_COOKIE_OPTIONS,
         value: `${resolved.definition.id}:link:${authUser.id}:${state}`,
       })
+      cookie[RETURN_TO_COOKIE].set({
+        ...STATE_COOKIE_OPTIONS,
+        value: encodeReturnMetadata(resolved.definition.id, state, returnTarget),
+      })
       return authorizeRedirect(request, resolved, state)
     },
-    { params: t.Object({ provider: t.String() }) },
+    {
+      params: t.Object({ provider: t.String() }),
+      query: t.Object({ return_to: t.Optional(t.String()) }),
+    },
   )
   .delete(
     '/api/auth/oauth/:provider/link',
@@ -213,7 +310,14 @@ export const oauthRoutes = new Elysia()
       if (!resolved) return status(404, { error: 'provider_unavailable' })
 
       const issued = parseState(cookie[STATE_COOKIE]?.value, resolved.definition.id)
+      const returnTarget = returnTargetFromMetadata(
+        request,
+        cookie[RETURN_TO_COOKIE]?.value,
+        resolved.definition.id,
+        issued,
+      )
       cookie[STATE_COOKIE].set({ ...STATE_COOKIE_OPTIONS, value: '', maxAge: 0 })
+      cookie[RETURN_TO_COOKIE].set({ ...STATE_COOKIE_OPTIONS, value: '', maxAge: 0 })
       // A state mismatch is forgery rather than a user-visible failure, so it never redirects.
       if (!issued?.state || query.state !== issued.state) {
         return status(403, { error: 'state_mismatch' })
@@ -223,14 +327,16 @@ export const oauthRoutes = new Elysia()
       let linkingUserId: string | null = null
       if (issued.mode === 'link') {
         // 绑定只能落在发起它的那个账号上；中途换号登录不算。
-        if (authUser?.id !== issued.userId) return linkRedirect(request, 'unauthenticated')
+        if (authUser?.id !== issued.userId) {
+          return linkRedirect(request, returnTarget, 'unauthenticated')
+        }
         linkingUserId = issued.userId
       }
 
       if (query.error || !query.code) {
         return linkingUserId
-          ? linkRedirect(request, 'access_denied')
-          : failureRedirect(request, 'access_denied', referralCode)
+          ? linkRedirect(request, returnTarget, 'access_denied')
+          : failureRedirect(request, returnTarget, 'access_denied', referralCode)
       }
 
       let identity: OAuthIdentity
@@ -244,8 +350,8 @@ export const oauthRoutes = new Elysia()
       } catch (error) {
         const code = error instanceof OAuthExchangeError ? error.code : 'exchange_failed'
         return linkingUserId
-          ? linkRedirect(request, code)
-          : failureRedirect(request, code, referralCode)
+          ? linkRedirect(request, returnTarget, code)
+          : failureRedirect(request, returnTarget, code, referralCode)
       }
 
       const claim = {
@@ -259,6 +365,7 @@ export const oauthRoutes = new Elysia()
         const outcome = await linkOAuthIdentity(linkingUserId, claim)
         return linkRedirect(
           request,
+          returnTarget,
           outcome === 'identity_taken' ? 'identity_taken' : { linked: resolved.definition.id },
         )
       }
@@ -277,16 +384,16 @@ export const oauthRoutes = new Elysia()
             error.code === 'invalid_referral_code' ||
             error.code === 'registration_reward_unavailable')
         ) {
-          return failureRedirect(request, error.code, referralCode)
+          return failureRedirect(request, returnTarget, error.code, referralCode)
         }
         throw error
       }
       if ('registrationClosed' in result) {
-        return failureRedirect(request, 'registration_closed', referralCode)
+        return failureRedirect(request, returnTarget, 'registration_closed', referralCode)
       }
 
       setUserSessionCookie(cookie, result.sessionToken)
-      return successRedirect(request)
+      return successRedirect(request, returnTarget)
     },
     {
       params: t.Object({ provider: t.String() }),

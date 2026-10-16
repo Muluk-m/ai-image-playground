@@ -23,7 +23,7 @@ beforeEach(async () => {
   await mkdir(join(dist, 'assets'))
   await writeFile(
     join(dist, '_redirects'),
-    '/image /workbench 200\n/p/:project /workbench 200\n/assets/ /assets 301\n',
+    '/image / 301\n/ /workbench 200\n/p/:project /workbench 200\n/assets/ /assets 301\n',
   )
   await writeFile(join(dist, 'index.html'), html)
   await writeFile(join(dist, 'workbench.html'), html)
@@ -35,6 +35,11 @@ afterEach(async () => {
   await rm(dist, { recursive: true, force: true })
 })
 
+it('canonicalizes the legacy image entry without losing query parameters', async () => {
+  const response = await fetch(`${server.origin}/image?from=smoke`, { redirect: 'manual' })
+  expect(response.status).toBe(301)
+  expect(response.headers.get('location')).toBe('/?from=smoke')
+})
 it('serves the same entry bytes for project deep links without swallowing missing chunks', async () => {
   expect(await (await fetch(`${server.origin}/p/example`)).text()).toBe(html)
   const missing = await fetch(`${server.origin}/assets/missing.js`)
@@ -95,6 +100,24 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
 
   it('cold-starts both the home page and project deep link', async () => {
     await check()
+  })
+  it('keeps a remembered root on the workspace while auth is delayed', async () => {
+    await writeFile(
+      join(dist, 'assets/main.js'),
+      `
+        const response = await fetch('/api/auth/me', {credentials: 'include'});
+        if (!response.ok) throw new Error('Remembered session was not accepted');
+        document.getElementById('boot').remove();
+        document.getElementById('root').innerHTML = '<button aria-label="创作">创作</button><div aria-label="创作画布"><canvas></canvas></div>';
+      `,
+    )
+    await checkWorkspace(browser, server.origin, {
+      local: true,
+      paths: ['/'],
+      rememberedSession: true,
+      authDelayMs: 50,
+      timeoutMs: 3000,
+    })
   })
   it('cold-starts node mode without a canvas capability flag', async () => {
     await writeFile(

@@ -164,6 +164,11 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 **开着 `accounts:login` 的部署照常挂载工作台**：`/api/auth/me` 答 401 时 `AuthGate`
 保持匿名 scope，只有需要账号的动作才弹 [`LoginDialog`](./src/auth/LoginDialog.tsx)。
 成功登录仍 reload 当前地址：重启时先 `adoptAnonymousStorage()`，再挂工作台与恢复待发请求。
+退出登录也保留当前路径、查询串与 hash，带一次性的 `login=1` 重启；会话解析完成后
+匿名用户打开登录框，已登录用户只消费参数不弹框。这样重建模块级账号 store 时不会短暂展示旧账号数据。
+官网「开始创作」在官网原页弹出登录框，登录成功后进入工作台首页 `/image`。
+工作台内 OAuth 发起时携带相对地址 `return_to`；BFF 校验并绑定到本次 state，
+回调直接回原工作台地址；官网发起、未提供或无效的目标落到 `/image`，不经官网首页中转。
 
 - [`loginPrompt.ts`](./src/auth/loginPrompt.ts) 是统一弹框接缝。需要账号的动作在发请求前走
   `requireAccount()`；单次动作默认停下，不落任务行或 toast。生成提交与首屏画布发送例外：
@@ -194,4 +199,7 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 - 截图在 `public/guide-assets/<zh|en>/`，使用 WebP。界面文案修改时也同步指南里的 `[[标签]]`。
 - Web 构建先输出工作台，再调用官网构建并合并为 `dist`。`index.html` 是官网，`workbench.html` 是工作台。
   Pages、BFF、nginx 仅为明确的工作台路径回退到后者，缺失页面和资源必须返回 404。
+  工作台创作首页的 canonical 地址是 `/`；旧 `/image` 301 到根地址。官网的 head 在绘制前读取
+  无凭据的会话提示，把记住的会话送到 `/workbench`，工作台的内联启动脚本先还原 `/`（保留 query/hash）
+  再启动鉴权与待发请求恢复。提示只决定页面展示，不授予身份；只有 `/api/auth/me` 的结果能设置账号 scope。
 - `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 继续由 Pages 发布脚本按版本传入，内部站/测试站禁止收录。

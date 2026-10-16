@@ -366,7 +366,7 @@ it('resumes a template sent from /image after OAuth lands on the root address', 
     setClientStorageScope('alice')
     await resumePendingSubmission()
     expect(useStore.getState().tasks).toHaveLength(1)
-    expect(window.location.pathname).toBe('/image')
+    expect(window.location.pathname).toBe('/')
   } finally {
     window.history.replaceState(null, '', '/')
   }
@@ -375,11 +375,11 @@ it('resumes a template sent from /image after OAuth lands on the root address', 
 it.each([
   '/',
   '/image/',
-])('resumes a send from %s when the website returns login to /image', async (source) => {
+])('resumes a send from %s when the website returns login to the canonical root', async (source) => {
   window.history.replaceState(null, '', source)
   try {
     await prepareLogin()
-    window.history.replaceState(null, '', '/image')
+    window.history.replaceState(null, '', '/')
     setSignedIn(true)
     setClientStorageScope('alice')
     await resumePendingSubmission()

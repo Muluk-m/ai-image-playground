@@ -46,6 +46,9 @@ const locationMock = {
   get pathname() {
     return location.pathname
   },
+  get search() {
+    return location.search
+  },
   get hash() {
     return location.hash
   },
@@ -105,6 +108,18 @@ afterEach(() => {
   for (const remove of installed.splice(0)) remove()
   if (workerDescriptor) Object.defineProperty(navigator, 'serviceWorker', workerDescriptor)
   else Reflect.deleteProperty(navigator, 'serviceWorker')
+})
+
+it.each([
+  '/workbench',
+  '/workbench.html',
+  '/image/',
+])('canonicalizes %s before auth/bootstrap while preserving OAuth and draft suffixes', (path) => {
+  history.replaceState(null, '', `${path}?auth_session=1&keep=1#draft`)
+  const length = history.length
+  installGuard()
+  expect(location.pathname + location.search + location.hash).toBe('/?auth_session=1&keep=1#draft')
+  expect(history.length).toBe(length)
 })
 
 it('offers recovery when the entry script fails before React exists', () => {
