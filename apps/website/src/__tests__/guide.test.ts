@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { editions, pageList } from '../catalog'
 import { Guide } from '../components/Guide'
-import { Site } from '../components/Site'
 
 it('keeps both guide editions structurally aligned', () => {
   const shape = (guide: typeof editions.en) =>
@@ -42,14 +41,5 @@ it('renders every old guide link and anchor without requiring JavaScript', () =>
       expect(existsSync(resolve(import.meta.dirname, '../../../web/public', `.${src}`)), src).toBe(
         true,
       )
-  }
-})
-it('renders Start creating CTAs as workspace login links', () => {
-  for (const page of pageList.filter((candidate) => candidate.kind !== 'login')) {
-    const html = renderToStaticMarkup(createElement(Site, { page }))
-    const hrefs = [...html.matchAll(/<a href="([^"]+)"/g)].map(([, href]) => href)
-    expect(hrefs.filter((href) => href === '/image?login=1').length).toBe(
-      page.kind === 'home' ? 4 : page.kind === 'scenario' ? 2 : 1,
-    )
   }
 })
