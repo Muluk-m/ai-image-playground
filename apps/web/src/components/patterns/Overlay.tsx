@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { usePreventBackgroundScroll } from '../../hooks/usePreventBackgroundScroll'
+import { cn } from '../../lib/utils'
 import { closeTooltips } from '../assistant-ui/elements/tooltip-icon-button'
 
 /**
@@ -25,6 +26,8 @@ const TIER_CLASS = {
   modal: 'z-50',
   raised: 'z-[100]',
   alert: 'z-[110]',
+  assets: 'z-[900]',
+  review: 'z-[1000]',
   artifact: 'z-[1200]',
 } as const
 
@@ -48,6 +51,7 @@ interface OverlayProps {
   /** 读屏念出的对话框名称 */
   label?: string
   role?: 'dialog' | 'none'
+  className?: string
   children: ReactNode
 }
 
@@ -59,6 +63,7 @@ export default function Overlay({
   label,
   role = 'dialog',
   children,
+  className,
 }: OverlayProps) {
   const boundaryRef = useRef<HTMLDivElement>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
@@ -88,7 +93,7 @@ export default function Overlay({
       aria-label={role === 'dialog' ? label : undefined}
       tabIndex={-1}
       data-no-drag-select
-      className={`${surfaceClass} outline-none`}
+      className={cn(surfaceClass, 'outline-none', className)}
       onPointerDown={(e) => {
         surfaceDownRef.current = e.target === e.currentTarget
       }}

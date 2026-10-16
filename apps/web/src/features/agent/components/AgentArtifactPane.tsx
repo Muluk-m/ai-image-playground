@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImagePreview } from '../../../components/Lightbox'
+import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
-import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useStore } from '../../../store'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
@@ -148,7 +148,7 @@ export default function AgentArtifactPane({
       if (target?.closest('input, textarea, [contenteditable="true"]')) return
       if (zoomed) return
       if (document.querySelector('.studio-handoff-dialog, .studio-artifact-edit-dialog')) return
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && presentation === 'panel') onClose()
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && items.length > 1) {
         if (!target?.closest('.studio-artifact-pane')) return
         event.preventDefault()
@@ -160,7 +160,7 @@ export default function AgentArtifactPane({
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [active?.id, items.length, onClose, onSelect, zoomed])
+  }, [active?.id, items.length, onClose, onSelect, zoomed, presentation])
 
   useEffect(() => {
     let alive = true
@@ -442,6 +442,7 @@ export default function AgentArtifactPane({
       </div>
       {zoomed && displaySource && (
         <ImagePreview
+          tier="artifact"
           src={displaySource}
           originalPending={!source && loading}
           originalFailed={!source && !loading}
@@ -462,7 +463,13 @@ export default function AgentArtifactPane({
       )}
     </aside>
   )
-  return presentation === 'panel' ? pane : createPortal(pane, document.body)
+  return presentation === 'panel' ? (
+    pane
+  ) : (
+    <Overlay onClose={onClose} tier="review" layout="fill" backdrop="none" role="none">
+      {pane}
+    </Overlay>
+  )
 }
 
 function PaneThumbnail({

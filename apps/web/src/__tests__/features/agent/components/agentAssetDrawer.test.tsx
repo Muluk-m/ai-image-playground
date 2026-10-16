@@ -2,8 +2,10 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import Overlay from '../../../../components/patterns/Overlay'
 import AgentAssetDrawer from '../../../../features/agent/components/AgentAssetDrawer'
 import type { AgentToolMessage } from '../../../../features/agent/types'
+import ImageExportDialog from '../../../../features/image-export/ImageExportDialog'
 import { useImageExportStore } from '../../../../features/image-export/store'
 
 const fixture = vi.hoisted(() => ({
@@ -32,12 +34,14 @@ vi.mock('../../../../lib/cloudMedia', async () => {
 })
 vi.mock('../../../../components/Lightbox', () => ({
   ImagePreview: ({ src, onClose }: { src: string; onClose: () => void }) => (
-    <div data-testid="source-preview">
-      <span>{src}</span>
-      <button type="button" onClick={onClose}>
-        close-preview
-      </button>
-    </div>
+    <Overlay onClose={onClose} tier="artifact">
+      <div data-testid="source-preview">
+        <span>{src}</span>
+        <button type="button" onClick={onClose}>
+          close-preview
+        </button>
+      </div>
+    </Overlay>
   ),
 }))
 vi.mock('../../../../features/agent/store', () => ({
@@ -399,7 +403,14 @@ it('exports only checked assets and preserves the drawer when export handles Esc
   const onClose = vi.fn()
   await act(async () =>
     root.render(
-      <AgentAssetDrawer messages={[item('a'), item('b')]} onClose={onClose} onPreview={() => {}} />,
+      <>
+        <AgentAssetDrawer
+          messages={[item('a'), item('b')]}
+          onClose={onClose}
+          onPreview={() => {}}
+        />
+        <ImageExportDialog />
+      </>,
     ),
   )
   const check = document.querySelector<HTMLButtonElement>(
@@ -411,7 +422,34 @@ it('exports only checked assets and preserves the drawer when export handles Esc
   )!
   act(() => button.click())
   expect(useImageExportStore.getState().request?.sources.map((source) => source.id)).toEqual(['a'])
-  act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+  await act(async () => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+  })
   expect(onClose).not.toHaveBeenCalled()
-  useImageExportStore.getState().close()
+  expect(useImageExportStore.getState().request).toBeNull()
+})
+
+it('contains keyboard focus and background scroll, then returns focus to the opener', async () => {
+  const opener = document.createElement('button')
+  document.body.append(opener)
+  opener.focus()
+  const overflow = document.body.style.overflow
+  await act(async () =>
+    root.render(<AgentAssetDrawer messages={[]} onClose={vi.fn()} onPreview={vi.fn()} />),
+  )
+  expect(document.body.style.overflow).toBe('hidden')
+  expect(document.activeElement).not.toBe(opener)
+  opener.focus()
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    ),
+  )
+  expect(document.activeElement).not.toBe(opener)
+  await act(async () => root.render(null))
+  expect(document.activeElement).toBe(opener)
+  expect(document.body.style.overflow).toBe(overflow)
+  opener.remove()
 })
