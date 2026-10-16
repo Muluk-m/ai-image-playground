@@ -127,6 +127,7 @@ async function checkWorkspace(browser, origin, {
           return route.fulfill({ contentType: 'text/css', body: '' })
         const fixtures = {
           '/api/capabilities': { 'accounts:login': true, 'generation:byok': true },
+          '/api/auth/oauth/providers': { providers: [] },
           '/api/channels': { channels: [] },
           '/api/agent/skills': { skills: [] },
           '/api/inspirations/manifest': {
