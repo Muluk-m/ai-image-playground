@@ -162,6 +162,11 @@ describe('选中即参考', () => {
   it('opens from the selection toolbar with the images left to right, on a model that takes references', () => {
     act(() => button('用 3 张图生成视频').click())
 
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(
+      document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent,
+    ).toContain('3')
+    expect(dialog.querySelector('button[aria-label="关闭"]')).not.toBeNull()
     expect(order()).toEqual(['a', 'b', 'c'])
     expect(useVideoStore.getState().draft.model).toBe(GROK)
     for (const no of [1, 2, 3])

@@ -1,9 +1,8 @@
 import EmptyState from '../../../components/patterns/EmptyState'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import NewAssetButton from './NewAssetButton'
 
-export function AssetsEmpty({ onImport }: { onImport: () => void }) {
+export function AssetsEmpty() {
   const { t } = useTranslation('library')
 
   return (
@@ -12,7 +11,6 @@ export function AssetsEmpty({ onImport }: { onImport: () => void }) {
       title={t('empty.assetsTitle')}
       // 「长按」只在触屏上成立，精确指针下不显示。
       description={<span className="[@media(pointer:fine)]:hidden">{t('empty.assetsMobile')}</span>}
-      action={<NewAssetButton onClick={onImport} />}
     />
   )
 }

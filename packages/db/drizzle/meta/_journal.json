@@ -470,6 +470,20 @@
       "when": 1790853000019,
       "tag": "0067_account_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1790853000020,
+      "tag": "0068_client_error_recoveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790853000021,
+      "tag": "0069_agent_model_settings",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import { channelsRoutes } from './routes/channels'
 import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
+import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalLogRoutes } from './routes/internal-logs'
 import { internalOpsRoutes } from './routes/internal-ops'
@@ -123,7 +124,7 @@ async function serveStatic(pathname: string, request: Request): Promise<Response
   return new Response(file, { headers: baseHeaders })
 }
 
-const indexFile = STATIC_DIR ? Bun.file(join(STATIC_DIR, 'index.html')) : null
+const indexFile = STATIC_DIR ? Bun.file(join(STATIC_DIR, 'workbench.html')) : null
 let indexExists: boolean | null = null
 
 async function serveSpaFallback(): Promise<Response | null> {
@@ -207,6 +208,7 @@ export const app = new Elysia()
   .use(publicInspirationRoutes)
   .use(clientErrorRoutes)
   .use(generationRoutes)
+  .use(internalAgentModelRoutes)
   .use(internalUserRoutes)
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
@@ -227,7 +229,11 @@ export const app = new Elysia()
   .onError(async ({ request, set }) => {
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
-    if (!extname(url.pathname)) {
+    if (
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|p\/[^/]+)\/?$/.test(
+        url.pathname,
+      )
+    ) {
       const res = await serveSpaFallback()
       if (res) {
         set.status = 200

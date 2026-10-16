@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
+import Overlay from '../../../../components/patterns/Overlay'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 
@@ -102,10 +103,10 @@ it.each([
     if (matches) {
       expect(image?.getAttribute('src')).toContain('visible-card')
       expect(canvas.thumbnail).not.toHaveBeenCalled()
-      const download = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.textContent === '下载',
+      const erase = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes('擦除'),
       )!
-      expect(download.disabled).toBe(true)
+      expect(erase.disabled).toBe(true)
     } else {
       expect(image).toBeNull()
       expect(canvas.thumbnail).toHaveBeenCalled()
@@ -190,19 +191,16 @@ it('previews, switches and enlarges results without entering the canvas', async 
       (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
     )
     expect(document.body.querySelector('[data-testid="zoomed"]')).not.toBeNull()
-    act(() =>
-      (document.body.querySelector('.studio-artifact-pane-edit') as HTMLButtonElement).click(),
-    )
-    expect(onViewCanvas).toHaveBeenCalledWith(['second'])
+    expect(document.body.querySelector('.studio-artifact-pane-edit')).toBeNull()
     act(() =>
       (
         document.body.querySelector('.studio-artifact-pane-tools button') as HTMLButtonElement
       ).click(),
     )
     expect(document.body.querySelector('[data-testid="edit-dialog"]')?.textContent).toContain(
-      'inpaint',
+      'erase',
     )
-    expect(onViewCanvas).toHaveBeenCalledTimes(1)
+    expect(onViewCanvas).not.toHaveBeenCalled()
     await act(async () =>
       (
         document.body.querySelector(
@@ -216,7 +214,7 @@ it('previews, switches and enlarges results without entering the canvas', async 
         {
           imageId: 'second',
           name: message.title,
-          editAction: 'inpaint',
+          editAction: 'erase',
           dataUrl: 'data:image/png;base64,edited',
           maskDataUrl: 'data:image/png;base64,mask',
         },
@@ -272,9 +270,9 @@ it('keeps all image edit shortcuts in the Agent edit dialog', async () => {
         />,
       ),
     )
-    for (const action of ['inpaint', 'erase', 'crop', 'outpaint']) {
+    for (const action of ['erase', 'crop']) {
       const button = document.body.querySelectorAll('.studio-artifact-pane-tools button')[
-        ['inpaint', 'erase', 'crop', 'outpaint'].indexOf(action)
+        ['erase', 'crop'].indexOf(action)
       ] as HTMLButtonElement
       act(() => button.click())
       expect(document.body.querySelector('[data-testid="edit-dialog"]')?.textContent).toContain(
@@ -297,7 +295,7 @@ it('keeps the preview open when a higher dialog consumes Escape', async () => {
   const root = createRoot(host)
   const onClose = vi.fn()
   const consumeEscape = (event: KeyboardEvent) => event.preventDefault()
-  window.addEventListener('keydown', consumeEscape)
+  document.addEventListener('keydown', consumeEscape)
   try {
     await act(async () =>
       root.render(
@@ -310,11 +308,13 @@ it('keeps the preview open when a higher dialog consumes Escape', async () => {
       ),
     )
     act(() =>
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
     )
     expect(onClose).not.toHaveBeenCalled()
   } finally {
-    window.removeEventListener('keydown', consumeEscape)
+    document.removeEventListener('keydown', consumeEscape)
     act(() => root.unmount())
   }
 })
@@ -327,8 +327,10 @@ it('keeps chat result actions inside the conversation when no canvas callback is
       root.render(<AgentArtifactPane message={message} onSelect={vi.fn()} onClose={vi.fn()} />),
     )
     expect(document.body.querySelector('.studio-artifact-pane-canvas-action')).toBeNull()
-    expect(document.body.textContent).toContain('局部重绘')
-    expect(document.body.textContent).toContain('下载')
+    expect(document.body.textContent).toContain('放大查看')
+    expect(document.body.textContent).toContain('擦除')
+    expect(document.body.textContent).not.toContain('局部重绘')
+    expect(document.body.textContent).not.toContain('扩图')
     expect(document.body.textContent).not.toContain('在画布中编辑')
   } finally {
     act(() => root.unmount())
@@ -360,8 +362,9 @@ it('shows the existing result while the original is delayed and upgrades when it
     ).toContain('canvas')
     expect(document.body.textContent).not.toContain('正在载入产物')
     expect(
-      (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
-        .disabled,
+      [...document.body.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('擦除'),
+      )?.disabled,
     ).toBe(true)
     act(() =>
       (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
@@ -377,8 +380,9 @@ it('shows the existing result while the original is delayed and upgrades when it
       document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
     ).toContain('original')
     expect(
-      (document.body.querySelector('.studio-artifact-pane-primary button') as HTMLButtonElement)
-        .disabled,
+      [...document.body.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('擦除'),
+      )?.disabled,
     ).toBe(false)
   } finally {
     act(() => root.unmount())
@@ -475,6 +479,82 @@ it('keeps a fetched preview visible and retries the original after a failure', a
     expect(
       document.querySelector('[data-testid="zoomed"]')?.getAttribute('data-original-failed'),
     ).toBe('false')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it.each([
+  'overlay',
+  'panel',
+] as const)('applies modal focus and scroll behavior only to %s presentation', async (presentation) => {
+  const host = document.createElement('div')
+  const opener = document.createElement('button')
+  document.body.append(host, opener)
+  opener.focus()
+  const root = createRoot(host)
+  const overflow = document.body.style.overflow
+  try {
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          presentation={presentation}
+          message={message}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      ),
+    )
+    if (presentation === 'overlay') {
+      expect(document.body.style.overflow).toBe('hidden')
+      expect(document.activeElement).not.toBe(opener)
+      opener.focus()
+      act(() =>
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+        ),
+      )
+      expect(document.activeElement).not.toBe(opener)
+    } else {
+      expect(document.body.style.overflow).toBe(overflow)
+      expect(document.activeElement).toBe(opener)
+    }
+  } finally {
+    act(() => root.unmount())
+    expect(document.activeElement).toBe(opener)
+    expect(document.body.style.overflow).toBe(overflow)
+    host.remove()
+    opener.remove()
+  }
+})
+
+it('closes a nested review dialog before the artifact preview', async () => {
+  const root = createRoot(document.createElement('div'))
+  const onClose = vi.fn()
+  const closeNested = vi.fn()
+  const pane = <AgentArtifactPane message={message} onSelect={vi.fn()} onClose={onClose} />
+  try {
+    await act(async () => root.render(pane))
+    await act(async () =>
+      root.render(
+        <>
+          {pane}
+          <Overlay tier="artifact" onClose={closeNested}>
+            <button>编辑</button>
+          </Overlay>
+        </>,
+      ),
+    )
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    )
+    expect(closeNested).toHaveBeenCalledOnce()
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => root.render(<>{pane}</>))
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    )
+    expect(onClose).toHaveBeenCalledOnce()
   } finally {
     act(() => root.unmount())
   }

@@ -173,6 +173,11 @@ spacing:
 
 高度 36px，圆角 `--radius`，hover 只换底色不位移；disabled 用 50% 透明并 `pointer-events-none`。一个页面或抽屉里**只允许一个 brand 按钮**。
 
+### 图标按钮与提示
+
+新增或修改图标操作、tooltip 时，必须遵守 Web / Admin 共用的[图标按钮与提示规则](./icon-buttons.md)。
+提示策略不因后台的信息密度、图标来源或组件封装而改变；本规范仅保留后台的尺寸与视觉差异。
+
 ### 卡片
 
 圆角 12px，1px `--border`，默认无阴影；只有可点卡片才在 hover 时给 `--shadow-md` 并上移 2px。内边距 16px，内部块间距 16px。卡片不叠卡片——需要分组时用标题 + 分隔线。
@@ -183,7 +188,7 @@ spacing:
 
 ### 导航壳
 
-常驻深色（`--shell-nav-bg`），展开 256px / 收起 72px。分组标签用 overline 字阶 + `--shell-nav-group-label`。选中项整块铺芽绿、文字转墨灰；未选中项 hover 只提亮底色。收起态每项必须有 tooltip 与 `aria-label`。
+常驻深色（`--shell-nav-bg`），展开 256px / 收起 72px。分组标签用 overline 字阶 + `--shell-nav-group-label`。选中项整块铺芽绿、文字转墨灰；未选中项 hover 只提亮底色。收起态导航项保留 `aria-label`；目的地无法从图标判断时，悬停与键盘聚焦显示完整名称。侧栏展开／收起等常见操作按[共享提示规则](./icon-buttons.md)保持纯图标。
 
 ### 表单
 

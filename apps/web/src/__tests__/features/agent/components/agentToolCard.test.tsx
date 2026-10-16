@@ -4,19 +4,27 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
-import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
+import AgentToolCard, { AgentImageRun } from '../../../../features/agent/components/AgentToolCard'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentToolMessage } from '../../../../features/agent/types'
+import InspirationDetail from '../../../../features/inspiration/components/InspirationDetail'
+import { useInspirationStore } from '../../../../features/inspiration/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
+import { useStore } from '../../../../store'
 
 const store = vi.hoisted(() => ({
   send: vi.fn(),
   placeOnCanvas: vi.fn(),
   messages: [] as AgentToolMessage[],
+  turns: {} as Record<string, { turnId: string }>,
   cancelJob: vi.fn(async (_messageId: string) => {}),
   jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
   toolStartedAt: {} as Record<string, number>,
+  appendImageAction: vi.fn(),
+  patchImageAction: vi.fn(),
+  dismissImageAction: vi.fn(),
 }))
 const send = store.send
 
@@ -40,6 +48,11 @@ vi.mock('../../../../lib/privateOverlay', () => ({
 
 vi.mock('../../../../lib/clientCapabilities', () => ({
   isClientCapabilityEnabled: (key: string) => deployment.capabilities.has(key),
+}))
+
+const cutout = vi.hoisted(() => ({ run: vi.fn() }))
+vi.mock('../../../../features/agent/lib/chatCutout', () => ({
+  runChatBackgroundRemoval: cutout.run,
 }))
 
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
@@ -184,7 +197,9 @@ it('shows all generated images together and edits the clicked artifact', async (
     )
     expect(preview).toHaveBeenCalledWith('group', 'second', 'data:image/png;base64,second')
     preview.mockClear()
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    act(() =>
+      host.querySelector<HTMLButtonElement>('[data-selected] .studio-agent-inline-open')!.click(),
+    )
     expect(preview).toHaveBeenCalledWith('group', 'second', 'data:image/png;base64,second')
   } finally {
     act(() => root.unmount())
@@ -233,7 +248,9 @@ it('keeps the visible and editable artifact aligned after delivery temporarily u
     await render('placed')
     expect(host.querySelectorAll('.studio-agent-inline-open')).toHaveLength(2)
     expect(host.querySelector('[data-selected]')!.getAttribute('aria-label')).toBe('第 2 个产物')
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    act(() =>
+      host.querySelector<HTMLButtonElement>('[data-selected] .studio-agent-inline-open')!.click(),
+    )
     expect(preview).toHaveBeenCalledWith('delivery-group', 'second', 'data:image/png;base64,second')
   } finally {
     act(() => root.unmount())
@@ -279,7 +296,9 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
     act(() => host.querySelectorAll<HTMLButtonElement>('.studio-agent-inline-open')[1]!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
     viewCanvas.mockClear()
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="继续编辑"]')!.click())
+    act(() =>
+      host.querySelectorAll<HTMLButtonElement>('button[aria-label="在画布中编辑"]')[1]!.click(),
+    )
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
   } finally {
     act(() => root.unmount())
@@ -491,9 +510,11 @@ it.each([
   } as unknown as AgentCanvasSink)
   try {
     act(() => root.render(<AgentToolCard message={message} />))
-    const placeholder = host.querySelector<HTMLElement>('[data-slot="image-generation"]')!
-    const loadingRatio = placeholder.style.aspectRatio
-    const loadingWidth = placeholder.style.width
+    expect(host.querySelector('.studio-agent-generation-card')).toBeNull()
+    expect(host.querySelector('.studio-agent-inline-result--batch')).not.toBeNull()
+    const placeholders = host.querySelectorAll<HTMLElement>('[data-pending="true"]')
+    expect(placeholders.length).toBe(3)
+    expect(placeholders[0]?.style.width ?? '').toBe('')
     await act(async () =>
       root.render(
         <AgentToolCard
@@ -517,8 +538,8 @@ it.each([
       ),
     )
     const tile = host.querySelector<HTMLElement>('.studio-agent-inline-tile')!
-    expect(tile.style.aspectRatio).toBe(loadingRatio)
-    expect(tile.style.width).toBe(loadingWidth)
+    expect(tile).not.toBeNull()
+    expect(Number(width) / Number(height)).toBeGreaterThan(0)
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
@@ -1071,4 +1092,190 @@ it('shows which canvas nodes a read used without replaying their full document',
   } finally {
     act(() => root.unmount())
   }
+})
+
+it('lays four generated images in one row with meta tags, hover tools and a wide column mark', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'batch',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'generateImage',
+            title: '新品主图',
+            prompt: '白底产品图',
+            status: 'succeeded',
+            delivery: 'placed',
+            snapshot: {
+              mode: 'image',
+              args: {},
+              params: {
+                model: 'Image 2.5 Flare',
+                gemini_image_size: '2K',
+                gemini_aspect_ratio: '1:1',
+              },
+              target: { provider: 'gemini', model: 'Image 2.5 Flare' },
+            },
+            artifacts: ['a', 'b', 'c', 'd'].map((artifactId, outputIndex) => ({
+              artifactId,
+              outputIndex,
+              taskId: 'task',
+              media: 'image' as const,
+              mime: 'image/png',
+              width: 1024,
+              height: 1024,
+            })),
+          }}
+          onPreviewResult={vi.fn()}
+          onViewCanvas={vi.fn()}
+        />,
+      ),
+    )
+    const card = host.querySelector<HTMLElement>('.studio-agent-inline-result')!
+    expect(card.dataset.batchCount).toBe('4')
+    expect(card.dataset.batchWide).toBe('true')
+    expect(card.style.getPropertyValue('--batch-count')).toBe('4')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('Image 2.5 Flare')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('2K')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('1:1')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toContain('4 张')
+    expect(host.querySelectorAll('button[aria-label="全部下载"]')).toHaveLength(1)
+    expect(host.querySelector('button[aria-label="下载"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="再次生成"]')).toBeTruthy()
+    expect(host.querySelector('button[aria-label="复制提示词"]')).toBeTruthy()
+    expect(host.querySelector('button[aria-label="更多操作"]')).toBeTruthy()
+    const tileTools = host.querySelectorAll('button[aria-label="去背景"]')
+    expect(tileTools).toHaveLength(4)
+    for (const label of ['用作参考', '局部重绘', '扩图', '去背景', '在画布中编辑']) {
+      const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+      expect(button, label).toBeTruthy()
+      expect(button.getAttribute('aria-label')).toBe(label)
+      expect(button.hasAttribute('data-tooltip-trigger')).toBe(true)
+    }
+    cutout.run.mockClear()
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="去背景"]')!.click())
+    expect(cutout.run).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceMessageId: 'batch', artifactId: 'a' }),
+    )
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+describe.each([
+  'image',
+  'batch',
+  'artifact',
+  'inspiration',
+] as const)('prompt copy from %s', (entry) => {
+  it.each([
+    'allowed',
+    'missing',
+    'denied',
+    'failed',
+  ] as const)('handles clipboard %s without losing text or feedback', async (mode) => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const prompt = '白底产品图\n保留标签文字'
+    const originalToast = useStore.getState().showToast
+    const showToast = vi.fn()
+    useStore.setState({ showToast })
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const execCommand = Object.getOwnPropertyDescriptor(document, 'execCommand')
+    let copied = ''
+    const writeText = vi.fn(async (text: string) => {
+      if (mode !== 'allowed') throw new DOMException('Denied', 'NotAllowedError')
+      copied = text
+    })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: mode === 'missing' ? undefined : { writeText },
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => {
+        if (mode === 'failed') return false
+        copied = document.querySelector('textarea')?.value ?? ''
+        return true
+      },
+    })
+    const message: AgentToolMessage = {
+      kind: 'tool',
+      id: 'copy',
+      turnId: 'turn',
+      toolCallId: 'call',
+      toolName: 'generateImage',
+      title: '产品图',
+      prompt,
+      status: 'succeeded',
+      delivery: 'placed',
+      artifacts: [
+        { artifactId: 'image', taskId: 'task', outputIndex: 0, media: 'image', mime: 'image/png' },
+      ],
+    }
+    useInspirationStore.setState({
+      detailItemId: 'copy',
+      items: [
+        {
+          id: 'copy',
+          kind: 'showcase',
+          title: '产品图',
+          prompt,
+          thumbnailUrl: 'data:image/png;base64,preview',
+          params: { size: '1024x1024' },
+          recommendedModel: 'gpt-image-2',
+          recommendedProvider: 'openai-compat',
+          category: '产品',
+        },
+      ],
+    })
+    try {
+      await act(async () =>
+        root.render(
+          entry === 'image' ? (
+            <AgentToolCard message={message} />
+          ) : entry === 'batch' ? (
+            <AgentImageRun messages={[message]} />
+          ) : entry === 'artifact' ? (
+            <AgentArtifactPane message={message} onSelect={vi.fn()} onClose={vi.fn()} />
+          ) : (
+            <InspirationDetail />
+          ),
+        ),
+      )
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('button[aria-label="复制提示词"]')!.click(),
+      )
+      if (mode === 'failed') {
+        expect(copied).toBe('')
+        expect(showToast).toHaveBeenCalledWith(expect.stringContaining('复制失败'), 'error')
+        expect(host.querySelector('[role="status"]')).toBeNull()
+      } else {
+        expect(copied).toBe(prompt)
+        if (entry === 'image')
+          expect(host.querySelector('[role="status"]')?.textContent).toBe('复制提示词')
+        else expect(showToast).toHaveBeenCalledWith(expect.stringContaining('已复制'), 'success')
+      }
+    } finally {
+      act(() => root.unmount())
+      host.remove()
+      useStore.setState({ showToast: originalToast })
+      useInspirationStore.setState({ detailItemId: null, items: [] })
+      if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
+      else Reflect.deleteProperty(navigator, 'clipboard')
+      if (execCommand) Object.defineProperty(document, 'execCommand', execCommand)
+      else Reflect.deleteProperty(document, 'execCommand')
+    }
+  })
 })

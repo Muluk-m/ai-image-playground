@@ -24,7 +24,9 @@ export default function AssetDetail({
   const attachAsset = useLibraryStore((s) => s.attachAsset)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [draftDescription, setDescription] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const description = draftDescription ?? asset.description ?? ''
   const [saving, setSaving] = useState(false)
   const writing = useRef(false)
@@ -37,6 +39,7 @@ export default function AssetDetail({
     try {
       await saveAssetRecord({ ...latest, description: description.trim() })
       setDescription(null)
+      setEditing(false)
     } catch {
       useStore.getState().showToast(t('asset.saveFailed'), 'error')
     } finally {
@@ -82,9 +85,9 @@ export default function AssetDetail({
   }
 
   return (
-    <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 flex max-h-[85vh] w-[min(94vw,760px)] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-hairline animate-modal-in">
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
+    <Overlay onClose={onClose} tier="raised" layout="fill" backdrop="none" label={asset.name}>
+      <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col overflow-hidden border-l border-border bg-card shadow-dialog">
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
           <h3 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">
             {asset.name}
           </h3>
@@ -95,22 +98,9 @@ export default function AssetDetail({
             </Badge>
           )}
           <Button
-            disabled={asset.views.length === 0}
             type="button"
             variant="ghost"
-            size="sm"
-            onClick={() => {
-              void attachAsset(asset.id)
-              onClose()
-            }}
-            className="h-auto bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary hover:bg-primary/20 hover:text-primary"
-          >
-            {t('asset.addAsReference')}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
+            autoTooltip={false}
             onClick={onClose}
             aria-label={t('common:action.close')}
             className="text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -118,41 +108,73 @@ export default function AssetDetail({
             <Icon name="close" />
           </Button>
         </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <form
-            className="mb-5 space-y-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void saveDescription()
-            }}
-          >
-            <label className="block text-sm">
-              {t('createAsset.description')}
-              <Textarea
-                className="mt-2"
-                value={description}
-                disabled={saving}
-                rows={3}
-                maxLength={20000}
-                placeholder={t('createAsset.descriptionPlaceholder')}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </label>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={saving || description === (asset.description ?? '')}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {assetCoverImageId(asset) && (
+            <div className="relative mb-4 aspect-square overflow-hidden rounded-xl bg-muted">
+              <AssetThumb imageId={assetCoverImageId(asset)} alt={asset.name} />
+            </div>
+          )}
+          {editing ? (
+            <form
+              className="mb-5 space-y-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void saveDescription()
+              }}
             >
-              {t('common:action.save')}
-            </Button>
-          </form>
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <label className="block text-sm">
+                {t('createAsset.description')}
+                <Textarea
+                  ref={textareaRef}
+                  className="mt-2"
+                  value={description}
+                  disabled={saving}
+                  rows={3}
+                  maxLength={20000}
+                  placeholder={t('createAsset.descriptionPlaceholder')}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  disabled={saving || description === (asset.description ?? '')}
+                >
+                  {t('common:action.save')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => {
+                    setDescription(null)
+                    setEditing(false)
+                  }}
+                >
+                  {t('common:action.cancel')}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="mb-5">
+              <h4 className="text-sm font-medium text-foreground">
+                {t('createAsset.description')}
+              </h4>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                {description}
+              </p>
+            </div>
+          )}
+          <ul className="grid grid-cols-3 gap-2">
             {asset.views.map((view, index) => (
               <li key={view.imageId} className="flex flex-col gap-1">
                 <Button
                   type="button"
                   variant="ghost"
+                  autoTooltip={false}
                   onClick={() => setLightboxImageId(view.imageId)}
                   aria-label={t('asset.zoom')}
                   className="group relative aspect-square h-auto w-full overflow-hidden rounded-xl border border-border bg-muted p-0 hover:bg-muted"
@@ -195,6 +217,33 @@ export default function AssetDetail({
               />
             </li>
           </ul>
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border p-4 [&>button]:flex-1">
+          {!editing && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={t('common:action.edit')}
+              onClick={() => {
+                setEditing(true)
+                requestAnimationFrame(() => textareaRef.current?.focus())
+              }}
+            >
+              {t('common:action.edit')}
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            disabled={saving || asset.views.length === 0}
+            onClick={() => {
+              void attachAsset(asset.id)
+              onClose()
+            }}
+          >
+            {t('asset.addAsReference')}
+          </Button>
         </div>
       </div>
     </Overlay>

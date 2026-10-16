@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "gen:hero-seed": "node scripts/build-hero-seed.mjs",
-    "build": "pnpm gen:hero-seed && tsc -b && vite build",
+    "build": "pnpm gen:hero-seed && tsc -b && vite build && pnpm --filter @image-playground/website build:site && node ../website/compose.mjs",
     "build:static-host": "pnpm build && node scripts/write-runtime-config.mjs && node scripts/write-version-manifest.mjs",
     "typecheck": "pnpm gen:hero-seed && tsc -b",
     "preview": "vite preview",

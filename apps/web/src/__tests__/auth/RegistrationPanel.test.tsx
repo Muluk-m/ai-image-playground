@@ -178,8 +178,8 @@ describe('LoginDialog registration entry', () => {
 
     const dialog = document.body.querySelector('.auth-dialog')
     expect(dialog).not.toBeNull()
-    expect(dialog?.querySelector('.auth-showcase')).not.toBeNull()
-    expect(dialog?.textContent).toContain('让灵感，长成画面')
+    expect(dialog?.querySelector('.auth-creator-art')).toBeNull()
+    expect(dialog?.querySelector('.auth-wordmark')?.textContent).toContain('幕芽 Muvloom')
     expect(dialog?.textContent).toContain('邮箱地址')
 
     const registrationEntry = Array.from(

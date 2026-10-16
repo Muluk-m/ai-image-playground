@@ -5,13 +5,10 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
+import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import {
-  acceptImageFiles,
-  collectDroppedFiles,
-  filesFromFolderInput,
-} from '../../../lib/imageFiles'
+import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { useStore } from '../../../store'
 import type { AssetKind, LookPurpose } from '../types'
 
@@ -60,7 +57,6 @@ export default function CreateRecordDialog(props: Props) {
   const [purpose, setPurpose] = useState<LookPurpose>('scene')
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const isAsset = props.kind === 'asset'
@@ -82,6 +78,8 @@ export default function CreateRecordDialog(props: Props) {
       if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
     })
   }
+
+  const { dragging, dropZoneProps } = useImageDropZone(addFiles)
 
   const submit = async () => {
     if (!canSave) return
@@ -128,7 +126,7 @@ export default function CreateRecordDialog(props: Props) {
           )}
           <Button
             type="button"
-            variant="ghost"
+            autoTooltip={false}
             size="icon-sm"
             onClick={props.onClose}
             aria-label={t('common:action.close')}
@@ -142,19 +140,7 @@ export default function CreateRecordDialog(props: Props) {
           {t(`${ns}.images`)} {!isAsset && <span className="text-destructive">*</span>}
         </span>
         <div
-          onDragEnter={(e) => {
-            e.preventDefault()
-            setDragging(true)
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            void collectDroppedFiles(e.dataTransfer).then(({ files: dropped, folder }) =>
-              addFiles(dropped, folder),
-            )
-          }}
+          {...dropZoneProps}
           className={`flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed px-6 py-8 text-center transition ${
             dragging ? 'border-primary bg-primary/5' : 'border-border bg-muted/40'
           }`}
@@ -170,7 +156,7 @@ export default function CreateRecordDialog(props: Props) {
                   />
                   <Button
                     type="button"
-                    variant="secondary"
+                    autoTooltip={false}
                     size="icon-xs"
                     onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
                     aria-label={t('common:action.delete')}

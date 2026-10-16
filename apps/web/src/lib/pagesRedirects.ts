@@ -29,9 +29,10 @@ export function pagesRedirects(): string {
     TERMS_PATH,
     PRIVACY_PATH,
   ]
+  // Pages redirects .html targets to clean URLs, even inside a 200 rewrite.
   const rules = routes.flatMap((route) => [
-    `${route} / 200`,
-    route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ / 200`,
+    `${route} /workbench 200`,
+    route === HASHED_ASSETS_PATH ? `${route}/ ${route} 301` : `${route}/ /workbench 200`,
   ])
   return `# Generated from src/lib/appPaths.ts. Missing assets must remain 404.\n${rules.join('\n')}\n`
 }

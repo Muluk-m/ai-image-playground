@@ -27,6 +27,21 @@ describe('agentDraftOutputCount', () => {
     expect(agentDraftOutputCount(card('2.7'))).toBe(2)
   })
 
+  it('工具没写张数时用这一轮选择的张数，写了就以工具为准', () => {
+    expect(
+      agentDraftOutputCount({
+        ...card(undefined),
+        snapshot: { args: {}, params: { n: 4 } },
+      } as unknown as AgentToolMessage),
+    ).toBe(4)
+    expect(
+      agentDraftOutputCount({
+        ...card(2),
+        snapshot: { args: { n: 2 }, params: { n: 4 } },
+      } as unknown as AgentToolMessage),
+    ).toBe(2)
+  })
+
   it('读不出数字、超出范围与视频都收口到合法张数', () => {
     expect(agentDraftOutputCount(card('很多'))).toBe(1)
     expect(agentDraftOutputCount(card(undefined))).toBe(1)

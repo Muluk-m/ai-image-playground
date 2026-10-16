@@ -319,6 +319,11 @@ export interface AgentTurnParams {
    * 一轮最多自动提交 {@link AGENT_AUTO_SUBMIT_MAX_PER_TURN} 次，超出的照常退回等待确认。
    */
   readonly autoSubmit?: true
+  /**
+   * 图片生成模式：用用户原话调用一次生图工具，不追问、不改写成另一套方案，张数用本轮 `n`。
+   * 只认显式 `true`，并且要和 `autoSubmit` 一起送，工具才会当场提交。
+   */
+  readonly directImage?: true
   readonly size?: string
   readonly quality?: string
   readonly output_format?: string
@@ -326,6 +331,11 @@ export interface AgentTurnParams {
   readonly gemini_aspect_ratio?: string
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
+  /**
+   * 用户在输入框选择的出图张数。工具参数里没写 `n` 时用它；工具写了就以工具为准。
+   * 缺席与 1 等价。
+   */
+  readonly n?: number
 }
 
 /**
@@ -352,6 +362,15 @@ export function agentImageCount(args: { readonly n?: unknown } | null | undefine
   const raw = typeof args?.n === 'string' ? Number(args.n) : args?.n
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
   return Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(raw)))
+}
+
+/**
+ * 这次图片工具调用出几张。工具显式写了张数就用它；没写就用用户在这一轮选择的张数。
+ * 画布占位与队列请求共用这一个算式。
+ */
+export function requestedImageCount(toolCount: unknown, turnCount: unknown): number {
+  const chosen = toolCount == null || toolCount === '' ? turnCount : toolCount
+  return agentImageCount({ n: chosen })
 }
 
 /**

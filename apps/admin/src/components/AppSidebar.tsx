@@ -48,6 +48,7 @@ export type NavTo =
   | '/errors'
   | '/logs'
   | '/audit'
+  | '/agent-models'
 
 export interface NavEntry {
   to: NavTo
@@ -100,7 +101,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     label: '设置',
-    entries: [{ to: '/audit', icon: BookOpen, label: '审计' }],
+    entries: [
+      { to: '/agent-models', icon: Settings, label: 'Agent 模型' },
+      { to: '/audit', icon: BookOpen, label: '审计' },
+    ],
   },
 ]
 
@@ -257,7 +261,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="刷新" onClick={refresh}>
+            <SidebarMenuButton aria-label="刷新" onClick={refresh}>
               <RefreshCw />
               <span>刷新</span>
             </SidebarMenuButton>

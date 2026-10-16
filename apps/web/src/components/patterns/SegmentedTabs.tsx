@@ -6,21 +6,28 @@ export interface SegmentedTab<T extends string> {
   label: ReactNode
 }
 
-/** 页内切换：28px 胶囊页签，选中态 accent 底。多个页面共用同一种长相。 */
+/** 页内切换：28px 胶囊页签，选中态用芽绿浅底与芽绿文字。 */
 export default function SegmentedTabs<T extends string>({
   tabs,
   value,
   onChange,
   label,
+  fullWidth = false,
 }: {
   tabs: ReadonlyArray<SegmentedTab<T>>
   value: T
   onChange: (value: T) => void
   /** 这组页签切换的是什么，给读屏用 */
   label: string
+  /** 在可用宽度内均分各选项；默认按内容宽度排列。 */
+  fullWidth?: boolean
 }) {
   return (
-    <div role="group" aria-label={label} className="flex items-center gap-1">
+    <div
+      role="group"
+      aria-label={label}
+      className={cn('flex items-center gap-1', fullWidth && 'w-full')}
+    >
       {tabs.map((tab) => {
         const active = tab.value === value
         return (
@@ -30,9 +37,10 @@ export default function SegmentedTabs<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(tab.value)}
             className={cn(
-              'h-7 shrink-0 whitespace-nowrap rounded-full px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'h-7 whitespace-nowrap rounded-full px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              fullWidth ? 'min-w-0 flex-1' : 'shrink-0',
               active
-                ? 'bg-accent font-medium text-foreground'
+                ? 'bg-primary/15 font-medium text-primary'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             )}
           >
