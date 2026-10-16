@@ -244,7 +244,8 @@ export function pasteNodes(
     for (const group of copied.groups ?? []) {
       const id = newElementId()
       const moved = copied.nodes.some(
-        (node) => group.members.includes(node.id) && placed.get(node.id)!.y !== node.y - y + point.y,
+        (node) =>
+          group.members.includes(node.id) && placed.get(node.id)!.y !== node.y - y + point.y,
       )
       if (
         createCanvasGroup(
