@@ -210,30 +210,22 @@ it.each(['asset', 'look'] as const)('preserves folder import rules for %s', asyn
       let done = false
       return {
         readEntries: (receive: (entries: unknown[]) => void) => {
-          receive(
-            done
-              ? []
-              : files.map((file) => ({
-                  name: file.name,
-                  isFile: true,
-                  isDirectory: false,
-                  file: (receiveFile: (file: File) => void) => receiveFile(file),
-                })),
-          )
-          done = true
+          queueMicrotask(() => {
+            receive(
+              done
+                ? []
+                : files.map((file) => ({
+                    name: file.name,
+                    isFile: true,
+                    isDirectory: false,
+                    file: (receiveFile: (file: File) => void) => receiveFile(file),
+                  })),
+            )
+            done = true
+          })
         },
       }
     },
-  }
-  // readEntries callbacks are asynchronous in browsers.
-  const originalReader = entry.createReader
-  entry.createReader = () => {
-    const reader = originalReader()
-    return {
-      readEntries: (receive) => {
-        queueMicrotask(() => reader.readEntries(receive))
-      },
-    }
   }
   const event = new Event('drop', { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'dataTransfer', {
