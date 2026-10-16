@@ -205,6 +205,14 @@ async function checkWorkspace(browser, origin, {
             request.onerror = () => reject(request.error)
             request.onsuccess = () => {
               const db = request.result
+              if (!db.objectStoreNames.contains('scene')) {
+                db.close()
+                const reset = indexedDB.deleteDatabase('image-playground-canvas')
+                reset.onerror = () => reject(reset.error)
+                reset.onblocked = () => reject(new Error('canvas fixture database reset blocked'))
+                reset.onsuccess = open
+                return
+              }
               const transaction = db.transaction('scene', 'readwrite')
               const store = transaction.objectStore('scene')
               const cloud = {
@@ -247,6 +255,14 @@ async function checkWorkspace(browser, origin, {
             request.onerror = () => reject(request.error)
             request.onsuccess = () => {
               const db = request.result
+              if (!db.objectStoreNames.contains('scene')) {
+                db.close()
+                const reset = indexedDB.deleteDatabase('image-playground-canvas')
+                reset.onerror = () => reject(reset.error)
+                reset.onblocked = () => reject(new Error('canvas fixture database reset blocked'))
+                reset.onsuccess = open
+                return
+              }
               const transaction = db.transaction('scene', 'readwrite')
               const store = transaction.objectStore('scene')
               store.put({
