@@ -20,6 +20,7 @@ import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { modelLabel } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { parseRatio } from '../../../lib/size'
 import { useStore } from '../../../store'
@@ -403,6 +404,7 @@ export function AgentRetryWithdraw({
  */
 function RetryRemaining({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation('agent')
+  const { t: common } = useTranslation('common')
   const messages = useAgentStore((state) => state.messages)
   const refusals = useAgentStore((state) => state.retryRefusals)
   const [pending, setPending] = useState(false)
@@ -419,7 +421,8 @@ function RetryRemaining({ message }: { message: AgentToolMessage }) {
       icon="refresh"
       busy={pending}
       disabled={pending}
-      label={t('retry.retryRemaining', { count: remaining.length })}
+      label={common('action.retry')}
+      aria-description={t('retry.retryRemaining', { count: remaining.length })}
       onClick={() => {
         setPending(true)
         void useAgentStore
@@ -1061,7 +1064,7 @@ function StandardAgentToolCard({
                 type="button"
                 variant="ghost"
                 className={INLINE_ACTION}
-                title={onPreviewResult ? t('tool.previewResult') : t('tool.openCanvas')}
+                title={onPreviewResult ? undefined : t('tool.openCanvas')}
                 aria-label={
                   onPreviewResult
                     ? t('tool.openResultNumber', { number: index + 1 })
@@ -1218,10 +1221,19 @@ function StandardAgentToolCard({
               onCopy={
                 message.prompt
                   ? () => {
-                      void navigator.clipboard.writeText(message.prompt ?? '').then(() => {
-                        setCopiedPrompt(true)
-                        window.setTimeout(() => setCopiedPrompt(false), 1500)
-                      })
+                      void copyTextToClipboard(message.prompt ?? '').then(
+                        () => {
+                          setCopiedPrompt(true)
+                          window.setTimeout(() => setCopiedPrompt(false), 1500)
+                        },
+                        (error) =>
+                          useStore
+                            .getState()
+                            .showToast(
+                              getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                              'error',
+                            ),
+                      )
                     }
                   : undefined
               }
@@ -1603,7 +1615,20 @@ export function AgentImageRun({
           copyLabel={t('tool.copyPrompt')}
           regenerateLabel={t('tool.regenerate')}
           onCopy={
-            lead.prompt ? () => void navigator.clipboard.writeText(lead.prompt ?? '') : undefined
+            lead.prompt
+              ? () => {
+                  void copyTextToClipboard(lead.prompt ?? '').then(
+                    () => useStore.getState().showToast(t('promptDialog.copied'), 'success'),
+                    (error) =>
+                      useStore
+                        .getState()
+                        .showToast(
+                          getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                          'error',
+                        ),
+                  )
+                }
+              : undefined
           }
           onRegenerate={() =>
             void useAgentStore

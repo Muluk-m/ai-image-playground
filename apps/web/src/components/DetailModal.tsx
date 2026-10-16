@@ -879,7 +879,7 @@ export default function DetailModal() {
                         }
                       }}
                       className="shrink-0"
-                      title={t('rawUrls.copyLink')}
+                      aria-label={t('rawUrls.copyLink')}
                     >
                       <Icon name="copy" size="xs" />
                       <span className="hidden sm:inline">{t('common:action.copy')}</span>

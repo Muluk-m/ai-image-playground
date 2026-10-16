@@ -238,7 +238,6 @@ function ComposerAttachmentThumb({
               type="button"
               variant="ghost"
               size="icon"
-              title={t('tool.retryPreview')}
               aria-label={`${t('tool.previewUnavailable')}：${t('tool.retryPreview')} ${alt}`}
               className="absolute bottom-0 right-0 z-10 h-11 w-11 text-destructive"
               onClick={() => void reloadPreview()}
@@ -1284,6 +1283,7 @@ export default function AgentComposer({
               <CreationSend
                 busy={!stopMode && (uploadingCount > 0 || submitting)}
                 streaming={stopMode}
+                aria-description={uploadsBlocked ? (referenceStatus ?? undefined) : undefined}
                 aria-label={
                   stopMode
                     ? t('composer.abort')
