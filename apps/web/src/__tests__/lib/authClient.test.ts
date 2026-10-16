@@ -8,6 +8,7 @@ import {
   getCurrentUser,
   loginUser,
   logoutUser,
+  oauthLinkUrl,
   oauthStartUrl,
   registerUser,
   shouldProbeSession,
@@ -278,7 +279,62 @@ describe('auth client', () => {
   })
 
   it('points the OAuth start route at the configured BFF origin', () => {
-    expect(oauthStartUrl('google')).toBe('https://bff.example.com/api/auth/oauth/google/start')
+    vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
+    expect(oauthStartUrl('google')).toBe(
+      'https://bff.example.com/api/auth/oauth/google/start?return_to=%2Fimage',
+    )
+  })
+
+  it.each([
+    '/image?prompt=hello%20world&login=1#composer',
+    '/assets?tab=projects#recent',
+    '/explore?tag=art#results',
+    '/tools?tool=resize#upload',
+    '/pricing?plan=pro#plans',
+    '/terms#agreement',
+    '/privacy#cookies',
+    '/p/project-123?mode=canvas&selection=a%2Bb#node-2',
+  ])('preserves workspace query and hash for OAuth start and link at %s', (target) => {
+    vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
+    const start = new URL(oauthStartUrl('google', '  invite +&/#?  '))
+    const link = new URL(oauthLinkUrl('google'))
+
+    expect(start.origin).toBe('https://bff.example.com')
+    expect(start.pathname).toBe('/api/auth/oauth/google/start')
+    expect(start.searchParams.get('return_to')).toBe(target)
+    expect(start.searchParams.get('ref')).toBe('invite +&/#?')
+    expect(link.origin).toBe('https://bff.example.com')
+    expect(link.pathname).toBe('/api/auth/oauth/google/link')
+    expect(link.searchParams.get('return_to')).toBe(target)
+    expect(link.searchParams.has('ref')).toBe(false)
+  })
+
+  it.each([
+    '/',
+    '/login?ref=invite#signup',
+    '/guide/start',
+    '/p/',
+    '/p/%FF',
+  ])('defaults website and invalid project entries to /image at %s', (target) => {
+    vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/image')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/image')
+  })
+
+  it('defaults to /image without a browser and omits blank referrals', () => {
+    vi.stubGlobal('window', undefined)
+    const start = new URL(oauthStartUrl('google', '  '))
+    expect(start.searchParams.get('return_to')).toBe('/image')
+    expect(start.searchParams.has('ref')).toBe(false)
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/image')
+  })
+
+  it('defaults oversized workspace targets to /image', () => {
+    vi.stubGlobal('window', {
+      location: new URL(`https://app.example.com/image?prompt=${'a'.repeat(2048)}`),
+    })
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/image')
+    expect(new URL(oauthLinkUrl('google')).searchParams.get('return_to')).toBe('/image')
   })
 
   it('keeps well-formed providers and drops malformed ones', async () => {

@@ -6,6 +6,8 @@ import {
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
+import { readProjectRoute } from '../features/canvas/lib/projectRoute'
+import { APP_MODE_PATHS, isStandalonePath, normalizePath } from './appPaths'
 import {
   applySessionCapabilityGrants,
   isClientCapabilityEnabled,
@@ -134,10 +136,25 @@ export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
   }
 }
 
+/** Keep OAuth on the current workspace, never on the marketing or login entry. */
+function oauthReturnTo(): string {
+  if (typeof window === 'undefined') return APP_MODE_PATHS.image
+  const { pathname, search, hash } = window.location
+  const path = normalizePath(pathname)
+  const workspace =
+    Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
+    isStandalonePath(path) ||
+    readProjectRoute(pathname) !== null
+  const target = `${pathname}${search}${hash}`
+  return workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
+    ? target
+    : APP_MODE_PATHS.image
+}
+
 export function oauthStartUrl(provider: string, referralCode?: string): string {
   const code = referralCode?.trim()
   return bffUrl(
-    `/api/auth/oauth/${provider}/start${code ? `?ref=${encodeURIComponent(code)}` : ''}`,
+    `/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(oauthReturnTo())}${code ? `&ref=${encodeURIComponent(code)}` : ''}`,
   )
 }
 
@@ -166,7 +183,7 @@ export async function updateOwnPassword(input: {
 }
 
 export function oauthLinkUrl(provider: string): string {
-  return bffUrl(`/api/auth/oauth/${provider}/link`)
+  return bffUrl(`/api/auth/oauth/${provider}/link?return_to=${encodeURIComponent(oauthReturnTo())}`)
 }
 
 export async function unlinkOAuthProvider(provider: string): Promise<void> {
