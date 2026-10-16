@@ -48,7 +48,12 @@ it.each([
       data: { naturalWidth: size.width, naturalHeight: size.height, name: 'portrait.png' },
     })
     dimensions.mockResolvedValue({ width: size.height, height: size.width })
-    await fillImageNode(editor, doc, id, new File(['second'], 'landscape.png', { type: 'image/png' }))
+    await fillImageNode(
+      editor,
+      doc,
+      id,
+      new File(['second'], 'landscape.png', { type: 'image/png' }),
+    )
     expect(readCanvasDocument(doc).nodes[0]).toMatchObject({
       ...bounds,
       data: { naturalWidth: size.height, naturalHeight: size.width, name: 'landscape.png' },
@@ -58,7 +63,10 @@ it.each([
     try {
       Y.applyUpdate(restored, Y.encodeStateAsUpdate(doc))
       expect(readCanvasDocument(restored).nodes[0]).toMatchObject(bounds)
-      expect(nodeCardSize(readCanvasDocument(restored).nodes[0]!)).toEqual({ width: 360, height: 240 })
+      expect(nodeCardSize(readCanvasDocument(restored).nodes[0]!)).toEqual({
+        width: 360,
+        height: 240,
+      })
     } finally {
       restored.destroy()
     }

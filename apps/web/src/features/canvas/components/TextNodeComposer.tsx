@@ -22,11 +22,7 @@ export default function TextNodeComposer({
   const { t } = useTranslation('canvas')
   const canSend = value.trim().length > 0
   return (
-    <NodeComposerFrame
-      label={t('nodes.composerText')}
-      references={references}
-      files={files}
-    >
+    <NodeComposerFrame label={t('nodes.composerText')} references={references} files={files}>
       <Textarea
         value={value}
         placeholder={t('nodes.composerText')}

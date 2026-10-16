@@ -42,8 +42,8 @@ import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import {
-  createContext,
   type CSSProperties,
+  createContext,
   lazy,
   memo,
   type RefObject,
@@ -1000,8 +1000,7 @@ function Flow({
     const right = left + width * viewport.zoom
     const bottom = top + height * viewport.zoom
     const dx = left < area.x ? area.x - left : Math.min(0, area.x + area.width - right)
-    const dy =
-      top < area.y + 30 ? area.y + 30 - top : Math.min(0, area.y + area.height - bottom)
+    const dy = top < area.y + 30 ? area.y + 30 - top : Math.min(0, area.y + area.height - bottom)
     if (dx || dy)
       flowRef.current?.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
   }
@@ -1090,7 +1089,8 @@ function Flow({
     ])
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
     const viewport =
-      bounds && viewportForCanvasBounds(bounds, container.current, 0.1, Math.min(1, frame.zoom), 0.3)
+      bounds &&
+      viewportForCanvasBounds(bounds, container.current, 0.1, Math.min(1, frame.zoom), 0.3)
     if (viewport) flowRef.current?.setViewport(viewport)
   }
   useAgentNodeRun({
@@ -2558,7 +2558,6 @@ function Flow({
     </NodeStoryboardContext.Provider>
   )
 }
-
 
 /** 节点画布：一个项目的 `Y.Doc` 渲染成 React Flow。 */
 export default function NodeCanvas({

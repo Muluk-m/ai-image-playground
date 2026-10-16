@@ -52,7 +52,11 @@ it('preserves group member offsets and packs disconnected cards into a compact g
 it.each([
   { linked: true, memberX: 10, memberY: 20 },
   { linked: false, memberX: -300, memberY: -100 },
-])('packs a small restored group by its visible media hull (linked=$linked)', ({ linked, memberX, memberY }) => {
+])('packs a small restored group by its visible media hull (linked=$linked)', ({
+  linked,
+  memberX,
+  memberY,
+}) => {
   const snapshot: CanvasSnapshot = {
     nodes: [
       { ...node('member', 100 + memberX, 200 + memberY), width: 32, height: 24 },
