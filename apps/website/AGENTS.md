@@ -6,8 +6,10 @@ authentication form and semantic tokens; do not duplicate authentication protoco
 - TanStack Start pre-renders every entry in `src/catalog.ts`. Publish only `dist/client`; no runtime
   SSR or server functions. Public navigation uses ordinary links so direct requests work on Pages.
 - `/` and `/en/` are marketing homepages. `/login/` and `/en/login/` share the real workbench login
-  form and are noindex. Successful login and an existing authenticated root session go to `/image`.
-  Example art/CTA does not enqueue a prompt. Workbench pending submissions keep their existing flow.
+  form and are noindex. The pre-rendered root runs a tiny presentation-only session-hint selector
+  before paint; remembered/OAuth sessions load `/workbench` (the clean URL for `workbench.html`).
+  Its inline bootstrap canonicalizes to `/` before server auth; only verified auth sets account scope.
+  Successful login therefore lands on `/`; anonymous visitors retain marketing. CTA art never enqueues a prompt.
 - Guide content is in `../web/src/features/guide/content`. Keep both language structures, old URLs,
   anchors and all source content. The React renderer and body/FAQ search use this same data.
 - `PUBLIC_ORIGIN` is a bare deployment origin. Canonical/hreflang/JSON-LD/sitemap require it.

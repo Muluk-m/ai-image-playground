@@ -8,13 +8,31 @@ import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
 import { i18next } from '../../i18n'
 import { useStore } from '../../store'
-import { LEGACY_PROJECTS_PATH, normalizePath, pathAppMode } from '../appPaths'
+import {
+  APP_MODE_PATHS,
+  LEGACY_IMAGE_PATH,
+  LEGACY_PROJECTS_PATH,
+  WORKBENCH_ENTRY_PATH,
+  normalizePath,
+  pathAppMode,
+} from '../appPaths'
 import { writeModeAddress } from './address'
 
 /** Owns address synchronization order and the browser-only project navigation queue. */
 export function installWorkbenchNavigation(): () => void {
   const sync = () => {
-    const { pathname } = window.location
+    let { pathname } = window.location
+    const { search, hash } = window.location
+    // The website sends hinted sessions through the workbench static entry. Canonicalize that
+    // entry before the first workspace frame becomes visible, retaining deep-link suffixes.
+    if (
+      normalizePath(pathname) === LEGACY_IMAGE_PATH ||
+      normalizePath(pathname) === WORKBENCH_ENTRY_PATH ||
+      normalizePath(pathname) === `${WORKBENCH_ENTRY_PATH}.html`
+    ) {
+      window.history.replaceState(null, '', `${APP_MODE_PATHS.image}${search}${hash}`)
+      pathname = APP_MODE_PATHS.image
+    }
     const mode = pathAppMode(pathname) ?? (normalizePath(pathname) === '/' ? 'image' : null)
     if (pathname.replace(/\/+$/, '') === LEGACY_PROJECTS_PATH)
       useLibraryStore.getState().setTab('projects')

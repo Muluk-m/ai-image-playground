@@ -226,6 +226,9 @@ describe('auth client', () => {
     expect(cookie).toContain('image_playground_signed_in=1')
     expect(cookie).toContain('Secure')
     expect(shouldProbeSession()).toBe(true)
+    await logoutUser()
+    expect(store.get('image-playground.last-storage-user')).toBe('null')
+    expect(cookie).toContain('Max-Age=0')
   })
 
   it('probes the session only when a hint cookie or a remembered user is present', () => {
@@ -254,6 +257,24 @@ describe('auth client', () => {
       location: { search: '?auth_session=1' },
     })
     expect(shouldProbeSession()).toBe(true)
+  })
+
+  it('retains a remembered session when cookie access is blocked', async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+    })
+    vi.stubGlobal('document', {
+      get cookie(): string { throw new Error('blocked') },
+      set cookie(_value: string) { throw new Error('blocked') },
+    })
+    vi.stubGlobal('window', { location: { search: '' } })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ user: USER })))
+    await expect(loginUser('alice', 'secret')).resolves.toEqual(USER)
+    expect(shouldProbeSession()).toBe(true)
+    await expect(logoutUser()).resolves.toBeUndefined()
+    expect(shouldProbeSession()).toBe(false)
   })
 
   it('points the OAuth start route at the configured BFF origin', () => {
