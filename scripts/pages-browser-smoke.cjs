@@ -325,9 +325,10 @@ async function checkWorkspace(browser, origin, {
             }), database)
             const box = await first.boundingBox()
             if (!box) throw new Error('Migrated image is not visible')
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+            const dragPoint = { x: box.x + box.width * 0.15, y: box.y + box.height / 2 }
+            await page.mouse.move(dragPoint.x, dragPoint.y)
             await page.mouse.down()
-            await page.mouse.move(box.x + box.width / 2 + 70, box.y + box.height / 2 + 40, { steps: 8 })
+            await page.mouse.move(dragPoint.x + 70, dragPoint.y + 40, { steps: 8 })
             await page.mouse.up()
             const moved = await first.getAttribute('style')
             const transform = (style) => /transform:\s*([^;]+)/.exec(style || '')?.[1]
