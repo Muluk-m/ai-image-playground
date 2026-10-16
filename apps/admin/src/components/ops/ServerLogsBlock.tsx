@@ -518,7 +518,7 @@ export function ServerLogsBlock({
                     update({ [key]: undefined })
                     if (key === 'q') setSearch('')
                   }}
-                  title={`移除 ${key}`}
+                  aria-label={`移除 ${key} 筛选`}
                 >
                   {key}:{String(value)} ×
                 </Button>
