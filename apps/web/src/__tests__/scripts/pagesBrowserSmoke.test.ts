@@ -119,12 +119,11 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
       timeoutMs: 3000,
     })
   })
-  it('cold-starts node mode using capability fixtures on both routes', async () => {
+  it('cold-starts node mode without a canvas capability flag', async () => {
     await writeFile(
       join(dist, 'assets/main.js'),
       `
-      const capabilities = await fetch('/api/capabilities').then(r => r.json());
-      if (!capabilities['canvas:nodes']) throw new Error('Node capability missing');
+      await fetch('/api/capabilities');
       document.getElementById('boot').remove();
       document.getElementById('root').innerHTML = '<button aria-label="创作">创作</button><div aria-label="创作画布"><div class="react-flow" style="width:300px;height:300px"><button aria-label="显示小地图">显示小地图</button><div class="react-flow__minimap" style="width:100px;height:100px"></div></div></div>';
     `,

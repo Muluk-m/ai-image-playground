@@ -15,6 +15,7 @@ import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { canvasProtocolResponse, installCanvasTestSocket } from '../../../helpers/cloudNodeProtocol'
 
 const cloud = { revision: 1, createdAt: 1, updatedAt: 1, elementCount: 0 }
 
@@ -173,11 +174,18 @@ it('打开着的云端项目自动命名后把新名字推上服务端', async (
     document: { version: 1, elements: [] },
   }
   const written: string[] = []
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/canvas/name') && init?.method === 'PUT') {
+      written.push((JSON.parse(String(init.body)) as { name: string }).name)
+      return Response.json({ ok: true })
+    }
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (init?.method !== 'PUT') return Response.json(remote)
-    const body = JSON.parse(init.body as string) as { name: string; baseRevision: number }
+    const body = JSON.parse(String(init.body)) as { name: string; baseRevision: number }
     written.push(body.name)
     return Response.json({ ...remote, name: body.name, revision: body.baseRevision + 1 })
   })
@@ -202,7 +210,7 @@ it('打开着的云端项目自动命名后把新名字推上服务端', async (
   expect((await projectRepository.list()).find((one) => one.id === id)).toMatchObject({
     name: '水彩猫咪',
     customName: false,
-    cloud: { revision: 3, nameDirty: false },
+    cloud: { revision: remote.revision, nameDirty: false },
   })
   forgetCanvasWorkspace(project.sceneKey)
 })

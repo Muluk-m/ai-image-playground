@@ -5,7 +5,13 @@ import { requireInternalService } from '../lib/user-auth'
 
 export const capabilitiesRoutes = new Elysia().get(
   '/api/capabilities',
-  (): ClientCapabilityManifest & { projectDocumentIdentity: true } => ({
+  (): ClientCapabilityManifest & {
+    readonly 'canvas:nodes': true
+    readonly 'canvas:blank-generate': true
+    readonly 'canvas:node-run': true
+    readonly 'canvas:script': true
+    projectDocumentIdentity: true
+  } => ({
     ...capabilityManifest(),
     projectDocumentIdentity: true,
   }),

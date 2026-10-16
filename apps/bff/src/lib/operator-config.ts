@@ -18,13 +18,6 @@ import { isObject } from './type-guards'
 
 export type OperatorValueSource = 'default' | 'file' | `preset:${string}`
 
-/** 只允许把尚未对全站开放的节点画布子功能发给指定用户。不能借此打开其它能力。 */
-export const USER_GRANTABLE_CAPABILITIES = [
-  'canvas:blank-generate',
-  'canvas:node-run',
-  'canvas:script',
-] as const satisfies readonly CapabilityKey[]
-
 export interface ResolvedOperatorConfig {
   readonly capabilities: CapabilityValues
   readonly capabilitySources: Readonly<Record<CapabilityKey, OperatorValueSource>>
@@ -111,20 +104,13 @@ function parseCapabilityUsers(value: unknown): Readonly<Record<string, readonly 
     if (!Array.isArray(granted)) {
       throw new Error(`operator config capabilityUsers.${userId} must be an array`)
     }
-    const keys: CapabilityKey[] = []
     for (const key of granted) {
-      if (
-        typeof key !== 'string' ||
-        !USER_GRANTABLE_CAPABILITIES.includes(key as (typeof USER_GRANTABLE_CAPABILITIES)[number])
-      ) {
-        throw new Error(
-          `operator config capabilityUsers.${userId} contains an unsupported capability`,
-        )
-      }
-      const capability = key as CapabilityKey
-      if (!keys.includes(capability)) keys.push(capability)
+      if (typeof key !== 'string' || RETIRED_CAPABILITIES.includes(key)) continue
+      throw new Error(
+        `operator config capabilityUsers.${userId} contains an unsupported capability`,
+      )
     }
-    users[userId] = keys
+    users[userId] = []
   }
   return users
 }
@@ -213,11 +199,6 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
 function applyCapabilityDependencies(capabilities: Record<CapabilityKey, boolean>): void {
   if (!capabilities['accounts:login']) capabilities['accounts:sync'] = false
   if (!capabilities['agent:chat']) capabilities['agent:production'] = false
-  if (!capabilities['canvas:nodes']) {
-    capabilities['canvas:blank-generate'] = false
-    capabilities['canvas:node-run'] = false
-    capabilities['canvas:script'] = false
-  }
 }
 
 function assertCapabilityCompatibility(capabilities: CapabilityValues): void {
@@ -296,17 +277,6 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
   }
 }
 
-/** 全站开关优先。按用户加开只在节点画布本身已经打开时生效，并且只能加开，不能关掉全站已开的能力。 */
-export function userHasCapability(
-  config: ResolvedOperatorConfig,
-  key: CapabilityKey,
-  userId: string | null | undefined,
-): boolean {
-  if (config.capabilities[key]) return true
-  if (!userId || !config.capabilities['canvas:nodes']) return false
-  return config.capabilityUsers[userId]?.includes(key) ?? false
-}
-
 export function loadOperatorConfig(file: string | null): ResolvedOperatorConfig {
   if (!file) return defaults()
 
@@ -357,9 +327,23 @@ export function attachmentLimits(config: ResolvedOperatorConfig): AttachmentLimi
   }
 }
 
-export function clientCapabilityManifest(config: ResolvedOperatorConfig): ClientCapabilityManifest {
+const LEGACY_CANVAS_CAPABILITIES = {
+  'canvas:nodes': true,
+  'canvas:blank-generate': true,
+  'canvas:node-run': true,
+  'canvas:script': true,
+} as const
+
+export function clientCapabilityManifest(
+  config: ResolvedOperatorConfig,
+): ClientCapabilityManifest & typeof LEGACY_CANVAS_CAPABILITIES {
   const manifest = {} as Record<ClientCapabilityKey, boolean>
   for (const key of clientCapabilityKeys) manifest[key] = config.capabilities[key]
   const limits = attachmentLimits(config)
-  return { ...manifest, ...(limits ? { attachmentLimits: limits } : {}) }
+  // 旧前端仍用这四个字段决定画布和子功能是否出现。新前端不再读取，响应里固定为开。
+  return {
+    ...manifest,
+    ...(limits ? { attachmentLimits: limits } : {}),
+    ...LEGACY_CANVAS_CAPABILITIES,
+  }
 }
