@@ -660,11 +660,7 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
 }
 
 /** Use the same display geometry for navigation and culling without rewriting document data. */
-function boundsOf(
-  snapshot: CanvasSnapshot,
-  ids?: ReadonlySet<string>,
-  liveNodes?: readonly FlowNode[],
-): Rect | null {
+function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | null {
   let minX = Number.POSITIVE_INFINITY
   let minY = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
@@ -679,10 +675,7 @@ function boundsOf(
   for (const group of snapshot.groups ?? []) {
     if (!ids || ids.has(group.id)) include(group.x, group.y, group.width, group.height)
   }
-  const live = liveNodes
-    ?.filter((node) => node.data.node)
-    .map((node) => ({ ...node.data.node!, x: node.position.x, y: node.position.y }))
-  for (const node of live?.length ? live : snapshot.nodes) {
+  for (const node of snapshot.nodes) {
     if (ids && !ids.has(node.id)) continue
     const { width, height } = nodeCardSize(node)
     include(node.x, node.y, width, height)
@@ -757,18 +750,6 @@ function viewportForCanvasBounds(
   if (!container?.clientWidth || !container.clientHeight) return null
   const area = availableCanvasArea(container)
   const viewport = getViewportForBounds(bounds, area.width, area.height, minZoom, maxZoom, padding)
-  const maxFitZoom = Math.min(
-    area.width / Math.max(1, bounds.width * (1 + padding * 2)),
-    area.height / Math.max(1, bounds.height * (1 + padding * 2)),
-  )
-  if (viewport.zoom > maxFitZoom) {
-    const zoom = Math.max(minZoom, maxFitZoom)
-    return {
-      x: area.x + area.width / 2 - (bounds.x + bounds.width / 2) * zoom,
-      y: area.y + area.height / 2 - (bounds.y + bounds.height / 2) * zoom,
-      zoom,
-    }
-  }
   return { ...viewport, x: viewport.x + area.x, y: viewport.y + area.y }
 }
 
@@ -962,6 +943,7 @@ function Flow({
       ),
     [viewportPlan.painted, nodes],
   )
+  const framing = useRef<Promise<unknown> | null>(null)
   const showFrame = (
     ids: readonly string[] | undefined,
     padding: number,
@@ -969,16 +951,21 @@ function Flow({
     maxZoom: number,
     duration?: number,
   ) => {
-    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined, nodes)
+    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined)
     const viewport =
       bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
     if (!viewport) return
-    flowRef.current?.setViewport(
-      viewport,
-      duration ? { duration } : undefined,
+    const transition = Promise.resolve(
+      flowRef.current?.setViewport(viewport, duration ? { duration } : undefined),
     )
+    framing.current = transition
+    void transition.finally(() => {
+      if (framing.current === transition) framing.current = null
+    })
   }
   const revealNode = (target: CanvasNode) => {
+    // Overlay resize notifications must not cancel an explicit fit animation.
+    if (framing.current) return
     const element = container.current
     const viewport = flowRef.current?.getViewport()
     if (!element?.clientWidth || !element.clientHeight || !viewport) return
