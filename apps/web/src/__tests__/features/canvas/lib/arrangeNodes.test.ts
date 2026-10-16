@@ -1,6 +1,6 @@
 import type { CanvasNode, CanvasSnapshot } from '@image-playground/shared'
 import { expect, it } from 'vitest'
-import { arrangeNodes } from '../../../../features/canvas/lib/arrangeNodes'
+import { arrangeNodes, CANVAS_LAYOUT_GAP } from '../../../../features/canvas/lib/arrangeNodes'
 import { nodeCardSize } from '../../../../features/canvas/lib/nodeCanvasPlace'
 
 const node = (id: string, x = 0, y = 0): CanvasNode => ({
@@ -24,9 +24,12 @@ it('lays out dependencies left to right and branches without overlapping; previe
   }
   const before = structuredClone(snapshot)
   const positions = new Map(arrangeNodes(snapshot).map((p) => [p.id, p]))
-  expect(positions.get('b')!.x).toBeGreaterThan(positions.get('a')!.x + 280)
+  const mediaSize = nodeCardSize(snapshot.nodes[0]!)
+  expect(positions.get('b')!.x).toBe(positions.get('a')!.x + mediaSize.width + CANVAS_LAYOUT_GAP)
   expect(positions.get('b')!.x).toBe(positions.get('c')!.x)
-  expect(Math.abs(positions.get('b')!.y - positions.get('c')!.y)).toBeGreaterThan(280)
+  expect(Math.abs(positions.get('b')!.y - positions.get('c')!.y)).toBe(
+    mediaSize.height + CANVAS_LAYOUT_GAP,
+  )
   expect(snapshot).toEqual(before)
   expect(arrangeNodes(snapshot)).toEqual([...positions.values()])
 })
@@ -73,10 +76,10 @@ it.each([
   const member = { ...positions.get('member')!, ...nodeCardSize(snapshot.nodes[0]!) }
   const other = { ...positions.get('other')!, ...nodeCardSize(snapshot.nodes[1]!) }
   expect(
-    member.x + member.width + 168 <= other.x ||
-      other.x + other.width + 168 <= member.x ||
-      member.y + member.height + 168 <= other.y ||
-      other.y + other.height + 168 <= member.y,
+    member.x + member.width + CANVAS_LAYOUT_GAP <= other.x ||
+      other.x + other.width + CANVAS_LAYOUT_GAP <= member.x ||
+      member.y + member.height + CANVAS_LAYOUT_GAP <= other.y ||
+      other.y + other.height + CANVAS_LAYOUT_GAP <= member.y,
   ).toBe(true)
   expect(member.x - positions.get('group')!.x).toBe(memberX)
   expect(member.y - positions.get('group')!.y).toBe(memberY)
