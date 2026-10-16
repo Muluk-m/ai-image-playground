@@ -87,6 +87,8 @@ export function modelHistorySignature(input: {
     readonly baseUrl: string
   }
   readonly thinkingDepth?: AgentThinkingDepth
+  readonly providerInstance?: string
+  readonly reasoningEffort?: string
   readonly mode: AgentMode
   readonly autoSubmit: boolean
   readonly directImage?: boolean
@@ -98,6 +100,8 @@ export function modelHistorySignature(input: {
     owner,
     model: { id: model.id, api: model.api, provider: model.provider, baseUrl: model.baseUrl },
     thinkingDepth,
+    providerInstance: input.providerInstance,
+    reasoningEffort: input.reasoningEffort,
     system: systemPrompt(mode, autoSubmit, audience, input.directImage === true),
     tools: agentToolDeclarations(mode, audience),
     skills: visibleAgentSkills(mode, audience)

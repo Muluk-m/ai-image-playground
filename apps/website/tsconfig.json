@@ -1,0 +1,26 @@
+{
+  "extends": "../web/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "verbatimModuleSyntax": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "../web/src/*"
+      ]
+    },
+    "types": [
+      "vite/client",
+      "node"
+    ],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ]
+  },
+  "include": [
+    "src",
+    "../web/src/vite-env.d.ts"
+  ]
+}

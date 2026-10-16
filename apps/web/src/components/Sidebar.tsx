@@ -39,16 +39,16 @@ const MODE_ICONS: Record<AppMode, IconName> = {
 }
 
 const ITEM = 'h-9 w-full justify-start gap-2.5 px-3 text-body-sm font-normal'
-/** 主入口选中用中性底，芽绿只留给发送与少量高亮。 */
-const ACTIVE_ITEM =
-  'bg-secondary font-medium text-foreground hover:bg-secondary hover:text-foreground'
+/** 主入口选中用芽绿浅底，图文沿用 primary，亮暗主题共用。 */
+const ACTIVE_ITEM = 'bg-primary/15 font-medium text-primary hover:bg-primary/15 hover:text-primary'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
 const ACTIVE_ROW = 'bg-accent font-medium text-foreground'
 const SIDEBAR_WIDTH = '264px'
+const SIDEBAR_RAIL_WIDTH = '64px'
 
 /**
  * 主导航。品牌在侧栏里，账号与积分在内容面板顶上对齐成一组。
- * 宽屏是一条 264px 的栏（入口 + 对话、画布两区），窄屏塌成底部标签条。
+ * 宽屏展开 264px，资产页收起后保留 64px 图标轨；窄屏塌成底部标签条。
  */
 export default function Sidebar() {
   const { t } = useTranslation('shell')
@@ -81,6 +81,7 @@ export default function Sidebar() {
   const expanded =
     sidebarPreference ??
     defaultSidebarExpanded(appMode, activeProject ? projectExperience(activeProject) : null)
+  const showRail = !expanded && appMode === 'library'
   const toggleSidebar = () => useStore.setState({ sidebarExpanded: !expanded })
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
@@ -91,18 +92,21 @@ export default function Sidebar() {
         // Store-owned diagnostics; the sidebar renders the failure instead of leaking a rejection.
       })
   }, [])
-  // 宽度由一个变量说了算：主区、画布与输入框都照它让位。收起时内容面板铺满，不再留缝。
+  // 主区与页头一起让位；资产保留图标轨，画布沉浸模式仍铺满。
   useEffect(() => {
     document.documentElement.dataset.sidebar = expanded ? 'open' : 'collapsed'
     document.documentElement.style.setProperty(
       '--app-sidebar-size',
-      expanded ? SIDEBAR_WIDTH : '0px',
+      expanded ? SIDEBAR_WIDTH : showRail ? SIDEBAR_RAIL_WIDTH : '0px',
     )
-    document.documentElement.style.setProperty('--app-nav-toggle-space', expanded ? '0px' : '4rem')
+    document.documentElement.style.setProperty(
+      '--app-nav-toggle-space',
+      expanded || showRail ? '0px' : '4rem',
+    )
     return () => {
       delete document.documentElement.dataset.sidebar
     }
-  }, [expanded])
+  }, [expanded, showRail])
   const catalog = projectCatalog(projects, cloudCatalog)
   const selectedId = catalogProjectId(activeProject, catalog)
   const recent = catalog.filter((project) => project.hasContent || project.workspaceOpened)
@@ -143,10 +147,11 @@ export default function Sidebar() {
         onClick={() => setAppMode(mode)}
         aria-pressed={active}
         aria-label={APP_MODE_LABELS[mode]}
-        className={`${ITEM} ${active ? ACTIVE_ITEM : IDLE_ITEM}`}
+        autoTooltip={false}
+        className={`${showRail ? 'size-10 shrink-0 rounded-xl p-0 [&_svg]:size-5' : ITEM} ${active ? ACTIVE_ITEM : IDLE_ITEM}`}
       >
         <Icon name={MODE_ICONS[mode]} filled={active} />
-        {APP_MODE_LABELS[mode]}
+        {!showRail && APP_MODE_LABELS[mode]}
       </Button>
     )
   }
@@ -156,17 +161,57 @@ export default function Sidebar() {
 
   return (
     <>
-      {!expanded && (
+      {!expanded && !showRail && (
         <Button
           type="button"
           variant="outline"
           size="icon"
           onClick={appMode === 'canvas' ? () => setAppMode('image') : toggleSidebar}
           aria-label={t(appMode === 'canvas' ? 'brand.home' : 'header.nav')}
+          autoTooltip={false}
           className="app-floating-mark fixed left-3 top-3 z-40 hidden bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:inline-flex"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
         </Button>
+      )}
+      {showRail && (
+        <nav
+          aria-label={t('header.nav')}
+          style={{ width: 'var(--app-sidebar-size)' }}
+          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col items-center gap-0.5 overflow-y-auto bg-sidebar pb-4 pt-3 md:flex"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            onClick={toggleSidebar}
+            aria-label={t('header.nav')}
+            aria-expanded={false}
+            autoTooltip={false}
+            className="group relative mb-4 shrink-0 text-foreground hover:bg-transparent hover:text-foreground"
+          >
+            <Icon
+              name="sidebar"
+              className="!size-6 transition-[opacity,transform] duration-150 group-hover:scale-75 group-hover:opacity-0 group-focus-visible:scale-75 group-focus-visible:opacity-0 motion-reduce:transition-none"
+            />
+            <img
+              src="/brand/muvloom-mark.svg"
+              alt=""
+              className="absolute h-7 w-7 scale-75 opacity-0 transition-[opacity,transform] duration-150 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
+            />
+          </Button>
+          {NAV_APP_MODES.map(item)}
+          <div className="min-h-6 flex-1" aria-hidden="true" />
+          <a
+            href={GUIDE_PATHS[currentLocale()]}
+            target="_blank"
+            rel="noopener"
+            aria-label={t('nav.guide')}
+            className="flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Icon name="guide" />
+          </a>
+        </nav>
       )}
       {expanded ? (
         // 子项一律不收缩：列表展开变长时由整栏滚动，而不是把每一行压扁。
@@ -192,6 +237,8 @@ export default function Sidebar() {
               size="icon-sm"
               onClick={toggleSidebar}
               aria-label={t('nav.collapse')}
+              aria-expanded={true}
+              autoTooltip={false}
               className="shrink-0 text-muted-foreground"
             >
               <Icon name="sidebar" />
@@ -324,6 +371,7 @@ function ProjectSection({
           size="icon-xs"
           onClick={onAdd}
           aria-label={addLabel}
+          autoTooltip={false}
           className="ml-auto text-muted-foreground"
         >
           <Icon name="add" size="xs" />
@@ -355,6 +403,7 @@ function ProjectSection({
               size="icon-xs"
               onClick={() => onImmersive(project.id)}
               aria-label={immersiveLabel}
+              autoTooltip={false}
               className="opacity-0 transition-opacity hover:bg-background focus-visible:opacity-100 group-hover/row:opacity-100"
             >
               <Icon name="fullscreen" size="xs" />

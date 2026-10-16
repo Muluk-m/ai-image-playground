@@ -11,6 +11,10 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
     const response = await fetcher(new URL(path, origin), { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]), redirect: 'error' })
     return { response, bytes: Buffer.from(await response.arrayBuffer()) }
   }
+  const rejectCachedHtml = (response, label) => {
+    if (/immutable|(?:s-maxage|max-age)=[1-9]/i.test(response.headers.get('cache-control') ?? ''))
+      throw new Error(`${label} is cached long-lived`)
+  }
   const localHtml = await readFile(resolve(dist, 'index.html'), 'utf8')
   // The identity is a sha256 of the whole HTML, so a match means this exact entry and startup guard.
   const identity = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(localHtml)?.[0]
@@ -19,14 +23,18 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
   if (!page.ok || !page.headers.get('content-type')?.includes('text/html')) {
     throw new Error('Homepage did not return HTML')
   }
+  rejectCachedHtml(page, 'Homepage')
   if (!html.toString().includes(identity)) throw new Error('Homepage references another release')
   const redirects = await readFile(resolve(dist, '_redirects'), 'utf8')
   for (const line of redirects.split('\n')) {
-    const [source, , status] = line.trim().split(/\s+/)
+    const [source, target, status] = line.trim().split(/\s+/)
     if (status !== '200') continue
+    const entry = await readFile(resolve(dist, target === '/' ? 'index.html' : target === '/workbench' ? 'workbench.html' : target.slice(1)), 'utf8')
+    const routeIdentity = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(entry)?.[0]
+    if (!routeIdentity) throw new Error(`Missing identity for ${target}`)
     const path = source.replace(':project', 'startup-release-check')
     const { response, bytes } = await get(path)
-    if (response.status !== 200 || !bytes.toString().includes(identity)) {
+    if (response.status !== 200 || !bytes.toString().includes(routeIdentity)) {
       throw new Error(`Application deep link did not serve this release: ${path}`)
     }
     // A page cached as immutable keeps serving this release's HTML after the next one ships.
@@ -34,24 +42,39 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
       throw new Error(`Application deep link is cached long-lived: ${path}`)
     }
   }
-  const assets = (await readdir(resolve(dist, 'assets'))).filter((name) => /\.(js|css)$/.test(name))
+  const assets = []
+  for (const directory of ['assets', 'website-assets']) {
+    const entries = await readdir(resolve(dist, directory)).catch(error => { if (error.code === 'ENOENT') return []; throw error })
+    assets.push(...entries.filter(name => /\.(js|css)$/.test(name)).map(name => `${directory}/${name}`))
+  }
   if (!assets.length) throw new Error('Build has no script or stylesheet assets')
   // Bounded concurrency; check lazy chunks as well as the entry's immediate dependencies.
   for (let offset = 0; offset < assets.length; offset += 4) {
     await Promise.all(assets.slice(offset, offset + 4).map(async (name) => {
-      const { response, bytes } = await get(`/assets/${name}`)
+      const { response, bytes } = await get(`/${name}`)
       const type = response.headers.get('content-type') ?? ''
       const expected = name.endsWith('.css') ? /^text\/css\b/ : /^(?:application|text)\/javascript\b/
       if (response.status !== 200 || !expected.test(type)) throw new Error(`Invalid asset ${name}: ${response.status} ${type}`)
-      if (!bytes.equals(await readFile(resolve(dist, 'assets', name)))) {
+      if (!bytes.equals(await readFile(resolve(dist, name)))) {
         throw new Error(`Asset content differs from this build: ${name}`)
       }
     }))
   }
-  const { response: missing } = await get(`/assets/release-check-missing-${randomUUID()}.js`)
-  const policy = missing.headers.get('cache-control') ?? ''
-  if (missing.status !== 404 || /immutable|(?:s-maxage|max-age)=[1-9]/i.test(policy) || !/no-store|no-cache|max-age=0/i.test(policy)) {
-    throw new Error(`Missing asset must return a non-reusable 404: ${missing.status} ${policy}`)
+  const manifest = await readFile(resolve(dist, 'site-pages.json'), 'utf8').catch(error => { if (error.code === 'ENOENT') return '[]'; throw error })
+  for (const { path } of JSON.parse(manifest)) {
+    if (path === '/') continue
+    const entry = await readFile(resolve(dist, `.${path}index.html`), 'utf8')
+    const expected = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(entry)?.[0]
+    const { response, bytes } = await get(path)
+    rejectCachedHtml(response, `Static page ${path}`)
+    if (!expected || !response.ok || !bytes.toString().includes(expected)) throw new Error(`Static page differs: ${path}`)
+  }
+  for (const directory of ['assets', 'website-assets']) {
+    const { response: missing } = await get(`/${directory}/release-check-missing-${randomUUID()}.js`)
+    const policy = missing.headers.get('cache-control') ?? ''
+    if (missing.status !== 404 || /immutable|(?:s-maxage|max-age)=[1-9]/i.test(policy) || !/no-store|no-cache|max-age=0/i.test(policy)) {
+      throw new Error(`Missing asset must return a non-reusable 404: ${directory} ${missing.status} ${policy}`)
+    }
   }
   console.log(`Verified homepage, ${assets.length} JS/CSS files, and missing-asset 404 at ${origin}`)
 }

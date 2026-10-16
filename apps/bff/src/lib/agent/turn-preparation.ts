@@ -48,13 +48,14 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
-import { agentModel } from './model'
 import {
   canRetainModelHistory,
   modelHistorySignature,
   readModelHistory,
   referenceCarriesSelection,
 } from './model-history'
+import { resolveConfiguredAgentRuntime } from './model-settings-store'
+import type { ConfiguredAgentRuntime } from './provider-settings'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
@@ -235,10 +236,12 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，
   // 不留孤儿对象。范围到事务提交为止——提交之后那条用户消息已经指着这些图了。
+  let selectedRuntime: ConfiguredAgentRuntime
   let committed: CommittedTurnStart
   try {
     const window = await history
-    const model = agentModel(content.params?.thinkingDepth)
+    selectedRuntime = await resolveConfiguredAgentRuntime(content.params?.thinkingDepth)
+    const model = selectedRuntime.model
     const selectedModel = model.id
     const billChat = chatTurnsBilled()
     const waiveChat = isCapabilityEnabled('billing:chat-free')
@@ -273,6 +276,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         owner,
         model,
         thinkingDepth: content.params?.thinkingDepth,
+        providerInstance: selectedRuntime.providerId,
+        reasoningEffort: selectedRuntime.effort,
         mode: content.mode,
         autoSubmit: content.params?.autoSubmit === true,
         directImage: content.params?.directImage === true,
@@ -384,6 +389,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       storedUserMessage: committed.storedUserMessage,
       ...(content.queueId ? { queueId: content.queueId } : {}),
       input: committed.input,
+      selectedRuntime,
       userId,
       deviceId: content.deviceId,
       ...(content.params ? { params: content.params } : {}),

@@ -45,6 +45,7 @@ import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { AgentRequestBudgetError } from './outbound-budget'
+import type { ConfiguredAgentRuntime } from './provider-settings'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -93,6 +94,7 @@ export interface AgentTurnSettlement {
  * 用户消息、唤醒与中断续跑三种来源的差别都已经在准备那一步折平。
  */
 export interface PreparedAgentTurn {
+  readonly selectedRuntime?: ConfiguredAgentRuntime
   /** 这一轮对会话的执行权：写库之前确认，落库在它的事务里。 */
   readonly execution: TurnExecution
   readonly conversationId: string
@@ -235,7 +237,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     },
     toolFailures,
   )
-  const model = agentModel(prepared.params?.thinkingDepth)
+  const model = prepared.selectedRuntime?.model ?? agentModel(prepared.params?.thinkingDepth)
   const budget = compactionSettings(model)
   // 系统说明与工具清单这一轮里逐字不变，算一次就够；塑形按它让预算，硬闸按真发出去的那一份判。
   const overheadTokens = requestOverheadTokens({
@@ -277,7 +279,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     initialState: {
       ...initialState,
       model,
-      thinkingLevel: agentThinking(prepared.params?.thinkingDepth).effort,
+      thinkingLevel:
+        prepared.selectedRuntime?.effort ?? agentThinking(prepared.params?.thinkingDepth).effort,
       tools: turnTools,
     },
     streamFn: async (model, context, options) => {
@@ -316,43 +319,47 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       }
       let callId = await ledger.begin('conversation', model.id, context)
       modelCallId = callId
-      return agentStreamFn(prepared.params?.thinkingDepth, {
-        onRetry: async (message) => {
-          await ledger.finish(callId, message)
-          callId = await ledger.begin('conversation', model.id, context)
-          modelCallId = callId
+      return agentStreamFn(
+        prepared.params?.thinkingDepth,
+        {
+          onRetry: async (message) => {
+            await ledger.finish(callId, message)
+            callId = await ledger.begin('conversation', model.id, context)
+            modelCallId = callId
+          },
+          onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
+          onDispatch: async (bytes) => {
+            const evidence = visualWorkset.dispatched(context.messages)
+            if (evidence.length)
+              log.info(
+                {
+                  event: 'agent.visual_input',
+                  conversationId,
+                  turnId,
+                  blocks: evidence.length,
+                  evidence: evidence.map(
+                    ({ source, representation, width, height, bytes, selection }) => ({
+                      source,
+                      representation,
+                      width,
+                      height,
+                      bytes,
+                      selection,
+                    }),
+                  ),
+                },
+                'agent visual evidence dispatched',
+              )
+            await ledger.dispatched(callId, bytes)
+          },
+          onRejected: async (rejection) => {
+            error = 'agent_request_budget_exceeded'
+            failure = agentTurnFailure(error, rejection, model.id)
+            await ledger.rejected(callId, rejection)
+          },
         },
-        onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
-        onDispatch: async (bytes) => {
-          const evidence = visualWorkset.dispatched(context.messages)
-          if (evidence.length)
-            log.info(
-              {
-                event: 'agent.visual_input',
-                conversationId,
-                turnId,
-                blocks: evidence.length,
-                evidence: evidence.map(
-                  ({ source, representation, width, height, bytes, selection }) => ({
-                    source,
-                    representation,
-                    width,
-                    height,
-                    bytes,
-                    selection,
-                  }),
-                ),
-              },
-              'agent visual evidence dispatched',
-            )
-          await ledger.dispatched(callId, bytes)
-        },
-        onRejected: async (rejection) => {
-          error = 'agent_request_budget_exceeded'
-          failure = agentTurnFailure(error, rejection, model.id)
-          await ledger.rejected(callId, rejection)
-        },
-      })(model, context, options)
+        prepared.selectedRuntime,
+      )(model, context, options)
     },
     // 一次工具边界把已排队的插话按顺序交给模型，避免每句再触发一次模型请求。
     steeringMode: 'all',
