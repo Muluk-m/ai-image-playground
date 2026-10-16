@@ -128,7 +128,7 @@ export default function CreateRecordDialog(props: Props) {
           )}
           <Button
             type="button"
-            variant="ghost"
+            autoTooltip={false}
             size="icon-sm"
             onClick={props.onClose}
             aria-label={t('common:action.close')}
@@ -170,7 +170,7 @@ export default function CreateRecordDialog(props: Props) {
                   />
                   <Button
                     type="button"
-                    variant="secondary"
+                    autoTooltip={false}
                     size="icon-xs"
                     onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
                     aria-label={t('common:action.delete')}

@@ -33,11 +33,7 @@ export default function LegalPage() {
       <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center gap-4 px-5">
           <a
-            href="/"
-            onClick={(event) => {
-              event.preventDefault()
-              navigate('/')
-            }}
+            href={locale === 'en' ? '/en/' : '/'}
             className="flex items-center gap-2 font-semibold"
           >
             <img src="/brand/muvloom-mark.svg" alt="" width={24} height={24} />

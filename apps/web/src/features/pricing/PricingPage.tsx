@@ -137,7 +137,7 @@ export default function PricingPage({
       auth.login()
       return
     }
-    navigate('/')
+    navigate('/image')
   }
 
   const leave = () => {
@@ -145,7 +145,7 @@ export default function PricingPage({
       closePricingSheet()
       return
     }
-    navigate('/')
+    window.location.assign(locale === 'en' ? '/en/' : '/')
   }
 
   const unit =

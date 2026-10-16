@@ -10,6 +10,7 @@ import type {
   AgentContentBlock,
   AgentMessageRole,
   AgentMode,
+  AgentModelSettings,
   AgentQueuedMessageFailure,
   AgentQueuedMessageState,
   AgentToolCallSnapshot,
@@ -183,6 +184,13 @@ export const user_identities = pgTable(
     index('idx_user_identities_user_id').on(t.user_id),
   ],
 )
+
+export const agent_model_settings = pgTable('agent_model_settings', {
+  id: text('id').primaryKey(),
+  revision: integer('revision').notNull(),
+  settings: bunJsonb('settings').$type<AgentModelSettings>().notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+})
 
 export const operator_audits = pgTable(
   'operator_audits',

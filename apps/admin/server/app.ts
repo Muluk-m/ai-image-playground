@@ -3,6 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config, getAdminCapabilities } from './config'
 import { appRelease, appVersion } from './lib/app-version'
+import { agentModelRoutes } from './routes/agent-models'
 import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
 import { clientErrorsRoutes } from './routes/client-errors'
@@ -36,6 +37,7 @@ const apiApp = new Elysia()
   .use(devicesRoutes)
   .use(overviewRoutes)
   .use(opsRoutes)
+  .use(agentModelRoutes)
   .use(auditRoutes)
   .use(clientErrorsRoutes)
   .use(tasksRoutes)

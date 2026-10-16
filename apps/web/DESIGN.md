@@ -165,8 +165,8 @@ components:
     height: "{spacing.control-sm}"
     padding: 12px
   segmented-tab-active:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.on-surface}"
+    backgroundColor: "color-mix(in srgb, {colors.primary} 15%, transparent)"
+    textColor: "{colors.primary}"
   page-header:
     backgroundColor: "{colors.background}"
     textColor: "{colors.on-surface}"
@@ -202,7 +202,7 @@ components:
     rounded: "{rounded.xl}"
     height: "{spacing.control-lg}"
   sidebar-item-active:
-    backgroundColor: "{colors.accent}"
+    backgroundColor: "color-mix(in srgb, {colors.primary} 15%, transparent)"
     textColor: "{colors.primary}"
   media-badge:
     backgroundColor: "{colors.scrim}"
@@ -284,7 +284,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   `on-primary` 成对使用；同一视图里实心芽绿按钮只有一个。
 - **Background / Surface / Surface-raised**：三级墨绿灰构成层次——页面底、卡片与弹层、
   卡片内的凹槽与 hover 底。层级靠明度差，不靠阴影。
-- **Accent**：选中但不是「主操作」的状态（页签、侧栏当前项），比 surface-raised 略偏绿。
+- **Accent**：一般轻强调表面；页签与侧栏当前项统一使用 `primary/15` 浅底与 `text-primary`，不使用灰底灰字。
 - **On-surface / On-surface-muted**：正文与次要文字只有这两档；禁止再用 `/70`、`/60`
   透明度造第三档灰字。
 - **状态色 success / warning / destructive**：只表达结果与风险，不作装饰。不要用
@@ -406,6 +406,7 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   仍然留在同一行。上传状态和充值入口另占一行，不挤占发送位置；长模型名截断，
   具体模型仍可打开菜单查看。参考图上的移除是 16px 深色角标，不用危险色。
 - 展开的参考素材统一使用紧凑缩略条：首页、画布、Agent 输入框的单张缩略图固定 **48 × 64px**，间距 **4px**，添加入口同尺寸；不随容器拉伸，超出横向滚动。图片用 `object-fit: cover`，完整内容通过预览查看。缩略图圆角统一 4px，配低对比度 1px 内描边，内部图片不再叠加圆角；悬浮预览按原图比例贴合显示，不加额外边框或留白；标题到素材条间距 12px，素材条与输入区间距 12px。遮罩入口只占缩略图角落，不用整图蒙层遮住图片，也不与图片预览争抢悬停；展开素材不能压缩书写区，首页输入区桌面至少 96px、窄屏至少 84px。
+- **资产 → 素材**：新建入口只在网格第一格（空库、搜索无匹配也保留），打开后提供上传与可用的智能体子路径。卡片封面进入详情；悬停工具栏提供加入参考图、编辑、删除，详情底部只有「加入参考图」使用实心芽绿。资产页折叠侧栏为 64px 图标轨，当前项保持芽绿浅底；顶部默认面板描边图标，悬停或键盘聚焦显示现有品牌芽标，点击展开。画布沉浸导航保持原有行为。
 
 ## Do's and Don'ts
 
@@ -443,3 +444,12 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 已经写出文字、作用看得懂的控件不加 tooltip。这包括菜单项、带标签的按钮和芯片：不要把可见名称再弹一遍，也不要把模型 id、任务 id、技能 slug 这类内部标识补进提示。调用方显式传入的 `title` 只用于两件事——文字真的被裁成省略号时显示同一段完整文字（名称被收成纯图标时同样显示完整标签），以及控件上看不到的必要原因（例如为什么点不了）。`aria-label` 继续留给读屏，不单独变成悬停提示。
 
 动态按钮的标签必须跟随当前动作更新。组合件必须要求调用方传入标签并透传；仅有 `sr-only` 文本不能代替可见提示。`icon-button-label` 门禁阻止新增无标签的图标按钮，覆盖公开 Web、Admin 与私有 overlay。
+
+## 公共官网与登录
+
+`apps/website` 使用 A 版沉浸式漫画视觉，沿用芽绿和语义色。官网展示字阶单独限定在
+`--site-display`（48–102px）、`--site-heading`（30–58px）、`--site-closing`（40–80px），
+不改变工作台字阶。品牌视觉采用原画，首屏居中，滚动时收成画框，分镜逐格进入；减少动态效果
+设置关闭视差和收框。动画通过单个 requestAnimationFrame 更新，滚动监听为 passive。
+登录页与弹框共用真实登录表单，页布局左右分栏，弹框只保留表单。原有 OAuth、注册、验证码
+与登录后待发送恢复流程继续共用；官网示例入口不提交任何示例消息。
