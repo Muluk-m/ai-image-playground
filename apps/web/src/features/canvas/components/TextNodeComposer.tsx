@@ -10,14 +10,12 @@ export default function TextNodeComposer({
   references,
   files,
   value,
-  position,
   onChange,
   onSubmit,
 }: {
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
   value: string
-  position: { left: number; top: number }
   onChange: (value: string) => void
   onSubmit: () => void
 }) {
@@ -26,7 +24,6 @@ export default function TextNodeComposer({
   return (
     <NodeComposerFrame
       label={t('nodes.composerText')}
-      position={position}
       references={references}
       files={files}
     >
