@@ -185,13 +185,14 @@ async function checkWorkspace(browser, origin, {
       install()
     }, MARKETING_SELECTOR)
     const projectPath = path.startsWith('/p/')
+    const storageScope = rememberedSession ? 'user-smoke-user' : 'anonymous'
     const label = `${nodeCanvas ? 'nodes-' : ''}${projectPath ? 'project' : 'home'}`
     try {
       if (local && exerciseCatalog && !projectPath) {
         const fixtureUrl = new URL('/__catalog_fixture__', origin).href
         await context.route(fixtureUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<html></html>' }))
         await page.goto(fixtureUrl)
-        await page.evaluate(() => new Promise((accept, reject) => {
+        await page.evaluate((scope) => new Promise((accept, reject) => {
           const request = indexedDB.open('image-playground-canvas', 1)
           request.onupgradeneeded = () => request.result.createObjectStore('scene')
           request.onerror = () => reject(request.error)
@@ -201,19 +202,19 @@ async function checkWorkspace(browser, origin, {
             const store = transaction.objectStore('scene')
             const cloud = {
               id: 'catalog-cloud', name: 'Conversation catalog fixture', customName: true,
-              conversationId: 'catalog-conversation', sceneKey: 'canvas:project:catalog-cloud',
+              conversationId: 'catalog-conversation', sceneKey: `canvas:${scope}:project:catalog-cloud`,
               createdAt: 1, updatedAt: 2, hasContent: true, kind: 'image', experience: 'chat', cloud: { revision: 1 },
             }
             const legacy = { ...cloud, id: 'legacy:canvas:conversation:catalog-conversation',
-              sceneKey: 'canvas:conversation:catalog-conversation', cloud: undefined }
+              sceneKey: `canvas:${scope}:conversation:catalog-conversation`, cloud: undefined }
             const separate = { ...cloud, id: 'catalog-separate',
-              sceneKey: 'canvas:project:catalog-separate', conversationId: 'different-conversation' }
+              sceneKey: `canvas:${scope}:project:catalog-separate`, conversationId: 'different-conversation' }
             for (const project of [cloud, legacy, separate])
-              store.put(project, `canvas-project:project:${project.id}`)
+              store.put(project, `canvas-project:${scope}:project:${project.id}`)
             transaction.oncomplete = () => { db.close(); accept() }
             transaction.onabort = () => { db.close(); reject(transaction.error) }
           }
-        }))
+        }), storageScope)
         await context.unroute(fixtureUrl)
       }
       // A known offline project exercises direct routing without an account or server writes.
@@ -222,7 +223,7 @@ async function checkWorkspace(browser, origin, {
         const fixtureUrl = new URL('/__startup_fixture__', origin).href
         await context.route(fixtureUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<html></html>' }))
         await page.goto(fixtureUrl)
-        await page.evaluate(({ id, exercise }) => new Promise((accept, reject) => {
+        await page.evaluate(({ id, exercise, scope }) => new Promise((accept, reject) => {
           const request = indexedDB.open('image-playground-canvas', 1)
           request.onupgradeneeded = () => request.result.createObjectStore('scene')
           request.onerror = () => reject(request.error)
@@ -232,21 +233,21 @@ async function checkWorkspace(browser, origin, {
             const store = transaction.objectStore('scene')
             store.put({
               id, name: 'Startup fixture', customName: true, conversationId: null,
-              sceneKey: `canvas:project:${id}`, createdAt: 1, updatedAt: 1,
+              sceneKey: `canvas:${scope}:project:${id}`, createdAt: 1, updatedAt: 1,
               hasContent: exercise, workspaceOpened: true, kind: 'image', experience: 'canvas',
-            }, `canvas-project:project:${id}`)
+            }, `canvas-project:${scope}:project:${id}`)
             if (exercise) {
               const image = (id, x) => ({ id, type: 'image', fileId: 'fixture-pixel', x, y: 20, width: 120, height: 120, rotation: 0 })
               store.put({ version: 2, elements: [
                 image('fixture-first', 20),
                 { id: 'fixture-arrow', type: 'arrow', points: [50, 50, 240, 80], stroke: '#ff0000', strokeWidth: 3 },
                 image('fixture-last', 200),
-              ], files: { 'fixture-pixel': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j38sAAAAASUVORK5CYII=' }, camera: { x: 0, y: 0, zoom: 1 } }, `canvas:project:${id}`)
+              ], files: { 'fixture-pixel': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j38sAAAAASUVORK5CYII=' }, camera: { x: 0, y: 0, zoom: 1 } }, `canvas:${scope}:project:${id}`)
             }
             transaction.oncomplete = () => { db.close(); accept() }
             transaction.onabort = () => { db.close(); reject(transaction.error) }
           }
-        }), { id: PROJECT_ID, exercise: nodeCanvas && exerciseNodes })
+        }), { id: PROJECT_ID, exercise: nodeCanvas && exerciseNodes, scope: storageScope })
         await context.unroute(fixtureUrl)
       }
       await Promise.race([
