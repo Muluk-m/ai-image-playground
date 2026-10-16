@@ -37,7 +37,6 @@ export default function ImageNodeComposer({
   onAsset,
   value,
   busy,
-  position,
   onChange,
   onSubmit,
   templates = false,
@@ -52,7 +51,6 @@ export default function ImageNodeComposer({
   onAsset?: (asset: AssetRecord, prompt: string) => Promise<boolean>
   value: string
   busy: boolean
-  position: { left: number; top: number }
   onChange: (value: string) => void
   onSubmit: (temporaryReferences: string[]) => void
   templates?: boolean
@@ -112,7 +110,6 @@ export default function ImageNodeComposer({
       standard
       tools={resultTools}
       label={t('nodes.composerImage')}
-      position={position}
       references={referenceTools ? [] : references}
       files={files}
     >

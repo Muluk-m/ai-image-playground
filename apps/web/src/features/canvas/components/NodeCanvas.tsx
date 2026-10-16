@@ -43,6 +43,7 @@ import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import {
   createContext,
+  type CSSProperties,
   lazy,
   memo,
   type RefObject,
@@ -104,7 +105,7 @@ import {
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
-import { TEXT_CARD_HEIGHT, TEXT_CARD_WIDTH } from '../lib/nodeCanvasPlace'
+import { nodeCardSize } from '../lib/nodeCanvasPlace'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -234,7 +235,6 @@ function NodeResize({ node, selected }: { node: CanvasNode; selected?: boolean }
       isVisible={selected}
       minWidth={180}
       minHeight={120}
-      keepAspectRatio={node.type !== 'text'}
       onResizeEnd={(_e, params) =>
         update(node.id, { x: params.x, y: params.y, width: params.width, height: params.height })
       }
@@ -283,9 +283,7 @@ function useDocumentSnapshot(canvas: NodeCanvasDocument): CanvasSnapshot {
 }
 
 function toFlowNode(node: CanvasNode, selected: boolean): FlowNode {
-  // 旧的短文本曾被量成两个字宽，加号会盖住正文。显示时至少给一张完整的卡。
-  const width = node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width
-  const height = node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height
+  const { width, height } = nodeCardSize(node)
   return {
     id: node.id,
     type: nodeKind(node),
@@ -361,13 +359,6 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
   const preview = useContext(PreviewContext)
   const files = useContext(FilesContext)
   const uploadInput = useRef<HTMLInputElement>(null)
-  const lod = useCanvasLod()
-  if (lod === 'card')
-    return (
-      <NodeLodCard
-        label={node?.type === 'image' ? node.data.name || t('nodes.addImage') : undefined}
-      />
-    )
   if (node?.type !== 'image') return null
   const { pending, fileId, rotation } = node.data
   const empty = !pending && !fileId
@@ -375,7 +366,6 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
     <>
       <NodePorts nodeId={node.id} />
       <NodeCaption node={node} />
-      <NodeResize node={node} selected={selected} />
       {empty && selected && (
         <div className="studio-node-upload nodrag nopan">
           <Button
@@ -438,23 +428,14 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
   )
 })
 
-const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProps<FlowNode>) {
+const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode>) {
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
   const playheads = useContext(NodeVideoPlayheadContext)
-  const lod = useCanvasLod()
   const poster = useNodeMedia(
-    lod === 'card' || !node || !('fileId' in node.data) || !node.data.fileId
-      ? undefined
-      : files[node.data.fileId],
+    !node || !('fileId' in node.data) || !node.data.fileId ? undefined : files[node.data.fileId],
   )
-  if (lod === 'card')
-    return (
-      <NodeLodCard
-        label={node && 'name' in node.data && node.data.name ? node.data.name : t('nodes.addVideo')}
-      />
-    )
   if (!node || (node.type !== 'video' && node.type !== 'image')) return null
   const { fileId, rotation, pending } = node.data
   const video = node.type === 'video' ? node.data.video : undefined
@@ -463,7 +444,6 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
       <>
         <NodePorts nodeId={node.id} />
         <NodeCaption node={node} />
-        <NodeResize node={node} selected={selected} />
         <div className="studio-node studio-node--video">
           {pending ? (
             <Pending pending={pending} />
@@ -479,6 +459,7 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
     return (
       <>
         <NodePorts nodeId={node.id} />
+        <NodeCaption node={node} />
         <div
           className="studio-node studio-node--video nodrag nopan"
           data-rotated={rotation ? true : undefined}
@@ -503,7 +484,6 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
     <>
       <NodePorts nodeId={node.id} />
       <NodeCaption node={node} />
-      <NodeResize node={node} selected={selected} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
           <Picture fileId={fileId} rotation={rotation} />
@@ -667,7 +647,10 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
     maxX = Math.max(maxX, right)
     maxY = Math.max(maxY, bottom)
   }
-  for (const node of nodes) include(node.x, node.y, node.x + node.width, node.y + node.height)
+  for (const node of nodes) {
+    const { width, height } = nodeCardSize(node)
+    include(node.x, node.y, node.x + width, node.y + height)
+  }
   for (const one of annotations) {
     const bounds = annotationBounds(one)
     include(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height)
@@ -676,7 +659,7 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
-/** 定位用文档里的盒子，不依赖当前挂上的节点。文本按显示尺寸计。 */
+/** Use the same display geometry for navigation and culling without rewriting document data. */
 function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | null {
   let minX = Number.POSITIVE_INFINITY
   let minY = Number.POSITIVE_INFINITY
@@ -694,8 +677,7 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
   }
   for (const node of snapshot.nodes) {
     if (ids && !ids.has(node.id)) continue
-    const width = node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width
-    const height = node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height
+    const { width, height } = nodeCardSize(node)
     include(node.x, node.y, width, height)
   }
   for (const annotation of snapshot.annotations) {
@@ -705,6 +687,65 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
   }
   if (!Number.isFinite(minX)) return null
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+/** Overlay footprints are measured in screen pixels; changing composer height must not hide nodes. */
+function availableCanvasArea(container: HTMLElement): Rect {
+  const bounds = container.getBoundingClientRect()
+  let left = 16
+  let top = 16
+  let bottom = container.clientHeight - 16
+  const visible = (element: Element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.width > 0 &&
+      rect.height > 0 &&
+      rect.right > bounds.left &&
+      rect.left < bounds.right &&
+      rect.bottom > bounds.top &&
+      rect.top < bounds.bottom
+      ? rect
+      : undefined
+  }
+  for (const element of container.querySelectorAll('.studio-node-tools')) {
+    const rect = visible(element)
+    if (!rect) continue
+    if (rect.width > rect.height) top = Math.max(top, rect.bottom - bounds.top + 16)
+    else left = Math.max(left, rect.right - bounds.left + 16)
+  }
+  for (const element of container.querySelectorAll(
+    '.studio-node-composer, .studio-node-navigation, .studio-node-chat',
+  )) {
+    const rect = visible(element)
+    if (rect) bottom = Math.min(bottom, rect.top - bounds.top - 16)
+  }
+  const shell = container.closest('.studio-shell') ?? container
+  const headers = [
+    ...shell.querySelectorAll('.studio-project-viewbar, .studio-node-project-title'),
+    ...document.querySelectorAll('.studio-node-history'),
+  ]
+  for (const element of headers) {
+    const rect = visible(element)
+    if (rect) top = Math.max(top, rect.bottom - bounds.top + 16)
+  }
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, container.clientWidth - left - 16),
+    height: Math.max(1, bottom - top),
+  }
+}
+
+function viewportForCanvasBounds(
+  bounds: Rect,
+  container: HTMLElement | null,
+  minZoom: number,
+  maxZoom: number,
+  padding: number,
+) {
+  if (!container?.clientWidth || !container.clientHeight) return null
+  const area = availableCanvasArea(container)
+  const viewport = getViewportForBounds(bounds, area.width, area.height, minZoom, maxZoom, padding)
+  return { ...viewport, x: viewport.x + area.x, y: viewport.y + area.y }
 }
 
 function Flow({
@@ -865,8 +906,7 @@ function Flow({
         id: node.id,
         x: node.x,
         y: node.y,
-        width: node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width,
-        height: node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height,
+        ...nodeCardSize(node),
       })
     }
     for (const annotation of snapshot.annotations) {
@@ -906,35 +946,47 @@ function Flow({
     duration?: number,
   ) => {
     const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined)
-    const width = frame.width || container.current?.clientWidth || 0
-    const height = frame.height || container.current?.clientHeight || 0
-    if (!bounds || !width || !height) return
+    const viewport =
+      bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
+    if (!viewport) return
     flowRef.current?.setViewport(
-      getViewportForBounds(bounds, width, height, minZoom, maxZoom, padding),
+      viewport,
       duration ? { duration } : undefined,
     )
   }
   const revealNode = (target: CanvasNode) => {
-    if (frame.width && frame.height) {
-      const left = target.x * frame.zoom + frame.x
-      const top = target.y * frame.zoom + frame.y
-      const right = left + target.width * frame.zoom
-      const bottom = top + target.height * frame.zoom
-      // Reveal only the clipped part; adding a sibling should not recenter the whole canvas.
-      const dx = left < 80 ? 80 - left : Math.min(0, frame.width - 48 - right)
-      const dy =
-        top < 64
-          ? 64 - top
-          : Math.min(
-              0,
-              frame.height -
-                (target.type === 'text' ? 72 : nodeKind(target) === 'video' ? 480 : 320) -
-                bottom,
-            )
-      if (dx || dy)
-        flowRef.current?.setViewport({ zoom: frame.zoom, x: frame.x + dx, y: frame.y + dy })
-    }
+    const element = container.current
+    const viewport = flowRef.current?.getViewport()
+    if (!element?.clientWidth || !element.clientHeight || !viewport) return
+    const area = availableCanvasArea(element)
+    const { width, height } = nodeCardSize(target)
+    const left = target.x * viewport.zoom + viewport.x
+    const top = target.y * viewport.zoom + viewport.y
+    const right = left + width * viewport.zoom
+    const bottom = top + height * viewport.zoom
+    const dx = left < area.x ? area.x - left : Math.min(0, area.x + area.width - right)
+    const dy =
+      top < area.y + 30 ? area.y + 30 - top : Math.min(0, area.y + area.height - bottom)
+    if (dx || dy)
+      flowRef.current?.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
   }
+  const chatVisible = Boolean(onChat)
+  useEffect(() => {
+    const element = container.current
+    if (!element || !selectedId) return
+    const reveal = () => {
+      const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === selectedId)
+      if (node) revealNode(node)
+    }
+    const observer = new ResizeObserver(reveal)
+    observer.observe(element)
+    for (const overlay of element.querySelectorAll(
+      '.studio-node-composer, .studio-node-navigation, .studio-node-tools, .studio-node-chat',
+    ))
+      observer.observe(overlay)
+    reveal()
+    return () => observer.disconnect()
+  }, [container, canvas.doc, selectedId, chatVisible])
   const selectNode = (next: string | null) => {
     selectedRef.current = next
     selectedIds.current = next ? [next] : []
@@ -1002,10 +1054,9 @@ function Flow({
       ...created.map((node) => toFlowNode(node, true)),
     ])
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
-    if (bounds && frame.width && frame.height)
-      flowRef.current?.setViewport(
-        getViewportForBounds(bounds, frame.width, frame.height, 0.1, Math.min(1, frame.zoom), 0.3),
-      )
+    const viewport =
+      bounds && viewportForCanvasBounds(bounds, container.current, 0.1, Math.min(1, frame.zoom), 0.3)
+    if (viewport) flowRef.current?.setViewport(viewport)
   }
   useAgentNodeRun({
     canvas,
@@ -1060,10 +1111,8 @@ function Flow({
       ...snapshot,
       nodes: snapshot.nodes.map((node) => ({ ...node, ...placement.get(node.id) })),
     })
-    if (bounds && frame.width && frame.height)
-      flowRef.current?.setViewport(
-        getViewportForBounds(bounds, frame.width, frame.height, 0.05, 1, 0.25),
-      )
+    const viewport = bounds && viewportForCanvasBounds(bounds, container.current, 0.05, 1, 0.25)
+    if (viewport) flowRef.current?.setViewport(viewport)
   }
   const keepArrangement = () => {
     if (!arrangementActive) return
@@ -1499,7 +1548,6 @@ function Flow({
       ? !composerNode.data.pending.errorCode
       : composerNode.data.pending.status === 'loading'
     : false
-  const composerAt = composerNode && selected ? composerAnchor(selected, frame) : null
   const uploadInto = (id: string, file: File) => {
     void fillImageNode(editor, canvas.doc, id, file).catch(() =>
       useStore.getState().showToast(t('import.failed'), 'error'),
@@ -1509,9 +1557,10 @@ function Flow({
     const node = snapshot.nodes.find((n) => n.id === nodeId)
     if (!node) return
     const ids = selectedIds.current.includes(nodeId) ? selectedIds.current : [nodeId]
+    const { width, height } = nodeCardSize(node)
     placeAt.current = {
-      x: node.x + (side === 'right' ? node.width + 32 : -32),
-      y: node.y + node.height / 2,
+      x: node.x + (side === 'right' ? width + 32 : -32),
+      y: node.y + height / 2,
     }
     const screen = flowRef.current?.flowToScreenPosition?.(placeAt.current) ?? { x: 200, y: 200 }
     setMenu({ ...screen, anchorIds: ids, side, beside: true })
@@ -1605,6 +1654,7 @@ function Flow({
                     <SpawnContext.Provider value={spawnBeside}>
                       <CanvasLodProvider mode={viewportPlan.mode === 'card' ? 'card' : 'detail'}>
                         <ReactFlow<FlowNode>
+                          style={{ '--studio-node-zoom': frame.zoom } as CSSProperties}
                           nodes={(mounted
                             ? nodes.filter((node) => mounted.has(node.id))
                             : nodes
@@ -1858,18 +1908,9 @@ function Flow({
                                 saved = value
                             } catch {}
                             if (saved) flow.setViewport(saved)
-                            else if (bounds && box?.clientWidth && box.clientHeight) {
-                              // 与旧画布一致：打开时最多按 100% 显示。
-                              flow.setViewport(
-                                getViewportForBounds(
-                                  bounds,
-                                  box.clientWidth,
-                                  box.clientHeight,
-                                  0.05,
-                                  1,
-                                  0.1,
-                                ),
-                              )
+                            else if (bounds) {
+                              const viewport = viewportForCanvasBounds(bounds, box, 0.05, 1, 0.1)
+                              if (viewport) flow.setViewport(viewport)
                             }
                             remember(flow.getViewport())
                           }}
@@ -2329,7 +2370,6 @@ function Flow({
                       {referenceNode?.type === 'text' && selected && (
                         <NodeComposerFrame
                           label={t('nodes.references')}
-                          position={composerAnchor(selected, frame)}
                           references={[]}
                           files={files}
                         >
@@ -2345,15 +2385,11 @@ function Flow({
                           files={files}
                           value={blankPrompt}
                           busy={false}
-                          position={{
-                            left: frame.width > 0 ? frame.width / 2 : 280,
-                            top: frame.height > 0 ? frame.height - 16 : 480,
-                          }}
                           onChange={setBlankPrompt}
                           onSubmit={submitBlankImage}
                         />
                       )}
-                      {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
+                      {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer
                           templates
                           resultTools={
@@ -2393,7 +2429,6 @@ function Flow({
                           files={files}
                           value={draftValue}
                           busy={busy || addingAsset || referenceBusy}
-                          position={composerAt}
                           onChange={(value) => {
                             setMeta({ nodePrompt: value })
                           }}
@@ -2429,7 +2464,7 @@ function Flow({
                           }}
                         />
                       )}
-                      {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
+                      {composerNode && nodeKind(composerNode) === 'video' && (
                         <VideoNodeComposer
                           resultTools={
                             <NodeResultPicker
@@ -2471,7 +2506,6 @@ function Flow({
                             )
                           }
                           busy={busy || addingAsset || referenceBusy}
-                          position={composerAt}
                           onReferenceUpload={(file, slot) =>
                             uploadReference(composerNode.id, file, slot)
                           }
@@ -2490,24 +2524,6 @@ function Flow({
   )
 }
 
-/** 输入框不跟着缩放，贴在节点底边的正下方，并留在容器里面。 */
-function composerAnchor(
-  node: FlowNode,
-  frame: { x: number; y: number; zoom: number; width: number; height: number },
-): { left: number; top: number } {
-  const zoom = frame.zoom || 1
-  const width = node.width ?? 0
-  const height = node.height ?? 0
-  const center = node.position.x * zoom + frame.x + (width * zoom) / 2
-  const top = node.position.y * zoom + frame.y + height * zoom + 16
-  if (frame.width <= 0) return { left: center, top }
-  const panel = Math.min(560, Math.max(280, frame.width - 24))
-  const limit = Math.max(panel / 2 + 12, frame.width - panel / 2 - 12)
-  return {
-    left: Math.min(Math.max(center, panel / 2 + 12), limit),
-    top,
-  }
-}
 
 /** 节点画布：一个项目的 `Y.Doc` 渲染成 React Flow。 */
 export default function NodeCanvas({

@@ -4,6 +4,7 @@ import { Box } from '../../../../features/canvas/lib/geometry'
 import {
   computePlaceholderTarget,
   computePlaceholderTargets,
+  findFreeCanvasPlacement,
   findFreeTarget,
   fitToTarget,
   PLACEMENT_GAP,
@@ -28,6 +29,40 @@ function makeEditor(
 function makeBounds(b: { maxX: number; midX: number; midY: number }): Box {
   return b as unknown as Box
 }
+
+describe('findFreeCanvasPlacement', () => {
+  it('keeps a free requested position and the required edge clearance', () => {
+    const proposed = [{ x: 148, y: -20, width: 360, height: 240 }]
+    expect(
+      findFreeCanvasPlacement(proposed, [{ x: 0, y: -20, width: 100, height: 240 }], 48),
+    ).toEqual({ x: 0, y: 0 })
+  })
+
+  it('clears chained blockers while preserving the batch arrangement and existing nodes', () => {
+    const proposed = [
+      { x: -100, y: -100, width: 360, height: 240 },
+      { x: 308, y: -100, width: 360, height: 240 },
+    ]
+    const occupied = [
+      { x: -100, y: -100, width: 360, height: 240 },
+      { x: 308, y: 200, width: 360, height: 240 },
+      { x: 900, y: 0, width: 360, height: 2000 },
+    ]
+    const before = structuredClone({ proposed, occupied })
+    const delta = findFreeCanvasPlacement(proposed, occupied, 48)
+    expect(delta).toEqual({ x: 0, y: 588 })
+    expect({ proposed, occupied }).toEqual(before)
+    for (const rect of proposed) {
+      const placed = new Box(rect.x + delta.x, rect.y + delta.y, rect.width, rect.height)
+      for (const other of occupied)
+        expect(
+          placed.collides(
+            new Box(other.x - 47, other.y - 47, other.width + 94, other.height + 94),
+          ),
+        ).toBe(false)
+    }
+  })
+})
 
 describe('computePlaceholderTarget', () => {
   it('有选区：落在选区右侧、垂直居中于包围盒', () => {
