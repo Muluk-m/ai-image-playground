@@ -9,6 +9,7 @@ import type { AgentToolContext } from './tools/types'
 
 export interface ReadNodeCanvasParams {
   query?: string
+  nodeIds?: readonly string[]
   groupId?: string
   scope?: 'selection' | 'all'
   limit?: number
@@ -48,15 +49,17 @@ export async function readAgentNodeCanvas(context: AgentToolContext, params: Rea
     Y.applyUpdate(doc, await accessCanvasDocument(context.userId, project.id))
     const graph = readCanvasDocument(doc)
     const selected = new Set(context.canvas?.selectedNodeIds ?? [])
+    const requested = params.nodeIds?.length ? new Set(params.nodeIds) : undefined
     const groups = graph.groups ?? []
-    for (const group of groups)
-      if (selected.has(group.id)) {
-        for (const id of group.members) selected.add(id)
-      }
+    for (const group of groups) {
+      if (selected.has(group.id)) for (const id of group.members) selected.add(id)
+      if (requested?.has(group.id)) for (const id of group.members) requested.add(id)
+    }
     const group = params.groupId ? groups.find((group) => group.id === params.groupId) : undefined
     const keyword = params.query?.trim().toLocaleLowerCase()
-    const expanded = Boolean(params.groupId || keyword || params.scope === 'all')
+    const expanded = Boolean(requested || params.groupId || keyword || params.scope === 'all')
     const matches = graph.nodes.filter((node) => {
+      if (requested && !requested.has(node.id)) return false
       if (params.groupId && !group?.members.includes(node.id)) return false
       if (
         keyword &&
@@ -133,7 +136,7 @@ export async function readAgentNodeCanvas(context: AgentToolContext, params: Rea
               fragment: content.slice(start, end),
               ...(end < content.length ? { nextContentOffset: end } : {}),
               instruction:
-                '这是一份完整 JSON 文档的分段，尚未读完不能声称已读全。保持 query/groupId/scope/limit/offset 不变，带 contentVersion 和 nextContentOffset 继续，顺序拼接 fragment 后解析；正文不会截断丢弃。',
+                '这是一份完整 JSON 文档的分段，尚未读完不能声称已读全。保持 nodeIds/query/groupId/scope/limit/offset 不变，带 contentVersion 和 nextContentOffset 继续，顺序拼接 fragment 后解析；正文不会截断丢弃。',
             }),
     }
   } finally {

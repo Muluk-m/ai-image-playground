@@ -1,4 +1,4 @@
-import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
+import { AGENT_TURN_ATTACHED_MEDIA_MAX, canvasNodeKind, readCanvasDocument } from '@image-playground/shared'
 import {
   type KeyboardEvent,
   useCallback,
@@ -73,6 +73,12 @@ import { useStore } from '../../../store'
 import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import {
+  activeNodeCanvas,
+  nodeCanvasSelection,
+  nodeCanvasSelectionRevision,
+  subscribeNodeCanvasSelection,
+} from '../../canvas/lib/nodeCanvasSelection'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
@@ -342,6 +348,29 @@ export default function AgentComposer({
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   const workspace = peekCanvasWorkspace()
   const cloud = workspace?.doc === doc ? workspace.cloud : undefined
+  const nodeRevision = useSyncExternalStore(
+    subscribeNodeCanvasSelection,
+    nodeCanvasSelectionRevision,
+  )
+  const nodeReferences = useMemo(() => {
+    if (!showCanvasReferences || workspace?.doc !== doc) return []
+    const canvas = activeNodeCanvas(workspace.editor)
+    if (!canvas) return []
+    const selected = new Set(nodeCanvasSelection(workspace.editor))
+    const graph = readCanvasDocument(canvas.doc)
+    return [
+      ...graph.nodes.filter((node) => selected.has(node.id)).map((node) => ({
+        id: node.id,
+        type: canvasNodeKind(node),
+        name: ('name' in node.data && node.data.name) ||
+          (node.type === 'text' ? node.data.text.trim().split('\n')[0]?.slice(0, 80) : '') ||
+          t(`composer.nodeTypes.${canvasNodeKind(node)}`),
+      })),
+      ...(graph.groups ?? []).filter((group) => selected.has(group.id)).map((group) => ({
+        id: group.id, type: 'group', name: group.name || t('composer.nodeTypes.group'),
+      })),
+    ]
+  }, [doc, workspace, showCanvasReferences, nodeRevision, t])
   const cloudState = useSyncExternalStore(
     cloud?.subscribe ?? (() => () => {}),
     cloud?.getSnapshot ?? (() => undefined),
@@ -1012,6 +1041,23 @@ export default function AgentComposer({
         )}
         <CreationBody
           references={
+            <div className="flex flex-col gap-2">
+              {nodeReferences.length > 0 && (
+                <div className="flex flex-wrap gap-1.5" aria-label={t('composer.nodeReferences')}>
+                  {nodeReferences.map((node) => (
+                    <span
+                      key={node.id}
+                      data-node-reference-id={node.id}
+                      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary px-2 py-1 text-label-md text-foreground"
+                    >
+                      <span className="shrink-0 text-muted-foreground">
+                        {t(`composer.nodeTypes.${node.type}`)}
+                      </span>
+                      <OverflowText className="min-w-0 max-w-48 truncate" text={node.name} />
+                    </span>
+                  ))}
+                </div>
+              )}
             <CreationReferenceStack
               count={draft.references.length}
               disabled={loading}
@@ -1198,6 +1244,7 @@ export default function AgentComposer({
                 </ComposerAttachments>
               )}
             </CreationReferenceStack>
+            </div>
           }
         >
           <div className="relative">

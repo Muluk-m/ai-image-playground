@@ -243,6 +243,15 @@
   },
   "composer": {
     "editorAria": "Message the agent",
+    "nodeReferences": "Selected canvas node references",
+    "nodeTypes": {
+      "text": "Text",
+      "image": "Image",
+      "video": "Video",
+      "timeline": "Timeline",
+      "storyboard": "Storyboard",
+      "group": "Group"
+    },
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",
     "removeReferenceAria": "Remove reference image {{label}}",
