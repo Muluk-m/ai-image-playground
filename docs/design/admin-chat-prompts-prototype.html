@@ -215,6 +215,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 function diff(a, b) {
   const A = a.split(' '), B = b.split(' ');
+  if (A.length * B.length > 250000) return `<del>${esc(a)}</del> <ins>${esc(b)}</ins>`;
   const dp = Array.from({ length: A.length + 1 }, () => new Array(B.length + 1).fill(0));
   for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
   const out = []; let i = 0, j = 0;
@@ -236,19 +237,6 @@ function promptBlock(c) {
   return body;
 }
 
-function toolCard(c, i) {
-  return `<div class="tool">
-    <div class="th"><span><span class="mono">${c.tool}</span> · ${c.target}</span><span style="display:flex;gap:6px;align-items:center">${badge(c.state)}<button class="copy" type="button">复制提示词</button></span></div>
-    <div class="tb">
-      ${promptBlock(c)}
-      <dl class="kv">
-        <dt>参数</dt><dd>${c.n} 张 · ${c.size}${c.ref ? ` · 参考 ${c.ref}` : ''}${c.mask ? ' · 带遮罩' : ''}</dd>
-        <dt>任务</dt><dd>${c.task ? `<span class="mono">${c.task}</span>` : '<span class="muted">未提交（草稿）</span>'}${c.err ? ` <span class="s-fail">${c.err}</span>` : ''}</dd>
-        ${c.imgs ? `<dt>产物</dt><dd><div class="thumbs">${Array.from({ length: c.imgs }, (_, k) => `<span class="thumb" style="${sw(i + k)}"></span>`).join('')}</div></dd>` : ''}
-      </dl>
-    </div></div>`;
-}
-
 function sidebar(active, extra) {
   const g = (label, items) => `<div class="grp"><b>${label}</b>${items.map(([k, t, isNew]) => `<div class="nav ${k === active ? 'on' : ''}"><span>${t}</span>${isNew ? '<span class="new">新</span>' : ''}</div>`).join('')}</div>`;
   const biz = [['overview', '概览'], ['users', '用户'], ['tasks', '生成任务'], ['devices', '设备']];
@@ -264,15 +252,15 @@ function view2() {
   const cnt = (f) => items.filter(({ c }) => f(c)).length;
   const cards = shown.map(({ t, c, k }, i) => `<article class="lcard">
     <div class="lmain">
-      <div class="lmeta">${badge(c.state)}<span class="tag">${c.tool}</span><span class="mono muted">${c.target}</span><span class="muted">· ${c.n} 张 · ${c.size}</span>${c.orig && c.final && c.orig !== c.final ? '<span class="tag" style="color:var(--violet)">确认前被改过</span>' : ''}</div>
+      <div class="lmeta">${badge(c.state)}<span class="tag">${esc(c.tool)}</span><span class="mono muted">${esc(c.target)}</span><span class="muted">· ${esc(c.n)} 张 · ${esc(c.size)}</span>${c.orig && c.final && c.orig !== c.final ? '<span class="tag" style="color:var(--violet)">确认前被改过</span>' : ''}</div>
       ${promptBlock(c)}
       <div class="ctx"><span class="muted">用户原话：</span>${esc(t.said)}</div>
     </div>
     <div class="lside">
-      <div><b>${t.user}</b> <span class="muted">${t.tier}</span></div>
-      <div class="muted tnum">${t.at} · <span class="mono">${t.model}</span></div>
-      ${c.imgs ? `<div class="thumbs">${Array.from({ length: c.imgs }, (_, j) => `<span class="thumb" style="${sw(i + j)}"></span>`).join('')}</div>` : `<div class="muted">${c.err ? `<span class="s-fail">${c.err}</span>` : c.task ? '等待产物' : '草稿未提交，未扣费'}</div>`}
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="copy" type="button">复制</button>${c.task ? `<button class="copy" type="button">任务 ${c.task}</button>` : ''}<button class="copy" type="button">看对话</button></div>
+      <div><b>${esc(t.user)}</b> <span class="muted">${esc(t.tier)}</span></div>
+      <div class="muted tnum">${esc(t.at)} · <span class="mono">${esc(t.model)}</span></div>
+      ${c.imgs ? `<div class="thumbs">${Array.from({ length: c.imgs }, (_, j) => `<span class="thumb" style="${sw(i + j)}"></span>`).join('')}</div>` : `<div class="muted">${c.err ? `<span class="s-fail">${esc(c.err)}</span>` : c.task ? '等待产物' : '草稿未提交，未扣费'}</div>`}
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="copy" type="button">复制</button>${c.task ? `<button class="copy" type="button">任务 ${esc(c.task)}</button>` : ''}<button class="copy" type="button">看对话</button></div>
     </div></article>`).join('') || '<div class="hint">没有符合条件的提示词。</div>';
   const f = (key, label, n) => `<button class="chip ${filter2 === key ? 'on' : ''}" type="button" data-f="${key}">${label} ${n}</button>`;
   return sidebar('prompts', ['prompts', '提示词', true]) + `<main class="main">
