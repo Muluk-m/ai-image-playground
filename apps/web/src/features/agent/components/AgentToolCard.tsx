@@ -126,7 +126,7 @@ function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
 
 // 缓存快照换成服务端记录时卡会重新挂载；先摆上一次的预览，别闪回加载态。
 const lastPreviews = new Map<string, readonly AgentArtifactPreview[]>()
-const LAST_PREVIEWS_LIMIT = 200
+const LAST_PREVIEWS_LIMIT = 60
 
 function useArtifactPreviews(
   message: AgentToolMessage,
