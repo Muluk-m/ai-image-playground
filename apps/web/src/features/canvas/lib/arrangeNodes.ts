@@ -3,6 +3,9 @@ import { nodeCardSize } from './nodeCanvasPlace'
 
 export type CanvasPlacement = { id: string; x: number; y: number }
 
+/** Keep the visible cards close while leaving room for handles and connection lines. */
+export const CANVAS_LAYOUT_GAP = 32
+
 /** Groups move as one unit. Cyclic group dependencies share a column without overlapping. */
 export function arrangeNodes(snapshot: CanvasSnapshot): CanvasPlacement[] {
   const groups = snapshot.groups ?? []
@@ -68,25 +71,35 @@ export function arrangeNodes(snapshot: CanvasSnapshot): CanvasPlacement[] {
       columns.set(column, [...(columns.get(column) ?? []), byId.get(id)!])
     }
     const height = Math.max(
-      ...[...columns.values()].map((column) => column.reduce((sum, n) => sum + n.height + 96, -96)),
+      ...[...columns.values()].map((column) =>
+        column.reduce((sum, n) => sum + n.height + CANVAS_LAYOUT_GAP, -CANVAS_LAYOUT_GAP),
+      ),
     )
     const positions: CanvasPlacement[] = []
     let x = 0
     for (const [, column] of [...columns].sort(([a], [b]) => a - b)) {
-      const columnHeight = column.reduce((sum, n) => sum + n.height + 96, -96)
+      const columnHeight = column.reduce(
+        (sum, n) => sum + n.height + CANVAS_LAYOUT_GAP,
+        -CANVAS_LAYOUT_GAP,
+      )
       let y = (height - columnHeight) / 2
       for (const node of column) {
         positions.push({ id: node.id, x, y })
-        y += node.height + 96
+        y += node.height + CANVAS_LAYOUT_GAP
       }
-      x += Math.max(...column.map((n) => n.width)) + 168
+      x += Math.max(...column.map((n) => n.width)) + CANVAS_LAYOUT_GAP
     }
-    clusters.push({ positions, width: x - 168, height })
+    clusters.push({ positions, width: x - CANVAS_LAYOUT_GAP, height })
   }
   clusters.sort((a, b) => b.height - a.height)
   const rowWidth = Math.max(
     ...clusters.map((c) => c.width),
-    Math.sqrt(clusters.reduce((sum, c) => sum + (c.width + 168) * (c.height + 168), 0) * 1.6),
+    Math.sqrt(
+      clusters.reduce(
+        (sum, c) => sum + (c.width + CANVAS_LAYOUT_GAP) * (c.height + CANVAS_LAYOUT_GAP),
+        0,
+      ) * 1.6,
+    ),
   )
   const origin = { x: Math.min(...boxes.map((b) => b.x)), y: Math.min(...boxes.map((b) => b.y)) }
   const placed = new Map<string, CanvasPlacement>()
@@ -95,7 +108,7 @@ export function arrangeNodes(snapshot: CanvasSnapshot): CanvasPlacement[] {
     rowHeight = 0
   for (const cluster of clusters) {
     if (x && x + cluster.width > rowWidth) {
-      y += rowHeight + 168
+      y += rowHeight + CANVAS_LAYOUT_GAP
       x = 0
       rowHeight = 0
     }
@@ -105,7 +118,7 @@ export function arrangeNodes(snapshot: CanvasSnapshot): CanvasPlacement[] {
         x: origin.x + x + position.x,
         y: origin.y + y + position.y,
       })
-    x += cluster.width + 168
+    x += cluster.width + CANVAS_LAYOUT_GAP
     rowHeight = Math.max(rowHeight, cluster.height)
   }
   // Layout positions refer to the hull; return authored group origins so member offsets survive.
