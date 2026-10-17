@@ -693,3 +693,76 @@ export interface ErrorWindow {
 export interface TodayErrorsResult extends ErrorWindow {
   recent?: ErrorWindow
 }
+
+export type AgentPromptStatus = 'awaiting' | 'running' | 'completed' | 'failed'
+export interface AgentPromptFilters extends TimeWindow {
+  status?: AgentPromptStatus
+  edited?: 'true' | 'false' | 'unknown'
+  userId?: string
+  deviceId?: string
+  q?: string
+}
+export interface AgentPromptItem {
+  id: string
+  kind: 'draft' | 'task'
+  createdAt: number
+  conversationId: string
+  turnId: string | null
+  userId: string | null
+  deviceId: string | null
+  username: string | null
+  prompt: string
+  draftedPrompt: string | null
+  edited: boolean | null
+  status: AgentPromptStatus
+  tool: string
+  media: string
+  model: string
+  taskId: string | null
+  userText: string | null
+  chatModel: string | null
+  inputTokens: number
+  outputTokens: number
+}
+export interface AgentPromptsResult {
+  items: AgentPromptItem[]
+  window: TimeWindow
+  summary: {
+    total: number
+    knownOriginal: number
+    edited: number
+    awaiting: number
+    submitted: number
+    failed: number
+  } | null
+  nextCursor: string | null
+}
+
+export function parseAgentPromptFilters(
+  input: Record<string, unknown>,
+  now = Date.now(),
+): AgentPromptFilters | null {
+  const window =
+    input.from === undefined && input.to === undefined
+      ? todayWindow(now)
+      : parseTimeWindow(input, now)
+  if (!window) return null
+  const result: AgentPromptFilters = { ...window }
+  if (input.status !== undefined) {
+    if (!['awaiting', 'running', 'completed', 'failed'].includes(String(input.status))) return null
+    result.status = input.status as AgentPromptStatus
+  }
+  if (input.edited !== undefined) {
+    if (!['true', 'false', 'unknown'].includes(String(input.edited))) return null
+    result.edited = input.edited as AgentPromptFilters['edited']
+  }
+  for (const key of ['userId', 'deviceId', 'q'] as const) {
+    const value = input[key]
+    if (value === undefined) continue
+    if (typeof value !== 'string' || !value.trim() || value.length > (key === 'q' ? 500 : 200))
+      return null
+    result[key] = value.trim()
+  }
+  if (result.userId && result.deviceId) return null
+  return result
+}
