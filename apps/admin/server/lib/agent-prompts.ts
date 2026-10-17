@@ -48,7 +48,7 @@ export async function getAgentPrompts(
         d.drafted_prompt IS NOT NULL AS known_original,
         d.tool_name AS tool, d.media, d.model, d.provider, NULL::text AS size,
         d.task_id, CASE WHEN d.task_id IS NULL THEN 'awaiting'
-          WHEN t.status = 'completed' THEN 'completed' WHEN t.status = 'failed' THEN 'failed'
+          WHEN t.status = 'completed' THEN 'completed' WHEN t.status IN ('failed', 'cancelled') THEN 'failed'
           ELSE 'running' END AS status
       FROM agent_generation_drafts d LEFT JOIN queue_tasks t ON t.id = d.task_id
       WHERE d.created_at >= ${from} AND d.created_at <= ${to}
@@ -58,7 +58,7 @@ export async function getAgentPrompts(
         CASE WHEN t.request_payload->'video' IS NOT NULL THEN 'generate_video' ELSE 'generate_image' END,
         CASE WHEN t.request_payload->'video' IS NOT NULL THEN 'video' ELSE 'image' END,
         t.model, t.provider, t.request_payload->>'size', t.id,
-        CASE WHEN t.status = 'completed' THEN 'completed' WHEN t.status = 'failed' THEN 'failed'
+        CASE WHEN t.status = 'completed' THEN 'completed' WHEN t.status IN ('failed', 'cancelled') THEN 'failed'
           ELSE 'running' END
       FROM queue_tasks t
       WHERE t.agent_conversation_id IS NOT NULL
