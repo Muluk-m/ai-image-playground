@@ -1,0 +1,53 @@
+name: Canvas remote verification
+on:
+  push:
+    branches: [fix/canvas-text-composer-references]
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: ./.github/actions/setup
+      - run: pnpm exec biome check --write .
+      - name: Capture remote formatting
+        if: always()
+        run: git diff --binary > "$RUNNER_TEMP/canvas-format.patch"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: canvas-format
+          path: ${{ runner.temp }}/canvas-format.patch
+      - run: pnpm lint
+      - run: pnpm typecheck
+  behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+      NODE_OPTIONS: --no-experimental-webstorage
+      VITEST_MAX_WORKERS: 2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: ./.github/actions/setup
+      - run: pnpm --dir apps/bff test --filter textGeneration
+      - run: pnpm --dir apps/bff test --filter readCanvas
+      - run: pnpm --dir apps/web test
+      - run: bun run src/canvas-http-smoke.ts
+        working-directory: apps/bff
