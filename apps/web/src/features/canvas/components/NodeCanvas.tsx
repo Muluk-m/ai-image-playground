@@ -8,6 +8,7 @@ import {
   canvasLinkAllowed,
   canvasOrigin,
   canvasResults,
+  canvasText,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -1604,12 +1605,19 @@ function Flow({
         throw new Error('text_generation_content_changed')
       }
       canvas.undo.stopCapturing()
-      updateCanvasNode(
-        canvas.doc,
-        nodeId,
-        { data: { ...current.data, text: result, richText: undefined } },
-        canvas.origin,
-      )
+      canvas.doc.transact(() => {
+        const text = canvasText(canvas.doc, nodeId)
+        if (text) {
+          text.delete(0, text.length)
+          text.insert(0, `${result}\n`)
+        }
+        updateCanvasNode(
+          canvas.doc,
+          nodeId,
+          { data: { ...current.data, text: result, richText: undefined } },
+          canvas.origin,
+        )
+      }, canvas.origin)
       canvas.undo.stopCapturing()
       setTextDrafts((drafts) => ({ ...drafts, [nodeId]: '' }))
       setTextGeneration((states) => ({ ...states, [nodeId]: { busy: false, error: null } }))
@@ -1625,6 +1633,11 @@ function Flow({
       }
     } finally {
       textRequests.delete(nodeId)
+      setTextGeneration((states) =>
+        states[nodeId]?.busy
+          ? { ...states, [nodeId]: { busy: false, error: null } }
+          : states,
+      )
     }
   }
   const uploadInto = (id: string, file: File) => {
