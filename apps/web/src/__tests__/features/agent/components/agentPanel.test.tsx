@@ -1992,6 +1992,31 @@ describe('AgentPanel', () => {
   })
 })
 
+it('shows a cached image result as its tile while syncing instead of a prompt card', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ skills: [] })),
+  )
+  useAgentStore.setState({
+    conversationId: 'cached-conversation',
+    historyCached: true,
+    historyLoading: true,
+    messages: [
+      {
+        ...toolMessage('placed'),
+        id: 'cached-image',
+        toolName: 'generateImage',
+        prompt: '缓存里的完整提示词',
+      },
+    ],
+  })
+  render()
+  await settle()
+  const block = host.querySelector('[data-agent-message-id="cached-image"]')!
+  expect(block.querySelector('.studio-agent-inline-tile')).not.toBeNull()
+  expect(block.textContent).not.toContain('缓存里的完整提示词')
+})
+
 it('shows cached messages while syncing without mounting batch recovery effects', async () => {
   const request = vi.fn(async (_input: unknown) => Response.json({ skills: [] }))
   vi.stubGlobal('fetch', request)

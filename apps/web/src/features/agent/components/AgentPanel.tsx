@@ -83,7 +83,7 @@ function renderMessage(
   onPreviewProduction?: (pane?: ProductionPane) => void,
   cached = false,
 ) {
-  if (cached && message.kind === 'tool')
+  if (cached && message.kind === 'tool' && !isImageOutput(message))
     return (
       <section className={CARD} aria-label={message.title}>
         <h3 className={CARD_TITLE}>{message.title}</h3>
