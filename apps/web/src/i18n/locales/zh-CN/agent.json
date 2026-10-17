@@ -475,8 +475,6 @@
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
-    "queueSlot": "排队中 · 第 {{position}} 位",
-    "queueSlotShort": "第 {{position}} 位",
     "doneCount": "{{done}}/{{total}} 完成",
     "progressAria": "生成进度",
     "cancel": "取消任务",

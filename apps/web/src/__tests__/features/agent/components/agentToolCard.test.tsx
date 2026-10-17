@@ -401,7 +401,7 @@ it('shows the assistant-ui image element only while an image result is pending',
     expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(
       '已提交',
     )
-    expect(host.textContent?.match(/一只橘猫/g)).toHaveLength(1)
+    expect(host.textContent).not.toContain('一只橘猫')
 
     act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
     expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
@@ -411,6 +411,66 @@ it('shows the assistant-ui image element only while an image result is pending',
     act(() => root.unmount())
   }
 })
+it('offers cancel on each pending tile instead of the batch action row', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pending = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    prompt: '在背景图中加入白色圆形台盆',
+    status: 'submitted',
+    job: { taskId: `task-${id}`, media: 'image' },
+  })
+  try {
+    act(() => root.render(<AgentImageRun messages={[pending('a'), pending('b')]} />))
+    const tiles = host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')
+    expect(tiles).toHaveLength(2)
+    for (const tile of tiles)
+      expect(tile.querySelector('button[aria-label="取消任务"]')).not.toBeNull()
+    expect(host.querySelectorAll('button[aria-label="取消任务"]')).toHaveLength(2)
+    expect(host.textContent).not.toContain('第 1 位')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toBe('0/2 完成')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('shares one cancel request across every tile of the same job', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  let finish!: () => void
+  store.cancelJob.mockClear()
+  store.cancelJob.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)))
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'multi',
+    turnId: 'turn',
+    toolCallId: 'call-multi',
+    toolName: 'generateImage',
+    title: '三张台盆',
+    status: 'submitted',
+    job: { taskId: 'task-multi', media: 'image' },
+    snapshot: { mode: 'image', args: { n: 3 }, params: { size: '1024x1024' } },
+  }
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('.studio-agent-tile-cancel')]
+    expect(buttons()).toHaveLength(3)
+    act(() => buttons()[0]!.click())
+    act(() => buttons()[2]!.click())
+    expect(store.cancelJob).toHaveBeenCalledTimes(1)
+    expect(buttons().every((button) => button.disabled)).toBe(true)
+    await act(async () => finish())
+    expect(buttons().some((button) => button.disabled)).toBe(false)
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
 it.each([
   1, 3,
 ])('keeps %i image slots from submission through delivery and completion', async (count) => {
