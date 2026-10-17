@@ -814,6 +814,12 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-agent-inline-result { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .studio-agent-inline-meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
 .studio-agent-inline-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-agent-inline-gallery {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
 .studio-agent-inline-gallery[data-count="1"] { max-width: 320px; grid-template-columns: minmax(0, 1fr); }
 .studio-agent-inline-gallery[data-count="2"],
 .studio-agent-inline-gallery[data-count="3"],
