@@ -297,6 +297,12 @@ export async function getGenerationTasks(
     conditions.push(sql`t.user_id IS NULL AND t.device_id = ${filters.deviceId}`)
   if (filters.unassigned) conditions.push(sql`t.user_id IS NULL AND t.device_id IS NULL`)
   if (filters.status) conditions.push(sql`t.status = ${filters.status}`)
+  if (filters.source)
+    conditions.push(
+      filters.source === 'chat'
+        ? sql`t.agent_conversation_id IS NOT NULL`
+        : sql`t.agent_conversation_id IS NULL`,
+    )
   if (filters.model) conditions.push(sql`t.model = ${filters.model}`)
   if (cursor) {
     const separator = cursor.indexOf('_')
@@ -322,7 +328,7 @@ export async function getGenerationTasks(
           WITH ORDINALITY AS texts(part, position)
         WHERE jsonb_typeof(part) = 'string' AND part #>> '{}' <> ''
       ), '') AS prompt,
-      t.user_id, t.device_id, u.username
+      t.user_id, t.device_id, t.agent_conversation_id, u.username
     FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
     WHERE ${sql.join(conditions, sql` AND `)}
     ORDER BY t.submitted_at DESC, t.id DESC LIMIT ${PAGE_SIZE + 1}
