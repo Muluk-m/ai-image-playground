@@ -37,6 +37,12 @@ describe('runMigrations', () => {
     ).toContain('WHERE (agent_conversation_id IS NOT NULL)')
   })
 
+  it('indexes confirmed drafts by task', async () => {
+    const [index] =
+      await connection.client`SELECT indexdef FROM pg_indexes WHERE tablename = 'agent_generation_drafts' AND indexname = 'idx_agent_generation_drafts_task'`
+    expect(index?.indexdef).toContain('(task_id) WHERE (task_id IS NOT NULL)')
+  })
+
   it('indexes ordered context queries within a container', async () => {
     const [index] =
       await connection.client`SELECT indexdef FROM pg_indexes WHERE tablename = 'server_logs' AND indexname = 'idx_server_logs_instance_at'`
