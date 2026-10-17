@@ -114,15 +114,27 @@ export function registerLocalAttachmentSource(
     },
   )
   queueAttachmentPreview(handle, async () => {
-    const prepared = await preparedPreview
-    if (!prepared || !current() || !previews.has(handle)) return undefined
-    if (typeof source === 'string') return (await createImageThumbnail(source)).thumbnailDataUrl
+    if (typeof source === 'string') {
+      const prepared = await preparedPreview
+      return prepared ? (await createImageThumbnail(source)).thumbnailDataUrl : undefined
+    }
     if (typeof URL.createObjectURL !== 'function') return undefined
-    const url = URL.createObjectURL(new Blob([prepared.data], { type: prepared.contentType }))
+    const originalUrl = URL.createObjectURL(source)
     try {
-      return (await createImageThumbnail(url)).thumbnailDataUrl
+      return (await createImageThumbnail(originalUrl)).thumbnailDataUrl
+    } catch {
+      const prepared = await preparedPreview
+      if (!prepared) return undefined
+      const preparedUrl = URL.createObjectURL(
+        new Blob([prepared.data], { type: prepared.contentType }),
+      )
+      try {
+        return (await createImageThumbnail(preparedUrl)).thumbnailDataUrl
+      } finally {
+        URL.revokeObjectURL(preparedUrl)
+      }
     } finally {
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(originalUrl)
     }
   })
   const reserved = (async () => {
