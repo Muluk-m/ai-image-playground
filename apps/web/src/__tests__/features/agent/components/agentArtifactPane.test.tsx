@@ -23,7 +23,10 @@ const canvas = vi.hoisted(() => ({
 const send = vi.hoisted(() =>
   vi.fn(async (_text: string, _references: unknown, accepted?: () => void) => accepted?.()),
 )
-vi.mock('../../../../features/agent/lib/artifactSource', () => ({ previewArtifactBitmap }))
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  previewArtifactBitmap,
+  displayArtifactBitmap: previewArtifactBitmap,
+}))
 vi.mock('../../../../features/agent/lib/canvasSink', () => ({ agentCanvasSink: () => canvas }))
 vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: { getState: () => ({ historyLoading: false, historyFailed: false, send }) },

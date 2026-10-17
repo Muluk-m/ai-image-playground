@@ -509,6 +509,11 @@ export interface AgentToolArtifact {
   readonly mime: string
   readonly width?: number
   readonly height?: number
+  /**
+   * 图片产物归档成的云媒体（`media_objects.id`）。面板读历史时补上；有它就按媒体身份取图、
+   * 当参考图按 id 发，不再经队列端点下载原图或重新上传。实时流里的结果卡还没有。
+   */
+  readonly mediaId?: string
   /** 视频产物实际提交的参数。早于它的记录没有；图片产物永远没有。 */
   readonly video?: VideoGenerationRecord
 }

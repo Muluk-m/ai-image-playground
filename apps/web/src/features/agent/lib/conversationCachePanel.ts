@@ -10,6 +10,7 @@ import type { AgentPanelState } from './panelMessages'
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
+const UUID = /^[0-9a-f-]{36}$/i
 const finite = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
@@ -129,6 +130,9 @@ function cachedImageOutput(
       mime: artifact.mime,
       ...(finite(artifact.width) ? { width: artifact.width } : {}),
       ...(finite(artifact.height) ? { height: artifact.height } : {}),
+      ...(typeof artifact.mediaId === 'string' && UUID.test(artifact.mediaId)
+        ? { mediaId: artifact.mediaId }
+        : {}),
     })
   }
   const delivery = raw.delivery
