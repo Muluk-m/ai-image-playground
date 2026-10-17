@@ -84,12 +84,16 @@ describe('ci-deploy-target.sh', () => {
       [internalApi]: health(commits[1]),
       [paidApi]: health(`${commits[1]}+${'f'.repeat(40)}`),
     })
-    expect(decide(commits[2]).decision).toBe('deploy_api=true\ndeploy_pages=true\ndeploy=true\n')
+    expect(decide(commits[2]).decision).toBe(
+      'deploy_api=true\ndeploy_pages=true\ndeploy_web=true\ndeploy_admin=true\ndeploy=true\n',
+    )
   })
 
   it('skips a commit that is no longer the tip of main', () => {
     const { decision, log } = decide(commits[1])
-    expect(decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
+    expect(decision).toBe(
+      'deploy_api=false\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=false\n',
+    )
     expect(log).toContain(`::notice::${commits[1]} is not the tip of origin/main (${commits[2]})`)
   })
 
@@ -100,7 +104,9 @@ describe('ci-deploy-target.sh', () => {
       [paidApi]: health(`${commits[2]}+${'f'.repeat(40)}`),
     })
     const { decision, log } = decide(commits[1])
-    expect(decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
+    expect(decision).toBe(
+      'deploy_api=false\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=false\n',
+    )
     expect(log).toContain(`::notice::${paidApi} already runs ${commits[2]}`)
   })
 
@@ -109,9 +115,11 @@ describe('ci-deploy-target.sh', () => {
       [internalApi]: health(commits[2]),
       [paidApi]: health(`${commits[2]}+${'f'.repeat(40)}`),
     })
-    expect(decide(commits[2]).decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
+    expect(decide(commits[2]).decision).toBe(
+      'deploy_api=false\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=false\n',
+    )
     expect(decide(commits[2], 'workflow_dispatch').decision).toBe(
-      'deploy_api=true\ndeploy_pages=true\ndeploy=true\n',
+      'deploy_api=true\ndeploy_pages=true\ndeploy_web=true\ndeploy_admin=true\ndeploy=true\n',
     )
   })
 
@@ -134,8 +142,11 @@ describe('ci-deploy-target.sh', () => {
       [paidApi]: health(`${previous}+${'f'.repeat(40)}`),
     })
     const { decision, log } = decide(tip)
-    expect(decision).toBe('deploy_api=false\ndeploy_pages=true\ndeploy=true\n')
+    expect(decision).toBe(
+      'deploy_api=false\ndeploy_pages=true\ndeploy_web=true\ndeploy_admin=false\ndeploy=true\n',
+    )
     expect(log).toContain(`API tree unchanged since ${previous}`)
+    expect(log).toContain(`admin bundle unchanged since ${previous}`)
   })
 
   it('ships the API when the release receiver changes, so the VPS actually runs the new copy', () => {
@@ -146,18 +157,38 @@ describe('ci-deploy-target.sh', () => {
       [paidApi]: health(previous),
     })
     const { decision, log } = decide(tip)
-    expect(decision).toBe('deploy_api=true\ndeploy_pages=false\ndeploy=true\n')
+    expect(decision).toBe(
+      'deploy_api=true\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=true\n',
+    )
     expect(log).toContain(`web bundle unchanged since ${previous}`)
   })
 
-  it('ships Pages and the API when the admin site changes', () => {
+  it('ships only the Admin site and the API when the admin app changes', () => {
     const previous = commits[2]
     const tip = commitOnTip('apps/admin/src/main.tsx', 'export {}\n')
     serve({
       [internalApi]: health(previous),
       [paidApi]: health(`${previous}+${'f'.repeat(40)}`),
     })
-    expect(decide(tip).decision).toBe('deploy_api=true\ndeploy_pages=true\ndeploy=true\n')
+    const { decision, log } = decide(tip)
+    expect(decision).toBe(
+      'deploy_api=true\ndeploy_pages=true\ndeploy_web=false\ndeploy_admin=true\ndeploy=true\n',
+    )
+    expect(log).toContain(
+      `web bundle unchanged since ${previous}; skipping the internal and paid sites`,
+    )
+  })
+
+  it('ships both Pages sides when shared code changes', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('packages/shared/src/index.ts', 'export {}\n')
+    serve({
+      [internalApi]: health(previous),
+      [paidApi]: health(`${previous}+${'f'.repeat(40)}`),
+    })
+    expect(decide(tip).decision).toBe(
+      'deploy_api=true\ndeploy_pages=true\ndeploy_web=true\ndeploy_admin=true\ndeploy=true\n',
+    )
   })
 
   it('ships the API without Pages when only the API tree changed', () => {
@@ -168,7 +199,9 @@ describe('ci-deploy-target.sh', () => {
       [paidApi]: health(previous),
     })
     const { decision, log } = decide(tip)
-    expect(decision).toBe('deploy_api=true\ndeploy_pages=false\ndeploy=true\n')
+    expect(decision).toBe(
+      'deploy_api=true\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=true\n',
+    )
     expect(log).toContain(`web bundle unchanged since ${previous}`)
   })
 
@@ -180,14 +213,18 @@ describe('ci-deploy-target.sh', () => {
       [paidApi]: health(previous),
     })
     const { decision, log } = decide(tip)
-    expect(decision).toBe('deploy_api=false\ndeploy_pages=false\ndeploy=false\n')
-    expect(log).toContain(`no web bundle or API changes since ${previous}`)
+    expect(decision).toBe(
+      'deploy_api=false\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=false\n',
+    )
+    expect(log).toContain(`no web bundle, admin bundle or API changes since ${previous}`)
   })
 
   it('deploys when an API does not report a version yet or cannot be reached', () => {
     serve({ [internalApi]: JSON.stringify({ ok: true }) })
     const { decision, log } = decide(commits[2])
-    expect(decision).toBe('deploy_api=true\ndeploy_pages=true\ndeploy=true\n')
+    expect(decision).toBe(
+      'deploy_api=true\ndeploy_pages=true\ndeploy_web=true\ndeploy_admin=true\ndeploy=true\n',
+    )
     expect(log).toContain(`::warning::${paidApi}/health did not answer`)
     expect(log).toContain(`::warning::${internalApi} reports no commit version`)
   })
