@@ -25,7 +25,7 @@ import type {
 
 export type { Range, SortKey } from '../../contracts'
 
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
 
 function rangeMs(range: Range): number {
@@ -665,13 +665,15 @@ const TASK_LIST_COLUMNS = sql`
   t.upstream_status,
   t.request_payload,
   t.attempt_count,
-  t.upstream_invocation_count
+  t.upstream_invocation_count,
+  t.agent_conversation_id
 `
 
 export function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
   return {
     id: String(row.id),
     kind: row.kind === 'analysis' ? 'analysis' : 'queue',
+    source: row.agent_conversation_id != null ? 'chat' : 'manual',
     provider: String(row.provider),
     model: String(row.model),
     status: taskStatus(row.status),
@@ -749,7 +751,7 @@ export async function getUserTasks(
         a.error_code AS error_type, NULL::integer AS upstream_status,
         jsonb_build_object('prompt', a.input_snapshot->>'prompt') AS request_payload,
         a.attempt AS attempt_count, COALESCE(c.http_dispatch_count, 0) AS upstream_invocation_count,
-        'analysis' AS kind
+        a.origin_conversation_id AS agent_conversation_id, 'analysis' AS kind
       FROM analysis_tasks a
       LEFT JOIN analysis_model_calls c ON c.task_id = a.task_id
       WHERE a.user_id = ${userId}
@@ -809,6 +811,7 @@ export async function getDeviceDetail(
   const tasksPromise = db
     .select({
       id: schema.queue_tasks.id,
+      agent_conversation_id: schema.queue_tasks.agent_conversation_id,
       provider: schema.queue_tasks.provider,
       model: schema.queue_tasks.model,
       status: schema.queue_tasks.status,
@@ -846,6 +849,7 @@ export async function getDeviceDetail(
   const pageRows = taskRowsRaw.slice(0, PAGE_SIZE)
   const tasks: TaskListItem[] = pageRows.map((r) => ({
     id: r.id,
+    source: r.agent_conversation_id !== null ? 'chat' : 'manual',
     provider: r.provider,
     model: r.model,
     status: r.status,
@@ -873,6 +877,20 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     .limit(1)
   const task = rows[0]
   if (!task) return getAnalysisTask(taskId)
+  const drafts =
+    task.agent_conversation_id === null
+      ? []
+      : await db
+          .select({ created_at: schema.agent_generation_drafts.created_at })
+          .from(schema.agent_generation_drafts)
+          .where(
+            and(
+              eq(schema.agent_generation_drafts.task_id, taskId),
+              eq(schema.agent_generation_drafts.conversation_id, task.agent_conversation_id),
+            ),
+          )
+          .orderBy(asc(schema.agent_generation_drafts.created_at))
+          .limit(1)
 
   // 最小实现：从原始 result_payload 抽 image meta（index + mime），不解 base64
   const images = extractImagesMeta(task.provider, task.result_payload)
@@ -885,6 +903,12 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {
     ...(rest as unknown as Omit<TaskListItem, 'prompt' | 'upstream_invocation_count'>),
+    source: task.agent_conversation_id !== null ? 'chat' : 'manual',
+    ...(task.agent_conversation_id !== null
+      ? {
+          prompt_created_at: drafts[0]?.created_at ?? task.submitted_at,
+        }
+      : {}),
     prompt: extractPrompt(request_payload),
     upstream_invocation_count: Number(task.upstream_invocation_count),
     request_payload,
@@ -915,6 +939,7 @@ async function getAnalysisTask(taskId: string): Promise<TaskDetail | null> {
   return {
     id: analysis.task_id,
     kind: 'analysis',
+    source: analysis.origin_conversation_id !== null ? 'chat' : 'manual',
     provider: 'openai-compat',
     model: analysis.model,
     status: analysis.status,

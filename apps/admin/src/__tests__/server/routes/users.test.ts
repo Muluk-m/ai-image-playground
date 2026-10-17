@@ -309,6 +309,7 @@ describe('admin user routes', () => {
       {
         id: 'user-task-failed',
         kind: 'queue',
+        source: 'manual',
         status: 'failed',
         provider: 'gemini',
         model: 'gemini-3-pro',
