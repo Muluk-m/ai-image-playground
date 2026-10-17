@@ -12,6 +12,7 @@ const MEDIA_INPUT = /^aip-media:([0-9a-f-]{36})$/i
 const MAX_EDGE = 2048
 const PASSTHROUGH_BYTES = 256 * 1024
 const UPSTREAM_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+const LOAD_CONCURRENCY = 3
 
 export class MediaInputError extends Error {}
 
@@ -86,22 +87,35 @@ export async function resolveMediaInputs(
     return durableMediaStore()
       .read(key)
       .then((bytes) =>
-        options.masked ? dataUrl(bytes, row.contentType) : compressed(bytes, row.contentType),
+        options.masked ? exact(bytes, row.contentType) : compressed(bytes, row.contentType),
       )
   }
-  const result: string[] = []
-  for (const input of inputs) {
-    const id = MEDIA_INPUT.exec(input)?.[1]?.toLowerCase()
-    if (!id) {
-      result.push(input)
-      continue
-    }
-    let pending = resolved.get(id)
-    if (!pending) {
-      pending = load(id)
+  // 先确权，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
+  for (const id of ids)
+    if (!found.get(id)?.key) throw new MediaInputError('输入图片不存在或无权访问')
+  const queue = [...ids]
+  const worker = async () => {
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      const pending = load(id)
       resolved.set(id, pending)
+      await pending
     }
-    result.push(await pending)
   }
-  return result
+  await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, ids.length) }, worker))
+  return Promise.all(
+    inputs.map((input) => {
+      const id = MEDIA_INPUT.exec(input)?.[1]?.toLowerCase()
+      return id ? resolved.get(id)! : input
+    }),
+  )
+}
+
+/** 带遮罩：尺寸不能动；上游不认的格式按原尺寸转 PNG（保留 alpha）。 */
+async function exact(bytes: Uint8Array, contentType: string): Promise<string> {
+  if (UPSTREAM_TYPES.has(contentType)) return dataUrl(bytes, contentType)
+  try {
+    return dataUrl(await sharp(bytes, { failOn: 'warning' }).png().toBuffer(), 'image/png')
+  } catch {
+    throw new MediaInputError('输入图片无法解码')
+  }
 }
