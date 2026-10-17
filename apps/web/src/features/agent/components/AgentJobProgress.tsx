@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Icon, type IconName } from '../../../components/ui/icon'
@@ -62,6 +62,28 @@ export default function AgentJobProgress({ progress }: { progress: AgentToolProg
   )
 }
 
+// 同一任务可能同时有几个取消入口（每个占位图块、后台任务列表），取消中的状态按任务共享，只发一次请求。
+const cancelling = new Map<string, Promise<void>>()
+const cancelListeners = new Set<() => void>()
+function subscribeCancelling(listener: () => void) {
+  cancelListeners.add(listener)
+  return () => cancelListeners.delete(listener)
+}
+function cancelJobOnce(messageId: string): Promise<void> {
+  const running = cancelling.get(messageId)
+  if (running) return running
+  const request = useAgentStore
+    .getState()
+    .cancelJob(messageId)
+    .finally(() => {
+      cancelling.delete(messageId)
+      for (const listener of cancelListeners) listener()
+    })
+  cancelling.set(messageId, request)
+  for (const listener of cancelListeners) listener()
+  return request
+}
+
 /** 后台任务还在跑时单独取消它；取消失败就在原处说一声，卡保持原样。 */
 export function AgentJobCancel({
   message,
@@ -73,31 +95,26 @@ export function AgentJobCancel({
   icon?: IconName
 }) {
   const { t } = useTranslation('agent')
-  const [state, setState] = useState<'idle' | 'cancelling' | 'failed'>('idle')
+  const pending = useSyncExternalStore(subscribeCancelling, () => cancelling.has(message.id))
+  const [failed, setFailed] = useState(false)
   if (message.status !== 'submitted' || !message.job) return null
   return (
     <span className="inline-flex items-center gap-2 self-start">
       <TooltipIconButton
-        tooltip={state === 'cancelling' ? t('job.cancelling') : t('job.cancel')}
-        disabled={state === 'cancelling'}
+        tooltip={pending ? t('job.cancelling') : t('job.cancel')}
+        disabled={pending}
         className={className}
         onClick={() => {
-          setState('cancelling')
-          useAgentStore
-            .getState()
-            .cancelJob(message.id)
-            .then(
-              () => setState('idle'),
-              () => setState('failed'),
-            )
+          setFailed(false)
+          cancelJobOnce(message.id).catch(() => setFailed(true))
         }}
       >
         <Icon
-          name={state === 'cancelling' ? 'loading' : icon}
-          className={state === 'cancelling' ? 'animate-spin motion-reduce:animate-none' : undefined}
+          name={pending ? 'loading' : icon}
+          className={pending ? 'animate-spin motion-reduce:animate-none' : undefined}
         />
       </TooltipIconButton>
-      {state === 'failed' && <span className={CARD_NOTE}>{t('job.cancelFailed')}</span>}
+      {failed && <span className={CARD_NOTE}>{t('job.cancelFailed')}</span>}
     </span>
   )
 }

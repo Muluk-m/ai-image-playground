@@ -439,6 +439,38 @@ it('offers cancel on each pending tile instead of the batch action row', () => {
   }
 })
 
+it('shares one cancel request across every tile of the same job', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  let finish!: () => void
+  store.cancelJob.mockClear()
+  store.cancelJob.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)))
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'multi',
+    turnId: 'turn',
+    toolCallId: 'call-multi',
+    toolName: 'generateImage',
+    title: '三张台盆',
+    status: 'submitted',
+    job: { taskId: 'task-multi', media: 'image' },
+    snapshot: { mode: 'image', args: { n: 3 }, params: { size: '1024x1024' } },
+  }
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('.studio-agent-tile-cancel')]
+    expect(buttons()).toHaveLength(3)
+    act(() => buttons()[0]!.click())
+    act(() => buttons()[2]!.click())
+    expect(store.cancelJob).toHaveBeenCalledTimes(1)
+    expect(buttons().every((button) => button.disabled)).toBe(true)
+    await act(async () => finish())
+    expect(buttons().some((button) => button.disabled)).toBe(false)
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
 it.each([
   1, 3,
 ])('keeps %i image slots from submission through delivery and completion', async (count) => {
