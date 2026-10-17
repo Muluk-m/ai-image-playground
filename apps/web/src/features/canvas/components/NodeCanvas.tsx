@@ -148,6 +148,7 @@ const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const edgeTypes = { reference: NodeFlowEdge }
+const NODE_CAPTION_CLEARANCE = 30
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
@@ -748,6 +749,8 @@ function availableCanvasArea(container: HTMLElement): Rect {
     const rect = visible(element)
     if (rect) top = Math.max(top, rect.bottom - bounds.top + 16)
   }
+  // 节点标题按屏幕尺寸画在卡片上方（.studio-node-caption 的 -30px），不在节点包围盒里。
+  top += NODE_CAPTION_CLEARANCE
   return {
     x: left,
     y: top,
