@@ -287,7 +287,7 @@ it('projects restored media to standard bounds without writing cosmetic updates 
   canvas.doc.off('update', updates)
 })
 it.each([
-  { width: 1200, tools: [16, 100, 56, 480], top: 64, left: 88, availableWidth: 1096 },
+  { width: 1200, tools: [16, 100, 56, 480], top: 16, left: 88, availableWidth: 1096 },
   { width: 600, tools: [8, 8, 584, 48], top: 72, left: 16, availableWidth: 568 },
 ])('fits inside measured composer and toolbar bounds at $width pixels', async (layout) => {
   await render()
@@ -303,7 +303,6 @@ it.each([
     element.getBoundingClientRect = () => new DOMRect(values[0], values[1], values[2], values[3])
   }
   measure('.studio-node-tools', layout.tools)
-  measure('.studio-node-history', [layout.width - 120, 8, 100, 40])
   measure('.studio-node-navigation', [16, 740, 320, 44])
   measure('.studio-node-composer', [200, 550, 560, 234])
   const fit = host.querySelector<HTMLButtonElement>(
@@ -439,7 +438,7 @@ it('opens viewport-docked workspace image controls for a new image card and keep
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.id !== 'image')
   expect(added).toMatchObject({ type: 'image', data: {} })
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="pane"]')!.click())
-  expect(host.querySelector('.studio-node-composer')).not.toBeNull()
+  expect(host.querySelector('.studio-node-composer')).toBeNull()
   expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image', added!.id])
 })
 
@@ -681,39 +680,11 @@ it('places a popular script brief from the blank canvas menu', async () => {
   expect(document.querySelector('[role=dialog]')).toBeNull()
 })
 
-it('creates an image node from the canvas prompt when nothing is selected', async () => {
+it('shows the prompt composer only for a selected node', async () => {
   await render()
-  const input = document.querySelector(
-    'textarea[aria-label="描述你想生成的图片"]',
-  ) as HTMLTextAreaElement
-  expect(input).not.toBeNull()
-  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
-  await act(async () => {
-    setValue.call(input, '窗台新叶')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  await act(async () =>
-    [...document.querySelectorAll('button')]
-      .find((button) => button.getAttribute('aria-label') === '生成')!
-      .click(),
-  )
-  const created = readCanvasDocument(canvas.doc).nodes.find(
-    (node) => node.type === 'image' && node.data.meta?.nodePrompt === '窗台新叶',
-  )
-  expect(created?.type).toBe('image')
-  expect(mocks.submitImage).toHaveBeenCalledWith(
-    expect.anything(),
-    canvas.doc,
-    created && created.type === 'image' ? created.id : '',
-    '窗台新叶',
-    [],
-  )
-  canvas.undo.undo()
-  expect(
-    readCanvasDocument(canvas.doc).nodes.some(
-      (node) => node.type === 'image' && node.data.meta?.nodePrompt === '窗台新叶',
-    ),
-  ).toBe(false)
+  expect(host.querySelector('.studio-node-composer')).toBeNull()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  expect(host.querySelector('.studio-node-composer')).not.toBeNull()
 })
 
 it('sends a preset template through the selected image node', async () => {

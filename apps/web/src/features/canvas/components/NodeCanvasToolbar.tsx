@@ -1,10 +1,10 @@
-import { createPortal } from 'react-dom'
 import { Hint } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
+import { cn } from '../../../lib/utils'
 import type { CreateNodeKind } from '../lib/nodeCanvasActions'
 
 export function NodeTool({
@@ -13,19 +13,21 @@ export function NodeTool({
   onClick,
   pressed,
   disabled,
+  className,
 }: {
   icon: IconName
   label: string
   onClick: () => void
   pressed?: boolean
   disabled?: boolean
+  className?: string
 }) {
   return (
     <Hint tooltip={label}>
       <Button
         type="button"
         variant="ghost"
-        className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+        className={cn('aria-pressed:bg-accent aria-pressed:text-accent-foreground', className)}
         size="icon"
         aria-label={label}
         aria-pressed={pressed}
@@ -38,7 +40,6 @@ export function NodeTool({
   )
 }
 export default function NodeCanvasToolbar({
-  active,
   onCreate,
   onMenu,
   onUpload,
@@ -63,7 +64,6 @@ export default function NodeCanvasToolbar({
   canRedo,
   onChat,
 }: {
-  active: boolean
   onCreate: (kind: CreateNodeKind) => void
   onMenu: () => void
   onUpload: () => void
@@ -121,6 +121,9 @@ export default function NodeCanvasToolbar({
             </div>
           </div>
         )}
+        <NodeTool icon="undo" label={t('nodes.undo')} disabled={!canUndo} onClick={onUndo} />
+        <NodeTool icon="redo" label={t('nodes.redo')} disabled={!canRedo} onClick={onRedo} />
+        <span className="studio-node-tool-divider" />
         <NodeTool
           icon={mode === 'select' ? 'select' : 'pan'}
           label={mode === 'select' ? `${t('nodes.pan')} (H)` : `${t('nodes.select')} (V)`}
@@ -137,6 +140,7 @@ export default function NodeCanvasToolbar({
           icon="canvas"
           label={t(minimap ? 'nodes.hideMinimap' : 'nodes.showMinimap')}
           pressed={minimap}
+          className="studio-node-tool-optional"
           onClick={onMinimap}
         />
         <NodeTool
@@ -144,6 +148,7 @@ export default function NodeCanvasToolbar({
           label={t('nodes.arrange')}
           pressed={arranging}
           disabled={!canArrange}
+          className="studio-node-tool-optional"
           onClick={onArrange}
         />
         <NodeTool icon="fit" label={t('nodes.fit')} onClick={onFit} />
@@ -199,14 +204,6 @@ export default function NodeCanvasToolbar({
           </PopoverContent>
         </Popover>
       </div>
-      {active &&
-        createPortal(
-          <div className="studio-node-history" role="toolbar" aria-label={t('nodes.undo')}>
-            <NodeTool icon="undo" label={t('nodes.undo')} disabled={!canUndo} onClick={onUndo} />
-            <NodeTool icon="redo" label={t('nodes.redo')} disabled={!canRedo} onClick={onRedo} />
-          </div>,
-          document.body,
-        )}
       {onChat && (
         <Button
           className="studio-node-chat rounded-full"
