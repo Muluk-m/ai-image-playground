@@ -38,6 +38,7 @@ export function PromptFilters({
           from: from === dateText(filters.from) ? filters.from : Date.parse(`${from}:00+08:00`),
           to: to === dateText(filters.to) ? filters.to : Date.parse(`${to}:59.999+08:00`),
           status: filters.status,
+          taskId: filters.taskId,
           edited: edited === 'all' ? undefined : edited,
           ...(ownerKind === 'all' ? {} : { [ownerKind]: owner }),
           q: q.trim() || undefined,
@@ -50,6 +51,11 @@ export function PromptFilters({
         onApply(parsed)
       }}
     >
+      {filters.taskId ? (
+        <p className="break-all text-xs text-muted-foreground">
+          任务：<span className="font-mono">{filters.taskId}</span>
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <label className="space-y-1 text-xs">
           <span>开始时间（北京时间）</span>

@@ -1,4 +1,4 @@
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { ImageOff } from 'lucide-react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
@@ -31,6 +31,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
   const req = (task.request_payload ?? {}) as Record<string, unknown>
   const inputImages = countInputImages(task.provider, req)
   const outputImages = task.result_meta.images
+  const promptAt = task.prompt_created_at ?? task.submitted_at
 
   function openLightbox(kind: 'output' | 'input', idx: number): void {
     void navigate({
@@ -50,6 +51,9 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
       <header className="flex flex-wrap items-baseline gap-3 border-b pb-3">
         <ShortId value={task.id} len={12} className="text-sm" />
         <StatusBadge status={task.status} />
+        <span className="rounded-md bg-muted px-2 py-1 text-xs">
+          {task.source === 'chat' ? 'Chat' : '手动'}
+        </span>
         {task.kind === 'analysis' ? <span className="text-xs font-medium">图片分析</span> : null}
         <span className="text-xs text-muted-foreground">
           提交：
@@ -60,6 +64,19 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
         </span>
       </header>
 
+      {task.source === 'chat' && task.kind !== 'analysis' ? (
+        <Link
+          to="/prompts"
+          search={{
+            taskId: task.id,
+            from: Math.max(0, promptAt - 60_000),
+            to: Math.min(Date.now(), promptAt + 60_000),
+          }}
+          className="inline-flex min-h-9 items-center text-xs font-medium underline-offset-4 hover:underline"
+        >
+          在提示词页查看
+        </Link>
+      ) : null}
       {task.status === 'reconciling' ? <TaskReconciliation taskId={task.id} /> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Request */}

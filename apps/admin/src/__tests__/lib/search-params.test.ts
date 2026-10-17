@@ -186,3 +186,14 @@ describe('parseAgentPromptsSearch', () => {
     expect(() => parseAgentPromptsSearch({ edited: 'maybe' })).toThrow()
   })
 })
+
+it('keeps task source filters and exact prompt-task links in URL state', () => {
+  expect(parseGenerationTasksSearch({ source: 'chat', task: 'task-1' })).toMatchObject({
+    source: 'chat',
+    task: 'task-1',
+  })
+  expect(parseGenerationTasksSearch({ source: 'manual' })).toEqual({ source: 'manual' })
+  expect(parseGenerationTasksSearch({ source: 'invalid' })).toEqual({})
+  expect(parseAgentPromptsSearch({ taskId: 'task-1' })).toEqual({ taskId: 'task-1' })
+  expect(() => parseAgentPromptsSearch({ taskId: '' })).toThrow()
+})
