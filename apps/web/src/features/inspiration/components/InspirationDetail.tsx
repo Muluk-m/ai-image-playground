@@ -1,7 +1,9 @@
 import { type PointerEvent, useMemo, useRef } from 'react'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { modelLabel } from '../../../lib/channels/publicChannels'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
@@ -55,6 +57,10 @@ export default function InspirationDetail() {
   }
 
   const categoryLabel = inspirationFacetLabel(item.category)
+  const modelName = compactModelName(
+    item.recommendedModel,
+    modelLabel(item.recommendedModel, item.recommendedProvider),
+  )
 
   return (
     <div
@@ -213,8 +219,9 @@ export default function InspirationDetail() {
               <span className="rounded-md bg-primary/10 px-2 py-1 text-primary">
                 {categoryLabel}
               </span>
-              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                {item.recommendedModel}
+              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-muted-foreground">
+                <ModelLogo model={item.recommendedModel} />
+                <span>{modelName}</span>
               </span>
               <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
                 {item.params.size}

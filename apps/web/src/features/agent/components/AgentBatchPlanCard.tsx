@@ -7,6 +7,7 @@ import type {
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -14,6 +15,7 @@ import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
+import { modelLabel } from '../../../lib/channels/publicChannels'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
@@ -104,7 +106,6 @@ function OutputParameters({ params }: { params: AgentBatchGenerationItem['params
     }
   }
   const rows: readonly (readonly [string, string | undefined])[] = [
-    [t('batch.model'), params.model],
     [t('batch.quality'), params.quality ? level(params.quality) : undefined],
     [t('batch.aspectRatio'), params.gemini_aspect_ratio],
     [
@@ -119,6 +120,11 @@ function OutputParameters({ params }: { params: AgentBatchGenerationItem['params
   ]
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+      <dt className="text-muted-foreground">{t('batch.model')}</dt>
+      <dd className="inline-flex items-center justify-end gap-1 break-words text-right">
+        <ModelLogo model={params.model} />
+        {compactModelName(params.model, modelLabel(params.model, params.provider))}
+      </dd>
       {rows
         .filter(([, value]) => value !== undefined)
         .map(([label, value]) => (
@@ -680,7 +686,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           <div className="grid gap-2">
             <dl className="flex justify-between">
               <dt>{t('batch.model')}</dt>
-              <dd>{item.params.model}</dd>
+              <dd className="inline-flex items-center gap-1">
+                <ModelLogo model={item.params.model} />
+                {compactModelName(item.params.model, modelLabel(item.params.model))}
+              </dd>
             </dl>
             <AgentBatchAnalysisEvidence evidence={item.params.evidence} inputs={item.inputs} />
           </div>

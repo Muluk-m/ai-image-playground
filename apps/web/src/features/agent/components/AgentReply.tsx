@@ -3,7 +3,7 @@ import { MessageActions } from '../../../components/assistant-ui/elements/messag
 import { useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
-import { REPLY } from '../agentStyles'
+import { REPLY, REPLY_ACTION } from '../agentStyles'
 import AgentMarkdown from './AgentMarkdown'
 
 interface Props {
@@ -26,6 +26,7 @@ function CopyReplyButton({ text }: { text: string }) {
 
   return (
     <MessageActions
+      className={REPLY_ACTION}
       copied={copied}
       copyLabel={copied ? t('reply.copied') : t('reply.copyAria')}
       onCopy={() => {
