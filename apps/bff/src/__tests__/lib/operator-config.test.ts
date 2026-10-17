@@ -8,7 +8,6 @@ import {
   evaluateCapability,
   hasCapability,
   loadOperatorConfig,
-  userHasCapability,
 } from '../../lib/operator-config'
 
 const appRoot = resolve(import.meta.dir, '../../..')
@@ -157,6 +156,10 @@ describe('operator config', () => {
       JSON.stringify({
         capabilities: {
           'quota:daily': true,
+          'canvas:nodes': false,
+          'canvas:blank-generate': true,
+          'canvas:node-run': false,
+          'canvas:script': true,
           'generation:storyboard': true,
           'matte:server': true,
           'remix:analyze': false,
@@ -166,6 +169,8 @@ describe('operator config', () => {
     )
     const resolved = loadOperatorConfig(retired)
     expect(resolved.capabilities['quota:daily']).toBe(true)
+    expect(evaluateCapability(resolved, 'canvas:nodes')).toBe(false)
+    expect(resolved.capabilities).not.toHaveProperty('canvas:nodes')
     expect(evaluateCapability(resolved, 'matte:server')).toBe(false)
     expect(evaluateCapability(resolved, 'generation:storyboard')).toBe(false)
     expect(resolved.capabilities).not.toHaveProperty('matte:server')
@@ -200,35 +205,26 @@ describe('operator config', () => {
   })
 })
 
-it('grants unreleased canvas features to one user without opening them for everyone', () => {
-  const file = temporaryFile(
-    JSON.stringify({
-      capabilities: {
-        'accounts:login': true,
-        'accounts:sync': true,
-        'canvas:nodes': true,
-      },
-      capabilityUsers: {
-        'user-allowed': ['canvas:blank-generate', 'canvas:node-run', 'canvas:script'],
-      },
-    }),
-  )
-  const resolved = loadOperatorConfig(file)
-  expect(resolved.capabilities['canvas:blank-generate']).toBe(false)
-  expect(resolved.capabilities['canvas:script']).toBe(false)
-  expect(userHasCapability(resolved, 'canvas:script', 'user-allowed')).toBe(true)
-  expect(userHasCapability(resolved, 'canvas:node-run', 'someone-else')).toBe(false)
-  expect(userHasCapability(resolved, 'canvas:nodes', 'user-allowed')).toBe(true)
-
-  const closedCanvas = loadOperatorConfig(
+it('ignores retired canvas flags and per-user grants left in an older file', () => {
+  const resolved = loadOperatorConfig(
     temporaryFile(
       JSON.stringify({
-        capabilities: { 'canvas:nodes': false },
-        capabilityUsers: { 'user-allowed': ['canvas:script'] },
+        capabilities: {
+          'accounts:login': true,
+          'canvas:nodes': true,
+          'canvas:blank-generate': true,
+          'canvas:node-run': true,
+          'canvas:script': false,
+        },
+        capabilityUsers: {
+          'user-allowed': ['canvas:blank-generate', 'canvas:node-run', 'canvas:script'],
+        },
       }),
     ),
   )
-  expect(userHasCapability(closedCanvas, 'canvas:script', 'user-allowed')).toBe(false)
+  expect(resolved.capabilities).not.toHaveProperty('canvas:nodes')
+  expect(resolved.capabilities).not.toHaveProperty('canvas:script')
+  expect(resolved.capabilityUsers['user-allowed']).toEqual([])
   expect(() =>
     loadOperatorConfig(
       temporaryFile(

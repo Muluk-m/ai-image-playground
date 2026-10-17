@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
+import { canvasOrigin, importLegacyElements } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import { agentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import {
   bindNewCanvasWorkspace,
@@ -18,6 +20,12 @@ import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import {
+  canvasProtocolResponse,
+  emptyCanvasUpdate,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+} from '../../../helpers/cloudNodeProtocol'
 import { saveSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../features/canvas/lib/recoverCanvasTasks', () => ({
@@ -142,54 +150,56 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
   let reads = 0
   let finishRead: (() => void) | undefined
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
-      if (url.endsWith('/api/projects'))
-        return Response.json({ projects: [], deletedIds: [], nextCursor: null })
-      if (init?.method === 'PUT')
-        return Response.json({
-          id: project.id,
-          name: project.name,
-          revision: 1,
-          createdAt: 1,
-          updatedAt: 2,
-          elementCount: 0,
-        })
+  const opened = new Set<string>()
+  const remoteUpdate = () => {
+    const doc = new Y.Doc()
+    importLegacyElements(
+      doc,
+      [
+        {
+          id: 'remote',
+          type: 'text',
+          text: '另一台设备的新稿',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 30,
+          fontSize: 24,
+          fill: '#000',
+        },
+      ],
+      canvasOrigin('user', 'remote'),
+    )
+    return new Uint8Array(Y.encodeStateAsUpdate(doc)).buffer
+  }
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/api/projects'))
+      return Response.json({ projects: [], deletedIds: [], nextCursor: null })
+    const canvas = await canvasProtocolResponse(url, init, async () => {
+      const id = projectIdFromUrl(url)
+      if (!opened.has(id)) {
+        opened.add(id)
+        return emptyCanvasUpdate()
+      }
       reads++
-      // `Promise.withResolvers` 还不在本工程的 TS lib 目标里，这里保留 executor 形式。
-      return new Promise<Response>((resolve) => {
-        finishRead = () =>
-          resolve(
-            Response.json({
-              id: project.id,
-              name: project.name,
-              revision: 2,
-              createdAt: 1,
-              updatedAt: 3,
-              elementCount: 1,
-              document: {
-                version: 1,
-                elements: [
-                  {
-                    id: 'remote',
-                    type: 'text',
-                    text: '另一台设备的新稿',
-                    x: 0,
-                    y: 0,
-                    width: 100,
-                    height: 30,
-                    fontSize: 24,
-                    fill: '#000',
-                  },
-                ],
-              },
-            }),
-          )
+      return new Promise<ArrayBuffer>((resolve) => {
+        finishRead = () => resolve(remoteUpdate())
       })
-    }),
-  )
+    })
+    if (canvas) return canvas
+    return Response.json({
+      id: projectIdFromUrl(url) || project.id,
+      name: project.name,
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
   await bootstrapClientCapabilities(true, 'http://bff.test')
   let project = await projectRepository.create('持续前台', undefined, true)
   useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
@@ -197,32 +207,32 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
   openProject(project.id)
   const workspace = currentCanvasWorkspace()
   await workspace.ready
+  await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'))
   showCanvasWorkspace(false)
   vi.useFakeTimers({
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   })
   try {
     showCanvasWorkspace(true)
-    await workspace.ready
-    await vi.advanceTimersByTimeAsync(15000)
     await vi.waitFor(() => expect(reads).toBe(1))
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(reads).toBe(1)
     expect(workspace.getSnapshot().loading).toBe(false)
     finishRead!()
     await vi.waitFor(() =>
       expect(workspace.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }),
     )
     expect(reads).toBe(1)
-    await workspace.ready
     setClientStorageScope(crypto.randomUUID())
     project = await projectRepository.create('切账号后仍检查', undefined, true)
     useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
     const next = currentCanvasWorkspace()
     await next.ready
-    await vi.advanceTimersByTimeAsync(15000)
     await vi.waitFor(() => expect(reads).toBe(2))
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(reads).toBe(2)
     finishRead!()
-    await next.ready
-    expect(next.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' })
+    await vi.waitFor(() => expect(next.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }))
     visibility.mockReturnValue('hidden')
     document.dispatchEvent(new Event('visibilitychange'))
     await vi.advanceTimersByTimeAsync(60000)

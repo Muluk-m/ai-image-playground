@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
-import Overlay from '../../../components/patterns/Overlay'
+import { LABEL } from '../../../components/panelStyles'
+import Dialog from '../../../components/patterns/Dialog'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
 import { Textarea } from '../../../components/ui/textarea'
@@ -37,29 +37,11 @@ export default function CanvasEditPromptDialog({
   }
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
-        <h3 className={`${PANEL_TITLE} mb-1.5`}>{t('imageEdit.title')}</h3>
-        <p className="mb-3 text-xs text-muted-foreground">{t('imageEdit.hint')}</p>
-
-        <div className={`${LABEL} mb-1.5`}>{t('imageEdit.promptLabel')}</div>
-        <Textarea
-          autoFocus
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && prompt.trim()) {
-              event.preventDefault()
-              submit()
-            }
-          }}
-          rows={4}
-          placeholder={t('imageEdit.placeholder')}
-          aria-label={t('imageEdit.promptLabel')}
-          className="resize-none"
-        />
-
-        <div className={`${PANEL_SECTION} mt-3`}>
+    <Dialog
+      onClose={onClose}
+      title={t('imageEdit.title')}
+      footer={
+        <div className="w-full">
           {guard.blocked && guard.disabledReason && (
             <p className="mb-1.5 text-label-sm text-destructive">{guard.disabledReason}</p>
           )}
@@ -78,7 +60,26 @@ export default function CanvasEditPromptDialog({
             {t('imageEdit.submit')}
           </Button>
         </div>
-      </div>
-    </Overlay>
+      }
+    >
+      <p className="mb-3 text-xs text-muted-foreground">{t('imageEdit.hint')}</p>
+
+      <div className={`${LABEL} mb-1.5`}>{t('imageEdit.promptLabel')}</div>
+      <Textarea
+        autoFocus
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && prompt.trim()) {
+            event.preventDefault()
+            submit()
+          }
+        }}
+        rows={4}
+        placeholder={t('imageEdit.placeholder')}
+        aria-label={t('imageEdit.promptLabel')}
+        className="resize-none"
+      />
+    </Dialog>
   )
 }

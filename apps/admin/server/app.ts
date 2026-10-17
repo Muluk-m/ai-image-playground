@@ -4,6 +4,7 @@ import { Elysia } from 'elysia'
 import { config, getAdminCapabilities } from './config'
 import { appRelease, appVersion } from './lib/app-version'
 import { agentModelRoutes } from './routes/agent-models'
+import { agentPromptsRoutes } from './routes/agent-prompts'
 import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
 import { clientErrorsRoutes } from './routes/client-errors'
@@ -38,6 +39,7 @@ const apiApp = new Elysia()
   .use(overviewRoutes)
   .use(opsRoutes)
   .use(agentModelRoutes)
+  .use(agentPromptsRoutes)
   .use(auditRoutes)
   .use(clientErrorsRoutes)
   .use(tasksRoutes)

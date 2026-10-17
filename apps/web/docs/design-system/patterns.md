@@ -25,6 +25,7 @@
 ### SegmentedTabs
 
 页内切换几个视图：28px 胶囊页签，选中态 accent 底。必须传 `label` 说明这组页签切换的是什么（读屏用）。
+需要占满一行并等分选项时传 `fullWidth`；默认保持按内容宽度排列。
 互斥的**参数档位**（比例、质量）不用它，用设置卡片里的 `SettingsSegmented`。
 
 ### SearchField
@@ -103,11 +104,14 @@
 
 | 属性 | 取值 |
 |---|---|
-| `tier` | `modal`（默认，z 50）/ `raised`（弹窗里再开的弹窗，100）/ `alert`（确认，110）/ `artifact`（产物审阅之上，1200） |
+| `tier` | `modal`（默认，z 50）/ `raised`（弹窗里再开的弹窗，100）/ `alert`（确认，110）/ `assets`（资源抽屉，900）/ `review`（产物审阅，1000）/ `artifact`（产物审阅之上，1200） |
 | `backdrop` | `dim`（默认暗化）/ `none`（全屏查看器自带底） |
 | `layout` | `center`（默认，居中加 16px 边距）/ `fill`（内容自己铺满） |
+| `className` | 自定义 fill 外壳的布局与背景，不覆盖层级、焦点或关闭行为 |
 | `label` | 读屏念出的对话框名称 |
 | `role` | 面板自己带 `role="dialog"` 并关联标题时传 `none`，免得念两遍 |
+
+资源抽屉与产物审阅的原图预览通过 `ImagePreview tier="artifact"` 保持在宿主之上；其他调用默认仍为 raised。
 
 ### ContextMenu
 

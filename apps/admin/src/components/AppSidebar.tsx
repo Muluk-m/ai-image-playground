@@ -39,6 +39,7 @@ import { ADMIN_REFRESH_EVENT } from '@/lib/queries'
 export type NavTo =
   | '/overview'
   | '/tasks'
+  | '/prompts'
   | '/users'
   | '/devices'
   | '/inspirations'
@@ -80,6 +81,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
       { to: '/tasks', icon: ClipboardList, label: '生成任务' },
+      { to: '/prompts', icon: ScrollText, label: '提示词' },
       { to: '/devices', icon: ClipboardList, label: '设备' },
     ],
   },
@@ -261,7 +263,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="刷新" onClick={refresh}>
+            <SidebarMenuButton aria-label="刷新" onClick={refresh}>
               <RefreshCw />
               <span>刷新</span>
             </SidebarMenuButton>

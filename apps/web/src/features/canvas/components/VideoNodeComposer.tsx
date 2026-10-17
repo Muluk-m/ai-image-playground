@@ -46,7 +46,6 @@ export default function VideoNodeComposer({
   onChange,
   onSubmit,
   busy,
-  position,
   referenceTools,
   onReferenceUpload,
   onPickReference,
@@ -68,7 +67,6 @@ export default function VideoNodeComposer({
     files: Readonly<Record<string, string>>,
   ) => void
   busy: boolean
-  position: { left: number; top: number }
   resultTools?: ReactNode
   referenceTools: ReactNode
   onReferenceUpload?: (file: File, slot?: 'first' | 'last') => Promise<void>
@@ -166,16 +164,15 @@ export default function VideoNodeComposer({
       standard
       tools={resultTools}
       label={t('nodes.composerVideo')}
-      position={position}
       references={[]}
       files={{}}
     >
       <CreationBody
         references={
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="min-w-0 max-w-full">{referenceTools}</div>
+          <div className="flex flex-wrap items-start gap-3 [&_.creation-reference-stack]:!w-auto [&_.creation-reference-stack]:max-w-full [&_.creation-reference-stack]:shrink-0">
+            <div className="contents">{referenceTools}</div>
             {(mode === 'first' || mode === 'frames') && (
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {(['first', ...(mode === 'frames' ? ['last'] : [])] as ('first' | 'last')[]).map(
                   (slot) => {
                     const ref = inputs[slot]
@@ -290,7 +287,7 @@ export default function VideoNodeComposer({
                     disabled={!inputs.first || !inputs.last || busy}
                     onClick={swap}
                   >
-                    <Icon name="refresh" />
+                    <Icon name="replace" />
                   </Button>
                 )}
               </div>

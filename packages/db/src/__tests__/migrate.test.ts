@@ -22,6 +22,21 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('retains nullable original prompts and indexes the admin chronology', async () => {
+    const [column] =
+      await connection.client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_generation_drafts' AND column_name = 'drafted_prompt'`
+    expect(column).toEqual({ data_type: 'text', is_nullable: 'YES' })
+    const indexes =
+      await connection.client`SELECT indexname, indexdef FROM pg_indexes WHERE indexname IN ('idx_agent_generation_drafts_created', 'idx_tasks_agent_submitted')`
+    expect(indexes).toHaveLength(2)
+    expect(
+      indexes.find(
+        (index: { indexname: string; indexdef: string }) =>
+          index.indexname === 'idx_tasks_agent_submitted',
+      )?.indexdef,
+    ).toContain('WHERE (agent_conversation_id IS NOT NULL)')
+  })
+
   it('indexes ordered context queries within a container', async () => {
     const [index] =
       await connection.client`SELECT indexdef FROM pg_indexes WHERE tablename = 'server_logs' AND indexname = 'idx_server_logs_instance_at'`

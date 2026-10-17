@@ -57,7 +57,6 @@ it('submits temporary references without replacing the node and removes them ind
         files={{}}
         value=""
         busy={false}
-        position={{ left: 0, top: 0 }}
         onChange={() => {}}
         onSubmit={send}
       />,
@@ -98,7 +97,6 @@ it('prevents sending before an in-flight reference upload finishes', async () =>
         files={{}}
         value="prompt"
         busy={false}
-        position={{ left: 0, top: 0 }}
         onChange={() => {}}
         onSubmit={send}
       />,
@@ -132,7 +130,6 @@ it('retains an uploading reference when switching away from its node', async () 
       files={{}}
       value=""
       busy={false}
-      position={{ left: 0, top: 0 }}
       onChange={() => {}}
       onSubmit={() => {}}
     />

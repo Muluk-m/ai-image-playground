@@ -10,22 +10,24 @@ FROM scratch AS private-overlay
 # same immutable image and the web role writes its runtime config at startup.
 # The admin proxy during rollout also starts this image with `--entrypoint nginx`.
 
-# Shared toolchain. internal, paid, and test all start here.
-FROM --platform=$BUILDPLATFORM oven/bun:1-slim AS pnpm-base
+# Match CI's Node 24 toolchain: Bun's node fallback can make pnpm skip
+# engine-constrained optional packages such as Rolldown's native bindings.
+FROM --platform=$BUILDPLATFORM oven/bun:1-slim AS bun-toolchain
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS pnpm-base
+COPY --from=bun-toolchain /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
-# packageManager is the source of truth for pnpm. @pnpm/exe supplies a native
-# binary; the installer shim from get.pnpm.io breaks when symlinked into PATH.
-ENV BUN_INSTALL=/usr/local
+# packageManager remains the source of truth for pnpm, now running on real Node.
 RUN --mount=type=bind,source=package.json,target=/tmp/root-package.json \
-  bun install -g \
-  "@pnpm/exe@$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' /tmp/root-package.json)"
+  npm install --global \
+  "pnpm@$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' /tmp/root-package.json)"
 
 # Public workspace install. No overlay files and no PRIVATE_OVERLAY_PRESENT, so
 # the three environments reuse this layer. The overlay install is a later stage.
 FROM pnpm-base AS public-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
+COPY apps/website/package.json ./apps/website/
 COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/db/package.json ./packages/db/

@@ -56,7 +56,7 @@ import {
 } from '../canvas/projectStore'
 import { productionTurnContext } from '../production/lib/productionContext'
 import { useVideoStore } from '../video/store'
-import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
+import { clampPanelWidth, PANEL_DEFAULT_WIDTH } from './agentStyles'
 import { abortRecoveries, type PendingAbortRecovery } from './lib/abortRecovery'
 import {
   type AgentConversationState,
@@ -495,7 +495,11 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
-  return Number.isFinite(raw) && raw > 0 ? clampPanelWidth(raw) : PANEL_WIDTH
+  if (Number.isFinite(raw) && raw > 0) return clampPanelWidth(raw)
+  // 窄桌面默认最多占视口四成；用户主动拖过的宽度不被新默认值覆盖。
+  return clampPanelWidth(
+    Math.min(PANEL_DEFAULT_WIDTH, (globalThis.innerWidth || Number.POSITIVE_INFINITY) * 0.4),
+  )
 }
 
 export const useAgentStore = create<AgentState>((set, get, store) => {

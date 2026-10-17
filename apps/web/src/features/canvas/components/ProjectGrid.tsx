@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { ProjectCardSurface } from '../../../components/creation/MediaGallery'
 import '../../../components/creation/creation.css'
+import EmptyState from '../../../components/patterns/EmptyState'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -291,9 +292,7 @@ export default function ProjectGrid({
           </Button>
         </div>
       )}
-      {search && !visible.length && (
-        <p className="py-16 text-center text-sm text-muted-foreground">{t('grid.noMatch')}</p>
-      )}
+      {search && !visible.length && <EmptyState title={t('grid.noMatch')} />}
       {renaming && (
         <NamingDialog
           title={t('grid.renameTitle')}

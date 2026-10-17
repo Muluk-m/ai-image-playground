@@ -101,18 +101,18 @@ export default function TaskBulkActions() {
           </Button>
         </Hint>
         <div className="mx-1 h-5 w-px bg-muted" />
-        <Hint tooltip={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            type="button"
-            onClick={handleSelectAllToggle}
-            className="text-primary transition-colors hover:text-primary"
-            aria-label={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}
-          >
-            <Icon name={allSelected ? 'check' : 'selectRectangle'} filled={allSelected} />
-          </Button>
-        </Hint>
+        <Button
+          autoTooltip={false}
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          onClick={handleSelectAllToggle}
+          className="text-primary transition-colors hover:text-primary"
+          aria-label={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}
+        >
+          <Icon name={allSelected ? 'check' : 'selectRectangle'} filled={allSelected} />
+        </Button>
+
         <div className="mx-1 h-5 w-px bg-muted" />
         <Hint tooltip={t('bulk.toggleFavorite')}>
           <Button

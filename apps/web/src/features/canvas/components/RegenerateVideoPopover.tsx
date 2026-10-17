@@ -1,9 +1,9 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
-import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyles'
+import { LABEL } from '../../../components/panelStyles'
 import { Checkbox } from '../../../components/patterns/Checkbox'
-import Overlay from '../../../components/patterns/Overlay'
+import Dialog from '../../../components/patterns/Dialog'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
 import {
@@ -98,66 +98,12 @@ export default function RegenerateVideoPopover({
   }
 
   return (
-    <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
-        <h3 className={`${PANEL_TITLE} mb-3`}>{t('videoToolbar.regenerateTitle')}</h3>
-        {notes.map((note) => (
-          <p key={note} className="mb-2 text-xs text-muted-foreground">
-            {note}
-          </p>
-        ))}
-        {inputs.recorded.length > 0 && !inputs.complete && (
-          <p className="mb-2 text-xs text-warning">{t('videoToolbar.framesGoneTextOnly')}</p>
-        )}
-        {inputs.present.length > 0 && (
-          <Checkbox
-            className="mb-2 text-xs text-muted-foreground"
-            checked={keepFrames}
-            onChange={setKeepFrames}
-            label={t('videoToolbar.keepsFrames', { count: inputs.present.length })}
-          />
-        )}
-
-        <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
-        <Textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={4}
-          aria-label={t('video:field.description')}
-          className="resize-none"
-        />
-
-        <div className="mt-3 flex flex-col gap-2">
-          {option && (
-            <>
-              <Select
-                value={draft.model}
-                onValueChange={(model) => useVideoStore.getState().setModel(model)}
-              >
-                <SelectTrigger
-                  aria-label={t('video:field.model')}
-                  className="h-8 w-auto gap-1.5 self-start rounded-full border-0 bg-muted px-2.5 text-xs"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((one) => (
-                    <SelectItem key={one.modelId} value={one.modelId}>
-                      {one.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <VideoPresetRows
-                support={option.support}
-                draft={draft}
-                aspectFollowsFirstFrame={inputCount > 0}
-              />
-            </>
-          )}
-        </div>
-
-        <div className={`${PANEL_SECTION} mt-4`}>
+    <Dialog
+      onClose={onClose}
+      tier="raised"
+      title={t('videoToolbar.regenerateTitle')}
+      footer={
+        <div className="w-full">
           {inputRefusal && <p className="mb-1.5 text-label-sm text-destructive">{inputRefusal}</p>}
           {guard.blocked && guard.disabledReason && (
             <p className="mb-1.5 text-label-sm text-destructive">{guard.disabledReason}</p>
@@ -185,7 +131,63 @@ export default function RegenerateVideoPopover({
             )}
           </Button>
         </div>
+      }
+    >
+      {notes.map((note) => (
+        <p key={note} className="mb-2 text-xs text-muted-foreground">
+          {note}
+        </p>
+      ))}
+      {inputs.recorded.length > 0 && !inputs.complete && (
+        <p className="mb-2 text-xs text-warning">{t('videoToolbar.framesGoneTextOnly')}</p>
+      )}
+      {inputs.present.length > 0 && (
+        <Checkbox
+          className="mb-2 text-xs text-muted-foreground"
+          checked={keepFrames}
+          onChange={setKeepFrames}
+          label={t('videoToolbar.keepsFrames', { count: inputs.present.length })}
+        />
+      )}
+
+      <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
+      <Textarea
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        rows={4}
+        aria-label={t('video:field.description')}
+        className="resize-none"
+      />
+
+      <div className="mt-3 flex flex-col gap-2">
+        {option && (
+          <>
+            <Select
+              value={draft.model}
+              onValueChange={(model) => useVideoStore.getState().setModel(model)}
+            >
+              <SelectTrigger
+                aria-label={t('video:field.model')}
+                className="h-8 w-auto gap-1.5 self-start rounded-full border-0 bg-muted px-2.5 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((one) => (
+                  <SelectItem key={one.modelId} value={one.modelId}>
+                    {one.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <VideoPresetRows
+              support={option.support}
+              draft={draft}
+              aspectFollowsFirstFrame={inputCount > 0}
+            />
+          </>
+        )}
       </div>
-    </Overlay>
+    </Dialog>
   )
 }

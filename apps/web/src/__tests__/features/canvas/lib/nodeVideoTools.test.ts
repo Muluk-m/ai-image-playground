@@ -36,6 +36,8 @@ function setup() {
       y: 0,
       width: 320,
       height: 180,
+      naturalWidth: 1920,
+      naturalHeight: 1080,
       video: { taskId: 'task', outputIndex: 0 },
     },
   ])
@@ -69,8 +71,12 @@ it('extracts the current playhead to a connected image and undoes it as one oper
   const snapshot = readCanvasDocument(canvas.doc),
     image = snapshot.nodes.find((n) => n.id === id)!
   expect(image.x).toBeGreaterThan(320)
-  expect(image.width / image.height).toBeCloseTo(16 / 9)
-  expect(image.data).toMatchObject({ meta: { frameOf: 'video', frame: 'current' } })
+  expect(image).toMatchObject({ width: 360, height: 240 })
+  expect(image.data).toMatchObject({
+    naturalWidth: 1920,
+    naturalHeight: 1080,
+    meta: { frameOf: 'video', frame: 'current' },
+  })
   expect(snapshot.edges).toMatchObject([{ source: 'video', target: id }])
   const copy = copyNodes(snapshot, ['video', id!])
   const ids = pasteNodes(canvas, copy, { x: 1000, y: 0 })
@@ -132,7 +138,7 @@ it('trims all timeline references, persists range, and restores everything with 
   expect(trimNodeVideo(canvas, 'video', NaN, 5, 10)).toBe(false)
 })
 
-it('places tall extracted frames without overlapping the node below', async () => {
+it('uses the same frame for portrait video extracts without overlapping the node below', async () => {
   const { canvas, editor } = setup()
   const { updateCanvasNode, insertCanvasNode } = await import('@image-playground/shared')
   updateCanvasNode(canvas.doc, 'video', { width: 180, height: 320 }, canvas.origin)
@@ -143,7 +149,7 @@ it('places tall extracted frames without overlapping the node below', async () =
   )
   const id = await extractNodeVideoFrame(editor, canvas, 'video', 'first')
   const image = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === id)!
-  expect(image.height).toBe(640)
+  expect(image).toMatchObject({ width: 360, height: 240 })
   expect(image.y + image.height <= 400 || image.y >= 640).toBe(true)
 })
 

@@ -1,6 +1,7 @@
 import type { CanvasNode, CanvasSnapshot } from '@image-playground/shared'
 import { expect, it } from 'vitest'
-import { arrangeNodes } from '../../../../features/canvas/lib/arrangeNodes'
+import { arrangeNodes, CANVAS_LAYOUT_GAP } from '../../../../features/canvas/lib/arrangeNodes'
+import { nodeCardSize } from '../../../../features/canvas/lib/nodeCanvasPlace'
 
 const node = (id: string, x = 0, y = 0): CanvasNode => ({
   id,
@@ -23,9 +24,12 @@ it('lays out dependencies left to right and branches without overlapping; previe
   }
   const before = structuredClone(snapshot)
   const positions = new Map(arrangeNodes(snapshot).map((p) => [p.id, p]))
-  expect(positions.get('b')!.x).toBeGreaterThan(positions.get('a')!.x + 280)
+  const mediaSize = nodeCardSize(snapshot.nodes[0]!)
+  expect(positions.get('b')!.x).toBe(positions.get('a')!.x + mediaSize.width + CANVAS_LAYOUT_GAP)
   expect(positions.get('b')!.x).toBe(positions.get('c')!.x)
-  expect(Math.abs(positions.get('b')!.y - positions.get('c')!.y)).toBeGreaterThan(280)
+  expect(Math.abs(positions.get('b')!.y - positions.get('c')!.y)).toBe(
+    mediaSize.height + CANVAS_LAYOUT_GAP,
+  )
   expect(snapshot).toEqual(before)
   expect(arrangeNodes(snapshot)).toEqual([...positions.values()])
 })
@@ -46,4 +50,38 @@ it('preserves group member offsets and packs disconnected cards into a compact g
     g = positions.get('g')!
   expect(c.x >= g.x + 610 || c.y >= g.y + 320 || c.x + 280 <= g.x || c.y + 280 <= g.y).toBe(true)
   expect(arrangeNodes({ nodes: [], edges: [], annotations: [] })).toEqual([])
+})
+
+it.each([
+  { linked: true, memberX: 10, memberY: 20 },
+  { linked: false, memberX: -300, memberY: -100 },
+])('packs a small restored group by its visible media hull (linked=$linked)', ({
+  linked,
+  memberX,
+  memberY,
+}) => {
+  const snapshot: CanvasSnapshot = {
+    nodes: [
+      { ...node('member', 100 + memberX, 200 + memberY), width: 32, height: 24 },
+      node('other', 500, 200),
+    ],
+    groups: [
+      { id: 'group', name: 'Legacy', x: 100, y: 200, width: 48, height: 48, members: ['member'] },
+    ],
+    edges: linked ? [{ id: 'next', source: 'member', target: 'other' }] : [],
+    annotations: [],
+  }
+  const before = structuredClone(snapshot)
+  const positions = new Map(arrangeNodes(snapshot).map((position) => [position.id, position]))
+  const member = { ...positions.get('member')!, ...nodeCardSize(snapshot.nodes[0]!) }
+  const other = { ...positions.get('other')!, ...nodeCardSize(snapshot.nodes[1]!) }
+  expect(
+    member.x + member.width + CANVAS_LAYOUT_GAP <= other.x ||
+      other.x + other.width + CANVAS_LAYOUT_GAP <= member.x ||
+      member.y + member.height + CANVAS_LAYOUT_GAP <= other.y ||
+      other.y + other.height + CANVAS_LAYOUT_GAP <= member.y,
+  ).toBe(true)
+  expect(member.x - positions.get('group')!.x).toBe(memberX)
+  expect(member.y - positions.get('group')!.y).toBe(memberY)
+  expect(snapshot).toEqual(before)
 })
