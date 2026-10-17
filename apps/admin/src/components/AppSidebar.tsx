@@ -3,11 +3,14 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
+  Bot,
   Bug,
   ClipboardList,
   HeartPulse,
   LogOut,
   type LucideIcon,
+  MessageSquareText,
+  MonitorSmartphone,
   ReceiptText,
   RefreshCw,
   ScrollText,
@@ -81,8 +84,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
       { to: '/tasks', icon: ClipboardList, label: '生成任务' },
-      { to: '/prompts', icon: ScrollText, label: '提示词' },
-      { to: '/devices', icon: ClipboardList, label: '设备' },
+      { to: '/prompts', icon: MessageSquareText, label: '提示词' },
+      { to: '/devices', icon: MonitorSmartphone, label: '设备' },
     ],
   },
   {
@@ -104,7 +107,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: '设置',
     entries: [
-      { to: '/agent-models', icon: Settings, label: 'Agent 模型' },
+      { to: '/agent-models', icon: Bot, label: 'Agent 模型' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],
   },
