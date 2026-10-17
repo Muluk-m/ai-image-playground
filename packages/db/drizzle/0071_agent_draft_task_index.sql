@@ -1,0 +1,1 @@
+CREATE INDEX "idx_agent_generation_drafts_task" ON "agent_generation_drafts" ("task_id") WHERE "task_id" IS NOT NULL;

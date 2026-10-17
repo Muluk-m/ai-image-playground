@@ -15,9 +15,12 @@ const dateText = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice
 export function PromptFilters({
   filters,
   onApply,
+  onClearTask,
 }: {
   filters: AgentPromptFilters
   onApply: (filters: AgentPromptFilters) => void
+  /** 从任务详情跳来时带着单个任务和它前后一分钟的时间窗；清掉两者，回到常规列表。 */
+  onClearTask: () => void
 }) {
   const [from, setFrom] = useState(dateText(filters.from))
   const [to, setTo] = useState(dateText(filters.to))
@@ -52,9 +55,14 @@ export function PromptFilters({
       }}
     >
       {filters.taskId ? (
-        <p className="break-all text-xs text-muted-foreground">
-          任务：<span className="font-mono">{filters.taskId}</span>
-        </p>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="break-all">
+            任务：<span className="font-mono">{filters.taskId}</span>
+          </span>
+          <Button type="button" variant="ghost" size="sm" onClick={onClearTask}>
+            清除任务筛选
+          </Button>
+        </div>
       ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <label className="space-y-1 text-xs">
