@@ -439,6 +439,61 @@ it('offers cancel on each pending tile instead of the batch action row', () => {
   }
 })
 
+it('holds finished results in loading tiles until their previews arrive, without the prompt', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pendingThumbnails: ((source: string) => void)[] = []
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: () =>
+      new Promise<string>((resolve) => {
+        pendingThumbnails.push(resolve)
+      }),
+  } as unknown as AgentCanvasSink)
+  const done = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    prompt: '在第一张背景图中加入参考图里的白色圆形台盆',
+    status: 'succeeded',
+    delivery: 'placed',
+    artifacts: [
+      {
+        artifactId: `artifact-${id}`,
+        taskId: `task-${id}`,
+        outputIndex: 0,
+        media: 'image',
+        mime: 'image/png',
+        width: 1024,
+        height: 1024,
+      },
+    ],
+  })
+  try {
+    await act(async () => root.render(<AgentImageRun messages={[done('a'), done('b')]} />))
+    const pending = host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')
+    expect(pending).toHaveLength(2)
+    for (const tile of pending)
+      expect(
+        tile.querySelector('[data-slot="image-generation"]')?.getAttribute('data-generating'),
+      ).toBe('true')
+    expect(host.textContent).not.toContain('在第一张背景图中加入')
+    expect(host.textContent).not.toContain('白色圆形台盆')
+
+    await act(async () => {
+      for (const resolve of pendingThumbnails) resolve('data:image/png;base64,thumb')
+    })
+    expect(host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')).toHaveLength(0)
+    expect(host.querySelectorAll('.studio-agent-inline-tile img')).toHaveLength(2)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 it('shares one cancel request across every tile of the same job', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)

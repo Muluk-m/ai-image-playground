@@ -124,14 +124,20 @@ function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
   return message.artifacts ?? NO_ARTIFACTS
 }
 
+// 缓存快照换成服务端记录时卡会重新挂载；先摆上一次的预览，别闪回加载态。
+const lastPreviews = new Map<string, readonly AgentArtifactPreview[]>()
+const LAST_PREVIEWS_LIMIT = 200
+
 function useArtifactPreviews(
   message: AgentToolMessage,
   inline: boolean,
 ): readonly AgentArtifactPreview[] {
-  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>([])
   const artifacts = previewable(message)
   // 交付状态变了就重问一遍；卡重新挂载（折叠面板、切页签）也重问，所以画布上删掉的图能被发现。
   const key = `${inline}:${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
+  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>(
+    () => lastPreviews.get(key) ?? [],
+  )
 
   useEffect(() => {
     let alive = true
@@ -144,6 +150,10 @@ function useArtifactPreviews(
         artifactPreview(artifact, inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined),
       ),
     ).then((next) => {
+      lastPreviews.delete(key)
+      lastPreviews.set(key, next)
+      if (lastPreviews.size > LAST_PREVIEWS_LIMIT)
+        lastPreviews.delete(lastPreviews.keys().next().value as string)
       if (alive) setPreviews(next)
     })
     return () => {
@@ -656,6 +666,13 @@ function StandardAgentToolCard({
     fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, onPreviewResult ? false : offCanvas, progress !== null)
+  // 产物已有、预览还在路上：按最终的图块位置先摆加载态，不露提示词卡。
+  const previewsLoading =
+    generatedImage &&
+    message.status === 'succeeded' &&
+    previews.length === 0 &&
+    Boolean(message.artifacts?.length) &&
+    !message.fetchedImages?.length
   const imageGenerating =
     generatedImage &&
     previews.length === 0 &&
@@ -873,6 +890,7 @@ function StandardAgentToolCard({
   if (
     status === 'succeeded' &&
     (previews.length > 0 ||
+      previewsLoading ||
       fetched.length > 0 ||
       (compactFetched && message.fetchedImages?.length)) &&
     (onPreviewResult || generatedImage)
@@ -893,16 +911,17 @@ function StandardAgentToolCard({
             original: () => resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
           }))
         : []
+    const artifactTiles = previewsLoading
+      ? (message.artifacts ?? []).map((artifact) => ({ artifact, source: null, loading: true }))
+      : previews.map((preview) => ({ ...preview, loading: false }))
     const tiles = [
-      ...previews.map((preview) => ({
-        id: preview.artifact.artifactId,
-        source: preview.source,
-        media: preview.artifact.media,
-        ratio:
-          preview.artifact.width && preview.artifact.height
-            ? preview.artifact.width / preview.artifact.height
-            : undefined,
-        original: () => previewArtifactBitmap(preview.artifact),
+      ...artifactTiles.map(({ artifact, source, loading }) => ({
+        id: artifact.artifactId,
+        source,
+        loading,
+        media: artifact.media,
+        ratio: artifact.width && artifact.height ? artifact.width / artifact.height : undefined,
+        original: () => previewArtifactBitmap(artifact),
       })),
       ...fetchedTiles,
     ]
@@ -968,150 +987,158 @@ function StandardAgentToolCard({
         })
         .finally(() => setMaskBusy(false))
     }
-    const renderTile = (tile: (typeof tiles)[number], index: number) => (
-      <div
-        className="studio-agent-inline-tile-wrap"
-        key={tile.id}
-        data-tools={toolsFor === tile.id ? 'open' : undefined}
-      >
+    const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
+      aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
+      ...(generatedImage &&
+        !batch &&
+        !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
+    })
+    const renderTile = (tile: (typeof tiles)[number], index: number) =>
+      'loading' in tile && tile.loading ? (
+        <div className="studio-agent-inline-tile-wrap" key={tile.id}>
+          <div className="studio-agent-inline-tile" data-pending="true" style={tileStyle(tile)}>
+            <ImageGeneration
+              generating
+              className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
+            />
+          </div>
+        </div>
+      ) : (
         <div
-          className="studio-agent-inline-tile"
-          style={{
-            aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
-            ...(generatedImage &&
-              !batch &&
-              !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
-          }}
+          className="studio-agent-inline-tile-wrap"
+          key={tile.id}
+          data-tools={toolsFor === tile.id ? 'open' : undefined}
         >
-          <Button
-            type="button"
-            variant="ghost"
-            className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
-            aria-label={
-              onPreviewResult
-                ? t('tool.openResultNumber', { number: index + 1 })
-                : t('tool.openCanvas')
-            }
-            autoTooltip={false}
-            disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-            onClick={(event) => {
-              const coarse =
-                typeof window.matchMedia === 'function' &&
-                window.matchMedia('(hover: none)').matches
-              if (coarse && toolsFor !== tile.id) {
-                event.stopPropagation()
-                setToolsFor(tile.id)
-                return
+          <div className="studio-agent-inline-tile" style={tileStyle(tile)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
+              aria-label={
+                onPreviewResult
+                  ? t('tool.openResultNumber', { number: index + 1 })
+                  : t('tool.openCanvas')
               }
-              openPreviewResult(tile.id)
-            }}
-          >
-            {tile.source ? (
-              <img
-                src={tile.source}
-                alt={t('tool.resultNumber', { number: index + 1 })}
-                loading="lazy"
-                onLoad={(event) => {
-                  const { naturalWidth, naturalHeight } = event.currentTarget
-                  if (naturalWidth && naturalHeight)
-                    setImageRatios((ratios) => ({
-                      ...ratios,
-                      [tile.id]: naturalWidth / naturalHeight,
-                    }))
-                }}
-              />
-            ) : (
-              <span>{t('tool.previewUnavailable')}</span>
-            )}
-            {tile.media === 'video' && <PlayBadge />}
-          </Button>
-        </div>
-        <div className="studio-agent-inline-actions">
-          {generatedImage && tile.media !== 'video' ? (
-            <>
-              <TileTool
-                label={t('tool.useAsReference')}
-                icon="imageAdd"
-                onClick={() => void useTileAsReference(tile)}
-              />
-              <TileTool
-                label={t('tool.inpaint')}
-                icon="brush"
-                onClick={() => void openMask('inpaint', tile)}
-              />
-              <TileTool
-                label={t('tool.outpaint')}
-                icon="outpaint"
-                onClick={() => void openMask('outpaint', tile)}
-              />
-              <TileTool
-                label={t('tool.removeBackground')}
-                icon="removeBg"
-                onClick={() =>
-                  void runChatBackgroundRemoval({
-                    sourceMessageId: message.id,
-                    turnId: message.turnId,
-                    artifactId: tile.id,
-                    ...(tile.source ? { thumbnail: tile.source } : {}),
-                    loadSource: tile.original,
-                  })
+              autoTooltip={false}
+              disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
+              onClick={(event) => {
+                const coarse =
+                  typeof window.matchMedia === 'function' &&
+                  window.matchMedia('(hover: none)').matches
+                if (coarse && toolsFor !== tile.id) {
+                  event.stopPropagation()
+                  setToolsFor(tile.id)
+                  return
                 }
-              />
-              {onViewCanvas && (
-                <TileTool
-                  label={t('tool.editOnCanvas')}
-                  icon="canvas"
-                  onClick={() => onViewCanvas([tile.id])}
+                openPreviewResult(tile.id)
+              }}
+            >
+              {tile.source ? (
+                <img
+                  src={tile.source}
+                  alt={t('tool.resultNumber', { number: index + 1 })}
+                  loading="lazy"
+                  onLoad={(event) => {
+                    const { naturalWidth, naturalHeight } = event.currentTarget
+                    if (naturalWidth && naturalHeight)
+                      setImageRatios((ratios) => ({
+                        ...ratios,
+                        [tile.id]: naturalWidth / naturalHeight,
+                      }))
+                  }}
                 />
+              ) : (
+                <span>{t('tool.previewUnavailable')}</span>
               )}
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                className={INLINE_ACTION}
-                title={onPreviewResult ? undefined : t('tool.openCanvas')}
-                aria-label={
-                  onPreviewResult
-                    ? t('tool.openResultNumber', { number: index + 1 })
-                    : t('tool.openCanvas')
-                }
-                disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-                onClick={() => openPreviewResult(tile.id)}
-              >
-                <Icon name="fullscreen" />
-              </Button>
-              {tile.media !== 'video' && (
+              {tile.media === 'video' && <PlayBadge />}
+            </Button>
+          </div>
+          <div className="studio-agent-inline-actions">
+            {generatedImage && tile.media !== 'video' ? (
+              <>
+                <TileTool
+                  label={t('tool.useAsReference')}
+                  icon="imageAdd"
+                  onClick={() => void useTileAsReference(tile)}
+                />
+                <TileTool
+                  label={t('tool.inpaint')}
+                  icon="brush"
+                  onClick={() => void openMask('inpaint', tile)}
+                />
+                <TileTool
+                  label={t('tool.outpaint')}
+                  icon="outpaint"
+                  onClick={() => void openMask('outpaint', tile)}
+                />
+                <TileTool
+                  label={t('tool.removeBackground')}
+                  icon="removeBg"
+                  onClick={() =>
+                    void runChatBackgroundRemoval({
+                      sourceMessageId: message.id,
+                      turnId: message.turnId,
+                      artifactId: tile.id,
+                      ...(tile.source ? { thumbnail: tile.source } : {}),
+                      loadSource: tile.original,
+                    })
+                  }
+                />
+                {onViewCanvas && (
+                  <TileTool
+                    label={t('tool.editOnCanvas')}
+                    icon="canvas"
+                    onClick={() => onViewCanvas([tile.id])}
+                  />
+                )}
+              </>
+            ) : (
+              <>
                 <Button
                   type="button"
                   variant="ghost"
                   className={INLINE_ACTION}
-                  title={t('tool.downloadResult')}
-                  aria-label={t('tool.downloadResult')}
-                  disabled={downloading.has(tile.id)}
-                  onClick={() => void downloadTile(tile)}
+                  title={onPreviewResult ? undefined : t('tool.openCanvas')}
+                  aria-label={
+                    onPreviewResult
+                      ? t('tool.openResultNumber', { number: index + 1 })
+                      : t('tool.openCanvas')
+                  }
+                  disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
+                  onClick={() => openPreviewResult(tile.id)}
                 >
-                  <Icon name="download" />
+                  <Icon name="fullscreen" />
                 </Button>
-              )}
-              {tile.media !== 'video' && onViewCanvas && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className={INLINE_ACTION}
-                  title={t('tool.editOnCanvas')}
-                  aria-label={t('tool.editOnCanvas')}
-                  onClick={() => onViewCanvas([tile.id])}
-                >
-                  <Icon name="images" />
-                </Button>
-              )}
-            </>
-          )}
+                {tile.media !== 'video' && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={INLINE_ACTION}
+                    title={t('tool.downloadResult')}
+                    aria-label={t('tool.downloadResult')}
+                    disabled={downloading.has(tile.id)}
+                    onClick={() => void downloadTile(tile)}
+                  >
+                    <Icon name="download" />
+                  </Button>
+                )}
+                {tile.media !== 'video' && onViewCanvas && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={INLINE_ACTION}
+                    title={t('tool.editOnCanvas')}
+                    aria-label={t('tool.editOnCanvas')}
+                    onClick={() => onViewCanvas([tile.id])}
+                  >
+                    <Icon name="images" />
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
-    )
+      )
     const params = message.snapshot?.params
     const model = message.snapshot?.target?.model ?? params?.model
     const modelName = model
@@ -1206,7 +1233,7 @@ function StandardAgentToolCard({
         )}
         {message.prompt &&
           !(
-            previews.some((preview) => preview.artifact.media === 'image') &&
+            artifactTiles.some((tile) => tile.artifact.media === 'image') &&
             (message.toolName === 'generateImage' || message.toolName === 'editImage')
           ) && (
             <Button
@@ -1218,7 +1245,7 @@ function StandardAgentToolCard({
               {t('tool.viewPrompt')}
             </Button>
           )}
-        {previews.some((preview) => preview.artifact.media === 'image') &&
+        {artifactTiles.some((tile) => tile.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
             <MessageActions
               className="mt-3"
