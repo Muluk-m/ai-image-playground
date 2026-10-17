@@ -1,4 +1,5 @@
 import { formatImageRatio, parseImageSize } from './image'
+import type { QueueProvider } from './queue-protocol'
 
 /**
  * 发给上游之前钉在 prompt 上的两段机器指令。
@@ -49,6 +50,7 @@ export function buildAspectInstruction(size: string): string | null {
  * 两段都是精确的前缀 / 后缀，剥得干净；没被钉过的（视频、Gemini）原样返回。
  */
 export function unshapeQueuePrompt(input: {
+  readonly provider?: QueueProvider
   readonly prompt: string
   readonly size?: string
 }): string {
@@ -56,6 +58,7 @@ export function unshapeQueuePrompt(input: {
   const instruction = input.size ? buildAspectInstruction(input.size) : null
   const suffix = instruction ? `\n\n${instruction}` : ''
   if (suffix && prompt.endsWith(suffix)) prompt = prompt.slice(0, -suffix.length)
+  if (input.provider === 'gemini') return prompt
   const guard = `${PROMPT_REWRITE_GUARD_PREFIX}\n`
   return prompt.startsWith(guard) ? prompt.slice(guard.length) : prompt
 }
