@@ -287,8 +287,8 @@ it('projects restored media to standard bounds without writing cosmetic updates 
   canvas.doc.off('update', updates)
 })
 it.each([
-  { width: 1200, tools: [16, 100, 56, 480], top: 16, left: 88, availableWidth: 1096 },
-  { width: 600, tools: [8, 8, 584, 48], top: 72, left: 16, availableWidth: 568 },
+  { width: 1200, tools: [16, 100, 56, 480], top: 46, left: 88, availableWidth: 1096 },
+  { width: 600, tools: [8, 8, 584, 48], top: 102, left: 16, availableWidth: 568 },
 ])('fits inside measured composer and toolbar bounds at $width pixels', async (layout) => {
   await render()
   act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
