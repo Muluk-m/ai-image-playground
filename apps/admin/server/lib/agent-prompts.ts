@@ -55,7 +55,7 @@ export async function getAgentPrompts(
       UNION ALL
       SELECT t.id, 'task', t.submitted_at, t.agent_conversation_id, t.agent_turn_id,
         COALESCE(t.request_payload->>'prompt', ''), NULL, false, true,
-        CASE WHEN t.request_payload->'video' IS NOT NULL THEN 'generate_video' ELSE 'generate_image' END,
+        NULL::text,
         CASE WHEN t.request_payload->'video' IS NOT NULL THEN 'video' ELSE 'image' END,
         t.model, t.provider, t.request_payload->>'size', t.id,
         CASE WHEN t.status = 'completed' THEN 'completed' WHEN t.status IN ('failed', 'cancelled') THEN 'failed'
@@ -109,7 +109,7 @@ export async function getAgentPrompts(
     rows.map((row) => sql`(${row.conversation_id}, ${row.turn_id})`),
     sql`, `,
   )
-  const [messages, calls] = rows.length
+  const [messages, calls, taskTools] = rows.length
     ? await Promise.all([
         db.execute(sql`SELECT m.conversation_id, m.turn_id,
       string_agg(b.block->>'text', E'\n' ORDER BY m.seq, b.ordinality) AS user_text
@@ -119,15 +119,28 @@ export async function getAgentPrompts(
       GROUP BY m.conversation_id, m.turn_id`),
         db.execute(sql`SELECT conversation_id, turn_id,
       (array_agg(model ORDER BY started_at, id))[1] AS model,
-      COALESCE(SUM((usage->>'inputTokens')::bigint), 0) AS input_tokens,
-      COALESCE(SUM((usage->>'outputTokens')::bigint), 0) AS output_tokens
+      COALESCE(SUM(CASE WHEN usage->>'inputTokens' ~ '^[0-9]{1,15}$'
+        THEN (usage->>'inputTokens')::bigint ELSE 0 END), 0) AS input_tokens,
+      COALESCE(SUM(CASE WHEN usage->>'outputTokens' ~ '^[0-9]{1,15}$'
+        THEN (usage->>'outputTokens')::bigint ELSE 0 END), 0) AS output_tokens
       FROM agent_model_calls WHERE (conversation_id, turn_id) IN (${pairs}) AND purpose = 'conversation'
       GROUP BY conversation_id, turn_id`),
+        db.execute(sql`SELECT DISTINCT ON (j.task_id) j.task_id, c.tool_name
+      FROM agent_jobs j JOIN agent_tool_calls c ON c.conversation_id = j.conversation_id
+        AND c.turn_id = j.turn_id AND c.tool_call_id = j.tool_call_id
+      WHERE j.task_id IN (${sql.join(
+        rows.map((row) => sql`${row.task_id}`),
+        sql`, `,
+      )})
+      ORDER BY j.task_id, c.created_at, c.message_id`),
       ])
-    : [[], []]
+    : [[], [], []]
   const key = (row: Row) => JSON.stringify([row.conversation_id, row.turn_id])
   const messageMap = new Map((messages as unknown as Row[]).map((row) => [key(row), row]))
   const callMap = new Map((calls as unknown as Row[]).map((row) => [key(row), row]))
+  const toolMap = new Map(
+    (taskTools as unknown as Row[]).map((row) => [row.task_id, row.tool_name]),
+  )
   const items = rows.map((row): AgentPromptItem => {
     const call = callMap.get(key(row))
     const prompt =
@@ -152,7 +165,7 @@ export async function getAgentPrompts(
       draftedPrompt: original,
       edited: original === null ? null : original !== prompt,
       status: row.status as AgentPromptItem['status'],
-      tool: String(row.tool),
+      tool: text(row.tool) ?? text(toolMap.get(row.task_id)) ?? '未记录',
       media: String(row.media),
       model: String(row.model),
       taskId: text(row.task_id),
