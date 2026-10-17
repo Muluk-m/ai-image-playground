@@ -37,6 +37,8 @@ jobs:
       sha: ${{ steps.sha.outputs.sha }}
       deploy_api: ${{ steps.decide.outputs.deploy_api }}
       deploy_pages: ${{ steps.decide.outputs.deploy_pages }}
+      deploy_web: ${{ steps.decide.outputs.deploy_web }}
+      deploy_admin: ${{ steps.decide.outputs.deploy_admin }}
     steps:
       - name: Require secrets
         env:
@@ -254,6 +256,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: pnpm install --frozen-lockfile
       - name: Release the internal site (no private overlay)
+        if: needs.target.outputs.deploy_web == 'true'
         env:
           PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-internal-build
           APP_RELEASE: ${{ needs.release.outputs.version }}
@@ -271,12 +274,14 @@ jobs:
           path: private
           persist-credentials: false
       - name: Require the paid site assets
+        if: needs.target.outputs.deploy_web == 'true'
         run: |
           [ -d private/pages-assets ] ||
             { echo "::error::private/pages-assets is missing; the paid site publishes its QR codes from there."; exit 1; }
       # The overlay packages are workspace members; install their dependencies too.
       - run: pnpm install --frozen-lockfile
       - name: Release the paid site (with private overlay)
+        if: needs.target.outputs.deploy_web == 'true'
         env:
           PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-paid-build
           APP_RELEASE: ${{ needs.release.outputs.version }}
@@ -303,6 +308,7 @@ jobs:
             sleep 10
           done
       - name: Verify both production workspaces in Chromium
+        if: needs.target.outputs.deploy_web == 'true'
         run: |
           # shellcheck source=/dev/null
           source "$PAGES_ENV_FILE"
@@ -320,6 +326,7 @@ jobs:
           retention-days: 7
 
       - name: Release the paid Admin site when cut over
+        if: needs.target.outputs.deploy_admin == 'true'
         env:
           APP_RELEASE: ${{ needs.release.outputs.version }}
         run: |
