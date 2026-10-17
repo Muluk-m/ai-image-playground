@@ -1,4 +1,5 @@
 import { formatImageRatio, parseImageSize } from './image'
+import type { QueueProvider } from './queue-protocol'
 
 /**
  * 发给上游之前钉在 prompt 上的两段机器指令。
@@ -39,4 +40,25 @@ export function buildAspectInstruction(size: string): string | null {
   return width > height
     ? `Composition: a wide ${ratio} landscape frame, horizontal orientation.`
     : `Composition: a tall ${ratio} vertical frame, portrait orientation.`
+}
+
+/**
+ * `shapeQueuePrompt` 的逆：从落库的那一句取回用户当初确认的原文。
+ *
+ * 进程死在「建任务」与「写回卡片」之间时，卡片要从任务的 payload 里回填提示词——那一句
+ * 带着提交时钉上去的机器指令，原样写回卡面就把 guard 前缀摆到用户眼前，标题也会从它重算。
+ * 两段都是精确的前缀 / 后缀，剥得干净；没被钉过的（视频、Gemini）原样返回。
+ */
+export function unshapeQueuePrompt(input: {
+  readonly provider?: QueueProvider
+  readonly prompt: string
+  readonly size?: string
+}): string {
+  let prompt = input.prompt
+  const instruction = input.size ? buildAspectInstruction(input.size) : null
+  const suffix = instruction ? `\n\n${instruction}` : ''
+  if (suffix && prompt.endsWith(suffix)) prompt = prompt.slice(0, -suffix.length)
+  if (input.provider === 'gemini') return prompt
+  const guard = `${PROMPT_REWRITE_GUARD_PREFIX}\n`
+  return prompt.startsWith(guard) ? prompt.slice(guard.length) : prompt
 }

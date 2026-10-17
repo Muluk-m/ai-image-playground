@@ -1,4 +1,4 @@
-/** 缩放到这个值及以上，视口里的节点用完整卡片。再小就只留标题块。 */
+/** Below this zoom, text and structured nodes use compact cards; media keeps its picture/poster. */
 export const CANVAS_LOD_DETAIL_ZOOM = 0.5
 
 /** 一次挂进 DOM 的节点上限。超出后改画总览，不再铺开节点。 */
@@ -105,7 +105,7 @@ function plan(
 
 /**
  * 决定这一帧挂哪些节点。
- * 缩放够大且视口里的数量不超过上限时用完整节点；缩小但数量仍够少时用标题块；
+ * 缩放够大且视口里的数量不超过上限时用完整节点；缩小时简化文本与结构化节点，媒体仍显示预览；
  * 再多就只钉住选中和正在拖的节点，其余画到一张总览上。
  * 视口还没量出来、节点又已经超过上限时直接进总览，避免先挂出几千个 DOM。
  */

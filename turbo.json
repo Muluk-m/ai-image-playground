@@ -3,7 +3,7 @@
   "ui": "stream",
   // 包内 inputs 看不到仓库根，而 Bun 会在启动时自动加载根 .env —— 它能影响构建却
   // 不进任何 task 的哈希。放这里补上。
-  "globalDependencies": [".env*"],
+  "globalDependencies": [".env*", "apps/website/**"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -21,7 +21,7 @@
       // 两个 overlay entry 就踩过这个坑：tailwind.config.js 靠它拼私有树 content glob，
       // 被剥掉后 overlay 构建的 CSS 从不含私有树 class。
       "inputs": ["$TURBO_DEFAULT$", ".env*", "public/runtime-config.json"],
-      "env": ["PRIVATE_WEB_OVERLAY_ENTRY", "PRIVATE_ADMIN_OVERLAY_ENTRY"]
+      "env": ["PRIVATE_WEB_OVERLAY_ENTRY", "PRIVATE_ADMIN_OVERLAY_ENTRY", "PUBLIC_ORIGIN", "SEARCH_INDEXING", "APP_RELEASE"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],

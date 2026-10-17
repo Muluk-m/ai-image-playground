@@ -6,11 +6,9 @@ import {
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
-import {
-  applySessionCapabilityGrants,
-  isClientCapabilityEnabled,
-  readSessionCapabilityGrants,
-} from './clientCapabilities'
+import { readProjectRoute } from '../features/canvas/lib/projectRoute'
+import { APP_MODE_PATHS, isStandalonePath, normalizePath } from './appPaths'
+import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
@@ -55,11 +53,7 @@ async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUserView> {
-  const result = await authJson<{ user: AuthUserView; canvasCapabilities?: unknown }>(
-    '/api/auth/me',
-    { signal },
-  )
-  applySessionCapabilityGrants(readSessionCapabilityGrants(result.canvasCapabilities))
+  const result = await authJson<{ user: AuthUserView }>('/api/auth/me', { signal })
   return result.user
 }
 
@@ -134,16 +128,30 @@ export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
   }
 }
 
+/** Keep OAuth on the current workspace, never on the marketing or login entry. */
+function oauthReturnTo(): string {
+  if (typeof window === 'undefined') return APP_MODE_PATHS.image
+  const { pathname, search, hash } = window.location
+  const path = normalizePath(pathname)
+  const workspace =
+    Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
+    isStandalonePath(path) ||
+    readProjectRoute(pathname) !== null
+  const target = `${pathname}${search}${hash}`
+  return workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
+    ? target
+    : APP_MODE_PATHS.image
+}
+
 export function oauthStartUrl(provider: string, referralCode?: string): string {
   const code = referralCode?.trim()
   return bffUrl(
-    `/api/auth/oauth/${provider}/start${code ? `?ref=${encodeURIComponent(code)}` : ''}`,
+    `/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(oauthReturnTo())}${code ? `&ref=${encodeURIComponent(code)}` : ''}`,
   )
 }
 
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
-  applySessionCapabilityGrants(null)
   noteBrowserSession(null)
 }
 
@@ -166,7 +174,7 @@ export async function updateOwnPassword(input: {
 }
 
 export function oauthLinkUrl(provider: string): string {
-  return bffUrl(`/api/auth/oauth/${provider}/link`)
+  return bffUrl(`/api/auth/oauth/${provider}/link?return_to=${encodeURIComponent(oauthReturnTo())}`)
 }
 
 export async function unlinkOAuthProvider(provider: string): Promise<void> {

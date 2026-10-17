@@ -94,10 +94,13 @@ describe('画布多图工具条', () => {
       '抠图',
       '编辑图片',
       '调整尺寸',
-      '选中的内容里没有可导出的图片或视频',
+      '下载',
       '删除所选（Del）',
       '取消选择',
     ])
+    expect(button('下载').getAttribute('aria-description')).toBe(
+      '选中的内容里没有可导出的图片或视频',
+    )
     act(() => button('抠图').click())
     expect(actions.cutout).not.toHaveBeenCalled()
     await act(async () => dialogButton('确认生成 2 张').click())

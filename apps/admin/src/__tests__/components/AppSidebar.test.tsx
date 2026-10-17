@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { overlayNavIsActive, overlayNavPath } from '@/components/AppSidebar'
+import { NAV_GROUPS, overlayNavIsActive, overlayNavPath } from '@/components/AppSidebar'
 
 const navigation = vi.hoisted(() => ({
   entries: [] as Array<{ label: string; href: string }>,
@@ -112,6 +112,14 @@ describe('overlay sidebar links', () => {
     expect(await settings.findByRole('link', { name: '订单核款' })).toHaveAttribute(
       'data-active',
       'true',
+    )
+  })
+})
+
+describe('prompt navigation', () => {
+  it('includes the prompt ledger in business navigation and command destinations', () => {
+    expect(NAV_GROUPS.find((group) => group.label === '经营')?.entries).toContainEqual(
+      expect.objectContaining({ to: '/prompts', label: '提示词' }),
     )
   })
 })

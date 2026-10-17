@@ -8,17 +8,25 @@ import {
   useState,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import SearchField from '../../../components/patterns/SearchField'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
-import { Input } from '../../../components/ui/input'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { ACTIVE_TAB, CARD, CARD_TITLE, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import {
+  ACTIVE_TAB,
+  CARD,
+  CARD_TITLE,
+  IDLE_TAB,
+  JUMP_TO_LATEST,
+  PANEL_MAX_WIDTH_RATIO,
+  TAB,
+} from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -374,7 +382,8 @@ export default function AgentPanel({
     const originWidth = handle.parentElement?.getBoundingClientRect().width || panelWidth
     const maxWidth =
       dock === 'right'
-        ? Math.min(480, (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) * 0.42)
+        ? (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) *
+          PANEL_MAX_WIDTH_RATIO
         : Number.POSITIVE_INFINITY
     handle.setPointerCapture(event.pointerId)
     const onMove = (move: PointerEvent) =>
@@ -472,16 +481,14 @@ export default function AgentPanel({
 
       {presentation === 'page' && searchOpen && (
         <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
-          <label>
-            <Icon name="search" />
-            <Input
-              autoFocus
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t('panel.search')}
-              className="h-auto rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
-            />
-          </label>
+          <SearchField
+            autoFocus
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('panel.search')}
+            aria-label={t('panel.search')}
+            className="h-8 min-w-0 max-w-none flex-1"
+          />
           <Button
             type="button"
             variant="ghost"

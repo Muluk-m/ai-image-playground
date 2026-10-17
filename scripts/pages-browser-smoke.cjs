@@ -9,7 +9,7 @@ const MIME = {
   '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json',
 }
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
-const PATHS = ['/', `/p/${PROJECT_ID}`]
+const PATHS = ['/image', `/p/${PROJECT_ID}`]
 
 // Serve the built bytes with Pages' explicit route rewrites; missing chunks never become HTML.
 async function serveDist(dist) {
@@ -31,9 +31,19 @@ async function serveDist(dist) {
         return
       }
       if (redirect) path = redirect.target
+      const cleanHtmlPath = path.endsWith('/index.html') ? path.slice(0, -10)
+        : path.endsWith('.html') ? path.slice(0, -5) : undefined
       if (path.endsWith('/')) path += 'index.html'
-      const file = await realpath(resolve(root, `.${path}`))
+      const file = await realpath(resolve(root, `.${path}`)).catch((error) => {
+        if (error.code !== 'ENOENT' || extname(path)) throw error
+        return realpath(resolve(root, `.${path}.html`))
+      })
       if (!file.startsWith(root + sep)) throw new Error('Outside dist')
+      // Pages canonicalizes explicit .html targets even after a 200 rewrite.
+      if (cleanHtmlPath !== undefined) {
+        res.writeHead(308, { location: cleanHtmlPath }).end()
+        return
+      }
       const bytes = await readFile(file)
       res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream',
         'cache-control': 'no-store' }).end(bytes)
@@ -89,8 +99,12 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         if (request.resourceType() === 'stylesheet' && optionalStyles.includes(url.href))
           return route.fulfill({ contentType: 'text/css', body: '' })
         const fixtures = {
-          '/api/capabilities': { 'accounts:login': true, 'generation:byok': true,
-            ...(nodeCanvas ? { 'canvas:nodes': true } : {}) },
+          '/api/capabilities': {
+            'accounts:login': true,
+            'generation:byok': true,
+            ...(nodeCanvas && exerciseNodes ? { 'agent:chat': true } : {}),
+          },
+          '/api/agent/conversations': { conversations: [] },
           '/api/channels': { channels: [] },
           '/api/agent/skills': { skills: [] },
           '/api/inspirations/manifest': {
@@ -173,7 +187,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
               store.put({ version: 2, elements: [
                 image('fixture-first', 20),
                 { id: 'fixture-arrow', type: 'arrow', points: [50, 50, 240, 80], stroke: '#ff0000', strokeWidth: 3 },
-                image('fixture-last', 200),
+                image('fixture-last', 420),
               ], files: { 'fixture-pixel': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j38sAAAAASUVORK5CYII=' }, camera: { x: 0, y: 0, zoom: 1 } }, `canvas:project:${id}`)
             }
             transaction.oncomplete = () => { db.close(); accept() }
@@ -189,7 +203,6 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
           if (!response?.ok()) throw new Error(`Page HTTP ${response?.status()}: ${path}`)
           const ready = index === 0 ? '[aria-label="创作"]'
             : nodeCanvas ? '[aria-label="创作画布"] .react-flow'
-            : local ? '[aria-label="创作画布"] canvas'
             : '[aria-label="创作画布"] canvas, [aria-label="创作画布"] .react-flow'
           await page.locator(ready).first().waitFor({ timeout: timeoutMs })
           if (nodeCanvas && index === 1) {
@@ -263,6 +276,157 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             }, { movedTransform: transform(moved) }, { timeout: timeoutMs })
             await page.locator('#boot').waitFor({ state: 'detached', timeout: timeoutMs })
             await page.waitForLoadState('networkidle', { timeout: timeoutMs })
+            const flow = page.locator('.react-flow')
+            const flowBox = await flow.boundingBox()
+            if (!flowBox || flowBox.width < 300 || flowBox.height < 240)
+              throw new Error(`Node canvas viewport is too small: ${JSON.stringify(flowBox)}`)
+            const navigation = page.getByRole('toolbar', { name: '画布工具', exact: true })
+            const nodeTools = page.getByRole('toolbar', { name: '添加节点', exact: true })
+            const zoomTrigger = navigation.getByRole('button', { name: '缩放画布', exact: true })
+            await zoomTrigger.click()
+            const zoomOut = page.getByRole('button', { name: '缩小', exact: true })
+            const zoomIn = page.getByRole('button', { name: '放大', exact: true })
+            for (let i = 0; i < 6; i++) await zoomOut.click()
+            const zoomLabel = async () => Number.parseInt((await zoomTrigger.textContent())?.trim() ?? '', 10)
+            const zoomBelow = await zoomLabel()
+            if (!(zoomBelow < 50)) throw new Error(`Zoom-out control did not go below 50%: ${zoomBelow}`)
+            for (let i = 0; i < 6; i++) await zoomIn.click()
+            const zoomAbove = await zoomLabel()
+            if (!(zoomAbove >= 50)) throw new Error(`Zoom-in control did not recover above 50%: ${zoomAbove}`)
+            const caption = page.locator('.studio-node-caption').first()
+            await caption.waitFor({ state: 'visible', timeout: timeoutMs })
+            const captionAtLowZoom = await caption.boundingBox()
+            for (let i = 0; i < 12; i++) await zoomIn.click()
+            const captionAtHighZoom = await caption.boundingBox()
+            if (!captionAtLowZoom || !captionAtHighZoom ||
+              captionAtHighZoom.height > captionAtLowZoom.height * 1.5 ||
+              captionAtLowZoom.height > captionAtHighZoom.height * 1.5)
+              throw new Error(`Node caption scales with canvas zoom: ${JSON.stringify({
+                low: captionAtLowZoom, high: captionAtHighZoom,
+              })}`)
+            await page.keyboard.press('Escape')
+            const afterZoomBox = await flow.boundingBox()
+            if (!afterZoomBox || Math.abs(afterZoomBox.width - flowBox.width) > 2 ||
+              Math.abs(afterZoomBox.height - flowBox.height) > 2)
+              throw new Error(`Canvas frame changed size during zoom: ${JSON.stringify({ flowBox, afterZoomBox })}`)
+            const upload = page.locator(
+              '.studio-node-canvas input.sr-only[type="file"][aria-hidden="true"][tabindex="-1"]',
+            )
+            await upload.waitFor({ state: 'attached', timeout: timeoutMs })
+            const beforeIds = await page.locator('.react-flow__node').evaluateAll((nodes) =>
+              nodes.map((node) => node.getAttribute('data-id')).filter(Boolean))
+            await nodeTools.getByRole('button', { name: '上传', exact: true }).click()
+            await upload.setInputFiles({
+              name: 'smoke-upload.png',
+              mimeType: 'image/png',
+              buffer: Buffer.from(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j38sAAAAASUVORK5CYII=',
+                'base64',
+              ),
+            })
+            await page.waitForFunction(
+              (ids) => [...document.querySelectorAll('.react-flow__node')].some(
+                (node) => !ids.includes(node.getAttribute('data-id')),
+              ),
+              beforeIds,
+              { timeout: timeoutMs },
+            )
+            const uploadedId = await page.locator('.react-flow__node').evaluateAll(
+              (nodes, ids) => nodes.map((node) => node.getAttribute('data-id'))
+                .find((id) => id && !ids.includes(id)),
+              beforeIds,
+            )
+            if (!uploadedId) throw new Error('Upload did not create a node')
+            const uploaded = page.locator(`.react-flow__node[data-id="${uploadedId}"]`)
+            const uploadedImage = uploaded.locator('img').first()
+            await uploadedImage.waitFor({ state: 'visible', timeout: timeoutMs })
+            await page.waitForFunction(
+              (id) => {
+                const image = document.querySelector(`.react-flow__node[data-id="${id}"] img`)
+                return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0
+              },
+              uploadedId,
+              { timeout: timeoutMs },
+            )
+            const desktopUploadBox = await uploaded.boundingBox()
+            if (!desktopUploadBox || desktopUploadBox.width < 24 || desktopUploadBox.height < 24)
+              throw new Error(`Uploaded node is not visible at desktop viewport: ${JSON.stringify(desktopUploadBox)}`)
+            await uploaded.click()
+            const previewButton = page.getByRole('button', { name: '全屏查看', exact: true })
+            await previewButton.waitFor({ state: 'visible', timeout: timeoutMs })
+            const previewBox = await previewButton.boundingBox()
+            if (!previewBox) throw new Error('Uploaded-node composer controls have no hit target')
+            const previewHit = await page.evaluate(({ x, y }) => {
+              const target = document.elementFromPoint(x, y)
+              return target?.closest('button')?.getAttribute('aria-label')
+            }, { x: previewBox.x + previewBox.width / 2, y: previewBox.y + previewBox.height / 2 })
+            if (previewHit !== '全屏查看') throw new Error(`Composer hit target missed: ${previewHit}`)
+            await previewButton.click()
+            await page.locator('[data-lightbox-root]').waitFor({ state: 'visible', timeout: timeoutMs })
+            await page.keyboard.press('Escape')
+            await page.setViewportSize({ width: 390, height: 844 })
+            await navigation.getByRole('button', { name: '适应画布', exact: true }).click()
+            await page.waitForFunction(
+              (id) => {
+                const flow = document.querySelector('.react-flow')?.getBoundingClientRect()
+                const composer = document.querySelector('.studio-node-composer')?.getBoundingClientRect()
+                const node = document.querySelector(`.react-flow__node[data-id="${id}"]`)?.getBoundingClientRect()
+                const nodes = [...document.querySelectorAll('.react-flow__node')]
+                return Boolean(flow && composer && node &&
+                  node.x >= flow.x &&
+                  node.y >= flow.y &&
+                  node.right <= flow.right &&
+                  node.bottom <= flow.bottom &&
+                  nodes.every((element) => element.getBoundingClientRect().bottom <= composer.y + 1))
+              },
+              uploadedId,
+              { timeout: timeoutMs },
+            )
+            const composerBox = await page.locator('.studio-node-composer').boundingBox()
+            const mobileNodeGeometry = await page.locator('.react-flow__node').evaluateAll((nodes) =>
+              nodes.map((node) => {
+                const rect = node.getBoundingClientRect()
+                return { id: node.getAttribute('data-id'), bottom: rect.bottom }
+              }),
+            )
+            if (!composerBox || mobileNodeGeometry.some(({ bottom }) => bottom > composerBox.y + 1))
+              throw new Error(`A mobile node is hidden below the composer: ${JSON.stringify({
+                composerBox, nodes: mobileNodeGeometry,
+              })}`)
+            const mobileFlowBox = await flow.boundingBox()
+            const mobileUploadBox = await uploaded.boundingBox()
+            if (!mobileFlowBox || !mobileUploadBox ||
+              mobileUploadBox.x < mobileFlowBox.x || mobileUploadBox.y < mobileFlowBox.y ||
+              mobileUploadBox.x + mobileUploadBox.width > mobileFlowBox.x + mobileFlowBox.width ||
+              mobileUploadBox.y + mobileUploadBox.height > mobileFlowBox.y + mobileFlowBox.height)
+              throw new Error(`Uploaded node bounds are not fully visible on mobile: ${JSON.stringify({ mobileFlowBox, mobileUploadBox })}`)
+            const mobileNodeHit = await page.evaluate(({ id, box }) => {
+              const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+              return target?.closest('.react-flow__node')?.getAttribute('data-id') === id
+            }, { id: uploadedId, box: mobileUploadBox })
+            if (!mobileNodeHit) throw new Error('Uploaded image center is obscured by mobile controls')
+            const modeButton = navigation.getByRole('button', { name: /移动画布|选择/ }).first()
+            await modeButton.click()
+            await navigation.getByRole('button', { name: /选择 \(V\)/, exact: true }).click()
+            await navigation.getByRole('button', { name: /移动画布 \(H\)/, exact: true }).waitFor({
+              state: 'visible', timeout: timeoutMs,
+            })
+            await navigation.getByRole('button', { name: /移动画布 \(H\)/, exact: true }).click()
+            await navigation.getByRole('button', { name: /选择 \(V\)/, exact: true }).waitFor({
+              state: 'visible', timeout: timeoutMs,
+            })
+            const chatButton = page.getByRole('button', { name: '与 AI 对话', exact: true })
+            await chatButton.click()
+            await page.locator('.studio-chat-column').waitFor({ state: 'visible', timeout: timeoutMs })
+            const title = page.locator('.studio-node-project-title, .studio-project-viewbar .studio-project-pill').first()
+            const titleBox = await title.boundingBox()
+            if (!titleBox) throw new Error('Project title is missing at mobile viewport')
+            const titleHit = await page.evaluate(({ x, y }) => {
+              const target = document.elementFromPoint(x, y)
+              return Boolean(target?.closest('.studio-node-project-title, .studio-project-viewbar .studio-project-pill'))
+            }, { x: titleBox.x + titleBox.width / 2, y: titleBox.y + titleBox.height / 2 })
+            if (!titleHit) throw new Error('Project title is obscured by mobile canvas controls')
+            console.log('PASS node canvas: viewport/zoom, uploaded image bounds and composer hit targets on desktop/mobile')
             console.log('PASS node canvas: legacy media/annotation migration, stacking, drag and persisted reload')
           }
           if (errors.length) throw new Error(errors.join('\n'))
@@ -273,7 +437,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         await mkdir(outputDir, { recursive: true })
         await page.screenshot({ path: join(outputDir, `${label}.png`) })
       }
-      console.log(`PASS ${path}${nodeCanvas ? ' (canvas:nodes on)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
+      console.log(`PASS ${path}${nodeCanvas ? ' (node canvas)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
     } catch (error) {
       if (outputDir) {
         await mkdir(outputDir, { recursive: true })
@@ -290,18 +454,84 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
   }
 }
 
+async function checkMarketing(browser, origin, { local = false, accountsLogin = true, outputDir } = {}) {
+  const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
+  const page = await context.newPage()
+  const errors = []
+  let loginEnabled = accountsLogin
+  let observedCapabilities = local
+  if (!local) await context.route('**/api/capabilities', async route => {
+    const response = await route.fetch()
+    loginEnabled = (await response.json())['accounts:login'] === true
+    observedCapabilities = true
+    await route.fulfill({response})
+  })
+  page.on('pageerror', error => errors.push(error.message))
+  const requiredAsset = request => {
+    const url = new URL(request.url())
+    return ['script','stylesheet'].includes(request.resourceType()) && url.origin === origin && !url.pathname.startsWith('/cdn-cgi/')
+  }
+  page.on('requestfailed', request => { if (requiredAsset(request)) errors.push(`Asset request failed: ${request.url()}`) })
+  page.on('response', response => { if (requiredAsset(response.request()) && !response.ok()) errors.push(`Asset HTTP ${response.status()}: ${response.url()}`) })
+  if (local) await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
+    const fixtures = {
+      '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin},
+      '/api/auth/oauth/providers': {providers:[]},
+    }
+    if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
+    if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
+    if (url.origin !== origin || url.pathname.startsWith('/api/')) throw new Error(`Unexpected marketing request: ${request.method()} ${url.href}`)
+    return route.continue()
+  })
+  try {
+    await page.goto(origin + '/', {waitUntil:'networkidle'})
+    if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
+    if (loginEnabled) {
+      await page.getByRole('heading',{name:/故事，\s*由你发生。/}).waitFor()
+      await page.locator('.site-nav').getByRole('button',{name:'开始创作',exact:true}).click()
+      await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
+      await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
+      if (!(await page.title()).includes('AI 图片、视频与画布创作平台')) throw new Error('Auth changed the marketing title')
+    } else {
+      await page.waitForURL(origin + '/image')
+    }
+    const paths = [['/guide/create/','zh-CN'],['/guide/en/create/','en']]
+    if (loginEnabled) paths.push(['/en/','en'],['/login/','zh-CN'])
+    for (const [path,lang] of paths) {
+      const response=await page.goto(origin+path,{waitUntil:'networkidle'})
+      if (!response?.ok()) throw new Error(`Static page failed: ${path}`)
+      await page.locator('h1').waitFor()
+      if (new URL(page.url()).pathname !== path) throw new Error(`Hydration changed the static URL: ${path}`)
+      if (await page.locator('html').getAttribute('lang') !== lang) throw new Error(`Wrong locale: ${path}`)
+      if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
+    }
+    await page.setViewportSize({width:390,height:844})
+    if (await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)) throw new Error('Login overflows narrow viewport')
+    if (outputDir) {
+      await mkdir(outputDir,{recursive:true})
+      await page.screenshot({path:join(outputDir,'marketing-login-narrow.png')})
+    }
+    if (errors.length) throw new Error(errors.join('\n'))
+    console.log(`PASS marketing, guide locales, ${loginEnabled ? 'login entry' : 'login-disabled redirect'} and narrow layout`)
+  } finally { await context.close() }
+}
+
 async function main() {
   const { chromium } = require('playwright')
   const local = process.argv[2] === '--dist'
   const target = local ? process.argv[3] : process.argv[2]
   if (!target) throw new Error('Usage: pages-browser-smoke.cjs --dist <directory> | <origin>')
-  const html = local ? await readFile(join(resolve(target), 'index.html'), 'utf8') : ''
+  const html = local ? await readFile(join(resolve(target), 'workbench.html'), 'utf8') : ''
   const optionalStyles = (html.match(/<link\b[^>]*data-optional-style[^>]*>/g) || [])
     .map((tag) => /href=["']([^"']+)["']/.exec(tag)?.[1]).filter(Boolean)
   const server = local ? await serveDist(resolve(target)) : null
   let browser
   try {
     browser = await chromium.launch()
+    await checkMarketing(browser, server?.origin || target, {local, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
+    if (local) await checkMarketing(browser, server.origin, {local:true,accountsLogin:false})
     await checkWorkspace(browser, server?.origin || target, {
       local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
@@ -316,5 +546,5 @@ async function main() {
   }
 }
 
-module.exports = { serveDist, checkWorkspace }
+module.exports = { serveDist, checkWorkspace, checkMarketing }
 if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1 })

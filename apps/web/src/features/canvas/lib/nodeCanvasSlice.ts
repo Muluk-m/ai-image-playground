@@ -1,5 +1,6 @@
 import {
   canvasNodeKind,
+  canvasNodeRegistry,
   connectCanvasNodes,
   insertCanvasNode,
   readCanvasDocument,
@@ -12,6 +13,8 @@ import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
+import { nodeCardSize } from './nodeCanvasPlace'
+import { findFreeCanvasPlacement, PLACEMENT_GAP } from './placement'
 
 /** Reuse the toolbox's local cropper; only publish the complete batch after all tiles encode. */
 export async function sliceCanvasImage(
@@ -56,27 +59,21 @@ export async function sliceCanvasImage(
   )
     return []
   if (tiles.length !== grid * grid) throw new Error('Incomplete image slices')
-  const scale = Math.min(1, 320 / Math.max(tiles[0]!.width, tiles[0]!.height))
-  const width = Math.max(1, Math.round(tiles[0]!.width * scale))
-  const height = Math.max(1, Math.round(tiles[0]!.height * scale))
-  const gap = 48
+  const { width, height } = canvasNodeRegistry.image.size
+  const gap = PLACEMENT_GAP
   const blockWidth = grid * width + (grid - 1) * gap
   const blockHeight = grid * height + (grid - 1) * gap
-  const x = anchor.x + anchor.width + 96
-  let y = anchor.y
-  const occupied = [...snapshot.nodes, ...(snapshot.groups ?? [])]
-  // Move the whole grid together into the first free band, preserving reading order.
-  for (;;) {
-    const collisions = occupied.filter(
-      (box) =>
-        x < box.x + box.width + gap &&
-        x + blockWidth + gap > box.x &&
-        y < box.y + box.height + gap &&
-        y + blockHeight + gap > box.y,
-    )
-    if (!collisions.length) break
-    y = Math.max(...collisions.map((box) => box.y + box.height + gap))
-  }
+  const x = anchor.x + nodeCardSize(anchor).width + 96
+  const occupied = [
+    ...snapshot.nodes.map((node) => ({ ...node, ...nodeCardSize(node) })),
+    ...(snapshot.groups ?? []),
+  ]
+  const offset = findFreeCanvasPlacement(
+    [{ x, y: anchor.y, width: blockWidth, height: blockHeight }],
+    occupied,
+    gap,
+  )
+  const y = anchor.y + offset.y
   const items = tiles.map((tile, index) => ({
     id: newElementId(),
     dataUrl: tile.dataUrl,

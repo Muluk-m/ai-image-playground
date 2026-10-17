@@ -21,8 +21,12 @@ const goodScript =
 beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'pages-browser-'))
   await mkdir(join(dist, 'assets'))
-  await writeFile(join(dist, '_redirects'), '/p/:project / 200\n/assets/ /assets 301\n')
+  await writeFile(
+    join(dist, '_redirects'),
+    '/image /workbench 200\n/p/:project /workbench 200\n/assets/ /assets 301\n',
+  )
   await writeFile(join(dist, 'index.html'), html)
+  await writeFile(join(dist, 'workbench.html'), html)
   await writeFile(join(dist, 'assets/main.js'), goodScript)
   server = await serveDist(dist)
 })
@@ -92,12 +96,11 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
   it('cold-starts both the home page and project deep link', async () => {
     await check()
   })
-  it('cold-starts node mode using capability fixtures on both routes', async () => {
+  it('cold-starts node mode without a canvas capability flag', async () => {
     await writeFile(
       join(dist, 'assets/main.js'),
       `
-      const capabilities = await fetch('/api/capabilities').then(r => r.json());
-      if (!capabilities['canvas:nodes']) throw new Error('Node capability missing');
+      await fetch('/api/capabilities');
       document.getElementById('boot').remove();
       document.getElementById('root').innerHTML = '<button aria-label="创作">创作</button><div aria-label="创作画布"><div class="react-flow" style="width:300px;height:300px"><button aria-label="显示小地图">显示小地图</button><div class="react-flow__minimap" style="width:100px;height:100px"></div></div></div>';
     `,
@@ -141,14 +144,14 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
   it('ignores scripts the CDN injects under /cdn-cgi/', async () => {
     // Cloudflare's bot challenge answers its own script with a 302 on live origins.
     await writeFile(
-      join(dist, 'index.html'),
+      join(dist, 'workbench.html'),
       `<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>${html}`,
     )
     await check()
   })
   it('rejects a missing stylesheet even if the workspace mounts', async () => {
     await writeFile(
-      join(dist, 'index.html'),
+      join(dist, 'workbench.html'),
       `<link rel="stylesheet" href="/assets/missing.css">${html}`,
     )
     await expect(check()).rejects.toThrow('Asset HTTP 404')
@@ -156,7 +159,7 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
   it('uses system fonts for explicitly optional styles without contacting their CDN', async () => {
     const fontUrl = 'https://font-cdn.invalid/style.css'
     await writeFile(
-      join(dist, 'index.html'),
+      join(dist, 'workbench.html'),
       `<link rel="stylesheet" data-optional-style href="${fontUrl}">${html}`,
     )
     await checkWorkspace(browser, server.origin, {

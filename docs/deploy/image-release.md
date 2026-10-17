@@ -13,7 +13,7 @@
 负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
 
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
-2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则整单跳过。相对线上提交的 diff 再拆开：前端包（`apps/web`、`apps/admin`、`packages/shared`、lockfile）变了就发 Pages，API 树没变就跳过镜像；两边都没变、或两套 API 已经在跑这个提交时，自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
+2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则整单跳过。相对线上提交的 diff 再拆开：前端包（`apps/web`、`apps/website`、`apps/admin`、`packages/shared`、lockfile）变了就发 Pages，API 树没变就跳过镜像；两边都没变、或两套 API 已经在跑这个提交时，自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
 3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
 4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`（带上 `APP_RELEASE`）；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
 5. `pages`：API 这次有发布时，先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒）。API 被跳过时不等待。然后无 `private/` 发布内部版、克隆同一私有提交后发布付费版，最后发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。构建时的 `APP_RELEASE` 写进设置里的版本号。
@@ -21,9 +21,9 @@
 
 ### 前端启动验收
 
-`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识（整份 HTML 的 sha256，含独立启动脚本）、所有构建 JS/CSS 的 MIME 与字节内容，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开两套生产站，确认首页工作台与隔离的本地项目画布挂载、启动遮罩消失且无 JavaScript 异常。
+`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识（整份 HTML 的 sha256，含独立启动脚本）、所有构建 JS/CSS 的 MIME 与字节内容，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开两套生产站，确认匿名官网（未启用登录时直接进入工作台）、双语指南、登录入口与隔离的本地项目画布挂载、启动遮罩消失且无 JavaScript 异常。
 
-PR/main/test 的公开版与带 overlay 构建都在 Chromium 中冷启动首页和项目深链接；工作台未挂载、启动遮罩未消失、JS 异常或分片加载失败均阻止检查通过。`pages-release.sh` 调用的上传入口还会在构建与附加资源复制后，对最终 `dist` 重跑同一检查，通过后才执行 Wrangler 上传，不以重新构建替代已测产物。发布后继续验证两个生产域名的真实加载。
+PR/main/test 的公开版与带 overlay 构建都在 Chromium 中冷启动官网、`/image` 工作台和项目深链接；工作台未挂载、启动遮罩未消失、JS 异常或分片加载失败均阻止检查通过。`pages-release.sh` 调用的上传入口还会在构建与附加资源复制后，对最终 `dist` 重跑同一检查，通过后才执行 Wrangler 上传，不以重新构建替代已测产物。发布后继续验证两个生产域名的真实加载。
 
 浏览器运行时由 `scripts/pages-browser-smoke.sh` 在仓库外准备固定版本 Playwright；手动应急发布也必须通过该检查。本地产物检查按 `_redirects` 提供路由，保留缺失资源 404；项目直链使用隔离浏览器内预置的本地画布，首次导航前不加载任何应用模块。检查只 mock 匿名启动所需的只读 API 并阻止其它外部请求；不连接生产 API、不调用付费生成。它验证生产分片的真实求值与启动，不替代登录、业务数据及生成验收。失败时保存截图、原始 JS/资源错误和页面 HTML，CI 上传为七天保留的 artifact。
 
