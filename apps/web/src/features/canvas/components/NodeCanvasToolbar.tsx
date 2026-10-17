@@ -148,14 +148,10 @@ export default function NodeCanvasToolbar({
           label={t('nodes.arrange')}
           pressed={arranging}
           disabled={!canArrange}
+          className="studio-node-tool-optional"
           onClick={onArrange}
         />
-        <NodeTool
-          icon="fit"
-          label={t('nodes.fit')}
-          className="studio-node-tool-optional"
-          onClick={onFit}
-        />
+        <NodeTool icon="fit" label={t('nodes.fit')} onClick={onFit} />
         <span className="studio-node-tool-divider" />
         <Popover>
           <PopoverTrigger asChild>
