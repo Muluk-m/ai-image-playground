@@ -538,7 +538,7 @@ describe('GET /api/agent/conversations', () => {
     const { status, json } = await request(
       'GET',
       `/api/agent/conversations/${conversationId}/messages`,
-      { cookie },
+      { cookie, deviceId: DEVICE },
     )
 
     expect(status).toBe(200)
