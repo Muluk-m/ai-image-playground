@@ -524,7 +524,9 @@ describe('AgentPanel', () => {
     expect(host.querySelector('#agent-tool-card-tool-skill')?.getAttribute('data-slot')).toBe(
       'tool-call',
     )
-    expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
+    const image = host.querySelector('#agent-tool-card-tool-image')
+    expect(image?.querySelector('.studio-agent-inline-tile[data-pending="true"]')).not.toBeNull()
+    expect(image?.textContent).not.toContain('一只橘猫')
   })
 
   it('没读到的那次不显示成读到了', () => {

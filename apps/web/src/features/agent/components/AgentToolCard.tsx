@@ -478,32 +478,36 @@ function ratioTag(size: string | undefined, aspect: string | undefined): string 
 }
 
 function GeneratingTile({
+  message,
   index,
   progress,
 }: {
+  message: AgentToolMessage
   index: number
-  progress: NonNullable<ReturnType<typeof useAgentToolProgress>>
+  progress: ReturnType<typeof useAgentToolProgress>
 }) {
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
-  const queuedSlot = progress.phase === 'queued' || index > 0
-  const label = text ?? t(`job.phase.${progress.phase}`)
+  // 进度还没回来时也先占位，别让一行提示词文字顶上来再被图块替换。
+  const queued = !progress || progress.phase === 'queued' || index > 0
   return (
     <div className="studio-agent-inline-tile" data-pending="true">
       <ImageGeneration
-        generating={progress.phase !== 'delivering'}
+        generating={progress?.phase !== 'delivering'}
         className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
       />
       <div className="studio-agent-tile-face">
-        <Icon name={queuedSlot ? 'clock' : 'image'} className="text-muted-foreground" />
-        {queuedSlot ? (
-          <span className="studio-agent-tile-caption">
-            {t('job.queueSlotShort', { position: index + 1 })}
-          </span>
+        <Icon name={queued ? 'clock' : 'image'} className="text-muted-foreground" />
+        {queued || !progress ? (
+          <span className="studio-agent-tile-caption">{t('job.phase.queued')}</span>
         ) : (
-          <JobProgress label={label} className="studio-agent-tile-progress w-full" />
+          <JobProgress
+            label={text ?? t(`job.phase.${progress.phase}`)}
+            className="studio-agent-tile-progress w-full"
+          />
         )}
       </div>
+      <AgentJobCancel message={message} icon="close" className="studio-agent-tile-cancel" />
     </div>
   )
 }
@@ -653,9 +657,12 @@ function StandardAgentToolCard({
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, onPreviewResult ? false : offCanvas, progress !== null)
   const imageGenerating =
-    progress !== null &&
-    (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
-    previews.length === 0
+    generatedImage &&
+    previews.length === 0 &&
+    (progress !== null ||
+      message.status === 'running' ||
+      message.status === 'submitted' ||
+      message.status === 'queued')
   const status =
     message.status === 'failed' || message.delivery === 'failed'
       ? 'failed'
@@ -769,6 +776,35 @@ function StandardAgentToolCard({
       </ToolError>
     )
   }
+  if (imageGenerating) {
+    const count = agentDraftOutputCount(message)
+    const slots = Array.from({ length: count }, (_, index) => (
+      <GeneratingTile key={index} message={message} index={index} progress={progress} />
+    ))
+    if (embed) return <>{slots}</>
+    return (
+      <div
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+        data-batch-count={count}
+        style={{ '--batch-count': String(count) } as CSSProperties}
+      >
+        {count > 1 && (
+          <div className="studio-agent-batch-meta">
+            <span>{t('job.doneCount', { done: 0, total: count })}</span>
+          </div>
+        )}
+        <div className="studio-agent-inline-gallery" data-count={count}>
+          {slots}
+        </div>
+        <RetryRecord message={message} />
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </div>
+    )
+  }
   if (
     !progress &&
     !message.artifacts?.length &&
@@ -832,35 +868,6 @@ function StandardAgentToolCard({
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
         )}
       </ToolCall>
-    )
-  }
-  if (imageGenerating && progress) {
-    const count = agentDraftOutputCount(message)
-    const slots = Array.from({ length: count }, (_, index) => (
-      <GeneratingTile key={index} index={index} progress={progress} />
-    ))
-    if (embed) return <>{slots}</>
-    return (
-      <div
-        id={agentToolCardDomId(message.id)}
-        tabIndex={-1}
-        className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
-        data-batch-count={count}
-        style={{ '--batch-count': String(count) } as CSSProperties}
-      >
-        <div className="studio-agent-batch-meta">
-          <span>{message.title}</span>
-          <span>{t('job.doneCount', { done: 0, total: count })}</span>
-          <AgentJobCancel message={message} />
-        </div>
-        <div className="studio-agent-inline-gallery" data-count={count}>
-          {slots}
-        </div>
-        <RetryRecord message={message} />
-        {promptOpen && message.prompt && (
-          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-        )}
-      </div>
     )
   }
   if (
@@ -1593,10 +1600,11 @@ export function AgentImageRun({
       data-batch-wide={total >= 4 ? 'true' : undefined}
       style={{ '--batch-count': String(total) } as CSSProperties}
     >
-      <div className="studio-agent-batch-meta">
-        {lead?.title && <span>{lead.title}</span>}
-        <span>{t('job.doneCount', { done, total })}</span>
-      </div>
+      {done < total && (
+        <div className="studio-agent-batch-meta">
+          <span>{t('job.doneCount', { done, total })}</span>
+        </div>
+      )}
       <div className="studio-agent-inline-gallery" data-count={total}>
         {messages.map((message) => (
           <AgentToolCard
@@ -1664,11 +1672,6 @@ export function AgentImageRun({
           >
             <Icon name="download" />
           </Button>
-          {messages
-            .filter((message) => message.job && message.status === 'submitted')
-            .map((message) => (
-              <AgentJobCancel key={message.id} message={message} />
-            ))}
         </MessageActions>
       )}
     </div>
