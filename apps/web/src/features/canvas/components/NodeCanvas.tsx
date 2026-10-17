@@ -1634,9 +1634,7 @@ function Flow({
     } finally {
       textRequests.delete(nodeId)
       setTextGeneration((states) =>
-        states[nodeId]?.busy
-          ? { ...states, [nodeId]: { busy: false, error: null } }
-          : states,
+        states[nodeId]?.busy ? { ...states, [nodeId]: { busy: false, error: null } } : states,
       )
     }
   }

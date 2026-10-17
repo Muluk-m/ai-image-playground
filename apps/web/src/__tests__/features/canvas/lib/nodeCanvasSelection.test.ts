@@ -26,18 +26,35 @@ it('ignores geometry and unrelated edits while keeping selected references curre
   const canvas = { doc, origin, undo, destroy: async () => {} }
   const editor = { doc: new CanvasDoc() } as CanvasEditor
   for (const id of ['selected', 'other']) {
-    insertCanvasNode(doc, {
-      id, type: 'text', x: 0, y: 0, width: 300, height: 220, z: 0,
-      data: { text: id, fontSize: 24, fill: '#fff' },
-    }, origin)
+    insertCanvasNode(
+      doc,
+      {
+        id,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 220,
+        z: 0,
+        data: { text: id, fontSize: 24, fill: '#fff' },
+      },
+      origin,
+    )
   }
   let notifications = 0
-  const unsubscribe = subscribeNodeCanvasSelection(() => { notifications++ })
+  const unsubscribe = subscribeNodeCanvasSelection(() => {
+    notifications++
+  })
   try {
     setNodeCanvasSelection(editor, canvas, ['selected'])
     notifications = 0
     moveCanvasNodes(doc, [{ id: 'selected', x: 100, y: 100 }], origin)
-    updateCanvasNode(doc, 'other', { data: { text: 'unrelated', fontSize: 24, fill: '#fff' } }, origin)
+    updateCanvasNode(
+      doc,
+      'other',
+      { data: { text: 'unrelated', fontSize: 24, fill: '#fff' } },
+      origin,
+    )
     expect(notifications).toBe(0)
     doc.transact(() => {
       moveCanvasNodes(doc, [{ id: 'selected', x: 200, y: 100 }], origin)

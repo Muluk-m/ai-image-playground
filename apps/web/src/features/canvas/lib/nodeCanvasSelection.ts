@@ -39,6 +39,8 @@ export function setNodeCanvasSelection(
     previous?.canvas === canvas
       ? previous.changed
       : (tx: Y.Transaction) => {
+          // Identity lookup avoids Yjs's invariant event-handler type parameters.
+          const changes: ReadonlyMap<unknown, ReadonlySet<string | null>> = tx.changed
           const nodes = canvas.doc.getMap<Y.Map<unknown>>('nodes')
           const groups = canvas.doc.getMap<Y.Map<unknown>>('groups')
           const ids = selections.get(editor)?.ids ?? []
@@ -46,15 +48,15 @@ export function setNodeCanvasSelection(
             const node = nodes.get(id)
             const group = groups.get(id)
             const text = canvasText(canvas.doc, id)
-            const fields = node && tx.changed.get(node)
+            const fields = node && changes.get(node)
             if (
-              tx.changed.get(nodes)?.has(id) ||
-              tx.changed.get(groups)?.has(id) ||
-              (group && tx.changed.get(group)?.has('name')) ||
+              changes.get(nodes)?.has(id) ||
+              changes.get(groups)?.has(id) ||
+              (group && changes.get(group)?.has('name')) ||
               fields?.has('data') ||
               fields?.has('type') ||
               fields?.has('richText') ||
-              (text && tx.changed.has(text))
+              (text && changes.has(text))
             ) {
               changed()
               return
