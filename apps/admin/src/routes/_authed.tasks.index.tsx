@@ -9,6 +9,13 @@ import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -132,6 +139,30 @@ function GenerationTasksPage() {
             })
           }}
         />
+        <div className="flex items-center gap-3 text-xs">
+          <span>来源</span>
+          <Select
+            value={search.source ?? 'all'}
+            onValueChange={(source) => {
+              void navigate({
+                search: {
+                  ...filters,
+                  source: source === 'all' ? undefined : (source as 'chat' | 'manual'),
+                },
+                replace: true,
+              })
+            }}
+          >
+            <SelectTrigger aria-label="任务来源" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部来源</SelectItem>
+              <SelectItem value="chat">Chat</SelectItem>
+              <SelectItem value="manual">手动</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         {query.data ? (
           <>
             {query.isError ? (
@@ -150,6 +181,7 @@ function GenerationTasksPage() {
                       <TableHead>提交时间</TableHead>
                       <TableHead>用户</TableHead>
                       <TableHead>状态</TableHead>
+                      <TableHead>来源</TableHead>
                       <TableHead>需求 / 模型</TableHead>
                       <TableHead>耗时</TableHead>
                       <TableHead>任务</TableHead>
@@ -174,6 +206,11 @@ function GenerationTasksPage() {
                           {task.error_type ? (
                             <p className="mt-1 text-xs text-danger">{task.error_type}</p>
                           ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <span className="whitespace-nowrap rounded-md bg-muted px-2 py-1 text-xs">
+                            {task.source === 'chat' ? 'Chat' : '手动'}
+                          </span>
                         </TableCell>
                         <TableCell className="max-w-96">
                           <button
