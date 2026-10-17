@@ -101,13 +101,14 @@ import {
   getLeadingAgentSkill,
   getSlashSkillQuery,
 } from '../lib/agentSkillMentions'
-import { previewArtifactBitmap } from '../lib/artifactSource'
+import { knownArtifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import {
   attachAssetToDraft,
   attachReferences,
   filesToReferences,
   referenceLimitMessage,
   setAgentComposerAttach,
+  setAgentComposerReferences,
 } from '../lib/attachments'
 import {
   attachmentUploadErrorMessage,
@@ -541,7 +542,17 @@ export default function AgentComposer({
   // 面板把落在对话记录上的文件递过来。
   useEffect(() => {
     setAgentComposerAttach(attachFiles)
-    return () => setAgentComposerAttach(null)
+    setAgentComposerReferences((references) => {
+      if (loading) {
+        useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+        return
+      }
+      setDraft((current) => attachReferences(current, references, transportRef.current))
+    })
+    return () => {
+      setAgentComposerAttach(null)
+      setAgentComposerReferences(null)
+    }
   })
   // 示例建议与起手句点进来的那一句：技能写成开头的 `/技能名`（随即提升成胶囊），示例词选中。
   useComposerFillTarget({
@@ -779,7 +790,9 @@ export default function AgentComposer({
     if (value.type === 'result') {
       const image = results.find((one) => one.id === value.imageId)
       if (!image) return
-      const dataUrl = image.source ?? (await previewArtifactBitmap(image.artifact))
+      const dataUrl =
+        knownArtifactReferenceSource(image.artifact, image.source) ??
+        (await previewArtifactBitmap(image.artifact))
       // Loading an older result must not overwrite newer typing or attach to a switched chat.
       if (
         useAgentStore.getState().conversationId !== conversationId ||
