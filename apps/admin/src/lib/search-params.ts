@@ -7,6 +7,7 @@ import {
   type InspirationStatus,
 } from '@image-playground/shared'
 import {
+  type AgentPromptFilters,
   DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
@@ -14,6 +15,7 @@ import {
   OPS_RANGE_LABEL,
   OPS_RANGES,
   type OpsRange,
+  parseAgentPromptFilters,
   parseGenerationTaskFilters,
   parseOpsRange,
   parseRange,
@@ -211,4 +213,16 @@ export function parseGenerationTasksSearch(input: Record<string, unknown>): Gene
   if ((input.from !== undefined || input.to !== undefined) && !parseTimeWindow(input))
     throw new Error('任务时间范围无效：需要完整的起止时间，范围不超过 31 天，且不能在未来。')
   return { ...parseGenerationTaskFilters(input), ...parseTaskViewSearch(input) }
+}
+
+export interface AgentPromptsSearch extends Partial<AgentPromptFilters>, TaskViewSearch {}
+export function parseAgentPromptsSearch(input: Record<string, unknown>): AgentPromptsSearch {
+  const parsed = parseAgentPromptFilters(input)
+  if (!parsed) throw new Error('提示词筛选无效：请选择有效的归属、状态和不超过 31 天的时间范围。')
+  const { from, to, ...filters } = parsed
+  return {
+    ...filters,
+    ...(input.from === undefined && input.to === undefined ? {} : { from, to }),
+    ...parseTaskViewSearch(input),
+  }
 }

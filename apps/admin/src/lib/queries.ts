@@ -1,5 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type {
+  AgentPromptFilters,
+  AgentPromptsResult,
   GenerationTaskFilters,
   GenerationTasksResult,
   TodayErrorsResult,
@@ -175,6 +177,22 @@ export function useGenerationTasks(filters: GenerationTaskFilters) {
         if (value !== undefined) params.set(key, String(value))
       if (pageParam) params.set('cursor', pageParam)
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
+    },
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    staleTime: 0,
+  })
+}
+
+export function useAgentPrompts(filters: AgentPromptFilters) {
+  return useInfiniteQuery({
+    queryKey: ['agent-prompts', filters],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams()
+      for (const [key, value] of Object.entries(filters))
+        if (value !== undefined) params.set(key, String(value))
+      if (pageParam) params.set('cursor', pageParam)
+      return apiClient.get<AgentPromptsResult>(`/api/agent-prompts?${params}`)
     },
     initialPageParam: '',
     getNextPageParam: (last) => last.nextCursor ?? undefined,
