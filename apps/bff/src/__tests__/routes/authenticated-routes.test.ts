@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { SQL } from 'bun'
 import { eq, sql } from 'drizzle-orm'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_authenticated_routes')
@@ -21,17 +22,22 @@ const { config } = await import('../../config')
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 const { isCapabilityEnabled } = await import('../../lib/capabilities')
 const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/channels')
 let storage: InMemoryObjectStore
+let durable: InMemoryObjectStore
 
 beforeEach(() => {
   storage = new InMemoryObjectStore()
   setObjectStoreForTesting(storage)
+  durable = Object.assign(new InMemoryObjectStore(), { sign: () => 'http://media.test/object' })
+  setDurableMediaStoreForTesting(durable as never)
 })
 
 afterEach(() => {
   setObjectStoreForTesting()
+  setDurableMediaStoreForTesting()
   _setChannelsForTesting([])
 })
 
@@ -41,6 +47,7 @@ afterAll(async () => {
 
 async function resetDb() {
   await db.delete(schema.tasks)
+  await db.delete(schema.media_objects)
   await db.delete(schema.daily_quota)
   await db.delete(schema.user_sessions)
   await db.delete(schema.operator_audits)
@@ -656,6 +663,52 @@ describe('BFF optional user auth', () => {
     )
     expect(bobSubmit.status).toBe(200)
     expect((bobSubmit.json as { request_id: string }).request_id).not.toBe(taskId)
+  })
+
+  it('reads input images given by media identity on the server, only for their owner', async () => {
+    const alice = await createTestUser('alice', ACCEPTED_PHRASE)
+    await createTestUser('bob', ACCEPTED_PHRASE)
+    const aliceCookie = await loginTestUser('alice', ACCEPTED_PHRASE, '10.10.1.1')
+    const bobCookie = await loginTestUser('bob', ACCEPTED_PHRASE, '10.10.1.2')
+    const mediaId = '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10'
+    const now = Date.now()
+    await db.insert(schema.media_objects).values({
+      id: mediaId,
+      user_id: alice.id,
+      sha256: 'input-media',
+      bytes: TEST_IMAGE.png.length,
+      content_type: 'image/png',
+      status: 'ready',
+      reserved_bytes: TEST_IMAGE.png.length,
+      staging_key: 'staging/input-media',
+      object_key: 'media/input-media',
+      expires_at: now + 60_000,
+      created_at: now,
+      updated_at: now,
+    })
+    await durable.write('media/input-media', new Uint8Array(TEST_IMAGE.png), 'image/png')
+
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_images: [`aip-media:${mediaId}`] }),
+      { cookie: aliceCookie },
+    )
+    expect(submitted.status).toBe(200)
+    const taskId = (submitted.json as { request_id: string }).request_id
+    expect(await storage.read(`${taskId}/in/0`)).toEqual(new Uint8Array(TEST_IMAGE.png))
+
+    const foreign = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        device_id: 'bob-device-aaaa-bbbb-cccc',
+        input_images: [`aip-media:${mediaId}`],
+      }),
+      { cookie: bobCookie },
+    )
+    expect(foreign.status).toBe(400)
+    expect(foreign.json).toMatchObject({ error: 'invalid_input_image' })
   })
 
   it('invalidates disabled accounts and logout revokes the stored session', async () => {
