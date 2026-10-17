@@ -107,6 +107,22 @@ await writer.db
     { ...draft('edited'), prompt: '改过的提示词 100%', task_id: 'confirmed', confirmed_at: now },
     { ...draft('legacy'), drafted_prompt: null },
   ])
+await writer.db.insert(writer.schema.users).values({
+  id: 'owner',
+  username: 'prompt-owner',
+  password_hash: 'unused',
+  created_at: now,
+  updated_at: now,
+})
+await writer.db
+  .insert(writer.schema.agent_conversations)
+  .values({ id: 'owned', user_id: 'owner', title: 'owned', created_at: now, updated_at: now })
+await writer.db.insert(writer.schema.tasks).values({
+  ...task('cancelled'),
+  status: 'cancelled',
+  agent_conversation_id: 'owned',
+  agent_turn_id: 'wake',
+})
 const { app } = await import('../../../../server/app')
 afterAll(async () => {
   await writer.close()
@@ -178,7 +194,9 @@ describe('GET /api/agent-prompts', () => {
     ).toEqual(['edited'])
     expect((await result('edited=unknown')).items.map((x) => x.id)).toEqual(['legacy'])
     expect((await result('status=running')).items.map((x) => x.id)).toEqual(['running'])
-    expect((await result('status=failed')).items.map((x) => x.id)).toEqual(['failed'])
+    expect((await result('status=failed&deviceId=device')).items.map((x) => x.id)).toEqual([
+      'failed',
+    ])
     expect((await result('q=nonexistent')).summary?.total).toBe(0)
   })
   it('pages equal timestamps across both sources without duplicates or missing rows', async () => {
@@ -189,10 +207,23 @@ describe('GET /api/agent-prompts', () => {
     expect(second.summary).toBeNull()
     expect(second.nextCursor).toBeNull()
     const ids = [...first.items, ...second.items].map((x) => `${x.kind}:${x.id}`)
-    expect(ids).toHaveLength(58)
-    expect(new Set(ids).size).toBe(58)
+    expect(ids).toHaveLength(59)
+    expect(new Set(ids).size).toBe(59)
     expect(second.items[0]).toMatchObject({ userText: null, chatModel: null, inputTokens: 0 })
   })
+  it('resolves registered owners and treats cancelled submissions as terminal', async () => {
+    const body = await result('userId=owner')
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({
+      userId: 'owner',
+      username: 'prompt-owner',
+      deviceId: null,
+      status: 'failed',
+      userText: null,
+    })
+    expect(body.summary).toMatchObject({ total: 1, submitted: 1, failed: 1 })
+  })
+
   it('rejects invalid filters and cursors', async () => {
     const invalidDateCursor = Buffer.from(
       JSON.stringify([Number.MAX_SAFE_INTEGER, 'draft', 'id']),
