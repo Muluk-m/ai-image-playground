@@ -452,9 +452,6 @@ it('places a text card that stays large enough for the side handles', async () =
     el.textContent?.includes('文本'),
   )
   act(() => (item as HTMLButtonElement).click())
-  const card = host.querySelector('.studio-node--text')
-  expect(card?.textContent).toContain('双击开始编辑…')
-  expect(card?.parentElement?.textContent).toContain('文本')
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
   expect(added).toMatchObject({ width: 300, height: 220 })
   const bounds = JSON.parse(
@@ -462,8 +459,6 @@ it('places a text card that stays large enough for the side handles', async () =
   )
   expect(bounds.width).toBe(300)
   expect(bounds.height).toBe(220)
-  const composer = host.querySelector('.studio-node-composer')
-  expect(composer?.getAttribute('aria-label')).toBe('参考内容')
 })
 
 it('offers all node types from either handle and connects the chosen node in the right direction', async () => {

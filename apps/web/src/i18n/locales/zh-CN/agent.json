@@ -226,6 +226,15 @@
   },
   "composer": {
     "editorAria": "对智能体说",
+    "nodeReferences": "选中的画布节点引用",
+    "nodeTypes": {
+      "text": "文本",
+      "image": "图片",
+      "video": "视频",
+      "timeline": "时间线",
+      "storyboard": "分镜",
+      "group": "分组"
+    },
     "drawMaskAria": "给参考图 {{label}} 画遮罩",
     "editMaskAria": "修改参考图 {{label}} 的遮罩",
     "removeReferenceAria": "移除参考图 {{label}}",

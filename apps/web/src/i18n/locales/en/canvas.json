@@ -476,7 +476,6 @@
     "composerImage": "Describe the image to generate",
     "composerText": "Write this text",
     "composerSend": "Generate",
-    "composerWrite": "Write",
     "contextLabel": "Context",
     "connectIn": "Use as incoming context",
     "connectOut": "Connect to the next node",

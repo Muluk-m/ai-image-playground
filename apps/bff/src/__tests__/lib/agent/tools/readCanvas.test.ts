@@ -589,6 +589,7 @@ it('reads full selected text, edges and groups from the server Y.Doc instead of 
     createCanvasGroup,
     canvasOrigin,
     updateCanvasNode,
+    canvasText,
   } = await import('@image-playground/shared')
   const Y = await import('yjs')
   await conversation('conv-graph', USER)
@@ -620,6 +621,7 @@ it('reads full selected text, edges and groups from the server Y.Doc instead of 
       origin,
     )
   }
+  canvasText(doc, 'script')!.format(0, 6, { bold: true })
   expect(connectCanvasNodes(doc, { source: 'script', target: 'other' }, origin)).toBe(true)
   createCanvasGroup(doc, 'act-one', ['script', 'other'], '第一幕', origin)
   await accessCanvasDocument(USER, 'proj-graph', Y.encodeStateAsUpdate(doc))
@@ -648,6 +650,24 @@ it('reads full selected text, edges and groups from the server Y.Doc instead of 
   expect(selected.graph.groups[0].name).toBe('第一幕')
   expect(JSON.stringify(selected.graph)).not.toContain('未选中的秘密剧情')
   expect(selected.result.details.canvasRead).toMatchObject([{ id: 'script' }])
+  const exact = await read({ nodeIds: ['script'] }, [])
+  expect(exact.graph.scope).toBe('expanded')
+  expect(exact.graph.nodes.map((node: { id: string }) => node.id)).toEqual(['script'])
+  expect(exact.graph.nodes[0].data.text).toBe(fullText)
+  expect(exact.graph.nodes[0].data.richText[0].attributes.bold).toBe(true)
+  for (const unauthorized of [
+    { ...toolContext, userId: OTHER },
+    { ...toolContext, userId: null },
+    { ...toolContext, conversationId: 'different-conversation' },
+  ]) {
+    await expect(
+      readCanvas
+        .create(unauthorized)
+        .execute('foreign-node', { nodeIds: ['script'] }, undefined, undefined),
+    ).rejects.toThrow('尚未同步')
+  }
+  expect((await read({ nodeIds: ['missing'] }, [])).graph.nodes).toEqual([])
+  expect((await read({ nodeIds: ['other'] }, [])).graph.nodes[0].data.text).toBe('未选中的秘密剧情')
   expect((await read({}, [])).graph.nodes).toEqual([])
   expect((await read({}, ['act-one'])).graph.nodes).toHaveLength(2)
   expect((await read({ query: '独有关键词' }, [])).graph.nodes[0].data.text).toBe(fullText)

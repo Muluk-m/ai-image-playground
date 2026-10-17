@@ -4,6 +4,15 @@
 
 2026-10-13 的阶段性约定：先补齐 #1136，再完成 #1137 全部 13 项，沿 #1198 分支开发且只做 dev 验证。下方逐次记录里的“未合并/仅分支/未上线”描述的是当时阶段，不能用来覆盖后来的合并事实；合并同样不等于生产已全量开放或整条实单流程已验收。
 
+2026-10-17 文本交互调整：文本节点双击、Enter/F2 与全屏按钮统一直接进入全屏编辑，不再在随画布缩放的节点内部编辑。保留 Y.Text 实时写入与原撤销链路。真实浏览器已验证全屏覆盖视口、输入后 Escape/完成退出、F2 重新打开仍保留正文，节点内不挂载编辑器；云端检查与发布尚未完成。分组暂保留：Weavy 官方 [Group and Ungroup Nodes](https://help.weavy.ai/en/articles/13560959-group-and-ungroup-nodes) 明确有右键 Group Selection、命名、整组移动与解组；本仓库分组随 #1198 引入，未找到具体照搬来源的证据。
+
+2026-10-18 文本生成与节点引用：文本节点底部改为独立指令 composer，从服务端运营配置读取 Chat 模型，不复用图片模型设置；`GET /api/canvas/text/models` 提供目录，`POST /api/canvas/text` 使用既有 provider transport、chat task 预扣/结算与失败回收。正文仅在成功且未被并发编辑时回写，可单步撤销；生成期间切换节点不会重复提交原节点。Agent composer 直接显示选中节点的名称与类型，提交继续携带 `canvas.selectedNodeIds`，`readCanvas({ nodeIds: [...] })` 在当前用户、会话对应画布内精确读取完整正文/富文本。真实浏览器已用 mock API 验证模型展示、指令请求、正文回写、撤销及可见引用；不将该前端 smoke 计为真实模型调用或生产验收，云端及发布结果另行记录。
+
+本次分支验收（[PR #1346](https://github.com/Muluk-m/ai-image-playground/pull/1346)，[云端 run 39048683612](https://github.com/Muluk-m/ai-image-playground/actions/runs/39048683612)）：全仓 Biome 格式化后补丁为空，lint/typecheck 通过；Web 381 个文件、3289 项通过、13 项跳过；文本生成 6 项与 readCanvas 19 项通过。独立 HTTP smoke 实际监听 BFF 和模拟上游端口，返回 200、选中模型正确、预扣一次且任务与结算均 completed。浏览器另验证了生成中手动编辑不被迟到结果覆盖。临时验证 workflow 和 smoke 脚本已移除；合并门禁继续由常规 PR CI 执行。
+
+最终评审补充：引用订阅只响应选中对象的内容、名称、类型与删除，不再因拖拽几何或无关节点编辑重绘；纯文本生成在同一可撤销事务内重置 Y.Text，清除旧格式；请求期间删除节点后再撤销删除也会恢复 composer。真实浏览器验证了「加粗原稿 → 纯文本结果 → 撤销恢复加粗」及「请求中删除 → 返回 → 撤销删除 → 可再次发送」。
+上述补充已通过[云端格式化、lint/typecheck 与选择订阅回归](https://github.com/Muluk-m/ai-image-playground/actions/runs/39051061408)，格式补丁为空；临时格式化 workflow 再次移除。
+
 ## 顺序与验收
 
 沿 #1136 已接受的文档操作、BFF 集成与少量组件三个测试边界，逐模块提交与验收。保留现有左工具栏、选中节点下方生成栏、可收起右侧对话和幕芽设计语言。
