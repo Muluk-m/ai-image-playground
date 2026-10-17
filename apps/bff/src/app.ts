@@ -35,6 +35,7 @@ import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
+import { textGenerationRoutes } from './routes/textGeneration'
 
 const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
@@ -199,6 +200,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
+  .use(textGenerationRoutes)
   .use(productionRoutes)
   .use(syncRoutes)
   .use(projectRoutes)

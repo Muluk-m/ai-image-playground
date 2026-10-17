@@ -8,6 +8,7 @@ import {
   canvasLinkAllowed,
   canvasOrigin,
   canvasResults,
+  canvasText,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -59,7 +60,7 @@ import type * as Y from 'yjs'
 import { ImagePreview } from '../../../components/Lightbox'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
-import { Icon } from '../../../components/ui/icon'
+import { Icon, type IconName } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
@@ -117,6 +118,7 @@ import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCan
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
+import { generateTextNode } from '../lib/textGeneration'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -129,7 +131,6 @@ import NodeAssetPicker from './NodeAssetPicker'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
-import NodeComposerFrame from './NodeComposerFrame'
 import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodePorts, { SpawnContext } from './NodePorts'
@@ -141,6 +142,7 @@ import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import NodeTimeline, { NodeTimelineContext } from './NodeTimeline'
 import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
 import ScriptBriefDialog from './ScriptBriefDialog'
+import TextNodeComposer from './TextNodeComposer'
 import TimelineEditorHost from './TimelineEditor'
 import VideoNodeComposer from './VideoNodeComposer'
 
@@ -161,6 +163,19 @@ const EditNodeContext = createContext<
 >(() => {})
 const PreviewContext = createContext<(source: string) => void>(() => {})
 
+function nodeIconName(node: CanvasNode): IconName {
+  if ('meta' in node.data && node.data.meta?.nodeKind === 'asset') {
+    const kind = node.type === 'image' ? node.data.meta.assetKind : undefined
+    if (kind === 'person') return 'character'
+    if (kind === 'location') return 'location'
+    if (kind === 'product') return 'product'
+    if (kind === 'prop') return 'toolbox'
+    return 'layers'
+  }
+  const kind = nodeKind(node)
+  return kind === 'text' ? 'text' : kind === 'video' ? 'video' : 'image'
+}
+
 function NodeCaption({ node }: { node: CanvasNode }) {
   const { t } = useTranslation('canvas')
   const update = useContext(EditNodeContext)
@@ -178,18 +193,7 @@ function NodeCaption({ node }: { node: CanvasNode }) {
   const title = 'name' in node.data ? node.data.name : undefined
   return (
     <div className="studio-node-caption text-xs text-muted-foreground">
-      <Icon
-        name={
-          'meta' in node.data && node.data.meta?.nodeKind === 'asset'
-            ? 'layers'
-            : kind === 'text'
-              ? 'text'
-              : kind === 'video'
-                ? 'video'
-                : 'image'
-        }
-        size="xs"
-      />
+      <Icon name={nodeIconName(node)} size="xs" />
       {editing ? (
         <Input
           className="nodrag nopan h-6 w-48 text-xs"
@@ -405,7 +409,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           <Pending pending={pending} />
         ) : (
           <div className="studio-node-empty">
-            <Icon name={node.data.meta?.nodeKind === 'asset' ? 'layers' : 'image'} size="lg" />
+            <Icon name={nodeIconName(node)} size="lg" />
             {node.data.meta?.nodeKind === 'asset' && (
               <div className="px-5 text-center">
                 <p className="text-sm font-medium">{node.data.name}</p>
@@ -871,6 +875,17 @@ function Flow({
   const connectStart = useRef<{ x: number; y: number } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [textGeneration, setTextGeneration] = useState<
+    Record<string, { busy: boolean; error: string | null }>
+  >({})
+  const textRequests = useMemo(() => new Map<string, AbortController>(), [canvas])
+  useEffect(
+    () => () => {
+      for (const controller of textRequests.values()) controller.abort()
+      textRequests.clear()
+    },
+    [textRequests],
+  )
   const [draggingIds, setDraggingIds] = useState<string[]>([])
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)
@@ -1442,6 +1457,9 @@ function Flow({
     selected.data.node.type !== 'storyboard'
       ? selected.data.node
       : undefined
+  const textNode = selected?.data.node?.type === 'text' ? selected.data.node : undefined
+  const [textDrafts, setTextDrafts] = useState<Record<string, string>>({})
+  const textDraft = textNode ? (textDrafts[textNode.id] ?? '') : ''
   const referenceNode = selected?.data.node?.type !== 'timeline' ? selected?.data.node : undefined
   const rawReferences = referenceNode
     ? incomingReferences(snapshot.nodes, snapshot.edges, referenceNode.id)
@@ -1554,6 +1572,72 @@ function Flow({
       ? !composerNode.data.pending.errorCode
       : composerNode.data.pending.status === 'loading'
     : false
+  const generateSelectedText = async (model: string) => {
+    if (!textNode || textRequests.has(textNode.id)) return
+    const nodeId = textNode.id
+    const instruction = textDraft.trim()
+    if (!instruction) return
+    const originalText = textNode.data.text
+    const originalRichText = JSON.stringify(textNode.data.richText)
+    const controller = new AbortController()
+    textRequests.set(nodeId, controller)
+    setTextGeneration((current) => ({ ...current, [nodeId]: { busy: true, error: null } }))
+    try {
+      const result = await generateTextNode({
+        model,
+        instruction,
+        currentText: originalText,
+        references: references.map((reference) => ({
+          id: reference.id,
+          kind: reference.kind,
+          ...(reference.label ? { label: reference.label } : {}),
+          ...(reference.text ? { text: reference.text } : {}),
+        })),
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+      const current = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === nodeId)
+      if (!current || current.type !== 'text') return
+      if (
+        current.data.text !== originalText ||
+        JSON.stringify(current.data.richText) !== originalRichText
+      ) {
+        throw new Error('text_generation_content_changed')
+      }
+      canvas.undo.stopCapturing()
+      canvas.doc.transact(() => {
+        const text = canvasText(canvas.doc, nodeId)
+        if (text) {
+          text.delete(0, text.length)
+          text.insert(0, `${result}\n`)
+        }
+        updateCanvasNode(
+          canvas.doc,
+          nodeId,
+          { data: { ...current.data, text: result, richText: undefined } },
+          canvas.origin,
+        )
+      }, canvas.origin)
+      canvas.undo.stopCapturing()
+      setTextDrafts((drafts) => ({ ...drafts, [nodeId]: '' }))
+      setTextGeneration((states) => ({ ...states, [nodeId]: { busy: false, error: null } }))
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setTextGeneration((states) => ({
+          ...states,
+          [nodeId]: {
+            busy: false,
+            error: error instanceof Error ? error.message : 'text_generation_failed',
+          },
+        }))
+      }
+    } finally {
+      textRequests.delete(nodeId)
+      setTextGeneration((states) =>
+        states[nodeId]?.busy ? { ...states, [nodeId]: { busy: false, error: null } } : states,
+      )
+    }
+  }
   const uploadInto = (id: string, file: File) => {
     void fillImageNode(editor, canvas.doc, id, file).catch(() =>
       useStore.getState().showToast(t('import.failed'), 'error'),
@@ -1685,7 +1769,7 @@ function Flow({
                           nodesDraggable={!arrangementActive && !referencePick}
                           nodesConnectable={!arrangementActive && !referencePick}
                           elementsSelectable={!arrangementActive && !referencePick}
-                          onlyRenderVisibleElements={!overview}
+                          onlyRenderVisibleElements={!overview && !arrangementActive}
                           edges={snapshot.edges.flatMap((edge) => {
                             if (mounted && (!mounted.has(edge.source) || !mounted.has(edge.target)))
                               return []
@@ -2372,14 +2456,20 @@ function Flow({
                           }}
                         />
                       )}
-                      {referenceNode?.type === 'text' && selected && (
-                        <NodeComposerFrame
-                          label={t('nodes.references')}
-                          references={[]}
+                      {textNode && selected && (
+                        <TextNodeComposer
+                          key={textNode.id}
+                          references={references}
                           files={files}
-                        >
-                          {referenceTools}
-                        </NodeComposerFrame>
+                          value={textDraft}
+                          tools={referenceTools}
+                          busy={textGeneration[textNode.id]?.busy}
+                          error={textGeneration[textNode.id]?.error}
+                          onChange={(value) =>
+                            setTextDrafts((drafts) => ({ ...drafts, [textNode.id]: value }))
+                          }
+                          onSubmit={(model) => void generateSelectedText(model)}
+                        />
                       )}
                       {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer

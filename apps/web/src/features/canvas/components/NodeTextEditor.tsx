@@ -4,7 +4,6 @@ import { BlockEmbed } from 'quill/blots/block'
 import { useEffect, useRef, useState } from 'react'
 import { QuillBinding } from 'y-quill'
 import { Button } from '../../../components/ui/button'
-import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
 import 'quill/dist/quill.core.css'
@@ -22,12 +21,10 @@ export default function NodeTextEditor({
   canvas,
   nodeId,
   onDone,
-  onExpand,
 }: {
   canvas: NodeCanvasDocument
   nodeId: string
   onDone: () => void
-  onExpand?: () => void
 }) {
   const { t } = useTranslation('canvas')
   const mount = useRef<HTMLDivElement>(null)
@@ -204,16 +201,6 @@ export default function NodeTextEditor({
         >
           —
         </Button>
-        {onExpand && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={t('nodes.editFullscreen')}
-            onClick={onExpand}
-          >
-            <Icon name="fullscreen" />
-          </Button>
-        )}
         <Button variant="ghost" size="xs" onClick={onDone}>
           {t('nodes.finishEditing')}
         </Button>

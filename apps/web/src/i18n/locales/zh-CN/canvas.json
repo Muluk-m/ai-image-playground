@@ -458,7 +458,6 @@
     "composerImage": "描述你想生成的图片",
     "composerText": "写下这段文字",
     "composerSend": "生成",
-    "composerWrite": "写入",
     "contextLabel": "引用",
     "connectIn": "接入上文",
     "connectOut": "接到下一个节点",

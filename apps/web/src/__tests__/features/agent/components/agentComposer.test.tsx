@@ -10,18 +10,31 @@ vi.mock('../../../../lib/imagePreprocessing', async () => ({
 
 import 'fake-indexeddb/auto'
 import type { AgentTurnReference } from '@image-playground/shared'
+import {
+  canvasOrigin,
+  createCanvasUndoManager,
+  deleteCanvasNode,
+  insertCanvasNode,
+  updateCanvasNode,
+} from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { agentDraft, DraftSession } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
+import {
+  clearNodeCanvasSelection,
+  setNodeCanvasSelection,
+} from '../../../../features/canvas/lib/nodeCanvasSelection'
 import { useLibraryStore } from '../../../../features/library/store'
 import { scopedStorageName } from '../../../../lib/authScope'
 import { getSelectedImageMentionLabel } from '../../../../lib/promptImageMentions'
 import { useStore } from '../../../../store'
+import { openCanvas } from '../../../helpers/activeProject'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -910,4 +923,73 @@ describe('下一句幽灵文字', () => {
     expect(editor().textContent).toBe(FIRST)
     expect(send).not.toHaveBeenCalled()
   })
+})
+
+it('shows live named node references, follows multiselect and deletion, and clears across canvases', async () => {
+  const workspace = await openCanvas()
+  doc = workspace.doc
+  const graph = new Y.Doc()
+  const origin = canvasOrigin('user', 'composer-references')
+  const undo = createCanvasUndoManager(graph, origin)
+  const canvas = {
+    doc: graph,
+    origin,
+    undo,
+    destroy: async () => {
+      undo.destroy()
+      graph.destroy()
+    },
+  }
+  for (const [id, name] of [
+    ['script', '开场剧本'],
+    ['second', '结尾'],
+  ]) {
+    insertCanvasNode(
+      graph,
+      {
+        id: id!,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 200,
+        data: { name: name!, text: '完整正文', fontSize: 16, fill: '#fff' },
+      },
+      origin,
+    )
+  }
+  try {
+    act(() => setNodeCanvasSelection(workspace.editor, canvas, ['script', 'second']))
+    render()
+    const chips = () => [...host.querySelectorAll('[data-node-reference-id]')]
+    expect(chips().map((chip) => chip.getAttribute('data-node-reference-id'))).toEqual([
+      'script',
+      'second',
+    ])
+    expect(chips()[0]?.textContent).toContain('文本')
+    expect(chips()[0]?.textContent).toContain('开场剧本')
+    act(() =>
+      updateCanvasNode(
+        graph,
+        'script',
+        {
+          data: { name: '新标题', text: '完整正文', fontSize: 16, fill: '#fff' },
+        },
+        origin,
+      ),
+    )
+    expect(chips()[0]?.textContent).toContain('新标题')
+    act(() => deleteCanvasNode(graph, 'second', origin))
+    expect(chips()).toHaveLength(1)
+    act(() => setNodeCanvasSelection(workspace.editor, canvas, []))
+    expect(chips()).toHaveLength(0)
+    act(() => setNodeCanvasSelection(workspace.editor, canvas, ['script']))
+    expect(chips()).toHaveLength(1)
+    doc = new CanvasDoc()
+    render()
+    expect(chips()).toHaveLength(0)
+  } finally {
+    act(() => clearNodeCanvasSelection(workspace.editor, canvas))
+    await canvas.destroy()
+  }
 })
