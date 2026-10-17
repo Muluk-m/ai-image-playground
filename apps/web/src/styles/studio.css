@@ -825,7 +825,7 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-agent-inline-result--fetched .studio-agent-inline-tile { aspect-ratio: 4 / 3; }
 .studio-agent-inline-source { overflow: hidden; align-self: flex-start; max-width: 100%; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.label-sm'); text-decoration: underline dotted; text-underline-offset: 2px; text-overflow: ellipsis; white-space: nowrap; }
 .studio-agent-inline-source:hover { color: hsl(var(--foreground)); }
-.studio-agent-inline-tile-wrap { position: relative; min-width: 0; max-width: 100%; }
+.studio-agent-inline-tile-wrap { position: relative; width: min(320px, 100%); min-width: 0; max-width: 100%; }
 .studio-agent-inline-tile { position: relative; overflow: hidden; min-width: 0; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; background: hsl(var(--muted)); }
 .studio-agent-inline-open { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
 .studio-agent-inline-open img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
