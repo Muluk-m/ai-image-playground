@@ -18,7 +18,15 @@ import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { ACTIVE_TAB, CARD, CARD_TITLE, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import {
+  ACTIVE_TAB,
+  CARD,
+  CARD_TITLE,
+  IDLE_TAB,
+  JUMP_TO_LATEST,
+  PANEL_MAX_WIDTH_RATIO,
+  TAB,
+} from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -374,7 +382,8 @@ export default function AgentPanel({
     const originWidth = handle.parentElement?.getBoundingClientRect().width || panelWidth
     const maxWidth =
       dock === 'right'
-        ? Math.min(480, (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) * 0.42)
+        ? (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) *
+          PANEL_MAX_WIDTH_RATIO
         : Number.POSITIVE_INFINITY
     handle.setPointerCapture(event.pointerId)
     const onMove = (move: PointerEvent) =>
