@@ -1,0 +1,289 @@
+<title>Admin 提示词台账</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* 布局：顶部方案切换条 + 仿 admin 外壳（侧栏 + 内容区）；沿用 admin tokens.css 的 zinc 中性与芽绿选中态 */
+:root {
+  --bg: hsl(0 0% 100%);
+  --fg: hsl(240 10% 3.9%);
+  --muted: hsl(240 4.8% 95.9%);
+  --muted-fg: hsl(240 3.8% 46.1%);
+  --border: hsl(240 5.9% 90%);
+  --card: hsl(0 0% 100%);
+  --sidebar: hsl(0 0% 98%);
+  --sprout: hsl(83 100% 81.4%);
+  --sprout-fg: hsl(202 10.3% 15.3%);
+  --success: hsl(160 84% 30%);
+  --warning: hsl(38 92% 40%);
+  --danger: hsl(350 78% 48%);
+  --violet: hsl(265 70% 52%);
+  --ins: hsl(160 70% 92%);
+  --del: hsl(350 80% 94%);
+  --shadow: 0 16px 40px -12px rgb(0 0 0 / .22);
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: hsl(240 10% 3.9%); --fg: hsl(0 0% 98%); --muted: hsl(240 3.7% 15.9%); --muted-fg: hsl(240 5% 64.9%);
+    --border: hsl(240 3.7% 18%); --card: hsl(240 6% 7%); --sidebar: hsl(240 6% 6%);
+    --sprout: hsl(83 100% 81.4%); --sprout-fg: hsl(202 10.3% 15.3%);
+    --success: hsl(160 65% 50%); --warning: hsl(38 92% 60%); --danger: hsl(350 85% 68%); --violet: hsl(265 80% 74%);
+    --ins: hsl(160 50% 16%); --del: hsl(350 45% 18%); --shadow: 0 16px 40px -12px rgb(0 0 0 / .6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: hsl(240 10% 3.9%); --fg: hsl(0 0% 98%); --muted: hsl(240 3.7% 15.9%); --muted-fg: hsl(240 5% 64.9%);
+  --border: hsl(240 3.7% 18%); --card: hsl(240 6% 7%); --sidebar: hsl(240 6% 6%);
+  --sprout: hsl(83 100% 81.4%); --sprout-fg: hsl(202 10.3% 15.3%);
+  --success: hsl(160 65% 50%); --warning: hsl(38 92% 60%); --danger: hsl(350 85% 68%); --violet: hsl(265 80% 74%);
+  --ins: hsl(160 50% 16%); --del: hsl(350 45% 18%); --shadow: 0 16px 40px -12px rgb(0 0 0 / .6);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; padding-inline: 16px; padding-block: 16px 40px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-size: 12px; }
+.muted { color: var(--muted-fg); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* 方案切换 */
+.picker { max-width: 1280px; margin: 0 auto 16px; display: grid; gap: 10px; }
+.picker h1 { font-size: 18px; margin: 0; text-wrap: balance; }
+.picker p.lead { margin: 0; color: var(--muted-fg); max-width: 72ch; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.opt { text-align: left; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 4px; }
+.opt[aria-selected="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); }
+.opt .n { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--muted); font-weight: 600; font-size: 12px; }
+.opt[aria-selected="true"] .n { background: var(--sprout); color: var(--sprout-fg); }
+.opt .t { font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.opt .d { color: var(--muted-fg); font-size: 13px; }
+.opt .c { font-size: 12px; color: var(--muted-fg); border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 2px; }
+
+/* admin 外壳 */
+.frame { max-width: 1280px; margin: 0 auto; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 640px; background: var(--bg); position: relative; }
+.side { background: var(--sidebar); border-right: 1px solid var(--border); padding: 14px 10px; display: grid; align-content: start; gap: 14px; }
+.brand { font-weight: 700; padding: 0 8px; display: flex; gap: 8px; align-items: center; }
+.brand i { width: 18px; height: 18px; border-radius: 5px; background: var(--sprout); display: inline-block; }
+.grp { display: grid; gap: 2px; }
+.grp b { font-size: 11px; color: var(--muted-fg); font-weight: 500; padding: 0 8px 4px; letter-spacing: .04em; }
+.nav { padding: 6px 8px; border-radius: 6px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+.nav.on { background: var(--sprout); color: var(--sprout-fg); font-weight: 600; }
+.nav .new { font-size: 10px; background: var(--fg); color: var(--bg); border-radius: 4px; padding: 0 4px; }
+.main { padding: 20px 24px; min-width: 0; display: grid; align-content: start; gap: 16px; }
+.ph { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.ph h2 { margin: 0; font-size: 20px; }
+.ph p { margin: 2px 0 0; color: var(--muted-fg); font-size: 13px; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--border); background: var(--card); border-radius: 999px; padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+.chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.search { border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--muted-fg); min-width: 200px; }
+
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; font-weight: 500; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.s-ok { color: var(--success); } .s-wait { color: var(--warning); } .s-fail { color: var(--danger); } .s-run { color: var(--violet); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--muted); color: var(--muted-fg); white-space: nowrap; }
+.tag.chat { background: var(--sprout); color: var(--sprout-fg); font-weight: 600; }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; min-width: 860px; }
+th { text-align: left; font-size: 12px; color: var(--muted-fg); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--sidebar); white-space: nowrap; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: 0; }
+tbody tr.click { cursor: pointer; }
+tbody tr.click:hover td { background: var(--muted); }
+tbody tr.sel td { background: var(--muted); }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.quote { color: var(--muted-fg); }
+.quote::before { content: "“"; } .quote::after { content: "”"; }
+.prompt { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+.thumb { width: 36px; height: 36px; border-radius: 6px; flex: none; border: 1px solid var(--border); }
+.thumbs { display: flex; gap: 4px; }
+
+/* 抽屉 */
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--card); border-left: 1px solid var(--border); box-shadow: var(--shadow); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.dh { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.dh h3 { margin: 0; font-size: 15px; }
+.x { border: 1px solid var(--border); background: var(--card); border-radius: 6px; width: 28px; height: 28px; }
+.db { overflow-y: auto; padding: 16px 18px; display: grid; gap: 14px; align-content: start; }
+.msg { display: grid; gap: 6px; }
+.who { font-size: 11px; color: var(--muted-fg); display: flex; gap: 8px; align-items: center; }
+.bubble { border-radius: 10px; padding: 10px 12px; background: var(--muted); }
+.bubble.user { background: var(--fg); color: var(--bg); justify-self: end; max-width: 85%; }
+.tool { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.tool .th { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 12px; background: var(--sidebar); border-bottom: 1px solid var(--border); font-size: 12px; flex-wrap: wrap; }
+.tool .tb { padding: 10px 12px; display: grid; gap: 8px; }
+.kv { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 4px 10px; font-size: 12px; }
+.kv dt { color: var(--muted-fg); } .kv dd { margin: 0; }
+.diff ins { background: var(--ins); text-decoration: none; border-radius: 3px; padding: 0 2px; }
+.diff del { background: var(--del); border-radius: 3px; padding: 0 2px; }
+.copy { border: 1px solid var(--border); background: var(--card); border-radius: 6px; font-size: 11px; padding: 1px 8px; }
+.callrow { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--muted-fg); }
+
+/* 方案 2 卡片 */
+.ledger { display: grid; gap: 10px; }
+.lcard { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); display: grid; grid-template-columns: minmax(0, 1fr) 220px; }
+.lmain { padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.lmeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.lside { border-left: 1px solid var(--border); padding: 12px 14px; display: grid; gap: 8px; align-content: start; font-size: 12px; background: var(--sidebar); }
+.lside .thumbs .thumb { width: 44px; height: 44px; }
+.ctx { font-size: 12px; border-left: 2px solid var(--border); padding-left: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.kpi { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 12px; color: var(--muted-fg); }
+
+/* 方案 3 */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tabs button { background: none; border: 0; padding: 8px 12px; font-size: 13px; color: var(--muted-fg); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-color: var(--fg); font-weight: 600; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; }
+.panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.panel > header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.panel > .pb { padding: 12px 14px; display: grid; gap: 10px; }
+.hint { font-size: 12px; color: var(--muted-fg); background: var(--muted); border-radius: 6px; padding: 8px 10px; }
+.note { max-width: 1280px; margin: 12px auto 0; font-size: 12px; color: var(--muted-fg); }
+.mark { outline: 2px dashed var(--violet); outline-offset: 3px; border-radius: 6px; }
+.markl { font-size: 10px; color: var(--violet); font-weight: 600; }
+
+@media (max-width: 860px) {
+  .frame { grid-template-columns: minmax(0, 1fr); }
+  .side { display: none; }
+  .lcard { grid-template-columns: minmax(0, 1fr); }
+  .lside { border-left: 0; border-top: 1px solid var(--border); }
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main { padding: 16px; }
+  .drawer { position: fixed; z-index: 10; }
+}
+@media (prefers-reduced-motion: no-preference) { .drawer { animation: slide .2s ease-out; } @keyframes slide { from { transform: translateX(24px); opacity: .6; } } }
+</style>
+
+<div class="picker">
+  <h1>Admin「提示词」页原型（方案 2）</h1>
+  <p class="lead">示例数据。一行是一条 chat 拟出的生成提示词，含用户未确认的草稿；确认前被用户改过的部分高亮显示。</p>
+</div>
+<div class="frame" id="frame"></div>
+<p class="note">紫色虚线框标出的是新增部分。“原稿 → 提交稿”的差异来自 <span class="mono">agent_generation_drafts.drafted_prompt</span> 与任务里的实际 prompt。</p>
+
+<script>
+const SWATCH = ['#c9d6a3','#e7c6a5','#a9c4d8','#d9b3c7','#b8b0d9','#cfd9b0','#e3d3a0','#a8d5c2'];
+const sw = (i) => `background:linear-gradient(135deg, ${SWATCH[i % 8]}, ${SWATCH[(i + 3) % 8]})`;
+
+const TURNS = [
+  { id: 't_8f2a', conv: 'c_31d0', title: '夏季防晒衣主图', user: 'linmo@***.com', tier: 'Plus', at: '10-17 14:32', model: 'gpt-6-luna', tok: '18.2k / 1.4k', cache: '71%', dur: '9.8s',
+    said: '帮我把这件防晒衣做成淘宝主图，白底，要有清爽的夏天感，模特就别要了',
+    reply: '好的，我按白底主图拟了一版：平铺展示 + 冰蓝光感，左上留了卖点文字位。确认后会生成 4 张。',
+    calls: [{ tool: 'generate_image', target: 'gpt-image-2', n: 4, size: '1:1 · 2048', state: 'ok', draft: true,
+      orig: 'Flat lay of a light blue UPF50+ sun-protection jacket on pure white background, fresh summer vibe, soft icy-blue rim light, empty space top-left for selling-point text, e-commerce main image, high detail fabric texture',
+      final: 'Flat lay of a light blue UPF50+ sun-protection jacket on pure white background, fresh summer vibe, soft icy-blue rim light, water droplets on the sleeve, empty space top-left for selling-point text, e-commerce main image, high detail fabric texture',
+      task: 'tk_9a71e2', imgs: 4 }] },
+  { id: 't_8f19', conv: 'c_31d0', title: '夏季防晒衣主图', user: 'linmo@***.com', tier: 'Plus', at: '10-17 14:28', model: 'gpt-6-luna', tok: '12.6k / 0.6k', cache: '64%', dur: '4.1s',
+    said: '这件衣服的面料卖点是什么比较好',
+    reply: '从吊牌看是 UPF50+、冰丝凉感、可收纳。主图建议突出“UPF50+”和“凉感”，收纳适合放在副图。',
+    calls: [] },
+  { id: 't_7c03', conv: 'c_2e88', title: '咖啡豆详情页', user: 'device:7f3c…a1', tier: '未登录', at: '10-17 13:55', model: 'gpt-6-luna', tok: '22.9k / 2.1k', cache: '58%', dur: '15.3s',
+    said: '参考第 2 张图的风格，给咖啡豆包装做 3 张详情页场景图',
+    reply: '我拆成了 3 个场景：晨光木桌、手冲过程、豆子特写。第 3 张上游失败了，可以点重试。',
+    calls: [
+      { tool: 'generate_image', target: 'gemini-3.1-flash-image', n: 1, size: '3:4', state: 'ok', ref: 'image 2',
+        final: 'Kraft paper coffee bean bag on a rustic oak table, morning sunlight through window, steam from a ceramic cup, warm film tone matching reference image 2, editorial product photography', task: 'tk_77c0a1', imgs: 1 },
+      { tool: 'generate_image', target: 'gemini-3.1-flash-image', n: 1, size: '3:4', state: 'ok', ref: 'image 2',
+        final: 'Pour-over coffee in progress beside the kraft coffee bag, gooseneck kettle, close-up hands, warm film tone matching reference image 2', task: 'tk_77c0a2', imgs: 1 },
+      { tool: 'generate_image', target: 'gemini-3.1-flash-image', n: 1, size: '3:4', state: 'fail', ref: 'image 2',
+        final: 'Macro shot of roasted coffee beans spilling from the bag, shallow depth of field, warm film tone matching reference image 2', task: 'tk_77c0a3', imgs: 0, err: 'upstream 429 · rate limited' },
+    ] },
+  { id: 't_6b51', conv: 'c_2a10', title: '口红短视频', user: 'qy***@gmail.com', tier: 'Max', at: '10-17 11:07', model: 'gpt-6-astra', tok: '31.4k / 1.9k', cache: '82%', dur: '7.2s',
+    said: '用这张口红图做个 5 秒的短视频，镜头慢慢推近',
+    reply: '拟好了视频提示词，等你确认后提交，预计 1–2 分钟。',
+    calls: [{ tool: 'generate_video', target: 'doubao-seedance-2-0-mini', n: 1, size: '9:16 · 5s', state: 'wait', draft: true,
+      orig: 'Slow dolly-in on a matte red lipstick standing on a marble surface, soft pink backdrop, subtle light sweep across the metallic case, luxury cosmetic ad, 5 seconds',
+      final: null, task: null, imgs: 0 }] },
+  { id: 't_5e2d', conv: 'c_1f77', title: '宠物粮 banner', user: 'ops@***.cn', tier: 'Basic', at: '10-17 09:41', model: 'gpt-6-luna', tok: '9.8k / 0.9k', cache: '40%', dur: '22.6s',
+    said: '把 banner 里的狗换成柯基，背景不变',
+    reply: '我圈了狗的区域做局部重绘，背景保持不动。',
+    calls: [{ tool: 'edit_image', target: 'gpt-image-2', n: 2, size: '16:9', state: 'run', mask: true,
+      final: 'Replace the dog in the masked area with a happy Welsh Corgi sitting, same lighting and perspective, keep background untouched', task: 'tk_5e2d90', imgs: 0 }] },
+];
+
+const STATE = { ok: ['已出图', 's-ok'], fail: ['失败', 's-fail'], wait: ['待确认', 's-wait'], run: ['生成中', 's-run'] };
+const badge = (s) => `<span class="badge ${STATE[s][1]}">${STATE[s][0]}</span>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function diff(a, b) {
+  const A = a.split(' '), B = b.split(' ');
+  if (A.length * B.length > 250000) return `<del>${esc(a)}</del> <ins>${esc(b)}</ins>`;
+  const dp = Array.from({ length: A.length + 1 }, () => new Array(B.length + 1).fill(0));
+  for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < A.length && j < B.length) {
+    if (A[i] === B[j]) { out.push(esc(A[i])); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(`<del>${esc(A[i++])}</del>`);
+    else out.push(`<ins>${esc(B[j++])}</ins>`);
+  }
+  while (i < A.length) out.push(`<del>${esc(A[i++])}</del>`);
+  while (j < B.length) out.push(`<ins>${esc(B[j++])}</ins>`);
+  return out.join(' ');
+}
+
+function promptBlock(c) {
+  const edited = c.orig && c.final && c.orig !== c.final;
+  let body;
+  if (edited) body = `<div class="prompt diff">${diff(c.orig, c.final)}</div><div class="muted" style="font-size:11px">用户确认前改过：<del style="background:var(--del)">删</del> <ins style="background:var(--ins);text-decoration:none">增</ins>，相对 chat 原稿</div>`;
+  else body = `<div class="prompt">${esc(c.final || c.orig)}</div>`;
+  return body;
+}
+
+function sidebar(active, extra) {
+  const g = (label, items) => `<div class="grp"><b>${label}</b>${items.map(([k, t, isNew]) => `<div class="nav ${k === active ? 'on' : ''}"><span>${t}</span>${isNew ? '<span class="new">新</span>' : ''}</div>`).join('')}</div>`;
+  const biz = [['overview', '概览'], ['users', '用户'], ['tasks', '生成任务'], ['devices', '设备']];
+  if (extra) biz.splice(3, 0, extra);
+  return `<aside class="side"><div class="brand"><i></i>幕芽后台</div>${g('经营', biz)}${g('运营内容', [['insp', '灵感库'], ['skills', '技能目录']])}${g('运维', [['logs', '服务端日志'], ['ops', '运维看板'], ['errors', '前端错误']])}${g('设置', [['agent', 'Agent 模型'], ['audit', '审计']])}</aside>`;
+}
+
+/* ---------- 方案 2 ---------- */
+let filter2 = 'all';
+function view2() {
+  const items = TURNS.flatMap((t) => t.calls.map((c, k) => ({ t, c, k })));
+  const shown = items.filter(({ c }) => filter2 === 'all' || (filter2 === 'edited' ? c.orig && c.final && c.orig !== c.final : c.state === filter2));
+  const cnt = (f) => items.filter(({ c }) => f(c)).length;
+  const cards = shown.map(({ t, c, k }, i) => `<article class="lcard">
+    <div class="lmain">
+      <div class="lmeta">${badge(c.state)}<span class="tag">${esc(c.tool)}</span><span class="mono muted">${esc(c.target)}</span><span class="muted">· ${esc(c.n)} 张 · ${esc(c.size)}</span>${c.orig && c.final && c.orig !== c.final ? '<span class="tag" style="color:var(--violet)">确认前被改过</span>' : ''}</div>
+      ${promptBlock(c)}
+      <div class="ctx"><span class="muted">用户原话：</span>${esc(t.said)}</div>
+    </div>
+    <div class="lside">
+      <div><b>${esc(t.user)}</b> <span class="muted">${esc(t.tier)}</span></div>
+      <div class="muted tnum">${esc(t.at)} · <span class="mono">${esc(t.model)}</span></div>
+      ${c.imgs ? `<div class="thumbs">${Array.from({ length: c.imgs }, (_, j) => `<span class="thumb" style="${sw(i + j)}"></span>`).join('')}</div>` : `<div class="muted">${c.err ? `<span class="s-fail">${esc(c.err)}</span>` : c.task ? '等待产物' : '草稿未提交，未扣费'}</div>`}
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="copy" type="button">复制</button>${c.task ? `<button class="copy" type="button">任务 ${esc(c.task)}</button>` : ''}<button class="copy" type="button">看对话</button></div>
+    </div></article>`).join('') || '<div class="hint">没有符合条件的提示词。</div>';
+  const f = (key, label, n) => `<button class="chip ${filter2 === key ? 'on' : ''}" type="button" data-f="${key}">${label} ${n}</button>`;
+  return sidebar('prompts', ['prompts', '提示词', true]) + `<main class="main">
+    <div class="ph"><div><h2>提示词 <span class="markl">新页面</span></h2><p>chat 拟出的每一条生成提示词，包括用户还没确认的草稿。</p></div><span class="search">搜提示词、用户、任务 ID…</span></div>
+    <div class="kpis mark">
+      <div class="kpi"><b>1,284</b><span>今天 chat 产出的提示词</span></div>
+      <div class="kpi"><b>23%</b><span>确认前被用户改过</span></div>
+      <div class="kpi"><b>9%</b><span>草稿没有确认</span></div>
+      <div class="kpi"><b>4.1%</b><span>提交后失败</span></div>
+    </div>
+    <div class="filters">${f('all', '全部', items.length)}${f('edited', '被改过', cnt((c) => c.orig && c.final && c.orig !== c.final))}${f('wait', '待确认', cnt((c) => c.state === 'wait'))}${f('fail', '失败', cnt((c) => c.state === 'fail'))}${f('ok', '已出图', cnt((c) => c.state === 'ok'))}</div>
+    <div class="ledger mark">${cards}</div>
+  </main>`;
+}
+
+function render() {
+  document.getElementById('frame').innerHTML = view2();
+}
+document.addEventListener('click', (e) => {
+  const f = e.target.closest('[data-f]');
+  if (f) { filter2 = f.dataset.f; return render(); }
+  const c = e.target.closest('.copy');
+  if (c && c.textContent.startsWith('复制')) { const old = c.textContent; c.textContent = '已复制'; setTimeout(() => (c.textContent = old), 1000); }
+});
+render();
+</script>

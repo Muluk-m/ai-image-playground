@@ -12,7 +12,11 @@ import type {
   QueueProvider,
   SubmitRequest,
 } from '@image-playground/shared'
-import { AGENT_CONFIRMATION_PROMPT_MAX_CHARS, agentTitleLine } from '@image-playground/shared'
+import {
+  AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
+  agentTitleLine,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
@@ -27,7 +31,7 @@ import {
   validateImageParameters,
   validateProductionConfirmation,
 } from './production-generation-validation'
-import { shapeQueuePrompt, unshapeQueuePrompt } from './prompt-shaping'
+import { shapeQueuePrompt } from './prompt-shaping'
 import { AgentToolError, queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
 
@@ -100,6 +104,7 @@ export async function saveGenerationDraft(
       provider: input.provider,
       model: input.model,
       prompt: input.prompt,
+      drafted_prompt: input.prompt,
       request,
       submission: input.submission,
       created_at: Date.now(),
@@ -479,7 +484,11 @@ async function taskOfCommand(
   // 落库那一句带着提交时钉上去的机器指令，卡片要回的是用户当初确认的原文。
   return {
     taskId: task.id,
-    prompt: unshapeQueuePrompt({ prompt: task.request.prompt, size: draft.request.size }),
+    prompt: unshapeQueuePrompt({
+      provider: draft.provider,
+      prompt: task.request.prompt,
+      size: draft.request.size,
+    }),
   }
 }
 
