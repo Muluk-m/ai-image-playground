@@ -1,6 +1,6 @@
 import type { AgentFetchedImage, AgentToolArtifact } from '@image-playground/shared'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
-import { previewArtifactBitmap } from './artifactSource'
+import { displayArtifactBitmap } from './artifactSource'
 import { agentCanvasSink } from './canvasSink'
 
 const RESULT_CARD_THUMBNAIL_SCALE = 0.45
@@ -32,7 +32,7 @@ export async function artifactPreview(
     if (thumbnail && agentCanvasSink() === canvas && canvas.has(artifact.artifactId))
       return { artifact, source: thumbnail, onCanvas: true }
   }
-  return { artifact, source: await previewArtifactBitmap(artifact), onCanvas: false }
+  return { artifact, source: await displayArtifactBitmap(artifact), onCanvas: false }
 }
 
 /** 结果卡上一张取回来的网图此刻的样子。 */

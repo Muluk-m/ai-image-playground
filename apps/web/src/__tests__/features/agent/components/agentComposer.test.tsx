@@ -45,6 +45,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const resultBitmap = vi.hoisted(() => vi.fn())
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   previewArtifactBitmap: resultBitmap,
+  displayArtifactBitmap: resultBitmap,
+  knownArtifactReferenceSource: (artifact: { mediaId?: string }, canvasSource?: string) =>
+    artifact.mediaId ? `aip-media:${artifact.mediaId}` : canvasSource,
 }))
 
 const PIXEL = 'data:image/png;base64,aGk='
