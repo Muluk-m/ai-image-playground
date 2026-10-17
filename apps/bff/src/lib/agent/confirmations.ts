@@ -12,7 +12,11 @@ import type {
   QueueProvider,
   SubmitRequest,
 } from '@image-playground/shared'
-import { AGENT_CONFIRMATION_PROMPT_MAX_CHARS, agentTitleLine } from '@image-playground/shared'
+import {
+  AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
+  agentTitleLine,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
@@ -27,7 +31,7 @@ import {
   validateImageParameters,
   validateProductionConfirmation,
 } from './production-generation-validation'
-import { shapeQueuePrompt, unshapeQueuePrompt } from './prompt-shaping'
+import { shapeQueuePrompt } from './prompt-shaping'
 import { AgentToolError, queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
 
@@ -100,6 +104,7 @@ export async function saveGenerationDraft(
       provider: input.provider,
       model: input.model,
       prompt: input.prompt,
+      drafted_prompt: input.prompt,
       request,
       submission: input.submission,
       created_at: Date.now(),

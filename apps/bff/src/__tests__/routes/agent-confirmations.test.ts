@@ -328,6 +328,12 @@ describe('生成前确认', () => {
     const rows = await generationTasks(conversationId)
     expect(rows).toHaveLength(1)
     expect(rows[0]!.request_payload.prompt).toBe(submittedPrompt(WHITE_PROMPT))
+    const [draft] = await db
+      .select()
+      .from(schema.agent_generation_drafts)
+      .where(eq(schema.agent_generation_drafts.conversation_id, conversationId))
+    expect(draft?.drafted_prompt).toBe(GREEN_DRAFT)
+    expect(draft?.prompt).toBe(WHITE_PROMPT)
     // 确认不再经过对话模型：上游只被问过拟稿那一次。
     expect(calls).toHaveLength(1)
     // 这时才预扣，且只扣一次。
