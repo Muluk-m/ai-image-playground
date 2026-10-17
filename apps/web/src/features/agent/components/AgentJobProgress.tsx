@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
-import { Icon } from '../../../components/ui/icon'
+import { Icon, type IconName } from '../../../components/ui/icon'
 import { i18next, useTranslation } from '../../../i18n'
 import { CARD_NOTE } from '../agentStyles'
 import {
@@ -66,9 +66,11 @@ export default function AgentJobProgress({ progress }: { progress: AgentToolProg
 export function AgentJobCancel({
   message,
   className,
+  icon = 'stop',
 }: {
   message: AgentToolMessage
   className?: string
+  icon?: IconName
 }) {
   const { t } = useTranslation('agent')
   const [state, setState] = useState<'idle' | 'cancelling' | 'failed'>('idle')
@@ -91,7 +93,7 @@ export function AgentJobCancel({
         }}
       >
         <Icon
-          name={state === 'cancelling' ? 'loading' : 'stop'}
+          name={state === 'cancelling' ? 'loading' : icon}
           className={state === 'cancelling' ? 'animate-spin motion-reduce:animate-none' : undefined}
         />
       </TooltipIconButton>

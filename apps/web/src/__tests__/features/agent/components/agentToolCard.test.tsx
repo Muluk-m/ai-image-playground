@@ -401,7 +401,7 @@ it('shows the assistant-ui image element only while an image result is pending',
     expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(
       '已提交',
     )
-    expect(host.textContent?.match(/一只橘猫/g)).toHaveLength(1)
+    expect(host.textContent).not.toContain('一只橘猫')
 
     act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
     expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
@@ -411,6 +411,34 @@ it('shows the assistant-ui image element only while an image result is pending',
     act(() => root.unmount())
   }
 })
+it('offers cancel on each pending tile instead of the batch action row', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pending = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    prompt: '在背景图中加入白色圆形台盆',
+    status: 'submitted',
+    job: { taskId: `task-${id}`, media: 'image' },
+  })
+  try {
+    act(() => root.render(<AgentImageRun messages={[pending('a'), pending('b')]} />))
+    const tiles = host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')
+    expect(tiles).toHaveLength(2)
+    for (const tile of tiles)
+      expect(tile.querySelector('button[aria-label="取消任务"]')).not.toBeNull()
+    expect(host.querySelectorAll('button[aria-label="取消任务"]')).toHaveLength(2)
+    expect(host.textContent).not.toContain('第 1 位')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toBe('0/2 完成')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
 it.each([
   1, 3,
 ])('keeps %i image slots from submission through delivery and completion', async (count) => {

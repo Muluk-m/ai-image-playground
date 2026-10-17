@@ -886,6 +886,16 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   max-width: 100%; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.label-sm'); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.studio-agent-tile-cancel {
+  position: absolute; top: 8px; right: 8px; z-index: 2; width: 32px; height: 32px; border-radius: 9999px;
+  border: 1px solid hsl(var(--on-media) / .13); background: hsl(var(--scrim) / .55); color: hsl(var(--on-media));
+  backdrop-filter: blur(12px); opacity: 0; transition: opacity .15s ease;
+}
+.studio-agent-tile-cancel:hover { background: hsl(var(--scrim) / .75); }
+.studio-agent-inline-tile:hover .studio-agent-tile-cancel,
+.studio-agent-inline-tile:focus-within .studio-agent-tile-cancel,
+.studio-agent-tile-cancel:disabled { opacity: 1; }
+@media (hover: none) { .studio-agent-tile-cancel { opacity: 1; } }
 .studio-agent-tile-progress { align-items: center; }
 .studio-agent-tile-progress > span { text-align: center; overflow-wrap: anywhere; }
 .studio-agent-tile-status {
