@@ -753,6 +753,7 @@ export const agent_generation_drafts = pgTable(
     model: text('model').notNull(),
     /** 拟好的提示词；确认时由用户改过的那一份覆盖，两份都要能看见提交的是哪一句。 */
     prompt: text('prompt').notNull(),
+    drafted_prompt: text('drafted_prompt'),
     /** 除提示词以外的整份请求，输入图与遮罩已归档成对象引用，绝不在库里留 base64。 */
     request: bunJsonb('request').$type<PersistedSubmitRequest>().notNull(),
     submission: bunJsonb('submission').$type<AgentDraftSubmission>().notNull(),
@@ -762,6 +763,7 @@ export const agent_generation_drafts = pgTable(
     confirmed_at: epochMs('confirmed_at'),
   },
   (t) => [
+    index('idx_agent_generation_drafts_created').on(t.created_at.desc(), t.id.desc()),
     uniqueIndex('idx_agent_generation_drafts_call').on(
       t.conversation_id,
       t.turn_id,
@@ -971,6 +973,9 @@ export const tasks = pgTable(
     index('idx_tasks_user_status_time')
       .on(t.user_id, t.status, t.submitted_at.desc(), t.id.desc())
       .where(sql`${t.user_id} IS NOT NULL`),
+    index('idx_tasks_agent_submitted')
+      .on(t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.agent_conversation_id} IS NOT NULL`),
     index('idx_tasks_agent_turn')
       .on(t.agent_conversation_id, t.agent_turn_id)
       .where(sql`${t.agent_turn_id} IS NOT NULL`),

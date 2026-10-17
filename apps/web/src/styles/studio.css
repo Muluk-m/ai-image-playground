@@ -1342,7 +1342,7 @@ body .studio-global-account {
 }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column {
   display: flex; position: relative; order: 3; flex: 0 0 auto; min-width: 0;
-  width: auto; max-width: min(480px, 42%); margin: 0; padding: 0;
+  width: auto; max-width: 60%; margin: 0; padding: 0;
   z-index: 35; transform-origin: right top;
 }
 .studio-layout[data-node-canvas="true"] > .studio-chat-column > .studio-sidebar {
@@ -1382,17 +1382,19 @@ body .studio-global-account {
 
 /* Node workspace: controls stay at screen scale, media owns the canvas. */
 .studio-node-tools, .studio-node-navigation, .studio-node-history, .studio-node-selection-bar {
-  position: absolute; z-index: 25; display: flex; align-items: center; gap: 4px;
+  position: absolute; z-index: 450; display: flex; align-items: center; gap: 4px;
   padding: 6px; border: 1px solid hsl(var(--border) / .7); border-radius: 16px;
   background: hsl(var(--card) / .94); box-shadow: 0 6px 24px hsl(var(--scrim) / .07); backdrop-filter: blur(16px);
 }
 .studio-node-tools { left: 16px; top: 50%; transform: translateY(-50%); flex-direction: column; padding: 8px; max-height: calc(100% - 120px); overflow-y: auto; }
-.studio-node-navigation { bottom: 18px; left: 16px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
+.studio-node-navigation { bottom: 156px; left: 64px; border-radius: 16px; background: linear-gradient(180deg, hsl(var(--muted) / .96), hsl(var(--card) / .96)); box-shadow: inset 0 1px 0 hsl(var(--foreground) / .06), var(--shadow-popover); }
 .studio-node-zoom-trigger { min-width: 76px; gap: 6px; padding: 0 8px; }
 .studio-node-arrange-confirm { position: absolute; bottom: calc(100% + 12px); left: 0; width: 256px; max-width: calc(100vw - 32px); padding: 16px; display: grid; gap: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--popover)); box-shadow: var(--shadow-popover); }
 .studio-node-history { position: fixed; top: calc(var(--safe-area-top) + var(--studio-account-cluster-top) + var(--app-header-inset)); right: calc(var(--studio-canvas-chat-width, 0px) + var(--studio-header-actions-width, 40px) + 28px + var(--app-header-inset)); z-index: 40; height: var(--studio-account-cluster-control); padding: 3px; border-radius: 12px; }
 .studio-node-history button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 @media (pointer: coarse), (max-width: 767px) {
+  .studio-node-navigation { bottom: 180px; left: 64px; }
+  .studio-node-chat { right: 8px; bottom: 180px; }
   .studio-node-history { padding: 0; }
   .studio-node-history button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
 }
@@ -1404,7 +1406,7 @@ body .studio-global-account {
 .studio-node-tool-divider { width: 1px; height: 22px; background: hsl(var(--border)); margin: 0 3px; }
 .studio-node-tools .studio-node-tool-divider { height: 1px; width: 26px; margin: 5px 0; }
 .studio-node-chat {
-  position: absolute; right: 16px; bottom: 16px; z-index: 26; isolation: isolate; overflow: hidden;
+  position: absolute; right: 16px; bottom: 156px; z-index: 451; isolation: isolate; overflow: hidden;
   height: 40px; gap: 8px; padding: 0 16px 0 8px; border: 1px solid hsl(var(--primary) / .22);
   color: hsl(var(--foreground)); font-size: theme('fontSize.sm'); font-weight: 500;
   background: linear-gradient(175deg, hsl(var(--muted)), hsl(var(--card)) 55%, hsl(var(--primary) / .13));
@@ -1446,10 +1448,10 @@ body .studio-global-account {
   .studio-layout:has(> .studio-node-project-title) .studio-node-tools { top: 64px; }
   .studio-node-tools button { flex-shrink: 0; }
   .studio-node-tools .studio-node-tool-divider { width: 1px; height: 22px; flex-shrink: 0; margin: 0 3px; }
-  .studio-node-navigation { left: 8px; bottom: 12px; gap: 0; padding: 3px; }
+  .studio-node-navigation { left: 64px; bottom: 180px; gap: 0; padding: 3px; }
   .studio-node-navigation > button { min-width: 36px; height: 40px; padding-inline: 6px; }
   .studio-node-navigation .studio-node-zoom-trigger { min-width: 68px; }
-  .studio-node-chat { right: 8px; bottom: 12px; width: 44px; height: 48px; padding: 0; }
+  .studio-node-chat { right: 8px; bottom: 180px; width: 44px; height: 48px; padding: 0; }
   .studio-node-chat-label { display: none; }
   .studio-node-composer { width: calc(100% - 16px); }
 }
