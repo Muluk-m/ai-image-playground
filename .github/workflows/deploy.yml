@@ -63,7 +63,8 @@ jobs:
           printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
           # shellcheck source=/dev/null
           . "$RUNNER_TEMP/pages.env"
-          scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$INTERNAL_BFF_BASE_URL" "$PAID_BFF_BASE_URL"
+          WEB_ORIGINS="$INTERNAL_PUBLIC_ORIGIN $PAID_PUBLIC_ORIGIN" ADMIN_ORIGIN="${ADMIN_PUBLIC_ORIGIN:-}" \
+            scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$INTERNAL_BFF_BASE_URL" "$PAID_BFF_BASE_URL"
 
   release:
     name: Tag the release
