@@ -484,7 +484,11 @@ async function taskOfCommand(
   // 落库那一句带着提交时钉上去的机器指令，卡片要回的是用户当初确认的原文。
   return {
     taskId: task.id,
-    prompt: unshapeQueuePrompt({ prompt: task.request.prompt, size: draft.request.size }),
+    prompt: unshapeQueuePrompt({
+      provider: draft.provider,
+      prompt: task.request.prompt,
+      size: draft.request.size,
+    }),
   }
 }
 

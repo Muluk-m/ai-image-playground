@@ -19,6 +19,11 @@ describe('buildAspectInstruction', () => {
 })
 
 describe('unshapeQueuePrompt', () => {
+  it('preserves a literal guard prefix for Gemini, which never adds one', () => {
+    const prompt = applyPromptRewriteGuard('literal user text')
+    expect(unshapeQueuePrompt({ provider: 'gemini', prompt })).toBe(prompt)
+  })
+
   it('removes exact machine instructions while preserving the original text', () => {
     const original = '  Product photo\nwith a blue background  '
     const shaped = `${applyPromptRewriteGuard(original)}\n\n${buildAspectInstruction('1024x1536')}`
