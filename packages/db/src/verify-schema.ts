@@ -120,6 +120,7 @@ export const EXPECTED_INDEXES = [
   'agent_generation_drafts_pkey',
   'idx_agent_generation_drafts_call',
   'idx_agent_generation_drafts_created',
+  'idx_agent_generation_drafts_task',
   'canvas_projects_pkey',
   'canvas_documents_pkey',
   'canvas_updates_project_id_sequence_pk',
