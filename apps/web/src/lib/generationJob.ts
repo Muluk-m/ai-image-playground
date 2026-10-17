@@ -9,7 +9,7 @@ import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
 import { isClientCapabilityEnabled } from './clientCapabilities'
-import { resolveMediaSource } from './cloudMedia'
+import { mediaIdentity, resolveMediaSource } from './cloudMedia'
 import type { CallApiResult } from './imageApiShared'
 import {
   getPrivateSubmissionGuard,
@@ -290,8 +290,14 @@ async function runUnit<H>(
       outputRetention: unit.outputRetention,
       prompt: unit.prompt,
       params: unit.params,
+      // 云媒体里的图按身份交给 BFF，由服务端读字节、按同一口径压缩；带遮罩时要像素对齐，
+      // 软遮罩降级也得在本机画标注图，所以仍取原图。
       inputImageDataUrls: await Promise.all(
-        unit.inputImageDataUrls.map((source) => resolveMediaSource(source, 'original', true)),
+        unit.inputImageDataUrls.map((source) =>
+          !unit.maskDataUrl && mediaIdentity(source)
+            ? source
+            : resolveMediaSource(source, 'original', true),
+        ),
       ),
       ...(unit.maskDataUrl ? { maskDataUrl: unit.maskDataUrl } : {}),
       clientRequestId: unit.clientRequestId,
