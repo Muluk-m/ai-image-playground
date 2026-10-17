@@ -34,7 +34,7 @@ export const textGenerationRoutes = new Elysia({ prefix: '/api/canvas' })
       if (!body.instruction.trim()) return status(400, { error: 'text_instruction_empty' })
       try {
         const result = await generateCanvasText(body, authUser?.id ?? null, request.signal)
-        if ('failure' in result) return reservationFailureResponse(result.failure)
+        if (result.failure) return reservationFailureResponse(result.failure)
         return result
       } catch (error) {
         if (error instanceof CanvasTextError) return status(error.status, { error: error.code })

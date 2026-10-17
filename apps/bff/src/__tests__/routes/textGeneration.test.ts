@@ -17,21 +17,28 @@ const { textGenerationRoutes } = await import('../../routes/textGeneration')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
-const { agentModelSettingsView, saveAgentModelSettings } = await import('../../lib/agent/model-settings-store')
+const { agentModelSettingsView, saveAgentModelSettings } = await import(
+  '../../lib/agent/model-settings-store'
+)
 const app = new Elysia().use(textGenerationRoutes)
 let cookie = ''
 let calls: Record<string, unknown>[] = []
 const input = {
-  deviceId: 'canvas-text-device', model: 'upstream-gateway::fixture-agent-model',
-  instruction: '扩写开场', currentText: '山海学徒',
+  deviceId: 'canvas-text-device',
+  model: 'upstream-gateway::fixture-agent-model',
+  instruction: '扩写开场',
+  currentText: '山海学徒',
   references: [{ id: 'source-text', kind: 'text', label: '人物', text: '主角名叫青禾。' }],
 }
 
 async function submit(body = input, authenticated = true) {
-  return app.handle(new Request('http://localhost/api/canvas/text', {
-    method: 'POST', headers: { 'content-type': 'application/json', ...(authenticated ? { cookie } : {}) },
-    body: JSON.stringify(body),
-  }))
+  return app.handle(
+    new Request('http://localhost/api/canvas/text', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(authenticated ? { cookie } : {}) },
+      body: JSON.stringify(body),
+    }),
+  )
 }
 
 beforeEach(async () => {
@@ -42,7 +49,14 @@ beforeEach(async () => {
   await db.delete(schema.tasks)
   await db.delete(schema.user_sessions)
   await db.delete(schema.users)
-  await db.insert(schema.users).values({ id: 'text-user', username: 'text.user', password_hash: 'hash', status: 'active', created_at: Date.now(), updated_at: Date.now() })
+  await db.insert(schema.users).values({
+    id: 'text-user',
+    username: 'text.user',
+    password_hash: 'hash',
+    status: 'active',
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  })
   cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('text-user', tx))}`
   setAgentFetchForTesting(async (_url, init) => {
     calls.push(JSON.parse(String(init?.body)))
@@ -66,7 +80,12 @@ it('generates with the selected chat model, full source text and one billed task
   expect(billing.reservations).toHaveLength(1)
   expect(billing.settlements).toMatchObject([{ outcome: 'completed', upstreamInvocationCount: 1 }])
   const [task] = await db.select().from(schema.tasks)
-  expect(task).toMatchObject({ kind: 'chat', status: 'completed', agent_conversation_id: null, agent_turn_id: null })
+  expect(task).toMatchObject({
+    kind: 'chat',
+    status: 'completed',
+    agent_conversation_id: null,
+    agent_turn_id: null,
+  })
 })
 
 it('rejects unauthenticated and unlisted models before charging or dispatching', async () => {
@@ -82,7 +101,11 @@ it('does not dispatch or leave a task when the balance cannot cover generation',
   billing.answer = { kind: 'insufficient_credits', required: 10, available: 0 }
   const response = await submit()
   expect(response.status).toBe(402)
-  expect(await response.json()).toEqual({ error: 'insufficient_credits', required: 10, available: 0 })
+  expect(await response.json()).toEqual({
+    error: 'insufficient_credits',
+    required: 10,
+    available: 0,
+  })
   expect(calls).toEqual([])
   expect(await db.select().from(schema.tasks)).toEqual([])
   expect(billing.settlements).toEqual([])
@@ -100,31 +123,47 @@ it('releases the reservation on an upstream failure without returning generated 
 
 it('lists and dispatches inherited provider models without requiring custom overrides', async () => {
   const view = await agentModelSettingsView()
-  const model = view.templates.find((item) => item.id === 'openai')!.models.find(
-    (item) => item.api === 'openai-completions' && item.imageInput,
-  )!
+  const model = view.templates
+    .find((item) => item.id === 'openai')!
+    .models.find((item) => item.api === 'openai-responses' && item.imageInput)!
   const settings = {
     ...view.settings,
-    providers: [...view.settings.providers, {
-      id: 'native', name: 'Native', template: 'openai', baseUrl: 'https://native.example',
-      secretRef: 'UPSTREAM_API_KEY', models: [],
-    }],
+    providers: [
+      ...view.settings.providers,
+      {
+        id: 'native',
+        name: 'Native',
+        template: 'openai',
+        baseUrl: 'https://native.example',
+        secretRef: 'UPSTREAM_API_KEY',
+        models: [],
+      },
+    ],
   }
   await saveAgentModelSettings({ revision: view.revision, settings }, 'test-operator')
-  const response = await app.handle(new Request('http://localhost/api/canvas/text/models', { headers: { cookie } }))
-  const directory = await response.json() as { models: { id: string }[] }
+  const response = await app.handle(
+    new Request('http://localhost/api/canvas/text/models', { headers: { cookie } }),
+  )
+  const directory = (await response.json()) as { models: { id: string }[] }
   expect(directory.models.some((item) => item.id === `native::${model.id}`)).toBe(true)
+  setAgentFetchForTesting(async (_url, init) => {
+    calls.push(JSON.parse(String(init?.body)))
+    return Response.json({ error: { message: 'fixture rejection' } }, { status: 400 })
+  })
   const generated = await submit({ ...input, model: `native::${model.id}` })
-  expect(generated.status).toBe(200)
+  expect(generated.status).toBe(502)
   expect(calls[0]?.model).toBe(model.id)
-  expect(billing.settlements).toMatchObject([{ outcome: 'completed' }])
+  expect(billing.settlements).toMatchObject([{ outcome: 'failed', upstreamInvocationCount: 1 }])
 })
 
 it('rejects missing pricing without an upstream call or leftover task', async () => {
   billing.answer = { kind: 'price_unavailable', model: 'fixture-agent-model' }
   const response = await submit()
   expect(response.status).toBe(422)
-  expect(await response.json()).toEqual({ error: 'model_price_unavailable', model: 'fixture-agent-model' })
+  expect(await response.json()).toEqual({
+    error: 'model_price_unavailable',
+    model: 'fixture-agent-model',
+  })
   expect(calls).toEqual([])
   expect(await db.select().from(schema.tasks)).toEqual([])
 })
