@@ -484,6 +484,13 @@
       "when": 1790853000021,
       "tag": "0069_agent_model_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1792212583628,
+      "tag": "0070_agent_draft_drafted_prompt",
+      "breakpoints": true
     }
   ]
 }
