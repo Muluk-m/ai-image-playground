@@ -1,6 +1,6 @@
 import { STORE_PERSIST_KEY, safeLocalStorage } from './authScope'
 
-const LAST_USER_KEY = 'image-playground.last-storage-user'
+export const LAST_USER_KEY = 'image-playground.last-storage-user'
 
 /** This remembers a local namespace only, never a server credential or authenticated identity. */
 export function rememberStorageUser(id: string | null): void {
