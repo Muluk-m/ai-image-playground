@@ -20,6 +20,7 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { agentModelSettingsView, saveAgentModelSettings } = await import(
   '../../lib/agent/model-settings-store'
 )
+const { _setSafeFetchForTesting } = await import('../../lib/safeFetch')
 const app = new Elysia().use(textGenerationRoutes)
 let cookie = ''
 let calls: Record<string, unknown>[] = []
@@ -65,7 +66,10 @@ beforeEach(async () => {
   })
 })
 
-afterEach(() => setAgentFetchForTesting())
+afterEach(() => {
+  setAgentFetchForTesting()
+  _setSafeFetchForTesting()
+})
 afterAll(async () => {
   _setPrivateBffOverlayForTesting()
   await close()
@@ -122,6 +126,7 @@ it('releases the reservation on an upstream failure without returning generated 
 })
 
 it('lists and dispatches inherited provider models without requiring custom overrides', async () => {
+  _setSafeFetchForTesting({ resolve: async () => [{ address: '8.8.8.8', family: 4 }] })
   const view = await agentModelSettingsView()
   const model = view.templates
     .find((item) => item.id === 'openai')!

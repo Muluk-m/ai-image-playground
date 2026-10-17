@@ -377,7 +377,7 @@ export default function AgentComposer({
         .filter((group) => selected.has(group.id))
         .map((group) => ({
           id: group.id,
-          type: 'group',
+          type: 'group' as const,
           name: group.name || t('composer.nodeTypes.group'),
         })),
     ]
