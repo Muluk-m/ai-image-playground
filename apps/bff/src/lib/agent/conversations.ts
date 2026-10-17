@@ -424,30 +424,46 @@ async function withArtifactMedia(
     ),
   ]
   if (!taskIds.length) return messages
-  const rows = await db
-    .select({
-      generationId: schema.generation_images.generation_id,
-      position: schema.generation_images.position,
-      mediaId: schema.media_objects.id,
-    })
-    .from(schema.generation_images)
-    .innerJoin(
-      schema.generation_records,
-      eq(schema.generation_records.id, schema.generation_images.generation_id),
-    )
-    .innerJoin(schema.media_objects, eq(schema.media_objects.id, schema.generation_images.media_id))
-    .where(
-      and(
-        inArray(schema.generation_images.generation_id, taskIds),
-        eq(schema.generation_images.role, 'output'),
-        eq(schema.generation_records.user_id, userId),
-        eq(schema.generation_records.status, 'completed'),
-        eq(schema.media_objects.user_id, userId),
-        eq(schema.media_objects.status, 'ready'),
-        isNotNull(schema.media_objects.object_key),
-        isNotNull(schema.media_objects.preview_key),
-      ),
-    )
+  const rows: { generationId: string; position: number; mediaId: string }[] = []
+  try {
+    // 长会话的产物很多：分批查，免得一条语句的参数撑爆。
+    for (let start = 0; start < taskIds.length; start += 500) {
+      rows.push(
+        ...(await db
+          .select({
+            generationId: schema.generation_images.generation_id,
+            position: schema.generation_images.position,
+            mediaId: schema.media_objects.id,
+          })
+          .from(schema.generation_images)
+          .innerJoin(
+            schema.generation_records,
+            eq(schema.generation_records.id, schema.generation_images.generation_id),
+          )
+          .innerJoin(
+            schema.media_objects,
+            eq(schema.media_objects.id, schema.generation_images.media_id),
+          )
+          .where(
+            and(
+              inArray(schema.generation_images.generation_id, taskIds.slice(start, start + 500)),
+              eq(schema.generation_images.role, 'output'),
+              eq(schema.generation_records.user_id, userId),
+              eq(schema.generation_records.status, 'completed'),
+              isNull(schema.generation_records.deleted_at),
+              eq(schema.media_objects.user_id, userId),
+              eq(schema.media_objects.status, 'ready'),
+              isNotNull(schema.media_objects.object_key),
+              // 取图要走 `/access`，它要求预览档已生成。
+              isNotNull(schema.media_objects.preview_key),
+            ),
+          )),
+      )
+    }
+  } catch {
+    // 只是让前端少走一趟：补不上就按旧路径取图，不能因此读不到历史。
+    return messages
+  }
   if (!rows.length) return messages
   const media = new Map(rows.map((row) => [`${row.generationId}:${row.position}`, row.mediaId]))
   return messages.map((message) => ({
