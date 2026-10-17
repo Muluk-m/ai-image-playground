@@ -1,0 +1,28 @@
+{
+  "composer": {
+    "label": "文本生成",
+    "chooseModel": "选择 Chat 模型",
+    "chatModel": "Chat 模型",
+    "placeholder": "描述想写什么，或如何修改……",
+    "generating": "生成中……",
+    "send": "生成文本"
+  },
+  "errors": {
+    "failed": "文本生成失败",
+    "unauthorized": "请先登录",
+    "text_model_unavailable": "Chat 模型不可用",
+    "text_generation_failed": "文本生成失败",
+    "text_generation_interrupted": "文本生成已中断",
+    "instance_draining": "服务正在维护，请稍后重试",
+    "insufficient_credits": "积分不足",
+    "model_price_unavailable": "模型价格暂不可用",
+    "text_generation_empty": "模型没有返回文本",
+    "text_generation_invalid_response": "文本生成响应无效",
+    "text_generation_models_failed": "Chat 模型暂不可用",
+    "text_generation_models_invalid": "Chat 模型列表无效",
+    "text_generation_content_changed": "生成期间正文已修改，已保留你的编辑，请重新生成。",
+    "text_context_too_large": "正文和引用超出该模型的上下文限制。",
+    "text_instruction_empty": "请先输入生成要求。",
+    "rate_limited": "请求过于频繁，请稍后重试。"
+  }
+}

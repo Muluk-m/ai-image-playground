@@ -16,6 +16,7 @@ import store from './store.json'
 import task from './task.json'
 import toolbox from './toolbox.json'
 import video from './video.json'
+import textGeneration from './textGeneration.json'
 
 /**
  * 一个 locale 一个聚合入口：中文这份被 index.ts 静态 import（既是默认语言也是 fallback，
@@ -39,6 +40,7 @@ export const zhCN = {
   agent,
   inspiration,
   legal,
+  textGeneration,
   toolbox,
 }
 

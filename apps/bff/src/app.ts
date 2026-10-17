@@ -18,6 +18,7 @@ import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { clientErrorRoutes } from './routes/client-errors'
+import { textGenerationRoutes } from './routes/textGeneration'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
@@ -199,6 +200,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
+  .use(textGenerationRoutes)
   .use(productionRoutes)
   .use(syncRoutes)
   .use(projectRoutes)

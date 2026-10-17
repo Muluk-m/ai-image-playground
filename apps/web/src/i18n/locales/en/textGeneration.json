@@ -1,0 +1,28 @@
+{
+  "composer": {
+    "label": "Text generation",
+    "chooseModel": "Choose a chat model",
+    "chatModel": "Chat model",
+    "placeholder": "Describe what to write or revise…",
+    "generating": "Generating…",
+    "send": "Generate text"
+  },
+  "errors": {
+    "failed": "Text generation failed",
+    "unauthorized": "Please sign in",
+    "text_model_unavailable": "Chat model unavailable",
+    "text_generation_failed": "Text generation failed",
+    "text_generation_interrupted": "Text generation interrupted",
+    "instance_draining": "Service maintenance in progress",
+    "insufficient_credits": "Insufficient credits",
+    "model_price_unavailable": "Model pricing unavailable",
+    "text_generation_empty": "The model returned no text",
+    "text_generation_invalid_response": "Invalid text generation response",
+    "text_generation_models_failed": "Chat models are unavailable",
+    "text_generation_models_invalid": "Invalid chat model list",
+    "text_generation_content_changed": "The text was edited during generation. Your edits were kept; submit again to regenerate.",
+    "text_context_too_large": "The text and references exceed this model's context limit.",
+    "text_instruction_empty": "Enter an instruction first.",
+    "rate_limited": "Too many requests. Please try again shortly."
+  }
+}
