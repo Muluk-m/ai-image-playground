@@ -11,6 +11,7 @@
 本次分支验收（[PR #1346](https://github.com/Muluk-m/ai-image-playground/pull/1346)，[云端 run 39048683612](https://github.com/Muluk-m/ai-image-playground/actions/runs/39048683612)）：全仓 Biome 格式化后补丁为空，lint/typecheck 通过；Web 381 个文件、3289 项通过、13 项跳过；文本生成 6 项与 readCanvas 19 项通过。独立 HTTP smoke 实际监听 BFF 和模拟上游端口，返回 200、选中模型正确、预扣一次且任务与结算均 completed。浏览器另验证了生成中手动编辑不被迟到结果覆盖。临时验证 workflow 和 smoke 脚本已移除；合并门禁继续由常规 PR CI 执行。
 
 最终评审补充：引用订阅只响应选中对象的内容、名称、类型与删除，不再因拖拽几何或无关节点编辑重绘；纯文本生成在同一可撤销事务内重置 Y.Text，清除旧格式；请求期间删除节点后再撤销删除也会恢复 composer。真实浏览器验证了「加粗原稿 → 纯文本结果 → 撤销恢复加粗」及「请求中删除 → 返回 → 撤销删除 → 可再次发送」。
+上述补充已通过[云端格式化、lint/typecheck 与选择订阅回归](https://github.com/Muluk-m/ai-image-playground/actions/runs/39051061408)，格式补丁为空；临时格式化 workflow 再次移除。
 
 ## 顺序与验收
 
