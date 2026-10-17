@@ -764,6 +764,8 @@ export const agent_generation_drafts = pgTable(
   },
   (t) => [
     index('idx_agent_generation_drafts_created').on(t.created_at.desc(), t.id.desc()),
+    // Admin 按任务反查草稿、提示词列表排除已有草稿的任务都按 task_id 查；只有确认过的草稿才有它。
+    index('idx_agent_generation_drafts_task').on(t.task_id).where(sql`${t.task_id} IS NOT NULL`),
     uniqueIndex('idx_agent_generation_drafts_call').on(
       t.conversation_id,
       t.turn_id,
