@@ -8,6 +8,8 @@
 
 2026-10-18 文本生成与节点引用：文本节点底部改为独立指令 composer，从服务端运营配置读取 Chat 模型，不复用图片模型设置；`GET /api/canvas/text/models` 提供目录，`POST /api/canvas/text` 使用既有 provider transport、chat task 预扣/结算与失败回收。正文仅在成功且未被并发编辑时回写，可单步撤销；生成期间切换节点不会重复提交原节点。Agent composer 直接显示选中节点的名称与类型，提交继续携带 `canvas.selectedNodeIds`，`readCanvas({ nodeIds: [...] })` 在当前用户、会话对应画布内精确读取完整正文/富文本。真实浏览器已用 mock API 验证模型展示、指令请求、正文回写、撤销及可见引用；不将该前端 smoke 计为真实模型调用或生产验收，云端及发布结果另行记录。
 
+本次分支验收（[PR #1346](https://github.com/Muluk-m/ai-image-playground/pull/1346)，[云端 run 39048683612](https://github.com/Muluk-m/ai-image-playground/actions/runs/39048683612)）：全仓 Biome 格式化后补丁为空，lint/typecheck 通过；Web 381 个文件、3289 项通过、13 项跳过；文本生成 6 项与 readCanvas 19 项通过。独立 HTTP smoke 实际监听 BFF 和模拟上游端口，返回 200、选中模型正确、预扣一次且任务与结算均 completed。浏览器另验证了生成中手动编辑不被迟到结果覆盖。临时验证 workflow 和 smoke 脚本已移除；合并门禁继续由常规 PR CI 执行。
+
 ## 顺序与验收
 
 沿 #1136 已接受的文档操作、BFF 集成与少量组件三个测试边界，逐模块提交与验收。保留现有左工具栏、选中节点下方生成栏、可收起右侧对话和幕芽设计语言。
