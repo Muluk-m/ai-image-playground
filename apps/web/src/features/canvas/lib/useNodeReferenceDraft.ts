@@ -53,10 +53,6 @@ export function useNodeReferenceDraft(document: object, nodeId: string) {
   return { ...snapshot, upload: draft.upload, remove: draft.remove, clear: draft.clear }
 }
 
-export function clearNodeReferenceDraft(document: object, nodeId: string): void {
-  drafts.get(document)?.get(nodeId)?.clear()
-}
-
 export function nodeReferenceDraft(document: object, nodeId: string): ReferenceDraft {
   return drafts.get(document)?.get(nodeId)?.getSnapshot() ?? { items: [], uploading: false }
 }
