@@ -502,8 +502,6 @@
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
-    "queueSlot": "Queued · #{{position}}",
-    "queueSlotShort": "#{{position}}",
     "doneCount": "{{done}}/{{total}} done",
     "progressAria": "Generation progress",
     "cancel": "Cancel job",
