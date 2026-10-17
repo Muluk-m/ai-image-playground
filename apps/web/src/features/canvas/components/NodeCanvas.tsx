@@ -997,7 +997,7 @@ function Flow({
     const right = left + width * viewport.zoom
     const bottom = top + height * viewport.zoom
     const dx = left < area.x ? area.x - left : Math.min(0, area.x + area.width - right)
-    const dy = top < area.y + 30 ? area.y + 30 - top : Math.min(0, area.y + area.height - bottom)
+    const dy = top < area.y ? area.y - top : Math.min(0, area.y + area.height - bottom)
     if (dx || dy)
       flowRef.current?.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
   }
