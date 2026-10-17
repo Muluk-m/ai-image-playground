@@ -119,6 +119,7 @@ export const EXPECTED_INDEXES = [
   'idx_agent_jobs_undelivered',
   'agent_generation_drafts_pkey',
   'idx_agent_generation_drafts_call',
+  'idx_agent_generation_drafts_created',
   'canvas_projects_pkey',
   'canvas_documents_pkey',
   'canvas_updates_project_id_sequence_pk',
@@ -153,6 +154,7 @@ export const EXPECTED_INDEXES = [
   'idx_service_heartbeats_seen',
   'idx_tasks_admin_device_time',
   'idx_tasks_agent_turn',
+  'idx_tasks_agent_submitted',
   'idx_tasks_anonymous_client_request_id',
   'idx_tasks_next_retry_at',
   'idx_tasks_status',
@@ -189,6 +191,7 @@ export const EXPECTED_INDEXES = [
 ] as const
 
 export const EXPECTED_COLUMNS = [
+  'agent_generation_drafts.drafted_prompt',
   'agent_batch_plans.confirmation',
   'agent_batch_items.source_analysis',
   'agent_conversations.production',
