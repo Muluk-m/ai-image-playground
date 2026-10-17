@@ -90,7 +90,7 @@ const draft = (id: string) => ({
   conversation_id: 'conversation',
   turn_id: 'turn',
   tool_call_id: id,
-  tool_name: 'generate_image',
+  tool_name: 'generateImage',
   media: 'image' as const,
   provider: 'openai-compat' as const,
   model: 'image-model',
@@ -122,6 +122,33 @@ await writer.db.insert(writer.schema.tasks).values({
   status: 'cancelled',
   agent_conversation_id: 'owned',
   agent_turn_id: 'wake',
+})
+await writer.db.insert(writer.schema.agent_jobs).values({
+  task_id: 'direct',
+  conversation_id: 'conversation',
+  turn_id: 'turn',
+  tool_call_id: 'direct-edit',
+  submitted_at: now,
+})
+await writer.db.insert(writer.schema.agent_tool_calls).values({
+  conversation_id: 'conversation',
+  message_id: 'edit-call',
+  turn_id: 'turn',
+  tool_call_id: 'direct-edit',
+  tool_name: 'editImage',
+  snapshot: {} as never,
+  created_at: now,
+})
+await writer.db.insert(writer.schema.agent_model_calls).values({
+  id: 'malformed-usage',
+  conversation_id: 'conversation',
+  turn_id: 'turn',
+  device_id: 'device',
+  purpose: 'conversation',
+  model: 'chat-retry',
+  status: 'completed',
+  started_at: now,
+  usage: { inputTokens: 'not-a-number', outputTokens: 1e30 } as never,
 })
 const { app } = await import('../../../../server/app')
 afterAll(async () => {
@@ -168,6 +195,7 @@ describe('GET /api/agent-prompts', () => {
       prompt: '改过的提示词 100%',
       edited: true,
       taskId: 'confirmed',
+      tool: 'generateImage',
       status: 'completed',
       userText: '用户原话',
       chatModel: 'chat-first',
@@ -181,8 +209,10 @@ describe('GET /api/agent-prompts', () => {
     expect(body.items.find((row) => row.id === 'direct')).toMatchObject({
       prompt: '直出提示词',
       draftedPrompt: '直出提示词',
+      tool: 'editImage',
       edited: false,
     })
+    expect(body.items.find((row) => row.id === 'running')?.tool).toBe('未记录')
     expect(JSON.stringify(body)).not.toContain('PRIVATE_BASE64')
     expect(JSON.stringify(body)).not.toContain('request_payload')
   })
