@@ -71,7 +71,6 @@ import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import { useActiveLook } from '../../library/lib/activeLook'
-import { checkLookSubmission } from '../../library/lib/lookSubmit'
 import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
@@ -116,10 +115,9 @@ import {
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
-import { commitNodeLook, prepareNodeLook, submitNodeWithLook } from '../lib/nodeLookSubmit'
+import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
-import { clearNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
 import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './CanvasLod'
@@ -150,7 +148,6 @@ const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const edgeTypes = { reference: NodeFlowEdge }
-const BLANK_IMAGE_DRAFT = '__blank-image__'
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
@@ -745,11 +742,9 @@ function availableCanvasArea(container: HTMLElement): Rect {
     if (rect) bottom = Math.min(bottom, rect.top - bounds.top - 16)
   }
   const shell = container.closest('.studio-shell') ?? container
-  const headers = [
-    ...shell.querySelectorAll('.studio-project-viewbar, .studio-node-project-title'),
-    ...document.querySelectorAll('.studio-node-history'),
-  ]
-  for (const element of headers) {
+  for (const element of shell.querySelectorAll(
+    '.studio-project-viewbar, .studio-node-project-title',
+  )) {
     const rect = visible(element)
     if (rect) top = Math.max(top, rect.bottom - bounds.top + 16)
   }
@@ -813,7 +808,6 @@ function Flow({
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [scriptPoint, setScriptPoint] = useState<{ x: number; y: number } | null>(null)
-  const [blankPrompt, setBlankPrompt] = useState('')
   const [addingAsset, setAddingAsset] = useState(false)
   const assetTarget = useRef<string | undefined>(undefined)
   const [referencePick, setReferencePick] = useState<{
@@ -1249,32 +1243,6 @@ function Flow({
     setScriptPoint(null)
     selectNode(id)
   }
-  const submitBlankImage = (temporaryReferences: string[]) => {
-    const look = useActiveLook.getState().look
-    const prompt = blankPrompt.trim()
-    if (!look && !prompt && temporaryReferences.length === 0) return
-    if (look && !checkLookSubmission(look, [], useLibraryStore.getState().assets).ok) return
-    if (look) {
-      void prepareNodeLook(look, prompt, [], files).then((prepared) => {
-        if (!prepared) return
-        const id = createNode(canvas, 'image', center(), textFill, undefined, {
-          ...(prompt ? { prompt } : {}),
-        })
-        setBlankPrompt('')
-        clearNodeReferenceDraft(canvas.doc, BLANK_IMAGE_DRAFT)
-        selectNode(id)
-        commitNodeLook(editor, canvas.doc, id, look, prepared)
-      })
-      return
-    }
-    const id = createNode(canvas, 'image', center(), textFill, undefined, {
-      ...(prompt ? { prompt } : {}),
-    })
-    setBlankPrompt('')
-    clearNodeReferenceDraft(canvas.doc, BLANK_IMAGE_DRAFT)
-    selectNode(id)
-    submitNodeImage(editor, canvas.doc, id, prompt, temporaryReferences)
-  }
   const placeFiles = (files: File[]) => {
     const images = acceptImageFiles(files)
     if (images.length === 0) return
@@ -1403,7 +1371,7 @@ function Flow({
       const target = event.target instanceof Element ? event.target : null
       if (
         target?.closest(
-          '.react-flow__node, .react-flow__controls, .react-flow__minimap, .react-flow__handle, .studio-node-menu, .studio-node-composer, .studio-node-tools, .studio-node-navigation, .studio-node-history, textarea, input',
+          '.react-flow__node, .react-flow__controls, .react-flow__minimap, .react-flow__handle, .studio-node-menu, .studio-node-composer, .studio-node-tools, .studio-node-navigation, textarea, input',
         )
       )
         return
@@ -1980,7 +1948,6 @@ function Flow({
                         </div>
                       )}
                       <NodeCanvasToolbar
-                        active={active}
                         onCreate={(kind) => {
                           finishReferencePick()
                           addNode(kind, center())
@@ -2410,19 +2377,6 @@ function Flow({
                         >
                           {referenceTools}
                         </NodeComposerFrame>
-                      )}
-                      {selectedCount === 0 && !scriptPoint && (
-                        <ImageNodeComposer
-                          templates
-                          document={canvas.doc}
-                          nodeId={BLANK_IMAGE_DRAFT}
-                          references={[]}
-                          files={files}
-                          value={blankPrompt}
-                          busy={false}
-                          onChange={setBlankPrompt}
-                          onSubmit={submitBlankImage}
-                        />
                       )}
                       {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer
