@@ -4,7 +4,6 @@
     "chooseModel": "选择 Chat 模型",
     "chatModel": "Chat 模型",
     "placeholder": "描述想写什么，或如何修改……",
-    "generating": "生成中……",
     "send": "生成文本"
   },
   "errors": {

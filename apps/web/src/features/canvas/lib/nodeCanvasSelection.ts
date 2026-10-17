@@ -32,7 +32,8 @@ export function setNodeCanvasSelection(
     previous?.canvas === canvas &&
     previous.ids.length === ids.length &&
     previous.ids.every((id, index) => id === ids[index])
-  ) return
+  )
+    return
   const notify = previous?.canvas === canvas ? previous.changed : () => changed()
   if (previous?.canvas !== canvas) {
     previous?.canvas.doc.off('update', previous.changed)

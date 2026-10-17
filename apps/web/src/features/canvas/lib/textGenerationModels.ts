@@ -1,7 +1,10 @@
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
-export interface TextChatModel { readonly id: string; readonly label: string }
+export interface TextChatModel {
+  readonly id: string
+  readonly label: string
+}
 
 export async function fetchTextChatModels(signal?: AbortSignal): Promise<{
   models: readonly TextChatModel[]
@@ -27,8 +30,9 @@ export async function fetchTextChatModels(signal?: AbortSignal): Promise<{
           typeof model.label === 'string',
       )
     : []
-  const defaultModel = 'defaultModel' in payload && typeof payload.defaultModel === 'string'
-    ? payload.defaultModel
-    : null
+  const defaultModel =
+    'defaultModel' in payload && typeof payload.defaultModel === 'string'
+      ? payload.defaultModel
+      : null
   return { models, defaultModel }
 }

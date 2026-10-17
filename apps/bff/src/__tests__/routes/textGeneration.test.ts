@@ -17,6 +17,7 @@ const { textGenerationRoutes } = await import('../../routes/textGeneration')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { agentModelSettingsView, saveAgentModelSettings } = await import('../../lib/agent/model-settings-store')
 const app = new Elysia().use(textGenerationRoutes)
 let cookie = ''
 let calls: Record<string, unknown>[] = []
@@ -37,6 +38,7 @@ beforeEach(async () => {
   billing.reset()
   billing.pricing = { outputPriceRatio: 2, outputReserveTokens: 2000 }
   calls = []
+  await db.delete(schema.agent_model_settings)
   await db.delete(schema.tasks)
   await db.delete(schema.user_sessions)
   await db.delete(schema.users)
@@ -94,4 +96,35 @@ it('releases the reservation on an upstream failure without returning generated 
   expect(billing.settlements).toMatchObject([{ outcome: 'failed', upstreamInvocationCount: 1 }])
   const [task] = await db.select().from(schema.tasks)
   expect(task?.status).toBe('failed')
+})
+
+it('lists and dispatches inherited provider models without requiring custom overrides', async () => {
+  const view = await agentModelSettingsView()
+  const model = view.templates.find((item) => item.id === 'openai')!.models.find(
+    (item) => item.api === 'openai-completions' && item.imageInput,
+  )!
+  const settings = {
+    ...view.settings,
+    providers: [...view.settings.providers, {
+      id: 'native', name: 'Native', template: 'openai', baseUrl: 'https://native.example',
+      secretRef: 'UPSTREAM_API_KEY', models: [],
+    }],
+  }
+  await saveAgentModelSettings({ revision: view.revision, settings }, 'test-operator')
+  const response = await app.handle(new Request('http://localhost/api/canvas/text/models', { headers: { cookie } }))
+  const directory = await response.json() as { models: { id: string }[] }
+  expect(directory.models.some((item) => item.id === `native::${model.id}`)).toBe(true)
+  const generated = await submit({ ...input, model: `native::${model.id}` })
+  expect(generated.status).toBe(200)
+  expect(calls[0]?.model).toBe(model.id)
+  expect(billing.settlements).toMatchObject([{ outcome: 'completed' }])
+})
+
+it('rejects missing pricing without an upstream call or leftover task', async () => {
+  billing.answer = { kind: 'price_unavailable', model: 'fixture-agent-model' }
+  const response = await submit()
+  expect(response.status).toBe(422)
+  expect(await response.json()).toEqual({ error: 'model_price_unavailable', model: 'fixture-agent-model' })
+  expect(calls).toEqual([])
+  expect(await db.select().from(schema.tasks)).toEqual([])
 })

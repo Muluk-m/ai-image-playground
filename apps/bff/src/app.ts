@@ -18,7 +18,6 @@ import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { clientErrorRoutes } from './routes/client-errors'
-import { textGenerationRoutes } from './routes/textGeneration'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
@@ -36,6 +35,7 @@ import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
+import { textGenerationRoutes } from './routes/textGeneration'
 
 const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 

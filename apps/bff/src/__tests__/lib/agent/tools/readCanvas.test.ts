@@ -660,9 +660,11 @@ it('reads full selected text, edges and groups from the server Y.Doc instead of 
     { ...toolContext, userId: null },
     { ...toolContext, conversationId: 'different-conversation' },
   ]) {
-    await expect(readCanvas.create(unauthorized).execute(
-      'foreign-node', { nodeIds: ['script'] }, undefined, undefined,
-    )).rejects.toThrow('尚未同步')
+    await expect(
+      readCanvas
+        .create(unauthorized)
+        .execute('foreign-node', { nodeIds: ['script'] }, undefined, undefined),
+    ).rejects.toThrow('尚未同步')
   }
   expect((await read({ nodeIds: ['missing'] }, [])).graph.nodes).toEqual([])
   expect((await read({ nodeIds: ['other'] }, [])).graph.nodes[0].data.text).toBe('未选中的秘密剧情')

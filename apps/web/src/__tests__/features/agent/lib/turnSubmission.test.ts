@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
-import { canvasOrigin, createCanvasGroup, deleteCanvasNode, insertCanvasNode } from '@image-playground/shared'
-import * as Y from 'yjs'
+import {
+  canvasOrigin,
+  createCanvasGroup,
+  deleteCanvasNode,
+  insertCanvasNode,
+} from '@image-playground/shared'
 import { expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import { captureTurnSubmission } from '../../../../features/agent/lib/turnSubmission'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -106,10 +111,19 @@ it('freezes the node selection for a turn and waits for its cloud sync', async (
   const origin = canvasOrigin('user', 'reference-test')
   const canvas = { doc } as NodeCanvasDocument
   for (const id of ['node', 'other']) {
-    insertCanvasNode(doc, {
-      id, type: 'text', x: 0, y: 0, width: 300, height: 200,
-      data: { text: id, fontSize: 16, fill: '#fff' },
-    }, origin)
+    insertCanvasNode(
+      doc,
+      {
+        id,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 200,
+        data: { text: id, fontSize: 16, fill: '#fff' },
+      },
+      origin,
+    )
   }
   createCanvasGroup(doc, 'group', ['node'], 'Scene', origin)
   const sync = vi.fn(async () => {})

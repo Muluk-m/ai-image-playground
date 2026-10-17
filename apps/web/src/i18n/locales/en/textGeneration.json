@@ -4,7 +4,6 @@
     "chooseModel": "Choose a chat model",
     "chatModel": "Chat model",
     "placeholder": "Describe what to write or revise…",
-    "generating": "Generating…",
     "send": "Generate text"
   },
   "errors": {

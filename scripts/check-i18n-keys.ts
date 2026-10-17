@@ -47,6 +47,9 @@ const DYNAMIC_PREFIXES = [
   'agent:batch.representation.',
   // features/agent/components/AgentComposer.tsx：按上传状态拼 key。
   'agent:composer.upload.',
+  // AgentComposer 按选中节点类型拼 key；TextNodeComposer 按服务端错误码拼 key。
+  'agent:composer.nodeTypes.',
+  'textGeneration:errors.',
   // features/agent/components/AgentCopyDiagnostic.tsx：按诊断字段名拼 key；
   'agent:diagnostic.fields.',
   // 同一文件按复制结果拼 `error.${result}`。

@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { ModelList, type ModelChoice } from '../../../components/composer/ModelSelector'
-import { CreationBody, CreationSend, CreationToolbar } from '../../../components/creation/CreationFrame'
+import { type ModelChoice, ModelList } from '../../../components/composer/ModelSelector'
+import {
+  CreationBody,
+  CreationSend,
+  CreationToolbar,
+} from '../../../components/creation/CreationFrame'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
@@ -13,7 +17,14 @@ import { fetchTextChatModels, type TextChatModel } from '../lib/textGenerationMo
 import NodeComposerFrame from './NodeComposerFrame'
 
 export default function TextNodeComposer({
-  references, files, tools, value, onChange, onSubmit, busy = false, error,
+  references,
+  files,
+  tools,
+  value,
+  onChange,
+  onSubmit,
+  busy = false,
+  error,
 }: {
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
@@ -31,25 +42,39 @@ export default function TextNodeComposer({
   const [open, setOpen] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
-    void fetchTextChatModels(controller.signal).then((next) => {
-      if (controller.signal.aborted) return
-      setModels(next.models)
-      setSelected(next.defaultModel ?? next.models[0]?.id ?? null)
-      if (!next.models.length) setDirectoryError('text_model_unavailable')
-    }).catch(() => {
-      if (!controller.signal.aborted) setDirectoryError('text_model_unavailable')
-    })
+    void fetchTextChatModels(controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return
+        setModels(next.models)
+        setSelected(next.defaultModel ?? next.models[0]?.id ?? null)
+        if (!next.models.length) setDirectoryError('text_model_unavailable')
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setDirectoryError('text_model_unavailable')
+      })
     return () => controller.abort()
   }, [])
   const choices = useMemo<ModelChoice[]>(
-    () => models.map((model) => ({ value: model.id, model: model.id, profileId: 'chat', label: model.label, description: t('composer.chatModel') })),
+    () =>
+      models.map((model) => ({
+        value: model.id,
+        model: model.id,
+        profileId: 'chat',
+        label: model.label,
+        description: t('composer.chatModel'),
+      })),
     [models, t],
   )
   const current = models.find((model) => model.id === selected)
   const canSend = value.trim().length > 0 && Boolean(current) && !busy
   const displayedError = error ?? directoryError
   return (
-    <NodeComposerFrame standard label={t('composer.label')} references={tools ? [] : references} files={files}>
+    <NodeComposerFrame
+      standard
+      label={t('composer.label')}
+      references={tools ? [] : references}
+      files={files}
+    >
       <CreationBody references={tools}>
         <Textarea
           value={value}
@@ -68,19 +93,51 @@ export default function TextNodeComposer({
         />
       </CreationBody>
       <CreationToolbar
-        action={<CreationSend aria-label={t('composer.send')} busy={busy} disabled={!canSend} onClick={() => { if (canSend && selected) onSubmit(selected) }} />}
-        status={displayedError ? <p className="text-label-sm text-destructive" role="alert">{t(`errors.${displayedError}`, { defaultValue: t('errors.failed') })}</p> : undefined}
+        action={
+          <CreationSend
+            aria-label={t('composer.send')}
+            busy={busy}
+            disabled={!canSend}
+            onClick={() => {
+              if (canSend && selected) onSubmit(selected)
+            }}
+          />
+        }
+        status={
+          displayedError ? (
+            <p className="text-label-sm text-destructive" role="alert">
+              {t(`errors.${displayedError}`, { defaultValue: t('errors.failed') })}
+            </p>
+          ) : undefined
+        }
       >
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button type="button" variant="outline" size="chip-sm" className="creation-control min-w-0" aria-label={t('composer.chooseModel')} disabled={!choices.length || busy}>
+            <Button
+              type="button"
+              variant="outline"
+              size="chip-sm"
+              className="creation-control min-w-0"
+              aria-label={t('composer.chooseModel')}
+              disabled={!choices.length || busy}
+            >
               <Icon name="model" />
-              <OverflowText text={current?.label ?? t('composer.chooseModel')} className="min-w-0 truncate" />
+              <OverflowText
+                text={current?.label ?? t('composer.chooseModel')}
+                className="min-w-0 truncate"
+              />
               <Icon name="chevronDown" />
             </Button>
           </PopoverTrigger>
           <PopoverContent side="top" align="start" className="w-72">
-            <ModelList options={choices} value={selected ?? ''} onPick={(id) => { setSelected(id); setOpen(false) }} />
+            <ModelList
+              options={choices}
+              value={selected ?? ''}
+              onPick={(id) => {
+                setSelected(id)
+                setOpen(false)
+              }}
+            />
           </PopoverContent>
         </Popover>
       </CreationToolbar>

@@ -878,10 +878,13 @@ function Flow({
     Record<string, { busy: boolean; error: string | null }>
   >({})
   const textRequests = useMemo(() => new Map<string, AbortController>(), [canvas])
-  useEffect(() => () => {
-    for (const controller of textRequests.values()) controller.abort()
-    textRequests.clear()
-  }, [textRequests])
+  useEffect(
+    () => () => {
+      for (const controller of textRequests.values()) controller.abort()
+      textRequests.clear()
+    },
+    [textRequests],
+  )
   const [draggingIds, setDraggingIds] = useState<string[]>([])
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)

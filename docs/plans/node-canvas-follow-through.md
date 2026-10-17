@@ -6,6 +6,8 @@
 
 2026-10-17 文本交互调整：文本节点双击、Enter/F2 与全屏按钮统一直接进入全屏编辑，不再在随画布缩放的节点内部编辑。保留 Y.Text 实时写入与原撤销链路。真实浏览器已验证全屏覆盖视口、输入后 Escape/完成退出、F2 重新打开仍保留正文，节点内不挂载编辑器；云端检查与发布尚未完成。分组暂保留：Weavy 官方 [Group and Ungroup Nodes](https://help.weavy.ai/en/articles/13560959-group-and-ungroup-nodes) 明确有右键 Group Selection、命名、整组移动与解组；本仓库分组随 #1198 引入，未找到具体照搬来源的证据。
 
+2026-10-18 文本生成与节点引用：文本节点底部改为独立指令 composer，从服务端运营配置读取 Chat 模型，不复用图片模型设置；`GET /api/canvas/text/models` 提供目录，`POST /api/canvas/text` 使用既有 provider transport、chat task 预扣/结算与失败回收。正文仅在成功且未被并发编辑时回写，可单步撤销；生成期间切换节点不会重复提交原节点。Agent composer 直接显示选中节点的名称与类型，提交继续携带 `canvas.selectedNodeIds`，`readCanvas({ nodeIds: [...] })` 在当前用户、会话对应画布内精确读取完整正文/富文本。真实浏览器已用 mock API 验证模型展示、指令请求、正文回写、撤销及可见引用；不将该前端 smoke 计为真实模型调用或生产验收，云端及发布结果另行记录。
+
 ## 顺序与验收
 
 沿 #1136 已接受的文档操作、BFF 集成与少量组件三个测试边界，逐模块提交与验收。保留现有左工具栏、选中节点下方生成栏、可收起右侧对话和幕芽设计语言。
