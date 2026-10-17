@@ -109,6 +109,10 @@ function AgentPromptsPage() {
           onApply={(next) => {
             void navigate({ search: next, replace: true })
           }}
+          onClearTask={() => {
+            const { taskId: _taskId, from: _from, to: _to, ...rest } = filters
+            void navigate({ search: rest, replace: true })
+          }}
         />
         <SegmentedControl
           label="提示词状态"
