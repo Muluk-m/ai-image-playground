@@ -5,14 +5,15 @@ set -eu
 #
 #   scripts/ci-deploy-target.sh <sha> <workflow_run|workflow_dispatch> <api-base-url>...
 #
-# Writes deploy_api, deploy_pages, and deploy (true when either side ships) to $GITHUB_OUTPUT
-# (stdout without it). A skip is not a failure:
+# Writes deploy_api, deploy_pages (either Pages side), deploy_web (internal and paid sites),
+# deploy_admin (Admin site) and deploy (true when anything ships) to $GITHUB_OUTPUT (stdout without it). A skip is not a failure:
 # - only the current tip of origin/main is deployed, so a queued older run never overtakes a newer;
 # - an API already running a descendant of <sha> is never moved back, and Pages stay put with it;
 # - when the APIs already serve <sha>, an automatic run has nothing to do. A manual run still
-#   redeploys both, which is how a private overlay change goes out;
-# - otherwise the diff since the deployed commit is split: Pages ship when the web bundle changed,
-#   and the API rollout is skipped when the API tree did not.
+#   redeploys everything, which is how a private overlay change goes out;
+# - otherwise the diff since the deployed commit is split: the user-facing sites ship when the web
+#   bundle changed, the Admin site when the admin bundle changed, and the API rollout is skipped
+#   when the API tree did not.
 # An API that cannot be reached or reports no version does not block: both sides deploy.
 
 target=${1:?target commit required}
@@ -22,23 +23,33 @@ output=${GITHUB_OUTPUT:-/dev/stdout}
 
 skip() {
   echo "::notice::$1; nothing deployed."
-  printf 'deploy_api=false\ndeploy_pages=false\ndeploy=false\n' >>"$output"
+  printf 'deploy_api=false\ndeploy_pages=false\ndeploy_web=false\ndeploy_admin=false\ndeploy=false\n' >>"$output"
   exit 0
 }
 
+# finish <api> <web> <admin>
 finish() {
-  deploy=false
-  if [ "$1" = true ] || [ "$2" = true ]; then
+  pages=false
+  if [ "$2" = true ] || [ "$3" = true ]; then
+    pages=true
+  fi
+  deploy=$pages
+  if [ "$1" = true ]; then
     deploy=true
   fi
-  printf 'deploy_api=%s\ndeploy_pages=%s\ndeploy=%s\n' "$1" "$2" "$deploy" >>"$output"
+  printf 'deploy_api=%s\ndeploy_pages=%s\ndeploy_web=%s\ndeploy_admin=%s\ndeploy=%s\n' \
+    "$1" "$pages" "$2" "$3" "$deploy" >>"$output"
   exit 0
 }
 
-# Pages reads these. The API image reads these. A path in both lists ships both.
+# The internal and paid sites read these; the Admin site reads its own list; the API image reads
+# the last. A path in several lists ships each of them.
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 web_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|apps/admin/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
+  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
+}
+admin_bundle_changed() {
+  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
 }
 api_tree_changed() {
   # The VPS runs the copies of these scripts shipped inside the release tarball. A change that
@@ -94,32 +105,37 @@ done
 
 # A manual run republishes whatever is already current. Rollback was already refused above.
 if [ "$event" = workflow_dispatch ]; then
-  finish true true
+  finish true true true
 fi
 if [ "$apis" -gt 0 ] && [ "$serving" -eq "$apis" ]; then
   skip "every API already serves $target"
 fi
 if [ "$base_unknown" = true ] || [ "$base_mixed" = true ] || [ -z "$base" ]; then
-  finish true true
+  finish true true true
 fi
 
 diff=$(git diff --name-only "$base" "$target")
 if [ -z "$diff" ]; then
-  # Empty commits still move the SHA. Ship both; there is no path to prove a side is unchanged.
-  finish true true
+  # Empty commits still move the SHA. Ship everything; there is no path to prove a side is unchanged.
+  finish true true true
 fi
 
-pages=false
+web=false
+admin=false
 api_side=false
-web_bundle_changed "$diff" && pages=true
+web_bundle_changed "$diff" && web=true
+admin_bundle_changed "$diff" && admin=true
 api_tree_changed "$diff" && api_side=true
-if [ "$pages" = false ]; then
-  echo "::notice::web bundle unchanged since $base; skipping Pages."
+if [ "$web" = false ]; then
+  echo "::notice::web bundle unchanged since $base; skipping the internal and paid sites."
+fi
+if [ "$admin" = false ]; then
+  echo "::notice::admin bundle unchanged since $base; skipping the Admin site."
 fi
 if [ "$api_side" = false ]; then
   echo "::notice::API tree unchanged since $base; skipping the API rollout."
 fi
-if [ "$pages" = false ] && [ "$api_side" = false ]; then
-  skip "no web bundle or API changes since $base"
+if [ "$web" = false ] && [ "$admin" = false ] && [ "$api_side" = false ]; then
+  skip "no web bundle, admin bundle or API changes since $base"
 fi
-finish "$api_side" "$pages"
+finish "$api_side" "$web" "$admin"
