@@ -68,7 +68,8 @@ export async function getAgentPrompts(
       SELECT p.*, c.user_id, c.device_id, u.username
       FROM prompts p JOIN agent_conversations c ON c.id = p.conversation_id
       LEFT JOIN users u ON u.id = c.user_id
-      WHERE ${filters.status ? sql`p.status = ${filters.status}` : sql`true`}
+      WHERE ${filters.taskId ? sql`p.task_id = ${filters.taskId}` : sql`true`}
+        AND ${filters.status ? sql`p.status = ${filters.status}` : sql`true`}
         AND ${filters.userId ? sql`c.user_id = ${filters.userId}` : sql`true`}
         AND ${filters.deviceId ? sql`c.device_id = ${filters.deviceId}` : sql`true`}
         AND ${

@@ -91,7 +91,10 @@ export interface ListDevicesResult {
   truncated: boolean
 }
 
+export type TaskSource = 'chat' | 'manual'
+
 export interface TaskListItem {
+  source: TaskSource
   kind?: 'queue' | 'analysis'
   id: string
   provider: string
@@ -131,6 +134,7 @@ export interface AnalysisTaskDetail {
 }
 
 export interface TaskDetail extends TaskListItem {
+  prompt_created_at?: number
   analysis?: AnalysisTaskDetail
   request_payload: unknown
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
@@ -571,6 +575,7 @@ export function parseTimeWindow(
 }
 
 export interface GenerationTaskFilters {
+  source?: TaskSource
   userId?: string
   deviceId?: string
   unassigned?: '1'
@@ -586,6 +591,7 @@ export function parseGenerationTaskFilters(input: Record<string, unknown>): Gene
     if (typeof input[key] === 'string' && input[key].trim().length > 0 && input[key].length <= 128)
       out[key] = input[key].trim()
   }
+  if (input.source === 'chat' || input.source === 'manual') out.source = input.source
   if (input.unassigned === '1') out.unassigned = '1'
   if (TASK_STATUSES.includes(input.status as TaskStatus)) out.status = input.status as TaskStatus
   return out
@@ -696,6 +702,7 @@ export interface TodayErrorsResult extends ErrorWindow {
 
 export type AgentPromptStatus = 'awaiting' | 'running' | 'completed' | 'failed'
 export interface AgentPromptFilters extends TimeWindow {
+  taskId?: string
   status?: AgentPromptStatus
   edited?: 'true' | 'false' | 'unknown'
   userId?: string
@@ -756,7 +763,7 @@ export function parseAgentPromptFilters(
     if (!['true', 'false', 'unknown'].includes(String(input.edited))) return null
     result.edited = input.edited as AgentPromptFilters['edited']
   }
-  for (const key of ['userId', 'deviceId', 'q'] as const) {
+  for (const key of ['userId', 'deviceId', 'taskId', 'q'] as const) {
     const value = input[key]
     if (value === undefined) continue
     if (typeof value !== 'string' || !value.trim() || value.length > (key === 'q' ? 500 : 200))
