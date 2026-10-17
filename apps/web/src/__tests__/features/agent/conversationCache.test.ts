@@ -132,6 +132,71 @@ it('projects only safe display fields from nested cached data', () => {
     turns: { turn: { turnId: 'turn', durationMs: 1234 } },
   })
 })
+it('keeps image results laid out as tiles while syncing, without executable job state', () => {
+  const artifact = {
+    artifactId: 'artifact',
+    media: 'image',
+    taskId: 'task',
+    outputIndex: 0,
+    mime: 'image/png',
+    width: 1024,
+    height: 768,
+  }
+  expect(
+    cachedPanel({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'tool',
+          turnId: 'turn',
+          toolCallId: 'call',
+          toolName: 'generateImage',
+          title: '白色台盆',
+          status: 'succeeded',
+          delivery: 'placed',
+          artifacts: [artifact, null, { ...artifact, media: 'video' }],
+          job: { taskId: 'task', media: 'image' },
+          batchId: 'batch',
+        },
+        {
+          kind: 'tool',
+          id: 'other',
+          turnId: 'turn',
+          toolCallId: 'other-call',
+          toolName: 'generateVideo',
+          title: '视频',
+          status: 'succeeded',
+          artifacts: [artifact],
+        },
+      ],
+      turns: {},
+    }),
+  ).toEqual({
+    messages: [
+      {
+        kind: 'tool',
+        id: 'tool',
+        turnId: 'turn',
+        toolCallId: 'call',
+        toolName: 'generateImage',
+        title: '白色台盆',
+        status: 'succeeded',
+        delivery: 'placed',
+        artifacts: [artifact],
+      },
+      {
+        kind: 'tool',
+        id: 'other',
+        turnId: 'turn',
+        toolCallId: 'other-call',
+        title: '视频',
+        status: 'succeeded',
+      },
+    ],
+    turns: {},
+  })
+})
+
 beforeEach(() => {
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://one.test' } })

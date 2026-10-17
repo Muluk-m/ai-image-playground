@@ -83,7 +83,7 @@ function renderMessage(
   onPreviewProduction?: (pane?: ProductionPane) => void,
   cached = false,
 ) {
-  if (cached && message.kind === 'tool')
+  if (cached && message.kind === 'tool' && !showsImageTiles(message))
     return (
       <section className={CARD} aria-label={message.title}>
         <h3 className={CARD_TITLE}>{message.title}</h3>
@@ -196,6 +196,11 @@ function isImageOutput(message: AgentPanelMessage): message is AgentToolMessage 
     message.status === 'queued' ||
     message.status === 'succeeded'
   )
+}
+
+// 非类型守卫版本：取反时不能把 tool 消息收窄成 never。
+function showsImageTiles(message: AgentToolMessage): boolean {
+  return isImageOutput(message)
 }
 
 /** 同一轮里连续的同类图片消息收成一张卡或一行图。 */

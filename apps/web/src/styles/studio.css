@@ -1238,6 +1238,13 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-agent-generation-actions > span { margin-left: auto; }
 .studio-shell :is(.studio-agent-generation-card, [data-slot="image-gallery"], [data-slot="agent-video-card"], [data-slot="tool-error"], [data-slot="message-actions"]) button:focus-visible { outline-color: hsl(var(--foreground)); }
 .agent-media-generation::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(hsl(var(--foreground) / .12) .75px, transparent .75px); background-size: 18px 18px; }
+.agent-media-generation[data-generating]::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 30%, hsl(var(--foreground) / .07) 50%, transparent 70%);
+  transform: translateX(-100%); animation: agent-media-generation-sweep 1.6s ease-in-out infinite;
+}
+@keyframes agent-media-generation-sweep { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .agent-media-generation[data-generating]::after { animation: none; transform: none; opacity: .5; } }
 .agent-job-progress-sweep { animation: agent-job-progress-sweep 2.4s ease-in-out infinite; }
 @keyframes agent-job-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
 @media (prefers-reduced-motion: reduce) { .agent-job-progress-sweep { animation: none; transform: translateX(100%); opacity: .6; } }
