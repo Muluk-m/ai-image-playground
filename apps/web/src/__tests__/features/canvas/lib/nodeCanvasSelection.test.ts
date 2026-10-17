@@ -35,7 +35,6 @@ it('ignores geometry and unrelated edits while keeping selected references curre
         y: 0,
         width: 300,
         height: 220,
-        z: 0,
         data: { text: id, fontSize: 24, fill: '#fff' },
       },
       origin,
