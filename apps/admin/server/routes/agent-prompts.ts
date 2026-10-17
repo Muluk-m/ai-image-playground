@@ -24,6 +24,7 @@ export const agentPromptsRoutes = new Elysia().use(requireAuth).get(
       userId: t.Optional(t.String()),
       deviceId: t.Optional(t.String()),
       q: t.Optional(t.String()),
+      taskId: t.Optional(t.String()),
       cursor: t.Optional(t.String({ maxLength: 500 })),
     }),
   },
