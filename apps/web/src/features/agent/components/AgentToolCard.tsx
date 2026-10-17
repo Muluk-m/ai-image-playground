@@ -43,8 +43,8 @@ import {
   fetchedImagePreview,
   INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
-import { previewArtifactBitmap } from '../lib/artifactSource'
-import { attachFilesToComposer } from '../lib/attachments'
+import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
+import { attachReferencesToComposer } from '../lib/attachments'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { runChatBackgroundRemoval } from '../lib/chatCutout'
 import { agentDraftOutputCount } from '../lib/promptDraft'
@@ -902,6 +902,7 @@ function StandardAgentToolCard({
           media: 'image' as const,
           original: () =>
             resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+          reference: async () => `aip-media:${preview.image.imageId}`,
         }))
       : compactFetched
         ? (message.fetchedImages ?? []).map((image, index) => ({
@@ -909,6 +910,7 @@ function StandardAgentToolCard({
             source: null,
             media: 'image' as const,
             original: () => resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
+            reference: async () => `aip-media:${image.imageId}`,
           }))
         : []
     const artifactTiles = previewsLoading
@@ -922,6 +924,7 @@ function StandardAgentToolCard({
         media: artifact.media,
         ratio: artifact.width && artifact.height ? artifact.width / artifact.height : undefined,
         original: () => previewArtifactBitmap(artifact),
+        reference: () => artifactReferenceSource(artifact),
       })),
       ...fetchedTiles,
     ]
@@ -929,22 +932,22 @@ function StandardAgentToolCard({
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const batch = generatedImage && tiles.length >= 2
+    // 按产物自己的 id 与媒体身份引用：不重新上传，模型拿到原图，也认得出就是这一张。
     const useTileAsReference = async (tile: (typeof tiles)[number]) => {
-      const source = tile.source ?? (await tile.original())
-      if (!source) return
-      const blob = await fetch(source)
-        .then((response) => response.blob())
-        .catch(() => null)
-      if (!blob) return
-      const file = new File([blob], `muvloom-${tile.id}.png`, { type: blob.type || 'image/png' })
-      attachFilesToComposer([file])
+      const dataUrl = await tile.reference().catch(() => null)
+      if (!dataUrl) {
+        useStore.getState().showToast(t('mentions.resultUnavailable'), 'error')
+        return
+      }
+      attachReferencesToComposer([{ id: tile.id, dataUrl, name: message.title }])
     }
     const openMask = async (
       action: Extract<ArtifactEditAction, 'inpaint' | 'outpaint'>,
       tile: (typeof tiles)[number],
     ) => {
       if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
-      const source = tile.source ?? (await tile.original())
+      // 遮罩画在原图上：卡上显示的是缩略图，拿它改图会把分辨率一起改掉。
+      const source = (await tile.original().catch(() => null)) ?? tile.source
       if (!source) return
       setMaskEdit({ action, artifactId: tile.id, source })
     }
