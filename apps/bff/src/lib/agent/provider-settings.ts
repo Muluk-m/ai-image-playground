@@ -302,8 +302,7 @@ export function configuredModels(provider: AgentProviderSettings): Model<Api>[] 
       maxTokens: custom.maxTokens,
       input: custom.imageInput ? ['text', 'image'] : ['text'],
       reasoning:
-        original?.reasoning === true ||
-        custom.reasoningLevels.some((level) => level !== 'off'),
+        original?.reasoning === true || custom.reasoningLevels.some((level) => level !== 'off'),
       thinkingLevelMap: configuredThinkingMap({ custom, original }),
       cost: original?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       ...(provider.id === 'upstream-gateway' && custom.api === 'openai-completions'
