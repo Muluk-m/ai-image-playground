@@ -13,14 +13,12 @@ describe('deployment admission', () => {
     expect(drain.status()).toEqual({ draining: true, active: 0, safeToStop: true, failed: false })
   })
 
-  // A rollout stops a draining instance at its deadline anyway (ADR 0009, 2026-09-18): a failed
-  // settlement is reported, and the recovery scan seals the turn once its lease expires.
-  it('reports a failed durable finalization without holding the drained instance', () => {
+  it('keeps a failed durable finalization from authorizing retirement', () => {
     const drain = new DrainState()
     const done = drain.enter()!
     drain.begin()
     drain.failed()
     done()
-    expect(drain.status()).toEqual({ draining: true, active: 0, safeToStop: true, failed: true })
+    expect(drain.status()).toEqual({ draining: true, active: 0, safeToStop: false, failed: true })
   })
 })
