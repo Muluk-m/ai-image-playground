@@ -1,6 +1,5 @@
 import { type AgentToolArtifact, agentTurnCostTotal } from '@image-playground/shared'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
-import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
@@ -12,10 +11,9 @@ import { ToolStatus } from '../../../components/assistant-ui/elements/tool-statu
 import Credits from '../../../components/Credits'
 import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
-import { Icon, type IconName } from '../../../components/ui/icon'
+import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
-import { Hint } from '../../../components/ui/tooltip'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { modelLabel } from '../../../lib/channels/publicChannels'
@@ -35,7 +33,6 @@ import {
   THUMBNAIL_STATIC,
 } from '../agentStyles'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
-import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
 import {
   type AgentArtifactPreview,
   type AgentFetchedPreview,
@@ -44,9 +41,7 @@ import {
   INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
 import { previewArtifactBitmap } from '../lib/artifactSource'
-import { attachFilesToComposer } from '../lib/attachments'
 import { agentCanvasSink } from '../lib/canvasSink'
-import { runChatBackgroundRemoval } from '../lib/chatCutout'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
@@ -58,7 +53,6 @@ import {
 import { turnCostWithJobs } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
-import AgentArtifactEditDialog from './AgentArtifactEditDialog'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
@@ -75,13 +69,8 @@ import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 const IMAGE_PREVIEW_MAX_EDGE = 240
-/** 压掉 Button 默认的高度、内边距和悬停底色。结果卡里的实际尺寸由样式表的子选择器决定。 */
 const THUMB_BUTTON = `${THUMBNAIL} p-0 font-normal hover:bg-transparent`
-/** 字号、内边距和悬停色由 .studio-agent-result-actions button 决定。 */
 const RESULT_ACTION = 'h-auto bg-transparent font-normal hover:bg-transparent'
-/** 34px 热区和悬停底色由 .studio-agent-inline-actions button 决定。 */
-const INLINE_ACTION =
-  'h-auto w-auto bg-transparent p-0 font-normal text-inherit hover:bg-transparent hover:text-inherit'
 
 function useStatusNote(
   message: AgentToolMessage,
@@ -522,36 +511,6 @@ function GeneratingTile({
   )
 }
 
-function TileTool({
-  label,
-  icon,
-  disabled,
-  onClick,
-}: {
-  label: string
-  icon: IconName
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <Hint tooltip={label}>
-      <Button
-        type="button"
-        variant="ghost"
-        className={INLINE_ACTION}
-        aria-label={label}
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation()
-          onClick()
-        }}
-      >
-        <Icon name={icon} size="xs" />
-      </Button>
-    </Hint>
-  )
-}
-
 function StandardAgentToolCard({
   message,
   onViewCanvas,
@@ -579,13 +538,6 @@ function StandardAgentToolCard({
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
   const [costOpen, setCostOpen] = useState(false)
-  const [maskBusy, setMaskBusy] = useState(false)
-  const [toolsFor, setToolsFor] = useState<string | null>(null)
-  const [maskEdit, setMaskEdit] = useState<{
-    action: Extract<ArtifactEditAction, 'inpaint' | 'outpaint'>
-    artifactId: string
-    source: string
-  } | null>(null)
   const showReceipt = useAgentStore((state) => {
     for (let index = state.messages.length - 1; index >= 0; index -= 1) {
       const one = state.messages[index]
@@ -929,64 +881,6 @@ function StandardAgentToolCard({
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const batch = generatedImage && tiles.length >= 2
-    const useTileAsReference = async (tile: (typeof tiles)[number]) => {
-      const source = tile.source ?? (await tile.original())
-      if (!source) return
-      const blob = await fetch(source)
-        .then((response) => response.blob())
-        .catch(() => null)
-      if (!blob) return
-      const file = new File([blob], `muvloom-${tile.id}.png`, { type: blob.type || 'image/png' })
-      attachFilesToComposer([file])
-    }
-    const openMask = async (
-      action: Extract<ArtifactEditAction, 'inpaint' | 'outpaint'>,
-      tile: (typeof tiles)[number],
-    ) => {
-      if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
-      const source = tile.source ?? (await tile.original())
-      if (!source) return
-      setMaskEdit({ action, artifactId: tile.id, source })
-    }
-    const generateMask = (input: ArtifactEditInput, customInstruction: string) => {
-      if (!maskEdit || maskBusy) return
-      const agent = useAgentStore.getState()
-      if (agent.historyLoading || agent.historyFailed) {
-        useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
-        return
-      }
-      const instruction = customInstruction || t(`tool.${maskEdit.action}`)
-      setMaskBusy(true)
-      let accepted = false
-      void agent
-        .send(
-          instruction,
-          [
-            {
-              imageId: maskEdit.artifactId,
-              name: message.title,
-              editAction: maskEdit.action,
-              ...input,
-            },
-          ],
-          () => {
-            accepted = true
-            setMaskEdit(null)
-          },
-          'image',
-        )
-        .then((result) => {
-          if (accepted || result === 'cancelled') return
-          if (accountRequired()) setMaskEdit(null)
-          else useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
-        })
-        .catch((error) => {
-          useStore
-            .getState()
-            .showToast(error instanceof Error ? error.message : String(error), 'error')
-        })
-        .finally(() => setMaskBusy(false))
-    }
     const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
       aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
       ...(generatedImage &&
@@ -1004,11 +898,7 @@ function StandardAgentToolCard({
           </div>
         </div>
       ) : (
-        <div
-          className="studio-agent-inline-tile-wrap"
-          key={tile.id}
-          data-tools={toolsFor === tile.id ? 'open' : undefined}
-        >
+        <div className="studio-agent-inline-tile-wrap" key={tile.id}>
           <div className="studio-agent-inline-tile" style={tileStyle(tile)}>
             <Button
               type="button"
@@ -1021,16 +911,9 @@ function StandardAgentToolCard({
               }
               autoTooltip={false}
               disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-              onClick={(event) => {
-                const coarse =
-                  typeof window.matchMedia === 'function' &&
-                  window.matchMedia('(hover: none)').matches
-                if (coarse && toolsFor !== tile.id) {
-                  event.stopPropagation()
-                  setToolsFor(tile.id)
-                  return
-                }
-                openPreviewResult(tile.id)
+              onClick={() => {
+                if (onViewCanvas && canvasIds.includes(tile.id)) onViewCanvas([tile.id])
+                else openPreviewResult(tile.id)
               }}
             >
               {tile.source ? (
@@ -1052,90 +935,6 @@ function StandardAgentToolCard({
               )}
               {tile.media === 'video' && <PlayBadge />}
             </Button>
-          </div>
-          <div className="studio-agent-inline-actions">
-            {generatedImage && tile.media !== 'video' ? (
-              <>
-                <TileTool
-                  label={t('tool.useAsReference')}
-                  icon="imageAdd"
-                  onClick={() => void useTileAsReference(tile)}
-                />
-                <TileTool
-                  label={t('tool.inpaint')}
-                  icon="brush"
-                  onClick={() => void openMask('inpaint', tile)}
-                />
-                <TileTool
-                  label={t('tool.outpaint')}
-                  icon="outpaint"
-                  onClick={() => void openMask('outpaint', tile)}
-                />
-                <TileTool
-                  label={t('tool.removeBackground')}
-                  icon="removeBg"
-                  onClick={() =>
-                    void runChatBackgroundRemoval({
-                      sourceMessageId: message.id,
-                      turnId: message.turnId,
-                      artifactId: tile.id,
-                      ...(tile.source ? { thumbnail: tile.source } : {}),
-                      loadSource: tile.original,
-                    })
-                  }
-                />
-                {onViewCanvas && (
-                  <TileTool
-                    label={t('tool.editOnCanvas')}
-                    icon="canvas"
-                    onClick={() => onViewCanvas([tile.id])}
-                  />
-                )}
-              </>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className={INLINE_ACTION}
-                  title={onPreviewResult ? undefined : t('tool.openCanvas')}
-                  aria-label={
-                    onPreviewResult
-                      ? t('tool.openResultNumber', { number: index + 1 })
-                      : t('tool.openCanvas')
-                  }
-                  disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-                  onClick={() => openPreviewResult(tile.id)}
-                >
-                  <Icon name="fullscreen" />
-                </Button>
-                {tile.media !== 'video' && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className={INLINE_ACTION}
-                    title={t('tool.downloadResult')}
-                    aria-label={t('tool.downloadResult')}
-                    disabled={downloading.has(tile.id)}
-                    onClick={() => void downloadTile(tile)}
-                  >
-                    <Icon name="download" />
-                  </Button>
-                )}
-                {tile.media !== 'video' && onViewCanvas && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className={INLINE_ACTION}
-                    title={t('tool.editOnCanvas')}
-                    aria-label={t('tool.editOnCanvas')}
-                    onClick={() => onViewCanvas([tile.id])}
-                  >
-                    <Icon name="images" />
-                  </Button>
-                )}
-              </>
-            )}
           </div>
         </div>
       )
@@ -1159,16 +958,6 @@ function StandardAgentToolCard({
           {tiles.map(renderTile)}
           {promptOpen && message.prompt && (
             <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-          )}
-          {maskEdit && (
-            <AgentArtifactEditDialog
-              key={`${maskEdit.artifactId}:${maskEdit.action}`}
-              action={maskEdit.action}
-              source={maskEdit.source}
-              busy={maskBusy}
-              onClose={() => setMaskEdit(null)}
-              onGenerate={generateMask}
-            />
           )}
         </>
       )
@@ -1370,16 +1159,6 @@ function StandardAgentToolCard({
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-        )}
-        {maskEdit && (
-          <AgentArtifactEditDialog
-            key={`${maskEdit.artifactId}:${maskEdit.action}`}
-            action={maskEdit.action}
-            source={maskEdit.source}
-            busy={maskBusy}
-            onClose={() => setMaskEdit(null)}
-            onGenerate={generateMask}
-          />
         )}
         <WakeSkippedNote message={message} />
         <RetryRecord message={message} />
