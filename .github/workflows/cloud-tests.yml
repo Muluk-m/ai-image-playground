@@ -5,7 +5,6 @@ on:
       - 'scripts/*cloud-test*'
       - 'scripts/cloud-vitest.mjs'
       - 'scripts/run-bun-tests-isolated.ts'
-      - 'deploy/compose.cloud-test.yaml'
       - '.github/workflows/cloud-tests.yml'
   workflow_dispatch:
     inputs:
