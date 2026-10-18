@@ -302,11 +302,6 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
     expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
     act(() => host.querySelectorAll<HTMLButtonElement>('.studio-agent-inline-open')[1]!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
-    viewCanvas.mockClear()
-    act(() =>
-      host.querySelectorAll<HTMLButtonElement>('button[aria-label="在画布中编辑"]')[1]!.click(),
-    )
-    expect(viewCanvas).toHaveBeenCalledWith(['second'])
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
@@ -1216,7 +1211,7 @@ it('shows which canvas nodes a read used without replaying their full document',
   }
 })
 
-it('lays four generated images in one row with meta tags, hover tools and a wide column mark', async () => {
+it('shows batch results without hover editing tools', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   setAgentCanvasSink({
@@ -1274,76 +1269,14 @@ it('lays four generated images in one row with meta tags, hover tools and a wide
     expect(host.querySelector('button[aria-label="下载"]')).toBeNull()
     expect(host.querySelector('button[aria-label="再次生成"]')).toBeTruthy()
     expect(host.querySelector('button[aria-label="复制提示词"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="更多操作"]')).toBeTruthy()
-    const tileTools = host.querySelectorAll('button[aria-label="去背景"]')
-    expect(tileTools).toHaveLength(4)
-    for (const label of ['用作参考', '局部重绘', '扩图', '去背景', '在画布中编辑']) {
-      const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
-      expect(button, label).toBeTruthy()
-      expect(button.getAttribute('aria-label')).toBe(label)
-      expect(button.hasAttribute('data-tooltip-trigger')).toBe(true)
-    }
-    cutout.run.mockClear()
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="去背景"]')!.click())
-    expect(cutout.run).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceMessageId: 'batch', artifactId: 'a' }),
-    )
+    expect(host.querySelectorAll('.studio-agent-inline-actions')).toHaveLength(0)
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(4)
+    const firstTile = host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!
+    act(() => firstTile.click())
+    expect(host.querySelector('.studio-agent-inline-result')).toBeTruthy()
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
-  }
-})
-
-it('uses a result as a reference by its own id and media instead of uploading a file', async () => {
-  const host = document.createElement('div')
-  const root = createRoot(host)
-  const attached = vi.fn()
-  const files = vi.fn()
-  setAgentComposerReferences(attached)
-  setAgentComposerAttach(files)
-  try {
-    await act(async () =>
-      root.render(
-        <AgentToolCard
-          message={{
-            kind: 'tool',
-            id: 'reference-source',
-            turnId: 'turn',
-            toolCallId: 'call',
-            toolName: 'generateImage',
-            title: '奶油窗景',
-            status: 'succeeded',
-            delivery: 'placed',
-            artifacts: [
-              {
-                artifactId: 'agent_task_0',
-                taskId: 'task',
-                outputIndex: 0,
-                media: 'image',
-                mime: 'image/png',
-                mediaId: '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10',
-              },
-            ],
-          }}
-          onPreviewResult={vi.fn()}
-        />,
-      ),
-    )
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="用作参考"]')!.click(),
-    )
-    expect(attached).toHaveBeenCalledWith([
-      {
-        id: 'agent_task_0',
-        dataUrl: 'aip-media:6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10',
-        name: '奶油窗景',
-      },
-    ])
-    expect(files).not.toHaveBeenCalled()
-  } finally {
-    act(() => root.unmount())
-    setAgentComposerReferences(null)
-    setAgentComposerAttach(null)
   }
 })
 
