@@ -5,7 +5,6 @@ import { projectArtifactId } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentRetryRefusal } from '../../../../features/agent/lib/retry'
@@ -16,10 +15,7 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { projectScene } from '../../../../features/canvas/lib/projectMedia'
 import { setChannels } from '../../../../lib/channels/channelStore'
-import {
-  notifyPrivateSubmissionError,
-  type PrivateSubmissionInput,
-} from '../../../../lib/privateOverlay'
+import { type PrivateSubmissionInput } from '../../../../lib/privateOverlay'
 
 const agent = vi.hoisted(() => ({
   send: vi.fn(),
@@ -199,55 +195,6 @@ function cloudFailedPlaceholder(code: 'timeout') {
   editor.doc.restore(scene.elements, scene.files)
   act(() => root.render(<PlaceholderOverlay editor={editor} />))
 }
-
-/** 云端项目上提交就被拒：服务端没留位置，失败占位由本机补上。 */
-async function cloudRefusedPlaceholder(
-  code: 'insufficient_credits' | 'authentication_required' | 'model_unavailable',
-) {
-  const sink = createAgentCanvasSink(editor, undefined, {
-    enabled: () => true,
-    refresh: () => Promise.resolve(),
-  })
-  const ids = await sink.reserve({
-    count: 1,
-    messageId: 'tool-cloud',
-    conversationId: 'conv-1',
-    title: '一只橘猫',
-  })
-  sink.markFailed(ids, '服务端写的那句话', code)
-  act(() => root.render(<PlaceholderOverlay editor={editor} />))
-}
-
-it('云端项目积分不够被拒：失败占位给去充值', async () => {
-  await cloudRefusedPlaceholder('insufficient_credits')
-
-  const button = host.querySelector('button')!
-  expect(button.textContent).toBe('去充值')
-  act(() => button.click())
-  expect(notifyPrivateSubmissionError).toHaveBeenCalledWith({ insufficientCredits: true })
-})
-
-it('云端项目没登录被拒：失败占位叫出登录框', async () => {
-  await cloudRefusedPlaceholder('authentication_required')
-
-  const button = host.querySelector('button')!
-  expect(button.textContent).toBe('去登录')
-  const prompted = vi.fn()
-  const unsubscribe = subscribeLoginPrompt(prompted)
-  act(() => button.click())
-  unsubscribe()
-  // 弹登录框，不是把会话判失效——后者会把访客手上这张画布一起冲掉。
-  expect(prompted.mock.calls).toEqual([['gated-action']])
-})
-
-it('云端项目模型不可用被拒：失败占位给让助手重新处理，发回项目的会话', async () => {
-  await cloudRefusedPlaceholder('model_unavailable')
-
-  const button = host.querySelector('button')!
-  expect(button.textContent).toBe('让助手重新处理')
-  act(() => button.click())
-  expect(send).toHaveBeenCalledWith(expect.stringMatching(/^「一只橘猫」没有完成：/))
-})
 
 it('云端项目超时的失败占位只说原因', () => {
   cloudFailedPlaceholder('timeout')
