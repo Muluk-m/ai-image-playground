@@ -10,7 +10,7 @@ import type {
   AgentReservation,
 } from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
-import { focusNodeCanvas } from './nodeCanvasFocus'
+import { focusNodeCanvas, revealNodeCanvas } from './nodeCanvasFocus'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
 import { recoverVideoPoster } from './recoverVideoPoster'
@@ -106,7 +106,7 @@ export function createAgentCanvasSink(
       }
       const ids = createPlaceholders(request)
       // 产出落在视口外用户根本不知道这一轮干了什么，所以占位一建好就把镜头带过去。
-      editor.scrollToElements(ids)
+      if (!revealNodeCanvas(editor, ids)) editor.scrollToElements(ids)
       return ids
     },
 

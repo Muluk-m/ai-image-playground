@@ -19,9 +19,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import NodeCanvas from '../../../../features/canvas/components/NodeCanvas'
+import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
+import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
-import { focusNodeCanvas } from '../../../../features/canvas/lib/nodeCanvasFocus'
+import { focusNodeCanvas, revealNodeCanvas } from '../../../../features/canvas/lib/nodeCanvasFocus'
+import { nodeCanvasSelection } from '../../../../features/canvas/lib/nodeCanvasSelection'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 import { stubPointerApis } from '../../../helpers/radix'
 
@@ -263,3 +266,53 @@ it('does not focus missing nodes or another editor and unregisters when unmounte
   expect(focusNodeCanvas(editor, ['member'])).toBe(false)
   expect(mocks.setViewport.mock.calls.length).toBe(before)
 })
+
+it('reveals an offscreen node without replacing references or changing zoom', async () => {
+  await render()
+  act(() => focusNodeCanvas(workspace.editor, ['first']))
+  mocks.viewport = { x: -2000, y: -1000, zoom: 0.5 }
+  act(() => expect(revealNodeCanvas(workspace.editor, ['member'])).toBe(true))
+  expect(nodeCanvasSelection(workspace.editor)).toEqual(['first'])
+  expect(mocks.viewport.zoom).toBe(0.5)
+  expect(240 * mocks.viewport.zoom + mocks.viewport.x).toBe(16)
+  expect(20 * mocks.viewport.zoom + mocks.viewport.y).toBeGreaterThanOrEqual(16)
+  const visible = { ...mocks.viewport }
+  act(() => expect(revealNodeCanvas(workspace.editor, ['member'])).toBe(true))
+  expect(mocks.viewport).toEqual(visible)
+})
+
+it('aligns an oversized batch to the available top left without zooming out', async () => {
+  await render()
+  mocks.viewport = { x: 100, y: 100, zoom: 4 }
+  act(() => expect(revealNodeCanvas(workspace.editor, ['first', 'member'])).toBe(true))
+  expect(mocks.viewport.x).toBe(16)
+  expect(mocks.viewport.zoom).toBe(4)
+  const aligned = { ...mocks.viewport }
+  act(() => expect(revealNodeCanvas(workspace.editor, ['first', 'member'])).toBe(true))
+  expect(mocks.viewport).toEqual(aligned)
+  expect(nodeCanvasSelection(workspace.editor)).toEqual([])
+  act(() => root.render(null))
+  expect(revealNodeCanvas(workspace.editor, ['first'])).toBe(false)
+})
+
+it.each(['image', 'video'] as const)(
+  'reveals freshly synchronized %s reservations while keeping the selected reference',
+  async (media) => {
+    workspace.editor = new CanvasEditor(old)
+    old.setViewport(1000, 700)
+    await render()
+    act(() => focusNodeCanvas(workspace.editor, ['first']))
+    mocks.viewport = { x: -3000, y: -2000, zoom: 0.5 }
+    const sink = createAgentCanvasSink(workspace.editor)
+    let ids: readonly string[] = []
+    await act(async () => {
+      ids = await sink.reserve({ count: 1, media, messageId: 'reservation', anchorObjectId: 'first' })
+    })
+    const pending = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === ids[0])!
+    expect(pending.data).toMatchObject({ pending: { status: 'loading' } })
+    expect(nodeCanvasSelection(workspace.editor)).toEqual(['first'])
+    expect(mocks.viewport.zoom).toBe(0.5)
+    expect(pending.x * mocks.viewport.zoom + mocks.viewport.x).toBe(16)
+    expect(pending.y * mocks.viewport.zoom + mocks.viewport.y).toBeGreaterThanOrEqual(16)
+  },
+)

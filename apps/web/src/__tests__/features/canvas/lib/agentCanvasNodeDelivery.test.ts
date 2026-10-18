@@ -76,12 +76,16 @@ it('places a missing historical result in the real local Y.Doc once and reuses i
   setAgentCanvasSink(sink)
   const focused: string[][] = []
   unregisterFocus.push(
-    registerNodeCanvasFocus(editor, (ids) => {
-      const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
-      if (!present.length) return false
-      focused.push(present)
-      return true
-    }),
+    registerNodeCanvasFocus(
+      editor,
+      (ids) => {
+        const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
+        if (!present.length) return false
+        focused.push(present)
+        return true
+      },
+      () => false,
+    ),
   )
   const changed = vi.fn()
   const delivery = createArtifactDelivery(changed)
