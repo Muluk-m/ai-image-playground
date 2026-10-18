@@ -13,7 +13,7 @@ import tempfile
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
-COMPOSE = ROOT / "deploy/compose.cloud-test.yaml"
+COMPOSE = ROOT / "scripts/cloud-test.compose.yaml"
 STATE = ROOT / "node_modules/.cache/cloud-test.json"
 TARGETS = ("check", "web", "bff", "db")
 
