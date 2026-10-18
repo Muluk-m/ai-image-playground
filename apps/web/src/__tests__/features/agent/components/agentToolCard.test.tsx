@@ -302,11 +302,6 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
     expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
     act(() => host.querySelectorAll<HTMLButtonElement>('.studio-agent-inline-open')[1]!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
-    viewCanvas.mockClear()
-    act(() =>
-      host.querySelectorAll<HTMLButtonElement>('button[aria-label="在画布中编辑"]')[1]!.click(),
-    )
-    expect(viewCanvas).toHaveBeenCalledWith(['second'])
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
@@ -1216,7 +1211,7 @@ it('shows which canvas nodes a read used without replaying their full document',
   }
 })
 
-it('lays four generated images in one row with meta tags, hover tools and a wide column mark', async () => {
+it('lays four generated images in a larger two-column gallery without hover tools', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   setAgentCanvasSink({
@@ -1274,20 +1269,11 @@ it('lays four generated images in one row with meta tags, hover tools and a wide
     expect(host.querySelector('button[aria-label="下载"]')).toBeNull()
     expect(host.querySelector('button[aria-label="再次生成"]')).toBeTruthy()
     expect(host.querySelector('button[aria-label="复制提示词"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="更多操作"]')).toBeTruthy()
-    const tileTools = host.querySelectorAll('button[aria-label="去背景"]')
-    expect(tileTools).toHaveLength(4)
-    for (const label of ['用作参考', '局部重绘', '扩图', '去背景', '在画布中编辑']) {
-      const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
-      expect(button, label).toBeTruthy()
-      expect(button.getAttribute('aria-label')).toBe(label)
-      expect(button.hasAttribute('data-tooltip-trigger')).toBe(true)
-    }
-    cutout.run.mockClear()
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="去背景"]')!.click())
-    expect(cutout.run).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceMessageId: 'batch', artifactId: 'a' }),
-    )
+    expect(host.querySelectorAll('.studio-agent-inline-actions')).toHaveLength(0)
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(4)
+    const firstTile = host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!
+    act(() => firstTile.click())
+    expect(host.querySelector('.studio-agent-inline-result')).toBeTruthy()
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
