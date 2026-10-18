@@ -105,6 +105,9 @@ def prepare(versions, scratch):
         print("[dependencies] current lockfile and installed dependencies verified", flush=True)
         return
     print("[dependencies] stale or unverified cache; running frozen install", flush=True)
+    # A failed reinstall may restore links/lock records before failing a later build step.
+    # It must never inherit a previous successful installation's readiness stamp.
+    STATE.unlink(missing_ok=True)
     before = digest(ROOT / "pnpm-lock.yaml")
     run(["pnpm", "install", "--frozen-lockfile", "--store-dir", str(ROOT / ".local/pnpm-store")], stage="dependencies",
         env=isolated_environment(scratch, network=True))

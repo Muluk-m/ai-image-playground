@@ -39,11 +39,11 @@ assert not (pathlib.Path.home() / '.npmrc').exists()
 assert '--frozen-lockfile' in sys.argv
 with (root / 'installs.log').open('a') as log:
     log.write('install\\n')
-if (root / 'fail-install').exists():
-    sys.exit(42)
 dest = root / 'node_modules/.pnpm/lock.yaml'
 dest.parent.mkdir(parents=True, exist_ok=True)
 dest.write_bytes((root / 'pnpm-lock.yaml').read_bytes())
+if (root / 'fail-install').exists():
+    sys.exit(42)
 '''.replace("VERSION", repr(version)))
             path.chmod(0o755)
         self.env = {**os.environ, "PATH": f"{self.tools}:{os.environ['PATH']}",
@@ -96,6 +96,13 @@ dest.write_bytes((root / 'pnpm-lock.yaml').read_bytes())
     def test_wrong_revision_stops_before_install(self):
         self.assertIn("revision:", self.invoke("prepare", "--sha", "0" * 40, ok=False))
         self.assertFalse((self.root / "installs.log").exists())
+
+    def test_failed_reinstall_does_not_reuse_an_older_success_stamp(self):
+        self.invoke("prepare")
+        (self.root / "node_modules/.pnpm/lock.yaml").write_text("incomplete restore\n")
+        (self.root / "fail-install").touch()
+        self.invoke("prepare", ok=False)
+        self.invoke("check", ok=False)
 
     def test_concurrent_checkout_use_fails_without_mutation(self):
         local = self.root / ".local"
