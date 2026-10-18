@@ -7,6 +7,7 @@ import AgentCreations from '../../../../features/agent/components/AgentCreations
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { CanvasDoc, type CanvasEl, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
+
 declare global {
   // eslint-disable-next-line no-var
   var IS_REACT_ACT_ENVIRONMENT: boolean

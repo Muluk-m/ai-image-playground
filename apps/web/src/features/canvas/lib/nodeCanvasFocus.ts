@@ -29,8 +29,11 @@ export function focusNodeCanvas(editor: CanvasEditor, ids: readonly string[]): b
   return registrations.get(editor)?.focus(ids) ?? false
 }
 
-/** Reveal nodes without changing the current reference selection or zoom. */
+/** Reveal without changing references or zoom; true means the mounted view owns navigation. */
 export function revealNodeCanvas(editor: CanvasEditor, ids: readonly string[]): boolean {
   if (ids.length === 0) return false
-  return registrations.get(editor)?.reveal(ids) ?? false
+  const registration = registrations.get(editor)
+  if (!registration) return false
+  registration.reveal(ids)
+  return true
 }

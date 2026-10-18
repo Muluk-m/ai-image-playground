@@ -1102,8 +1102,10 @@ function Flow({
   }
   focusRef.current = focus
   revealRef.current = (ids) => {
-    const bounds = boundsOf(readCanvasDocument(canvas.doc), new Set(ids), nodes)
+    const bounds = boundsOf(readCanvasDocument(canvas.doc), new Set(ids))
     if (!bounds) return false
+    // Keep the current zoom and prevent invalidated preview cleanup restoring an older viewport.
+    setArrangement(null)
     if (framing.current !== null) {
       clearTimeout(framing.current)
       framing.current = null
