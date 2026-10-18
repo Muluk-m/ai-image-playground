@@ -4,6 +4,7 @@ import {
   createCanvasGroup,
   createCanvasUndoManager,
   importLegacyElements,
+  readCanvasDocument,
 } from '@image-playground/shared'
 import {
   act,
@@ -236,6 +237,19 @@ it('focuses a mounted node, including a node inside a group, and reframes repeat
   })
   expect(focused).toBe(true)
   expect(mocks.setViewport.mock.calls.length).toBeGreaterThan(afterFirst)
+})
+
+it('leaves an uncommitted arrangement before locating the original node without changing the document', async () => {
+  await render()
+  const before = readCanvasDocument(canvas.doc)
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="整理画布"]')!.click())
+  expect(host.textContent).toContain('是否保留此次整理结果？')
+  act(() => {
+    expect(focusNodeCanvas(workspace.editor, ['member'])).toBe(true)
+  })
+  expect(host.textContent).not.toContain('是否保留此次整理结果？')
+  expect(host.querySelector('[data-node-id="member"]')?.classList.contains('selected')).toBe(true)
+  expect(readCanvasDocument(canvas.doc)).toEqual(before)
 })
 
 it('does not focus missing nodes or another editor and unregisters when unmounted', async () => {

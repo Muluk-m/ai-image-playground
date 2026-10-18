@@ -1067,6 +1067,8 @@ function Flow({
     ])
     const selected = ids.filter((id) => available.has(id))
     if (!selected.length) return false
+    // Navigate to persisted geometry, not an uncommitted arrangement preview.
+    setArrangement(null)
     const selectedSet = new Set(selected)
     const single = selected.length === 1 ? selected[0]! : null
     selectedRef.current = single
