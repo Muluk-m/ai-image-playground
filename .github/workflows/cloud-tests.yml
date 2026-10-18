@@ -1,0 +1,58 @@
+name: Cloud tests
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full public commit SHA to test
+        required: true
+        type: string
+      target:
+        description: Public workspace test target
+        required: true
+        type: choice
+        options: [check, web, bff, db]
+      filter:
+        description: Optional test file path or substring
+        type: string
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_cloud_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aip_cloud_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - name: Verify the requested revision before setup
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+      - uses: ./.github/actions/setup
+      - run: python3 scripts/cloud-test.py prepare --sha "$EXPECTED_SHA"
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+      - run: |
+          args=("$TARGET" --sha "$EXPECTED_SHA")
+          if [ -n "$TEST_FILTER" ]; then args+=(--filter "$TEST_FILTER"); fi
+          python3 scripts/cloud-test.py "${args[@]}"
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          TARGET: ${{ inputs.target }}
+          TEST_FILTER: ${{ inputs.filter }}
+          CLOUD_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_cloud_test
