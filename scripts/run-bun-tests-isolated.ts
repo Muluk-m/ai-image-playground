@@ -65,7 +65,7 @@ async function runFile(file: string): Promise<Result> {
   let log: number | 'inherit' = 'inherit'
   try {
     if (logPath) log = openSync(logPath, 'w')
-    const child = Bun.spawn([process.execPath, 'test', file], {
+    const child = Bun.spawn([process.execPath, 'test', '--no-env-file', file], {
       cwd: process.cwd(),
       env: process.env,
       stdout: log,
