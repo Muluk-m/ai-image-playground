@@ -326,7 +326,7 @@ export const runNodes = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '先 readCanvas 确认节点。只给出运行建议，不能把工具成功当作生成完成；用户须在对话卡检查预估并在画布二次确认。',
+    '为画布节点生成图片或视频（包括批量生成）都用 runNodes。先 readCanvas 确认节点。只给出运行建议，不能把工具成功当作生成完成；用户须在对话卡检查预估并在画布二次确认。',
   description:
     '为当前云端画布指定节点或分组准备运行建议。对话卡显示当前批次预估，用户检查后高亮节点并再次确认才提交任务。工具本身不生成、不扣费；实际结果应通过 readCanvas 再查看。',
   parameters: Type.Object({
