@@ -243,6 +243,43 @@ export function validateAgentModelSettings(value: unknown): AgentModelSettings {
   return settings
 }
 
+type PiThinkingMap = NonNullable<Model<Api>['thinkingLevelMap']>
+
+function configuredThinkingMap({
+  custom,
+  original,
+}: {
+  custom: AgentConfiguredModel
+  original: Model<Api> | undefined
+}): PiThinkingMap {
+  const mapping: PiThinkingMap = {}
+  for (const level of MODEL_REASONING_LEVELS) {
+    if (!custom.reasoningLevels.includes(level)) mapping[level] = null
+    else if (level !== 'off') {
+      const native = original?.thinkingLevelMap?.[level]
+      mapping[level] = native === undefined ? level : native
+    }
+  }
+  if (!custom.reasoningLevels.includes('off')) return mapping
+  if (original) {
+    // null forbids off; undefined leaves the protocol's native off behavior intact.
+    if (original.thinkingLevelMap?.off !== undefined) mapping.off = original.thinkingLevelMap.off
+    return mapping
+  }
+  switch (custom.api) {
+    case 'openai-completions':
+    case 'openai-responses':
+      mapping.off = 'none'
+      return mapping
+    case 'anthropic-messages':
+      return mapping
+    default: {
+      const _exhaustive: never = custom.api
+      return _exhaustive
+    }
+  }
+}
+
 export function configuredModels(provider: AgentProviderSettings): Model<Api>[] {
   const template = builtins.find((item) => item.id === provider.template)
   const models = new Map(
@@ -264,15 +301,9 @@ export function configuredModels(provider: AgentProviderSettings): Model<Api>[] 
       contextWindow: custom.contextWindow,
       maxTokens: custom.maxTokens,
       input: custom.imageInput ? ['text', 'image'] : ['text'],
-      reasoning: custom.reasoningLevels.some((level) => level !== 'off'),
-      thinkingLevelMap: Object.fromEntries(
-        MODEL_REASONING_LEVELS.map((level) => [
-          level,
-          custom.reasoningLevels.includes(level)
-            ? (original?.thinkingLevelMap?.[level] ?? level)
-            : null,
-        ]),
-      ),
+      reasoning:
+        original?.reasoning === true || custom.reasoningLevels.some((level) => level !== 'off'),
+      thinkingLevelMap: configuredThinkingMap({ custom, original }),
       cost: original?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       ...(provider.id === 'upstream-gateway' && custom.api === 'openai-completions'
         ? {
