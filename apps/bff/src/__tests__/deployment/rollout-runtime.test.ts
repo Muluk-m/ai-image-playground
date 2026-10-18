@@ -60,7 +60,10 @@ state.events.push({ args: args.map((v, i) => args[i - 1] === '-e' && args[0] ===
 const save = () => writeFileSync(path, JSON.stringify(state));
 const finish = (text = '', code = 0) => { save(); if (text) console.log(text); process.exit(code); };
 const imageId = image => 'sha256:' + image;
-if (args[0] === 'image') finish(value('--format').includes('app.execution-protocol') ? '1' : imageId(args.at(-1)));
+if (args[0] === 'image') {
+  const id = imageId(args.at(-1));
+  finish(value('--format').includes('app.execution-protocol') ? id + ' 1' : id);
+}
 if (args[0] === 'ps') {
   let all = Object.values(state.containers);
   if (!args.includes('-a') && !args.includes('--all')) all = all.filter(c => c.running);
@@ -133,7 +136,7 @@ if (args[0] === 'run' || args[0] === 'create') {
   const name = value('--name');
   if (name.endsWith('-migrate')) finish();
   const role = name.endsWith('-worker') ? 'worker' : name.endsWith('-bff') ? 'bff' : 'router';
-  const image = args.find(arg => ['old', 'new', 'third'].includes(arg));
+  const image = args.find(arg => ['old', 'new', 'third'].includes(arg.replace(/^sha256:/, '')))?.replace(/^sha256:/, '');
   state.containers[name] = { name, id: (++state.nextId).toString(16).padStart(64, '0'), role, image,
     running: args[0] === 'run', status: args[0] === 'run' ? 'running' : 'created',
     started: '2026-10-18T01:00:00Z', restart: 'unless-stopped', managed: role !== 'router',
@@ -208,7 +211,12 @@ async function fixture(overrides: Partial<FixtureState> = {}) {
   const config = join(root, 'config')
   const releases = join(config, 'releases')
   const statePath = join(root, 'state.json')
-  for (const dir of [bin, join(scripts, 'lib'), join(releases, 'activated'), join(config, 'cloudflared')])
+  for (const dir of [
+    bin,
+    join(scripts, 'lib'),
+    join(releases, 'activated'),
+    join(config, 'cloudflared'),
+  ])
     await mkdir(dir, { recursive: true })
   for (const file of ['rollout-runtime.sh', 'app-compose.sh', 'lib/deploy-common.sh'])
     await copyFile(resolve(import.meta.dir, '../../../../../scripts', file), join(scripts, file))
@@ -216,7 +224,10 @@ async function fixture(overrides: Partial<FixtureState> = {}) {
   await writeFile(join(config, 'migrate.env'), '')
   await writeFile(join(config, 'cloudflared/config.yml'), 'service: http://release-router:37377\n')
   await writeFile(join(config, 'cloudflared/credentials.json'), '{}')
-  await writeFile(join(releases, 'route.json'), JSON.stringify({ origin: `http://${currentBff}:37377` }))
+  await writeFile(
+    join(releases, 'route.json'),
+    JSON.stringify({ origin: `http://${currentBff}:37377` }),
+  )
   await writeFile(join(releases, 'current'), `${currentBff} ${currentWorker}\n`)
   await writeFile(join(releases, 'ingress-ready'), '')
   await writeFile(join(releases, 'activated', currentWorker), '')
@@ -224,8 +235,12 @@ async function fixture(overrides: Partial<FixtureState> = {}) {
     containers: {
       [currentBff]: container(currentBff, 'bff'),
       [currentWorker]: container(currentWorker, 'worker'),
-      'fixture-release-router': container('fixture-release-router', 'router', { id: '3'.repeat(64) }),
-      'fixture-cloudflared-1': container('fixture-cloudflared-1', 'cloudflared', { id: '4'.repeat(64) }),
+      'fixture-release-router': container('fixture-release-router', 'router', {
+        id: '3'.repeat(64),
+      }),
+      'fixture-cloudflared-1': container('fixture-cloudflared-1', 'cloudflared', {
+        id: '4'.repeat(64),
+      }),
     },
     events: [],
     clock: 1_000,
@@ -241,22 +256,33 @@ async function fixture(overrides: Partial<FixtureState> = {}) {
   const executable = async (name: string, code: string) =>
     writeFile(join(bin, name), `#!${process.execPath}\n${code}`, { mode: 0o755 })
   await executable('docker', dockerStub)
-  await executable('timeout', `const p = Bun.spawn(process.argv.slice(3), { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); process.exit(await p.exited);`)
-  await executable('date', String.raw`
+  await executable(
+    'timeout',
+    `const p = Bun.spawn(process.argv.slice(3), { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); process.exit(await p.exited);`,
+  )
+  await executable(
+    'date',
+    String.raw`
 const path = process.env.FIXTURE_STATE;
 const state = await Bun.file(path).json();
 if (process.argv.at(-1) === '+%s') { state.clock += 100; await Bun.write(path, JSON.stringify(state)); console.log(state.clock); }
 else console.log('20261018000000');
-`)
+`,
+  )
   await executable('sleep', '')
-  await executable('rm', String.raw`
+  await executable(
+    'rm',
+    String.raw`
 const args = process.argv.slice(2);
 const state = await Bun.file(process.env.FIXTURE_STATE).json();
 if (state.failMarkerRemoval && args.some(arg => arg.endsWith('/activated/' + state.failMarkerRemoval))) process.exit(1);
 const p = Bun.spawn(['/bin/rm', ...args], { stdout: 'inherit', stderr: 'inherit' });
 process.exit(await p.exited);
-`)
-  await executable('mv', String.raw`
+`,
+  )
+  await executable(
+    'mv',
+    String.raw`
 const args = process.argv.slice(2);
 const p = Bun.spawn(['/bin/mv', ...args], { stdout: 'inherit', stderr: 'inherit' });
 const code = await p.exited;
@@ -267,7 +293,8 @@ if (code === 0 && args.at(-1).endsWith('/route.json') && state.crashAfterRoute) 
   process.kill(process.ppid, 'SIGKILL');
 }
 process.exit(code);
-`)
+`,
+  )
   return { root, bin, config, releases, scripts, statePath }
 }
 
@@ -353,16 +380,27 @@ describe('executor-preserving rollout', () => {
     for (const name of [currentBff, currentWorker]) {
       expect(state.containers[name]).toBeUndefined()
       expect(destructiveEvents(state, name).map((event) => event.args[0])).toEqual(['stop', 'rm'])
-      const stopIndex = state.events.findIndex((event) => event.target === name && event.args[0] === 'stop')
-      expect(state.events.slice(0, stopIndex).some((event) => event.target === name && event.args.includes('--restart=no'))).toBe(true)
+      const stopIndex = state.events.findIndex(
+        (event) => event.target === name && event.args[0] === 'stop',
+      )
+      expect(
+        state.events
+          .slice(0, stopIndex)
+          .some((event) => event.target === name && event.args.includes('--restart=no')),
+      ).toBe(true)
       expect(destructiveEvents(state, name).every((event) => !event.args.includes('-f'))).toBe(true)
     }
-    expect(state.events.some((event) => event.args[0] === 'compose' && event.args.includes('admin'))).toBe(true)
+    expect(
+      state.events.some((event) => event.args[0] === 'compose' && event.args.includes('admin')),
+    ).toBe(true)
+    expect(creations(state).every((event) => event.args.includes('sha256:new'))).toBe(true)
   })
 
   it('keeps busy old work across the deadline and blocks a third generation before migration', async () => {
     const f = await fixture()
-    await editState(f, (state) => { state.containers[currentWorker].active = 1 })
+    await editState(f, (state) => {
+      state.containers[currentWorker].active = 1
+    })
     expect((await run(f)).code).toBe(0)
     const first = await readState(f)
     expect(first.containers[currentWorker].running).toBe(true)
@@ -373,7 +411,9 @@ describe('executor-preserving rollout', () => {
     const blocked = await readState(f)
     expect(creations(blocked)).toEqual(creations(first))
     expect(destructiveEvents(blocked, currentWorker)).toEqual([])
-    await editState(f, (state) => { state.containers[currentWorker].active = 0 })
+    await editState(f, (state) => {
+      state.containers[currentWorker].active = 0
+    })
     expect((await run(f, 'third')).code).toBe(0)
     expect((await readState(f)).containers[currentWorker]).toBeUndefined()
   })
@@ -406,7 +446,9 @@ describe('executor-preserving rollout', () => {
     const f = await fixture()
     const name = await addRetained(f, {})
     await writeFile(join(f.releases, 'activated', name), '')
-    await editState(f, (state) => { state.failMarkerRemoval = name })
+    await editState(f, (state) => {
+      state.failMarkerRemoval = name
+    })
     const result = await run(f)
     expect(result.code).not.toBe(0)
     expect(result.stderr).toContain('activation marker could not be removed')
@@ -442,7 +484,9 @@ describe('executor-preserving rollout', () => {
     const f = await fixture({ candidateActive: 1, failResume: true })
     expect((await run(f)).code).not.toBe(0)
     const state = await readState(f)
-    const candidates = Object.values(state.containers).filter((c) => c.managed && ![currentBff, currentWorker].includes(c.name))
+    const candidates = Object.values(state.containers).filter(
+      (c) => c.managed && ![currentBff, currentWorker].includes(c.name),
+    )
     expect(candidates).toHaveLength(2)
     for (const candidate of candidates) {
       expect(candidate.running).toBe(true)
@@ -452,14 +496,20 @@ describe('executor-preserving rollout', () => {
     expect(state.containers[currentWorker].draining).toBe(false)
     expect(state.containers[currentWorker].restart).toBe('unless-stopped')
     expect(await readFile(join(f.releases, 'activated', currentWorker), 'utf8')).toBe('')
-    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(`${currentBff} ${currentWorker}\n`)
+    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(
+      `${currentBff} ${currentWorker}\n`,
+    )
   })
 
   it('refuses cutover without the old worker drain acknowledgement', async () => {
     const f = await fixture()
-    await editState(f, (state) => { state.containers[currentWorker].rejectDrain = true })
+    await editState(f, (state) => {
+      state.containers[currentWorker].rejectDrain = true
+    })
     expect((await run(f)).code).not.toBe(0)
-    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(`${currentBff} ${currentWorker}\n`)
+    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(
+      `${currentBff} ${currentWorker}\n`,
+    )
     const state = await readState(f)
     expect(state.containers[currentWorker].draining).toBe(false)
     expect(destructiveEvents(state, currentWorker)).toEqual([])
@@ -482,7 +532,9 @@ describe('executor-preserving rollout', () => {
 
   it('does not call an unhealthy current generation a successful same-image retry', async () => {
     const f = await fixture()
-    await editState(f, (state) => { state.containers[currentWorker].healthy = false })
+    await editState(f, (state) => {
+      state.containers[currentWorker].healthy = false
+    })
     expect((await run(f, 'old')).code).not.toBe(0)
     const state = await readState(f)
     expect(creations(state)).toEqual([])
@@ -491,16 +543,22 @@ describe('executor-preserving rollout', () => {
 
   it('recovers a route commit interrupted before current and converges the same image', async () => {
     const f = await fixture({ crashAfterRoute: true })
-    await editState(f, (state) => { state.containers[currentWorker].active = 1 })
+    await editState(f, (state) => {
+      state.containers[currentWorker].active = 1
+    })
     expect((await run(f)).code).not.toBe(0)
     const route = JSON.parse(await readFile(join(f.releases, 'route.json'), 'utf8'))
     expect(route.origin).not.toBe(`http://${currentBff}:37377`)
-    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(`${currentBff} ${currentWorker}\n`)
+    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(
+      `${currentBff} ${currentWorker}\n`,
+    )
     const interrupted = await readState(f)
     expect((await run(f)).code).toBe(0)
     const state = await readState(f)
     expect(creations(state)).toEqual(creations(interrupted))
-    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(`${route.origin.slice(7, -6)} ${route.worker}\n`)
+    expect(await readFile(join(f.releases, 'current'), 'utf8')).toBe(
+      `${route.origin.slice(7, -6)} ${route.worker}\n`,
+    )
     expect(destructiveEvents(state, route.worker)).toEqual([])
   })
 
@@ -521,7 +579,9 @@ describe('executor-preserving rollout', () => {
 
   it('retries ancillary failure without creating a generation and applies the cap to rollback', async () => {
     const f = await fixture({ failAncillary: true })
-    await editState(f, (state) => { state.containers[currentWorker].active = 1 })
+    await editState(f, (state) => {
+      state.containers[currentWorker].active = 1
+    })
     expect((await run(f)).code).not.toBe(0)
     const failed = await readState(f)
     expect((await run(f)).code).toBe(0)
@@ -539,7 +599,13 @@ describe('executor-preserving rollout', () => {
     expect((await run(f, 'old', 'down')).code).not.toBe(0)
     expect((await run(f, 'old', 'up')).code).not.toBe(0)
     const state = await readState(f)
-    expect(state.events.some((event) => event.args[0] === 'compose' && (event.args.includes('down') || event.args.includes('bff')))).toBe(false)
+    expect(
+      state.events.some(
+        (event) =>
+          event.args[0] === 'compose' &&
+          (event.args.includes('down') || event.args.includes('bff')),
+      ),
+    ).toBe(false)
     expect(creations(state)).toEqual([])
   })
 
@@ -548,7 +614,9 @@ describe('executor-preserving rollout', () => {
     await writeFile(join(f.releases, 'route.json'), '{broken')
     expect((await run(f)).code).not.toBe(0)
     const state = await readState(f)
-    expect(state.events.filter((event) => ['stop', 'rm', 'kill'].includes(event.args[0]))).toEqual([])
+    expect(state.events.filter((event) => ['stop', 'rm', 'kill'].includes(event.args[0]))).toEqual(
+      [],
+    )
     expect(creations(state)).toEqual([])
   })
 
@@ -556,8 +624,14 @@ describe('executor-preserving rollout', () => {
     const f = await fixture()
     const names = ['fixture-bff-1', 'fixture-worker-1']
     await editState(f, (state) => {
-      state.containers[names[0]] = container(names[0], 'bff', { id: '6'.repeat(64), reply: 'unavailable' })
-      state.containers[names[1]] = container(names[1], 'worker', { id: '7'.repeat(64), reply: 'unavailable' })
+      state.containers[names[0]] = container(names[0], 'bff', {
+        id: '6'.repeat(64),
+        reply: 'unavailable',
+      })
+      state.containers[names[1]] = container(names[1], 'worker', {
+        id: '7'.repeat(64),
+        reply: 'unavailable',
+      })
     })
     await writeFile(join(f.releases, 'legacy-origin'), 'http://fixture-bff-1:37377\n')
     expect((await run(f)).code).not.toBe(0)
@@ -567,7 +641,9 @@ describe('executor-preserving rollout', () => {
       expect(destructiveEvents(state, name)).toEqual([])
     }
     expect(creations(state)).toEqual([])
-    expect(await readFile(join(f.releases, 'legacy-origin'), 'utf8')).toBe('http://fixture-bff-1:37377\n')
+    expect(await readFile(join(f.releases, 'legacy-origin'), 'utf8')).toBe(
+      'http://fixture-bff-1:37377\n',
+    )
   })
 
   it('refuses the first pre-protocol Compose handover before migration or worker stop', async () => {

@@ -160,7 +160,7 @@ release_managed() {
   if [ -e "$APP_CONFIG_DIR/releases/current" ] || [ -e "$APP_CONFIG_DIR/releases/route.json" ]; then
     return 0
   fi
-  managed=$(docker ps -a --filter "label=app.runtime.project=$project" --format '{{.Names}}') || {
+  managed=$(timeout 10 docker ps -a --filter "label=app.runtime.project=$project" --format '{{.Names}}') || {
     echo 'Cannot establish runtime inventory; refusing Compose changes' >&2
     exit 1
   }
@@ -171,7 +171,7 @@ case "$command" in
   up)
     require_migrator_env
     require_tunnel_credentials
-    compose_bff=$(docker ps -a --filter "name=^/$project-bff-1$" --format '{{.Names}}') || exit 1
+    compose_bff=$(timeout 10 docker ps -a --filter "name=^/$project-bff-1$" --format '{{.Names}}') || exit 1
     if release_managed || [ -n "$compose_bff" ]; then
       rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
       start_log_collector

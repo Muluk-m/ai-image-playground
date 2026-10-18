@@ -17,12 +17,12 @@ command -v timeout >/dev/null 2>&1 || { echo 'The VPS requires coreutils timeout
 
 # A failed or timed-out Docker query is unknown, never evidence that a container stopped.
 docker_probe() { timeout 10 docker "$@"; }
-if [ "$(docker_probe image inspect --format '{{index .Config.Labels "app.execution-protocol"}}' "$image")" != 1 ]; then
+image_snapshot=$(docker_probe image inspect --format '{{.Id}} {{index .Config.Labels "app.execution-protocol"}}' "$image")
+image_id=${image_snapshot% *}
+if [ "${image_snapshot##* }" != 1 ] || [ -z "$image_id" ]; then
   echo 'Image does not support executor-preserving deployment; refusing rollout/rollback' >&2
   exit 1
 fi
-image_id=$(docker_probe image inspect --format '{{.Id}}' "$image")
-[ -n "$image_id" ] || exit 1
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 config_dir=${APP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/apps/$project}
 state_dir=$config_dir/releases
@@ -300,7 +300,7 @@ runtime() {
     -e WORKER_ACTIVATION_FILE="/run/operator/releases/activated/$release-worker" \
     -e EXECUTOR_ORIGIN="http://$release-bff:37377" -e LEGACY_EXECUTOR_ORIGIN= \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
-    "$image" bun run "/app/apps/bff/src/$2" >/dev/null
+    "$image_id" bun run "/app/apps/bff/src/$2" >/dev/null
   docker network connect "$infra" "$name"
   docker start "$name" >/dev/null
 }
@@ -309,7 +309,7 @@ start_router() {
   logged_docker run -d --name "$router" --init --restart unless-stopped --network "$network" \
     --network-alias release-router --entrypoint bun \
     --mount "type=bind,source=$state_dir,target=/run/release,readonly" \
-    "$image" run /app/scripts/release-router.ts >/dev/null
+    "$image_id" run /app/scripts/release-router.ts >/dev/null
 }
 
 if [ -e "$state_dir/route.json" ]; then
@@ -369,7 +369,7 @@ else
   logged_docker run --rm --name "$release-migrate" --network "$infra" --env-file "$app_env" \
     --env-file "$config_dir/migrate.env" -e APP_ROLE=migrate \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
-    "$image" bun run /app/apps/bff/src/db/migrate.ts
+    "$image_id" bun run /app/apps/bff/src/db/migrate.ts
   runtime bff index.ts 6
   healthy "$new_bff" 37377
   runtime worker worker-index.ts 4
@@ -442,9 +442,9 @@ echo "Active: $release. Retained executors:$pending"
 # Ancillary services have no generation execution state. Their writes use the stable ingress.
 # Compose admin owns the tunnel name `admin` again. --wait returns only after its healthcheck
 # passes, so the name is already answering before the leftover proxy is stopped.
-APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+APP_IMAGE=$image_id APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
   "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps --wait admin
-APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+APP_IMAGE=$image_id APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
   "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps \
   host-collector pg-backup
 # A previous rollout may have left a proxy holding `admin`, and release-qualified admin
@@ -480,6 +480,6 @@ rm -f "$state_dir/admin-pending" "$state_dir/admin-upstream" "$state_dir/admin-r
 # a stopped connector is the only reason to start it again. Bumping the image tag requires
 # removing this container so the next rollout creates it.
 if [ "$(docker inspect --format '{{.State.Running}}' "$project-cloudflared-1" 2>/dev/null || true)" != true ]; then
-  APP_IMAGE=$image APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
+  APP_IMAGE=$image_id APP_ENV_FILE=$app_env BFF_INTERNAL_URL=http://release-router:37377 \
     "$repo_root/scripts/app-compose.sh" compose "$project" up --detach --no-deps cloudflared
 fi

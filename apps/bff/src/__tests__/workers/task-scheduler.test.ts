@@ -318,10 +318,14 @@ describe('TaskScheduler', () => {
       if (payload.prompt !== 'retained-request') return Response.json(TEST_RESULT_PAYLOAD)
       return new Promise<Response>((resolve, reject) => {
         release = () => resolve(Response.json(TEST_RESULT_PAYLOAD))
-        init.signal?.addEventListener('abort', () => {
-          aborted = true
-          reject(new DOMException('Aborted', 'AbortError'))
-        }, { once: true })
+        init.signal?.addEventListener(
+          'abort',
+          () => {
+            aborted = true
+            reject(new DOMException('Aborted', 'AbortError'))
+          },
+          { once: true },
+        )
       })
     })
     const previous = new TaskScheduler({ pollIntervalMs: 10_000 })
@@ -338,7 +342,10 @@ describe('TaskScheduler', () => {
         updated_at: stamp,
       })
       await insertTask('retained-request', 'openai-compat', 1)
-      await db.update(schema.tasks).set({ user_id: 'retained-owner' }).where(eq(schema.tasks.id, 'retained-request'))
+      await db
+        .update(schema.tasks)
+        .set({ user_id: 'retained-owner' })
+        .where(eq(schema.tasks.id, 'retained-request'))
       previous.start()
       await waitFor(() => calls.includes('retained-request'))
       const claimed = await read('retained-request')
@@ -363,9 +370,7 @@ describe('TaskScheduler', () => {
       expect(calls).toEqual(['retained-request', 'current-request'])
       const settled = billing.settlements.filter((entry) => entry.taskId === 'retained-request')
       expect(settled).toHaveLength(1)
-      expect(settled).toMatchObject([
-        { taskId: 'retained-request', outcome: 'completed' },
-      ])
+      expect(settled).toMatchObject([{ taskId: 'retained-request', outcome: 'completed' }])
     } finally {
       release()
       previous.stop()
