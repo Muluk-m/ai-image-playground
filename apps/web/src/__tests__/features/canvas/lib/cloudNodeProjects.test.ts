@@ -655,12 +655,16 @@ it.each([
   })
   setAgentCanvasSink(sink)
   const focused: string[][] = []
-  const unregister = registerNodeCanvasFocus(record.editor, (ids) => {
-    const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
-    if (!present.length) return false
-    focused.push(present)
-    return true
-  })
+  const unregister = registerNodeCanvasFocus(
+    record.editor,
+    (ids) => {
+      const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
+      if (!present.length) return false
+      focused.push(present)
+      return true
+    },
+    () => false,
+  )
   const message: AgentToolMessage = {
     kind: 'tool',
     id: 'historical-tool',
@@ -706,4 +710,37 @@ it.each([
     setAgentCanvasSink(null)
     record.dispose()
   }
+})
+
+it('does not add a rejected deferred image to either the editor or cloud node document', async () => {
+  const { session, record } = await fixture()
+  const canvas = session.canvas!
+  const before = readCanvasDocument(canvas.doc)
+  const sink = createAgentCanvasSink(record.editor, session.load(), {
+    enabled: () => true,
+    refresh: () => session.refresh(),
+  })
+  const ids = await sink.reserve({ count: 1, media: 'image', messageId: 'refused-image' })
+  sink.markFailed(ids, 'Invalid parameters', 'invalid_params')
+  expect(record.editor.getPlaceholders()).toEqual([])
+  expect(readCanvasDocument(canvas.doc)).toEqual(before)
+  record.dispose()
+})
+
+it('keeps a reserved cloud video in the node document when submission is rejected', async () => {
+  const { session, record } = await fixture()
+  const canvas = session.canvas!
+  const sink = createAgentCanvasSink(record.editor, session.load(), {
+    enabled: () => true,
+    refresh: () => session.refresh(),
+  })
+  const ids = await sink.reserve({ count: 1, media: 'video', messageId: 'refused-video' })
+  const node = () => readCanvasDocument(canvas.doc).nodes.find((one) => one.id === ids[0])
+  expect(node()?.data).toMatchObject({ pending: { status: 'loading' } })
+  sink.markFailed(ids, 'Invalid parameters', 'invalid_params')
+  expect(node()?.data).toMatchObject({
+    pending: { status: 'error', meta: { agentErrorCode: 'invalid_params' } },
+  })
+  expect(record.editor.getPlaceholder(ids[0]!)?.status).toBe('error')
+  record.dispose()
 })

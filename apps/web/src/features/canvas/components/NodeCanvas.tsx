@@ -888,6 +888,7 @@ function Flow({
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)
   const focusRef = useRef<NodeCanvasFocus>(() => false)
+  const revealRef = useRef<NodeCanvasFocus>(() => false)
   const flowRef = useRef<{
     screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
     setViewport: (
@@ -999,22 +1000,31 @@ function Flow({
         }, duration + 100)
       : null
   }
-  const revealNode = (target: CanvasNode) => {
-    // React Flow leaves interrupted transitions pending; keep this suppression bounded.
-    if (framing.current !== null) return
+  const revealBounds = (bounds: Rect): boolean => {
     const element = container.current
     const viewport = flowRef.current?.getViewport()
-    if (!element?.clientWidth || !element.clientHeight || !viewport) return
+    if (!element?.clientWidth || !element.clientHeight || !viewport) return false
     const area = availableCanvasArea(element)
-    const { width, height } = nodeCardSize(target)
-    const left = target.x * viewport.zoom + viewport.x
-    const top = target.y * viewport.zoom + viewport.y
-    const right = left + width * viewport.zoom
-    const bottom = top + height * viewport.zoom
-    const dx = left < area.x ? area.x - left : Math.min(0, area.x + area.width - right)
-    const dy = top < area.y ? area.y - top : Math.min(0, area.y + area.height - bottom)
+    const width = bounds.width * viewport.zoom
+    const height = bounds.height * viewport.zoom
+    const left = bounds.x * viewport.zoom + viewport.x
+    const top = bounds.y * viewport.zoom + viewport.y
+    const dx =
+      width > area.width || left < area.x
+        ? area.x - left
+        : Math.min(0, area.x + area.width - left - width)
+    const dy =
+      height > area.height || top < area.y
+        ? area.y - top
+        : Math.min(0, area.y + area.height - top - height)
     if (dx || dy)
       flowRef.current?.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
+    return true
+  }
+  const revealNode = (target: CanvasNode) => {
+    // Selection layout must not interrupt explicit focus animations.
+    if (framing.current !== null) return
+    revealBounds({ x: target.x, y: target.y, ...nodeCardSize(target) })
   }
   const chatVisible = Boolean(onChat)
   useEffect(() => {
@@ -1091,8 +1101,23 @@ function Flow({
     return true
   }
   focusRef.current = focus
+  revealRef.current = (ids) => {
+    const bounds = boundsOf(readCanvasDocument(canvas.doc), new Set(ids))
+    if (!bounds) return false
+    // Keep the current zoom and prevent invalidated preview cleanup restoring an older viewport.
+    setArrangement(null)
+    if (framing.current !== null) {
+      clearTimeout(framing.current)
+      framing.current = null
+    }
+    return revealBounds(bounds)
+  }
   useEffect(() => {
-    return registerNodeCanvasFocus(editor, (ids) => focusRef.current(ids))
+    return registerNodeCanvasFocus(
+      editor,
+      (ids) => focusRef.current(ids),
+      (ids) => revealRef.current(ids),
+    )
   }, [editor, canvas])
   const addAsset = async (
     asset: AssetRecord,
