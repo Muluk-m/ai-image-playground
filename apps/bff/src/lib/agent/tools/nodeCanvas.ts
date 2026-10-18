@@ -326,9 +326,9 @@ export const runNodes = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '为画布节点生成图片或视频（包括批量生成）都用 runNodes。先 readCanvas 确认节点。只给出运行建议，不能把工具成功当作生成完成；用户须在对话卡检查预估并在画布二次确认。',
+    '为画布节点生成图片或视频（包括批量生成）都用 runNodes。先 readCanvas 确认节点。工具成功不等于生成完成；回执说明这次是等用户确认还是直接运行，照回执如实告诉用户。',
   description:
-    '为当前云端画布指定节点或分组准备运行建议。对话卡显示当前批次预估，用户检查后高亮节点并再次确认才提交任务。工具本身不生成、不扣费；实际结果应通过 readCanvas 再查看。',
+    '为当前云端画布指定节点或分组发起运行。对话卡显示当前批次预估：对话模式下用户在卡上确认后运行；出图模式下直接运行，开跑前用户可撤销。工具本身不生成、不扣费；实际结果应通过 readCanvas 再查看。',
   parameters: Type.Object({
     nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
   }),
@@ -353,7 +353,13 @@ export const runNodes = defineAgentTool({
         ...(graph.groups ?? []).map((group) => group.id),
       ])
       for (const id of params.nodeIds) if (!existing.has(id)) invalid(`节点或分组不存在：${id}`)
-      const canvasRun = { projectId: project.id, nodeIds: params.nodeIds }
+      // 出图模式与生成工具共用每轮自动提交额度；领不到就退回等用户在对话卡确认。
+      const autoRun = context.autoSubmit?.take() === true
+      const canvasRun = {
+        projectId: project.id,
+        nodeIds: params.nodeIds,
+        ...(autoRun ? { autoRun: true as const } : {}),
+      }
       return {
         content: [
           {
@@ -361,7 +367,9 @@ export const runNodes = defineAgentTool({
             text: JSON.stringify({
               ...canvasRun,
               submitted: false,
-              note: '运行建议已给到用户；检查预估并二次确认前不会提交或扣费。不得声称已生成，结果需重新读取画布。',
+              note: autoRun
+                ? '出图模式：节点将在几秒后直接运行并计费，用户可在开跑前撤销。不得声称已生成，结果需重新读取画布。'
+                : '运行建议已给到用户；用户在对话卡确认前不会提交或扣费。不得声称已生成，结果需重新读取画布。',
             }),
           },
         ],
