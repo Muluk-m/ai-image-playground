@@ -17,7 +17,13 @@ import {
 } from '@image-playground/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
+import { createArtifactDelivery } from '../../../../features/agent/lib/artifactDelivery'
+import { artifactBitmap } from '../../../../features/agent/lib/artifactSource'
+import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import type { AgentToolMessage } from '../../../../features/agent/types'
+import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
+import { registerNodeCanvasFocus } from '../../../../features/canvas/lib/nodeCanvasFocus'
 import { type CloudSceneCheckpoint } from '../../../../features/canvas/lib/persistence'
 import { getCloudProject, ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
 import { projectDocument } from '../../../../features/canvas/lib/projectMedia'
@@ -48,6 +54,9 @@ vi.mock('../../../../features/canvas/lib/projectClient', () => ({
       super(message)
     }
   },
+}))
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  artifactBitmap: vi.fn(async () => 'data:image/png;base64,AQID'),
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: vi.fn() }))
 vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://localhost' }))
@@ -602,4 +611,99 @@ it('projects posterless videos and unfinished shots for timeline preview and sou
   deleteCanvasNode(canvas.doc, 'future', canvas.origin)
   expect(record.editor.getElement('future')).toBeUndefined()
   record.dispose()
+})
+
+it.each([
+  false,
+  true,
+])('focuses a historical cloud result through its real Y.Doc without duplicate delivery (existing: %s)', async (existing) => {
+  vi.mocked(artifactBitmap).mockClear()
+  vi.stubGlobal('requestAnimationFrame', () => 0)
+  vi.stubGlobal('cancelAnimationFrame', () => {})
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = 64
+      naturalHeight = 64
+      onload: (() => void) | null = null
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    },
+  )
+  const artifactId = 'agent_historical-task_0'
+  const { session, record } = await fixture(async (_project, _record, server) => {
+    if (!existing) return
+    insertCanvasNode(
+      server,
+      {
+        id: artifactId,
+        type: 'image',
+        x: 4_000,
+        y: 3_000,
+        width: 360,
+        height: 240,
+        data: { mediaId: '11111111-1111-4111-8111-111111111111' },
+      },
+      origin,
+    )
+  })
+  const canvas = session.canvas!
+  const sink = createAgentCanvasSink(record.editor, session.load(), {
+    enabled: () => true,
+    refresh: () => session.refresh(),
+  })
+  setAgentCanvasSink(sink)
+  const focused: string[][] = []
+  const unregister = registerNodeCanvasFocus(record.editor, (ids) => {
+    const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
+    if (!present.length) return false
+    focused.push(present)
+    return true
+  })
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'historical-tool',
+    turnId: 'historical-turn',
+    toolCallId: 'historical-call',
+    toolName: 'generateImage',
+    title: '小狗',
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId,
+        taskId: 'historical-task',
+        media: 'image',
+        outputIndex: 0,
+        mime: 'image/png',
+      },
+    ],
+  }
+  try {
+    const changed = vi.fn()
+    const delivery = createArtifactDelivery(changed)
+    await delivery.restore([message])
+    expect(artifactBitmap).not.toHaveBeenCalled()
+    await delivery.placeOnCanvas(message)
+    expect(changed).toHaveBeenLastCalledWith(message.id, 'placed')
+    const nodes = readCanvasDocument(canvas.doc).nodes
+    expect(nodes.filter((node) => node.id === artifactId)).toHaveLength(1)
+    expect(record.editor.getElement(artifactId)).toMatchObject({ type: 'image' })
+    expect(focused).toEqual([[artifactId]])
+    if (existing)
+      expect(nodes.find((node) => node.id === artifactId)).toMatchObject({
+        x: 4_000,
+        y: 3_000,
+      })
+
+    await delivery.placeOnCanvas(message)
+    expect(readCanvasDocument(canvas.doc).nodes).toEqual(nodes)
+    expect(focused).toEqual([[artifactId], [artifactId]])
+    expect(artifactBitmap).toHaveBeenCalledTimes(existing ? 0 : 1)
+    expect(await sink.syncArtifacts!(message.artifacts!)).toBe('placed')
+  } finally {
+    unregister()
+    setAgentCanvasSink(null)
+    record.dispose()
+  }
 })
