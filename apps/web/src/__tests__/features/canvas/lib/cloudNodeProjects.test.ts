@@ -655,12 +655,16 @@ it.each([
   })
   setAgentCanvasSink(sink)
   const focused: string[][] = []
-  const unregister = registerNodeCanvasFocus(record.editor, (ids) => {
-    const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
-    if (!present.length) return false
-    focused.push(present)
-    return true
-  })
+  const unregister = registerNodeCanvasFocus(
+    record.editor,
+    (ids) => {
+      const present = ids.filter((id) => canvas.doc.getMap('nodes').has(id))
+      if (!present.length) return false
+      focused.push(present)
+      return true
+    },
+    () => false,
+  )
   const message: AgentToolMessage = {
     kind: 'tool',
     id: 'historical-tool',
