@@ -6,7 +6,9 @@ import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
+import { TEST_RESULT_PAYLOAD } from '../helpers/agentStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { abortableUpstreamFetch, waitFor } from '../helpers/upstreamStubs'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -302,6 +304,75 @@ describe('TaskScheduler', () => {
     expect(await scheduler.waitForIdle(20)).toBe(false)
     release?.()
     expect(await scheduler.waitForIdle(1_000)).toBe(true)
+  })
+
+  it('keeps an unknown upstream request alive beyond drain while a new worker accepts work', async () => {
+    const billing = installRecordingTaskHooks()
+    const calls: string[] = []
+    let release = () => {}
+    let aborted = false
+    setUpstreamFetchForTesting(async (_input, init) => {
+      if (typeof init?.body !== 'string') throw new Error('expected an image request body')
+      const payload = JSON.parse(init.body)
+      calls.push(payload.prompt)
+      if (payload.prompt !== 'retained-request') return Response.json(TEST_RESULT_PAYLOAD)
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(Response.json(TEST_RESULT_PAYLOAD))
+        init.signal?.addEventListener('abort', () => {
+          aborted = true
+          reject(new DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+      })
+    })
+    const previous = new TaskScheduler({ pollIntervalMs: 10_000 })
+    const current = new TaskScheduler({ pollIntervalMs: 10_000 })
+    const read = async (id: string) =>
+      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)))[0]
+    try {
+      const stamp = Date.now()
+      await db.insert(schema.users).values({
+        id: 'retained-owner',
+        username: 'retained-owner',
+        password_hash: 'x',
+        created_at: stamp,
+        updated_at: stamp,
+      })
+      await insertTask('retained-request', 'openai-compat', 1)
+      await db.update(schema.tasks).set({ user_id: 'retained-owner' }).where(eq(schema.tasks.id, 'retained-request'))
+      previous.start()
+      await waitFor(() => calls.includes('retained-request'))
+      const claimed = await read('retained-request')
+      expect(claimed?.execution_token).toBeString()
+      expect(claimed?.upstream_task_ids).toBeNull()
+      previous.drain()
+      expect(await previous.waitForIdle(20)).toBe(false)
+      expect(previous.drainStatus()).toEqual({ draining: true, active: 1, safeToStop: false })
+      expect(aborted).toBe(false)
+      expect((await read('retained-request'))?.execution_token).toBe(claimed?.execution_token)
+
+      await insertTask('current-request', 'openai-compat', 2)
+      current.start()
+      await waitFor(async () => (await read('current-request'))?.status === 'completed')
+      expect((await read('retained-request'))?.status).toBe('in_progress')
+      expect(billing.settlements.filter((entry) => entry.taskId === 'retained-request')).toEqual([])
+      release()
+      expect(await previous.waitForIdle(2_000)).toBe(true)
+      expect((await read('retained-request'))?.status).toBe('completed')
+      expect(previous.drainStatus().safeToStop).toBe(true)
+      expect(aborted).toBe(false)
+      expect(calls).toEqual(['retained-request', 'current-request'])
+      const settled = billing.settlements.filter((entry) => entry.taskId === 'retained-request')
+      expect(settled).toHaveLength(1)
+      expect(settled).toMatchObject([
+        { taskId: 'retained-request', outcome: 'completed' },
+      ])
+    } finally {
+      release()
+      previous.stop()
+      current.stop()
+      await Promise.all([previous.waitForIdle(2_000), current.waitForIdle(2_000)])
+      _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+    }
   })
 
   it('observes a database cancellation and aborts the active request', async () => {
