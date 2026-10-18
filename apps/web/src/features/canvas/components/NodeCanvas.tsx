@@ -104,6 +104,7 @@ import {
   linkFromDrag,
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
+import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
 import { nodeCardSize } from '../lib/nodeCanvasPlace'
 import {
@@ -889,6 +890,7 @@ function Flow({
   const [draggingIds, setDraggingIds] = useState<string[]>([])
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)
+  const focusRef = useRef<NodeCanvasFocus>(() => false)
   const flowRef = useRef<{
     screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
     setViewport: (
@@ -983,8 +985,9 @@ function Flow({
     minZoom: number,
     maxZoom: number,
     duration?: number,
+    source: CanvasSnapshot = snapshot,
   ) => {
-    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined, nodes)
+    const bounds = boundsOf(source, ids ? new Set(ids) : undefined, nodes)
     const viewport =
       bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
     if (!viewport) return
@@ -1056,6 +1059,42 @@ function Flow({
       return group ? [...updated, toGroupFlowNode(group, true)] : updated
     })
   }
+  const focus = (ids: readonly string[]): boolean => {
+    const current = readCanvasDocument(canvas.doc)
+    const available = new Set([
+      ...current.nodes.map((node) => node.id),
+      ...(current.groups ?? []).map((group) => group.id),
+    ])
+    const selected = ids.filter((id) => available.has(id))
+    if (!selected.length) return false
+    const selectedSet = new Set(selected)
+    const single = selected.length === 1 ? selected[0]! : null
+    selectedRef.current = single
+    selectedIds.current = [...selected]
+    setNodeCanvasSelection(editor, canvas, selectedIds.current)
+    setSelectedCount(selected.length)
+    setSelectedId(single)
+    setSelectedEdges([])
+    setNodes((currentNodes) => {
+      const additions = selected.flatMap((id) => {
+        if (currentNodes.some((node) => node.id === id)) return []
+        const node = current.nodes.find((one) => one.id === id)
+        if (node) return [toFlowNode(node, true)]
+        const group = current.groups?.find((one) => one.id === id)
+        return group ? [toGroupFlowNode(group, true)] : []
+      })
+      return [
+        ...currentNodes.map((node) => ({ ...node, selected: selectedSet.has(node.id) })),
+        ...additions,
+      ]
+    })
+    showFrame(selected, 0.3, 0.05, 1, 250, current)
+    return true
+  }
+  focusRef.current = focus
+  useEffect(() => {
+    return registerNodeCanvasFocus(editor, (ids) => focusRef.current(ids))
+  }, [editor, canvas])
   const addAsset = async (
     asset: AssetRecord,
     imageId?: string,

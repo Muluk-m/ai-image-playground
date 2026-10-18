@@ -10,6 +10,7 @@ import type {
   AgentReservation,
 } from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
+import { focusNodeCanvas } from './nodeCanvasFocus'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
 import { recoverVideoPoster } from './recoverVideoPoster'
@@ -276,6 +277,7 @@ export function createAgentCanvasSink(
     },
 
     focus(objectIds) {
+      if (focusNodeCanvas(editor, objectIds)) return
       const present = objectIds.filter((id) => editor.getElement(id))
       if (present.length === 0) return
       editor.setSelectedElements(present)
@@ -292,6 +294,7 @@ export function createAgentCanvasSink(
         )
         .map((one) => one.id)
       if (ids.length === 0) return false
+      if (focusNodeCanvas(editor, ids)) return true
       editor.setSelectedElements(ids)
       editor.scrollToElements(ids)
       return true
