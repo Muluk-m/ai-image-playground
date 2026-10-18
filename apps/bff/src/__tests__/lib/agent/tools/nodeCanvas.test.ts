@@ -32,6 +32,7 @@ const {
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
+const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
 const userId = 'node-command-owner'
 beforeAll(async () => {
   await db.insert(schema.users).values({
@@ -250,6 +251,31 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('routes node canvas generation away from generic batch plans', async () => {
+  const { context } = await fixture()
+  const items = [{ key: 'a', imageIds: ['image-a'], prompt: '换背景', dependencies: [] }]
+  await expect(
+    planImageBatch
+      .create(context)
+      .execute('batch', { title: '批量', rule: '统一', items }, undefined, undefined),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    planImageBatch.create(context).execute(
+      'batch-generation',
+      {
+        title: '批量',
+        rule: '统一',
+        items: [
+          ...items.map((item) => ({ ...item, kind: 'analysis' as const })),
+          { ...items[0]!, key: 'b', kind: 'generation' as const },
+        ],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
 })
 
 it('splits a script into imageless assets and a storyboard, and appends the next episode', async () => {
