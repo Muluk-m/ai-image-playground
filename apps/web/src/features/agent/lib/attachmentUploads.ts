@@ -32,6 +32,19 @@ interface Entry {
   promise: Promise<MediaUploadResult>
   controller: AbortController
 }
+/** 读本地原图与上传记录不该超过这么久；超时按失败给出重试，不让参考图一直停在排队。 */
+export const ATTACHMENT_LOCAL_READ_TIMEOUT_MS = 30_000
+
+function bounded<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('media_timeout')), ATTACHMENT_LOCAL_READ_TIMEOUT_MS)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
 const entries = new Map<string, Entry>()
 const retained = new Map<string, number>()
 const listeners = new Set<() => void>()
@@ -44,14 +57,18 @@ const changed = () => {
 onLocalAttachmentReleased(({ sources, storageScope }) => {
   if (storageScope !== scopedStorageName(BASE_DB_NAME)) return
   let removed = false
+  const stillShown: string[] = []
   for (const source of sources) {
     const entry = entries.get(source)
     if (!entry) continue
     entry.controller.abort()
     entries.delete(source)
     removed = true
+    if (retained.has(source)) stillShown.push(source)
   }
   if (removed) changed()
+  // 草稿还显示着这张图：缺了缓存条目界面会一直显示排队，重新走一遍让它落到真实结果。
+  for (const source of stillShown) void start(source).catch(() => {})
 })
 
 // Reconcile cached failures from durable truth without starting another upload.
@@ -207,7 +224,7 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
   const backend = getRuntimeConfig().bff.baseUrl
   const ownerScope = scope
   entry.promise = (async () => {
-    const saved = await readAttachmentUpload(source, backend)
+    const saved = await bounded(readAttachmentUpload(source, backend))
     controller.signal.throwIfAborted()
     enforceLocalCapability()
     if (saved?.state === 'failed' && (!retry || localAttachmentFailure(source)))
@@ -233,7 +250,8 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       },
     })
     if (!result) throw new Error('attachment_upload_missing')
-    await saveAttachmentUpload(source, backend, { state: 'ready', result })
+    // 记录写不进去不影响这次上传已经就绪；下次按租约重新确认即可。
+    await bounded(saveAttachmentUpload(source, backend, { state: 'ready', result })).catch(() => {})
     controller.signal.throwIfAborted()
     entry.result = result
     entry.state = 'ready'
@@ -243,11 +261,13 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
   })().catch(async (error: unknown) => {
     const errorCode = error instanceof Error ? error.message : 'attachment_upload_failed'
     if (!controller.signal.aborted && errorCode !== 'attachment_capability_unavailable')
-      await saveAttachmentUpload(source, backend, { state: 'failed', errorCode }).catch(() => {})
+      await bounded(saveAttachmentUpload(source, backend, { state: 'failed', errorCode })).catch(
+        () => {},
+      )
     // Callers may already hold this promise when another page finishes the same source.
     // Reuse its durable success, but never revive a released or differently scoped source.
     if (scope === ownerScope && backend === getRuntimeConfig().bff.baseUrl && cache.has(source)) {
-      const saved = await readAttachmentUpload(source, backend).catch(() => undefined)
+      const saved = await bounded(readAttachmentUpload(source, backend)).catch(() => undefined)
       if (
         scope === ownerScope &&
         backend === getRuntimeConfig().bff.baseUrl &&
