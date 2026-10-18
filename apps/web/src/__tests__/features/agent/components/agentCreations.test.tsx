@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vite
 import AgentCreations from '../../../../features/agent/components/AgentCreations'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { CanvasDoc, type CanvasEl, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
-
+import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import {
+  clearNodeCanvasSelection,
+  setNodeCanvasSelection,
+} from '../../../../features/canvas/lib/nodeCanvasSelection'
 declare global {
-  // eslint-disable-next-line no-var
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -32,6 +35,8 @@ function image(id: string, patch: Partial<ImageEl> = {}): ImageEl {
 let host: HTMLDivElement
 let root: Root
 let doc: CanvasDoc
+let editor: CanvasEditor
+let selectionCanvas: Parameters<typeof setNodeCanvasSelection>[1]
 /** 定位与缩略图是同一条出口上的两个方法，测的是「有没有走那条出口」。 */
 let focus: Mock<(objectIds: readonly string[]) => void>
 let thumbnail: Mock<(objectId: string) => Promise<string | null>>
@@ -66,7 +71,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 function render(): void {
   act(() => {
-    root.render(<AgentCreations doc={doc} />)
+    root.render(<AgentCreations doc={doc} editor={editor} />)
   })
 }
 
@@ -97,6 +102,14 @@ beforeEach(() => {
   doc = new CanvasDoc()
   focus = vi.fn<(objectIds: readonly string[]) => void>()
   thumbnail = vi.fn<(objectId: string) => Promise<string | null>>(async (id) => `thumb:${id}`)
+  editor = { doc } as CanvasEditor
+  selectionCanvas = {
+    doc: {
+      getMap: (name: string) => (name === 'nodes' ? new Map([['a', {}]]) : new Map()),
+      on() {},
+      off() {},
+    },
+  } as Parameters<typeof setNodeCanvasSelection>[1]
   stubSink()
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -229,6 +242,24 @@ describe('创作记录', () => {
     const current = rows().filter((one) => one.getAttribute('aria-current') === 'true')
     expect(current).toHaveLength(1)
     expect(current[0].textContent).toContain('猫')
+  })
+  it('使用画布 editor 选中、取消，并在 editor 卸载后回退文档选中', () => {
+    put([image('a', { meta: { prompt: '猫' } }), image('b', { meta: { prompt: '狗' } })])
+    render()
+
+    act(() => setNodeCanvasSelection(editor, selectionCanvas, ['a']))
+    expect(rows().filter((one) => one.getAttribute('aria-current') === 'true')).toHaveLength(1)
+
+    act(() => setNodeCanvasSelection(editor, selectionCanvas, []))
+    expect(rows().filter((one) => one.getAttribute('aria-current') === 'true')).toHaveLength(0)
+
+    act(() => {
+      clearNodeCanvasSelection(editor, selectionCanvas)
+      doc.setSelection(['b'])
+    })
+    const current = rows().filter((one) => one.getAttribute('aria-current') === 'true')
+    expect(current).toHaveLength(1)
+    expect(current[0].textContent).toContain('狗')
   })
 
   it('文档版本每帧都在变，位图没换就不重取缩略图', async () => {

@@ -533,7 +533,7 @@ export default function AgentPanel({
 
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentCreations doc={doc} onSelect={onViewCanvas} />
+          <AgentCreations doc={doc} editor={editor} onSelect={onViewCanvas} />
         </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col">
