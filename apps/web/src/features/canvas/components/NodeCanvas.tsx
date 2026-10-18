@@ -87,7 +87,6 @@ import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
-import type { NodeBatchPlan } from '../lib/nodeBatch'
 import {
   type CreateNodeKind,
   copyNodes,
@@ -869,8 +868,6 @@ function Flow({
     return () => clearNodeCanvasSelection(editor, canvas)
   }, [editor, canvas])
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
-  const [agentBatchPlan, setAgentBatchPlan] = useState<NodeBatchPlan>()
-  const batchOpening = useRef(false)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const connectStart = useRef<{ x: number; y: number } | null>(null)
@@ -1153,22 +1150,6 @@ function Flow({
     active,
     revision: snapshot,
     files,
-    review: (ids, plan) => {
-      if (batchIds || batchOpening.current) return false
-      batchOpening.current = true
-      const selected = new Set(ids)
-      for (const group of readCanvasDocument(canvas.doc).groups ?? [])
-        if (selected.has(group.id)) for (const id of group.members) selected.add(id)
-      selectNode(null)
-      selectedIds.current = [...selected]
-      setNodeCanvasSelection(editor, canvas, selectedIds.current)
-      setSelectedCount(selected.size)
-      setNodes((current) => current.map((node) => ({ ...node, selected: selected.has(node.id) })))
-      showFrame([...selected], 0.3, 0.05, 1)
-      setAgentBatchPlan(plan)
-      setBatchIds(ids)
-      return true
-    },
   })
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
@@ -2123,11 +2104,8 @@ function Flow({
                           editor={editor}
                           ids={batchIds}
                           snapshot={snapshot}
-                          initialPlan={agentBatchPlan}
                           onClose={() => {
                             setBatchIds(null)
-                            setAgentBatchPlan(undefined)
-                            batchOpening.current = false
                           }}
                         />
                       )}

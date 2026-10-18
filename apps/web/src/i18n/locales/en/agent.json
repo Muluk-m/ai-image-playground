@@ -746,10 +746,13 @@
     "readPrompt": "Read the selected canvas nodes, review the existing material, and help me plan what to create next."
   },
   "nodeRun": {
-    "title": "Suggested node run",
+    "title": "Run nodes",
+    "run": "Run",
+    "undo": "Undo ({{seconds}}s)",
+    "startingIn": "Starting in {{seconds}}s. Undo now to skip charges.",
+    "running": "Running. Results go back to each node.",
+    "undone": "Undone. Nothing was submitted.",
     "unpriced": "Charged by actual model usage",
-    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
-    "changed": "The canvas or settings changed, or a confirmation is already open. Review again.",
-    "review": "Review nodes and confirm"
+    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist."
   }
 }

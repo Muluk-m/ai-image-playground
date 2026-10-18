@@ -1,11 +1,17 @@
 import type { AgentCanvasRunProposal } from '@image-playground/shared'
 import type { NodeBatchPlan } from '../../canvas/lib/nodeBatch'
 
-/** Mounted node canvas only. Receiving/replaying a proposal never invokes review or generation. */
+/** Mounted node canvas only. Receiving/replaying a proposal never runs it by itself. */
 export interface AgentNodeRunBridge {
   readonly projectId: string
   quote(proposal: AgentCanvasRunProposal): NodeBatchPlan | null
-  review(proposal: AgentCanvasRunProposal, signature: string): boolean
+  /** Rejects with `NodeBatchFailure` when the quoted signature no longer matches the canvas. */
+  run(
+    proposal: AgentCanvasRunProposal,
+    signature: string,
+    signal: AbortSignal,
+    progress: (completed: number, id: string) => void,
+  ): Promise<void>
 }
 let current: AgentNodeRunBridge | null = null
 const listeners = new Set<() => void>()

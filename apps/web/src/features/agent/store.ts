@@ -103,6 +103,7 @@ import {
   removeQueuedMessage,
   returnQueuedToDraft,
 } from './lib/messageQueue'
+import { AGENT_NODE_RUN_UNDO_SECONDS, startAgentNodeRun } from './lib/nodeRuns'
 import {
   bindOutgoingConversation,
   forgetOutgoing,
@@ -622,6 +623,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     turnId: string,
     turnDelivery: TurnArtifactDelivery,
     conversationId: string,
+    sent: boolean,
   ) => {
     if (turnDelivery.isCurrent()) {
       const queue = reduceMessageQueue(get().queue, event)
@@ -678,6 +680,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const card = panelMessage(event.messageId, turnId, 'assistant', [
         { ...event, type: 'toolResult' },
       ])
+      // 出图模式的节点运行只由发出这一轮的标签页开跑；刷新、换设备与重放都只显示确认卡。
+      if (sent && card.kind === 'tool' && card.canvasRun?.autoRun)
+        startAgentNodeRun(card.id, card.canvasRun, AGENT_NODE_RUN_UNDO_SECONDS)
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -703,6 +708,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     turnDelivery: TurnArtifactDelivery,
     onStarted?: (turnId: string) => Promise<void>,
     submission?: { clientMessageId: string; signal: AbortSignal },
+    sent = Boolean(submission),
   ) => {
     const previous = followers.get(conversationId)
     // 迟到的起轮响应不能抢走切回项目后建立的新订阅。
@@ -730,7 +736,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         })
         for await (const event of stream.events) {
           if (event.type === 'turnStart') turnId = event.turnId
-          apply(event, pendingUserText, turnId, turnDelivery, conversationId)
+          apply(event, pendingUserText, turnId, turnDelivery, conversationId, sent)
           if (event.type === 'turnStart') {
             await startedCallback?.(turnId)
             startedCallback = undefined
@@ -2268,6 +2274,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               async (turnId) => {
                 if (submission.cancelled) await requestAbort(target, turnId)
               },
+              undefined,
+              true,
             )
           } else await turnDelivery.settled()
           return
