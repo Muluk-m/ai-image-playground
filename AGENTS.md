@@ -56,6 +56,8 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 
 **重任务在云端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给项目 Codex Cloud；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
 
+公开树云端测试与依赖恢复使用仓库内 `python3 scripts/cloud-test.py`，本机用 `submit` 派发至 CI；命令、SHA 核对、缓存与数据库生命周期见[云端测试入口](docs/agents/cloud-tests.md)。不要依赖仅存在于某次会话的 `/workspace/cloud-prep/test.sh`。
+
 ## 测试约定
 
 - **BFF / Admin 后端测试使用 `bun:test`**：数据库与对象存储客户端依赖 Bun runtime，不要换成 Vitest。前端测试继续使用 [Vitest](https://vitest.dev/) 4。不要在同一测试文件混用两套 API。
