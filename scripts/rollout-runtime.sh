@@ -163,7 +163,9 @@ retire_executor_if_safe() (
   executor_running=$3
   executor_started=$4
   docker_probe update --restart=no "$executor_id" >/dev/null || { echo "Retained $executor: unknown restart policy"; exit 1; }
-  if [ "$executor_role" = worker ]; then rm -f "$state_dir/activated/$executor"; fi
+  if [ "$executor_role" = worker ]; then
+    rm -f "$state_dir/activated/$executor" || { echo "Retained $executor: activation marker could not be removed"; exit 1; }
+  fi
   case "$executor_state:$executor_running" in
     created:false|exited:false|dead:false)
       docker_probe rm "$executor_id" >/dev/null || { echo "Retained $executor: removal failed"; exit 1; }
