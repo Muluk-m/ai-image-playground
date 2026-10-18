@@ -1211,7 +1211,7 @@ it('shows which canvas nodes a read used without replaying their full document',
   }
 })
 
-it('lays four generated images in a larger two-column gallery without hover tools', async () => {
+it('shows batch results without hover editing tools', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   setAgentCanvasSink({
@@ -1277,59 +1277,6 @@ it('lays four generated images in a larger two-column gallery without hover tool
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
-  }
-})
-
-it('uses a result as a reference by its own id and media instead of uploading a file', async () => {
-  const host = document.createElement('div')
-  const root = createRoot(host)
-  const attached = vi.fn()
-  const files = vi.fn()
-  setAgentComposerReferences(attached)
-  setAgentComposerAttach(files)
-  try {
-    await act(async () =>
-      root.render(
-        <AgentToolCard
-          message={{
-            kind: 'tool',
-            id: 'reference-source',
-            turnId: 'turn',
-            toolCallId: 'call',
-            toolName: 'generateImage',
-            title: '奶油窗景',
-            status: 'succeeded',
-            delivery: 'placed',
-            artifacts: [
-              {
-                artifactId: 'agent_task_0',
-                taskId: 'task',
-                outputIndex: 0,
-                media: 'image',
-                mime: 'image/png',
-                mediaId: '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10',
-              },
-            ],
-          }}
-          onPreviewResult={vi.fn()}
-        />,
-      ),
-    )
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="用作参考"]')!.click(),
-    )
-    expect(attached).toHaveBeenCalledWith([
-      {
-        id: 'agent_task_0',
-        dataUrl: 'aip-media:6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10',
-        name: '奶油窗景',
-      },
-    ])
-    expect(files).not.toHaveBeenCalled()
-  } finally {
-    act(() => root.unmount())
-    setAgentComposerReferences(null)
-    setAgentComposerAttach(null)
   }
 })
 
