@@ -45,6 +45,11 @@ gh run view <run-id> --log-failed
 
 该入口使用已有 GitHub CLI 认证触发 `Cloud tests`，核对远端分支与本机 HEAD 一致，
 工作流按完整 SHA 检出并再次核对。提交成功只代表排队；以该 SHA 的运行结果判断通过。
+修改本入口的 PR 也会自动运行同一工作流的 DB 测试，验证恢复和执行路径。
 它不修改其他 Codex 会话的环境绑定，不依赖 `codex cloud` 的登录状态。
 新工作流首次使用前需先合入默认分支。托管 Cloud 绑定不可用时可用这一 CI 执行路径，
 不回退本机跑重任务，也不把 GitHub 认证与 Codex Cloud 认证混为一谈。
+
+GitHub CLI 的身份必须对目标仓库有 Actions 写权限；仓库可读不代表能够派发工作流。
+若返回 401/403，报告 dispatch 阶段和当前账号，由平台修正 CLI 绑定；不要新增 token
+或把连接器的凭据复制到 shell。连接器与 CLI 可能绑定不同账号，需分别验证。
