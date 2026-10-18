@@ -238,6 +238,15 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   const proposal = await run(runNodes, { nodeIds: ['image'] })
   expect(proposal.details?.canvasRun?.nodeIds).toEqual(['image'])
   expect(proposal.details).not.toHaveProperty('job')
+  expect(proposal.details?.canvasRun).not.toHaveProperty('autoRun')
+  const auto = await runNodes
+    .create({ ...context, autoSubmit: { take: () => true } })
+    .execute('auto', { nodeIds: ['image'] }, undefined, undefined)
+  expect(auto.details?.canvasRun?.autoRun).toBe(true)
+  const exhausted = await runNodes
+    .create({ ...context, autoSubmit: { take: () => false } })
+    .execute('exhausted', { nodeIds: ['image'] }, undefined, undefined)
+  expect(exhausted.details?.canvasRun).not.toHaveProperty('autoRun')
   expect(await graph()).toEqual(before)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
   await expect(run(runNodes, { nodeIds: ['missing'] })).rejects.toThrow('不存在')

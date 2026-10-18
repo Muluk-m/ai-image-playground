@@ -684,6 +684,8 @@ export interface AgentVisualObservation {
 export interface AgentCanvasRunProposal {
   readonly projectId: string
   readonly nodeIds: readonly string[]
+  /** 出图模式下由发起这一轮的标签页直接开跑，开跑前留撤销时间；缺席即等用户在对话卡确认。 */
+  readonly autoRun?: true
 }
 
 export interface AgentToolResultBlock {
@@ -1364,7 +1366,9 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
   if (block.canvasRun)
-    return `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户可在画布检查预估并二次确认，实际执行情况需重新读取节点。`
+    return block.canvasRun.autoRun
+      ? `${title}：已请求直接运行节点 ${block.canvasRun.nodeIds.join('、')}；用户可在开跑前撤销，实际执行情况需重新读取节点。`
+      : `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户在对话卡确认后才运行，实际执行情况需重新读取节点。`
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =

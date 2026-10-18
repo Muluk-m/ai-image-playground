@@ -664,7 +664,7 @@ function StandardAgentToolCard({
   if (message.canvasRun) {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
-        <AgentNodeRunCard proposal={message.canvasRun} />
+        <AgentNodeRunCard runKey={message.id} proposal={message.canvasRun} />
       </div>
     )
   }
