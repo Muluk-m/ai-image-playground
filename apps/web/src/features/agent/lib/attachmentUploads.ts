@@ -250,7 +250,8 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       },
     })
     if (!result) throw new Error('attachment_upload_missing')
-    await saveAttachmentUpload(source, backend, { state: 'ready', result })
+    // 记录写不进去不影响这次上传已经就绪；下次按租约重新确认即可。
+    await bounded(saveAttachmentUpload(source, backend, { state: 'ready', result })).catch(() => {})
     controller.signal.throwIfAborted()
     entry.result = result
     entry.state = 'ready'
@@ -260,7 +261,9 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
   })().catch(async (error: unknown) => {
     const errorCode = error instanceof Error ? error.message : 'attachment_upload_failed'
     if (!controller.signal.aborted && errorCode !== 'attachment_capability_unavailable')
-      await saveAttachmentUpload(source, backend, { state: 'failed', errorCode }).catch(() => {})
+      await bounded(saveAttachmentUpload(source, backend, { state: 'failed', errorCode })).catch(
+        () => {},
+      )
     // Callers may already hold this promise when another page finishes the same source.
     // Reuse its durable success, but never revive a released or differently scoped source.
     if (scope === ownerScope && backend === getRuntimeConfig().bff.baseUrl && cache.has(source)) {

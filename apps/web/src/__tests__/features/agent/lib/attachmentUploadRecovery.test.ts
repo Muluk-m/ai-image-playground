@@ -3,12 +3,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const local = vi.hoisted(() => ({
   read: vi.fn<(source: string, backend: string) => Promise<unknown>>(),
+  save: vi.fn<(...args: unknown[]) => Promise<void>>(async () => {}),
   released: [] as ((release: { sources: readonly string[]; storageScope: string }) => void)[],
 }))
 vi.mock('../../../../lib/localAttachmentSources', async (original) => ({
   ...(await original<typeof import('../../../../lib/localAttachmentSources')>()),
   readAttachmentUpload: local.read,
-  saveAttachmentUpload: vi.fn(async () => {}),
+  saveAttachmentUpload: local.save,
   onLocalAttachmentReleased: (
     listener: (release: { sources: readonly string[]; storageScope: string }) => void,
   ) => {
@@ -38,6 +39,8 @@ beforeEach(async () => {
   await loadRuntimeConfig(async () => Response.json({ bff: { enabled: true, baseUrl: '' } }))
   await bootstrapClientCapabilities(true, '')
   local.read.mockReset()
+  local.save.mockReset()
+  local.save.mockImplementation(async () => {})
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -48,11 +51,12 @@ afterEach(() => {
 it('fails a reference whose local upload record never answers instead of queueing forever', async () => {
   vi.useFakeTimers()
   local.read.mockImplementation(() => new Promise(() => {}))
+  local.save.mockImplementation(() => new Promise(() => {}))
   const reference = { dataUrl: 'data:image/png;base64,c3R1Y2s=' }
   const release = primeAttachmentUploads([reference])
   expect(attachmentUploadState(reference)).toBe('queued')
-  // 首次读取超时后还会限时再读一次，确认别的页面是否已经传完。
-  await vi.advanceTimersByTimeAsync(60_000)
+  // 读取、写回失败记录、再确认别的页面是否已传完，每一步都限时 30 秒。
+  await vi.advanceTimersByTimeAsync(90_000)
   expect(attachmentUploadState(reference)).toBe('failed')
   expect(attachmentUploadError(reference)).toBe('media_timeout')
   release()
