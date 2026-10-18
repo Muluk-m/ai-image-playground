@@ -1,6 +1,11 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
+import { Agent } from '@earendil-works/pi-agent-core'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentModelSettingsView } from '@image-playground/shared'
+import {
+  type AgentConfiguredModel,
+  type AgentModelSettingsView,
+  MODEL_REASONING_LEVELS,
+} from '@image-playground/shared'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_model_settings')
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -175,27 +180,55 @@ it('freezes provider, credential, model and effort for the whole turn while the 
   expect(calls[0]?.authorization).toBe('Bearer provider-fixture-secret')
 })
 
-it.each([
-  ['openai', 'openai-responses', '/responses'],
-  ['anthropic', 'anthropic-messages', '/messages'],
-] as const)('dispatches %s through its native Pi protocol with the configured credential', async (template, api, path) => {
+const nativeProtocols = [
+  {
+    template: 'openai',
+    api: 'openai-responses',
+    path: '/responses',
+    modelId: 'gpt-5.1',
+  },
+  {
+    template: 'anthropic',
+    api: 'anthropic-messages',
+    path: '/messages',
+    modelId: 'claude-opus-4-6',
+  },
+] as const
+
+it.each(
+  nativeProtocols.flatMap((protocol) =>
+    (['custom', 'builtin', 'override', 'override-off-only'] as const).flatMap((source) =>
+      (source === 'override-off-only' ? (['off'] as const) : (['off', 'low'] as const)).map((effort) => [source, effort, protocol] as const),
+    ),
+  ),
+)('dispatches %s models at %s through native Pi protocol %j', async (source, effort, { template, api, path, modelId }) => {
   const view = await initial()
   const model = view.templates
     .find((item) => item.id === template)!
-    .models.find((item) => item.api === api && item.reasoningLevels.includes('low'))!
+    .models.find((item) => item.id === modelId)!
   expect(model).toBeDefined()
+  const selectedModel: AgentConfiguredModel = {
+    ...model,
+    id: source === 'custom' ? 'custom-native' : model.id,
+    reasoningLevels: source === 'override-off-only' ? ['off'] : ['off', 'low'],
+  }
   view.settings.providers.push({
     id: 'native',
     name: 'Native',
-    template,
+    template: source === 'custom' ? 'custom' : template,
     baseUrl: 'https://native.example',
     secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
-    models: [],
+    models: source === 'builtin' ? [] : [selectedModel],
   })
-  view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: 'low' }
+  view.settings.profiles.fast = {
+    providerId: 'native',
+    modelId: selectedModel.id,
+    reasoning: effort,
+  }
   expect((await request('PUT', { revision: 0, settings: view.settings })).status).toBe(200)
   const runtime = await resolveConfiguredAgentRuntime('fast')
-  expect(runtime.model.provider).toBe(template)
+  expect(runtime.model.api).toBe(api)
+  expect(runtime.model.provider).toBe(source === 'custom' ? 'native' : template)
   expect(runtime.providerId).toBe('native')
   let observed: { url: string; body: Record<string, unknown>; headers: Headers } | undefined
   let dispatches = 0
@@ -218,18 +251,154 @@ it.each([
   )(
     runtime.model,
     { messages: [{ role: 'user', content: 'hi', timestamp: 1 }] },
-    { reasoning: 'low' },
+    { reasoning: effort === 'off' ? undefined : effort },
   )
   expect((await stream.result()).stopReason).toBe('error')
   expect(observed?.url).toContain(path)
+  expect(observed?.body.model).toBe(selectedModel.id)
+  expect(observed?.body.reasoning_effort).toBeUndefined()
   expect(dispatches).toBe(1)
   if (template === 'openai') {
     expect(observed?.headers.get('authorization')).toBe('Bearer provider-fixture-secret')
-    expect(observed?.body.reasoning).toMatchObject({ effort: 'low' })
+    expect(observed?.body.reasoning).toMatchObject({ effort: effort === 'off' ? 'none' : effort })
+    expect(observed?.body.thinking).toBeUndefined()
   } else if (template === 'anthropic') {
     expect(observed?.headers.get('x-api-key')).toBe('provider-fixture-secret')
-    expect(observed?.body.thinking).toBeDefined()
+    expect(runtime.model.thinkingLevelMap?.off).toBeUndefined()
+    expect(observed?.body.reasoning).toBeUndefined()
+    if (effort === 'off') expect(observed?.body.thinking).toEqual({ type: 'disabled' })
+    else if (source === 'custom')
+      expect(observed?.body.thinking).toMatchObject({
+        type: 'enabled',
+        budget_tokens: expect.any(Number),
+      })
+    else {
+      expect(observed?.body.thinking).toMatchObject({ type: 'adaptive' })
+      expect(observed?.body.output_config).toEqual({ effort: 'low' })
+    }
   }
+})
+
+it.each(['o1', 'gpt-6-astra'])('rejects builtin %s off even when its override only declares off', async (modelId) => {
+  const view = await initial()
+  const model = view.templates
+    .find((item) => item.id === 'openai')!
+    .models.find((item) => item.id === modelId)!
+  expect(model.reasoningLevels).not.toContain('off')
+  const overrides: AgentConfiguredModel[][] = [
+    [],
+    [{ ...model, reasoningLevels: ['off', ...model.reasoningLevels] }],
+    [{ ...model, reasoningLevels: ['off'] }],
+  ]
+  for (const models of overrides) {
+    const settings = structuredClone(view.settings)
+    settings.providers.push({
+      id: 'native',
+      name: 'Native',
+      template: 'openai',
+      baseUrl: 'https://native.example',
+      secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
+      models,
+    })
+    settings.profiles.fast = { providerId: 'native', modelId, reasoning: 'off' }
+    const response = await request('PUT', { revision: 0, settings })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('不支持所选推理强度') })
+  }
+  expect((await initial()).revision).toBe(0)
+  expect(await db.select().from(schema.operator_audits)).toHaveLength(0)
+})
+
+it.each(['minimal', 'max'] as const)('rejects a builtin null %s mapping even when the override declares it', async (effort) => {
+  const view = await initial()
+  const model = view.templates
+    .find((item) => item.id === 'openai')!
+    .models.find((item) => item.id === 'gpt-5.1')!
+  expect(model.reasoningLevels).not.toContain(effort)
+  view.settings.providers.push({
+    id: 'native',
+    name: 'Native',
+    template: 'openai',
+    baseUrl: 'https://native.example',
+    secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
+    models: [{ ...model, reasoningLevels: [...MODEL_REASONING_LEVELS] }],
+  })
+  view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: effort }
+  const response = await request('PUT', { revision: 0, settings: view.settings })
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({ error: expect.stringContaining('不支持所选推理强度') })
+  expect((await initial()).revision).toBe(0)
+  expect(await db.select().from(schema.operator_audits)).toHaveLength(0)
+})
+
+it.each([
+  ['huggingface', 'MiniMaxAI/MiniMax-M3', 'off', undefined, false],
+  ['huggingface', 'MiniMaxAI/MiniMax-M3', 'off', undefined, true],
+  ['huggingface', 'MiniMaxAI/MiniMax-M3', 'off', undefined, 'off-only'],
+  ['groq', 'qwen/qwen3.6-27b', 'off', 'none', 'off-only'],
+  ['groq', 'qwen/qwen3.6-27b', 'high', 'default', false],
+  ['groq', 'qwen/qwen3.6-27b', 'high', 'default', true],
+] as const)('preserves builtin %s model %s effort %s as %s with override %s', async (template, modelId, effort, wireEffort, override) => {
+  const view = await initial()
+  const model = view.templates
+    .find((item) => item.id === template)!
+    .models.find((item) => item.id === modelId)!
+  expect(model).toBeDefined()
+  view.settings.providers.push({
+    id: 'native',
+    name: 'Native',
+    template,
+    baseUrl: 'https://native.example/v1',
+    secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
+    models: override ? [{ ...model, reasoningLevels: override === 'off-only' ? ['off'] : model.reasoningLevels }] : [],
+  })
+  view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: effort }
+  expect((await request('PUT', { revision: 0, settings: view.settings })).status).toBe(200)
+  const runtime = await resolveConfiguredAgentRuntime('fast')
+  expect(runtime.model.reasoning).toBe(true)
+  if (effort === 'off') expect(runtime.model.thinkingLevelMap?.off).toBe(wireEffort)
+  let payload: Record<string, unknown> | undefined
+  setAgentFetchForTesting(async (_input, init) => {
+    payload = JSON.parse(String(init?.body))
+    return completionStream('ok')
+  })
+  const stream = await agentStreamFn('fast', {}, runtime)(
+    runtime.model,
+    { messages: [{ role: 'user', content: 'hi', timestamp: 1 }] },
+    { reasoning: effort === 'off' ? undefined : effort },
+  )
+  expect((await stream.result()).stopReason).toBe('stop')
+  expect(payload?.model).toBe(model.id)
+  expect(payload?.reasoning_effort).toBe(wireEffort)
+})
+
+it('does not inherit an off prohibition when a builtin model changes API protocol', async () => {
+  const view = await initial()
+  const model = view.templates
+    .find((item) => item.id === 'openai')!
+    .models.find((item) => item.id === 'gpt-6-astra')!
+  view.settings.providers.push({
+    id: 'native',
+    name: 'Native',
+    template: 'openai',
+    baseUrl: 'https://native.example/v1',
+    secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
+    models: [{ ...model, api: 'openai-completions', reasoningLevels: ['off', 'low'] }],
+  })
+  view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: 'off' }
+  expect((await request('PUT', { revision: 0, settings: view.settings })).status).toBe(200)
+  const runtime = await resolveConfiguredAgentRuntime('fast')
+  let payload: Record<string, unknown> | undefined
+  setAgentFetchForTesting(async (_input, init) => {
+    payload = JSON.parse(String(init?.body))
+    return completionStream('ok')
+  })
+  const stream = await agentStreamFn('fast', {}, runtime)(runtime.model, {
+    messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
+  })
+  expect((await stream.result()).stopReason).toBe('stop')
+  expect(payload?.reasoning_effort).toBe('none')
+  expect(payload?.reasoning).toBeUndefined()
 })
 
 it('fails an unconfigured selected provider without borrowing the gateway credential', async () => {
@@ -246,23 +415,102 @@ it('rejects protocols that cannot participate in request budget and dispatch acc
   expect((await request('PUT', { revision: 0, settings })).status).toBe(400)
 })
 
-it('preserves the legacy system role when the selected gateway effort is off', async () => {
+it('runs the saved default Luna off profile without a reasoning-effort 400 or changing its configuration', async () => {
+  const view = await initial()
+  expect(view.settings.profiles.default).toEqual({
+    providerId: 'upstream-gateway',
+    modelId: 'gpt-6-luna',
+    reasoning: 'off',
+  })
+  expect((await request('PUT', { revision: 0, settings: view.settings })).status).toBe(200)
   const runtime = await resolveConfiguredAgentRuntime()
-  let payload: { messages: { role: string }[] } | undefined
+  const calls: { body: Record<string, unknown>; authorization: string | null }[] = []
+  setAgentFetchForTesting(async (_input, init) => {
+    const body: Record<string, unknown> = JSON.parse(String(init?.body))
+    calls.push({ body, authorization: new Headers(init?.headers).get('authorization') })
+    if (body.reasoning_effort !== 'none')
+      return Response.json(
+        {
+          error: {
+            message: "Unsupported value for reasoning_effort: 'off'",
+            param: 'reasoning_effort',
+            code: 'unsupported_value',
+          },
+        },
+        { status: 400 },
+      )
+    return completionStream('ok')
+  })
+  const agent = new Agent({
+    initialState: {
+      model: runtime.model,
+      thinkingLevel: runtime.effort,
+      systemPrompt: 'System instructions',
+    },
+    streamFn: agentStreamFn(undefined, {}, runtime),
+  })
+  await agent.prompt('hi')
+  const message = agent.state.messages.at(-1)
+  if (message?.role !== 'assistant') throw new Error('Expected a final assistant message')
+  expect(message.stopReason).toBe('stop')
+  expect(message.content).toMatchObject([{ type: 'text', text: 'ok' }])
+  expect(message.usage).toMatchObject({ input: 12, output: 4 })
+  expect(runtime.effort).toBe('off')
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.authorization).toBe('Bearer legacy-fixture-key')
+  expect(calls[0]?.body.model).toBe('gpt-6-luna')
+  expect(calls[0]?.body.reasoning_effort).toBe('none')
+  expect(calls[0]?.body.messages).toMatchObject([{ role: 'system' }, { role: 'user' }])
+  expect(calls[0]?.body.stream_options).toEqual({ include_usage: true })
+  const saved = await initial()
+  expect(saved.revision).toBe(1)
+  expect(saved.settings).toEqual(view.settings)
+  expect(await db.select().from(schema.operator_audits)).toHaveLength(1)
+})
+
+it.each(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)('preserves custom completions effort %s', async (effort) => {
+  const { settings } = await initial()
+  const model = settings.providers[0]!.models.find(
+    (item) => item.id === settings.profiles.default.modelId,
+  )!
+  model.reasoningLevels = [...MODEL_REASONING_LEVELS]
+  settings.profiles.default.reasoning = effort
+  expect((await request('PUT', { revision: 0, settings })).status).toBe(200)
+  const runtime = await resolveConfiguredAgentRuntime()
+  expect(runtime.model.reasoning).toBe(true)
+  let payload: Record<string, unknown> | undefined
   setAgentFetchForTesting(async (_input, init) => {
     payload = JSON.parse(String(init?.body))
     return completionStream('ok')
   })
-  const stream = await agentStreamFn(
-    undefined,
-    {},
-    runtime,
-  )(runtime.model, {
-    systemPrompt: 'System instructions',
+  const stream = await agentStreamFn(undefined, {}, runtime)(
+    runtime.model,
+    { messages: [{ role: 'user', content: 'hi', timestamp: 1 }] },
+    { reasoning: runtime.effort === 'off' ? undefined : runtime.effort },
+  )
+  expect((await stream.result()).stopReason).toBe('stop')
+  expect(payload?.reasoning_effort).toBe(effort)
+})
+
+it('keeps a custom off-only model non-reasoning without sending reasoning fields', async () => {
+  const { settings } = await initial()
+  for (const model of settings.providers[0]!.models) model.reasoningLevels = ['off']
+  for (const profile of Object.values(settings.profiles)) profile.reasoning = 'off'
+  expect((await request('PUT', { revision: 0, settings })).status).toBe(200)
+  const runtime = await resolveConfiguredAgentRuntime()
+  expect(runtime.model.reasoning).toBe(false)
+  let payload: Record<string, unknown> | undefined
+  setAgentFetchForTesting(async (_input, init) => {
+    payload = JSON.parse(String(init?.body))
+    return completionStream('ok')
+  })
+  const stream = await agentStreamFn(undefined, {}, runtime)(runtime.model, {
     messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
   })
   expect((await stream.result()).stopReason).toBe('stop')
-  expect(payload?.messages[0]?.role).toBe('system')
+  expect(payload?.reasoning_effort).toBeUndefined()
+  expect(payload?.reasoning).toBeUndefined()
+  expect(payload?.thinking).toBeUndefined()
 })
 
 it('rejects non-provider environment secrets, private endpoints and text-only profile models', async () => {
