@@ -156,12 +156,23 @@ activate_backend_then_ingress() {
   write_container_names
 }
 
+release_managed() {
+  if [ -e "$APP_CONFIG_DIR/releases/current" ] || [ -e "$APP_CONFIG_DIR/releases/route.json" ]; then
+    return 0
+  fi
+  managed=$(docker ps -a --filter "label=app.runtime.project=$project" --format '{{.Names}}') || {
+    echo 'Cannot establish runtime inventory; refusing Compose changes' >&2
+    exit 1
+  }
+  [ -n "$managed" ]
+}
+
 case "$command" in
   up)
     require_migrator_env
     require_tunnel_credentials
-    # Release-managed once `current` exists, even after the Compose BFF has been retired.
-    if [ -f "$APP_CONFIG_DIR/releases/current" ] || docker inspect "$project-bff-1" >/dev/null 2>&1; then
+    compose_bff=$(docker ps -a --filter "name=^/$project-bff-1$" --format '{{.Names}}') || exit 1
+    if release_managed || [ -n "$compose_bff" ]; then
       rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
       start_log_collector
       "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollout_image"
@@ -170,7 +181,7 @@ case "$command" in
     fi
     ;;
   stop|down)
-    if [ -f "$APP_CONFIG_DIR/releases/current" ]; then
+    if release_managed; then
       echo "Release-managed executors are active. Refusing legacy compose-down; drain each runtime before stopping ingress." >&2
       exit 1
     fi
