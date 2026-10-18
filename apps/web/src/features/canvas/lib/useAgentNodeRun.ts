@@ -1,10 +1,10 @@
 import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { useVideoStore } from '../../video/store'
 import type { CanvasEditor } from './editor'
-import { currentNodeBatch, type NodeBatchPlan } from './nodeBatch'
+import { currentNodeBatch, NodeBatchFailure, runNodeBatch } from './nodeBatch'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
 export function useAgentNodeRun({
@@ -14,7 +14,6 @@ export function useAgentNodeRun({
   active,
   revision,
   files,
-  review,
 }: {
   canvas: NodeCanvasDocument
   editor: CanvasEditor
@@ -22,13 +21,10 @@ export function useAgentNodeRun({
   active: boolean
   revision: unknown
   files: unknown
-  review: (ids: string[], plan: NodeBatchPlan) => boolean
 }) {
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
   const draft = useVideoStore((state) => state.draft)
-  const reviewRef = useRef(review)
-  reviewRef.current = review
   useEffect(() => {
     if (!active || !projectId) return
     const quote = (proposal: AgentCanvasRunProposal) => {
@@ -44,10 +40,11 @@ export function useAgentNodeRun({
     return registerAgentNodeRun({
       projectId,
       quote,
-      review: (proposal, signature) => {
+      run: async (proposal, signature, signal, progress) => {
         const plan = quote(proposal)
-        if (!plan || plan.signature !== signature || plan.error || plan.blocked) return false
-        return reviewRef.current([...proposal.nodeIds], plan)
+        if (!plan || plan.signature !== signature || plan.error || plan.blocked)
+          throw new NodeBatchFailure(plan?.error ?? 'changed')
+        await runNodeBatch(canvas.doc, editor, proposal.nodeIds, plan, signal, progress)
       },
     })
   }, [active, projectId, canvas, editor, revision, files, settings, params, draft])
