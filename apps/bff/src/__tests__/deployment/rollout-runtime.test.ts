@@ -36,6 +36,7 @@ interface FixtureState {
   failResume: boolean
   failAncillary: boolean
   crashAfterRoute: boolean
+  failMarkerRemoval?: string
 }
 
 const project = 'fixture'
@@ -248,6 +249,13 @@ if (process.argv.at(-1) === '+%s') { state.clock += 100; await Bun.write(path, J
 else console.log('20261018000000');
 `)
   await executable('sleep', '')
+  await executable('rm', String.raw`
+const args = process.argv.slice(2);
+const state = await Bun.file(process.env.FIXTURE_STATE).json();
+if (state.failMarkerRemoval && args.some(arg => arg.endsWith('/activated/' + state.failMarkerRemoval))) process.exit(1);
+const p = Bun.spawn(['/bin/rm', ...args], { stdout: 'inherit', stderr: 'inherit' });
+process.exit(await p.exited);
+`)
   await executable('mv', String.raw`
 const args = process.argv.slice(2);
 const p = Bun.spawn(['/bin/mv', ...args], { stdout: 'inherit', stderr: 'inherit' });
@@ -393,6 +401,21 @@ describe('executor-preserving rollout', () => {
       expect(creations(state)).toEqual([])
     })
   }
+
+  it('preserves a worker when its activation marker cannot be removed', async () => {
+    const f = await fixture()
+    const name = await addRetained(f, {})
+    await writeFile(join(f.releases, 'activated', name), '')
+    await editState(f, (state) => { state.failMarkerRemoval = name })
+    const result = await run(f)
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('activation marker could not be removed')
+    const state = await readState(f)
+    expect(state.containers[name].running).toBe(true)
+    expect(destructiveEvents(state, name)).toEqual([])
+    expect(creations(state)).toEqual([])
+    expect(await readFile(join(f.releases, 'activated', name), 'utf8')).toBe('')
+  })
 
   it('preserves failed finalization even when an old BFF reports safeToStop', async () => {
     const f = await fixture()
