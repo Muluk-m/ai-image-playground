@@ -1,5 +1,12 @@
 name: Cloud tests
 on:
+  pull_request:
+    paths:
+      - 'scripts/*cloud-test*'
+      - 'scripts/cloud-vitest.mjs'
+      - 'scripts/run-bun-tests-isolated.ts'
+      - 'deploy/compose.cloud-test.yaml'
+      - '.github/workflows/cloud-tests.yml'
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -37,22 +44,22 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ inputs.expected_sha }}
+          ref: ${{ inputs.expected_sha || github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Verify the requested revision before setup
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.event.pull_request.head.sha }}
       - uses: ./.github/actions/setup
       - run: python3 scripts/cloud-test.py prepare --sha "$EXPECTED_SHA"
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.event.pull_request.head.sha }}
       - run: |
           args=("$TARGET" --sha "$EXPECTED_SHA")
           if [ -n "$TEST_FILTER" ]; then args+=(--filter "$TEST_FILTER"); fi
           python3 scripts/cloud-test.py "${args[@]}"
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-          TARGET: ${{ inputs.target }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.event.pull_request.head.sha }}
+          TARGET: ${{ inputs.target || 'db' }}
           TEST_FILTER: ${{ inputs.filter }}
           CLOUD_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_cloud_test
