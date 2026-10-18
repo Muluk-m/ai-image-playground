@@ -198,10 +198,17 @@ const nativeProtocols = [
 it.each(
   nativeProtocols.flatMap((protocol) =>
     (['custom', 'builtin', 'override', 'override-off-only'] as const).flatMap((source) =>
-      (source === 'override-off-only' ? (['off'] as const) : (['off', 'low'] as const)).map((effort) => [source, effort, protocol] as const),
+      (source === 'override-off-only' ? (['off'] as const) : (['off', 'low'] as const)).map(
+        (effort) => [source, effort, protocol] as const,
+      ),
     ),
   ),
-)('dispatches %s models at %s through native Pi protocol %j', async (source, effort, { template, api, path, modelId }) => {
+)('dispatches %s models at %s through native Pi protocol %j', async (source, effort, {
+  template,
+  api,
+  path,
+  modelId,
+}) => {
   const view = await initial()
   const model = view.templates
     .find((item) => item.id === template)!
@@ -279,7 +286,10 @@ it.each(
   }
 })
 
-it.each(['o1', 'gpt-6-astra'])('rejects builtin %s off even when its override only declares off', async (modelId) => {
+it.each([
+  'o1',
+  'gpt-6-astra',
+])('rejects builtin %s off even when its override only declares off', async (modelId) => {
   const view = await initial()
   const model = view.templates
     .find((item) => item.id === 'openai')!
@@ -303,13 +313,18 @@ it.each(['o1', 'gpt-6-astra'])('rejects builtin %s off even when its override on
     settings.profiles.fast = { providerId: 'native', modelId, reasoning: 'off' }
     const response = await request('PUT', { revision: 0, settings })
     expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining('不支持所选推理强度') })
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('不支持所选推理强度'),
+    })
   }
   expect((await initial()).revision).toBe(0)
   expect(await db.select().from(schema.operator_audits)).toHaveLength(0)
 })
 
-it.each(['minimal', 'max'] as const)('rejects a builtin null %s mapping even when the override declares it', async (effort) => {
+it.each([
+  'minimal',
+  'max',
+] as const)('rejects a builtin null %s mapping even when the override declares it', async (effort) => {
   const view = await initial()
   const model = view.templates
     .find((item) => item.id === 'openai')!
@@ -326,7 +341,9 @@ it.each(['minimal', 'max'] as const)('rejects a builtin null %s mapping even whe
   view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: effort }
   const response = await request('PUT', { revision: 0, settings: view.settings })
   expect(response.status).toBe(400)
-  expect(await response.json()).toMatchObject({ error: expect.stringContaining('不支持所选推理强度') })
+  expect(await response.json()).toMatchObject({
+    error: expect.stringContaining('不支持所选推理强度'),
+  })
   expect((await initial()).revision).toBe(0)
   expect(await db.select().from(schema.operator_audits)).toHaveLength(0)
 })
@@ -350,7 +367,9 @@ it.each([
     template,
     baseUrl: 'https://native.example/v1',
     secretRef: 'AGENT_PROVIDER_TEST_API_KEY',
-    models: override ? [{ ...model, reasoningLevels: override === 'off-only' ? ['off'] : model.reasoningLevels }] : [],
+    models: override
+      ? [{ ...model, reasoningLevels: override === 'off-only' ? ['off'] : model.reasoningLevels }]
+      : [],
   })
   view.settings.profiles.fast = { providerId: 'native', modelId: model.id, reasoning: effort }
   expect((await request('PUT', { revision: 0, settings: view.settings })).status).toBe(200)
@@ -393,7 +412,11 @@ it('does not inherit an off prohibition when a builtin model changes API protoco
     payload = JSON.parse(String(init?.body))
     return completionStream('ok')
   })
-  const stream = await agentStreamFn('fast', {}, runtime)(runtime.model, {
+  const stream = await agentStreamFn(
+    'fast',
+    {},
+    runtime,
+  )(runtime.model, {
     messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
   })
   expect((await stream.result()).stopReason).toBe('stop')
@@ -468,7 +491,14 @@ it('runs the saved default Luna off profile without a reasoning-effort 400 or ch
   expect(await db.select().from(schema.operator_audits)).toHaveLength(1)
 })
 
-it.each(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)('preserves custom completions effort %s', async (effort) => {
+it.each([
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const)('preserves custom completions effort %s', async (effort) => {
   const { settings } = await initial()
   const model = settings.providers[0]!.models.find(
     (item) => item.id === settings.profiles.default.modelId,
@@ -504,7 +534,11 @@ it('keeps a custom off-only model non-reasoning without sending reasoning fields
     payload = JSON.parse(String(init?.body))
     return completionStream('ok')
   })
-  const stream = await agentStreamFn(undefined, {}, runtime)(runtime.model, {
+  const stream = await agentStreamFn(
+    undefined,
+    {},
+    runtime,
+  )(runtime.model, {
     messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
   })
   expect((await stream.result()).stopReason).toBe('stop')
