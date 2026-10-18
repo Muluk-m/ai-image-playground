@@ -40,6 +40,21 @@ function slots(limit: number) {
 const uploading = slots(4)
 const confirming = slots(2)
 
+/** 本地原图读取卡住时按超时失败（映射为 media_timeout），不让上传一直停在排队。 */
+const LOCAL_READ_TIMEOUT_MS = 30_000
+function withLocalReadTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new DOMException('Local attachment read timed out', 'TimeoutError')),
+        LOCAL_READ_TIMEOUT_MS,
+      )
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
 async function digest(bytes: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
     byte.toString(16).padStart(2, '0'),
@@ -70,7 +85,7 @@ export async function uploadMediaSource(
         const local = localAttachmentIdentity(source)
         if (!local && !source.startsWith('data:image/')) throw new Error('unsupported_local_media')
         const bytes = local
-          ? (await readLocalAttachment(source)).data
+          ? (await withLocalReadTimeout(readLocalAttachment(source))).data
           : await (await fetch(source, { signal: options.signal })).arrayBuffer()
         const sha256 = await digest(bytes)
         current()
