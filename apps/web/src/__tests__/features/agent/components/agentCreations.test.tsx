@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 
+import {
+  canvasOrigin,
+  createCanvasUndoManager,
+  importLegacyElements,
+} from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
+import * as Y from 'yjs'
 import AgentCreations from '../../../../features/agent/components/AgentCreations'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { CanvasDoc, type CanvasEl, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
@@ -11,6 +17,7 @@ import {
   clearNodeCanvasSelection,
   setNodeCanvasSelection,
 } from '../../../../features/canvas/lib/nodeCanvasSelection'
+
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
@@ -103,13 +110,15 @@ beforeEach(() => {
   focus = vi.fn<(objectIds: readonly string[]) => void>()
   thumbnail = vi.fn<(objectId: string) => Promise<string | null>>(async (id) => `thumb:${id}`)
   editor = { doc } as CanvasEditor
+  const selectionDoc = new Y.Doc()
+  const origin = canvasOrigin('user', 'selection-test')
+  importLegacyElements(selectionDoc, [image('a')], origin)
   selectionCanvas = {
-    doc: {
-      getMap: (name: string) => (name === 'nodes' ? new Map([['a', {}]]) : new Map()),
-      on() {},
-      off() {},
-    },
-  } as Parameters<typeof setNodeCanvasSelection>[1]
+    doc: selectionDoc,
+    origin,
+    undo: createCanvasUndoManager(selectionDoc, origin),
+    destroy: async () => selectionDoc.destroy(),
+  }
   stubSink()
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -119,6 +128,9 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  clearNodeCanvasSelection(editor, selectionCanvas)
+  selectionCanvas.undo.destroy()
+  void selectionCanvas.destroy()
   setAgentCanvasSink(null)
   vi.restoreAllMocks()
 })

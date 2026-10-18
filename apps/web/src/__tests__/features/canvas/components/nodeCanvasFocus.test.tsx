@@ -198,7 +198,7 @@ beforeEach(() => {
   workspace = {
     doc: old,
     record: { key: 'focus-fixture' },
-    editor: { doc: old },
+    editor: new CanvasEditor(old),
   } as unknown as CanvasWorkspace
   mocks.open.mockResolvedValue(canvas)
   host = document.createElement('div')
@@ -217,7 +217,10 @@ afterEach(() => {
 async function render() {
   await act(async () => root.render(<NodeCanvas workspace={workspace} active />))
   const container = host.querySelector<HTMLElement>('.studio-node-canvas')!
-  Object.defineProperties(container, { clientWidth: { value: 1000 }, clientHeight: { value: 700 } })
+  Object.defineProperties(container, {
+    clientWidth: { value: 1000, configurable: true },
+    clientHeight: { value: 700, configurable: true },
+  })
   container.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 700)
 }
 
@@ -295,24 +298,60 @@ it('aligns an oversized batch to the available top left without zooming out', as
   expect(revealNodeCanvas(workspace.editor, ['first'])).toBe(false)
 })
 
-it.each(['image', 'video'] as const)(
-  'reveals freshly synchronized %s reservations while keeping the selected reference',
-  async (media) => {
-    workspace.editor = new CanvasEditor(old)
-    old.setViewport(1000, 700)
-    await render()
-    act(() => focusNodeCanvas(workspace.editor, ['first']))
-    mocks.viewport = { x: -3000, y: -2000, zoom: 0.5 }
-    const sink = createAgentCanvasSink(workspace.editor)
-    let ids: readonly string[] = []
-    await act(async () => {
-      ids = await sink.reserve({ count: 1, media, messageId: 'reservation', anchorObjectId: 'first' })
-    })
-    const pending = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === ids[0])!
-    expect(pending.data).toMatchObject({ pending: { status: 'loading' } })
-    expect(nodeCanvasSelection(workspace.editor)).toEqual(['first'])
-    expect(mocks.viewport.zoom).toBe(0.5)
-    expect(pending.x * mocks.viewport.zoom + mocks.viewport.x).toBe(16)
-    expect(pending.y * mocks.viewport.zoom + mocks.viewport.y).toBeGreaterThanOrEqual(16)
-  },
-)
+it.each([
+  'image',
+  'video',
+] as const)('reveals freshly synchronized %s reservations while keeping the selected reference', async (media) => {
+  old.setViewport(1000, 700)
+  await render()
+  act(() => focusNodeCanvas(workspace.editor, ['first']))
+  mocks.viewport = { x: -3000, y: -2000, zoom: 0.5 }
+  const sink = createAgentCanvasSink(workspace.editor)
+  let ids: readonly string[] = []
+  await act(async () => {
+    ids = await sink.reserve({ count: 1, media, messageId: 'reservation', anchorObjectId: 'first' })
+  })
+  const pending = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === ids[0])!
+  expect(pending.data).toMatchObject({ pending: { status: 'loading' } })
+  expect(nodeCanvasSelection(workspace.editor)).toEqual(['first'])
+  expect(mocks.viewport.zoom).toBe(0.5)
+  expect(pending.x * mocks.viewport.zoom + mocks.viewport.x).toBe(16)
+  expect(pending.y * mocks.viewport.zoom + mocks.viewport.y).toBeGreaterThanOrEqual(16)
+})
+
+it('keeps React Flow navigation ownership while its mounted container is hidden', async () => {
+  await render()
+  Object.defineProperties(host.querySelector('.studio-node-canvas')!, {
+    clientWidth: { value: 0, configurable: true },
+    clientHeight: { value: 0, configurable: true },
+  })
+  const legacyScroll = vi.spyOn(workspace.editor, 'scrollToElements')
+  const viewport = { ...mocks.viewport }
+  await act(async () => {
+    await createAgentCanvasSink(workspace.editor).reserve({ count: 1, messageId: 'hidden' })
+  })
+  expect(legacyScroll).not.toHaveBeenCalled()
+  expect(mocks.viewport).toEqual(viewport)
+})
+
+it('does not restore the pre-arrangement viewport over a newly revealed reservation', async () => {
+  await render()
+  const before = readCanvasDocument(canvas.doc)
+  mocks.viewport = { x: -5000, y: -5000, zoom: 0.2 }
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="整理画布"]')!.click())
+  expect(host.textContent).toContain('是否保留此次整理结果？')
+  const zoom = mocks.viewport.zoom
+  let ids: readonly string[] = []
+  await act(async () => {
+    ids = await createAgentCanvasSink(workspace.editor).reserve({ count: 1, messageId: 'arranged' })
+  })
+  expect(host.textContent).not.toContain('是否保留此次整理结果？')
+  expect(mocks.viewport.zoom).toBe(zoom)
+  const after = readCanvasDocument(canvas.doc)
+  expect(after.nodes.filter((node) => !ids.includes(node.id))).toEqual(before.nodes)
+  const pending = after.nodes.find((node) => node.id === ids[0])!
+  expect(pending.x * zoom + mocks.viewport.x).toBeGreaterThanOrEqual(16)
+  expect(pending.y * zoom + mocks.viewport.y).toBeGreaterThanOrEqual(16)
+  expect((pending.x + pending.width) * zoom + mocks.viewport.x).toBeLessThanOrEqual(984)
+  expect((pending.y + pending.height) * zoom + mocks.viewport.y).toBeLessThanOrEqual(684)
+})
