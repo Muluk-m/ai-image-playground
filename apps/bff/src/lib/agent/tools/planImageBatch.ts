@@ -3,6 +3,7 @@ import { BatchAnalysisLimit } from '../batch-analysis-limit'
 import { batchExecutionAvailable } from '../batch-execution'
 import { batchPlansAvailable, createAgentBatchPlan } from '../batch-plans'
 import { defineAgentTool } from './adapter'
+import { AgentToolError } from './errors'
 
 export const planImageBatch = defineAgentTool({
   name: 'planImageBatch',
@@ -11,7 +12,7 @@ export const planImageBatch = defineAgentTool({
   description:
     '针对固定的一组图片拟定分析或编辑计划，保存统一规则、完整范围与每项提示词供用户审查和确认报价。调用只保存草稿。analysis 项检查或比较图片，generation 项生成图片；不同处理目标各列一项。',
   guidance:
-    '用户要求批量处理时，用 planImageBatch 展示固定范围与逐项提示词；必须列齐用户要求的输入，不可静默漏图。计划保存后等待用户确认报价，不可宣称已开始执行。analysis 仅在分析能力开放时使用。联合比较必须单列 intent=joint_comparison 的 analysis 项，把需要比较的原图放在同一次调用；逐图检查使用 inspection。无法准备完整输入时先明确说明，不得用逐图检查代替联合比较。',
+    '用户要求批量处理对话中的图片时，用 planImageBatch 展示固定范围与逐项提示词；必须列齐用户要求的输入，不可静默漏图。计划保存后等待用户确认报价，不可宣称已开始执行。analysis 仅在分析能力开放时使用。联合比较必须单列 intent=joint_comparison 的 analysis 项，把需要比较的原图放在同一次调用；逐图检查使用 inspection。无法准备完整输入时先明确说明，不得用逐图检查代替联合比较。',
   onError: 'continue',
   available: (_mode, audience) => batchPlansAvailable(audience),
   parameters: Type.Object({
@@ -36,6 +37,16 @@ export const planImageBatch = defineAgentTool({
   }),
   call: ({ title }) => ({ title: typeof title === 'string' ? title : '批次计划' }),
   execute: (context) => async (toolCallId, params) => {
+    // 节点画布的生成要绑到目标节点上，通用批次的结果落不回节点。
+    if (
+      context.experience === 'canvas' &&
+      context.canvas?.selectedNodeIds !== undefined &&
+      params.items.some((item) => item.kind !== 'analysis')
+    )
+      throw new AgentToolError(
+        'invalid_params',
+        '节点画布中的生成不能使用批次计划。请用 createNodes 或 updateNodes 准备节点，再用 runNodes 指定要运行的节点。',
+      )
     let batchId: string
     try {
       batchId = await createAgentBatchPlan(context, toolCallId, params)
