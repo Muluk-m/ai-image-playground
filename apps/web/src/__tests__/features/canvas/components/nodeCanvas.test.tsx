@@ -675,7 +675,11 @@ it('opens the add-node menu when a connection ends on blank canvas space', async
   })
   try {
     act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+    expect(host.querySelector('[data-node-id="image"]')?.className).toContain(
+      'studio-node-connection-source',
+    )
     act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(document.querySelector('[role="menu"]')?.textContent).toContain('文本')
     expect(document.querySelector('[role="menu"]')?.textContent).toContain('图片')
   } finally {

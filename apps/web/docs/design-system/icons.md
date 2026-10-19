@@ -93,6 +93,7 @@ import { Icon } from '@/components/ui/icon'
 | `back` | 返回 | arrow-left |
 | `upscale` | 高清放大 | maximize-square |
 | `removeBg` | 抠图 | scissors |
+| `cut` | 剪断连线 | scissors |
 | `brush` | 遮罩、局部重绘 | paint-brush |
 | `crop` | 裁剪 | crop |
 | `outpaint` | 扩图 | maximize-square-2 |
