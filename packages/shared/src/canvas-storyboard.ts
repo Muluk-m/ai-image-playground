@@ -9,6 +9,8 @@ import {
 
 export interface CanvasStoryboardData {
   shots: ProductionShot[]
+  /** Episode number is project-wide; scriptNodeId records its source, not a separate namespace. */
+  episode?: { scriptNodeId: string; number: number }
   /** Confirmation applies to this exact shot table; edits invalidate it without deleting the receipt. */
   confirmed?: { fingerprint: string; model: string; quantity: number; credits?: number }
 }
@@ -17,7 +19,7 @@ export function isCanvasStoryboardData(value: unknown): value is CanvasStoryboar
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const data = value as Record<string, unknown>
   if (
-    Object.keys(data).some((key) => !['shots', 'confirmed'].includes(key)) ||
+    Object.keys(data).some((key) => !['shots', 'confirmed', 'episode'].includes(key)) ||
     !Array.isArray(data.shots) ||
     data.shots.length > 1000 ||
     !data.shots.every((shot) => isProductionShots([shot])) ||
@@ -41,6 +43,24 @@ export function isCanvasStoryboardData(value: unknown): value is CanvasStoryboar
     )
   )
     return false
+  if (data.episode !== undefined) {
+    const episode = data.episode
+    if (
+      !episode ||
+      typeof episode !== 'object' ||
+      Array.isArray(episode) ||
+      Object.keys(episode).some((key) => !['scriptNodeId', 'number'].includes(key)) ||
+      !('scriptNodeId' in episode) ||
+      typeof episode.scriptNodeId !== 'string' ||
+      !episode.scriptNodeId.trim() ||
+      episode.scriptNodeId.length > 128 ||
+      !('number' in episode) ||
+      !Number.isSafeInteger(episode.number) ||
+      Number(episode.number) < 1 ||
+      Number(episode.number) > 200
+    )
+      return false
+  }
   const confirmed = data.confirmed
   return (
     confirmed === undefined ||
