@@ -1775,6 +1775,11 @@ function Flow({
     }
     reset()
   }
+  const cutConnection = (edgeId: string) => {
+    disconnectCanvasNodes(canvas.doc, edgeId, canvas.origin)
+    setSelectedEdges([])
+    useStore.getState().showToast(t('nodes.connectionCut'), 'success')
+  }
   const overview = viewportPlan.mode === 'overview'
   const mounted = overview ? new Set(viewportPlan.mountedIds) : null
   return (
@@ -1838,10 +1843,12 @@ function Flow({
                               }
                             }
                             const position = arrangementPositions.get(node.id)
+                            const className = classNames.filter(Boolean).join(' ') || undefined
+                            if (!position && className === node.className) return node
                             return {
                               ...node,
                               ...(position ? { position } : {}),
-                              className: classNames.filter(Boolean).join(' ') || undefined,
+                              ...(className ? { className } : { className: undefined }),
                             }
                           })}
                           className={
@@ -1869,6 +1876,10 @@ function Flow({
                                 interactionWidth: 22,
                                 hidden: !connections && !referencePick,
                                 selected: selectedEdges.includes(edge.id),
+                                data: {
+                                  cutLabel: t('nodes.cutConnection'),
+                                  onCut: () => cutConnection(edge.id),
+                                },
                                 className: highlightedEdges.has(edge.id)
                                   ? 'studio-edge-lit'
                                   : undefined,
@@ -1950,11 +1961,6 @@ function Flow({
                           onEdgeClick={(event, edge) => {
                             event.stopPropagation()
                             if (referencePick) return
-                            if (selectedEdges.includes(edge.id)) {
-                              disconnectCanvasNodes(canvas.doc, edge.id, canvas.origin)
-                              setSelectedEdges([])
-                              return
-                            }
                             selectNode(null)
                             setSelectedEdges([edge.id])
                           }}

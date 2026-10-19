@@ -1345,26 +1345,33 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 }
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
-  stroke: hsl(var(--foreground) / .28);
+  stroke: hsl(var(--foreground) / .34);
   stroke-width: 1.25;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: stroke 140ms ease-out, stroke-width 140ms ease-out;
 }
 .studio-node-canvas:has(.studio-edge-lit) .react-flow__edge:not(.studio-edge-lit) .react-flow__edge-path {
-  stroke: hsl(var(--foreground) / .12);
+  stroke: hsl(var(--foreground) / .2);
 }
-.studio-node-canvas .studio-node-connecting .react-flow__node-connection-disabled > .studio-node {
+.studio-node-canvas .studio-edge-lit .react-flow__edge-path,
+.studio-node-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke: hsl(var(--primary));
+  stroke-width: 2.5;
+}
+.studio-node-canvas .studio-node-connection-disabled > .studio-node {
   opacity: .28;
   filter: saturate(.35);
   transition: opacity 160ms ease-out, filter 160ms ease-out;
 }
-.studio-node-canvas .studio-node-connecting .react-flow__node-connection-eligible:hover > .studio-node,
-.studio-node-canvas .studio-node-connecting .react-flow__node-connection-eligible:has(.studio-node-handle.connectingto.valid) > .studio-node {
+.studio-node-canvas .studio-node-connection-eligible:hover > .studio-node,
+.studio-node-canvas .studio-node-connection-eligible:has(.studio-node-handle.connectingto.valid) > .studio-node {
+  border-color: hsl(var(--primary) / .7);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / .45), 0 0 22px hsl(var(--primary) / .45);
   filter: drop-shadow(0 0 12px hsl(var(--primary) / .45));
 }
-.studio-node-canvas .studio-node-connecting .react-flow__node-connection-eligible > .studio-node {
-  transition: filter 160ms ease-out;
+.studio-node-canvas .studio-node-connection-eligible > .studio-node {
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out, filter 160ms ease-out;
 }
 .studio-node-handle.connectingto.valid .studio-node-port-button {
   opacity: 1;
@@ -1411,6 +1418,17 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-connection-preview--invalid .studio-node-connection-preview-energy {
   stroke: hsl(var(--destructive));
   filter: drop-shadow(0 0 5px hsl(var(--destructive) / .7));
+}
+.studio-node-edge-cut {
+  pointer-events: all;
+  position: absolute;
+  z-index: 2;
+}
+.studio-node-edge-cut button {
+  border: 1px solid hsl(var(--primary) / .65);
+  background: hsl(var(--card) / .96);
+  color: hsl(var(--foreground));
+  box-shadow: 0 0 14px hsl(var(--primary) / .25);
 }
 @media (prefers-reduced-motion: reduce) {
   .studio-node-port-button { transition: none; }

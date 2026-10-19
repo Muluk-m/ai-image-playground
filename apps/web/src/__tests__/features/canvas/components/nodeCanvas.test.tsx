@@ -108,6 +108,8 @@ vi.mock('@xyflow/react', () => ({
     onPaneClick,
     onNodeClick,
     onEdgeClick,
+    onConnectStart,
+    onConnectEnd,
     onSelectionChange,
     onMove,
     style,
@@ -123,7 +125,13 @@ vi.mock('@xyflow/react', () => ({
       selected?: boolean
       className?: string
     }[]
-    edges?: { id: string; source: string; target: string }[]
+    edges?: {
+      id: string
+      source: string
+      target: string
+      selected?: boolean
+      data?: { onCut?: () => void }
+    }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
     onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
@@ -131,6 +139,17 @@ vi.mock('@xyflow/react', () => ({
     style?: CSSProperties
     onNodeClick?: (event: unknown, node: { id: string }) => void
     onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
+    onConnectStart?: (
+      event: { clientX: number; clientY: number },
+      params: { nodeId: string; handleType: 'source' | 'target' },
+    ) => void
+    onConnectEnd?: (
+      event: { clientX: number; clientY: number },
+      state: {
+        fromNode: { id: string } | null
+        fromHandle: { type: 'source' | 'target' } | null
+      },
+    ) => void
     onPaneClick?: () => void
     onInit?: (flow: {
       screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
@@ -177,14 +196,39 @@ vi.mock('@xyflow/react', () => ({
             createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
           ),
         ),
-      ...(edges ?? []).map((edge) =>
+      ...(edges ?? []).flatMap((edge) => [
         createElement('button', {
           key: edge.id,
           type: 'button',
           'data-edge-id': edge.id,
           onClick: (event: { stopPropagation: () => void }) => onEdgeClick?.(event, edge),
         }),
-      ),
+        ...(edge.selected && edge.data?.onCut
+          ? [
+              createElement('button', {
+                key: `${edge.id}:cut`,
+                type: 'button',
+                'data-edge-cut': edge.id,
+                onClick: edge.data.onCut,
+              }),
+            ]
+          : []),
+      ]),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'start-connection',
+        onClick: () =>
+          onConnectStart?.({ clientX: 0, clientY: 0 }, { nodeId: 'image', handleType: 'source' }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'drop-connection',
+        onClick: () =>
+          onConnectEnd?.(
+            { clientX: 100, clientY: 120 },
+            { fromNode: { id: 'image' }, fromHandle: { type: 'source' } },
+          ),
+      }),
       createElement('button', {
         type: 'button',
         'data-testid': 'pane',
@@ -575,18 +619,69 @@ it('offers all node types from either handle and connects the chosen node in the
     expect.objectContaining({ source: text.id, target: 'image' }),
   )
 })
-it('cuts a selected connection when its edge is clicked again', async () => {
+it('keeps a selected connection until the explicit cut action is clicked', async () => {
   await render()
   act(() => old.addElements([image('second')]))
   act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
-  const firstEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')
-  expect(firstEdge).not.toBeNull()
-  act(() => firstEdge!.click())
+  const firstEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')!
+  act(() => firstEdge.click())
   expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
-  const secondEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')
-  expect(secondEdge).not.toBeNull()
-  act(() => secondEdge!.click())
+  const selectedEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')!
+  act(() => selectedEdge.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+
+  const cut = host.querySelector<HTMLButtonElement>('[data-edge-cut="image:second"]')
+  expect(cut).not.toBeNull()
+  act(() => cut!.click())
   expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
+})
+it('dims unsupported nodes and highlights the whole valid target card while dragging', async () => {
+  Object.assign(workspace.editor, { getElement: () => undefined })
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() =>
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id: 'timeline',
+        type: 'timeline',
+        x: 10,
+        y: 300,
+        width: 560,
+        height: 240,
+        data: { clips: [] },
+      },
+      canvas.origin,
+    ),
+  )
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  expect(host.querySelector('[data-node-id="second"]')?.className).toContain(
+    'studio-node-connection-eligible',
+  )
+  expect(host.querySelector('[data-node-id="timeline"]')?.className).toContain(
+    'studio-node-connection-disabled',
+  )
+})
+
+it('opens the add-node menu when a connection ends on blank canvas space', async () => {
+  await render()
+  const original = (
+    document as Document & { elementsFromPoint?: typeof document.elementsFromPoint }
+  ).elementsFromPoint
+  Object.defineProperty(document, 'elementsFromPoint', {
+    configurable: true,
+    value: () => [],
+  })
+  try {
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('文本')
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('图片')
+  } finally {
+    if (original)
+      Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: original })
+    else Reflect.deleteProperty(document, 'elementsFromPoint')
+  }
 })
 
 it('places a dropped image where the pointer is', async () => {
