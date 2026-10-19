@@ -15,6 +15,7 @@
 import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, relative } from 'node:path'
+import { acquireTestLock, isConstrainedHost, refuseFullSuite } from './test-guard'
 
 const roots: string[] = []
 let jobs = Number(process.env.BUN_TEST_JOBS ?? 1)
@@ -28,6 +29,12 @@ for (let index = 0; index < args.length; index++) {
 }
 if (roots.length === 0) throw new Error('Pass at least one test root')
 if (!Number.isInteger(jobs) || jobs < 1) throw new Error('--jobs must be a positive integer')
+// 资源受限的机器只跑收窄过的文件，一次一个，整机同一时间只有一组测试（scripts/test-guard.ts）。
+if (isConstrainedHost()) {
+  if (!filter) refuseFullSuite(`${roots.join(', ')} 的全量 Bun 测试`)
+  jobs = 1
+  acquireTestLock(`bun ${roots.join(' ')} --filter ${filter}`)
+}
 
 const found = new Set<string>()
 const glob = new Bun.Glob('**/*.test.{ts,tsx}')

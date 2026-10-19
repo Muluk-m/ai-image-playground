@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { vitestGuard } from '../../scripts/test-guard'
 
 // dev: 前端 :5174，/api 反代到 admin server :37378（同源 cookie/session 用 proxy 透传）
 // prod: vite build 出 dist，admin server 直接 serve
@@ -41,6 +42,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   test: {
+    ...vitestGuard('apps/admin'),
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/__tests__/setup.ts'],

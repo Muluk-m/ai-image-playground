@@ -10,7 +10,7 @@
     "start": "bun run db:migrate && bun run src/index.ts",
     "start:worker": "bun run db:migrate && bun run src/worker-index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node ../../scripts/check-test-host.mjs && bun run ../../scripts/run-bun-tests-isolated.ts src",
+    "test": "bun run ../../scripts/run-bun-tests-isolated.ts src",
     "db:migrate": "bun run src/db/migrate.ts",
     "inspirations:import": "bun run scripts/import-inspirations.ts",
     "skills:verify:run": "bun run scripts/skill-verification/run.ts",
