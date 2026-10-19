@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        issue: [1373]
+        issue: [1364, 1366]
     services:
       postgres:
         image: postgres:17-alpine
@@ -37,12 +37,28 @@ jobs:
           ref: implement/issue-${{ matrix.issue }}
       - name: Record exact source revision
         run: git rev-parse HEAD | tee validation-sha.txt
+      - name: Check out video pricing prerequisite
+        if: matrix.issue == 1366
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Muluk-m/ai-image-playground-private
+          ref: implement/issue-1366-video-quotes
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - name: Record exact private revision
+        if: matrix.issue == 1366
+        run: git -C private rev-parse HEAD | tee validation-private-sha.txt
       - uses: ./.github/actions/setup
       - name: Format and sort imports
         run: pnpm exec biome check --write .
       - name: Capture formatting changes
         if: always()
-        run: git diff --binary > validation-format.patch
+        run: |
+          git diff --binary > validation-format.patch
+          if [ -d private/.git ] || [ -f private/.git ]; then
+            git -C private diff --binary > validation-private-format.patch
+          fi
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test --concurrency=1 --env-mode=loose
@@ -73,6 +89,8 @@ jobs:
           path: |
             validation-sha.txt
             validation-format.patch
+            validation-private-sha.txt
+            validation-private-format.patch
             apps/web/dist
             validation-smoke.json
           retention-days: 7
