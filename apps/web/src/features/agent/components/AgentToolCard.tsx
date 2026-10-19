@@ -40,7 +40,7 @@ import {
   fetchedImagePreview,
   INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
-import { previewArtifactBitmap } from '../lib/artifactSource'
+import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
@@ -664,7 +664,7 @@ function StandardAgentToolCard({
   if (message.canvasRun) {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
-        <AgentNodeRunCard proposal={message.canvasRun} />
+        <AgentNodeRunCard runKey={message.id} proposal={message.canvasRun} />
       </div>
     )
   }
@@ -854,6 +854,7 @@ function StandardAgentToolCard({
           media: 'image' as const,
           original: () =>
             resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+          reference: async () => `aip-media:${preview.image.imageId}`,
         }))
       : compactFetched
         ? (message.fetchedImages ?? []).map((image, index) => ({
@@ -861,6 +862,7 @@ function StandardAgentToolCard({
             source: null,
             media: 'image' as const,
             original: () => resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
+            reference: async () => `aip-media:${image.imageId}`,
           }))
         : []
     const artifactTiles = previewsLoading
@@ -874,6 +876,7 @@ function StandardAgentToolCard({
         media: artifact.media,
         ratio: artifact.width && artifact.height ? artifact.width / artifact.height : undefined,
         original: () => previewArtifactBitmap(artifact),
+        reference: () => artifactReferenceSource(artifact),
       })),
       ...fetchedTiles,
     ]

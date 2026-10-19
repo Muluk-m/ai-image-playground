@@ -95,7 +95,14 @@ const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
   drain: () => scheduler.drain(),
   resume: () => scheduler.resume(),
-  drainStatus: () => scheduler.drainStatus(),
+  drainStatus: () => {
+    const status = scheduler.drainStatus()
+    return {
+      ...status,
+      maintenanceActive: privateMaintenance !== undefined,
+      safeToStop: status.safeToStop && privateMaintenance === undefined,
+    }
+  },
   staleAfterMs: config.worker.healthStaleAfterMs,
   lastSuccessfulPollAt: () => scheduler.lastSuccessfulPollAt(),
 })

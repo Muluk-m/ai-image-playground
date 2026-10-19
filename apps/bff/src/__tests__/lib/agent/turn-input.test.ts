@@ -24,6 +24,7 @@ const {
   estimateTurnInputTokens,
   estimatedTurnInput,
   expandSkillInvocation,
+  NODE_CANVAS_GENERATION_LINE,
   turnInitialState,
   turnInitialStateOf,
   turnModelPrompt,
@@ -526,6 +527,20 @@ describe('这一轮的观众', () => {
     expect(turnInitialState([], 'image', false, 0, firstOrder).systemPrompt).toBe(
       turnInitialState([], 'image', false, 0, usedOrder).systemPrompt,
     )
+  })
+
+  it('节点画布把节点生成指向 runNodes，其它画面不出现这句', () => {
+    const canvas = { ...audience, experience: 'canvas' as const }
+    expect(
+      turnInitialState([], 'image', false, 0, { ...canvas, nodeCanvas: true }).systemPrompt,
+    ).toContain(NODE_CANVAS_GENERATION_LINE)
+    expect(turnInitialState([], 'image', false, 0, canvas).systemPrompt).not.toContain(
+      NODE_CANVAS_GENERATION_LINE,
+    )
+    expect(
+      turnInitialState([], 'image', false, 0, { ...audience, experience: 'chat', nodeCanvas: true })
+        .systemPrompt,
+    ).not.toContain(NODE_CANVAS_GENERATION_LINE)
   })
 
   it('没有观众的那一轮一条模板都不露', () => {

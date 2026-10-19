@@ -10,8 +10,8 @@
     "build:static-host": "pnpm build && node scripts/write-runtime-config.mjs && node scripts/write-version-manifest.mjs",
     "typecheck": "pnpm gen:hero-seed && tsc -b",
     "preview": "vite preview",
-    "test": "pnpm gen:hero-seed && vitest run",
-    "test:watch": "vitest"
+    "test": "node ../../scripts/check-test-host.mjs && pnpm gen:hero-seed && vitest run",
+    "test:watch": "node ../../scripts/check-test-host.mjs && vitest"
   },
   "dependencies": {
     "@image-playground/shared": "workspace:*",
@@ -26,6 +26,7 @@
     "@radix-ui/react-slider": "^1.4.7",
     "@radix-ui/react-slot": "1.2.4",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/virtual-core": "^3.17.0",
     "@xyflow/react": "^12.12.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -415,7 +415,9 @@ describe('工具起跑占位', () => {
     'insufficient_credits',
     'authentication_required',
     'model_unavailable',
-  ] as const)('云端项目的调用提交就被拒（%s）：本机补一个带码的失败占位，与本机项目一致', async (code) => {
+    'invalid_params',
+    'quota_exceeded',
+  ] as const)('云端图片提交前被拒（%s）时不补建画布占位', async (code) => {
     const cloudSink = createAgentCanvasSink(editor, undefined, {
       enabled: () => true,
       refresh: () => Promise.resolve(),
@@ -429,37 +431,7 @@ describe('工具起跑占位', () => {
 
     cloudSink.markFailed(ids, '服务端写的那句话', code)
 
-    const placeholders = editor.getPlaceholders()
-    expect(placeholders).toHaveLength(2)
-    for (const one of placeholders)
-      expect(one).toMatchObject({
-        status: 'error',
-        meta: {
-          agent: true,
-          agentErrorCode: code,
-          agentConversationId: 'conv-1',
-          agentMessageId: 'tool-refused',
-          prompt: '一只橘猫',
-        },
-      })
-  })
-
-  it('云端项目重放同一次被拒的调用不叠第二组失败占位', async () => {
-    const cloud = { enabled: () => true, refresh: () => Promise.resolve() }
-    const first = createAgentCanvasSink(editor, undefined, cloud)
-    first.markFailed(
-      await first.reserve({ count: 1, messageId: 'tool-refused' }),
-      '',
-      'insufficient_credits',
-    )
-    const replay = createAgentCanvasSink(editor, undefined, cloud)
-    replay.markFailed(
-      await replay.reserve({ count: 1, messageId: 'tool-refused' }),
-      '',
-      'insufficient_credits',
-    )
-
-    expect(editor.getPlaceholders()).toHaveLength(1)
+    expect(editor.getPlaceholders()).toEqual([])
   })
 
   it('云端项目的调用被收掉（成功交付、轮中止）后再失败也不补占位', async () => {

@@ -17,9 +17,9 @@
     "typecheck": "tsc -b",
     "pretest": "pnpm routes:generate",
     "pretest:client": "pnpm routes:generate",
-    "test": "vitest run && bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
-    "test:server": "bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
-    "test:client": "vitest run"
+    "test": "node ../../scripts/check-test-host.mjs && vitest run && bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
+    "test:server": "node ../../scripts/check-test-host.mjs && bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
+    "test:client": "node ../../scripts/check-test-host.mjs && vitest run"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.0",

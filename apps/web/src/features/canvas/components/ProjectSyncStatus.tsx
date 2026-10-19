@@ -69,7 +69,9 @@ export default function ProjectSyncStatus({
         {t(LABEL_KEY[state.status])}
       </p>
       {state.message && <p className="mt-1">{t(state.message)}</p>}
-      {(state.status.endsWith('error') || state.status === 'pending') && (
+      {(state.status.endsWith('error') ||
+        state.status === 'pending' ||
+        state.status === 'media-local') && (
         <Button
           type="button"
           variant="link"

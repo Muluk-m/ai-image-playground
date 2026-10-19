@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
+import { CLIENT_ERROR_RECOVERY_OPERATIONS, CLIENT_ERRORS_PATH } from '@image-playground/shared'
 
 const bffRoot = resolve(import.meta.dir, '../../..')
 process.env.PORT = '0'
@@ -110,7 +110,9 @@ describe('POST /api/client-errors', () => {
   })
 })
 
-it('stores exact recovery evidence separately even when it arrives before the error', async () => {
+it.each([
+  ...CLIENT_ERROR_RECOVERY_OPERATIONS,
+])('stores %s recovery separately even when it arrives before the error', async (operation) => {
   const incidentId = crypto.randomUUID()
   expect(
     (
@@ -118,8 +120,8 @@ it('stores exact recovery evidence separately even when it arrives before the er
         deviceId: 'device-fixture-recovery',
         errors: [],
         recoveries: [
-          { incidentId, operation: 'project.catalog' },
-          { incidentId: 'invalid', operation: 'project.catalog' },
+          { incidentId, operation },
+          { incidentId: 'invalid', operation },
           { incidentId, operation: 'unrelated' },
         ],
       })
@@ -135,9 +137,7 @@ it('stores exact recovery evidence separately even when it arrives before the er
   })
   await report({
     deviceId: 'device-fixture-recovery',
-    errors: [
-      { kind: 'error', message: 'failed', context: { incidentId, operation: 'project.catalog' } },
-    ],
+    errors: [{ kind: 'error', message: 'failed', context: { incidentId, operation } }],
   })
   expect(await db.select().from(schema.client_errors)).toHaveLength(1)
   await purgeOldClientErrors(1, Date.now() + 100)

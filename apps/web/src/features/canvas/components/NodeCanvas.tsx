@@ -42,6 +42,7 @@ import {
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
+import { nodeCardSize } from '@image-playground/shared'
 import {
   type CSSProperties,
   createContext,
@@ -67,6 +68,7 @@ import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
+import { reportDeliveryFailure } from '../../../lib/errorReporting'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
@@ -87,7 +89,6 @@ import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
-import type { NodeBatchPlan } from '../lib/nodeBatch'
 import {
   type CreateNodeKind,
   copyNodes,
@@ -104,8 +105,8 @@ import {
   linkFromDrag,
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
+import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
-import { nodeCardSize } from '../lib/nodeCanvasPlace'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -869,8 +870,6 @@ function Flow({
     return () => clearNodeCanvasSelection(editor, canvas)
   }, [editor, canvas])
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
-  const [agentBatchPlan, setAgentBatchPlan] = useState<NodeBatchPlan>()
-  const batchOpening = useRef(false)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const [connectingFrom, setConnectingFrom] = useState<{
@@ -894,6 +893,8 @@ function Flow({
   const [draggingIds, setDraggingIds] = useState<string[]>([])
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)
+  const focusRef = useRef<NodeCanvasFocus>(() => false)
+  const revealRef = useRef<NodeCanvasFocus>(() => false)
   const flowRef = useRef<{
     screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
     setViewport: (
@@ -988,8 +989,9 @@ function Flow({
     minZoom: number,
     maxZoom: number,
     duration?: number,
+    source: CanvasSnapshot = snapshot,
   ) => {
-    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined, nodes)
+    const bounds = boundsOf(source, ids ? new Set(ids) : undefined, nodes)
     const viewport =
       bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
     if (!viewport) return
@@ -1004,22 +1006,31 @@ function Flow({
         }, duration + 100)
       : null
   }
-  const revealNode = (target: CanvasNode) => {
-    // React Flow leaves interrupted transitions pending; keep this suppression bounded.
-    if (framing.current !== null) return
+  const revealBounds = (bounds: Rect): boolean => {
     const element = container.current
     const viewport = flowRef.current?.getViewport()
-    if (!element?.clientWidth || !element.clientHeight || !viewport) return
+    if (!element?.clientWidth || !element.clientHeight || !viewport) return false
     const area = availableCanvasArea(element)
-    const { width, height } = nodeCardSize(target)
-    const left = target.x * viewport.zoom + viewport.x
-    const top = target.y * viewport.zoom + viewport.y
-    const right = left + width * viewport.zoom
-    const bottom = top + height * viewport.zoom
-    const dx = left < area.x ? area.x - left : Math.min(0, area.x + area.width - right)
-    const dy = top < area.y ? area.y - top : Math.min(0, area.y + area.height - bottom)
+    const width = bounds.width * viewport.zoom
+    const height = bounds.height * viewport.zoom
+    const left = bounds.x * viewport.zoom + viewport.x
+    const top = bounds.y * viewport.zoom + viewport.y
+    const dx =
+      width > area.width || left < area.x
+        ? area.x - left
+        : Math.min(0, area.x + area.width - left - width)
+    const dy =
+      height > area.height || top < area.y
+        ? area.y - top
+        : Math.min(0, area.y + area.height - top - height)
     if (dx || dy)
       flowRef.current?.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
+    return true
+  }
+  const revealNode = (target: CanvasNode) => {
+    // Selection layout must not interrupt explicit focus animations.
+    if (framing.current !== null) return
+    revealBounds({ x: target.x, y: target.y, ...nodeCardSize(target) })
   }
   const chatVisible = Boolean(onChat)
   useEffect(() => {
@@ -1061,6 +1072,59 @@ function Flow({
       return group ? [...updated, toGroupFlowNode(group, true)] : updated
     })
   }
+  const focus = (ids: readonly string[]): boolean => {
+    const current = readCanvasDocument(canvas.doc)
+    const available = new Set([
+      ...current.nodes.map((node) => node.id),
+      ...(current.groups ?? []).map((group) => group.id),
+    ])
+    const selected = ids.filter((id) => available.has(id))
+    if (!selected.length) return false
+    // Navigate to persisted geometry, not an uncommitted arrangement preview.
+    setArrangement(null)
+    const selectedSet = new Set(selected)
+    const single = selected.length === 1 ? selected[0]! : null
+    selectedRef.current = single
+    selectedIds.current = [...selected]
+    setNodeCanvasSelection(editor, canvas, selectedIds.current)
+    setSelectedCount(selected.length)
+    setSelectedId(single)
+    setSelectedEdges([])
+    setNodes((currentNodes) => {
+      const additions = selected.flatMap((id) => {
+        if (currentNodes.some((node) => node.id === id)) return []
+        const node = current.nodes.find((one) => one.id === id)
+        if (node) return [toFlowNode(node, true)]
+        const group = current.groups?.find((one) => one.id === id)
+        return group ? [toGroupFlowNode(group, true)] : []
+      })
+      return [
+        ...currentNodes.map((node) => ({ ...node, selected: selectedSet.has(node.id) })),
+        ...additions,
+      ]
+    })
+    showFrame(selected, 0.3, 0.05, 1, 250, current)
+    return true
+  }
+  focusRef.current = focus
+  revealRef.current = (ids) => {
+    const bounds = boundsOf(readCanvasDocument(canvas.doc), new Set(ids))
+    if (!bounds) return false
+    // Keep the current zoom and prevent invalidated preview cleanup restoring an older viewport.
+    setArrangement(null)
+    if (framing.current !== null) {
+      clearTimeout(framing.current)
+      framing.current = null
+    }
+    return revealBounds(bounds)
+  }
+  useEffect(() => {
+    return registerNodeCanvasFocus(
+      editor,
+      (ids) => focusRef.current(ids),
+      (ids) => revealRef.current(ids),
+    )
+  }, [editor, canvas])
   const addAsset = async (
     asset: AssetRecord,
     imageId?: string,
@@ -1117,22 +1181,6 @@ function Flow({
     active,
     revision: snapshot,
     files,
-    review: (ids, plan) => {
-      if (batchIds || batchOpening.current) return false
-      batchOpening.current = true
-      const selected = new Set(ids)
-      for (const group of readCanvasDocument(canvas.doc).groups ?? [])
-        if (selected.has(group.id)) for (const id of group.members) selected.add(id)
-      selectNode(null)
-      selectedIds.current = [...selected]
-      setNodeCanvasSelection(editor, canvas, selectedIds.current)
-      setSelectedCount(selected.size)
-      setNodes((current) => current.map((node) => ({ ...node, selected: selected.has(node.id) })))
-      showFrame([...selected], 0.3, 0.05, 1)
-      setAgentBatchPlan(plan)
-      setBatchIds(ids)
-      return true
-    },
   })
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
@@ -2135,11 +2183,8 @@ function Flow({
                           editor={editor}
                           ids={batchIds}
                           snapshot={snapshot}
-                          initialPlan={agentBatchPlan}
                           onClose={() => {
                             setBatchIds(null)
-                            setAgentBatchPlan(undefined)
-                            batchOpening.current = false
                           }}
                         />
                       )}
@@ -2310,15 +2355,21 @@ function Flow({
                                     ? videoOutputUrl(composerNode.data.video)
                                     : files[composerNode.data.fileId!]
                                 if (source) {
+                                  let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
                                   void resolveMediaSource(source, 'original', true)
-                                    .then((url) => fetch(url, { credentials: 'include' }))
+                                    .then((url) => {
+                                      stage = 'fetch'
+                                      return fetch(url, { credentials: 'include' })
+                                    })
                                     .then(async (response) => {
                                       if (!response.ok) throw new Error('download failed')
+                                      stage = 'blob'
                                       const blob = await response.blob()
                                       const extension =
                                         blob.type.split('/')[1]?.split(';')[0] ||
                                         (composerNode.type === 'video' ? 'mp4' : 'png')
                                       const name = composerNode.data.name || 'muvloom'
+                                      stage = 'trigger'
                                       downloadBlob(
                                         blob,
                                         /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
@@ -2326,9 +2377,18 @@ function Flow({
                                           : `${name}.${extension}`,
                                       )
                                     })
-                                    .catch(() =>
-                                      useStore.getState().showToast(t('import.failed'), 'error'),
-                                    )
+                                    .catch((error: unknown) => {
+                                      reportDeliveryFailure(
+                                        { operation: 'download.prepare', stage },
+                                        error,
+                                      )
+                                      useStore.getState().showToast(t('import.failed'), 'error')
+                                    })
+                                } else {
+                                  reportDeliveryFailure(
+                                    { operation: 'download.prepare', stage: 'original' },
+                                    { code: 'original_missing' },
+                                  )
                                 }
                               }}
                             />

@@ -5,6 +5,7 @@ import {
   type ClientErrorKind,
   type ClientErrorRecovery,
   type ClientErrorReport,
+  isClientErrorRecoveryOperation,
 } from '@image-playground/shared'
 import { inArray, lt } from 'drizzle-orm'
 import { db, schema } from '../db/client'
@@ -89,7 +90,7 @@ export function parseClientErrorBatch(raw: string): ParsedClientErrorBatch | nul
       if (!item || typeof item !== 'object') continue
       const entry = item as Record<string, unknown>
       if (
-        entry.operation !== 'project.catalog' ||
+        !isClientErrorRecoveryOperation(entry.operation) ||
         typeof entry.incidentId !== 'string' ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
           entry.incidentId,

@@ -350,7 +350,7 @@ function element(value: unknown): value is ProjectElement {
   }
   if (value.type === 'storyboard') {
     return (
-      keys(value, ['id', 'type', 'x', 'y', 'width', 'height', 'shots', 'confirmed']) &&
+      keys(value, ['id', 'type', 'x', 'y', 'width', 'height', 'shots', 'confirmed', 'episode']) &&
       coordinate(value.x) &&
       coordinate(value.y) &&
       size(value.width) &&
@@ -358,6 +358,7 @@ function element(value: unknown): value is ProjectElement {
       isCanvasStoryboardData({
         shots: value.shots,
         ...(value.confirmed === undefined ? {} : { confirmed: value.confirmed }),
+        ...(value.episode === undefined ? {} : { episode: value.episode }),
       })
     )
   }

@@ -10,6 +10,7 @@ import { db, schema } from '../db/client'
 import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema, validationMessage } from '../lib/http'
+import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
@@ -33,8 +34,11 @@ const submitBodySchema = t.Object({
   n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
   // 单张不按前端的 10MB 卡：画布上的大图拿去再编辑时本来就可能超过它。MIME 不限 image/*：
   // 空类型的 Blob 会编成 octet-stream，真实格式由归档时嗅探字节决定。
+  // 已在云媒体里的图按身份给（`aip-media:<id>`），服务端自己读字节，浏览器不必下载再上传一遍。
   input_images: t.Optional(
-    t.Array(t.String({ pattern: DATA_URL_PATTERN }), { maxItems: QUEUE_MAX_INPUT_IMAGES }),
+    t.Array(t.String({ pattern: `${DATA_URL_PATTERN}|${MEDIA_INPUT_PATTERN}` }), {
+      maxItems: QUEUE_MAX_INPUT_IMAGES,
+    }),
   ),
   mask: t.Optional(t.String({ pattern: DATA_URL_PATTERN })),
   /** 档位合法性由 shared 的 videoRequestRejection 兜底，这里只做形状白名单。 */
@@ -160,10 +164,20 @@ export const submitRoutes = new Elysia()
       }
 
       const { video: _rawVideo, ...rest } = body
+      let inputImages: string[] | undefined
+      try {
+        inputImages = await resolveMediaInputs(authUser?.id ?? null, rest.input_images, {
+          masked: Boolean(rest.mask),
+        })
+      } catch (error) {
+        if (error instanceof MediaInputError)
+          return status(400, { error: 'invalid_input_image', message: error.message })
+        return status(503, { error: 'object_storage_error', message: '读取输入图片失败' })
+      }
       const outcome = await createQueueTask({
         provider: queueProvider,
         model,
-        request: rest,
+        request: inputImages ? { ...rest, input_images: inputImages } : rest,
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
       })

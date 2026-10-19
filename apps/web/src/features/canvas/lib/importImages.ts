@@ -1,9 +1,13 @@
-import { canvasNodeRegistry, readCanvasDocument } from '@image-playground/shared'
+import {
+  canvasNodeRegistry,
+  findFreeCanvasPlacement,
+  nodeCardSize,
+  readCanvasDocument,
+} from '@image-playground/shared'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CanvasEditor } from './editor'
-import { nodeCardSize } from './nodeCanvasPlace'
 import { activeNodeCanvas } from './nodeCanvasSelection'
-import { findFreeCanvasPlacement, PLACEMENT_GAP } from './placement'
+import { PLACEMENT_GAP } from './placement'
 
 /**
  * 外部图片导入画布（文件拖入 / 剪贴板粘贴共用）。

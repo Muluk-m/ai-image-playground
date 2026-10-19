@@ -131,6 +131,29 @@ afterEach(async () => {
   await bootstrapClientCapabilities(false, '')
 })
 
+it('把云媒体里的参考图按身份交给 BFF，不在本机下载再内联上传', async () => {
+  const settings = builtinSettings(channelWith(['generate', 'edit']))
+  const bodies: unknown[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (String(input).includes('/submit')) bodies.push(JSON.parse(String(init?.body)))
+    return new Promise<Response>(() => {})
+  })
+  const media = 'aip-media:6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10'
+
+  startGeneration(
+    {
+      settings,
+      profile: getActiveApiProfile(settings),
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      variants: [{ prompt: '换成木色背景', inputImageDataUrls: [media], context: 'a' }],
+    },
+    recordingSink().sink,
+  )
+
+  await vi.waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({ input_images: [media] })
+})
+
 describe('扇出规则只有一份', () => {
   it('模型声明了原生 n：整批交给上游一条请求', async () => {
     const settings = builtinSettings(channelWith(['generate', 'n']))
