@@ -1317,10 +1317,9 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   width: 6px; height: 6px; z-index: 4; border: 0; background: transparent;
   transform: translateY(-50%);
 }
-.studio-node-canvas .studio-node-handle.react-flow__handle-left { left: 0; }
+.studio-node-canvas .react-flow__handle.studio-node-input-anchor { left: 0; opacity: 0; pointer-events: none; }
 .studio-node-canvas .studio-node-handle.react-flow__handle-right { right: 0; }
 .studio-node-port-range { position: absolute; top: 50%; width: 64px; height: 64px; transform: translateY(-50%); pointer-events: auto; cursor: crosshair; }
-.studio-node-handle.react-flow__handle-left .studio-node-port-range { right: 6px; }
 .studio-node-handle.react-flow__handle-right .studio-node-port-range { left: 6px; }
 .studio-node-port-button {
   position: absolute; top: 18px; left: 18px; display: grid; place-items: center; width: 28px; height: 28px;
@@ -1359,38 +1358,19 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   stroke: hsl(var(--primary));
   stroke-width: 1.25;
 }
-.studio-node-canvas .studio-node-connection-disabled > .studio-node {
-  opacity: .28;
-  filter: saturate(.35);
-  transition: opacity 160ms ease-out, filter 160ms ease-out;
-}
-.studio-node-canvas .studio-node-connection-eligible:hover > .studio-node,
-.studio-node-canvas .studio-node-connection-eligible:has(.studio-node-handle.connectingto.valid) > .studio-node {
+/* Keep the scene subdued while candidate cards remain readable above the backdrop. */
+.studio-node-connecting::before { content: ''; position: absolute; inset: 0; z-index: 0; background: hsl(var(--scrim) / .5); pointer-events: none; }
+.studio-node-connecting .react-flow__node { filter: brightness(.3) saturate(.4); }
+.studio-node-connecting .studio-node-connection-source { filter: none; }
+.studio-node-connecting .studio-node-connection-eligible { filter: brightness(.8); }
+.studio-node-connecting .studio-node-connection-eligible:hover { filter: none; }
+.studio-node-connecting .react-flow__edges { opacity: .2; }
+.studio-node-connecting .react-flow__resize-control,
+.studio-node-connecting .studio-node-connection-eligible .studio-node-handle,
+.studio-node-connecting .studio-node-connection-disabled .studio-node-handle { visibility: hidden; }
+.studio-node-canvas .studio-node-connection-eligible:hover > .studio-node {
   border-color: hsl(var(--primary) / .7);
-  box-shadow: 0 0 0 1px hsl(var(--primary) / .45), 0 0 22px hsl(var(--primary) / .45);
-  filter: drop-shadow(0 0 12px hsl(var(--primary) / .45));
-}
-.studio-node-canvas .studio-node-connection-eligible > .studio-node {
-  transition: border-color 160ms ease-out, box-shadow 160ms ease-out, filter 160ms ease-out;
-}
-.studio-node-handle.connectingto.valid .studio-node-port-button {
-  opacity: 1;
-  color: hsl(var(--primary));
-  border-color: hsl(var(--primary) / .75);
-  box-shadow: 0 0 0 3px hsl(var(--primary) / .12), 0 0 14px hsl(var(--primary) / .6);
-}
-.studio-node-handle.connectingto.valid .studio-node-port-button::before {
-  content: '';
-  position: absolute;
-  inset: -7px;
-  border: 1px solid hsl(var(--primary) / .8);
-  border-radius: inherit;
-  animation: studio-node-port-ring 1100ms ease-out infinite;
-  pointer-events: none;
-}
-@keyframes studio-node-port-ring {
-  0% { opacity: .9; transform: scale(.7); }
-  100% { opacity: 0; transform: scale(1.35); }
+  box-shadow: 0 0 0 1px hsl(var(--primary) / .45);
 }
 .studio-node-connection-preview-path {
   fill: none;

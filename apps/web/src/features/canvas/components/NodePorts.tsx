@@ -7,7 +7,7 @@ export const SpawnContext = createContext<(nodeId: string, side: 'left' | 'right
   () => {},
 )
 
-function MagneticPort({ nodeId, side }: { nodeId: string; side: 'left' | 'right' }) {
+function MagneticPort({ nodeId }: { nodeId: string }) {
   const { t } = useTranslation('canvas')
   const spawn = useContext(SpawnContext)
   const pointer = useRef<{ x: number; y: number } | null>(null)
@@ -19,17 +19,17 @@ function MagneticPort({ nodeId, side }: { nodeId: string; side: 'left' | 'right'
   }
   return (
     <Handle
-      type={side === 'left' ? 'target' : 'source'}
-      position={side === 'left' ? Position.Left : Position.Right}
+      type="source"
+      position={Position.Right}
       className="studio-node-handle"
-      aria-label={t(side === 'left' ? 'nodes.connectIn' : 'nodes.connectOut')}
+      aria-label={t('nodes.connectOut')}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           event.stopPropagation()
-          spawn(nodeId, side)
+          spawn(nodeId, 'right')
         }
       }}
       onPointerDownCapture={(event) => {
@@ -40,7 +40,7 @@ function MagneticPort({ nodeId, side }: { nodeId: string; side: 'left' | 'right'
         pointer.current = null
         if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 4) return
         event.stopPropagation()
-        spawn(nodeId, side)
+        spawn(nodeId, 'right')
       }}
     >
       <span
@@ -72,8 +72,14 @@ function MagneticPort({ nodeId, side }: { nodeId: string; side: 'left' | 'right'
 export default function NodePorts({ nodeId }: { nodeId: string }) {
   return (
     <>
-      <MagneticPort nodeId={nodeId} side="left" />
-      <MagneticPort nodeId={nodeId} side="right" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="studio-node-input-anchor"
+        isConnectableStart={false}
+        aria-hidden="true"
+      />
+      <MagneticPort nodeId={nodeId} />
     </>
   )
 }
