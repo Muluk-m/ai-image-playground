@@ -40,6 +40,7 @@ import {
   ReactFlowProvider,
   type Rect,
   SelectionMode,
+  useStoreApi,
 } from '@xyflow/react'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useNodeMedia } from './NodeMediaImage'
@@ -843,6 +844,7 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
   const { theme } = useTheme()
@@ -1418,6 +1420,13 @@ function Flow({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!active || event.defaultPrevented) return
+      if (connectingFrom && event.key === 'Escape') {
+        event.preventDefault()
+        connectStart.current = null
+        setConnectingFrom(null)
+        flowStore.getState().cancelConnection()
+        return
+      }
       if (referencePick) {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -1797,7 +1806,7 @@ function Flow({
       setConnectingFrom(null)
     }
     const from = state.fromNode
-    if (!from) {
+    if (!from || !connectStart.current) {
       setPendingConnection(null)
       reset()
       return

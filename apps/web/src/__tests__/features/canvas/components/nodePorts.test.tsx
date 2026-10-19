@@ -9,8 +9,10 @@ vi.mock('@xyflow/react', () => ({
   Handle: ({
     type: _type,
     position: _position,
+    isConnectableStart: _isConnectableStart,
     ...props
-  }: ComponentProps<'div'> & { type: string; position: string }) => createElement('div', props),
+  }: ComponentProps<'div'> & { type: string; position: string; isConnectableStart?: boolean }) =>
+    createElement('div', props),
 }))
 it('follows inside a fixed hit area, accepts immediate clicks there, resets on exit, and suppresses drag clicks', () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -25,7 +27,9 @@ it('follows inside a fixed hit area, accepts immediate clicks there, resets on e
       </SpawnContext.Provider>,
     ),
   )
-  const handle = host.querySelector<HTMLElement>('[aria-label="接入上文"]')!
+  const handle = host.querySelector<HTMLElement>('[aria-label="接到下一个节点"]')!
+  expect(host.querySelector('[aria-label="接入上文"]')).toBeNull()
+  expect(host.querySelectorAll('[role="button"]')).toHaveLength(1)
   const range = handle.querySelector<HTMLElement>('.studio-node-port-range')!
   const visual = range.firstElementChild as HTMLElement
   vi.spyOn(range, 'getBoundingClientRect').mockReturnValue({
@@ -45,7 +49,7 @@ it('follows inside a fixed hit area, accepts immediate clicks there, resets on e
   expect(visual.style.transform).toBe('translate(16px, 10px)')
   pointer('pointerdown', 48, 42)
   pointer('click', 48, 42)
-  expect(spawn).toHaveBeenCalledWith('target', 'left')
+  expect(spawn).toHaveBeenCalledWith('target', 'right')
   pointer('pointerout', 80, 80)
   expect(visual.style.transform).toBe('translate(0px, 0px)')
   spawn.mockClear()
@@ -53,7 +57,7 @@ it('follows inside a fixed hit area, accepts immediate clicks there, resets on e
   pointer('click', 60, 20)
   expect(spawn).not.toHaveBeenCalled()
   act(() => handle.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' })))
-  expect(spawn).toHaveBeenCalledWith('target', 'left')
+  expect(spawn).toHaveBeenCalledWith('target', 'right')
   act(() => root.unmount())
   host.remove()
 })
