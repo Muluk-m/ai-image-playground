@@ -765,7 +765,6 @@ describe('智能体生视频工具', () => {
     expect(modelReport(calls)).toContain('referenceUnsupported')
   })
 
-
   it('takes the duration, resolution and aspect ratio the model inferred', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, {
@@ -876,7 +875,10 @@ describe('智能体生视频工具', () => {
 })
 
 describe('legacy timeline routing', () => {
-  it.each(['chat', 'canvas'] as const)('rejects legacy timeline writes in %s without changing the project', async (experience) => {
+  it.each([
+    'chat',
+    'canvas',
+  ] as const)('rejects legacy timeline writes in %s without changing the project', async (experience) => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -895,9 +897,10 @@ describe('legacy timeline routing', () => {
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolName: 'arrangeTimeline', status: 'failed' })
     expect(end!.timeline).toBeUndefined()
-    const [project] = await db.select().from(schema.canvas_projects).where(
-      eq(schema.canvas_projects.conversation_id, conversationId),
-    )
+    const [project] = await db
+      .select()
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.conversation_id, conversationId))
     expect(project!.document.elements).toEqual([])
     expect(await videoTasks()).toHaveLength(0)
   })

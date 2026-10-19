@@ -1969,9 +1969,10 @@ it('对话批次固定原项目归属，画布拒绝通用生成批次', async (
     billing.answer = { kind: 'reserved', credits: 7 }
     billing.settledCredits = 7
     const origin = await createProject(experience)
-    const queuedBefore = await db.select({ id: schema.tasks.id }).from(schema.tasks).where(
-      eq(schema.tasks.kind, 'queue'),
-    )
+    const queuedBefore = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.kind, 'queue'))
     setAgentFetchForTesting(
       scriptedAgentFetch(
         [],
@@ -2010,7 +2011,10 @@ it('对话批次固定原项目归属，画布拒绝通用生成批次', async (
     if (experience === 'canvas') {
       expect(batches).toHaveLength(0)
       expect(
-        await db.select({ id: schema.tasks.id }).from(schema.tasks).where(eq(schema.tasks.kind, 'queue')),
+        await db
+          .select({ id: schema.tasks.id })
+          .from(schema.tasks)
+          .where(eq(schema.tasks.kind, 'queue')),
       ).toEqual(queuedBefore)
       const unchanged = await (await request(`projects/${origin.id}?identity=1`)).json()
       expect(unchanged.document.elements).toEqual([])

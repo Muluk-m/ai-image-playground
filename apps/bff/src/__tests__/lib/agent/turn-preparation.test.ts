@@ -806,7 +806,14 @@ describe('legacy projects without a recorded experience', () => {
     const call = await runPrepared(turn)
     const names = call.tools?.map((tool) => tool.function.name) ?? []
     expect(names).toContain('readCanvas')
-    for (const name of ['arrangeCanvas', 'arrangeTimeline', 'editCanvasObject', 'generateImage', 'editImage', 'generateVideo'])
+    for (const name of [
+      'arrangeCanvas',
+      'arrangeTimeline',
+      'editCanvasObject',
+      'generateImage',
+      'editImage',
+      'generateVideo',
+    ])
       expect(names).not.toContain(name)
   })
 })
