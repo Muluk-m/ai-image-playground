@@ -286,6 +286,50 @@ it('merges remote edits without echoing legacy projections and normalizes upload
   record.dispose()
 })
 
+it('retries a failed media upload through sync without another edit or reconnect', async () => {
+  const { session, record, socket, server } = await fixture()
+  for (const bytes of socket.sent) {
+    const message = readCanvasSyncMessage(bytes)
+    if (message.kind === 'update') Y.applyUpdate(server, message.value)
+  }
+  socket.receive(canvasSyncAck(server))
+  expect(session.getSnapshot().status).toBe('saved')
+  const source = 'data:image/png;base64,aGVsbG8='
+  const mediaId = '33333333-3333-4333-8333-333333333333'
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValueOnce(new Error('upload unavailable'))
+    .mockResolvedValueOnce({ id: mediaId, sha256: 'retry-fixture' })
+  record.editor.doc.files = { image: source }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'image' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  expect(readCanvasDocument(server).nodes.map((node) => node.id)).toEqual(['text'])
+  const sent = socket.sent.length
+  const synced = session.sync()
+  await vi.waitFor(() => expect(socket.sent.length).toBeGreaterThan(sent))
+  for (const bytes of socket.sent.slice(sent)) {
+    const message = readCanvasSyncMessage(bytes)
+    if (message.kind === 'update') Y.applyUpdate(server, message.value)
+  }
+  const nodes = readCanvasDocument(server).nodes
+  expect(nodes.map((node) => node.id).sort()).toEqual(['image', 'text'])
+  expect(nodes.find((node) => node.id === 'image')?.data).toMatchObject({
+    mediaId,
+    fileId: `cloud-${mediaId}`,
+  })
+  expect(session.getSnapshot().status).toBe('syncing')
+  socket.receive(canvasSyncAck(server))
+  await synced
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(Socket.instances).toHaveLength(1)
+  expect(vi.mocked(uploadMediaSource).mock.calls.map(([value]) => value)).toEqual([source, source])
+  record.dispose()
+})
+
 it('refresh waits for the fetched document to reach the legacy editor', async () => {
   const { session, record, server } = await fixture()
   moveCanvasNodes(server, [{ id: 'text', x: 909, y: 808 }], origin)
@@ -473,9 +517,9 @@ it('saves edits around expired legacy videos, and clears the warning after remov
   const { session, record, socket, server } = await fixture()
   socket.receive(canvasSyncAck(server))
   const { doc, origin } = session.canvas!
-  vi.mocked(authenticatedBffFetch).mockResolvedValue(
-    Response.json({ error: 'video_output_not_found' }, { status: 404 }),
-  )
+  vi.mocked(authenticatedBffFetch)
+    .mockClear()
+    .mockResolvedValue(Response.json({ error: 'video_output_not_found' }, { status: 404 }))
   insertCanvasNode(
     doc,
     {
@@ -503,6 +547,22 @@ it('saves edits around expired legacy videos, and clears the warning after remov
   })
   socket.receive(canvasSyncAck(server))
   expect(session.getSnapshot().status).toBe('media-local')
+  const promotions = vi
+    .mocked(authenticatedBffFetch)
+    .mock.calls.filter(([url]) => String(url).endsWith('/video-outputs'))
+  expect(promotions).toHaveLength(1)
+  const sent = socket.sent.length
+  const synced = session.sync()
+  await vi.waitFor(() => expect(socket.sent.length).toBeGreaterThan(sent))
+  Y.applyUpdate(server, readCanvasSyncMessage(socket.sent[socket.sent.length - 1]!).value)
+  socket.receive(canvasSyncAck(server))
+  await synced
+  expect(session.getSnapshot().status).toBe('media-local')
+  expect(
+    vi
+      .mocked(authenticatedBffFetch)
+      .mock.calls.filter(([url]) => String(url).endsWith('/video-outputs')),
+  ).toHaveLength(1)
   deleteCanvasNode(doc, 'expired', origin)
   await vi.waitFor(() => {
     Y.applyUpdate(server, readCanvasSyncMessage(socket.sent[socket.sent.length - 1]!).value)
