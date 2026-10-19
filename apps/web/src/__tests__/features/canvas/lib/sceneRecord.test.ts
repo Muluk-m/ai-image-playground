@@ -4,15 +4,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
-import { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
+import { type CloudSceneStrategy, SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
+import { setClientStorageScope } from '../../../../lib/authScope'
+import { configureErrorReporting } from '../../../../lib/errorReporting'
+import { _setRuntimeConfigForTesting, getRuntimeConfig } from '../../../../lib/runtimeConfig'
+import { captureClientErrors } from '../../../helpers/clientErrors'
 import { abortNextPut, freshSceneKey, openSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast: vi.fn() }) } }))
 
-afterEach(() => vi.restoreAllMocks())
+const runtime = getRuntimeConfig()
+afterEach(() => {
+  setClientStorageScope(null)
+  _setRuntimeConfigForTesting(runtime)
+  vi.restoreAllMocks()
+})
 
 describe('项目画布存档', () => {
   it('事务提交完成才算落盘，中止后重试仍会把这份写下去', async () => {
+    const reports = captureClientErrors()
     const key = freshSceneKey()
     const record = await openSceneRecord(key)
     record.editor.doc.setCamera({ x: 123 })
@@ -23,10 +34,182 @@ describe('项目画布存档', () => {
     record.editor.doc.setCamera({ x: 4 })
     expect(await record.flush()).toBe(false)
     expect(record.getSnapshot().saveFailed).toBe(true)
+    const failure = (await reports()).flatMap((batch) => batch.errors)
+    expect(failure).toHaveLength(1)
+    expect(failure[0]?.context).toMatchObject({ operation: 'canvas.scene.save', stage: 'put' })
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
     spy.mockRestore()
     // 文档没有再变，但上一次没落下去：这一次必须重写，不能当成「盘上已经是它」。
     expect(await record.flush()).toBe(true)
     expect((await readPersistedScene(key))?.camera.x).toBe(4)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([
+      { operation: 'canvas.scene.save', incidentId: failure[0]?.context?.incidentId },
+    ])
+    record.dispose()
+  })
+
+  it('catalog failure survives repeated flush failures and a successful checkpoint write', async () => {
+    const reports = captureClientErrors()
+    const record = await openSceneRecord(freshSceneKey())
+    const catalog = vi.spyOn(useCanvasProjectStore.getState(), 'recordScene')
+    catalog.mockRejectedValue(new Error('private-catalog-file-name'))
+    record.editor.doc.setCamera({ x: 71 })
+    expect(await record.flush()).toBe(false)
+    expect(await record.flush()).toBe(false)
+    expect(await record.persist()).toBe(true)
+    const failed = (await reports()).flatMap((batch) => batch.errors)
+    expect(failed).toHaveLength(1)
+    expect(failed[0]?.context).toMatchObject({ stage: 'catalog' })
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
+    catalog.mockRestore()
+    expect(await record.flush()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([
+      { operation: 'canvas.scene.save', incidentId: failed[0]?.context?.incidentId },
+    ])
+    expect(JSON.stringify(await reports())).not.toContain('private-catalog-file-name')
+    record.dispose()
+  })
+
+  it('a failed checkpoint is not recovered by a no-change flush or another entry point', async () => {
+    const reports = captureClientErrors()
+    const record = await openSceneRecord(freshSceneKey())
+    abortNextPut()
+    expect(await record.persist()).toBe(false)
+    expect(await record.flush()).toBe(true)
+    record.editor.doc.setCamera({ x: 17 })
+    expect(await record.flush()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
+    expect(await record.persist()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toHaveLength(1)
+    record.dispose()
+  })
+
+  it('a cloud save that does not commit a transaction cannot recover a failed save', async () => {
+    const reports = captureClientErrors()
+    const record = await openSceneRecord(freshSceneKey())
+    abortNextPut()
+    record.editor.doc.setCamera({ x: 73 })
+    expect(await record.flush()).toBe(false)
+    record.useCloud({
+      checkpoint: () => ({
+        version: 1,
+        name: 'project',
+        revision: 0,
+        savedContent: null,
+        pending: null,
+        conflict: false,
+      }),
+      save: async () => true,
+      markChanged() {},
+      requestSync() {},
+    })
+    expect(await record.flush()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
+    record.dispose()
+  })
+
+  it.each([
+    'same target',
+    'different target',
+  ])('rebind recovery requires the same old and new key: %s', async (retry) => {
+    const reports = captureClientErrors()
+    const oldKey = freshSceneKey()
+    const target = freshSceneKey()
+    const record = await openSceneRecord(oldKey)
+    record.editor.doc.setCamera({ x: 29 })
+    await record.flush()
+    abortNextPut()
+    expect(await record.rebind(target)).toBe(false)
+    expect(record.key).toBe(oldKey)
+    expect(await record.persist()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
+    const destination = retry === 'same target' ? target : freshSceneKey()
+    expect(await record.rebind(destination)).toBe(true)
+    expect(record.key).toBe(destination)
+    expect((await readPersistedScene(destination))?.camera.x).toBe(29)
+    expect(await readPersistedScene(oldKey)).toBeUndefined()
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toHaveLength(
+      retry === 'same target' ? 1 : 0,
+    )
+    record.dispose()
+  })
+
+  it('captures the target after an earlier queued rebind completes', async () => {
+    const reports = captureClientErrors()
+    const record = await openSceneRecord(freshSceneKey())
+    const target = freshSceneKey()
+    const checkpoint = {
+      version: 1,
+      name: 'project',
+      revision: 0,
+      savedContent: null,
+      pending: null,
+      conflict: false,
+    } as const
+    record.useCloud({
+      checkpoint: () => checkpoint,
+      save: vi
+        .fn<CloudSceneStrategy['save']>()
+        .mockRejectedValueOnce(new Error('queue failure'))
+        .mockImplementation((write) => write(checkpoint)),
+      markChanged() {},
+      requestSync() {},
+    })
+    record.editor.doc.setCamera({ x: 31 })
+    const rebound = record.rebind(target)
+    const persist = record.persist()
+    expect(await rebound).toBe(true)
+    expect(await persist).toBe(false)
+    const failed = (await reports()).flatMap((batch) => batch.errors)
+    expect(failed[0]?.context).toMatchObject({ stage: 'queue' })
+    expect(await record.persist()).toBe(true)
+    expect((await readPersistedScene(target))?.camera.x).toBe(31)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([
+      { operation: 'canvas.scene.save', incidentId: failed[0]?.context?.incidentId },
+    ])
+    record.dispose()
+  })
+
+  it.each([
+    'dispose',
+    'account',
+    'endpoint',
+    'backend',
+  ])('does not recover after %s changes', async (change) => {
+    const reports = captureClientErrors()
+    const record = await openSceneRecord(freshSceneKey())
+    abortNextPut()
+    expect(await record.persist()).toBe(false)
+    if (change === 'dispose') record.dispose()
+    else if (change === 'account') setClientStorageScope('other')
+    else if (change === 'endpoint') configureErrorReporting('https://other.test')
+    else
+      _setRuntimeConfigForTesting({
+        ...runtime,
+        bff: { ...runtime.bff, baseUrl: 'https://other.test' },
+      })
+    await record.persist()
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
+    record.dispose()
+  })
+
+  it('does not recover a checkpoint incident while the record is reopening', async () => {
+    const reports = captureClientErrors()
+    const record = await openSceneRecord(freshSceneKey())
+    abortNextPut()
+    expect(await record.persist()).toBe(false)
+    let finish!: () => void
+    const attaching = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const opened = record.open(() => attaching)
+    expect(await record.persist()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toEqual([])
+    finish()
+    await opened
+    expect(await record.persist()).toBe(true)
+    expect((await reports()).flatMap((batch) => batch.recoveries ?? [])).toHaveLength(1)
+    record.dispose()
   })
 
   it('盘上那份只读一次：重开不拿磁盘那份盖掉内存里更新的文档', async () => {

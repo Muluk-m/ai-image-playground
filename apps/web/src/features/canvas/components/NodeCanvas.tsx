@@ -67,6 +67,7 @@ import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
+import { reportDeliveryFailure } from '../../../lib/errorReporting'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
@@ -2301,15 +2302,21 @@ function Flow({
                                     ? videoOutputUrl(composerNode.data.video)
                                     : files[composerNode.data.fileId!]
                                 if (source) {
+                                  let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
                                   void resolveMediaSource(source, 'original', true)
-                                    .then((url) => fetch(url, { credentials: 'include' }))
+                                    .then((url) => {
+                                      stage = 'fetch'
+                                      return fetch(url, { credentials: 'include' })
+                                    })
                                     .then(async (response) => {
                                       if (!response.ok) throw new Error('download failed')
+                                      stage = 'blob'
                                       const blob = await response.blob()
                                       const extension =
                                         blob.type.split('/')[1]?.split(';')[0] ||
                                         (composerNode.type === 'video' ? 'mp4' : 'png')
                                       const name = composerNode.data.name || 'muvloom'
+                                      stage = 'trigger'
                                       downloadBlob(
                                         blob,
                                         /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
@@ -2317,9 +2324,18 @@ function Flow({
                                           : `${name}.${extension}`,
                                       )
                                     })
-                                    .catch(() =>
-                                      useStore.getState().showToast(t('import.failed'), 'error'),
-                                    )
+                                    .catch((error: unknown) => {
+                                      reportDeliveryFailure(
+                                        { operation: 'download.prepare', stage },
+                                        error,
+                                      )
+                                      useStore.getState().showToast(t('import.failed'), 'error')
+                                    })
+                                } else {
+                                  reportDeliveryFailure(
+                                    { operation: 'download.prepare', stage: 'original' },
+                                    { code: 'original_missing' },
+                                  )
                                 }
                               }}
                             />
