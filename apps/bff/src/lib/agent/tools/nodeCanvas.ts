@@ -438,6 +438,7 @@ export const runNodes = defineAgentTool({
             }),
           },
         ],
+        details: {},
       }
     }
     await context.assertExecution?.()
@@ -464,7 +465,7 @@ export const runNodes = defineAgentTool({
         proposalKey: `${context.turnId}:${callId}`,
         stage: params.stage ?? '节点生成',
         nodeIds: nodes.map((node) => node.id),
-        nodeNames: nodes.map((node) => node.data.name || '未命名节点'),
+        nodeNames: nodes.map((node) => ('name' in node.data && node.data.name) || '未命名节点'),
         estimatedCredits: params.estimatedCredits ?? 0,
       })
       const canvasRun = {
