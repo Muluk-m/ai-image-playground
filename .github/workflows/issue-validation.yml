@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        issue: [1364]
+        issue: [1365]
     services:
       postgres:
         image: postgres:17-alpine
@@ -54,6 +54,18 @@ jobs:
         with:
           label: issue-${{ matrix.issue }}
           test-runner: 'true'
+      - name: Load disposable smoke harness
+        if: matrix.issue == 1365
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          path: .validation-harness
+      - name: Exercise persisted storyboard tool
+        if: matrix.issue == 1365
+        run: |
+          cp .validation-harness/.github/issue-1365-smoke.ts apps/bff/.issue-1365-smoke.ts
+          trap 'rm -f apps/bff/.issue-1365-smoke.ts' EXIT
+          bun apps/bff/.issue-1365-smoke.ts | tee validation-smoke.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -62,4 +74,5 @@ jobs:
             validation-sha.txt
             validation-format.patch
             apps/web/dist
+            validation-smoke.json
           retention-days: 7
