@@ -155,11 +155,15 @@ it.each([{ elements: [] }, undefined])('keeps canvas snapshot %j on node generat
   expect(proposal).toMatchObject({ details: { canvasRun: { nodeIds: ['target'] } } })
   const read = await tools.find((tool) => tool.name === 'readCanvas')!.execute(
     'read-unselected',
-    {},
+    { scope: 'all' },
     undefined,
     undefined,
   )
-  expect(JSON.stringify(read.content)).toContain('target')
+  const content = read.content.find((block) => block.type === 'text')
+  if (content?.type !== 'text') throw new Error('expected canvas document')
+  expect(JSON.parse(content.text).nodes).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: 'target' })]),
+  )
   await expect(
     draftQueueTask(
       { ...unselected, autoSubmit: { take: () => true } },

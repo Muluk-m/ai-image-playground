@@ -1942,7 +1942,7 @@ it('所选模型通道失效时持久暂停，恢复通道后只提交未入队�
   }
 }, 15000)
 
-it('批次产物保持原始 chat/canvas 项目归属，切换其他项目不改变目标', async () => {
+it('对话批次固定原项目归属，画布拒绝通用生成批次', async () => {
   const createProject = async (experience: 'chat' | 'canvas') => {
     const id = crypto.randomUUID()
     const response = await request(
@@ -1969,6 +1969,9 @@ it('批次产物保持原始 chat/canvas 项目归属，切换其他项目不改
     billing.answer = { kind: 'reserved', credits: 7 }
     billing.settledCredits = 7
     const origin = await createProject(experience)
+    const queuedBefore = await db.select({ id: schema.tasks.id }).from(schema.tasks).where(
+      eq(schema.tasks.kind, 'queue'),
+    )
     setAgentFetchForTesting(
       scriptedAgentFetch(
         [],
@@ -2004,6 +2007,15 @@ it('批次产物保持原始 chat/canvas 项目归属，切换其他项目不改
     const { batches } = await (
       await request(`agent/conversations/${origin.conversationId}/batches`)
     ).json()
+    if (experience === 'canvas') {
+      expect(batches).toHaveLength(0)
+      expect(
+        await db.select({ id: schema.tasks.id }).from(schema.tasks).where(eq(schema.tasks.kind, 'queue')),
+      ).toEqual(queuedBefore)
+      const unchanged = await (await request(`projects/${origin.id}?identity=1`)).json()
+      expect(unchanged.document.elements).toEqual([])
+      continue
+    }
     expect(batches).toHaveLength(1)
     const path = `agent/batches/${batches[0].id}`
     const draft = await (await request(path)).json()
