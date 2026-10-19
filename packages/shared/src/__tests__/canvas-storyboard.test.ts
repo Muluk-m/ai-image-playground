@@ -111,9 +111,14 @@ it('applies generic data updates to the live rows and stores a compact confirmat
 it('preserves episode identity through cloud validation and archive round trips', () => {
   const doc = seed()
   const identity = { version: 1 as const, elements: [] }
-  updateCanvasNode(doc, 'board', {
-    data: { shots: shots(doc), episode: { scriptNodeId: 'script', number: 2 } },
-  }, origin)
+  updateCanvasNode(
+    doc,
+    'board',
+    {
+      data: { shots: shots(doc), episode: { scriptNodeId: 'script', number: 2 } },
+    },
+    origin,
+  )
   expect(() => validateCloudCanvas(doc, identity)).not.toThrow()
   const projected = canvasProjectDocument(doc, identity)
   expect(projected.elements.find((element) => element.id === 'board')).toMatchObject({

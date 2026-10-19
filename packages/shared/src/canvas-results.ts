@@ -160,8 +160,7 @@ export function canvasInputFingerprint(doc: Y.Doc, nodeId: string): string {
     const board = nodes.get(meta.storyboardId)
     if (board?.type === 'storyboard') {
       const current = storyboardFingerprint(board.data.shots)
-      if (current !== meta.storyboardFingerprint)
-        inputs.push(['storyboard-edited', current])
+      if (current !== meta.storyboardFingerprint) inputs.push(['storyboard-edited', current])
     }
   }
   return canvasFingerprint(JSON.stringify(inputs))
