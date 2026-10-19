@@ -1591,7 +1591,7 @@ body .studio-global-account {
 html[data-home='true'] .app-inset-panel { overflow: clip; }
 .studio-works-fade {
   position: sticky;
-  bottom: 0;
+  bottom: var(--mobile-nav-height, 0px);
   z-index: 10;
   height: 96px;
   margin-top: -96px;
