@@ -13,6 +13,7 @@ vi.mock('../../../../features/agent/lib/artifactPreview', () => ({
 }))
 
 const generated = 'agent_11111111-2222-3333-4444-555555555555_0'
+const second = 'agent_11111111-2222-3333-4444-555555555555_1'
 const mediaId = '99999999-8888-7777-6666-555555555555'
 const message = {
   kind: 'tool',
@@ -33,6 +34,7 @@ const message = {
       height: 1024,
       mediaId,
     },
+    { artifactId: second, media: 'image', taskId: 'task', outputIndex: 1, mime: 'image/png' },
   ],
 } as unknown as AgentPanelMessage
 
@@ -46,18 +48,20 @@ async function render(text: string, onPreview = vi.fn()) {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
-  await act(async () =>
-    root.render(
-      <AgentReplyImagesProvider messages={[message]} onPreview={onPreview}>
-        <AgentMarkdown text={text} />
-      </AgentReplyImagesProvider>,
-    ),
-  )
+  const draw = (markdown: string) =>
+    act(async () =>
+      root.render(
+        <AgentReplyImagesProvider messages={[message]} onPreview={onPreview}>
+          <AgentMarkdown text={markdown} />
+        </AgentReplyImagesProvider>,
+      ),
+    )
+  await draw(text)
   cleanup = () => {
     act(() => root.unmount())
     host.remove()
   }
-  return host
+  return Object.assign(host, { draw })
 }
 
 it('shows conversation images referenced by id or media identity and opens the result preview', async () => {
@@ -92,4 +96,21 @@ it('falls back to the caption when the image cannot be loaded', async () => {
   const host = await render(`![方向四效果图](${generated})`)
   expect(host.querySelector('img')).toBeNull()
   expect(host.textContent).toContain('[方向四效果图]')
+})
+
+it('never shows or previews the previous image while a changed reference loads', async () => {
+  let finish: (value: unknown) => void = () => {}
+  preview
+    .mockResolvedValueOnce({ source: 'blob:first', onCanvas: false })
+    .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+  const onPreview = vi.fn()
+  const host = await render(`![方向](${generated})`, onPreview)
+  expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:first')
+  await host.draw(`![方向](${second})`)
+  expect(host.querySelector('img')).toBeNull()
+  expect(host.querySelector('button')).toBeNull()
+  await act(async () => finish({ source: 'blob:second', onCanvas: false }))
+  expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:second')
+  await act(async () => host.querySelector<HTMLButtonElement>('button')!.click())
+  expect(onPreview).toHaveBeenCalledWith('tool-message', second, 'blob:second')
 })
