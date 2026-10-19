@@ -12,17 +12,32 @@
  * (`pnpm test`, `npx vitest`, turbo) passes through it. `node scripts/test-guard.ts suite` guards
  * commands that are always full suites.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
 const cacheHome = process.env.XDG_CACHE_HOME || join(homedir(), '.cache')
 export const CONSTRAINED_MARKER = join(configHome, 'test-guard', 'constrained')
-const LOCK_DIR = join(cacheHome, 'test-guard', 'run.lock')
+const LOCK_ROOT = join(cacheHome, 'test-guard')
+const LOCK = join(LOCK_ROOT, 'run.lock')
+const RECLAIM = join(LOCK_ROOT, 'reclaim.lock')
 /** Child processes of a run that already holds the lock must not wait for themselves. */
 const HELD = 'TEST_GUARD_HELD'
 const LOCK_WAIT_MS = Number(process.env.TEST_GUARD_WAIT_MS ?? 15 * 60_000)
+const POLL_MS = 500
+/** A reclaimer that died mid-reclaim must not block everyone; reclaiming takes milliseconds. */
+const RECLAIM_STALE_MS = 10_000
 
 const REMOTE_HINT =
   '全量测试请交给远端：rmake -c "pnpm test"（macmini2），或推分支让 CI 跑；本机只跑指定文件，例如 ' +
@@ -33,43 +48,16 @@ export function isConstrainedHost(env: NodeJS.ProcessEnv = process.env): boolean
   return existsSync(CONSTRAINED_MARKER)
 }
 
-/** Vitest flags that take a separate value, so the value is not mistaken for a test file. */
-const VALUE_FLAGS = new Set([
-  '-c',
-  '--config',
-  '-r',
-  '--root',
-  '--dir',
-  '--project',
-  '--pool',
-  '--environment',
-  '--reporter',
-  '--outputFile',
-  '--maxWorkers',
-  '--minWorkers',
-  '--shard',
-  '--mode',
-  '-t',
-  '--testNamePattern',
-  '--exclude',
-])
-const COMMANDS = new Set(['run', 'watch', 'dev', 'related', 'bench'])
+type ParseCli = (
+  argv: string[],
+  config?: { allowUnknownOptions?: boolean },
+) => { filter: string[]; options: { related?: string[] | string } }
 
-/** File filters passed on the Vitest command line; a name filter alone still collects every file. */
-export function vitestFileFilters(argv: readonly string[] = process.argv.slice(2)): string[] {
-  const filters: string[] = []
-  let index = 0
-  while (index < argv.length && COMMANDS.has(argv[index]!)) index++
-  for (; index < argv.length; index++) {
-    const arg = argv[index]!
-    if (arg === '--') continue
-    if (arg.startsWith('-')) {
-      if (VALUE_FLAGS.has(arg)) index++
-      continue
-    }
-    filters.push(arg)
-  }
-  return filters
+/** Whether a Vitest command line names test files; Vitest's own parser decides what is a value. */
+export function vitestHasFileFilters(parse: ParseCli, argv: readonly string[]): boolean {
+  const { filter, options } = parse(['vitest', ...argv], { allowUnknownOptions: true })
+  const related = Array.isArray(options.related) ? options.related.length > 0 : !!options.related
+  return filter.length > 0 || related
 }
 
 function alive(pid: number): boolean {
@@ -85,53 +73,80 @@ function sleep(ms: number) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+/**
+ * Creates `path` holding `content` in one step: the content is written to a private file first
+ * and hard-linked into place, so no process ever sees the lock without its owner.
+ */
+function createWithContent(path: string, content: string): boolean {
+  const temp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}`
+  writeFileSync(temp, content)
+  try {
+    linkSync(temp, path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  } finally {
+    unlinkSync(temp)
+  }
+}
+
+function read(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/** Removes a lock whose owner died, unless someone replaced it since `seen` was read. */
+function reclaim(seen: string): void {
+  const stamp = `${process.pid}\n`
+  if (!createWithContent(RECLAIM, stamp)) {
+    try {
+      if (Date.now() - statSync(RECLAIM).mtimeMs > RECLAIM_STALE_MS) unlinkSync(RECLAIM)
+    } catch {}
+    return
+  }
+  try {
+    // Only the reclaimer touches a dead lock, and only the exact one it judged dead.
+    if (read(LOCK) === seen) unlinkSync(LOCK)
+  } finally {
+    if (read(RECLAIM) === stamp) unlinkSync(RECLAIM)
+  }
+}
+
 /** Takes the machine-wide test lock, waiting for the run that holds it. Released on exit. */
 export function acquireTestLock(label: string): void {
   if (process.env[HELD]) return
-  mkdirSync(join(LOCK_DIR, '..'), { recursive: true })
+  mkdirSync(LOCK_ROOT, { recursive: true })
+  const owner = `${process.pid}\n${label}\n${process.cwd()}\n`
   const deadline = Date.now() + LOCK_WAIT_MS
   let announced = false
-  for (;;) {
-    try {
-      mkdirSync(LOCK_DIR)
-      writeFileSync(join(LOCK_DIR, 'owner'), `${process.pid}\n${label}\n${process.cwd()}\n`)
-      break
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      let owner = ''
-      try {
-        owner = readFileSync(join(LOCK_DIR, 'owner'), 'utf8')
-      } catch {}
-      const pid = Number(owner.split('\n')[0])
-      // A crashed run leaves its directory behind; a missing or dead owner frees the lock.
-      if (!pid || !alive(pid)) {
-        rmSync(LOCK_DIR, { recursive: true, force: true })
-        continue
-      }
-      if (Date.now() > deadline)
-        throw new Error(
-          `test-guard: 另一组测试仍在运行（${owner.split('\n').slice(1, 3).join(' @ ')}），等待超时。`,
-        )
-      if (!announced) {
-        console.error(`test-guard: 等待另一组测试结束（pid ${pid}）…`)
-        announced = true
-      }
-      sleep(2000)
+  while (!createWithContent(LOCK, owner)) {
+    const seen = read(LOCK)
+    if (seen === null) continue
+    const pid = Number(seen.split('\n')[0])
+    if (!pid || !alive(pid)) {
+      reclaim(seen)
+      continue
     }
+    if (Date.now() > deadline)
+      throw new Error(
+        `test-guard: 另一组测试仍在运行（${seen.split('\n').slice(1, 3).join(' @ ')}），等待超时。`,
+      )
+    if (!announced) {
+      console.error(`test-guard: 等待另一组测试结束（pid ${pid}）…`)
+      announced = true
+    }
+    sleep(POLL_MS)
   }
   process.env[HELD] = '1'
-  const release = () => {
-    try {
-      if (readFileSync(join(LOCK_DIR, 'owner'), 'utf8').startsWith(`${process.pid}\n`))
-        rmSync(LOCK_DIR, { recursive: true, force: true })
-    } catch {}
-  }
-  process.once('exit', release)
-  for (const signal of ['SIGINT', 'SIGTERM'] as const)
-    process.once(signal, () => {
-      release()
-      process.exit(130)
-    })
+  // Released only when this process really ends; a run that is still stopping its children keeps
+  // the lock. A run killed outright leaves the file, and the next run reclaims it by PID.
+  process.once('exit', () => {
+    if (read(LOCK) === owner) unlinkSync(LOCK)
+  })
 }
 
 /** Refuses a full suite on a constrained machine. */
@@ -145,14 +160,21 @@ export function refuseFullSuite(what: string): never {
  * Vitest `test` options for this machine. Only applies while Vitest itself is loading the
  * config, never to `vite build` or the dev server that share the file.
  */
-export function vitestGuard(label: string) {
+export function vitestGuard(label: string, parse: ParseCli) {
   if (!process.env.VITEST || !isConstrainedHost()) return {}
-  if (vitestFileFilters().length === 0) refuseFullSuite(`${label} 的全量 Vitest`)
+  if (!vitestHasFileFilters(parse, process.argv.slice(2))) refuseFullSuite(`${label} 的全量 Vitest`)
   acquireTestLock(label)
   return { maxWorkers: 1, fileParallelism: false }
 }
 
-if (import.meta.url === `file://${process.argv[1]}` && process.argv[2] === 'suite') {
+function entryPath(): string {
+  try {
+    return process.argv[1] ? realpathSync(process.argv[1]) : ''
+  } catch {
+    return ''
+  }
+}
+if (entryPath() === realpathSync(fileURLToPath(import.meta.url)) && process.argv[2] === 'suite') {
   if (isConstrainedHost()) {
     try {
       refuseFullSuite('全仓测试')

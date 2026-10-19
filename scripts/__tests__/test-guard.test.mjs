@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const guardPath = fileURLToPath(new URL('../test-guard.ts', import.meta.url))
+const { parseCLI } = await import(
+  new URL('../../apps/web/node_modules/vitest/dist/node.js', import.meta.url).href
+)
 const home = mkdtempSync(join(tmpdir(), 'test-guard-'))
 const config = join(home, 'config')
 const cache = join(home, 'cache')
@@ -25,18 +28,50 @@ const env = (extra = {}) => ({
   XDG_CONFIG_HOME: config,
   XDG_CACHE_HOME: cache,
   CI: '',
+  TEST_GUARD_HELD: '',
   ...extra,
 })
+const lockFile = join(cache, 'test-guard', 'run.lock')
 
-test('finds test files on the Vitest command line but not flag values or name filters', () => {
-  assert.deepEqual(guard.vitestFileFilters(['run']), [])
-  assert.deepEqual(guard.vitestFileFilters(['run', '-t', 'only this name']), [])
-  assert.deepEqual(guard.vitestFileFilters(['run', '--pool', 'threads', '--maxWorkers=1']), [])
-  assert.deepEqual(
-    guard.vitestFileFilters(['run', 'src/a.test.ts', '--project', 'web', '--', 'src/b.test.ts']),
-    ['src/a.test.ts', 'src/b.test.ts'],
-  )
-  assert.deepEqual(guard.vitestFileFilters(['related', 'src/lib/a.ts']), ['src/lib/a.ts'])
+/** Starts a process that takes the lock, records when it held it, and releases it on exit. */
+function contender(log, name, holdMs = 300) {
+  const script =
+    `const g = await import(${JSON.stringify(guardPath)});` +
+    `const fs = await import('node:fs');` +
+    `g.acquireTestLock(${JSON.stringify(name)});` +
+    `const start = Date.now();` +
+    `await new Promise((r) => setTimeout(r, ${holdMs}));` +
+    `fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ start, end: Date.now() }) + '\\n');`
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+    env: env(),
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+  let stderr = ''
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk
+  })
+  return new Promise((resolve) => child.on('exit', (code) => resolve({ code, stderr })))
+}
+
+function assertSerial(log, count) {
+  const spans = readFileSync(log, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+    .sort((a, b) => a.start - b.start)
+  assert.equal(spans.length, count)
+  for (let index = 1; index < spans.length; index++)
+    assert.ok(spans[index].start >= spans[index - 1].end, 'two runs held the lock at once')
+}
+
+test('uses the Vitest parser to tell test files from option values', () => {
+  const has = (argv) => guard.vitestHasFileFilters(parseCLI, argv)
+  assert.equal(has(['run']), false)
+  assert.equal(has(['run', '-t', 'only this name']), false)
+  assert.equal(has(['run', '--testTimeout', '10000', '--hookTimeout', '5000']), false)
+  assert.equal(has(['run', '--pool', 'threads', '--maxWorkers=1']), false)
+  assert.equal(has(['run', 'src/a.test.ts', '--project', 'web']), true)
+  assert.equal(has(['related', 'src/lib/a.ts']), true)
 })
 
 test('only a marked machine outside CI is constrained', () => {
@@ -46,53 +81,36 @@ test('only a marked machine outside CI is constrained', () => {
   assert.equal(guard.isConstrainedHost({ CI: 'true' }), false)
 })
 
-test('the suite command refuses on a marked machine and passes elsewhere', () => {
+test('the suite command refuses on a marked machine, from any checkout path', () => {
   mark()
-  const refused = spawnSync(process.execPath, [guardPath, 'suite'], { env: env(), encoding: 'utf8' })
-  assert.equal(refused.status, 1)
-  assert.match(refused.stderr, /rmake/)
+  const odd = join(home, 'repo with space 中文 #1', 'scripts')
+  mkdirSync(odd, { recursive: true })
+  copyFileSync(guardPath, join(odd, 'test-guard.ts'))
+  for (const path of [guardPath, join(odd, 'test-guard.ts')]) {
+    const refused = spawnSync(process.execPath, [path, 'suite'], { env: env(), encoding: 'utf8' })
+    assert.equal(refused.status, 1, path)
+    assert.match(refused.stderr, /rmake/)
+  }
   const ci = spawnSync(process.execPath, [guardPath, 'suite'], { env: env({ CI: 'true' }) })
   assert.equal(ci.status, 0)
 })
 
-test('a second run waits for the first and a crashed holder does not block forever', async () => {
-  const holder = spawn(
-    process.execPath,
-    [
-      '--input-type=module',
-      '-e',
-      `const g = await import(${JSON.stringify(guardPath)}); g.acquireTestLock('holder'); ` +
-        `console.log('held'); setTimeout(() => {}, 1500)`,
-    ],
-    { env: env(), stdio: ['ignore', 'pipe', 'inherit'] },
+test('runs that start together hold the lock one after another', async () => {
+  const log = join(home, 'together.log')
+  const results = await Promise.all(
+    Array.from({ length: 4 }, (_, index) => contender(log, `run-${index}`)),
   )
-  await new Promise((resolve) => holder.stdout.once('data', resolve))
-  const started = Date.now()
-  const waiter = spawnSync(
-    process.execPath,
-    [
-      '--input-type=module',
-      '-e',
-      `const g = await import(${JSON.stringify(guardPath)}); g.acquireTestLock('waiter')`,
-    ],
-    { env: env(), encoding: 'utf8' },
-  )
-  assert.equal(waiter.status, 0, waiter.stderr)
-  assert.ok(Date.now() - started >= 900, 'waited for the holder')
-  assert.match(waiter.stderr, /等待另一组测试结束/)
+  for (const result of results) assert.equal(result.code, 0, result.stderr)
+  assertSerial(log, 4)
+})
 
-  // 进程被强杀后留下的锁：owner 已不存在，下一次直接接手。
-  const lock = join(cache, 'test-guard', 'run.lock')
-  mkdirSync(lock, { recursive: true })
-  writeFileSync(join(lock, 'owner'), '999999\nghost\n/\n')
-  const stale = spawnSync(
-    process.execPath,
-    [
-      '--input-type=module',
-      '-e',
-      `const g = await import(${JSON.stringify(guardPath)}); g.acquireTestLock('next')`,
-    ],
-    { env: env({ TEST_GUARD_WAIT_MS: '1000' }), encoding: 'utf8' },
+test('several waiters reclaim a crashed run without overlapping', async () => {
+  mkdirSync(join(cache, 'test-guard'), { recursive: true })
+  writeFileSync(lockFile, '999999\nghost\n/\n')
+  const log = join(home, 'reclaim.log')
+  const results = await Promise.all(
+    Array.from({ length: 3 }, (_, index) => contender(log, `waiter-${index}`, 200)),
   )
-  assert.equal(stale.status, 0, stale.stderr)
+  for (const result of results) assert.equal(result.code, 0, result.stderr)
+  assertSerial(log, 3)
 })
