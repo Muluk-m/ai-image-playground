@@ -6,6 +6,7 @@ export const TEXT_CARD_WIDTH = 300
 export const TEXT_CARD_HEIGHT = 210
 const MEDIA_CARD_WIDTH = 360
 const MEDIA_CARD_HEIGHT = 240
+const MIN_MEDIA_CARD_SIZE = 32
 
 /** 图片/视频卡在最大工作区内保持素材比例，不能用固定框裁剪原图。 */
 export function nodeCardSize(node: CanvasNode): { width: number; height: number } {
@@ -27,7 +28,15 @@ export function nodeCardSize(node: CanvasNode): { width: number; height: number 
       naturalWidth > 0 &&
       naturalHeight > 0
     ) {
-      const scale = Math.min(1, MEDIA_CARD_WIDTH / naturalWidth, MEDIA_CARD_HEIGHT / naturalHeight)
+      const fitScale = Math.min(
+        1,
+        MEDIA_CARD_WIDTH / naturalWidth,
+        MEDIA_CARD_HEIGHT / naturalHeight,
+      )
+      const minScale = MIN_MEDIA_CARD_SIZE / Math.min(naturalWidth, naturalHeight)
+      const canUpscale =
+        naturalWidth * minScale <= MEDIA_CARD_WIDTH && naturalHeight * minScale <= MEDIA_CARD_HEIGHT
+      const scale = canUpscale ? Math.max(fitScale, minScale) : fitScale
       return {
         width: Math.max(1, Math.round(naturalWidth * scale)),
         height: Math.max(1, Math.round(naturalHeight * scale)),
