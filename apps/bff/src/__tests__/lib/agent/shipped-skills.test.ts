@@ -21,8 +21,13 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../agent-video-operator-config.json',
 )
 
-const { agentSkillInvocation, agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } =
-  await import('../../../lib/agent/skills')
+const {
+  agentSkillInvocation,
+  agentSkills,
+  defaultAgentSkillsRoot,
+  ensureAgentSkills,
+  readAgentSkillFile,
+} = await import('../../../lib/agent/skills')
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
 const { turnInitialState } = await import('../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
@@ -92,13 +97,16 @@ function toolNames(mode: AgentMode): Set<string> {
 const ALL_TOOL_NAMES = new Set([...toolNames('image'), ...toolNames('video')])
 
 describe('随仓库发的技能', () => {
-  it('canvas image presets and Agent skills share the same generation constraints', () => {
+  it('canvas image presets and Agent skills share the same generation constraints', async () => {
     for (const preset of IMAGE_PRESETS) {
       const skill = agentSkills('image').find((skill) => skill.name === preset.skillName)
       expect(skill).toBeDefined()
       if (!skill) throw new Error(preset.skillName)
       expect(skill.icon).toBe(preset.icon)
       expect(agentSkillInvocation(skill)).toContain(preset.instruction)
+      const explicit = await readAgentSkillFile('image', preset.skillName, './SKILL.md')
+      expect(explicit.kind).toBe('ok')
+      if (explicit.kind === 'ok') expect(explicit.text).toContain(preset.instruction)
     }
   })
   it('一条 diagnostic 都不该有', () => {

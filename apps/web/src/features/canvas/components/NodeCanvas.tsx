@@ -883,6 +883,7 @@ function Flow({
   const connectStart = useRef<{ x: number; y: number } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [mediaToolbarWidth, setMediaToolbarWidth] = useState(300)
   const [textGeneration, setTextGeneration] = useState<
     Record<string, { busy: boolean; error: string | null }>
   >({})
@@ -1540,6 +1541,7 @@ function Flow({
   for (const ref of references) roles[ref.id] = meta[`role:${ref.id}`] ?? 'reference'
   const draftValue = meta.nodePrompt ?? ''
   const preset = imagePreset(meta.nodeImagePreset)
+  const mediaToolbarHalfWidth = Math.min(mediaToolbarWidth, Math.max(0, frame.width - 24)) / 2
   const setMeta = (patch: Record<string, string>, trackUndo = true) => {
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
@@ -2314,14 +2316,22 @@ function Flow({
                           ('fileId' in composerNode.data && composerNode.data.fileId)) && (
                           <div
                             className="studio-node-media-actions"
+                            ref={(node) => {
+                              const width = node?.getBoundingClientRect().width
+                              if (width)
+                                setMediaToolbarWidth((current) =>
+                                  current === width ? current : width,
+                                )
+                            }}
                             style={{
+                              maxWidth: Math.max(0, frame.width - 24),
                               left: Math.max(
-                                150,
+                                mediaToolbarHalfWidth + 12,
                                 Math.min(
                                   selected.position.x * frame.zoom +
                                     frame.x +
                                     ((selected.width ?? 0) * frame.zoom) / 2,
-                                  frame.width - 150,
+                                  frame.width - mediaToolbarHalfWidth - 12,
                                 ),
                               ),
                               top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),

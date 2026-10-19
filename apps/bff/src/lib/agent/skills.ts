@@ -619,15 +619,17 @@ export function setAgentSkillsRootForTesting(next: string | null): void {
  * 技能全文进上下文的那一段。复用框架的格式，但位置换成虚拟路径。
  * `extra` 是用户在 `/skill-name` 后面跟着写的其余文字。
  */
+function imagePresetSkillContent(name: string, content: string): string {
+  const preset = imagePreset(name)
+  return preset ? content + '\n\n## 默认出图约束\n\n' + preset.instruction : content
+}
+
 export function agentSkillInvocation(skill: AgentSkill, extra?: string): string {
-  const preset = imagePreset(skill.name)
   return formatSkillInvocation(
     {
       name: skill.name,
       description: skill.description,
-      content: preset
-        ? skill.content + '\n\n## 默认出图约束\n\n' + preset.instruction
-        : skill.content,
+      content: imagePresetSkillContent(skill.name, skill.content),
       filePath: agentSkillLocation(skill),
     },
     extra?.trim() || undefined,
@@ -684,7 +686,13 @@ export async function readAgentSkillFile(
   try {
     const handle = Bun.file(located.path)
     if (handle.size > AGENT_SKILL_FILE_MAX_BYTES) return { kind: 'too-large' }
-    return { kind: 'ok', text: await handle.text() }
+    const content = await handle.text()
+    const directory = findAgentSkill(mode, name)?.directory
+    const main = directory ? await realpath(join(directory, 'SKILL.md')) : undefined
+    return {
+      kind: 'ok',
+      text: located.path === main ? imagePresetSkillContent(name, content) : content,
+    }
   } catch {
     return { kind: 'unreadable' }
   }
