@@ -1588,6 +1588,7 @@ body .studio-global-account {
 .studio-node-reference-picking .studio-node-reference-eligible { cursor: crosshair; }
 .studio-node-reference-eligible:hover .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 4px; }
 
+html[data-home='true'] .app-inset-panel { overflow: clip; }
 .studio-works-fade {
   position: sticky;
   bottom: 0;
