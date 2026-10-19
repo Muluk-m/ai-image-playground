@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
 import AgentToolCard, { AgentImageRun } from '../../../../features/agent/components/AgentToolCard'
+import {
+  setAgentComposerAttach,
+  setAgentComposerReferences,
+} from '../../../../features/agent/lib/attachments'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import InspirationDetail from '../../../../features/inspiration/components/InspirationDetail'
@@ -57,6 +61,9 @@ vi.mock('../../../../features/agent/lib/chatCutout', () => ({
 
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   previewArtifactBitmap: async () => 'data:image/png;base64,preview',
+  displayArtifactBitmap: async () => 'data:image/png;base64,preview',
+  artifactReferenceSource: async (artifact: { mediaId?: string }) =>
+    artifact.mediaId ? `aip-media:${artifact.mediaId}` : 'data:image/png;base64,preview',
   videoOutputFrame: async () => null,
   cachedVideoOutputFrame: () => undefined,
   rememberVideoOutputFrame: vi.fn(),
@@ -1204,7 +1211,7 @@ it('shows which canvas nodes a read used without replaying their full document',
   }
 })
 
-it('lays four generated images in a larger two-column gallery without hover tools', async () => {
+it('shows batch results without hover editing tools', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   setAgentCanvasSink({

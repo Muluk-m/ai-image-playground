@@ -1,10 +1,10 @@
+import { findFreeCanvasPlacement } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { Box } from '../../../../features/canvas/lib/geometry'
 import {
   computePlaceholderTarget,
   computePlaceholderTargets,
-  findFreeCanvasPlacement,
   findFreeTarget,
   fitToTarget,
   PLACEMENT_GAP,

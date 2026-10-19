@@ -476,6 +476,81 @@ describe('GET /api/agent/conversations', () => {
     expect(conversations.find((one) => one.id === withoutImage)).not.toHaveProperty('coverMediaId')
   })
 
+  it('tags generated image artifacts with their archived media for the panel', async () => {
+    const cookie = await signIn('artifact-owner')
+    const conversationId = await startConversation(DEVICE, cookie)
+    const now = Date.now()
+    await db.insert(schema.media_objects).values({
+      id: '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10',
+      user_id: 'artifact-owner',
+      sha256: 'artifact-output',
+      bytes: 1,
+      content_type: 'image/png',
+      status: 'ready',
+      reserved_bytes: 1,
+      staging_key: 'staging/artifact-output',
+      object_key: 'media/artifact-output',
+      preview_key: 'media/artifact-output.webp',
+      expires_at: now + 60_000,
+      created_at: now,
+      updated_at: now,
+    })
+    await db.insert(schema.generation_records).values({
+      id: 'gen-artifact',
+      user_id: 'artifact-owner',
+      provider: 'openai',
+      model: 'gpt-image-2',
+      status: 'completed',
+      prompt: 'basin',
+      created_at: now,
+      revision: 1n,
+      source: { kind: 'agent', conversationId, turnId: 'turn', projectId: null },
+    })
+    await db.insert(schema.generation_images).values({
+      generation_id: 'gen-artifact',
+      role: 'output',
+      position: 0,
+      media_id: '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10',
+    })
+    const artifact = (outputIndex: number) => ({
+      artifactId: `agent_gen-artifact_${outputIndex}`,
+      media: 'image' as const,
+      taskId: 'gen-artifact',
+      outputIndex,
+      mime: 'image/png',
+    })
+    await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'turn',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolResult',
+          toolCallId: 'call',
+          toolName: 'generateImage',
+          status: 'succeeded',
+          title: '台盆',
+          artifacts: [artifact(0), artifact(1)],
+        },
+      ],
+    })
+
+    const { status, json } = await request(
+      'GET',
+      `/api/agent/conversations/${conversationId}/messages`,
+      { cookie, deviceId: DEVICE },
+    )
+
+    expect(status).toBe(200)
+    const blocks = (
+      json as { messages: { content: { type: string; artifacts?: unknown[] }[] }[] }
+    ).messages.flatMap((message) => message.content)
+    expect(blocks.find((block) => block.type === 'toolResult')?.artifacts).toEqual([
+      { ...artifact(0), mediaId: '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10' },
+      artifact(1),
+    ])
+  })
+
   it('hides the conversations of the device once signed in', async () => {
     const anonymous = await startConversation()
     await runTurn(anonymous, '匿名的')

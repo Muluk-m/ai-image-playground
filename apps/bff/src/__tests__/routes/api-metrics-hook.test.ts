@@ -4,16 +4,18 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
 const bffRoot = resolve(import.meta.dir, '../../..')
+const allowedOrigin = 'https://app.example.com'
 process.env.PORT = '0'
 process.env.DATABASE_URL = await resetTestDatabase('bff_api_metrics_hook')
 process.env.OPERATOR_CONFIG_FILE = resolve(bffRoot, 'operator-config.example.json')
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+process.env.CORS_ALLOWED_ORIGINS = allowedOrigin
 
 const { app, apiMetrics } = await import('../../app')
 const { close, db, schema } = await import('../../db/client')
 const { log } = await import('../../lib/logger')
 const { closeServerLogDatabase } = await import('../../lib/server-logs')
-const { withRequestContext } = await import('../../lib/request-context')
+const { REQUEST_ID_HEADER, withRequestContext } = await import('../../lib/request-context')
 const { captureLogLines } = await import('../helpers/logCapture')
 const lines = captureLogLines(log)
 
@@ -148,5 +150,86 @@ describe('API statistics on the real request pipeline', () => {
       },
     })
     expect((await send(stream)).status).toBe(413)
+  })
+})
+
+describe('credentialed CORS on the real request pipeline', () => {
+  const handle = withRequestContext((request) => app.handle(request))
+
+  it('exposes the response request id to an allowed origin on success and error responses', async () => {
+    for (const { path, status } of [
+      { path: '/api/capabilities', status: 200 },
+      { path: '/api/no-such-endpoint', status: 404 },
+      { path: '/internal/admin/capabilities', status: 401 },
+    ]) {
+      const response = await handle(
+        new Request(`http://localhost${path}`, {
+          credentials: 'include',
+          headers: { origin: allowedOrigin },
+        }),
+      )
+
+      expect(response.status).toBe(status)
+      expect(response.headers.get(REQUEST_ID_HEADER)).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      )
+      expect(response.headers.get('access-control-allow-origin')).toBe(allowedOrigin)
+      expect(response.headers.get('access-control-allow-credentials')).toBe('true')
+      expect(
+        response.headers
+          .get('access-control-expose-headers')
+          ?.toLowerCase()
+          .split(/\s*,\s*/),
+      ).toContain(REQUEST_ID_HEADER)
+    }
+  })
+
+  it('keeps credentialed preflight support for the request id header', async () => {
+    const response = await handle(
+      new Request('http://localhost/api/capabilities', {
+        method: 'OPTIONS',
+        headers: {
+          origin: allowedOrigin,
+          'access-control-request-method': 'GET',
+          'access-control-request-headers': REQUEST_ID_HEADER,
+          [REQUEST_ID_HEADER]: 'cors-preflight-request',
+        },
+      }),
+    )
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get(REQUEST_ID_HEADER)).toBe('cors-preflight-request')
+    expect(response.headers.get('access-control-allow-origin')).toBe(allowedOrigin)
+    expect(response.headers.get('access-control-allow-credentials')).toBe('true')
+    expect(response.headers.get('access-control-allow-methods')?.split(/\s*,\s*/)).toContain('GET')
+    expect(
+      response.headers
+        .get('access-control-allow-headers')
+        ?.toLowerCase()
+        .split(/\s*,\s*/),
+    ).toContain(REQUEST_ID_HEADER)
+  })
+
+  it('does not authorize other origins for either the response or preflight', async () => {
+    for (const method of ['GET', 'OPTIONS']) {
+      const response = await handle(
+        new Request('http://localhost/api/capabilities', {
+          method,
+          credentials: 'include',
+          headers: {
+            origin: 'https://untrusted.example.com',
+            [REQUEST_ID_HEADER]: 'cors-rejected-request',
+            ...(method === 'OPTIONS'
+              ? {
+                  'access-control-request-method': 'GET',
+                  'access-control-request-headers': REQUEST_ID_HEADER,
+                }
+              : {}),
+          },
+        }),
+      )
+
+      expect(response.headers.get('access-control-allow-origin')).toBeNull()
+    }
   })
 })

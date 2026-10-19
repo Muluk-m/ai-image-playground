@@ -77,6 +77,8 @@ import { useStore } from '../../../store'
 import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import { revealNodeCanvas } from '../../canvas/lib/nodeCanvasFocus'
+import { revealNodeCanvas } from '../../canvas/lib/nodeCanvasFocus'
 import {
   activeNodeCanvas,
   nodeCanvasSelection,
@@ -101,13 +103,14 @@ import {
   getLeadingAgentSkill,
   getSlashSkillQuery,
 } from '../lib/agentSkillMentions'
-import { previewArtifactBitmap } from '../lib/artifactSource'
+import { knownArtifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import {
   attachAssetToDraft,
   attachReferences,
   filesToReferences,
   referenceLimitMessage,
   setAgentComposerAttach,
+  setAgentComposerReferences,
 } from '../lib/attachments'
 import {
   attachmentUploadErrorMessage,
@@ -541,7 +544,17 @@ export default function AgentComposer({
   // 面板把落在对话记录上的文件递过来。
   useEffect(() => {
     setAgentComposerAttach(attachFiles)
-    return () => setAgentComposerAttach(null)
+    setAgentComposerReferences((references) => {
+      if (loading) {
+        useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+        return
+      }
+      setDraft((current) => attachReferences(current, references, transportRef.current))
+    })
+    return () => {
+      setAgentComposerAttach(null)
+      setAgentComposerReferences(null)
+    }
   })
   // 示例建议与起手句点进来的那一句：技能写成开头的 `/技能名`（随即提升成胶囊），示例词选中。
   useComposerFillTarget({
@@ -779,7 +792,9 @@ export default function AgentComposer({
     if (value.type === 'result') {
       const image = results.find((one) => one.id === value.imageId)
       if (!image) return
-      const dataUrl = image.source ?? (await previewArtifactBitmap(image.artifact))
+      const dataUrl =
+        knownArtifactReferenceSource(image.artifact, image.source) ??
+        (await previewArtifactBitmap(image.artifact))
       // Loading an older result must not overwrite newer typing or attach to a switched chat.
       if (
         useAgentStore.getState().conversationId !== conversationId ||
@@ -1053,23 +1068,36 @@ export default function AgentComposer({
         <CreationBody
           references={
             <div className="flex flex-col gap-2">
-              {nodeReferences.length > 0 && (
-                <div className="flex flex-wrap gap-1.5" aria-label={t('composer.nodeReferences')}>
-                  {nodeReferences.map((node) => (
-                    <span
-                      key={node.id}
-                      data-node-reference-id={node.id}
-                      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary px-2 py-1 text-label-md text-foreground"
-                    >
-                      <span className="shrink-0 text-muted-foreground">
-                        {t(`composer.nodeTypes.${node.type}`)}
-                      </span>
-                      <OverflowText className="min-w-0 max-w-48 truncate" text={node.name} />
-                    </span>
-                  ))}
-                </div>
-              )}
               <CreationReferenceStack
+                leading={
+                  nodeReferences.length > 0 && (
+                    <div
+                      className="contents"
+                      role="group"
+                      aria-label={t('composer.nodeReferences')}
+                    >
+                      {nodeReferences.map((node) => (
+                        <Button
+                          key={node.id}
+                          type="button"
+                          variant="ghost"
+                          data-node-reference-id={node.id}
+                          className="flex size-12 shrink-0 flex-col items-start justify-center gap-0.5 overflow-hidden rounded-lg border border-border bg-secondary p-1 text-left text-label-sm font-normal text-foreground hover:border-primary/30"
+                          aria-label={t('creations.locateAria', { name: node.name })}
+                          onClick={() => {
+                            if (workspace?.doc === doc)
+                              revealNodeCanvas(workspace.editor, [node.id])
+                          }}
+                        >
+                          <span className="truncate text-muted-foreground">
+                            {t(`composer.nodeTypes.${node.type}`)}
+                          </span>
+                          <OverflowText className="min-w-0 max-w-full truncate" text={node.name} />
+                        </Button>
+                      ))}
+                    </div>
+                  )
+                }
                 count={draft.references.length}
                 disabled={loading}
                 onClear={() =>
@@ -1258,7 +1286,7 @@ export default function AgentComposer({
             </div>
           }
         >
-          <div className="relative">
+          <div className="relative grid">
             {menu.visible && (
               <SuggestionMenu
                 groups={groups}
@@ -1282,29 +1310,29 @@ export default function AgentComposer({
                   : t(`composer:studio.placeholders.${productionMode ? 'video' : creationMode}`)
               }
               data-follow-up={followUpGhost && showFollowUpGhost ? '' : undefined}
-              className="creation-prompt"
+              className="creation-prompt col-start-1 row-start-1"
             />
             {followUpGhost && showFollowUpGhost && (
-              <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-center gap-2 text-base leading-[1.75]">
-                <span className="min-w-0 text-muted-foreground" aria-hidden="true">
-                  {followUpGhost}
-                </span>
+              <>
+                {/* Keep the opaque shortcut badge clear of the empty editor's native caret. */}
                 <Button
                   type="button"
-                  variant="outline"
-                  size="xs"
-                  className="pointer-events-auto h-7 px-2 font-normal text-muted-foreground"
+                  variant="ghost"
+                  className="pointer-events-none col-start-1 row-start-1 block h-auto w-full self-start whitespace-normal p-0 pl-2 text-left text-base font-normal leading-[1.75] text-muted-foreground hover:bg-transparent"
                   aria-label={t('suggestions.followUpAccept')}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => acceptFollowUpRef.current(followUpGhost)}
                 >
-                  <span className="sm:hidden">{t('suggestions.followUpTap')}</span>
-                  <span className="hidden sm:inline">Tab</span>
+                  <span className="pointer-events-auto mr-2 inline-flex h-7 items-center rounded-md border border-input bg-background px-2 align-middle text-xs">
+                    <span className="sm:hidden">{t('suggestions.followUpTap')}</span>
+                    <span className="hidden sm:inline">Tab</span>
+                  </span>
+                  <span className="pointer-events-auto">{followUpGhost}</span>
                 </Button>
                 <p id={followUpHintId} className="sr-only">
                   {t('suggestions.followUpHint', { text: followUpGhost })}
                 </p>
-              </div>
+              </>
             )}
           </div>
         </CreationBody>

@@ -42,10 +42,23 @@ export interface ClientErrorReport {
   context?: Record<string, unknown>
 }
 
+export const CLIENT_ERROR_RECOVERY_OPERATIONS = [
+  'project.catalog',
+  'canvas.scene.save',
+  'agent.artifact.delivery',
+] as const
+export type ClientErrorRecoveryOperation = (typeof CLIENT_ERROR_RECOVERY_OPERATIONS)[number]
+
+export function isClientErrorRecoveryOperation(
+  value: unknown,
+): value is ClientErrorRecoveryOperation {
+  return CLIENT_ERROR_RECOVERY_OPERATIONS.some((operation) => operation === value)
+}
+
 /** Exact failure token; success events never count as errors. */
 export interface ClientErrorRecovery {
   incidentId: string
-  operation: 'project.catalog'
+  operation: ClientErrorRecoveryOperation
 }
 
 export interface ClientErrorBatch {

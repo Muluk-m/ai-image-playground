@@ -14,7 +14,7 @@ import { useStore } from '../../../store'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
 import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
 import { INLINE_RESULT_THUMBNAIL_SCALE } from '../lib/artifactPreview'
-import { previewArtifactBitmap } from '../lib/artifactSource'
+import { displayArtifactBitmap, previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
@@ -107,11 +107,11 @@ export default function AgentArtifactPane({
       loadPreview: () =>
         canvasOrSource(
           artifact.artifactId,
-          () => previewArtifactBitmap(artifact),
+          () => displayArtifactBitmap(artifact),
           INLINE_RESULT_THUMBNAIL_SCALE,
         ),
       loadThumbnail: () =>
-        canvasOrSource(artifact.artifactId, () => previewArtifactBitmap(artifact), 0.16),
+        canvasOrSource(artifact.artifactId, () => displayArtifactBitmap(artifact), 0.16),
       videoUrl:
         artifact.media === 'video'
           ? queueOutputUrl(artifact.taskId, artifact.outputIndex)
