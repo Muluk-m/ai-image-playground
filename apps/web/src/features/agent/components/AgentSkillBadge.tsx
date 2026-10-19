@@ -6,7 +6,7 @@ export default function AgentSkillBadge({
   skill,
   className = '',
 }: {
-  skill: AgentSkillSummary
+  skill: Pick<AgentSkillSummary, 'name' | 'title' | 'icon'>
   className?: string
 }) {
   return (
