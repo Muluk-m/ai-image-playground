@@ -2,7 +2,6 @@
   "composer": {
     "label": "Text generation",
     "chooseModel": "Choose a chat model",
-    "chatModel": "Chat model",
     "placeholder": "Describe what to write or revise…",
     "send": "Generate text"
   },
