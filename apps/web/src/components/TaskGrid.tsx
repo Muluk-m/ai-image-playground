@@ -1,5 +1,8 @@
 import {
+  memo,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type TouchEvent as ReactTouchEvent,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -9,6 +12,7 @@ import {
 } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
+import { useWindowVirtualizer } from '../hooks/useWindowVirtualizer'
 import { i18next, useTranslation } from '../i18n'
 import { isHistoryReady, subscribeHistoryReady } from '../lib/historyReady'
 import {
@@ -30,6 +34,88 @@ import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+
+/** 网格列数与 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` 的断点保持一致。 */
+const COLUMN_QUERIES = [
+  ['(min-width: 1024px)', 3],
+  ['(min-width: 640px)', 2],
+] as const
+const GRID_GAP = 16
+/** 一行卡片的预估高度；实际高度渲染后按行测量。 */
+const ESTIMATED_ROW_HEIGHT = 420
+
+function currentColumns(): number {
+  if (typeof window === 'undefined' || !window.matchMedia) return 1
+  return COLUMN_QUERIES.find(([query]) => window.matchMedia(query).matches)?.[1] ?? 1
+}
+
+function useGridColumns(): number {
+  return useSyncExternalStore(
+    (listener) => {
+      if (typeof window === 'undefined' || !window.matchMedia) return () => {}
+      const lists = COLUMN_QUERIES.map(([query]) => window.matchMedia(query))
+      for (const list of lists) list.addEventListener('change', listener)
+      return () => {
+        for (const list of lists) list.removeEventListener('change', listener)
+      }
+    },
+    currentColumns,
+    () => 1,
+  )
+}
+
+interface GridItem {
+  readonly key: string
+  readonly taskId?: string
+  readonly node: ReactNode
+}
+
+interface CardRect {
+  readonly taskId: string
+  readonly left: number
+  readonly right: number
+  readonly top: number
+  readonly bottom: number
+}
+
+interface TaskHandlers {
+  open(task: TaskRecord, event: ReactMouseEvent | ReactTouchEvent): void
+  reuse(task: TaskRecord): void
+  edit(task: TaskRecord): void
+  send(task: TaskRecord): void
+  remove(task: TaskRecord): void
+}
+
+/** 一张作品卡。任务、选中态与处理函数都不变时跳过渲染：轮询更新一条任务不再重画整个网格。 */
+const TaskGridItem = memo(function TaskGridItem({
+  task,
+  attended,
+  selected,
+  handlers,
+}: {
+  task: TaskRecord
+  attended: boolean
+  selected: boolean
+  handlers: TaskHandlers
+}) {
+  return (
+    <div
+      className={attended ? 'task-card-wrapper task-submitted-attention' : 'task-card-wrapper'}
+      data-task-id={task.id}
+      tabIndex={attended ? -1 : undefined}
+    >
+      <TaskCard
+        task={task}
+        onClick={(event) => handlers.open(task, event)}
+        onReuse={() => handlers.reuse(task)}
+        onEditOutputs={() => handlers.edit(task)}
+        onSendToCanvas={() => handlers.send(task)}
+        onDelete={() => handlers.remove(task)}
+        isSelected={selected}
+      />
+    </div>
+  )
+})
 
 /** 首页作品区在本机记录落地前的占位。侧栏、标题和输入框已经是真的，这里只盖网格。 */
 function HomeWorksSkeleton() {
@@ -91,6 +177,7 @@ export default function TaskGrid({
   const clearSelection = useStore((s) => s.clearSelection)
   const rootRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+  const cardRects = useRef<() => CardRect[]>(() => [])
   const [selectionBox, setSelectionBox] = useState<{
     startPageX: number
     startPageY: number
@@ -199,33 +286,23 @@ export default function TaskGrid({
     const minY = Math.min(start.pageY, pageY)
     const maxY = Math.max(start.pageY, pageY)
 
-    const cards = gridRef.current.querySelectorAll('.task-card-wrapper')
     const newSelected = new Set(initialSelection.current)
     const initialSelected = new Set(initialSelection.current)
 
-    cards.forEach((card) => {
-      const rect = card.getBoundingClientRect()
-      const taskId = card.getAttribute('data-task-id')
-      if (!taskId) return
-
-      const cardLeft = rect.left + window.scrollX
-      const cardRight = rect.right + window.scrollX
-      const cardTop = rect.top + window.scrollY
-      const cardBottom = rect.bottom + window.scrollY
-
+    for (const card of cardRects.current()) {
       const isIntersecting =
-        minX < cardRight && maxX > cardLeft && minY < cardBottom && maxY > cardTop
+        minX < card.right && maxX > card.left && minY < card.bottom && maxY > card.top
 
       if (isIntersecting) {
-        if (initialSelected.has(taskId)) {
-          newSelected.delete(taskId)
+        if (initialSelected.has(card.taskId)) {
+          newSelected.delete(card.taskId)
         } else {
-          newSelected.add(taskId)
+          newSelected.add(card.taskId)
         }
-      } else if (!initialSelected.has(taskId)) {
-        newSelected.delete(taskId)
+      } else if (!initialSelected.has(card.taskId)) {
+        newSelected.delete(card.taskId)
       }
-    })
+    }
 
     setSelectedTaskIds(Array.from(newSelected))
   }
@@ -379,6 +456,164 @@ export default function TaskGrid({
     }
   }, [clearSelection, isMac])
 
+  // 卡片拿到的处理函数保持同一引用，里面再读最新的状态，作品卡才能跳过无关的重渲染。
+  const latest = useRef<TaskHandlers>(null!)
+  latest.current = {
+    open: (task, e) => {
+      if (Date.now() < suppressClickUntil.current) {
+        e.preventDefault()
+        return
+      }
+      suppressClickUntil.current = 0
+      const isCtrl = isMac ? e.metaKey : e.ctrlKey
+      if (isCtrl) {
+        useStore.getState().toggleTaskSelection(task.id)
+      } else if (useStore.getState().selectedTaskIds.length > 0) {
+        clearSelection()
+        setDetailTaskId(task.id)
+      } else {
+        setDetailTaskId(task.id)
+      }
+    },
+    reuse: (task) => reuseConfig(task),
+    edit: (task) => editOutputImage(task),
+    send: (task) => sendTaskToCanvas(task),
+    remove: (task) => handleDelete(task),
+  }
+  const handlers = useMemo<TaskHandlers>(
+    () => ({
+      open: (task, event) => latest.current.open(task, event),
+      reuse: (task) => latest.current.reuse(task),
+      edit: (task) => latest.current.edit(task),
+      send: (task) => latest.current.send(task),
+      remove: (task) => latest.current.remove(task),
+    }),
+    [],
+  )
+  const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds])
+  const renderTask = (task: (typeof tasks)[0]): GridItem => ({
+    key: task.id,
+    taskId: task.id,
+    node: (
+      <TaskGridItem
+        key={task.id}
+        task={task}
+        attended={submittedIds.includes(task.id)}
+        selected={selectedSet.has(task.id)}
+        handlers={handlers}
+      />
+    ),
+  })
+
+  // 两边的卡按同一条时间轴排；套折成一条，落在它最新那条任务的位置上。
+  const rows: { at: number; nodes: GridItem[] }[] = historyItems.map((item) => {
+    if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
+    const expanded = expandedSetIds.includes(item.setId)
+    const title = storyboardTitles.get(item.setId)
+    const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
+    return {
+      at: item.tasks.reduce(
+        (latest, task) => Math.max(latest, task.createdAt),
+        Number.NEGATIVE_INFINITY,
+      ),
+      nodes: [
+        {
+          key: `set-${item.setId}`,
+          node: (
+            <SetHistoryCard
+              key={`set-${item.setId}`}
+              name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
+              actions={legacyActionLabels(job)}
+              tasks={item.tasks}
+              expanded={expanded}
+              onToggle={() =>
+                setExpandedSetIds((ids) =>
+                  ids.includes(item.setId)
+                    ? ids.filter((id) => id !== item.setId)
+                    : [...ids, item.setId],
+                )
+              }
+            />
+          ),
+        },
+        ...(expanded ? item.tasks.map(renderTask) : []),
+      ],
+    }
+  })
+
+  rows.sort((a, b) => b.at - a.at)
+  const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
+  const items = visibleRows.flatMap((row) => row.nodes)
+
+  // 展开后的作品一次全挂上会随数量线性变卡：按当前列数分行，只渲染视口附近的几行。
+  const virtual = limit === undefined
+  const columns = useGridColumns()
+  const itemRows = useMemo(() => {
+    const chunks: GridItem[][] = []
+    for (let index = 0; index < items.length; index += columns)
+      chunks.push(items.slice(index, index + columns))
+    return chunks
+  }, [items, columns])
+  const [scrollMargin, setScrollMargin] = useState(0)
+  const virtualizer = useWindowVirtualizer({
+    count: virtual ? itemRows.length : 0,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    gap: GRID_GAP,
+    overscan: 2,
+    scrollMargin,
+    getItemKey: (index) => itemRows[index]?.map((item) => item.key).join('|') ?? index,
+  })
+  // 网格上方的标题、搜索栏高度会变，列表起点要跟着它走。
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    if (!virtual || !grid) return
+    const top = Math.round(grid.getBoundingClientRect().top + window.scrollY)
+    if (Math.abs(top - scrollMargin) > 1) setScrollMargin(top)
+  })
+  // 框选按布局算卡片位置：滚出视口而未挂载的卡也照样参与选择。
+  cardRects.current = () => {
+    const grid = gridRef.current
+    if (!grid) return []
+    if (!virtual) {
+      return [...grid.querySelectorAll<HTMLElement>('.task-card-wrapper')].flatMap((card) => {
+        const taskId = card.dataset.taskId
+        if (!taskId) return []
+        const rect = card.getBoundingClientRect()
+        return [
+          {
+            taskId,
+            left: rect.left + window.scrollX,
+            right: rect.right + window.scrollX,
+            top: rect.top + window.scrollY,
+            bottom: rect.bottom + window.scrollY,
+          },
+        ]
+      })
+    }
+    const bounds = grid.getBoundingClientRect()
+    const left = bounds.left + window.scrollX
+    const width = (bounds.width - GRID_GAP * (columns - 1)) / columns
+    const measured = virtualizer.measurementsCache
+    return itemRows.flatMap((row, rowIndex) => {
+      const position = measured[rowIndex]
+      if (!position) return []
+      return row.flatMap((item, column) =>
+        item.taskId
+          ? [
+              {
+                taskId: item.taskId,
+                left: left + column * (width + GRID_GAP),
+                right: left + column * (width + GRID_GAP) + width,
+                top: position.start,
+                bottom: position.end,
+              },
+            ]
+          : [],
+      )
+    })
+  }
+
+  const firstRow = virtualizer.range?.startIndex
   // 只有这次主动发送记下来的任务才滚、高亮、抢焦点。恢复和轮询会改 tasks，但 id 不在这份名单里。
   useLayoutEffect(() => {
     const root = gridRef.current
@@ -399,7 +634,13 @@ export default function TaskGrid({
       cards.push(card)
     }
     const primary = cards[0]
-    if (!primary) return
+    if (!primary) {
+      // 新作品排在最前；列表已往下滚、首行没挂载时先回到网格顶部，挂上后再高亮。
+      // 只为确实在列表里的新作品回滚；被筛掉或收在套里的不去打断用户滚动。
+      if (virtual && items.some((item) => item.taskId && pending.includes(item.taskId)))
+        window.scrollTo({ top: Math.max(0, scrollMargin - 96) })
+      return
+    }
     revealSubmittedCard(primary)
     const phrase = t('grid.submitted')
     if (submittedAnnouncementRef.current) {
@@ -413,44 +654,18 @@ export default function TaskGrid({
       submittedAnnouncementRef.current = phrase
       setSubmittedAnnouncement(phrase)
     }
-  }, [submittedIds, filteredTasks, expandedSetIds, historyReady, limit, t])
-
-  const renderTask = (task: (typeof tasks)[0]) => {
-    const attended = submittedIds.includes(task.id)
-    return (
-      <div
-        key={task.id}
-        className={attended ? 'task-card-wrapper task-submitted-attention' : 'task-card-wrapper'}
-        data-task-id={task.id}
-        tabIndex={attended ? -1 : undefined}
-      >
-        <TaskCard
-          task={task}
-          onClick={(e) => {
-            if (Date.now() < suppressClickUntil.current) {
-              e.preventDefault()
-              return
-            }
-            suppressClickUntil.current = 0
-            const isCtrl = isMac ? e.metaKey : e.ctrlKey
-            if (isCtrl) {
-              useStore.getState().toggleTaskSelection(task.id)
-            } else if (selectedTaskIds.length > 0) {
-              clearSelection()
-              setDetailTaskId(task.id)
-            } else {
-              setDetailTaskId(task.id)
-            }
-          }}
-          onReuse={() => reuseConfig(task)}
-          onEditOutputs={() => editOutputImage(task)}
-          onSendToCanvas={() => sendTaskToCanvas(task)}
-          onDelete={() => handleDelete(task)}
-          isSelected={selectedTaskIds.includes(task.id)}
-        />
-      </div>
-    )
-  }
+  }, [
+    submittedIds,
+    filteredTasks,
+    expandedSetIds,
+    historyReady,
+    limit,
+    t,
+    virtual,
+    scrollMargin,
+    firstRow,
+    items,
+  ])
 
   if (hero && !historyReady) return <HomeWorksSkeleton />
 
@@ -472,40 +687,6 @@ export default function TaskGrid({
     return <InspirationEmptyHero />
   }
 
-  // 两边的卡按同一条时间轴排；套折成一条，落在它最新那条任务的位置上。
-  const rows: { at: number; nodes: ReactNode[] }[] = historyItems.map((item) => {
-    if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
-    const expanded = expandedSetIds.includes(item.setId)
-    const title = storyboardTitles.get(item.setId)
-    const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
-    return {
-      at: item.tasks.reduce(
-        (latest, task) => Math.max(latest, task.createdAt),
-        Number.NEGATIVE_INFINITY,
-      ),
-      nodes: [
-        <SetHistoryCard
-          key={`set-${item.setId}`}
-          name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
-          actions={legacyActionLabels(job)}
-          tasks={item.tasks}
-          expanded={expanded}
-          onToggle={() =>
-            setExpandedSetIds((ids) =>
-              ids.includes(item.setId)
-                ? ids.filter((id) => id !== item.setId)
-                : [...ids, item.setId],
-            )
-          }
-        />,
-        ...(expanded ? item.tasks.map(renderTask) : []),
-      ],
-    }
-  })
-
-  rows.sort((a, b) => b.at - a.at)
-  const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
-
   return (
     <div
       ref={rootRef}
@@ -515,9 +696,27 @@ export default function TaskGrid({
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {submittedAnnouncement}
       </div>
-      <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
-        {visibleRows.flatMap((row) => row.nodes)}
-      </div>
+      {virtual ? (
+        <div className="pb-6">
+          <div ref={gridRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
+            {virtualizer.getVirtualItems().map((row) => (
+              <div
+                key={row.key}
+                ref={virtualizer.measureElement}
+                data-index={row.index}
+                className="absolute left-0 top-0 grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                style={{ transform: `translateY(${row.start - scrollMargin}px)` }}
+              >
+                {itemRows[row.index]?.map((item) => item.node)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((item) => item.node)}
+        </div>
+      )}
       {limit !== undefined && onExpand && (rows.length > limit || hasMore) && (
         <div className="flex justify-center pb-8">
           <Button
