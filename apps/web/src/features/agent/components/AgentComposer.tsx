@@ -78,7 +78,6 @@ import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { revealNodeCanvas } from '../../canvas/lib/nodeCanvasFocus'
-import { revealNodeCanvas } from '../../canvas/lib/nodeCanvasFocus'
 import {
   activeNodeCanvas,
   nodeCanvasSelection,
