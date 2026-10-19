@@ -1,7 +1,10 @@
-import { GeminiLogo, OpenAILogo } from './assistant-ui/elements/logos'
+import { ClaudeLogo, GeminiLogo, OpenAILogo } from './assistant-ui/elements/logos'
 import { Icon } from './ui/icon'
 
 const COMPACT_MODEL_NAMES: Readonly<Record<string, string>> = {
+  'gpt-6-luna': 'GPT-6 Luna',
+  'gpt-6.1-sol': 'GPT-6.1 Sol',
+  'gpt-6-astra': 'GPT-6 Astra',
   'gpt-image-2': 'Image 2',
   'gpt-image-2.5-flare': 'Image 2.5 Flare',
   'gpt-image-2.5-sunburst': 'Image 2.5 Sunburst',
@@ -24,20 +27,24 @@ export function compactModelName(model: string, fallback: string): string {
 }
 
 export function ModelLogo({ model }: { model: string }) {
-  const brand = model.startsWith('gpt-image-')
-    ? 'openai'
-    : model.startsWith('gemini-')
-      ? 'gemini'
-      : model.startsWith('grok-')
-        ? 'grok'
-        : model.startsWith('agnes-')
-          ? 'agnes'
-          : null
+  const brand =
+    model.startsWith('gpt-') || /^o[134](?:-|$)/.test(model)
+      ? 'openai'
+      : model.startsWith('gemini-')
+        ? 'gemini'
+        : model.startsWith('grok-')
+          ? 'grok'
+          : model.startsWith('claude-')
+            ? 'claude'
+            : model.startsWith('agnes-')
+              ? 'agnes'
+              : null
 
   if (!brand) return <Icon name="model" />
   // OpenAI / Gemini 用 assistant-ui 的矢量 logo：OpenAI 跟随文字色，Gemini 保留品牌渐变。
   if (brand === 'openai') return <OpenAILogo className="h-4 w-4 shrink-0" />
   if (brand === 'gemini') return <GeminiLogo className="h-4 w-4 shrink-0" />
+  if (brand === 'claude') return <ClaudeLogo className="h-4 w-4 shrink-0" />
 
   return (
     <img

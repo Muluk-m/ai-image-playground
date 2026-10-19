@@ -39,7 +39,8 @@ export async function canvasTextModels() {
     providerCredentialReady(provider)
       ? configuredModels(provider).map((model) => ({
           id: modelId(provider.id, model.id),
-          label: `${model.name} · ${provider.name}`,
+          model: model.id,
+          label: model.name,
         }))
       : [],
   )

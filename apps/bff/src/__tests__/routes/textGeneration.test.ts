@@ -149,8 +149,15 @@ it('lists and dispatches inherited provider models without requiring custom over
   const response = await app.handle(
     new Request('http://localhost/api/canvas/text/models', { headers: { cookie } }),
   )
-  const directory = (await response.json()) as { models: { id: string }[] }
-  expect(directory.models.some((item) => item.id === `native::${model.id}`)).toBe(true)
+  const directory = (await response.json()) as {
+    models: { id: string; model: string; label: string }[]
+  }
+  expect(directory.models.find((item) => item.id === `native::${model.id}`)).toEqual({
+    id: `native::${model.id}`,
+    model: model.id,
+    label: model.name,
+  })
+  expect(directory.models.every((item) => !item.label.includes('现有网关'))).toBe(true)
   setAgentFetchForTesting(async (_url, init) => {
     calls.push(JSON.parse(String(init?.body)))
     return Response.json({ error: { message: 'fixture rejection' } }, { status: 400 })
@@ -171,4 +178,27 @@ it('rejects missing pricing without an upstream call or leftover task', async ()
   })
   expect(calls).toEqual([])
   expect(await db.select().from(schema.tasks)).toEqual([])
+})
+
+it('uses the configured display label without exposing provider names in canvas text models', async () => {
+  const view = await agentModelSettingsView()
+  const settings = {
+    ...view.settings,
+    providers: view.settings.providers.map((provider) => ({
+      ...provider,
+      models: provider.models.map((model) => ({ ...model, name: 'Creative Writer' })),
+    })),
+  }
+  await saveAgentModelSettings({ revision: view.revision, settings }, 'test-operator')
+  const response = await app.handle(
+    new Request('http://localhost/api/canvas/text/models', { headers: { cookie } }),
+  )
+  expect(response.status).toBe(200)
+  const directory = await response.json()
+  expect(directory.models).toContainEqual({
+    id: input.model,
+    model: 'fixture-agent-model',
+    label: 'Creative Writer',
+  })
+  expect(directory.defaultModel).toBe(input.model)
 })
