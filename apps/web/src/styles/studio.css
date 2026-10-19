@@ -1336,7 +1336,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-handle.connectingfrom .studio-node-port-button { opacity: 1; }
 .studio-node-port-button[data-following="true"] { background: hsl(var(--muted)); color: hsl(var(--primary)); border-color: hsl(var(--primary) / .6); }
 .studio-node-handle:focus-visible .studio-node-port-button { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
-.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 3px hsl(var(--primary) / .65)); }
+.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 1.25; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 3px hsl(var(--primary) / .65)); }
 .studio-edge-lit .studio-node-edge-energy, .react-flow__edge.selected .studio-node-edge-energy { opacity: 1; animation: studio-node-flow-energy 1800ms linear infinite; }
 @keyframes studio-node-flow-energy { to { stroke-dashoffset: -100; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1357,7 +1357,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-canvas .studio-edge-lit .react-flow__edge-path,
 .studio-node-canvas .react-flow__edge.selected .react-flow__edge-path {
   stroke: hsl(var(--primary));
-  stroke-width: 2.5;
+  stroke-width: 1.25;
 }
 .studio-node-canvas .studio-node-connection-disabled > .studio-node {
   opacity: .28;
@@ -1419,6 +1419,32 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   stroke: hsl(var(--destructive));
   filter: drop-shadow(0 0 5px hsl(var(--destructive) / .7));
 }
+.studio-node-pending-connection {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+.studio-node-pending-connection-path {
+  fill: none;
+  stroke: hsl(var(--primary) / .8);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px hsl(var(--primary) / .55));
+}
+.studio-node-pending-connection-energy {
+  fill: none;
+  stroke: hsl(var(--primary));
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-dasharray: 14 86;
+  opacity: .9;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / .8));
+  pointer-events: none;
+  animation: studio-node-flow-energy 900ms linear infinite;
+}
 .studio-node-edge-cut {
   pointer-events: all;
   position: absolute;
@@ -1434,6 +1460,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-node-port-button { transition: none; }
   .studio-node-edge-energy,
   .studio-node-connection-preview-energy,
+  .studio-node-pending-connection-energy,
   .studio-node-handle.connectingto.valid .studio-node-port-button::before { animation: none !important; }
 }
 .studio-node-composer {
