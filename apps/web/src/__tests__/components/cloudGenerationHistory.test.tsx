@@ -85,6 +85,7 @@ beforeEach(async () => {
   // 平台记录进的是可整体替换的缓存（`lib/platformGenerations`），作品页的输入框也要读模板。
   vi.stubGlobal('indexedDB', new IDBFactory())
   vi.stubGlobal('IntersectionObserver', HistoryObserver)
+  vi.stubGlobal('scrollTo', vi.fn())
   useStore.setState({
     prompt: '',
     params: { ...DEFAULT_PARAMS },
@@ -232,17 +233,17 @@ it('接近列表底部时续读下一页，等待期间不重复请求', async (
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
-  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(1)
   await reachEnd()
   await reachEnd()
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
   expect(host.querySelector('[role="status"]')?.textContent).toContain('加载')
   await act(async () =>
     finishPage?.(page([{ ...item, id: 'second-page', createdAt: item.createdAt - 1 }])),
   )
   await waitCards(2)
   await reachEnd()
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
   expect(host.querySelector('.studio-works-fade')).toBeNull()
 })
 
@@ -257,7 +258,7 @@ it('滚动加载失败时保留已读作品并停止自动重试', async () => {
   await reachEnd()
   await settle()
   await reachEnd()
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
   expect(cards()).toHaveLength(1)
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('刷新重试')
   expect(findButton('刷新')).toBe(true)
