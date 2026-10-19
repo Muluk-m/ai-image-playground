@@ -126,7 +126,7 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
 }
 
 export const NODE_CANVAS_GENERATION_LINE =
-  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备节点与提示词，再用 runNodes 指定要运行的节点或分组；不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。'
+  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待授权、已提交或失败。回复用节点名称，不用内部 ID。'
 
 const DIRECT_IMAGE_LINE =
   '这一轮是图片生成：不要追问、不要改写成另一套方案，用用户原话调用一次生图工具，张数用本轮参数里的 n。工具会当场提交。'
@@ -147,9 +147,7 @@ export function systemPrompt(
       : '当前仅提供图片创作工具，不支持生成视频；用户明确要视频时如实说明限制，不得替他改为生图。',
     '设计请求先抓住用户想表达的意思，再决定观众第一眼看到什么、视线如何移动；构图、光线、色彩与材质都服务于这个表达。用户说过的要求和你自行补的设计选择要分清；只靠“高级感”“氛围感”等空词不能算完成设计。',
     // 通用批次与生图工具不知道结果属于哪个节点，节点就不会进入生成状态，结果也不会落回节点。
-    ...(audience.nodeCanvas && audience.experience === 'canvas'
-      ? [NODE_CANVAS_GENERATION_LINE]
-      : []),
+    ...(audience.experience === 'canvas' ? [NODE_CANVAS_GENERATION_LINE] : []),
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(mode, audience),
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
@@ -157,7 +155,7 @@ export function systemPrompt(
     audience.experience === 'chat'
       ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑；不要承诺结果已写入画布。'
       : '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
-    audience.nodeCanvas && audience.experience === 'canvas'
+    audience.experience === 'canvas'
       ? '节点画布只使用阶段授权：runNodes 返回待确认提案，不使用出图模式每轮额度；用户确认后由原标签页开跑。授权状态可查询，只有实际任务记录才能称已提交，真实结果才能称已完成；范围外或预算不足须重新提案。'
       : directImage
         ? DIRECT_IMAGE_LINE

@@ -544,6 +544,7 @@
     "assetDragHint": "点击素材添加，或拖到画布指定位置。",
     "assetNoImage": "此素材还没有参考图，将仅使用名称和描述生成，外观可能不一致。",
     "assetNode": "素材",
+    "assetPending": "待出图",
     "saveAsAsset": "存为素材",
     "assetThreeViews": "生成人物三视图",
     "assetEmptyScene": "生成地点空场景",

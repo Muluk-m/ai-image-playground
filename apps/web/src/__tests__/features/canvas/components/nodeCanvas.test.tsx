@@ -244,6 +244,41 @@ async function render(active = true) {
   await act(async () => root.render(<NodeCanvas workspace={workspace} active={active} />))
 }
 
+it('labels imageless assets as pending and removes the label when a real image arrives', async () => {
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'asset-pending',
+      type: 'image',
+      x: 200,
+      y: 0,
+      width: 360,
+      height: 240,
+      data: {
+        name: '林夏',
+        meta: { nodeKind: 'asset', assetKind: 'person', assetDescription: '插画师' },
+      },
+    },
+    canvas.origin,
+  )
+  await render()
+  const asset = () => host.querySelector<HTMLElement>('[data-node-id="asset-pending"]')!
+  expect(asset().textContent).toContain('待出图')
+  expect(host.querySelector('[data-node-id="image"]')?.textContent).not.toContain('待出图')
+  await act(async () => {
+    updateCanvasNode(
+      canvas.doc,
+      'asset-pending',
+      {
+        data: { fileId: 'file', name: '林夏', meta: { nodeKind: 'asset', assetKind: 'person' } },
+      },
+      canvas.origin,
+    )
+  })
+  expect(asset().textContent).not.toContain('待出图')
+  expect(asset().querySelector('img')).not.toBeNull()
+})
+
 it.each([
   'original',
   'fetch',
