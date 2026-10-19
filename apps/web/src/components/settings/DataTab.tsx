@@ -2,7 +2,6 @@ import { useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { useTranslation } from '../../i18n'
 import { clearData, exportData, importData, useStore } from '../../store'
-import LogoutDialog from '../LogoutDialog'
 import { Checkbox } from '../patterns/Checkbox'
 import SyncStatusPanel from '../SyncStatusPanel'
 import { Button } from '../ui/button'
@@ -26,7 +25,6 @@ export default function DataTab() {
   const [clearConfig, setClearConfig] = useState(true)
   const [clearTasks, setClearTasks] = useState(true)
   const [isImportingData, setIsImportingData] = useState(false)
-  const [logoutOpen, setLogoutOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -59,7 +57,10 @@ export default function DataTab() {
               variant="outline"
               size="sm"
               disabled={loggingOut}
-              onClick={() => setLogoutOpen(true)}
+              onClick={() => {
+                setLoggingOut(true)
+                void auth.logout(false)
+              }}
             >
               <Icon name="logout" />
               {loggingOut ? t('shell:header.loggingOut') : t('shell:logout.title')}
@@ -169,17 +170,6 @@ export default function DataTab() {
           {t('data.clearSelected')}
         </Button>
       </SettingsSection>
-
-      {logoutOpen && (
-        <LogoutDialog
-          onCancel={() => setLogoutOpen(false)}
-          onConfirm={(clearLocalData) => {
-            setLogoutOpen(false)
-            setLoggingOut(true)
-            void auth.logout(clearLocalData)
-          }}
-        />
-      )}
     </div>
   )
 }

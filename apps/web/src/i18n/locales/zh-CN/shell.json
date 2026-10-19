@@ -37,9 +37,7 @@
     "viewAll": "查看全部"
   },
   "logout": {
-    "title": "退出登录",
-    "clearLocalData": "同时清除这个浏览器里的数据",
-    "confirm": "退出"
+    "title": "退出登录"
   },
   "sync": {
     "title": "保存状态",
