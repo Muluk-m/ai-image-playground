@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        issue: [abort]
+        issue: [1364, 1366, abort]
     services:
       postgres:
         image: postgres:17-alpine
@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: Muluk-m/ai-image-playground-private
-          ref: implement/issue-1366-video-quotes
+          ref: d19ef8fae8e2472cc1a79f45fd3e366c020ded07
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
