@@ -88,6 +88,7 @@ export default function NodeBatchDialog({
     cancelled: t('nodeBatch.cancelled'),
     limit: t('nodeBatch.limit'),
     balance: t('nodeBatch.balance'),
+    authorization: t('nodeBatch.authorization'),
   }
   return (
     <Dialog

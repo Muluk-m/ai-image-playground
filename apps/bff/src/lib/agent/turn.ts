@@ -231,8 +231,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       recordWebSearch: (attempt) => ledger.recordSideCall('web_search', attempt),
       ...(prepared.params ? { params: prepared.params } : {}),
       ...(prepared.canvas ? { canvas: prepared.canvas } : {}),
-      // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
-      ...(input.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
+      // Node canvas has one authorization mechanism; per-turn image quota is chat/legacy only.
+      ...(input.autoSubmit && !audience.nodeCanvas ? { autoSubmit: createAutoSubmitBudget() } : {}),
       ...(prepared.wake?.replay ? { replay: prepared.wake.replay } : {}),
     },
     toolFailures,

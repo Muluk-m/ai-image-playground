@@ -3,6 +3,7 @@ import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
   'agent_model_settings',
+  'agent_stage_authorizations',
   'analysis_tasks',
   'analysis_model_calls',
   'agent_batch_attempts',
@@ -62,6 +63,9 @@ export const EXPECTED_TABLES = [
 
 export const EXPECTED_INDEXES = [
   'agent_model_settings_pkey',
+  'agent_stage_authorizations_pkey',
+  'idx_agent_stage_proposal',
+  'idx_agent_stage_owner',
   'client_error_recoveries_pkey',
   'idx_client_error_recoveries_incident',
   'idx_client_error_recoveries_received',

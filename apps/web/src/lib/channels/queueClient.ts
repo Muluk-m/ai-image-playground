@@ -10,6 +10,7 @@ import {
   type TaskErrorType,
   type VideoRequest,
 } from '@image-playground/shared'
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import { describeError, i18next } from '../../i18n'
 import type { TaskParams } from '../../types'
 import { normalizeApiTimeout } from '../apiProfiles'
@@ -182,6 +183,7 @@ async function submit(
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
   if (opts.outputRetention) body.output_retention = opts.outputRetention
+  if (opts.stageAuthorization) body.stage_authorization = opts.stageAuthorization
   if (opts.maskDataUrl) body.mask = opts.maskDataUrl
   if (clientRequestId) body.client_request_id = clientRequestId
 
@@ -262,6 +264,7 @@ async function postSubmit(
 }
 
 export interface VideoSubmitInput {
+  stageAuthorization?: StageAuthorizationSubmission
   channel: PublicChannel
   model: string
   prompt: string
@@ -288,6 +291,7 @@ export async function submitVideoRequest(input: VideoSubmitInput): Promise<strin
     client_request_id: input.clientRequestId,
   }
   if (input.inputImageDataUrls.length) body.input_images = input.inputImageDataUrls
+  if (input.stageAuthorization) body.stage_authorization = input.stageAuthorization
   return await postSubmit(bffBaseUrl(), provider, input.model, body)
 }
 

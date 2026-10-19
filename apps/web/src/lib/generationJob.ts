@@ -1,4 +1,4 @@
-import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import type { StageAuthorizationSubmission, TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
 import { requireAccount } from '../auth/loginPrompt'
 import { describeError, i18next } from '../i18n'
 import { useStore } from '../store'
@@ -60,6 +60,7 @@ export interface GenerationVariant<C> {
 
 /** 起一批生成要知道的全部。 */
 export interface GenerationSpec<C> {
+  stageAuthorization?: StageAuthorizationSubmission
   outputRetention?: 'candidate'
   settings: AppSettings
   /** 这次用的配置档案（已定模型）：门禁按它的模型计价，扇出按它的能力决定。 */
@@ -73,6 +74,7 @@ export interface GenerationSpec<C> {
 
 /** 扇出之后的一条任务：这一条发什么、带什么幂等键，`params.n` 已经折好。 */
 export interface GenerationUnit<C> {
+  stageAuthorization?: StageAuthorizationSubmission
   outputRetention?: 'candidate'
   prompt: string
   params: TaskParams
@@ -210,6 +212,7 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
     for (let index = 0; index < fanOut; index++) {
       const unit: GenerationUnit<C> = {
         outputRetention: spec.outputRetention,
+        stageAuthorization: spec.stageAuthorization,
         prompt: variant.prompt,
         params,
         inputImageDataUrls: variant.inputImageDataUrls,
@@ -288,6 +291,7 @@ async function runUnit<H>(
     return callImageApi({
       settings,
       outputRetention: unit.outputRetention,
+      stageAuthorization: unit.stageAuthorization,
       prompt: unit.prompt,
       params: unit.params,
       // 云媒体里的图按身份交给 BFF，由服务端读字节、按同一口径压缩；带遮罩时要像素对齐，

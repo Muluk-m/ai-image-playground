@@ -103,7 +103,7 @@ import {
   removeQueuedMessage,
   returnQueuedToDraft,
 } from './lib/messageQueue'
-import { AGENT_NODE_RUN_UNDO_SECONDS, startAgentNodeRun } from './lib/nodeRuns'
+import { registerAgentNodeRunOrigin } from './lib/nodeRuns'
 import {
   bindOutgoingConversation,
   forgetOutgoing,
@@ -680,9 +680,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const card = panelMessage(event.messageId, turnId, 'assistant', [
         { ...event, type: 'toolResult' },
       ])
-      // 出图模式的节点运行只由发出这一轮的标签页开跑；刷新、换设备与重放都只显示确认卡。
-      if (sent && card.kind === 'tool' && card.canvasRun?.autoRun)
-        startAgentNodeRun(card.id, card.canvasRun, AGENT_NODE_RUN_UNDO_SECONDS)
+      // Origin rights are memory-only. History, reconnects and other devices never auto-start.
+      if (sent && card.kind === 'tool' && card.canvasRun)
+        registerAgentNodeRunOrigin(card.id)
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')

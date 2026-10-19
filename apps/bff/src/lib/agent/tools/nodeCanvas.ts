@@ -23,6 +23,7 @@ import { executeCanvasCommand } from '../../canvasCommands'
 import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
 import { agentCanvasProject } from '../node-canvas-view'
+import { proposeStageAuthorization, readStageAuthorization } from '../stage-authorizations'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import type { AgentToolAudience, AgentToolContext } from './types'
@@ -321,19 +322,22 @@ export const arrangeNodes = defineAgentTool({
 
 export const runNodes = defineAgentTool({
   name: 'runNodes',
-  label: '建议运行节点',
+  label: '阶段授权',
   modes,
   available,
   onError: 'continue',
   guidance:
-    '为画布节点生成图片或视频（包括批量生成）都用 runNodes。先 readCanvas 确认节点。工具成功不等于生成完成；回执说明这次是等用户确认还是直接运行，照回执如实告诉用户。',
+    '为画布节点生成图片或视频都用 runNodes 提案阶段授权。先 readCanvas 确认节点名称与范围，说明预估积分。授权前只能说「待确认」，查询到实际 taskIds 后才说「已提交」，有真实结果后才说「已完成」。画布不使用出图模式每轮自动提交额度。',
   description:
-    '为当前云端画布指定节点或分组发起运行。对话卡显示当前批次预估：对话模式下用户在卡上确认后运行；出图模式下直接运行，开跑前用户可撤销。工具本身不生成、不扣费；实际结果应通过 readCanvas 再查看。',
+    '为当前云端画布的一组节点发起持久化阶段授权；stage 为阶段名称，estimatedCredits 为本次申请的预算上限。用户确认后仅原标签页执行，开跑前可撤销。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
     nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
+    stage: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    estimatedCredits: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000000 })),
+    authorizationId: Type.Optional(id),
   }),
-  call: () => ({ title: '建议运行节点' }),
-  execute: (context) => async (_callId, params) => {
+  call: () => ({ title: '阶段授权' }),
+  execute: (context) => async (callId, params) => {
     if (
       !available(context.mode, {
         ...context,
@@ -343,6 +347,12 @@ export const runNodes = defineAgentTool({
       invalid('当前会话没有可用的云端节点画布。')
     const project = await agentCanvasProject(context)
     if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
+    if (params.authorizationId) {
+      const authorization = await readStageAuthorization(context.userId, params.authorizationId)
+      if (authorization.projectId !== project.id || authorization.conversationId !== context.conversationId)
+        return invalid('授权不属于当前会话与项目。')
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ...authorization, submitted: authorization.attempts.some((attempt) => attempt.taskIds.length > 0), note: authorization.status === 'pending' ? '待确认，尚未提交。' : '只有 taskIds 中的任务已提交；不代表已完成。' }) }] }
+    }
     await context.assertExecution?.()
     const doc = new Y.Doc()
     try {
@@ -353,12 +363,21 @@ export const runNodes = defineAgentTool({
         ...(graph.groups ?? []).map((group) => group.id),
       ])
       for (const id of params.nodeIds) if (!existing.has(id)) invalid(`节点或分组不存在：${id}`)
-      // 出图模式与生成工具共用每轮自动提交额度；领不到就退回等用户在对话卡确认。
-      const autoRun = context.autoSubmit?.take() === true
+      const ids = new Set(params.nodeIds)
+      for (const group of graph.groups ?? [])
+        if (ids.has(group.id)) for (const nodeId of group.members) ids.add(nodeId)
+      const nodes = graph.nodes.filter((node) => ids.has(node.id) && ['image', 'video', 'asset'].includes(canvasNodeKind(node)))
+      if (!nodes.length) return invalid('范围内没有可生成的节点。')
+      const authorization = await proposeStageAuthorization({
+        userId: context.userId, conversationId: context.conversationId, projectId: project.id,
+        proposalKey: `${context.turnId}:${callId}`, stage: params.stage ?? '节点生成',
+        nodeIds: nodes.map((node) => node.id), nodeNames: nodes.map((node) => node.data.name || '未命名节点'),
+        estimatedCredits: params.estimatedCredits ?? 0,
+      })
       const canvasRun = {
-        projectId: project.id,
-        nodeIds: params.nodeIds,
-        ...(autoRun ? { autoRun: true as const } : {}),
+        projectId: project.id, nodeIds: authorization.nodeIds, nodeNames: authorization.nodeNames,
+        authorizationId: authorization.id, stage: authorization.stage,
+        estimatedCredits: authorization.estimatedCredits, budgetCap: authorization.budgetCap, status: authorization.status,
       }
       return {
         content: [
@@ -367,9 +386,7 @@ export const runNodes = defineAgentTool({
             text: JSON.stringify({
               ...canvasRun,
               submitted: false,
-              note: autoRun
-                ? '出图模式：节点将在几秒后直接运行并计费，用户可在开跑前撤销。不得声称已生成，结果需重新读取画布。'
-                : '运行建议已给到用户；用户在对话卡确认前不会提交或扣费。不得声称已生成，结果需重新读取画布。',
+              note: '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
             }),
           },
         ],

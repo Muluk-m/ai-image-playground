@@ -11,6 +11,7 @@ import {
   videoRateMultiplier,
   videoRequestRejection,
 } from '@image-playground/shared'
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import type * as Y from 'yjs'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { accountScope } from '../../../lib/authScope'
@@ -47,6 +48,7 @@ export type NodeBatchError =
   | 'cancelled'
   | 'limit'
   | 'balance'
+  | 'authorization'
 export class NodeBatchFailure extends Error {
   constructor(public readonly code: NodeBatchError) {
     super(code)
@@ -342,6 +344,7 @@ export async function runNodeBatch(
   plan: NodeBatchPlan,
   signal: AbortSignal,
   progress: (completed: number, id: string) => void,
+  stageAuthorizations?: Readonly<Record<string, StageAuthorizationSubmission>>,
 ) {
   const sameAccount = accountScope()
   const completedResults = new Map<string, string>()
@@ -383,7 +386,7 @@ export async function runNodeBatch(
               referenceFileIds(current.refs, files).map((id) => files[id]!),
               undefined,
               undefined,
-              { settings: plan.settings, params: { ...plan.params, n: job.quantity } },
+              { settings: plan.settings, params: { ...plan.params, n: job.quantity }, stageAuthorization: stageAuthorizations?.[job.id] },
             )
           : submitNodeVideo(
               editor,
@@ -394,6 +397,7 @@ export async function runNodeBatch(
               current.roles,
               files,
               job.draft,
+              stageAuthorizations?.[job.id],
             )
       if (!accepted) throw new NodeBatchFailure('failed')
       await waitForNodeBatchResult(

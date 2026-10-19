@@ -6,6 +6,7 @@ import type {
   PersistedVideoRequest,
   QueueProvider,
   SubmitRequest,
+  StageAuthorizationSubmission,
   TaskErrorType,
   TaskStatus,
 } from '@image-playground/shared'
@@ -25,6 +26,7 @@ import { describeEmptyResult, type ExtractedResult, extractMeta } from './extrac
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { objectStore } from './objectStore'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
+import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
@@ -38,6 +40,7 @@ export interface PreparedQueueTask {
 }
 
 export interface CreateQueueTaskInput {
+  readonly stageAuthorization?: StageAuthorizationSubmission
   /** Server-only preparation; its caller owns cleanup after its transaction commits or rolls back. */
   readonly prepared?: PreparedQueueTask
   readonly provider: QueueProvider
@@ -341,6 +344,7 @@ export async function createQueueTask(
 
     if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
 
+    let reservedCredits = 0
     if (isCapabilityEnabled('billing:credits')) {
       if (!input.userId) {
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
@@ -358,6 +362,7 @@ export async function createQueueTask(
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
         return reservation
       }
+      reservedCredits = reservation.credits
     } else if (dailyQuotaEnabled) {
       const quota = await tryConsumeQuotaInTransaction(
         tx,
@@ -370,6 +375,10 @@ export async function createQueueTask(
         return { kind: 'quota_exceeded' as const, quota }
       }
     }
+    if (input.stageAuthorization)
+      await consumeStageAuthorization(tx, input.userId, input.stageAuthorization, id, {
+        model: input.model, quantity: pricing.quantity, unitMultiplier: pricing.unitMultiplier,
+      }, reservedCredits)
     if (input.userId && commandId)
       await tx.insert(schema.generation_commands).values({
         user_id: input.userId,

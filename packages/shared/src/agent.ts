@@ -680,12 +680,16 @@ export interface AgentVisualObservation {
   readonly evidence: readonly AgentVisualEvidence[]
 }
 
-/** A proposal only. The client must review the live estimate and confirm the batch before submission. */
+/** Persisted stage proposal. Execution credentials are never part of conversation history. */
 export interface AgentCanvasRunProposal {
   readonly projectId: string
   readonly nodeIds: readonly string[]
-  /** 出图模式下由发起这一轮的标签页直接开跑，开跑前留撤销时间；缺席即等用户在对话卡确认。 */
-  readonly autoRun?: true
+  readonly nodeNames: readonly string[]
+  readonly authorizationId: string
+  readonly stage: string
+  readonly estimatedCredits: number
+  readonly budgetCap: number
+  readonly status: 'pending' | 'active' | 'exhausted' | 'ended'
 }
 
 export interface AgentToolResultBlock {
@@ -1366,9 +1370,7 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
   if (block.canvasRun)
-    return block.canvasRun.autoRun
-      ? `${title}：已请求直接运行节点 ${block.canvasRun.nodeIds.join('、')}；用户可在开跑前撤销，实际执行情况需重新读取节点。`
-      : `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户在对话卡确认后才运行，实际执行情况需重新读取节点。`
+    return `${title}：阶段「${block.canvasRun.stage}」，范围 ${block.canvasRun.nodeNames.join('、')}，预算上限 ${block.canvasRun.budgetCap} 积分。授权提案待确认，不代表任务已提交；必须查询授权状态及真实任务后才能说「已提交」，读取真实结果后才能说「已完成」。`
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =

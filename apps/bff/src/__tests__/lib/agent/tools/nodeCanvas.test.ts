@@ -242,7 +242,8 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   const auto = await runNodes
     .create({ ...context, autoSubmit: { take: () => true } })
     .execute('auto', { nodeIds: ['image'] }, undefined, undefined)
-  expect(auto.details?.canvasRun?.autoRun).toBe(true)
+  expect(auto.details?.canvasRun).toMatchObject({ status: 'pending', nodeIds: ['image'] })
+  expect(auto.details?.canvasRun).not.toHaveProperty('autoRun')
   const exhausted = await runNodes
     .create({ ...context, autoSubmit: { take: () => false } })
     .execute('exhausted', { nodeIds: ['image'] }, undefined, undefined)
