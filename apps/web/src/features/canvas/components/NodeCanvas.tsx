@@ -106,7 +106,7 @@ import {
 } from '../lib/nodeCanvasFlow'
 import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
-import { nodeCardSize } from '../lib/nodeCanvasPlace'
+import { nodeCardSize } from '@image-playground/shared'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,

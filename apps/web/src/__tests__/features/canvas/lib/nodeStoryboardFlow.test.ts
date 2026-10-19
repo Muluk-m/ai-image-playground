@@ -12,6 +12,8 @@ import {
   recordCanvasResult,
   setCanvasNodeJob,
   storyboardFingerprint,
+  storyboardGridBatches,
+  storyboardMissingAssets,
   updateCanvasNode,
   updateStoryboardShot,
   VIDEO_MODEL_SUPPORT,
@@ -22,8 +24,6 @@ import { copyNodes, pasteNodes } from '../../../../features/canvas/lib/nodeCanva
 import {
   prepareStoryboardFrames,
   prepareStoryboardVideos,
-  storyboardGridBatches,
-  storyboardMissingAssets,
 } from '../../../../features/canvas/lib/nodeStoryboardFlow'
 import { INITIAL_VIDEO_DRAFT } from '../../../../features/video/store'
 
@@ -130,7 +130,7 @@ const options = [
 
 it('prepares references and all frame placeholders in one undo step without submitting, and reuses them', () => {
   const canvas = setup(10)
-  expect(storyboardMissingAssets(canvas, 'board')).toEqual(['芽芽'])
+  expect(storyboardMissingAssets(canvas.doc, 'board')).toEqual(['芽芽'])
   const result = prepareStoryboardFrames(canvas, 'board', 'grid')
   expect(result.frameIds).toHaveLength(10)
   expect(result.generateIds).toHaveLength(2)

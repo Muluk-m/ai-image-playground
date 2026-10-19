@@ -4,48 +4,6 @@ import { Box } from './geometry'
 /** 结果 / 占位框与源选区之间、以及多张结果彼此之间的留白（页面坐标单位）。 */
 export const PLACEMENT_GAP = 48
 
-interface CanvasPlacementRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-/** Translate a pre-arranged batch into free space without moving existing nodes or its members. */
-export function findFreeCanvasPlacement(
-  proposed: readonly CanvasPlacementRect[],
-  occupied: readonly CanvasPlacementRect[],
-  gap: number,
-): { x: number; y: number } {
-  if (proposed.length === 0) return { x: 0, y: 0 }
-  let left = Infinity
-  let top = Infinity
-  let right = -Infinity
-  let bottom = -Infinity
-  for (const rect of proposed) {
-    left = Math.min(left, rect.x)
-    top = Math.min(top, rect.y)
-    right = Math.max(right, rect.x + rect.width)
-    bottom = Math.max(bottom, rect.y + rect.height)
-  }
-  let y = 0
-  // Each jump clears a blocking node permanently; the search terminates below the last blocker.
-  for (;;) {
-    let nextY = y
-    for (const rect of occupied) {
-      if (
-        left < rect.x + rect.width + gap &&
-        right + gap > rect.x &&
-        top + y < rect.y + rect.height + gap &&
-        bottom + y + gap > rect.y
-      ) {
-        nextY = Math.max(nextY, rect.y + rect.height + gap - top)
-      }
-    }
-    if (nextY === y) return { x: 0, y }
-    y = nextY
-  }
-}
 
 /** 尚不知结果真实尺寸时占位框的默认边长（页面坐标单位）。 */
 const DEFAULT_TARGET_SIZE = 360

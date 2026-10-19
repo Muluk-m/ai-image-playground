@@ -21,7 +21,7 @@ import {
   removeNodes,
 } from '../../../../features/canvas/lib/nodeCanvasActions'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
-import { nodeCardSize } from '../../../../features/canvas/lib/nodeCanvasPlace'
+import { nodeCardSize } from '@image-playground/shared'
 
 function setup(): NodeCanvasDocument {
   const doc = new Y.Doc(),
