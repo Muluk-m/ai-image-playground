@@ -124,13 +124,16 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
+  expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).toEqual(
+    expect.arrayContaining(['generateImage', 'editImage']),
+  )
   expect(agentTurnTools({ ...context, userId: null }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
 })
-it('keeps an unselected canvas turn on node generation and rejects ownerless submissions', async () => {
+it.each([{ elements: [] }, undefined])('keeps canvas snapshot %j on node generation and rejects ownerless submissions', async (canvas) => {
   const { context, graph } = await fixture()
-  const unselected = { ...context, canvas: { elements: [] } }
+  const unselected = { ...context, canvas }
   const tools = agentTurnTools(unselected)
   const names = tools.map((tool) => tool.name)
   for (const name of ['createNodes', 'updateNodes', 'runNodes', 'importCanvasImage'])
