@@ -1316,16 +1316,16 @@ export default function AgentComposer({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="col-start-1 row-start-1 block h-auto w-full self-start whitespace-normal p-0 text-left text-base font-normal leading-[1.75] text-muted-foreground hover:bg-transparent"
+                  className="pointer-events-none col-start-1 row-start-1 block h-auto w-full self-start whitespace-normal p-0 text-left text-base font-normal leading-[1.75] text-muted-foreground hover:bg-transparent"
                   aria-label={t('suggestions.followUpAccept')}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => acceptFollowUpRef.current(followUpGhost)}
                 >
-                  <span className="mr-2 inline-flex h-7 items-center rounded-md border border-input bg-background px-2 align-middle text-xs">
+                  <span className="pointer-events-auto mr-2 inline-flex h-7 items-center rounded-md border border-input bg-background px-2 align-middle text-xs">
                     <span className="sm:hidden">{t('suggestions.followUpTap')}</span>
                     <span className="hidden sm:inline">Tab</span>
                   </span>
-                  <span>{followUpGhost}</span>
+                  <span className="pointer-events-auto">{followUpGhost}</span>
                 </Button>
                 <p id={followUpHintId} className="sr-only">
                   {t('suggestions.followUpHint', { text: followUpGhost })}
