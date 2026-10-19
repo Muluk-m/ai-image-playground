@@ -7,7 +7,7 @@ import type {
   AgentToolCallSnapshot,
 } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNull, lte, type SQL, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { settleAgentJobs } from './background-jobs'
@@ -398,7 +398,91 @@ export async function listAgentMessages(
   conversationId: string,
   owner: AgentOwner,
 ): Promise<AgentMessageView[]> {
-  return readAgentMessages(conversationId, owner)
+  const messages = await readAgentMessages(conversationId, owner)
+  return owner.kind === 'user' ? withArtifactMedia(owner.userId, messages) : messages
+}
+
+/**
+ * 给图片产物补上它归档成的云媒体 id：前端据此走签名直链与本机媒体缓存，当参考图时按 id 发。
+ * 只给面板读路径补，模型的历史不需要它。生成记录与媒体都按这个用户确权。
+ */
+async function withArtifactMedia(
+  userId: string,
+  messages: AgentMessageView[],
+): Promise<AgentMessageView[]> {
+  const taskIds = [
+    ...new Set(
+      messages.flatMap((message) =>
+        message.content.flatMap((block) =>
+          block.type === 'toolResult'
+            ? (block.artifacts ?? [])
+                .filter((artifact) => artifact.media === 'image' && !artifact.mediaId)
+                .map((artifact) => artifact.taskId)
+            : [],
+        ),
+      ),
+    ),
+  ]
+  if (!taskIds.length) return messages
+  const rows: { generationId: string; position: number; mediaId: string }[] = []
+  try {
+    // 长会话的产物很多：分批查，免得一条语句的参数撑爆。
+    for (let start = 0; start < taskIds.length; start += 500) {
+      rows.push(
+        ...(await db
+          .select({
+            generationId: schema.generation_images.generation_id,
+            position: schema.generation_images.position,
+            mediaId: schema.media_objects.id,
+          })
+          .from(schema.generation_images)
+          .innerJoin(
+            schema.generation_records,
+            eq(schema.generation_records.id, schema.generation_images.generation_id),
+          )
+          .innerJoin(
+            schema.media_objects,
+            eq(schema.media_objects.id, schema.generation_images.media_id),
+          )
+          .where(
+            and(
+              inArray(schema.generation_images.generation_id, taskIds.slice(start, start + 500)),
+              eq(schema.generation_images.role, 'output'),
+              eq(schema.generation_records.user_id, userId),
+              eq(schema.generation_records.status, 'completed'),
+              isNull(schema.generation_records.deleted_at),
+              eq(schema.media_objects.user_id, userId),
+              eq(schema.media_objects.status, 'ready'),
+              isNotNull(schema.media_objects.object_key),
+              // 取图要走 `/access`，它要求预览档已生成。
+              isNotNull(schema.media_objects.preview_key),
+            ),
+          )),
+      )
+    }
+  } catch {
+    // 只是让前端少走一趟：补不上就按旧路径取图，不能因此读不到历史。
+    return messages
+  }
+  if (!rows.length) return messages
+  const media = new Map(rows.map((row) => [`${row.generationId}:${row.position}`, row.mediaId]))
+  return messages.map((message) => ({
+    ...message,
+    content: message.content.map((block) => {
+      if (block.type !== 'toolResult' || !block.artifacts?.length) return block
+      let changed = false
+      const artifacts = block.artifacts.map((artifact) => {
+        const mediaId =
+          artifact.media === 'image' && !artifact.mediaId
+            ? media.get(`${artifact.taskId}:${artifact.outputIndex}`)
+            : undefined
+        if (!mediaId) return artifact
+        changed = true
+        return { ...artifact, mediaId }
+      })
+      return changed ? { ...block, artifacts } : block
+    }),
+  }))
 }
 
 export interface AgentHistoryWindow {

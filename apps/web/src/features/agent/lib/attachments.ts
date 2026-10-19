@@ -142,3 +142,21 @@ export function attachFilesToComposer(files: File[]): boolean {
   attach(files)
   return true
 }
+
+/**
+ * 已有身份的图（对话里的产物）直接成为参考图：不包成文件，也就不会被当成新上传。
+ * 同一个 id 已在草稿里时复用原序号。
+ */
+let attachKnown: ((references: AgentReference[]) => void) | null = null
+
+export function setAgentComposerReferences(
+  next: ((references: AgentReference[]) => void) | null,
+): void {
+  attachKnown = next
+}
+
+export function attachReferencesToComposer(references: AgentReference[]): boolean {
+  if (!attachKnown) return false
+  attachKnown(references)
+  return true
+}

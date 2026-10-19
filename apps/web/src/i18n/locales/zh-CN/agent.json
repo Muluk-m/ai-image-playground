@@ -50,7 +50,9 @@
   "reply": {
     "copyAria": "复制回复",
     "copied": "已复制",
-    "copyFailed": "复制失败，请选择回复文字手动复制"
+    "copyFailed": "复制失败，请选择回复文字手动复制",
+    "image": "图片",
+    "openImage": "查看图片：{{name}}"
   },
   "tool": {
     "canvasReadNodes": "已读取节点：{{nodes}}",
@@ -77,11 +79,7 @@
     "zoomResult": "放大查看",
     "downloadResult": "下载",
     "downloadAll": "全部下载",
-    "removeBackground": "去背景",
     "batchCount_other": "{{count}} 张",
-    "costDetail": "明细",
-    "editOnCanvas": "在画布中编辑",
-    "useAsReference": "用作参考",
     "inpaint": "局部重绘",
     "erase": "擦除",
     "crop": "裁剪",
@@ -226,6 +224,15 @@
   },
   "composer": {
     "editorAria": "对智能体说",
+    "nodeReferences": "选中的画布节点引用",
+    "nodeTypes": {
+      "text": "文本",
+      "image": "图片",
+      "video": "视频",
+      "timeline": "时间线",
+      "storyboard": "分镜",
+      "group": "分组"
+    },
     "drawMaskAria": "给参考图 {{label}} 画遮罩",
     "editMaskAria": "修改参考图 {{label}} 的遮罩",
     "removeReferenceAria": "移除参考图 {{label}}",
@@ -475,8 +482,6 @@
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
-    "queueSlot": "排队中 · 第 {{position}} 位",
-    "queueSlotShort": "第 {{position}} 位",
     "doneCount": "{{done}}/{{total}} 完成",
     "progressAria": "生成进度",
     "cancel": "取消任务",
@@ -709,10 +714,13 @@
     "readPrompt": "请读取当前选中的画布节点，梳理已有素材，并帮我规划下一步创作。"
   },
   "nodeRun": {
-    "title": "运行节点建议",
+    "title": "运行节点",
+    "run": "确认运行",
+    "undo": "撤销（{{seconds}} 秒）",
+    "startingIn": "{{seconds}} 秒后开始运行，撤销不扣费。",
+    "running": "正在运行，结果会写回对应节点。",
+    "undone": "已撤销，没有提交任务。",
     "unpriced": "按实际模型用量结算",
-    "unavailable": "请打开对应画布，并确认建议中的节点仍然存在。",
-    "changed": "画布或参数已变化，或确认窗口已经打开，请重新检查。",
-    "review": "检查节点并确认"
+    "unavailable": "请打开对应画布，并确认建议中的节点仍然存在。"
   }
 }

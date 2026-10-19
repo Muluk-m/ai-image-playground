@@ -106,3 +106,51 @@ it('读取失败时画布已经在用：给重试，重新读一遍而不是推�
   expect(sync).not.toHaveBeenCalled()
   act(() => root.unmount())
 })
+
+it('安静模式下媒体未保存时仍可重试同步，成功后隐藏提示', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create('媒体重试项目', undefined, true)
+  const record = new SceneRecord(new CanvasEditor(new CanvasDoc()), project.sceneKey)
+  await record.open()
+  const session = new CloudProjectSession(project, record)
+  let snapshot: ReturnType<CloudProjectSession['getSnapshot']> = {
+    status: 'media-local',
+    message: null,
+  }
+  vi.spyOn(session, 'getSnapshot').mockImplementation(() => snapshot)
+  const subscribe = vi.spyOn(session, 'subscribe')
+  const sync = vi.spyOn(session, 'sync').mockResolvedValue(undefined)
+  const reload = vi.spyOn(session, 'reload').mockResolvedValue(undefined)
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectSyncStatus session={session} quiet />))
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('画布里有内容还没保存完')
+    expect(host.querySelectorAll('button')).toHaveLength(1)
+    const retry = host.querySelector('button')
+    expect(retry?.textContent).toBe('重试')
+    expect(retry?.disabled).toBe(false)
+    await act(async () => retry?.click())
+    expect(sync).toHaveBeenCalledOnce()
+    expect(reload).not.toHaveBeenCalled()
+
+    for (const status of ['syncing', 'saved'] as const) {
+      act(() => {
+        snapshot = { status, message: null }
+        subscribe.mock.calls[0]?.[0]()
+      })
+      expect(host.childElementCount).toBe(0)
+    }
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    session.dispose()
+    record.dispose()
+    setClientStorageScope(null)
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  }
+})

@@ -1,3 +1,4 @@
+import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import {
   type ErrorRecoveryState,
@@ -186,7 +187,7 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
       SELECT errors.*,
         CASE WHEN client_recovered.at IS NOT NULL OR reconnected.at IS NOT NULL OR task.status = 'completed' THEN 'recovered'
           WHEN task.status = 'failed' THEN 'unresolved' ELSE 'unknown' END AS recovery_state,
-        CASE WHEN client_recovered.at IS NOT NULL THEN '同一页面、账号的项目目录重试已成功（浏览器上报）'
+        CASE WHEN client_recovered.at IS NOT NULL THEN '同一页面、账号的同一操作重试已成功（浏览器上报）'
           WHEN reconnected.at IS NOT NULL THEN '同一隧道连接已重新注册成功'
           WHEN task.status = 'completed' THEN '关联任务已完成'
           WHEN task.status = 'failed' THEN '关联任务仍为失败状态'
@@ -200,7 +201,10 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
         SELECT MIN(recovery.received_at) AS at FROM client_error_recoveries recovery
         WHERE errors.source = 'client'
           AND recovery.incident_id = errors.fields->>'incidentId'
-          AND recovery.operation = 'project.catalog'
+          AND recovery.operation IN (${sql.join(
+            CLIENT_ERROR_RECOVERY_OPERATIONS.map((operation) => sql`${operation}`),
+            sql`, `,
+          )})
           AND errors.fields->>'operation' = recovery.operation
           AND recovery.device_id = errors.device_id
           AND recovery.user_id IS NOT DISTINCT FROM errors.user_id

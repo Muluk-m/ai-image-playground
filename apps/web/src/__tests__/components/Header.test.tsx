@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../auth/AuthContext'
 import Header from '../../components/Header'
+import DataTab from '../../components/settings/DataTab'
 import { useStore } from '../../store'
 
 // 私有 overlay 接管账号区（replacesAuthActions）后公开的退出按钮不再渲染；这里测的是公开分支。
@@ -36,7 +37,10 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-function renderLoggedIn(logout: (clearLocalData: boolean) => Promise<void>): void {
+function renderLoggedIn(
+  logout: (clearLocalData: boolean) => Promise<void>,
+  children: ReactNode = <Header />,
+): void {
   act(() =>
     root.render(
       <AuthContextProvider
@@ -47,26 +51,16 @@ function renderLoggedIn(logout: (clearLocalData: boolean) => Promise<void>): voi
           logout,
         }}
       >
-        <Header />
+        {children}
       </AuthContextProvider>,
     ),
   )
 }
 
-/** 浮层 portal 到 body，落在 host 之外，所以退出按钮在两处同名时靠这个分开。 */
-function click(label: string, where: 'header' | 'dialog' = 'header'): void {
-  const buttons = [...document.querySelectorAll('button')].filter(
-    (it) => it.textContent === label && host.contains(it) === (where === 'header'),
-  )
-  const button = buttons[0]
-  if (!button) throw new Error(`no ${where} button labelled ${label}`)
-  act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-}
-
-function modeButton(label: string): HTMLButtonElement {
-  const button = [...document.querySelectorAll('button')].find((b) => b.textContent === label)
+function click(label: string): void {
+  const button = [...document.querySelectorAll('button')].find((it) => it.textContent === label)
   if (!button) throw new Error(`no button labelled ${label}`)
-  return button
+  act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
 describe('the header', () => {
@@ -145,7 +139,7 @@ describe('the header', () => {
 })
 
 describe('logging out', () => {
-  it('asks before it goes, and passes on whether to clear the local data', () => {
+  it('signs out from the account menu immediately and keeps local data', () => {
     const logout = vi.fn(async () => {})
     renderLoggedIn(logout)
 
@@ -153,13 +147,26 @@ describe('logging out', () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="打开个人账户"]')?.click()
     })
     click('退出登录')
-    expect(logout).not.toHaveBeenCalled()
-    expect(document.body.textContent).toContain('同时清除这个浏览器里的数据')
 
-    const box = document.querySelector<HTMLButtonElement>('[role="checkbox"]')
-    act(() => box?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    click('退出', 'dialog')
+    expect(logout).toHaveBeenCalledExactlyOnceWith(false)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('同时清除这个浏览器里的数据')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
 
-    expect(logout).toHaveBeenCalledWith(true)
+  it('signs out from settings immediately and disables repeated clicks', () => {
+    const logout = vi.fn(async () => {})
+    renderLoggedIn(logout, <DataTab />)
+    click('退出登录')
+
+    expect(logout).toHaveBeenCalledExactlyOnceWith(false)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('同时清除这个浏览器里的数据')
+    const button = [...host.querySelectorAll('button')].find(
+      (element) => element.textContent === '退出中',
+    )
+    expect(button?.disabled).toBe(true)
+    act(() => button?.click())
+    expect(logout).toHaveBeenCalledOnce()
   })
 })

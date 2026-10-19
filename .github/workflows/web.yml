@@ -11,13 +11,85 @@ concurrency:
   group: web-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # 合并到 main 的提交若与它的 PR 最后一次通过的 Web checks 是同一棵树，下面四个 job 已经在
+  # 那次跑过，main 上不再重跑，直接交给部署。PR 落后于 main（合并后树不同）、来自 fork、或找不到
+  # 通过的那次，都照常全跑。
+  prior:
+    name: Already checked in the pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -u
+          # 查不到、查询失败都按「没验证过」处理：照常全跑，绝不因为这一步出错而跳过检查。
+          verified=false
+          check() {
+            [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ] || return 0
+            pr=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+              --jq "[.[] | select(.merged_at != null and .base.ref == \"main\" and .head.repo.full_name == \"$REPO\")][0] // empty") || return 1
+            [ -n "$pr" ] || { echo "::notice::No merged pull request for $SHA; running every check."; return 0; }
+            head=$(printf '%s' "$pr" | jq -er .head.sha) || return 1
+            number=$(printf '%s' "$pr" | jq -er .number) || return 1
+            tree=$(gh api "repos/$REPO/commits/$SHA" --jq .commit.tree.sha) || return 1
+            head_tree=$(gh api "repos/$REPO/commits/$head" --jq .commit.tree.sha) || return 1
+            passed=$(gh api "repos/$REPO/actions/workflows/web.yml/runs?event=pull_request&head_sha=$head&status=success" \
+              --jq '.total_count') || return 1
+            if [ -n "$tree" ] && [ "$tree" = "$head_tree" ] && [ "${passed:-0}" -gt 0 ]; then
+              verified=true
+              echo "::notice::Same tree as PR #$number head $head, which passed Web checks; skipping the rerun."
+            else
+              echo "::notice::PR #$number: tree match=$([ "$tree" = "$head_tree" ] && echo yes || echo no), passed runs=${passed:-0}; running every check."
+            fi
+          }
+          check || { verified=false; echo "::warning::Could not read the pull request history; running every check."; }
+          echo "verified=$verified" >> "$GITHUB_OUTPUT"
   web:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
+      - run: python3 scripts/test-cloud-test.py
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs
       - run: pnpm lint
+      # The production Dockerfile rebuilds the web package from an allowlisted context.
+      # Run the same web stage when build inputs change, so missing .dockerignore entries
+      # fail in CI instead of blocking a later production deployment.
+      - name: Detect Docker web build changes
+        id: docker-web-context
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          [ -n "$base" ] || base="$(git rev-parse HEAD^)"
+          changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
+          if printf '%s\n' "$changed" | grep -Eq '(^Dockerfile$|^\.dockerignore$|(^|/)vite\.config\.(ts|js|mjs|cjs)$|^scripts/)'; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build Docker web stage
+        if: steps.docker-web-context.outputs.required == 'true'
+        run: docker buildx build --progress=plain --target web-build --build-arg TARGETARCH=amd64 --build-arg PRIVATE_OVERLAY_PRESENT=false .
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
       - run: pnpm typecheck
@@ -31,6 +103,8 @@ jobs:
           test-runner: 'true'
       - run: pnpm --dir apps/admin build
   bff:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -61,6 +135,8 @@ jobs:
       - run: pnpm test --concurrency=1 --env-mode=loose --filter='!@image-playground/web'
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
   web-test:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -79,7 +155,10 @@ jobs:
   #
   # 需要 PRIVATE_OVERLAY_SSH_KEY，fork 的 PR 拿不到 secrets，跳过；主仓 PR 与 main/test push 都跑。
   with-overlay:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    needs: prior
+    if: >-
+      needs.prior.outputs.verified != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:

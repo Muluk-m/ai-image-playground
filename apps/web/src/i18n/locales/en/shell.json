@@ -37,9 +37,7 @@
     "viewAll": "View all"
   },
   "logout": {
-    "title": "Sign out",
-    "clearLocalData": "Also clear the data in this browser",
-    "confirm": "Sign out"
+    "title": "Sign out"
   },
   "sync": {
     "title": "Save status",

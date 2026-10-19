@@ -44,6 +44,7 @@ import type { SceneRecord } from './sceneRecord'
 
 const remoteOrigin = canvasOrigin('system', 'cloud-sync')
 const legacyOrigin = canvasOrigin('system', 'legacy-editor')
+type CommandReadPurpose = 'passive' | 'after-reverse'
 export type CanvasCloudSession = CloudProjectSession | CloudNodeProjectSession
 
 /** One persisted Y.Doc per cloud workspace. UI mounts do not own the connection or its lifetime. */
@@ -260,13 +261,12 @@ export class CloudNodeProjectSession {
             },
           )
           if (!response.ok) {
-            await this.readCommands()
+            await this.readCommands('after-reverse')
             throw new ProjectRequestError(response.status, 'canvas_command_reverse_failed')
           }
           this.current()
           Y.applyUpdate(doc, new Uint8Array(await response.arrayBuffer()), remoteOrigin)
-          await this.readingCommands
-          await this.readCommands()
+          await this.readCommands('after-reverse')
         },
         (error) => {
           if (error instanceof Error && error.message === 'canvas_undo_history_too_large')
@@ -596,7 +596,13 @@ export class CloudNodeProjectSession {
       this.requestSync()
     })
   }
-  private readCommands(): Promise<void> {
+  private async readCommands(purpose: CommandReadPurpose = 'passive'): Promise<void> {
+    if (purpose === 'after-reverse') {
+      const previousRead = this.readingCommands
+      if (previousRead) await previousRead.catch(() => {})
+    }
+    this.current()
+    if (purpose === 'passive' && document.visibilityState === 'hidden') return
     if (this.readingCommands) return this.readingCommands
     this.readingCommands = (async () => {
       const response = await authenticatedBffFetch(

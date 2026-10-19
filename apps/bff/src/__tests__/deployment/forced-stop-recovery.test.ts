@@ -20,11 +20,8 @@ import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { waitFor } from '../helpers/upstreamStubs'
 
-// A rollout stops old executors after a finite drain deadline (ADR 0009, superseded in part).
-// This file proves what the forced stop relies on: a billed agent turn cut off while a generation
-// job confirmed earlier is already at the upstream is recovered without a second upstream
-// submission and without a second settlement of anything. The job exists only because the user
-// confirmed the drafted prompt — a turn no longer submits anything by itself.
+// Crash recovery can poll a persisted upstream ID without another submission or settlement.
+// This does not authorize stopping live executors whose upstream outcome is still unknown.
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_forced_stop_recovery')
 process.env.PORT = '0'

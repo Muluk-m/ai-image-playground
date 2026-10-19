@@ -1,13 +1,16 @@
+import type { AgentToolArtifact } from '@image-playground/shared'
 import type {
   AgentImageActionStep,
   AgentPanelMessage,
   AgentTextMessage,
+  AgentToolMessage,
   AgentTurnFooter,
 } from '../types'
 import type { AgentPanelState } from './panelMessages'
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
+const UUID = /^[0-9a-f-]{36}$/i
 const finite = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
@@ -68,6 +71,7 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
         status,
         ...(typeof raw.prompt === 'string' ? { prompt: raw.prompt } : {}),
         ...(typeof raw.message === 'string' && !raw.errorCode ? { message: raw.message } : {}),
+        ...cachedImageOutput(raw),
       })
     } else return null
   }
@@ -100,6 +104,45 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
     })
   }
   return { messages, turns }
+}
+
+/** 生图结果按图块排版：没有工具名与产物 id，刷新时会先露出一张提示词卡再跳成图块。 */
+function cachedImageOutput(
+  raw: Record<string, unknown>,
+): Pick<AgentToolMessage, 'toolName' | 'artifacts' | 'delivery'> {
+  if (raw.toolName !== 'generateImage' && raw.toolName !== 'editImage') return {}
+  const artifacts: AgentToolArtifact[] = []
+  for (const artifact of Array.isArray(raw.artifacts) ? raw.artifacts : []) {
+    if (
+      !record(artifact) ||
+      artifact.media !== 'image' ||
+      typeof artifact.artifactId !== 'string' ||
+      typeof artifact.taskId !== 'string' ||
+      typeof artifact.mime !== 'string' ||
+      !finite(artifact.outputIndex)
+    )
+      continue
+    artifacts.push({
+      artifactId: artifact.artifactId,
+      media: 'image',
+      taskId: artifact.taskId,
+      outputIndex: artifact.outputIndex,
+      mime: artifact.mime,
+      ...(finite(artifact.width) ? { width: artifact.width } : {}),
+      ...(finite(artifact.height) ? { height: artifact.height } : {}),
+      ...(typeof artifact.mediaId === 'string' && UUID.test(artifact.mediaId)
+        ? { mediaId: artifact.mediaId }
+        : {}),
+    })
+  }
+  const delivery = raw.delivery
+  return {
+    toolName: raw.toolName,
+    ...(artifacts.length ? { artifacts } : {}),
+    ...(delivery === 'placed' || delivery === 'unavailable' || delivery === 'failed'
+      ? { delivery }
+      : {}),
+  }
 }
 
 function cachedImageAction(

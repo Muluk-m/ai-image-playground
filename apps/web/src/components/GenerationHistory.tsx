@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLibraryStore } from '../features/library/store'
 import { useCloudGenerations } from '../hooks/useCloudGenerations'
 import { useTranslation } from '../i18n'
@@ -9,19 +9,42 @@ import SearchBar from './SearchBar'
 import TaskGrid from './TaskGrid'
 import { Button } from './ui/button'
 
-/**
- * 作品页。**一条列表、一种卡**：只在平台留有记录的生成被镜像成本机任务记录（`lib/cloudMirror`），
- * 和本机生成穿插在同一个网格里。不分「此设备 / 云端」两个页签——那是存储位置，不是用户要挑的东西。
- *
- * 平台记录按游标往后读，所以底部是「加载更多」而不是翻页；本机任务不分页，翻页会把两边的
- * 时间线切断。
- */
+/** 本机与平台作品共用时间线；首页按滚动位置续读平台游标。 */
 export default function GenerationHistory({ userId, hero }: { userId?: string; hero?: boolean }) {
   const { t } = useTranslation(['task', 'errors'])
-  const [showAll, setShowAll] = useState(false)
-  // 冷启动时下面是灵感区，它自带标题；「我的作品」空着挂一个标题只会像没加载出来。
   const hasWorks = useStore((s) => s.tasks.length > 0 || s.platformGenerations.length > 0)
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
+  const endRef = useRef<HTMLDivElement>(null)
+  const [atEnd, setAtEnd] = useState(false)
+  const { hasMore, loading, failed, loadMore } = cloud
+
+  useEffect(() => {
+    const end = endRef.current
+    if (!hero || !end) return
+    const updateEnd = (nearEnd: boolean) => {
+      setAtEnd(nearEnd)
+      if (nearEnd && hasMore && !loading && !failed) loadMore()
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      const checkEnd = () => updateEnd(end.getBoundingClientRect().top <= window.innerHeight + 240)
+      window.addEventListener('scroll', checkEnd, { passive: true })
+      window.addEventListener('resize', checkEnd)
+      checkEnd()
+      return () => {
+        window.removeEventListener('scroll', checkEnd)
+        window.removeEventListener('resize', checkEnd)
+      }
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry) updateEnd(entry.isIntersecting)
+      },
+      { rootMargin: '0px 0px 240px 0px' },
+    )
+    observer.observe(end)
+    return () => observer.disconnect()
+  }, [hero, hasMore, loading, failed, loadMore])
+
   const openLibrary = () => {
     useLibraryStore.getState().setTab('assets')
     useStore.getState().setAppMode('library')
@@ -29,32 +52,20 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
   return (
     <>
       {!hero && <SearchBar />}
-      {/* 展开着删光作品时仍留住标题，否则搜索与「收起」一起消失，退不出筛选态。 */}
-      {hero && (hasWorks || showAll) && (
+      {hero && hasWorks && (
         <SectionHeader
           className="pb-4 pt-10"
           title={t('grid.mine')}
           link={{ label: t('grid.openLibrary'), onClick: openLibrary }}
-          action={{
-            label: showAll ? t('grid.collapse') : t('grid.expandAll'),
-            onClick: () => setShowAll((value) => !value),
-            expanded: showAll,
-            disclosure: true,
-          }}
-        >
-          {showAll && (
-            <div className="w-full sm:w-auto sm:max-w-xl sm:flex-1">
-              <SearchBar compact />
-            </div>
-          )}
-        </SectionHeader>
+        />
       )}
-      <TaskGrid
-        hero={hero}
-        limit={hero && !showAll ? 3 : undefined}
-        hasMore={cloud.hasMore}
-        onExpand={hero && !showAll ? () => setShowAll(true) : undefined}
-      />
+      <div className="relative">
+        <TaskGrid hero={hero} />
+        {hero && <div ref={endRef} className="h-px" aria-hidden="true" />}
+        {hero && hasWorks && (!atEnd || hasMore) && (
+          <div className="studio-works-fade" aria-hidden="true" />
+        )}
+      </div>
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">
@@ -65,7 +76,12 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
           </Button>
         </div>
       )}
-      {cloud.hasMore && (!hero || showAll) && (
+      {hero && cloud.loading && (
+        <p role="status" className="pb-8 text-center text-sm text-muted-foreground">
+          {t('cloudHistory.loading')}
+        </p>
+      )}
+      {cloud.hasMore && !hero && (
         <div className="flex justify-center pb-10">
           <Button variant="outline" disabled={cloud.loading} onClick={cloud.loadMore}>
             {cloud.loading ? t('cloudHistory.loading') : t('cloudHistory.more')}

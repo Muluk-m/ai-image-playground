@@ -1,4 +1,8 @@
-import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
+import {
+  AGENT_TURN_ATTACHED_MEDIA_MAX,
+  canvasNodeKind,
+  readCanvasDocument,
+} from '@image-playground/shared'
 import {
   type KeyboardEvent,
   useCallback,
@@ -73,6 +77,13 @@ import { useStore } from '../../../store'
 import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import { revealNodeCanvas } from '../../canvas/lib/nodeCanvasFocus'
+import {
+  activeNodeCanvas,
+  nodeCanvasSelection,
+  nodeCanvasSelectionRevision,
+  subscribeNodeCanvasSelection,
+} from '../../canvas/lib/nodeCanvasSelection'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
@@ -91,13 +102,14 @@ import {
   getLeadingAgentSkill,
   getSlashSkillQuery,
 } from '../lib/agentSkillMentions'
-import { previewArtifactBitmap } from '../lib/artifactSource'
+import { knownArtifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import {
   attachAssetToDraft,
   attachReferences,
   filesToReferences,
   referenceLimitMessage,
   setAgentComposerAttach,
+  setAgentComposerReferences,
 } from '../lib/attachments'
 import {
   attachmentUploadErrorMessage,
@@ -342,6 +354,36 @@ export default function AgentComposer({
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   const workspace = peekCanvasWorkspace()
   const cloud = workspace?.doc === doc ? workspace.cloud : undefined
+  const nodeRevision = useSyncExternalStore(
+    subscribeNodeCanvasSelection,
+    nodeCanvasSelectionRevision,
+  )
+  const nodeReferences = useMemo(() => {
+    if (!showCanvasReferences || workspace?.doc !== doc) return []
+    const canvas = activeNodeCanvas(workspace.editor)
+    if (!canvas) return []
+    const selected = new Set(nodeCanvasSelection(workspace.editor))
+    const graph = readCanvasDocument(canvas.doc)
+    return [
+      ...graph.nodes
+        .filter((node) => selected.has(node.id))
+        .map((node) => ({
+          id: node.id,
+          type: canvasNodeKind(node),
+          name:
+            ('name' in node.data && node.data.name) ||
+            (node.type === 'text' ? node.data.text.trim().split('\n')[0]?.slice(0, 80) : '') ||
+            t(`composer.nodeTypes.${canvasNodeKind(node)}`),
+        })),
+      ...(graph.groups ?? [])
+        .filter((group) => selected.has(group.id))
+        .map((group) => ({
+          id: group.id,
+          type: 'group' as const,
+          name: group.name || t('composer.nodeTypes.group'),
+        })),
+    ]
+  }, [doc, workspace, showCanvasReferences, nodeRevision, t])
   const cloudState = useSyncExternalStore(
     cloud?.subscribe ?? (() => () => {}),
     cloud?.getSnapshot ?? (() => undefined),
@@ -501,7 +543,17 @@ export default function AgentComposer({
   // 面板把落在对话记录上的文件递过来。
   useEffect(() => {
     setAgentComposerAttach(attachFiles)
-    return () => setAgentComposerAttach(null)
+    setAgentComposerReferences((references) => {
+      if (loading) {
+        useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+        return
+      }
+      setDraft((current) => attachReferences(current, references, transportRef.current))
+    })
+    return () => {
+      setAgentComposerAttach(null)
+      setAgentComposerReferences(null)
+    }
   })
   // 示例建议与起手句点进来的那一句：技能写成开头的 `/技能名`（随即提升成胶囊），示例词选中。
   useComposerFillTarget({
@@ -739,7 +791,9 @@ export default function AgentComposer({
     if (value.type === 'result') {
       const image = results.find((one) => one.id === value.imageId)
       if (!image) return
-      const dataUrl = image.source ?? (await previewArtifactBitmap(image.artifact))
+      const dataUrl =
+        knownArtifactReferenceSource(image.artifact, image.source) ??
+        (await previewArtifactBitmap(image.artifact))
       // Loading an older result must not overwrite newer typing or attach to a switched chat.
       if (
         useAgentStore.getState().conversationId !== conversationId ||
@@ -1012,195 +1066,226 @@ export default function AgentComposer({
         )}
         <CreationBody
           references={
-            <CreationReferenceStack
-              count={draft.references.length}
-              disabled={loading}
-              onClear={() =>
-                setDraft((current) => {
-                  let next = current
-                  for (let index = current.references.length - 1; index >= 0; index--) {
-                    next = removeReference(next, index)
-                  }
-                  return next
-                })
-              }
-              failed={Boolean(failedReference)}
-              uploading={uploadingCount > 0}
-              status={referenceStatus}
-              previews={draft.references.slice(-3).map((reference, offset) => {
-                const index =
-                  draft.references.length - Math.min(draft.references.length, 3) + offset
-                return (
-                  <ComposerAttachmentThumb
-                    key={reference.id}
-                    src={reference.dataUrl}
-                    className="h-full w-full object-cover"
-                    frameClassName="h-full w-full"
-                    alt={referenceTileLabel(index, reference.name, reference.id)}
-                  />
-                )
-              })}
-              add={
-                <Button
-                  variant="ghost"
-                  className="creation-add"
-                  aria-label={t('composer.attachAria')}
-                  title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
-                  aria-haspopup="menu"
-                  aria-expanded={attachMenu !== null}
-                  disabled={loading}
-                  onClick={(event) => {
-                    const bounds = event.currentTarget.getBoundingClientRect()
-                    setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
-                  }}
-                >
-                  <Icon name="add" />
-                  <span>{t('composer:studio.reference')}</span>
-                </Button>
-              }
-            >
-              {draft.references.length > 0 && (
-                <ComposerAttachments className="w-full">
-                  {selectionSummary.length > 0 && (
-                    <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
-                      <div className="flex -space-x-3">
-                        {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
-                          <ComposerAttachmentThumb
-                            key={one.id}
-                            src={one.dataUrl}
-                            className={`${STRIP_THUMB} ring-2 ring-muted`}
-                          />
-                        ))}
-                      </div>
-                      <span className="whitespace-nowrap text-xs text-foreground">
-                        {t('composer.selectionSummary', { count: selectionSummary.length })}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={t('composer.clearSelectionAria')}
-                        className={`${ICON_BUTTON} size-auto shrink-0`}
-                        onClick={() => setDraft(removeSelectionReferences(draft))}
-                      >
-                        <Icon name="close" />
-                      </Button>
-                    </div>
-                  )}
-                  {draft.references.map((reference, index) => {
-                    if (
-                      selectionSummary.length > 0 &&
-                      reference.origin === 'selection' &&
-                      !attachmentUploadState(uploadReference(reference))
-                    )
-                      return null
-                    const label = referenceTileLabel(
-                      index,
-                      reference.name,
-                      reference.id,
-                      referenceNames[index],
-                    )
-                    const masked = Boolean(reference.maskDataUrl)
-                    const uploadState = attachmentUploadState(uploadReference(reference))
-                    const uploadError = attachmentUploadError(uploadReference(reference))
-                    const isUploading = ['queued', 'uploading', 'verifying'].includes(
-                      uploadState ?? '',
-                    )
-                    return (
-                      <div key={reference.id} className="group flex max-w-full items-start gap-2">
-                        <CreationReferencePreview src={reference.dataUrl} label={label}>
-                          <AttachmentTile
-                            name={label}
-                            title={label}
-                            failed={uploadState === 'failed'}
-                            className="size-[72px]"
-                          >
-                            <ComposerAttachmentThumb
-                              src={reference.dataUrl}
-                              uploading={isUploading}
-                              failed={uploadState === 'failed'}
-                              frameClassName="h-full w-full"
-                              className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
-                              alt={label}
-                              retryPreview
-                            />
-                            {masked && (
-                              <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
-                                MASK
-                              </span>
-                            )}
-                            {uploadState === 'failed' && (
-                              <span
-                                aria-hidden="true"
-                                className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
-                              >
-                                <Icon name="error" size="lg" />
-                              </span>
-                            )}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              aria-label={
-                                masked
-                                  ? t('composer.editMaskAria', { label })
-                                  : t('composer.drawMaskAria', { label })
-                              }
-                              className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                              onClick={() => editMask(reference)}
-                            >
-                              <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                                <Icon name="brush" />
-                              </span>
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              aria-label={t('composer.removeReferenceAria', { label })}
-                              className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                              onClick={() => setDraft(removeReference(draft, index))}
-                            >
-                              <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
-                                <Icon name="close" />
-                              </span>
-                            </Button>
-                          </AttachmentTile>
-                        </CreationReferencePreview>
-                        {uploadState && (
-                          <span
-                            role={uploadState === 'failed' ? 'alert' : 'status'}
-                            className={
-                              uploadState === 'failed'
-                                ? 'max-w-56 self-center text-xs text-destructive'
-                                : 'sr-only'
-                            }
-                          >
-                            {uploadState === 'failed'
-                              ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
-                              : t(`composer.upload.${uploadState}`)}
+            <div className="flex flex-col gap-2">
+              <CreationReferenceStack
+                leading={
+                  nodeReferences.length > 0 && (
+                    <div
+                      className="contents"
+                      role="group"
+                      aria-label={t('composer.nodeReferences')}
+                    >
+                      {nodeReferences.map((node) => (
+                        <Button
+                          key={node.id}
+                          type="button"
+                          variant="ghost"
+                          data-node-reference-id={node.id}
+                          className="flex size-12 shrink-0 flex-col items-start justify-center gap-0.5 overflow-hidden rounded-lg border border-border bg-secondary p-1 text-left text-label-sm font-normal text-foreground hover:border-primary/30"
+                          aria-label={t('creations.locateAria', { name: node.name })}
+                          onClick={() => {
+                            if (workspace?.doc === doc)
+                              revealNodeCanvas(workspace.editor, [node.id])
+                          }}
+                        >
+                          <span className="truncate text-muted-foreground">
+                            {t(`composer.nodeTypes.${node.type}`)}
                           </span>
-                        )}
-                        {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className={`${GHOST_LINK} h-auto px-0 py-0 font-normal hover:bg-transparent`}
-                            aria-label={t('composer.retryUploadAria', { label })}
-                            onClick={() => retryUpload(reference)}
-                          >
-                            {t('composer.retryUpload')}
-                          </Button>
-                        )}
+                          <OverflowText className="min-w-0 max-w-full truncate" text={node.name} />
+                        </Button>
+                      ))}
+                    </div>
+                  )
+                }
+                count={draft.references.length}
+                disabled={loading}
+                onClear={() =>
+                  setDraft((current) => {
+                    let next = current
+                    for (let index = current.references.length - 1; index >= 0; index--) {
+                      next = removeReference(next, index)
+                    }
+                    return next
+                  })
+                }
+                failed={Boolean(failedReference)}
+                uploading={uploadingCount > 0}
+                status={referenceStatus}
+                previews={draft.references.slice(-3).map((reference, offset) => {
+                  const index =
+                    draft.references.length - Math.min(draft.references.length, 3) + offset
+                  return (
+                    <ComposerAttachmentThumb
+                      key={reference.id}
+                      src={reference.dataUrl}
+                      className="h-full w-full object-cover"
+                      frameClassName="h-full w-full"
+                      alt={referenceTileLabel(index, reference.name, reference.id)}
+                    />
+                  )
+                })}
+                add={
+                  <Button
+                    variant="ghost"
+                    className="creation-add"
+                    aria-label={t('composer.attachAria')}
+                    title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                    aria-haspopup="menu"
+                    aria-expanded={attachMenu !== null}
+                    disabled={loading}
+                    onClick={(event) => {
+                      const bounds = event.currentTarget.getBoundingClientRect()
+                      setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
+                    }}
+                  >
+                    <Icon name="add" />
+                    <span>{t('composer:studio.reference')}</span>
+                  </Button>
+                }
+              >
+                {draft.references.length > 0 && (
+                  <ComposerAttachments className="w-full">
+                    {selectionSummary.length > 0 && (
+                      <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
+                        <div className="flex -space-x-3">
+                          {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
+                            <ComposerAttachmentThumb
+                              key={one.id}
+                              src={one.dataUrl}
+                              className={`${STRIP_THUMB} ring-2 ring-muted`}
+                            />
+                          ))}
+                        </div>
+                        <span className="whitespace-nowrap text-xs text-foreground">
+                          {t('composer.selectionSummary', { count: selectionSummary.length })}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={t('composer.clearSelectionAria')}
+                          className={`${ICON_BUTTON} size-auto shrink-0`}
+                          onClick={() => setDraft(removeSelectionReferences(draft))}
+                        >
+                          <Icon name="close" />
+                        </Button>
                       </div>
-                    )
-                  })}
-                </ComposerAttachments>
-              )}
-            </CreationReferenceStack>
+                    )}
+                    {draft.references.map((reference, index) => {
+                      if (
+                        selectionSummary.length > 0 &&
+                        reference.origin === 'selection' &&
+                        !attachmentUploadState(uploadReference(reference))
+                      )
+                        return null
+                      const label = referenceTileLabel(
+                        index,
+                        reference.name,
+                        reference.id,
+                        referenceNames[index],
+                      )
+                      const masked = Boolean(reference.maskDataUrl)
+                      const uploadState = attachmentUploadState(uploadReference(reference))
+                      const uploadError = attachmentUploadError(uploadReference(reference))
+                      const isUploading = ['queued', 'uploading', 'verifying'].includes(
+                        uploadState ?? '',
+                      )
+                      return (
+                        <div key={reference.id} className="group flex max-w-full items-start gap-2">
+                          <CreationReferencePreview src={reference.dataUrl} label={label}>
+                            <AttachmentTile
+                              name={label}
+                              title={label}
+                              failed={uploadState === 'failed'}
+                              className="size-[72px]"
+                            >
+                              <ComposerAttachmentThumb
+                                src={reference.dataUrl}
+                                uploading={isUploading}
+                                failed={uploadState === 'failed'}
+                                frameClassName="h-full w-full"
+                                className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                                alt={label}
+                                retryPreview
+                              />
+                              {masked && (
+                                <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-label-sm font-semibold leading-none tracking-wider text-primary-foreground">
+                                  MASK
+                                </span>
+                              )}
+                              {uploadState === 'failed' && (
+                                <span
+                                  aria-hidden="true"
+                                  className="pointer-events-none absolute inset-0 grid place-items-center text-destructive"
+                                >
+                                  <Icon name="error" size="lg" />
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={
+                                  masked
+                                    ? t('composer.editMaskAria', { label })
+                                    : t('composer.drawMaskAria', { label })
+                                }
+                                className="absolute bottom-0 left-0 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                                onClick={() => editMask(reference)}
+                              >
+                                <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                                  <Icon name="brush" />
+                                </span>
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={t('composer.removeReferenceAria', { label })}
+                                className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                                onClick={() => setDraft(removeReference(draft, index))}
+                              >
+                                <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
+                                  <Icon name="close" />
+                                </span>
+                              </Button>
+                            </AttachmentTile>
+                          </CreationReferencePreview>
+                          {uploadState && (
+                            <span
+                              role={uploadState === 'failed' ? 'alert' : 'status'}
+                              className={
+                                uploadState === 'failed'
+                                  ? 'max-w-56 self-center text-xs text-destructive'
+                                  : 'sr-only'
+                              }
+                            >
+                              {uploadState === 'failed'
+                                ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
+                                : t(`composer.upload.${uploadState}`)}
+                            </span>
+                          )}
+                          {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className={`${GHOST_LINK} h-auto px-0 py-0 font-normal hover:bg-transparent`}
+                              aria-label={t('composer.retryUploadAria', { label })}
+                              onClick={() => retryUpload(reference)}
+                            >
+                              {t('composer.retryUpload')}
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </ComposerAttachments>
+                )}
+              </CreationReferenceStack>
+            </div>
           }
         >
-          <div className="relative">
+          <div className="relative grid">
             {menu.visible && (
               <SuggestionMenu
                 groups={groups}
@@ -1224,29 +1309,29 @@ export default function AgentComposer({
                   : t(`composer:studio.placeholders.${productionMode ? 'video' : creationMode}`)
               }
               data-follow-up={followUpGhost && showFollowUpGhost ? '' : undefined}
-              className="creation-prompt"
+              className="creation-prompt col-start-1 row-start-1"
             />
             {followUpGhost && showFollowUpGhost && (
-              <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-center gap-2 text-base leading-[1.75]">
-                <span className="min-w-0 text-muted-foreground" aria-hidden="true">
-                  {followUpGhost}
-                </span>
+              <>
+                {/* Keep the opaque shortcut badge clear of the empty editor's native caret. */}
                 <Button
                   type="button"
-                  variant="outline"
-                  size="xs"
-                  className="pointer-events-auto h-7 px-2 font-normal text-muted-foreground"
+                  variant="ghost"
+                  className="pointer-events-none col-start-1 row-start-1 block h-auto w-full self-start whitespace-normal p-0 pl-2 text-left text-base font-normal leading-[1.75] text-muted-foreground hover:bg-transparent"
                   aria-label={t('suggestions.followUpAccept')}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => acceptFollowUpRef.current(followUpGhost)}
                 >
-                  <span className="sm:hidden">{t('suggestions.followUpTap')}</span>
-                  <span className="hidden sm:inline">Tab</span>
+                  <span className="pointer-events-auto mr-2 inline-flex h-7 items-center rounded-md border border-input bg-background px-2 align-middle text-xs">
+                    <span className="sm:hidden">{t('suggestions.followUpTap')}</span>
+                    <span className="hidden sm:inline">Tab</span>
+                  </span>
+                  <span className="pointer-events-auto">{followUpGhost}</span>
                 </Button>
                 <p id={followUpHintId} className="sr-only">
                   {t('suggestions.followUpHint', { text: followUpGhost })}
                 </p>
-              </div>
+              </>
             )}
           </div>
         </CreationBody>

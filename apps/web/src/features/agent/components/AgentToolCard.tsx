@@ -1,6 +1,5 @@
-import { type AgentToolArtifact, agentTurnCostTotal } from '@image-playground/shared'
+import type { AgentToolArtifact } from '@image-playground/shared'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
-import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
@@ -9,14 +8,11 @@ import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-ru
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
-import Credits from '../../../components/Credits'
 import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
-import { Icon, type IconName } from '../../../components/ui/icon'
+import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
-import { Hint } from '../../../components/ui/tooltip'
-import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { modelLabel } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -35,7 +31,6 @@ import {
   THUMBNAIL_STATIC,
 } from '../agentStyles'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
-import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
 import {
   type AgentArtifactPreview,
   type AgentFetchedPreview,
@@ -43,10 +38,8 @@ import {
   fetchedImagePreview,
   INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
-import { previewArtifactBitmap } from '../lib/artifactSource'
-import { attachFilesToComposer } from '../lib/attachments'
+import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
-import { runChatBackgroundRemoval } from '../lib/chatCutout'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
@@ -55,10 +48,8 @@ import {
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../lib/toolFailure'
-import { turnCostWithJobs } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
-import AgentArtifactEditDialog from './AgentArtifactEditDialog'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
@@ -75,13 +66,8 @@ import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 const IMAGE_PREVIEW_MAX_EDGE = 240
-/** 压掉 Button 默认的高度、内边距和悬停底色。结果卡里的实际尺寸由样式表的子选择器决定。 */
 const THUMB_BUTTON = `${THUMBNAIL} p-0 font-normal hover:bg-transparent`
-/** 字号、内边距和悬停色由 .studio-agent-result-actions button 决定。 */
 const RESULT_ACTION = 'h-auto bg-transparent font-normal hover:bg-transparent'
-/** 34px 热区和悬停底色由 .studio-agent-inline-actions button 决定。 */
-const INLINE_ACTION =
-  'h-auto w-auto bg-transparent p-0 font-normal text-inherit hover:bg-transparent hover:text-inherit'
 
 function useStatusNote(
   message: AgentToolMessage,
@@ -124,14 +110,20 @@ function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
   return message.artifacts ?? NO_ARTIFACTS
 }
 
+// 缓存快照换成服务端记录时卡会重新挂载；先摆上一次的预览，别闪回加载态。
+const lastPreviews = new Map<string, readonly AgentArtifactPreview[]>()
+const LAST_PREVIEWS_LIMIT = 60
+
 function useArtifactPreviews(
   message: AgentToolMessage,
   inline: boolean,
 ): readonly AgentArtifactPreview[] {
-  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>([])
   const artifacts = previewable(message)
   // 交付状态变了就重问一遍；卡重新挂载（折叠面板、切页签）也重问，所以画布上删掉的图能被发现。
   const key = `${inline}:${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
+  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>(
+    () => lastPreviews.get(key) ?? [],
+  )
 
   useEffect(() => {
     let alive = true
@@ -144,6 +136,10 @@ function useArtifactPreviews(
         artifactPreview(artifact, inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined),
       ),
     ).then((next) => {
+      lastPreviews.delete(key)
+      lastPreviews.set(key, next)
+      if (lastPreviews.size > LAST_PREVIEWS_LIMIT)
+        lastPreviews.delete(lastPreviews.keys().next().value as string)
       if (alive) setPreviews(next)
     })
     return () => {
@@ -478,63 +474,37 @@ function ratioTag(size: string | undefined, aspect: string | undefined): string 
 }
 
 function GeneratingTile({
+  message,
   index,
   progress,
 }: {
+  message: AgentToolMessage
   index: number
-  progress: NonNullable<ReturnType<typeof useAgentToolProgress>>
+  progress: ReturnType<typeof useAgentToolProgress>
 }) {
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
-  const queuedSlot = progress.phase === 'queued' || index > 0
-  const label = text ?? t(`job.phase.${progress.phase}`)
+  // 进度还没回来时也先占位，别让一行提示词文字顶上来再被图块替换。
+  const queued = !progress || progress.phase === 'queued' || index > 0
   return (
     <div className="studio-agent-inline-tile" data-pending="true">
       <ImageGeneration
-        generating={progress.phase !== 'delivering'}
+        generating={progress?.phase !== 'delivering'}
         className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
       />
       <div className="studio-agent-tile-face">
-        <Icon name={queuedSlot ? 'clock' : 'image'} className="text-muted-foreground" />
-        {queuedSlot ? (
-          <span className="studio-agent-tile-caption">
-            {t('job.queueSlotShort', { position: index + 1 })}
-          </span>
+        <Icon name={queued ? 'clock' : 'image'} className="text-muted-foreground" />
+        {queued || !progress ? (
+          <span className="studio-agent-tile-caption">{t('job.phase.queued')}</span>
         ) : (
-          <JobProgress label={label} className="studio-agent-tile-progress w-full" />
+          <JobProgress
+            label={text ?? t(`job.phase.${progress.phase}`)}
+            className="studio-agent-tile-progress w-full"
+          />
         )}
       </div>
+      <AgentJobCancel message={message} icon="close" className="studio-agent-tile-cancel" />
     </div>
-  )
-}
-
-function TileTool({
-  label,
-  icon,
-  disabled,
-  onClick,
-}: {
-  label: string
-  icon: IconName
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <Hint tooltip={label}>
-      <Button
-        type="button"
-        variant="ghost"
-        className={INLINE_ACTION}
-        aria-label={label}
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation()
-          onClick()
-        }}
-      >
-        <Icon name={icon} size="xs" />
-      </Button>
-    </Hint>
   )
 }
 
@@ -564,14 +534,6 @@ function StandardAgentToolCard({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const [costOpen, setCostOpen] = useState(false)
-  const [maskBusy, setMaskBusy] = useState(false)
-  const [toolsFor, setToolsFor] = useState<string | null>(null)
-  const [maskEdit, setMaskEdit] = useState<{
-    action: Extract<ArtifactEditAction, 'inpaint' | 'outpaint'>
-    artifactId: string
-    source: string
-  } | null>(null)
   const showReceipt = useAgentStore((state) => {
     for (let index = state.messages.length - 1; index >= 0; index -= 1) {
       const one = state.messages[index]
@@ -587,20 +549,14 @@ function StandardAgentToolCard({
   })
   const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
-  const receipt = useMemo(() => {
-    if (!turnFooter) return null
-    const jobs = turnMessages.filter(
-      (one): one is AgentToolMessage =>
-        one.kind === 'tool' && one.turnId === message.turnId && one.job !== undefined,
-    )
-    const cost = turnFooter.cost ? turnCostWithJobs(turnFooter.cost, jobs) : undefined
-    return {
-      footer: turnFooter,
-      jobs,
-      durationMs: turnFooter.durationMs,
-      credits: cost ? agentTurnCostTotal(cost) : null,
-    }
-  }, [message.turnId, turnFooter, turnMessages])
+  const receiptJobs = useMemo(
+    () =>
+      turnMessages.filter(
+        (one): one is AgentToolMessage =>
+          one.kind === 'tool' && one.turnId === message.turnId && one.job !== undefined,
+      ),
+    [message.turnId, turnMessages],
+  )
   const downloadTile = async (tile: { id: string; original: () => Promise<string | null> }) => {
     if (downloadingRef.current.has(tile.id)) return
     downloadingRef.current.add(tile.id)
@@ -652,10 +608,20 @@ function StandardAgentToolCard({
     fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, onPreviewResult ? false : offCanvas, progress !== null)
+  // 产物已有、预览还在路上：按最终的图块位置先摆加载态，不露提示词卡。
+  const previewsLoading =
+    generatedImage &&
+    message.status === 'succeeded' &&
+    previews.length === 0 &&
+    Boolean(message.artifacts?.length) &&
+    !message.fetchedImages?.length
   const imageGenerating =
-    progress !== null &&
-    (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
-    previews.length === 0
+    generatedImage &&
+    previews.length === 0 &&
+    (progress !== null ||
+      message.status === 'running' ||
+      message.status === 'submitted' ||
+      message.status === 'queued')
   const status =
     message.status === 'failed' || message.delivery === 'failed'
       ? 'failed'
@@ -688,7 +654,7 @@ function StandardAgentToolCard({
   if (message.canvasRun) {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
-        <AgentNodeRunCard proposal={message.canvasRun} />
+        <AgentNodeRunCard runKey={message.id} proposal={message.canvasRun} />
       </div>
     )
   }
@@ -769,6 +735,35 @@ function StandardAgentToolCard({
       </ToolError>
     )
   }
+  if (imageGenerating) {
+    const count = agentDraftOutputCount(message)
+    const slots = Array.from({ length: count }, (_, index) => (
+      <GeneratingTile key={index} message={message} index={index} progress={progress} />
+    ))
+    if (embed) return <>{slots}</>
+    return (
+      <div
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+        data-batch-count={count}
+        style={{ '--batch-count': String(count) } as CSSProperties}
+      >
+        {count > 1 && (
+          <div className="studio-agent-batch-meta">
+            <span>{t('job.doneCount', { done: 0, total: count })}</span>
+          </div>
+        )}
+        <div className="studio-agent-inline-gallery" data-count={count}>
+          {slots}
+        </div>
+        <RetryRecord message={message} />
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </div>
+    )
+  }
   if (
     !progress &&
     !message.artifacts?.length &&
@@ -834,38 +829,10 @@ function StandardAgentToolCard({
       </ToolCall>
     )
   }
-  if (imageGenerating && progress) {
-    const count = agentDraftOutputCount(message)
-    const slots = Array.from({ length: count }, (_, index) => (
-      <GeneratingTile key={index} index={index} progress={progress} />
-    ))
-    if (embed) return <>{slots}</>
-    return (
-      <div
-        id={agentToolCardDomId(message.id)}
-        tabIndex={-1}
-        className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
-        data-batch-count={count}
-        style={{ '--batch-count': String(count) } as CSSProperties}
-      >
-        <div className="studio-agent-batch-meta">
-          <span>{message.title}</span>
-          <span>{t('job.doneCount', { done: 0, total: count })}</span>
-          <AgentJobCancel message={message} />
-        </div>
-        <div className="studio-agent-inline-gallery" data-count={count}>
-          {slots}
-        </div>
-        <RetryRecord message={message} />
-        {promptOpen && message.prompt && (
-          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-        )}
-      </div>
-    )
-  }
   if (
     status === 'succeeded' &&
     (previews.length > 0 ||
+      previewsLoading ||
       fetched.length > 0 ||
       (compactFetched && message.fetchedImages?.length)) &&
     (onPreviewResult || generatedImage)
@@ -877,6 +844,7 @@ function StandardAgentToolCard({
           media: 'image' as const,
           original: () =>
             resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+          reference: async () => `aip-media:${preview.image.imageId}`,
         }))
       : compactFetched
         ? (message.fetchedImages ?? []).map((image, index) => ({
@@ -884,18 +852,21 @@ function StandardAgentToolCard({
             source: null,
             media: 'image' as const,
             original: () => resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
+            reference: async () => `aip-media:${image.imageId}`,
           }))
         : []
+    const artifactTiles = previewsLoading
+      ? (message.artifacts ?? []).map((artifact) => ({ artifact, source: null, loading: true }))
+      : previews.map((preview) => ({ ...preview, loading: false }))
     const tiles = [
-      ...previews.map((preview) => ({
-        id: preview.artifact.artifactId,
-        source: preview.source,
-        media: preview.artifact.media,
-        ratio:
-          preview.artifact.width && preview.artifact.height
-            ? preview.artifact.width / preview.artifact.height
-            : undefined,
-        original: () => previewArtifactBitmap(preview.artifact),
+      ...artifactTiles.map(({ artifact, source, loading }) => ({
+        id: artifact.artifactId,
+        source,
+        loading,
+        media: artifact.media,
+        ratio: artifact.width && artifact.height ? artifact.width / artifact.height : undefined,
+        original: () => previewArtifactBitmap(artifact),
+        reference: () => artifactReferenceSource(artifact),
       })),
       ...fetchedTiles,
     ]
@@ -903,208 +874,63 @@ function StandardAgentToolCard({
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const batch = generatedImage && tiles.length >= 2
-    const useTileAsReference = async (tile: (typeof tiles)[number]) => {
-      const source = tile.source ?? (await tile.original())
-      if (!source) return
-      const blob = await fetch(source)
-        .then((response) => response.blob())
-        .catch(() => null)
-      if (!blob) return
-      const file = new File([blob], `muvloom-${tile.id}.png`, { type: blob.type || 'image/png' })
-      attachFilesToComposer([file])
-    }
-    const openMask = async (
-      action: Extract<ArtifactEditAction, 'inpaint' | 'outpaint'>,
-      tile: (typeof tiles)[number],
-    ) => {
-      if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
-      const source = tile.source ?? (await tile.original())
-      if (!source) return
-      setMaskEdit({ action, artifactId: tile.id, source })
-    }
-    const generateMask = (input: ArtifactEditInput, customInstruction: string) => {
-      if (!maskEdit || maskBusy) return
-      const agent = useAgentStore.getState()
-      if (agent.historyLoading || agent.historyFailed) {
-        useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
-        return
-      }
-      const instruction = customInstruction || t(`tool.${maskEdit.action}`)
-      setMaskBusy(true)
-      let accepted = false
-      void agent
-        .send(
-          instruction,
-          [
-            {
-              imageId: maskEdit.artifactId,
-              name: message.title,
-              editAction: maskEdit.action,
-              ...input,
-            },
-          ],
-          () => {
-            accepted = true
-            setMaskEdit(null)
-          },
-          'image',
-        )
-        .then((result) => {
-          if (accepted || result === 'cancelled') return
-          if (accountRequired()) setMaskEdit(null)
-          else useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
-        })
-        .catch((error) => {
-          useStore
-            .getState()
-            .showToast(error instanceof Error ? error.message : String(error), 'error')
-        })
-        .finally(() => setMaskBusy(false))
-    }
-    const renderTile = (tile: (typeof tiles)[number], index: number) => (
-      <div
-        className="studio-agent-inline-tile-wrap"
-        key={tile.id}
-        data-tools={toolsFor === tile.id ? 'open' : undefined}
-      >
-        <div
-          className="studio-agent-inline-tile"
-          style={{
-            aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
-            ...(generatedImage &&
-              !batch &&
-              !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
-          }}
-        >
-          <Button
-            type="button"
-            variant="ghost"
-            className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
-            aria-label={
-              onPreviewResult
-                ? t('tool.openResultNumber', { number: index + 1 })
-                : t('tool.openCanvas')
-            }
-            autoTooltip={false}
-            disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-            onClick={(event) => {
-              const coarse =
-                typeof window.matchMedia === 'function' &&
-                window.matchMedia('(hover: none)').matches
-              if (coarse && toolsFor !== tile.id) {
-                event.stopPropagation()
-                setToolsFor(tile.id)
-                return
+    const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
+      aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
+      ...(generatedImage &&
+        !batch &&
+        !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
+    })
+    const renderTile = (tile: (typeof tiles)[number], index: number) =>
+      'loading' in tile && tile.loading ? (
+        <div className="studio-agent-inline-tile-wrap" key={tile.id}>
+          <div className="studio-agent-inline-tile" data-pending="true" style={tileStyle(tile)}>
+            <ImageGeneration
+              generating
+              className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="studio-agent-inline-tile-wrap" key={tile.id}>
+          <div className="studio-agent-inline-tile" style={tileStyle(tile)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
+              aria-label={
+                onPreviewResult
+                  ? t('tool.openResultNumber', { number: index + 1 })
+                  : t('tool.openCanvas')
               }
-              openPreviewResult(tile.id)
-            }}
-          >
-            {tile.source ? (
-              <img
-                src={tile.source}
-                alt={t('tool.resultNumber', { number: index + 1 })}
-                loading="lazy"
-                onLoad={(event) => {
-                  const { naturalWidth, naturalHeight } = event.currentTarget
-                  if (naturalWidth && naturalHeight)
-                    setImageRatios((ratios) => ({
-                      ...ratios,
-                      [tile.id]: naturalWidth / naturalHeight,
-                    }))
-                }}
-              />
-            ) : (
-              <span>{t('tool.previewUnavailable')}</span>
-            )}
-            {tile.media === 'video' && <PlayBadge />}
-          </Button>
-        </div>
-        <div className="studio-agent-inline-actions">
-          {generatedImage && tile.media !== 'video' ? (
-            <>
-              <TileTool
-                label={t('tool.useAsReference')}
-                icon="imageAdd"
-                onClick={() => void useTileAsReference(tile)}
-              />
-              <TileTool
-                label={t('tool.inpaint')}
-                icon="brush"
-                onClick={() => void openMask('inpaint', tile)}
-              />
-              <TileTool
-                label={t('tool.outpaint')}
-                icon="outpaint"
-                onClick={() => void openMask('outpaint', tile)}
-              />
-              <TileTool
-                label={t('tool.removeBackground')}
-                icon="removeBg"
-                onClick={() =>
-                  void runChatBackgroundRemoval({
-                    sourceMessageId: message.id,
-                    turnId: message.turnId,
-                    artifactId: tile.id,
-                    ...(tile.source ? { thumbnail: tile.source } : {}),
-                    loadSource: tile.original,
-                  })
-                }
-              />
-              {onViewCanvas && (
-                <TileTool
-                  label={t('tool.editOnCanvas')}
-                  icon="canvas"
-                  onClick={() => onViewCanvas([tile.id])}
+              autoTooltip={false}
+              disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
+              onClick={() => {
+                if (onViewCanvas && canvasIds.includes(tile.id)) onViewCanvas([tile.id])
+                else openPreviewResult(tile.id)
+              }}
+            >
+              {tile.source ? (
+                <img
+                  src={tile.source}
+                  alt={t('tool.resultNumber', { number: index + 1 })}
+                  loading="lazy"
+                  onLoad={(event) => {
+                    const { naturalWidth, naturalHeight } = event.currentTarget
+                    if (naturalWidth && naturalHeight)
+                      setImageRatios((ratios) => ({
+                        ...ratios,
+                        [tile.id]: naturalWidth / naturalHeight,
+                      }))
+                  }}
                 />
+              ) : (
+                <span>{t('tool.previewUnavailable')}</span>
               )}
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                className={INLINE_ACTION}
-                title={onPreviewResult ? undefined : t('tool.openCanvas')}
-                aria-label={
-                  onPreviewResult
-                    ? t('tool.openResultNumber', { number: index + 1 })
-                    : t('tool.openCanvas')
-                }
-                disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-                onClick={() => openPreviewResult(tile.id)}
-              >
-                <Icon name="fullscreen" />
-              </Button>
-              {tile.media !== 'video' && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className={INLINE_ACTION}
-                  title={t('tool.downloadResult')}
-                  aria-label={t('tool.downloadResult')}
-                  disabled={downloading.has(tile.id)}
-                  onClick={() => void downloadTile(tile)}
-                >
-                  <Icon name="download" />
-                </Button>
-              )}
-              {tile.media !== 'video' && onViewCanvas && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className={INLINE_ACTION}
-                  title={t('tool.editOnCanvas')}
-                  aria-label={t('tool.editOnCanvas')}
-                  onClick={() => onViewCanvas([tile.id])}
-                >
-                  <Icon name="images" />
-                </Button>
-              )}
-            </>
-          )}
+              {tile.media === 'video' && <PlayBadge />}
+            </Button>
+          </div>
         </div>
-      </div>
-    )
+      )
     const params = message.snapshot?.params
     const model = message.snapshot?.target?.model ?? params?.model
     const modelName = model
@@ -1125,16 +951,6 @@ function StandardAgentToolCard({
           {tiles.map(renderTile)}
           {promptOpen && message.prompt && (
             <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-          )}
-          {maskEdit && (
-            <AgentArtifactEditDialog
-              key={`${maskEdit.artifactId}:${maskEdit.action}`}
-              action={maskEdit.action}
-              source={maskEdit.source}
-              busy={maskBusy}
-              onClose={() => setMaskEdit(null)}
-              onGenerate={generateMask}
-            />
           )}
         </>
       )
@@ -1199,7 +1015,7 @@ function StandardAgentToolCard({
         )}
         {message.prompt &&
           !(
-            previews.some((preview) => preview.artifact.media === 'image') &&
+            artifactTiles.some((tile) => tile.artifact.media === 'image') &&
             (message.toolName === 'generateImage' || message.toolName === 'editImage')
           ) && (
             <Button
@@ -1211,7 +1027,7 @@ function StandardAgentToolCard({
               {t('tool.viewPrompt')}
             </Button>
           )}
-        {previews.some((preview) => preview.artifact.media === 'image') &&
+        {artifactTiles.some((tile) => tile.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
             <MessageActions
               className="mt-3"
@@ -1315,37 +1131,11 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
-        {showReceipt && (receipt?.durationMs !== undefined || receipt?.credits) && (
-          <p className="studio-agent-batch-cost">
-            {receipt.durationMs !== undefined && <span>{formatElapsed(receipt.durationMs)}</span>}
-            <span>{t('tool.batchCount', { count: tiles.length })}</span>
-            {receipt.credits ? <Credits credits={receipt.credits} /> : null}
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto px-0 py-0 text-xs font-normal"
-              aria-expanded={costOpen}
-              onClick={() => setCostOpen((open) => !open)}
-            >
-              {t('tool.costDetail')}
-            </Button>
-          </p>
-        )}
-        {showReceipt && costOpen && receipt?.footer && (
-          <AgentTurnCost footer={receipt.footer} jobs={receipt.jobs} />
+        {showReceipt && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={tiles.length} />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-        )}
-        {maskEdit && (
-          <AgentArtifactEditDialog
-            key={`${maskEdit.artifactId}:${maskEdit.action}`}
-            action={maskEdit.action}
-            source={maskEdit.source}
-            busy={maskBusy}
-            onClose={() => setMaskEdit(null)}
-            onGenerate={generateMask}
-          />
         )}
         <WakeSkippedNote message={message} />
         <RetryRecord message={message} />
@@ -1593,10 +1383,11 @@ export function AgentImageRun({
       data-batch-wide={total >= 4 ? 'true' : undefined}
       style={{ '--batch-count': String(total) } as CSSProperties}
     >
-      <div className="studio-agent-batch-meta">
-        {lead?.title && <span>{lead.title}</span>}
-        <span>{t('job.doneCount', { done, total })}</span>
-      </div>
+      {done < total && (
+        <div className="studio-agent-batch-meta">
+          <span>{t('job.doneCount', { done, total })}</span>
+        </div>
+      )}
       <div className="studio-agent-inline-gallery" data-count={total}>
         {messages.map((message) => (
           <AgentToolCard
@@ -1664,11 +1455,6 @@ export function AgentImageRun({
           >
             <Icon name="download" />
           </Button>
-          {messages
-            .filter((message) => message.job && message.status === 'submitted')
-            .map((message) => (
-              <AgentJobCancel key={message.id} message={message} />
-            ))}
         </MessageActions>
       )}
     </div>
