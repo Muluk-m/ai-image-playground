@@ -98,11 +98,13 @@ vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
+    edges,
     nodeTypes,
     children,
     onInit,
     onPaneClick,
     onNodeClick,
+    onEdgeClick,
     onSelectionChange,
     onMove,
     style,
@@ -116,13 +118,16 @@ vi.mock('@xyflow/react', () => ({
       width: number
       height: number
       selected?: boolean
+      className?: string
     }[]
+    edges?: { id: string; source: string; target: string }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
     onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
     onMove?: (event: unknown, viewport: TestViewport) => void
     style?: CSSProperties
     onNodeClick?: (event: unknown, node: { id: string }) => void
+    onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
     onPaneClick?: () => void
     onInit?: (flow: {
       screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
@@ -153,7 +158,7 @@ vi.mock('@xyflow/react', () => ({
             'div',
             {
               key: node.id,
-              className: `react-flow__node${node.selected ? ' selected' : ''}`,
+              className: `react-flow__node${node.selected ? ' selected' : ''}${node.className ? ` ${node.className}` : ''}`,
               'data-node-id': node.id,
               onClick: (event: unknown) => {
                 onSelectionChange?.({ nodes: [node] })
@@ -169,7 +174,14 @@ vi.mock('@xyflow/react', () => ({
             createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
           ),
         ),
-      children,
+      ...(edges ?? []).map((edge) =>
+        createElement('button', {
+          key: edge.id,
+          type: 'button',
+          'data-edge-id': edge.id,
+          onClick: (event: { stopPropagation: () => void }) => onEdgeClick?.(event, edge),
+        }),
+      ),
       createElement('button', {
         type: 'button',
         'data-testid': 'pane',
@@ -486,6 +498,19 @@ it('offers all node types from either handle and connects the chosen node in the
   expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
     expect.objectContaining({ source: text.id, target: 'image' }),
   )
+})
+it('cuts a selected connection when its edge is clicked again', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
+  const firstEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')
+  expect(firstEdge).not.toBeNull()
+  act(() => firstEdge!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+  const secondEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')
+  expect(secondEdge).not.toBeNull()
+  act(() => secondEdge!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
 })
 
 it('places a dropped image where the pointer is', async () => {

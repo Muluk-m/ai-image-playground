@@ -1,12 +1,11 @@
-import { BaseEdge, type EdgeProps, getBezierPath } from '@xyflow/react'
+import { BaseEdge, type EdgeProps, getBezierPath, Position } from '@xyflow/react'
 
 export default function NodeFlowEdge(props: EdgeProps) {
-  const [curve] = getBezierPath({
+  const [path] = getBezierPath({
     ...props,
-    sourceX: props.sourceX + 40,
-    targetX: props.targetX - 40,
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
   })
-  const path = `M${props.sourceX},${props.sourceY} L${curve.slice(1)} L${props.targetX},${props.targetY}`
   return (
     <>
       <BaseEdge
