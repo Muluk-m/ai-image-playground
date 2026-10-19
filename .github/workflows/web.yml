@@ -11,7 +11,52 @@ concurrency:
   group: web-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # 合并到 main 的提交若与它的 PR 最后一次通过的 Web checks 是同一棵树，下面四个 job 已经在
+  # 那次跑过，main 上不再重跑，直接交给部署。PR 落后于 main（合并后树不同）、来自 fork、或找不到
+  # 通过的那次，都照常全跑。
+  prior:
+    name: Already checked in the pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          verified=false
+          if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            pr=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+              --jq "[.[] | select(.merged_at != null and .base.ref == \"main\" and .head.repo.full_name == \"$REPO\")][0] // empty")
+            if [ -n "$pr" ]; then
+              head=$(printf '%s' "$pr" | jq -r .head.sha)
+              number=$(printf '%s' "$pr" | jq -r .number)
+              tree=$(gh api "repos/$REPO/commits/$SHA" --jq .commit.tree.sha)
+              head_tree=$(gh api "repos/$REPO/commits/$head" --jq .commit.tree.sha)
+              passed=$(gh api "repos/$REPO/actions/workflows/web.yml/runs?event=pull_request&head_sha=$head&status=success" \
+                --jq '.total_count')
+              if [ "$tree" = "$head_tree" ] && [ "${passed:-0}" -gt 0 ]; then
+                verified=true
+                echo "::notice::Same tree as PR #$number head $head, which passed Web checks; skipping the rerun."
+              else
+                echo "::notice::PR #$number: tree match=$([ "$tree" = "$head_tree" ] && echo yes || echo no), passed runs=${passed:-0}; running every check."
+              fi
+            fi
+          fi
+          echo "verified=$verified" >> "$GITHUB_OUTPUT"
   web:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -32,6 +77,8 @@ jobs:
           test-runner: 'true'
       - run: pnpm --dir apps/admin build
   bff:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -62,6 +109,8 @@ jobs:
       - run: pnpm test --concurrency=1 --env-mode=loose --filter='!@image-playground/web'
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
   web-test:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -80,7 +129,10 @@ jobs:
   #
   # 需要 PRIVATE_OVERLAY_SSH_KEY，fork 的 PR 拿不到 secrets，跳过；主仓 PR 与 main/test push 都跑。
   with-overlay:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    needs: prior
+    if: >-
+      needs.prior.outputs.verified != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
