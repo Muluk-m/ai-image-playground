@@ -145,7 +145,7 @@
 @media (hover: none) { .creation-project-menu, .creation-asset-select { opacity: 1; } }
 
 /* The complete stack silhouette shares the add tile's 48px box, including rear cards. */
-.creation-reference-stack { position: relative; display: flex; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; }
+.creation-reference-stack { position: relative; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; }
 .creation-stack-entry { position: relative; width: 48px; height: 48px; flex-shrink: 0; }
 .creation-stack-trigger { position: relative; width: 48px; height: 48px; padding: 0; background: transparent; border-radius: 8px; }
 .creation-stack-trigger:hover { background: transparent; }
