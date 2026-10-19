@@ -6,6 +6,7 @@ import {
   AGENT_SKILL_SCENES,
   type AgentMode,
   DEFAULT_AGENT_SKILL_ICON,
+  IMAGE_PRESETS,
 } from '@image-playground/shared'
 
 // 只读磁盘上随仓库发的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
@@ -20,9 +21,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../agent-video-operator-config.json',
 )
 
-const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } = await import(
-  '../../../lib/agent/skills'
-)
+const { agentSkillInvocation, agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } =
+  await import('../../../lib/agent/skills')
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
 const { turnInitialState } = await import('../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
@@ -92,6 +92,15 @@ function toolNames(mode: AgentMode): Set<string> {
 const ALL_TOOL_NAMES = new Set([...toolNames('image'), ...toolNames('video')])
 
 describe('随仓库发的技能', () => {
+  it('canvas image presets and Agent skills share the same generation constraints', () => {
+    for (const preset of IMAGE_PRESETS) {
+      const skill = agentSkills('image').find((skill) => skill.name === preset.skillName)
+      expect(skill).toBeDefined()
+      if (!skill) throw new Error(preset.skillName)
+      expect(skill.icon).toBe(preset.icon)
+      expect(agentSkillInvocation(skill)).toContain(preset.instruction)
+    }
+  })
   it('一条 diagnostic 都不该有', () => {
     expect(diagnostics).toEqual([])
   })

@@ -11,6 +11,7 @@ import {
   type AgentSkillSummary,
   type AgentSkillTemplate,
   DEFAULT_AGENT_SKILL_ICON,
+  imagePreset,
   LOOK_PURPOSES,
   LOOK_SKILL_NAME_PREFIX,
   type LookPurpose,
@@ -619,11 +620,14 @@ export function setAgentSkillsRootForTesting(next: string | null): void {
  * `extra` 是用户在 `/skill-name` 后面跟着写的其余文字。
  */
 export function agentSkillInvocation(skill: AgentSkill, extra?: string): string {
+  const preset = imagePreset(skill.name)
   return formatSkillInvocation(
     {
       name: skill.name,
       description: skill.description,
-      content: skill.content,
+      content: preset
+        ? skill.content + '\n\n## 默认出图约束\n\n' + preset.instruction
+        : skill.content,
       filePath: agentSkillLocation(skill),
     },
     extra?.trim() || undefined,
