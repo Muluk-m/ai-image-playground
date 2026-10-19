@@ -707,5 +707,22 @@
     "episode1": "Episode 1",
     "confirm": "Create text node",
     "cancel": "Cancel"
+  },
+  "imagePresets": {
+    "open": "Presets",
+    "singleSheet": "1 image sheet",
+    "remove": "Remove preset",
+    "character-sheet": {
+      "title": "Character three views",
+      "description": "Front, side and back of the same character"
+    },
+    "multi-camera-grid": {
+      "title": "Nine camera angles",
+      "description": "Nine camera views of the same scene and moment"
+    },
+    "continuous-storyboard": {
+      "title": "Continuous storyboard",
+      "description": "Turn a story into a continuous storyboard sheet"
+    }
   }
 }

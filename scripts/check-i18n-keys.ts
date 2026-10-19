@@ -21,6 +21,7 @@ const CATALOG_DIR = join(WEB_SRC, 'i18n', 'locales', 'zh-CN')
  * 拼出来的，就逐条列完整 key，免得把同级里真正没人用的 key 一起放过。
  */
 const DYNAMIC_PREFIXES = [
+  'canvas:imagePresets.',
   'common:locale.',
   'locale.',
   // features/video/lib/labels.ts：按 shared 的稳定 id（驳回码、派生模式、模型别名）拼 key。

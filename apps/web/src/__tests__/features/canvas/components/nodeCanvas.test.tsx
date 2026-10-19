@@ -3,6 +3,7 @@ import {
   canvasOrigin,
   connectCanvasNodes,
   createCanvasUndoManager,
+  IMAGE_PRESETS,
   importLegacyElements,
   insertCanvasNode,
   moveCanvasNodes,
@@ -881,6 +882,50 @@ it('shows the prompt composer only for a selected node', async () => {
   expect(host.querySelector('.studio-node-composer')).toBeNull()
   act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
   expect(host.querySelector('.studio-node-composer')).not.toBeNull()
+})
+
+it.each(
+  IMAGE_PRESETS,
+)('prepares $skillName with its source reference and only generates on Send', async (preset) => {
+  const params = useStore.getState().params
+  useStore.setState({ params: { ...params, n: 3 } })
+  try {
+    await render()
+    await act(async () => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+    const original = structuredClone(readCanvasDocument(canvas.doc).nodes[0])
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="预设"]')!.click())
+    const title = i18next.t(`imagePresets.${preset.skillName}.title`, { ns: 'canvas' })
+    const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (button) => button.textContent?.includes(title),
+    )!
+    expect(choice).toBeTruthy()
+    await act(async () => choice.click())
+    const snapshot = readCanvasDocument(canvas.doc)
+    const result = snapshot.nodes.find((node) => node.id !== 'image')!
+    expect(snapshot.nodes.find((node) => node.id === 'image')).toEqual(original)
+    expect(snapshot.edges).toContainEqual(
+      expect.objectContaining({ source: 'image', target: result.id }),
+    )
+    expect(host.querySelector('[data-skill-name]')?.textContent).toContain(title)
+    expect(mocks.submitImage).not.toHaveBeenCalled()
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="生成"]')!.click())
+    expect(mocks.submitImage).toHaveBeenCalledWith(
+      expect.anything(),
+      canvas.doc,
+      result.id,
+      expect.stringContaining(preset.instruction),
+      ['data:image/png;base64,AA=='],
+      undefined,
+      undefined,
+      expect.objectContaining({ params: expect.objectContaining({ n: 1 }) }),
+    )
+    expect(useStore.getState().params.n).toBe(3)
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="移除预设"]')!.click())
+    expect(host.querySelector('[data-skill-name]')).toBeNull()
+    expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+  } finally {
+    useStore.setState({ params })
+  }
 })
 
 it('sends a preset template through the selected image node', async () => {

@@ -686,5 +686,22 @@
     "episode1": "第 1 集",
     "confirm": "生成文本节点",
     "cancel": "取消"
+  },
+  "imagePresets": {
+    "open": "预设",
+    "singleSheet": "1 张拼图",
+    "remove": "移除预设",
+    "character-sheet": {
+      "title": "人物三视图",
+      "description": "同一人物的正面、侧面和背面"
+    },
+    "multi-camera-grid": {
+      "title": "多机位九宫格",
+      "description": "同一场景、同一时刻的九种机位"
+    },
+    "continuous-storyboard": {
+      "title": "连续分镜图",
+      "description": "把一段剧情画成连续的分镜拼图"
+    }
   }
 }

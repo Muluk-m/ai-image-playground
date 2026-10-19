@@ -1556,7 +1556,7 @@ body .studio-global-account {
   .studio-node-composer { left: 8px; right: 8px; bottom: 68px; }
 }
 .studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; max-width: calc(100% - 32px); }
-.studio-node-media-actions { position: absolute; z-index: 24; display: flex; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
+.studio-node-media-actions { position: absolute; z-index: 24; width: max-content; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { pointer-events: all; }
 
 /* Group frames stay behind cards; only their header takes pointer input. */
