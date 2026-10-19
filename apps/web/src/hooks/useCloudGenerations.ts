@@ -56,7 +56,10 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
       } catch {
         if (current()) setFailed(true)
       } finally {
-        if (current()) setLoading(false)
+        if (current()) {
+          request.current = null
+          setLoading(false)
+        }
       }
     },
     [scope],
@@ -71,13 +74,15 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
     return () => request.current?.abort()
   }, [enabled, load])
 
+  const loadMore = useCallback(() => {
+    if (!request.current && cursor) void load(cursor)
+  }, [cursor, load])
+
   return {
     loading,
     failed,
     hasMore: cursor !== null,
-    loadMore: () => {
-      if (!loading && cursor) void load(cursor)
-    },
+    loadMore,
     reload: () => void load(null),
   }
 }
