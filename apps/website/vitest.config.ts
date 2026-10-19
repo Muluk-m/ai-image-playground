@@ -1,2 +1,6 @@
 import { defineConfig } from 'vitest/config'
-export default defineConfig({ test: { include: ['src/__tests__/**/*.test.ts'] } })
+import { vitestGuard } from '../../scripts/test-guard'
+
+export default defineConfig({
+  test: { ...vitestGuard('apps/website'), include: ['src/__tests__/**/*.test.ts'] },
+})

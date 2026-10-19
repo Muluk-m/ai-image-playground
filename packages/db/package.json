@@ -12,7 +12,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node ../../scripts/check-test-host.mjs && bun run ../../scripts/run-bun-tests-isolated.ts src",
+    "test": "bun run ../../scripts/run-bun-tests-isolated.ts src",
     "db:generate": "drizzle-kit generate",
     "db:verify": "bun run src/verify-schema.ts"
   },
