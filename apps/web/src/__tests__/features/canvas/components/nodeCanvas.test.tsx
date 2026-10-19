@@ -584,7 +584,9 @@ it('offers video tools and preview when the video has no poster file', async () 
 it('previews arrangement without saving, reverts it, and keeps it as one undo step', async () => {
   await render()
   act(() => old.addElements([image('second')]))
+  act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
   const before = readCanvasDocument(canvas.doc).nodes
+  const edges = readCanvasDocument(canvas.doc).edges
   const click = (label: string) =>
     act(() => {
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -595,14 +597,17 @@ it('previews arrangement without saving, reverts it, and keeps it as one undo st
     })
   click('整理画布')
   expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
   expect(host.textContent).toContain('是否保留此次整理结果？')
   click('还原')
   expect(host.textContent).not.toContain('是否保留此次整理结果？')
   click('整理画布')
   click('保留')
   expect(readCanvasDocument(canvas.doc).nodes).not.toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
   act(() => canvas.undo.undo())
   expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
 })
 
 it('keeps arrangement through media updates but cancels it when another editor moves a node', async () => {
