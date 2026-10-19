@@ -14,8 +14,8 @@ import {
 } from '@image-playground/shared'
 import { newElementId } from './canvasDoc'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
-import { nodeCardSize } from './nodeCanvasPlace'
-import { findFreeCanvasPlacement, PLACEMENT_GAP } from './placement'
+import { findFreeCanvasPlacement, nodeCardSize } from '@image-playground/shared'
+import { PLACEMENT_GAP } from './placement'
 
 export type CreateNodeKind = 'text' | 'image' | 'video' | 'timeline' | 'storyboard'
 export function nodeKind(node: CanvasNode): CreateNodeKind | 'timeline' {

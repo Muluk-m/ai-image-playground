@@ -13,8 +13,8 @@ import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
-import { nodeCardSize } from './nodeCanvasPlace'
-import { findFreeCanvasPlacement, PLACEMENT_GAP } from './placement'
+import { findFreeCanvasPlacement, nodeCardSize } from '@image-playground/shared'
+import { PLACEMENT_GAP } from './placement'
 
 /** Reuse the toolbox's local cropper; only publish the complete batch after all tiles encode. */
 export async function sliceCanvasImage(

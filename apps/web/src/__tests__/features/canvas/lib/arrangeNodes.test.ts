@@ -1,7 +1,7 @@
 import type { CanvasNode, CanvasSnapshot } from '@image-playground/shared'
 import { expect, it } from 'vitest'
 import { arrangeNodes, CANVAS_LAYOUT_GAP } from '../../../../features/canvas/lib/arrangeNodes'
-import { nodeCardSize } from '../../../../features/canvas/lib/nodeCanvasPlace'
+import { nodeCardSize } from '@image-playground/shared'
 
 const node = (id: string, x = 0, y = 0): CanvasNode => ({
   id,

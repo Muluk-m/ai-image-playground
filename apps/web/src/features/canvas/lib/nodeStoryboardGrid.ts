@@ -18,7 +18,7 @@ import { useStore } from '../../../store'
 import type { CanvasEditor } from './editor'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 import { recordNodeOutput } from './nodeCanvasResults'
-import { patchStoryboardMedia, STORYBOARD_GRID_MAX } from './nodeStoryboardFlow'
+import { patchStoryboardMedia, STORYBOARD_GRID_MAX } from '@image-playground/shared'
 
 const origin = canvasOrigin('system', 'storyboard-grid')
 export function storyboardTiles(
@@ -205,7 +205,7 @@ export async function splitStoryboardGrid(
       )
     }
     patchStoryboardMedia(
-      canvas,
+      canvas.doc,
       id,
       {
         meta: {
