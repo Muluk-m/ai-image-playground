@@ -3,6 +3,7 @@ import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 export interface TextChatModel {
   readonly id: string
+  readonly model: string
   readonly label: string
 }
 
@@ -20,15 +21,21 @@ export async function fetchTextChatModels(signal?: AbortSignal): Promise<{
     throw new Error('text_generation_models_invalid')
   const raw = payload.models
   const models = Array.isArray(raw)
-    ? raw.filter(
-        (model): model is TextChatModel =>
-          Boolean(model) &&
-          typeof model === 'object' &&
-          'id' in model &&
-          typeof model.id === 'string' &&
-          'label' in model &&
-          typeof model.label === 'string',
-      )
+    ? raw
+        .filter(
+          (model): model is { id: string; label: string; model?: string } =>
+            Boolean(model) &&
+            typeof model === 'object' &&
+            'id' in model &&
+            typeof model.id === 'string' &&
+            'label' in model &&
+            typeof model.label === 'string' &&
+            (!('model' in model) || typeof model.model === 'string'),
+        )
+        .map((model) => ({
+          ...model,
+          model: model.model ?? model.id.split('::').at(-1) ?? model.id,
+        }))
     : []
   const defaultModel =
     'defaultModel' in payload && typeof payload.defaultModel === 'string'
