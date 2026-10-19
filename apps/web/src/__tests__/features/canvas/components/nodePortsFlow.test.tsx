@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 import { type Node, ReactFlow } from '@xyflow/react'
-import { act, createContext, useContext } from 'react'
+import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
+import { CanvasLodProvider, useCanvasLod } from '../../../../features/canvas/components/CanvasLod'
 import NodePorts from '../../../../features/canvas/components/NodePorts'
 
-const DetailContext = createContext(false)
 const nodes: Node[] = [
   { id: 'source', type: 'card', position: { x: 100, y: 100 }, width: 300, height: 220 },
 ]
 const nodeTypes = {
-  card: () => (useContext(DetailContext) ? <NodePorts nodeId="source" /> : <span>Card</span>),
+  card: () => (useCanvasLod() === 'detail' ? <NodePorts nodeId="source" /> : <span>Card</span>),
 }
 
 afterEach(() => {
@@ -26,11 +26,14 @@ it('can drag a connection when detailed ports replace a card without resizing th
       m22 = 1
     },
   )
+  const measured = new WeakSet<Element>()
   vi.stubGlobal(
     'ResizeObserver',
     class implements ResizeObserver {
       constructor(private callback: ResizeObserverCallback) {}
       observe(target: Element) {
+        if (measured.has(target)) return
+        measured.add(target)
         queueMicrotask(() =>
           this.callback(
             [
@@ -56,13 +59,19 @@ it('can drag a connection when detailed ports replace a card without resizing th
       : element.classList.contains('react-flow__node')
         ? { width: 300, height: 220 }
         : { width: 800, height: 600 }
-  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function () {
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
     return size(this).width
   })
-  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function () {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
     return size(this).height
   })
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
     const { width, height } = size(this)
     const handle = this.classList.contains('react-flow__handle')
     const node = this.classList.contains('react-flow__node')
@@ -73,6 +82,8 @@ it('can drag a connection when detailed ports replace a card without resizing th
       height,
     )
   })
+  const hitTest = Object.getOwnPropertyDescriptor(document, 'elementFromPoint')
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => null })
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -80,14 +91,14 @@ it('can drag a connection when detailed ports replace a card without resizing th
   const render = (detail: boolean) =>
     act(async () => {
       root.render(
-        <DetailContext.Provider value={detail}>
+        <CanvasLodProvider mode={detail ? 'detail' : 'card'}>
           <ReactFlow
             nodes={nodes}
             nodeTypes={nodeTypes}
             onConnectStart={onConnectStart}
             autoPanOnConnect={false}
           />
-        </DetailContext.Provider>,
+        </CanvasLodProvider>,
       )
     })
   try {
@@ -119,5 +130,7 @@ it('can drag a connection when detailed ports replace a card without resizing th
     )
     act(() => root.unmount())
     host.remove()
+    if (hitTest) Object.defineProperty(document, 'elementFromPoint', hitTest)
+    else Reflect.deleteProperty(document, 'elementFromPoint')
   }
 })
