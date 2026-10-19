@@ -1,7 +1,11 @@
-import { canvasNodeRegistry, readCanvasDocument } from '@image-playground/shared'
+import {
+  canvasNodeRegistry,
+  findFreeCanvasPlacement,
+  nodeCardSize,
+  readCanvasDocument,
+} from '@image-playground/shared'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CanvasEditor } from './editor'
-import { findFreeCanvasPlacement, nodeCardSize } from '@image-playground/shared'
 import { activeNodeCanvas } from './nodeCanvasSelection'
 import { PLACEMENT_GAP } from './placement'
 

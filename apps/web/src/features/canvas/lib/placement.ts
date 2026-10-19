@@ -4,7 +4,6 @@ import { Box } from './geometry'
 /** 结果 / 占位框与源选区之间、以及多张结果彼此之间的留白（页面坐标单位）。 */
 export const PLACEMENT_GAP = 48
 
-
 /** 尚不知结果真实尺寸时占位框的默认边长（页面坐标单位）。 */
 const DEFAULT_TARGET_SIZE = 360
 

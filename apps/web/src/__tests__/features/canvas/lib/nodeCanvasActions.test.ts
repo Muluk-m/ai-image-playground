@@ -4,6 +4,7 @@ import {
   createCanvasGroup,
   createCanvasUndoManager,
   importLegacyElements,
+  nodeCardSize,
   readCanvasDocument,
   readCanvasGroups,
   reconcileLegacyElements,
@@ -21,7 +22,6 @@ import {
   removeNodes,
 } from '../../../../features/canvas/lib/nodeCanvasActions'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
-import { nodeCardSize } from '@image-playground/shared'
 
 function setup(): NodeCanvasDocument {
   const doc = new Y.Doc(),

@@ -1,4 +1,7 @@
-import { PROJECT_TIMELINE_MAX_CLIPS, STORYBOARD_TIMELINE_MAX_SECONDS } from '@image-playground/shared'
+import {
+  PROJECT_TIMELINE_MAX_CLIPS,
+  STORYBOARD_TIMELINE_MAX_SECONDS,
+} from '@image-playground/shared'
 
 /** 成片规格与纯计算，不引应用代码：Worker 也要用它。 */
 

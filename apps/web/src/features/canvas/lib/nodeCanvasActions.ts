@@ -7,14 +7,15 @@ import {
   createCanvasGroup,
   deleteCanvasNode,
   disconnectCanvasNodes,
+  findFreeCanvasPlacement,
   insertCanvasNode,
+  nodeCardSize,
   readCanvasDocument,
   ungroupCanvasNodes,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { newElementId } from './canvasDoc'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
-import { findFreeCanvasPlacement, nodeCardSize } from '@image-playground/shared'
 import { PLACEMENT_GAP } from './placement'
 
 export type CreateNodeKind = 'text' | 'image' | 'video' | 'timeline' | 'storyboard'

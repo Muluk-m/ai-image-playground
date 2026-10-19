@@ -1,8 +1,9 @@
 import {
   prepareStoryboardFrames as prepareFrames,
   prepareStoryboardVideos as prepareVideos,
-  StoryboardFlowError,
   type StoryboardFlowContext,
+  StoryboardFlowError,
+  type StoryboardFlowErrorCode,
   type StoryboardFrameMode,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
@@ -30,9 +31,14 @@ function prepare<T>(canvas: NodeCanvasDocument, action: () => T): T {
     return action()
   } catch (error) {
     if (error instanceof StoryboardFlowError) {
-      error.message = t(`storyFlow.${error.code === 'missingAssets' ? 'noImages' : error.code}`, {
-        names: error.assets.join('、'),
-      })
+      const messages: Record<StoryboardFlowErrorCode, string> = {
+        finalizeFirst: t('storyFlow.finalizeFirst'),
+        noFirstFrameModel: t('storyFlow.noFirstFrameModel'),
+        framesMissing: t('storyFlow.framesMissing'),
+        promptTooLong: t('storyFlow.promptTooLong'),
+        missingAssets: t('storyFlow.noImages', { names: error.assets.join('、') }),
+      }
+      error.message = messages[error.code]
     }
     throw error
   } finally {
