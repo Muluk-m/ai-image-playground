@@ -477,7 +477,6 @@
     "composerText": "Write this text",
     "composerSend": "Generate",
     "contextLabel": "Context",
-    "connectIn": "Use as incoming context",
     "connectOut": "Connect to the next node",
     "cutConnection": "Cut connection",
     "addVideo": "Video",
