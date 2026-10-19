@@ -24,6 +24,7 @@ import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
 import { agentCanvasProject } from '../node-canvas-view'
 import { proposeStageAuthorization, readStageAuthorization } from '../stage-authorizations'
+import { agentVideoModel } from '../video-models'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import type { AgentToolAudience, AgentToolContext } from './types'
@@ -433,12 +434,13 @@ export const applyScriptPlan = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '用户要求拆剧本或续写第 N 集时使用。把已有文本节点拆成无图素材和分镜表并连线；续写只追加该集，不覆盖已有集。不生成媒体，不计费。',
+    '用户要求拆剧本、继续完善或扩写第 N 集时使用。先读取原分镜表，storyboardId 使用原表 ID；shots 提交完整的新镜头表，保留已有镜头 ID，新增镜头使用新 ID，省略的镜头会删除。assets 只列新素材。episodeNumber 指定集号，episode 只用于追加尚不存在的剧本文字。不生成媒体，不计费。',
   description:
-    '把一个文本剧本拆成没有图片的人物、地点、道具节点和一张分镜表，按引用连到分镜表。可以同时把下一集追加到原剧本。不会提交生图或生视频。',
+    '创建或就地更新一集的唯一分镜表，保留原镜头身份，可增删镜头；定稿后修改会回到草稿，旧首帧和视频保留但过期。可同时新建无图素材或追加下一集剧本文字。',
   parameters: Type.Object({
     scriptNodeId: id,
     storyboardId: id,
+    episodeNumber: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
     assets: Type.Array(
       Type.Object({
         id,
@@ -459,11 +461,11 @@ export const applyScriptPlan = defineAgentTool({
         description: Type.String({ minLength: 1, maxLength: 10000 }),
         dialogue: Type.Optional(Type.String({ maxLength: 10000 })),
         camera: Type.Optional(Type.String({ maxLength: 200 })),
-        durationSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
+        durationSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
         lookIds: Type.Array(id, { maxItems: 8 }),
         locationId: Type.Optional(id),
       }),
-      { minItems: 1, maxItems: 200 },
+      { maxItems: 200 },
     ),
     episode: Type.Optional(
       Type.Object({
@@ -481,11 +483,50 @@ export const applyScriptPlan = defineAgentTool({
       })
     )
       invalid('当前会话不能拆分剧本。')
+    const selectedModel = context.params?.video?.model
+    const video = agentVideoModel(selectedModel)
+    if (selectedModel && (!video || !video.support.firstFrame))
+      invalid('当前所选视频模型不可用或不支持首帧视频，请选择可用的首帧视频模型后再写分镜表。')
+    if (video?.support.firstFrame) {
+      const maximum = Math.max(...video.support.durations)
+      for (const [index, shot] of params.shots.entries())
+        if ((shot.durationSeconds ?? 5) > maximum)
+          invalid(
+            `第 ${index + 1} 镜 ${shot.id} 时长超过 ${video.support.label} 的 ${maximum} 秒上限，请在分镜表里拆镜，保留原镜头 ID 并为新增镜头分配新 ID。`,
+          )
+    }
     return write(context, callId, '拆分剧本', params, (doc, origin) => {
       const script = getNode(doc, params.scriptNodeId)
       const scriptText = textData(script)
-      const taken = new Set(readCanvasDocument(doc).nodes.map((node) => node.id))
-      if (taken.has(params.storyboardId)) invalid(`节点 id 已存在：${params.storyboardId}`)
+      const snapshot = readCanvasDocument(doc)
+      const existingBoard = snapshot.nodes.find((node) => node.id === params.storyboardId)
+      if (existingBoard && existingBoard.type !== 'storyboard')
+        invalid(`节点不是分镜表：${params.storyboardId}`)
+      const boundEpisode =
+        existingBoard?.type === 'storyboard' ? existingBoard.data.episode : undefined
+      const episodeNumber =
+        params.episodeNumber ?? params.episode?.number ?? boundEpisode?.number ?? 1
+      if (params.episode && params.episode.number !== episodeNumber)
+        invalid('追加的剧本集号必须与分镜表的 episodeNumber 一致。')
+      if (
+        boundEpisode &&
+        (boundEpisode.scriptNodeId !== script.id || boundEpisode.number !== episodeNumber)
+      )
+        invalid(
+          `分镜表 ${params.storyboardId} 已属于原剧本第 ${boundEpisode.number} 集，请更新该集原表。`,
+        )
+      const duplicate = snapshot.nodes.find(
+        (node) =>
+          node.type === 'storyboard' &&
+          node.id !== params.storyboardId &&
+          (node.data.episode?.number ?? 1) === episodeNumber,
+      )
+      if (duplicate)
+        invalid(
+          `第 ${episodeNumber} 集已有生效分镜表 ${duplicate.id}，请用此 storyboardId 更新原表，不要新建第二张表。`,
+        )
+      const taken = new Set(snapshot.nodes.map((node) => node.id))
+      taken.add(params.storyboardId)
       for (const asset of params.assets) {
         if (taken.has(asset.id)) invalid(`节点 id 已存在：${asset.id}`)
         taken.add(asset.id)
@@ -523,21 +564,36 @@ export const applyScriptPlan = defineAgentTool({
       }
       const existing = readCanvasDocument(doc).nodes
       const right = Math.max(...existing.map((node) => node.x + node.width)) + 168
-      const board = canvasNodeRegistry.storyboard.size
-      insertCanvasNode(
-        doc,
-        {
-          id: params.storyboardId,
-          type: 'storyboard',
-          x: right + canvasNodeRegistry.image.size.width + 168,
-          y: script.y,
-          width: board.width,
-          height: board.height,
-          data: { shots: [] },
-        },
-        origin,
-      )
+      if (!existingBoard) {
+        const board = canvasNodeRegistry.storyboard.size
+        insertCanvasNode(
+          doc,
+          {
+            id: params.storyboardId,
+            type: 'storyboard',
+            x: right + canvasNodeRegistry.image.size.width + 168,
+            y: script.y,
+            width: board.width,
+            height: board.height,
+            data: { shots: [] },
+          },
+          origin,
+        )
+      }
       replaceStoryboardShots(doc, params.storyboardId, shots, origin)
+      const updatedBoard = getNode(doc, params.storyboardId)
+      if (updatedBoard.type === 'storyboard')
+        updateCanvasNode(
+          doc,
+          params.storyboardId,
+          {
+            data: {
+              ...updatedBoard.data,
+              episode: { scriptNodeId: script.id, number: episodeNumber },
+            },
+          },
+          origin,
+        )
       const written = readCanvasDocument(doc).nodes.find((node) => node.id === params.storyboardId)
       if (written?.type !== 'storyboard' || written.data.shots.length !== shots.length)
         invalid('分镜表没有写入。')
@@ -568,7 +624,12 @@ export const applyScriptPlan = defineAgentTool({
           invalid(`素材无法连接到分镜表：${asset.id}`)
         nextY += size.height + 48
       }
-      if (!connectCanvasNodes(doc, { source: script.id, target: params.storyboardId }, origin))
+      if (
+        !readCanvasDocument(doc).edges.some(
+          (edge) => edge.source === script.id && edge.target === params.storyboardId,
+        ) &&
+        !connectCanvasNodes(doc, { source: script.id, target: params.storyboardId }, origin)
+      )
         invalid('剧本无法连接到分镜表。')
     })
   },

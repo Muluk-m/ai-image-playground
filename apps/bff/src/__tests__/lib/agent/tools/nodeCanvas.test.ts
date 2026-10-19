@@ -341,6 +341,6 @@ it('splits a script into imageless assets and a storyboard, and appends the next
       shots: [{ id: 'shot-2', description: '重复的一集', lookIds: ['lin'] }],
       episode: { number: 2, text: '再写一次' },
     }),
-  ).rejects.toThrow('已经在剧本里')
+  ).rejects.toThrow('board')
   expect((await graph()).nodes.some((node) => node.id === 'board-2')).toBe(false)
 })
