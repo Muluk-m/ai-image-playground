@@ -68,6 +68,7 @@ vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
 }))
 vi.mock('../../../../theme/useTheme', () => ({ useTheme: () => ({ theme: 'dark' }) }))
 vi.mock('@xyflow/react', () => ({
+  useUpdateNodeInternals: () => () => {},
   applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
@@ -99,6 +100,7 @@ vi.mock('@xyflow/react', () => ({
       children,
     ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  useStoreApi: () => ({ getState: () => ({ cancelConnection: () => {} }) }),
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
@@ -114,6 +116,7 @@ vi.mock('@xyflow/react', () => ({
     onSelectionChange,
     onMove,
     style,
+    className,
   }: {
     nodes: {
       id: string
@@ -138,6 +141,7 @@ vi.mock('@xyflow/react', () => ({
     onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
     onMove?: (event: unknown, viewport: TestViewport) => void
     style?: CSSProperties
+    className?: string
     onNodeClick?: (event: unknown, node: { id: string }) => void
     onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
     onConnectStart?: (
@@ -173,7 +177,7 @@ vi.mock('@xyflow/react', () => ({
     }, [])
     return createElement(
       'div',
-      { className: 'react-flow', style },
+      { className: `react-flow ${className ?? ''}`, style },
       ...nodes
         .filter((node) => !mocks.hiddenNodeIds.has(node.id))
         .map((node) =>
@@ -594,7 +598,7 @@ it('places a text card that stays large enough for the side handles', async () =
   expect(bounds.height).toBe(220)
 })
 
-it('offers all node types from either handle and connects the chosen node in the right direction', async () => {
+it('offers node types only from the right handle and connects the chosen downstream node', async () => {
   await render()
   const handle = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[data-node-id="image"] [aria-label="${label}"]`)!
@@ -613,12 +617,7 @@ it('offers all node types from either handle and connects the chosen node in the
   expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
     expect.objectContaining({ source: 'image', target: added.id }),
   )
-  act(() => handle('接入上文').click())
-  choose('文本')
-  const text = readCanvasDocument(canvas.doc).nodes.find((n) => n.type === 'text')!
-  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
-    expect.objectContaining({ source: text.id, target: 'image' }),
-  )
+  expect(handle('接入上文')).toBeNull()
 })
 it('keeps a selected connection until the explicit cut action is clicked', async () => {
   await render()
@@ -662,6 +661,17 @@ it('dims unsupported nodes and highlights the whole valid target card while drag
   expect(host.querySelector('[data-node-id="timeline"]')?.className).toContain(
     'studio-node-connection-disabled',
   )
+})
+
+it('restores the scene on Escape and ignores the subsequent connection drop', async () => {
+  await render()
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  expect(host.querySelector('.studio-node-connecting')).not.toBeNull()
+  act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(host.querySelector('.studio-node-connecting')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
 })
 
 it('opens the add-node menu when a connection ends on blank canvas space', async () => {
