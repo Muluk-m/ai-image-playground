@@ -111,6 +111,7 @@ vi.mock('@xyflow/react', () => ({
     onPaneClick,
     onNodeClick,
     onEdgeClick,
+    onConnect,
     onConnectStart,
     onConnectEnd,
     onSelectionChange,
@@ -144,6 +145,7 @@ vi.mock('@xyflow/react', () => ({
     className?: string
     onNodeClick?: (event: unknown, node: { id: string }) => void
     onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
+    onConnect?: (connection: { source: string; target: string }) => void
     onConnectStart?: (
       event: { clientX: number; clientY: number },
       params: { nodeId: string; handleType: 'source' | 'target' },
@@ -224,6 +226,11 @@ vi.mock('@xyflow/react', () => ({
         'data-testid': 'start-connection',
         onClick: () =>
           onConnectStart?.({ clientX: 0, clientY: 0 }, { nodeId: 'image', handleType: 'source' }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'commit-connection',
+        onClick: () => onConnect?.({ source: 'image', target: 'second' }),
       }),
       createElement('button', {
         type: 'button',
@@ -663,12 +670,24 @@ it('dims unsupported nodes and highlights the whole valid target card while drag
   )
 })
 
+it('commits an active drag through React Flow before its end callback', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="commit-connection"]')!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
+    expect.objectContaining({ source: 'image', target: 'second' }),
+  )
+})
+
 it('restores the scene on Escape and ignores the subsequent connection drop', async () => {
   await render()
+  act(() => old.addElements([image('second')]))
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
   expect(host.querySelector('.studio-node-connecting')).not.toBeNull()
   act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   expect(host.querySelector('.studio-node-connecting')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="commit-connection"]')!.click())
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
   expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)

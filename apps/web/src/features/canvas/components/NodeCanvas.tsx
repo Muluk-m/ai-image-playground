@@ -2098,7 +2098,8 @@ function Flow({
                             closeMenu()
                           }}
                           onConnect={(connection) => {
-                            if (!connection.source || !connection.target) return
+                            if (!connectStart.current || !connection.source || !connection.target)
+                              return
                             connectCanvasNodes(
                               canvas.doc,
                               { source: connection.source, target: connection.target },
