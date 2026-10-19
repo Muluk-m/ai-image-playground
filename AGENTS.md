@@ -48,7 +48,7 @@
 
 **资源受限机器的测试守卫**（[`scripts/test-guard.ts`](scripts/test-guard.ts)）：存在 `~/.config/test-guard/constrained`
 （尊重 `XDG_CONFIG_HOME`）且不在 CI 时，Vitest 配置与 Bun 隔离运行器拒绝未指定文件的全量运行，指定文件的运行强制单 worker、
-文件串行，并通过 `~/.cache/test-guard/run.lock` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
+文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
 `rmake -c "pnpm test"` 或 CI；不要设置 `CI` 绕过守卫。
 
 CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm lint`、`pnpm typecheck`、

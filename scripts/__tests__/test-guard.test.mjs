@@ -31,7 +31,7 @@ const env = (extra = {}) => ({
   TEST_GUARD_HELD: '',
   ...extra,
 })
-const lockFile = join(cache, 'test-guard', 'run.lock')
+const lockFile = join(cache, 'test-guard', 'run-owner')
 
 /** Starts a process that takes the lock, records when it held it, and releases it on exit. */
 function contender(log, name, holdMs = 300) {
@@ -113,4 +113,24 @@ test('several waiters reclaim a crashed run without overlapping', async () => {
   )
   for (const result of results) assert.equal(result.code, 0, result.stderr)
   assertSerial(log, 3)
+})
+
+test('an unreadable lock is waited on with the deadline, not spun on', () => {
+  const blocker = join(cache, 'test-guard', 'run-owner')
+  rmSync(blocker, { recursive: true, force: true })
+  mkdirSync(blocker, { recursive: true })
+  const started = Date.now()
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const g = await import(${JSON.stringify(guardPath)}); g.acquireTestLock('stuck')`,
+    ],
+    { env: env({ TEST_GUARD_WAIT_MS: '1200' }), encoding: 'utf8', timeout: 10_000 },
+  )
+  rmSync(blocker, { recursive: true, force: true })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /等待超时/)
+  assert.ok(Date.now() - started < 8_000)
 })
