@@ -107,3 +107,27 @@ it('applies generic data updates to the live rows and stores a compact confirmat
   expect(storyboardFingerprint(long)).not.toBe(storyboardFingerprint(next))
   validateCloudCanvas(doc, { version: 1, elements: [] })
 })
+
+it('preserves episode identity through cloud validation and archive round trips', () => {
+  const doc = seed()
+  const identity = { version: 1 as const, elements: [] }
+  updateCanvasNode(doc, 'board', {
+    data: { shots: shots(doc), episode: { scriptNodeId: 'script', number: 2 } },
+  }, origin)
+  expect(() => validateCloudCanvas(doc, identity)).not.toThrow()
+  const projected = canvasProjectDocument(doc, identity)
+  expect(projected.elements.find((element) => element.id === 'board')).toMatchObject({
+    episode: { scriptNodeId: 'script', number: 2 },
+  })
+  const copy = new Y.Doc()
+  try {
+    importLegacyElements(copy, projected.elements, origin)
+    expect(() => validateCloudCanvas(copy, identity)).not.toThrow()
+    expect(readCanvasDocument(copy).nodes[0]?.data).toMatchObject({
+      episode: { scriptNodeId: 'script', number: 2 },
+    })
+  } finally {
+    doc.destroy()
+    copy.destroy()
+  }
+})
