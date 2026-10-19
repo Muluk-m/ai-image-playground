@@ -2,6 +2,12 @@
 
 本文件是代码 Agent 的工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
+## Agent 模型配置
+
+- 开始任务前，若 `~/.cursor/rules/pstack-models.mdc` 存在，必须完整读取，作为子 Agent 的角色模型与推理预算配置；该用户配置优先于 pstack 技能默认值，Codex 会话也须显式读取。
+- 配置仅约束已获准的子 Agent 调用，不改变主会话模型或委派权限。模型与推理强度通过当前工具支持的独立参数传入。
+- 配置缺失时说明未加载用户配置；配置的模型不可用时说明限制，不擅自降级。始终只使用当前会话明确提供的型号。
+
 ## 部署与灾备
 
 - **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
