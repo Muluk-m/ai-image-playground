@@ -20,12 +20,24 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
 
   useEffect(() => {
     const end = endRef.current
-    if (!hero || !end || typeof IntersectionObserver === 'undefined') return
+    if (!hero || !end) return
+    const updateEnd = (nearEnd: boolean) => {
+      setAtEnd(nearEnd)
+      if (nearEnd && hasMore && !loading && !failed) loadMore()
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      const checkEnd = () => updateEnd(end.getBoundingClientRect().top <= window.innerHeight + 240)
+      window.addEventListener('scroll', checkEnd, { passive: true })
+      window.addEventListener('resize', checkEnd)
+      checkEnd()
+      return () => {
+        window.removeEventListener('scroll', checkEnd)
+        window.removeEventListener('resize', checkEnd)
+      }
+    }
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry) return
-        setAtEnd(entry.isIntersecting)
-        if (entry.isIntersecting && hasMore && !loading && !failed) loadMore()
+        if (entry) updateEnd(entry.isIntersecting)
       },
       { rootMargin: '0px 0px 240px 0px' },
     )
