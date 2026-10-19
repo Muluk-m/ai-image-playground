@@ -7,7 +7,7 @@ import { CanvasLodProvider, useCanvasLod } from '../../../../features/canvas/com
 import NodePorts from '../../../../features/canvas/components/NodePorts'
 
 const nodes: Node[] = [
-  { id: 'source', type: 'card', position: { x: 100, y: 100 }, width: 300, height: 220 },
+  { id: 'source', type: 'card', data: {}, position: { x: 100, y: 100 }, width: 300, height: 220 },
 ]
 const nodeTypes = {
   card: () => (useCanvasLod() === 'detail' ? <NodePorts nodeId="source" /> : <span>Card</span>),
