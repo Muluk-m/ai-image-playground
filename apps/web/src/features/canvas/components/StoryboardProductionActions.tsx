@@ -1,3 +1,8 @@
+import {
+  StoryboardFlowError,
+  type StoryboardFrameMode,
+  storyboardMissingAssets,
+} from '@image-playground/shared'
 import { useState } from 'react'
 import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
@@ -7,13 +12,7 @@ import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
-import {
-  prepareStoryboardFrames,
-  prepareStoryboardVideos,
-  StoryboardFlowError,
-  type StoryboardFrameMode,
-  storyboardMissingAssets,
-} from '../lib/nodeStoryboardFlow'
+import { prepareStoryboardFrames, prepareStoryboardVideos } from '../lib/nodeStoryboardFlow'
 
 export default function StoryboardProductionActions({
   canvas,
@@ -29,7 +28,7 @@ export default function StoryboardProductionActions({
   const { t } = useTranslation('canvas')
   const [open, setOpen] = useState(false),
     [mode, setMode] = useState<StoryboardFrameMode>('grid')
-  const missing = storyboardMissingAssets(canvas, id)
+  const missing = storyboardMissingAssets(canvas.doc, id)
   const apply = (action: () => string[]) => {
     try {
       const ids = action()
