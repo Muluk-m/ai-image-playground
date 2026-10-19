@@ -1369,8 +1369,16 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
-  if (block.canvasRun)
-    return `${title}：阶段「${block.canvasRun.stage}」，范围 ${block.canvasRun.nodeNames.join('、')}，预算上限 ${block.canvasRun.budgetCap} 积分。授权提案待确认，不代表任务已提交；必须查询授权状态及真实任务后才能说「已提交」，读取真实结果后才能说「已完成」。`
+  if (block.canvasRun) {
+    const proposal = block.canvasRun
+    if (!proposal.authorizationId || !Array.isArray(proposal.nodeNames))
+      return `${title}：旧运行建议仅供查看，没有阶段授权执行凭证；如需运行，先读取当前画布并重新提出阶段授权。历史 autoRun 标记不授予执行权限。`
+    const lookup = JSON.stringify({
+      authorizationId: proposal.authorizationId,
+      nodeIds: proposal.nodeIds,
+    })
+    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。此记录是当时待确认的提案，当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
+  }
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =

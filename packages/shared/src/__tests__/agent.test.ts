@@ -80,6 +80,40 @@ describe('confirmed generation instructions in model history', () => {
     })
     expect(summary).not.toContain(prompt)
   })
+
+  it('replays historical canvas run proposals as inert records instead of granting execution', () => {
+    const historical = JSON.parse(
+      '{"type":"toolResult","toolCallId":"old-run","toolName":"runNodes","title":"运行节点","status":"succeeded","canvasRun":{"projectId":"project","nodeIds":["old-node"],"autoRun":true}}',
+    )
+    const summary = agentToolResultSummary(historical)
+    expect(summary).toContain('旧运行建议仅供查看')
+    expect(summary).toContain('重新提出阶段授权')
+    expect(summary).not.toContain('已请求直接运行')
+  })
+
+  it('keeps the authorization lookup identity across model-history replay without claiming a submission', () => {
+    const summary = agentToolResultSummary({
+      type: 'toolResult',
+      toolCallId: 'proposal',
+      toolName: 'runNodes',
+      title: '阶段授权',
+      status: 'succeeded',
+      canvasRun: {
+        authorizationId: 'stage-lookup',
+        projectId: 'project',
+        stage: '素材',
+        nodeIds: ['seed'],
+        nodeNames: ['嫩芽'],
+        estimatedCredits: 20,
+        budgetCap: 20,
+        status: 'pending',
+      },
+    })
+    expect(summary).toContain('"authorizationId":"stage-lookup"')
+    expect(summary).toContain('"nodeIds":["seed"]')
+    expect(summary).toContain('当前状态必须查询')
+    expect(summary).toContain('范围 嫩芽')
+  })
 })
 
 describe('parseAgentFrame', () => {
