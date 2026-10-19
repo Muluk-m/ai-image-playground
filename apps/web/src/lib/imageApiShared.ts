@@ -1,5 +1,5 @@
-import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import type { StageAuthorizationSubmission } from '@image-playground/shared'
+import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import { i18next } from '../i18n'
 import type { AppSettings, TaskParams } from '../types'
 import { taskFailure } from './taskError'

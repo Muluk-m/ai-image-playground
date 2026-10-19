@@ -7,8 +7,8 @@ import {
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { resolveModelMedia } from '../lib/channels'
 import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
+import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema, validationMessage } from '../lib/http'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
@@ -24,12 +24,14 @@ const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1, maxLength: QUEUE_PROMPT_MAX_CHARS }),
   output_retention: t.Optional(t.Literal('candidate')),
-  stage_authorization: t.Optional(t.Object({
-    authorizationId: t.String({ minLength: 1, maxLength: 128 }),
-    nodeId: t.String({ minLength: 1, maxLength: 128 }),
-    attemptId: t.String({ minLength: 1, maxLength: 128 }),
-    executionToken: t.String({ minLength: 1, maxLength: 128 }),
-  })),
+  stage_authorization: t.Optional(
+    t.Object({
+      authorizationId: t.String({ minLength: 1, maxLength: 128 }),
+      nodeId: t.String({ minLength: 1, maxLength: 128 }),
+      attemptId: t.String({ minLength: 1, maxLength: 128 }),
+      executionToken: t.String({ minLength: 1, maxLength: 128 }),
+    }),
+  ),
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),

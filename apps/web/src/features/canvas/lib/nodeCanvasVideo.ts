@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   canvasInputFingerprint,
   canvasMainResult,
@@ -8,7 +9,6 @@ import {
   setCanvasNodeJob,
   type VideoGenerationRecord,
 } from '@image-playground/shared'
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import type * as Y from 'yjs'
 import { i18next } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'

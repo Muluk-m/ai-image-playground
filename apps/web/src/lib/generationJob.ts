@@ -1,4 +1,8 @@
-import type { StageAuthorizationSubmission, TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import type {
+  StageAuthorizationSubmission,
+  TaskErrorType,
+  TaskProgressPhase,
+} from '@image-playground/shared'
 import { requireAccount } from '../auth/loginPrompt'
 import { describeError, i18next } from '../i18n'
 import { useStore } from '../store'

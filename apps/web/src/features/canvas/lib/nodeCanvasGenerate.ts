@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   type CanvasOrigin,
   canvasInputFingerprint,
@@ -10,7 +11,6 @@ import {
   setCanvasNodeJob,
   updateCanvasNode,
 } from '@image-playground/shared'
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import type * as Y from 'yjs'
 import { i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -282,7 +282,11 @@ export function submitNodeImage(
   inputImageDataUrls: string[],
   edit?: { maskDataUrl?: string },
   assetViewLabel?: 'sheet',
-  configuration?: { settings: AppSettings; params: TaskParams; stageAuthorization?: StageAuthorizationSubmission },
+  configuration?: {
+    settings: AppSettings
+    params: TaskParams
+    stageAuthorization?: StageAuthorizationSubmission
+  },
 ): boolean {
   const node = imageNode(doc, nodeId)
   if (!node || loading(node.data.pending)) return false

@@ -21,7 +21,6 @@ import type {
   AgentTurnReference,
   AgentTurnStopReason,
   AgentTurnUsage,
-  StageAuthorization,
   AgentVisualEvidence,
   AnalysisCoverage,
   AnalysisFinding,
@@ -38,6 +37,7 @@ import type {
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
+  StageAuthorization,
   TaskErrorType,
   TaskKind,
   TaskStatus,
@@ -1622,9 +1622,15 @@ export const agent_stage_authorizations = pgTable(
   'agent_stage_authorizations',
   {
     id: text('id').primaryKey(),
-    user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    conversation_id: text('conversation_id').notNull().references(() => agent_conversations.id, { onDelete: 'cascade' }),
-    project_id: text('project_id').notNull().references(() => canvas_projects.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_projects.id, { onDelete: 'cascade' }),
     proposal_key: text('proposal_key').notNull(),
     execution_token_hash: text('execution_token_hash'),
     state: bunJsonb('state').$type<StageAuthorization>().notNull(),

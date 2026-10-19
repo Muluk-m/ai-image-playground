@@ -1,5 +1,5 @@
-import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
 import type { StageAuthorizationSubmission } from '@image-playground/shared'
+import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
 import { useEffect } from 'react'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
@@ -51,13 +51,30 @@ export function useAgentNodeRun({
           if (signal.aborted) throw new NodeBatchFailure('cancelled')
           const attemptId = crypto.randomUUID()
           await stageAuthorizationClient.preflight(proposal.authorizationId, {
-            executionToken, attemptId, nodeId: job.id, model: job.model,
-            quantity: job.quantity, unitMultiplier: job.unitMultiplier ?? 1,
+            executionToken,
+            attemptId,
+            nodeId: job.id,
+            model: job.model,
+            quantity: job.quantity,
+            unitMultiplier: job.unitMultiplier ?? 1,
           })
-          authorizations[job.id] = { authorizationId: proposal.authorizationId, nodeId: job.id, attemptId, executionToken }
+          authorizations[job.id] = {
+            authorizationId: proposal.authorizationId,
+            nodeId: job.id,
+            attemptId,
+            executionToken,
+          }
         }
         if (signal.aborted) throw new NodeBatchFailure('cancelled')
-        await runNodeBatch(canvas.doc, editor, proposal.nodeIds, plan, signal, progress, authorizations)
+        await runNodeBatch(
+          canvas.doc,
+          editor,
+          proposal.nodeIds,
+          plan,
+          signal,
+          progress,
+          authorizations,
+        )
       },
     })
   }, [active, projectId, canvas, editor, revision, files, settings, params, draft])

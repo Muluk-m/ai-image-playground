@@ -349,9 +349,26 @@ export const runNodes = defineAgentTool({
     if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
     if (params.authorizationId) {
       const authorization = await readStageAuthorization(context.userId, params.authorizationId)
-      if (authorization.projectId !== project.id || authorization.conversationId !== context.conversationId)
+      if (
+        authorization.projectId !== project.id ||
+        authorization.conversationId !== context.conversationId
+      )
         return invalid('授权不属于当前会话与项目。')
-      return { content: [{ type: 'text' as const, text: JSON.stringify({ ...authorization, submitted: authorization.attempts.some((attempt) => attempt.taskIds.length > 0), note: authorization.status === 'pending' ? '待确认，尚未提交。' : '只有 taskIds 中的任务已提交；不代表已完成。' }) }] }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              ...authorization,
+              submitted: authorization.attempts.some((attempt) => attempt.taskIds.length > 0),
+              note:
+                authorization.status === 'pending'
+                  ? '待确认，尚未提交。'
+                  : '只有 taskIds 中的任务已提交；不代表已完成。',
+            }),
+          },
+        ],
+      }
     }
     await context.assertExecution?.()
     const doc = new Y.Doc()
@@ -366,18 +383,29 @@ export const runNodes = defineAgentTool({
       const ids = new Set(params.nodeIds)
       for (const group of graph.groups ?? [])
         if (ids.has(group.id)) for (const nodeId of group.members) ids.add(nodeId)
-      const nodes = graph.nodes.filter((node) => ids.has(node.id) && ['image', 'video', 'asset'].includes(canvasNodeKind(node)))
+      const nodes = graph.nodes.filter(
+        (node) => ids.has(node.id) && ['image', 'video', 'asset'].includes(canvasNodeKind(node)),
+      )
       if (!nodes.length) return invalid('范围内没有可生成的节点。')
       const authorization = await proposeStageAuthorization({
-        userId: context.userId, conversationId: context.conversationId, projectId: project.id,
-        proposalKey: `${context.turnId}:${callId}`, stage: params.stage ?? '节点生成',
-        nodeIds: nodes.map((node) => node.id), nodeNames: nodes.map((node) => node.data.name || '未命名节点'),
+        userId: context.userId,
+        conversationId: context.conversationId,
+        projectId: project.id,
+        proposalKey: `${context.turnId}:${callId}`,
+        stage: params.stage ?? '节点生成',
+        nodeIds: nodes.map((node) => node.id),
+        nodeNames: nodes.map((node) => node.data.name || '未命名节点'),
         estimatedCredits: params.estimatedCredits ?? 0,
       })
       const canvasRun = {
-        projectId: project.id, nodeIds: authorization.nodeIds, nodeNames: authorization.nodeNames,
-        authorizationId: authorization.id, stage: authorization.stage,
-        estimatedCredits: authorization.estimatedCredits, budgetCap: authorization.budgetCap, status: authorization.status,
+        projectId: project.id,
+        nodeIds: authorization.nodeIds,
+        nodeNames: authorization.nodeNames,
+        authorizationId: authorization.id,
+        stage: authorization.stage,
+        estimatedCredits: authorization.estimatedCredits,
+        budgetCap: authorization.budgetCap,
+        status: authorization.status,
       }
       return {
         content: [

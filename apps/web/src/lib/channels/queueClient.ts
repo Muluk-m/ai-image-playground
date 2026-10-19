@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   type ProjectVideoRef,
   QUEUE_TIMEOUTS,
@@ -10,7 +11,6 @@ import {
   type TaskErrorType,
   type VideoRequest,
 } from '@image-playground/shared'
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import { describeError, i18next } from '../../i18n'
 import type { TaskParams } from '../../types'
 import { normalizeApiTimeout } from '../apiProfiles'

@@ -544,7 +544,11 @@ describe('这一轮的观众', () => {
   })
 
   it('uses stage authorization in node canvas even with the legacy per-turn auto-submit preference', () => {
-    const prompt = turnInitialState([], 'image', true, 0, { ...audience, experience: 'canvas', nodeCanvas: true }).systemPrompt
+    const prompt = turnInitialState([], 'image', true, 0, {
+      ...audience,
+      experience: 'canvas',
+      nodeCanvas: true,
+    }).systemPrompt
     expect(prompt).toContain('节点画布只使用阶段授权')
     expect(prompt).toContain('只有实际任务记录才能称已提交')
     expect(prompt).not.toContain('这一轮是出图模式')

@@ -5,8 +5,8 @@ import type {
   PersistedSubmitRequest,
   PersistedVideoRequest,
   QueueProvider,
-  SubmitRequest,
   StageAuthorizationSubmission,
+  SubmitRequest,
   TaskErrorType,
   TaskStatus,
 } from '@image-playground/shared'
@@ -20,13 +20,13 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
 import { prepareMaskedInput } from './agent/masked-input'
+import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { objectStore } from './objectStore'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
-import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
@@ -376,9 +376,18 @@ export async function createQueueTask(
       }
     }
     if (input.stageAuthorization)
-      await consumeStageAuthorization(tx, input.userId, input.stageAuthorization, id, {
-        model: input.model, quantity: pricing.quantity, unitMultiplier: pricing.unitMultiplier,
-      }, reservedCredits)
+      await consumeStageAuthorization(
+        tx,
+        input.userId,
+        input.stageAuthorization,
+        id,
+        {
+          model: input.model,
+          quantity: pricing.quantity,
+          unitMultiplier: pricing.unitMultiplier,
+        },
+        reservedCredits,
+      )
     if (input.userId && commandId)
       await tx.insert(schema.generation_commands).values({
         user_id: input.userId,

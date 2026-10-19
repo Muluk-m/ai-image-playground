@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   type CanvasNode,
   type CanvasNodeJob,
@@ -11,7 +12,6 @@ import {
   videoRateMultiplier,
   videoRequestRejection,
 } from '@image-playground/shared'
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import type * as Y from 'yjs'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { accountScope } from '../../../lib/authScope'
@@ -386,7 +386,11 @@ export async function runNodeBatch(
               referenceFileIds(current.refs, files).map((id) => files[id]!),
               undefined,
               undefined,
-              { settings: plan.settings, params: { ...plan.params, n: job.quantity }, stageAuthorization: stageAuthorizations?.[job.id] },
+              {
+                settings: plan.settings,
+                params: { ...plan.params, n: job.quantity },
+                stageAuthorization: stageAuthorizations?.[job.id],
+              },
             )
           : submitNodeVideo(
               editor,

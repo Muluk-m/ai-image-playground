@@ -681,8 +681,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         { ...event, type: 'toolResult' },
       ])
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
-      if (sent && card.kind === 'tool' && card.canvasRun)
-        registerAgentNodeRunOrigin(card.id)
+      if (sent && card.kind === 'tool' && card.canvasRun) registerAgentNodeRunOrigin(card.id)
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
