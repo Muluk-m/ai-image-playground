@@ -1,2 +1,7 @@
 import { defineConfig } from 'vitest/config'
-export default defineConfig({ test: { include: ['src/__tests__/**/*.test.ts'] } })
+import { parseCLI } from 'vitest/node'
+import { vitestGuard } from '../../scripts/test-guard'
+
+export default defineConfig({
+  test: { ...vitestGuard('apps/website', parseCLI), include: ['src/__tests__/**/*.test.ts'] },
+})

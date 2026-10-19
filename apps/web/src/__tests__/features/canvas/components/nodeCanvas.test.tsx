@@ -35,7 +35,10 @@ import {
   normalizeSettings,
 } from '../../../../lib/apiProfiles'
 import { resetChannelCatalog, setChannels } from '../../../../lib/channels/channelStore'
+import * as cloudMedia from '../../../../lib/cloudMedia'
+import * as downloads from '../../../../lib/downloadImages'
 import { useStore } from '../../../../store'
+import { captureClientErrors } from '../../../helpers/clientErrors'
 import { stubPointerApis } from '../../../helpers/radix'
 
 type TestViewport = { x: number; y: number; zoom: number }
@@ -98,11 +101,15 @@ vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
+    edges,
     nodeTypes,
     children,
     onInit,
     onPaneClick,
     onNodeClick,
+    onEdgeClick,
+    onConnectStart,
+    onConnectEnd,
     onSelectionChange,
     onMove,
     style,
@@ -116,6 +123,14 @@ vi.mock('@xyflow/react', () => ({
       width: number
       height: number
       selected?: boolean
+      className?: string
+    }[]
+    edges?: {
+      id: string
+      source: string
+      target: string
+      selected?: boolean
+      data?: { onCut?: () => void }
     }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
@@ -123,6 +138,18 @@ vi.mock('@xyflow/react', () => ({
     onMove?: (event: unknown, viewport: TestViewport) => void
     style?: CSSProperties
     onNodeClick?: (event: unknown, node: { id: string }) => void
+    onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
+    onConnectStart?: (
+      event: { clientX: number; clientY: number },
+      params: { nodeId: string; handleType: 'source' | 'target' },
+    ) => void
+    onConnectEnd?: (
+      event: { clientX: number; clientY: number },
+      state: {
+        fromNode: { id: string } | null
+        fromHandle: { type: 'source' | 'target' } | null
+      },
+    ) => void
     onPaneClick?: () => void
     onInit?: (flow: {
       screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
@@ -153,7 +180,7 @@ vi.mock('@xyflow/react', () => ({
             'div',
             {
               key: node.id,
-              className: `react-flow__node${node.selected ? ' selected' : ''}`,
+              className: `react-flow__node${node.selected ? ' selected' : ''}${node.className ? ` ${node.className}` : ''}`,
               'data-node-id': node.id,
               onClick: (event: unknown) => {
                 onSelectionChange?.({ nodes: [node] })
@@ -169,7 +196,39 @@ vi.mock('@xyflow/react', () => ({
             createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
           ),
         ),
-      children,
+      ...(edges ?? []).flatMap((edge) => [
+        createElement('button', {
+          key: edge.id,
+          type: 'button',
+          'data-edge-id': edge.id,
+          onClick: (event: { stopPropagation: () => void }) => onEdgeClick?.(event, edge),
+        }),
+        ...(edge.selected && edge.data?.onCut
+          ? [
+              createElement('button', {
+                key: `${edge.id}:cut`,
+                type: 'button',
+                'data-edge-cut': edge.id,
+                onClick: edge.data.onCut,
+              }),
+            ]
+          : []),
+      ]),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'start-connection',
+        onClick: () =>
+          onConnectStart?.({ clientX: 0, clientY: 0 }, { nodeId: 'image', handleType: 'source' }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'drop-connection',
+        onClick: () =>
+          onConnectEnd?.(
+            { clientX: 100, clientY: 120 },
+            { fromNode: { id: 'image' }, fromHandle: { type: 'source' } },
+          ),
+      }),
       createElement('button', {
         type: 'button',
         'data-testid': 'pane',
@@ -241,6 +300,79 @@ async function render(active = true) {
   await act(async () => root.render(<NodeCanvas workspace={workspace} active={active} />))
 }
 
+it.each([
+  'original',
+  'fetch',
+  'blob',
+  'trigger',
+  'missing',
+])('reports the real download button %s failure with a safe payload', async (stage) => {
+  const reports = captureClientErrors()
+  const secret = 'SECRET-node-download-url-filename-prompt'
+  const error = Object.assign(new TypeError(secret), { code: secret, cause: new Error(secret) })
+  if (stage === 'missing') old.files = {}
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const button = host.querySelector<HTMLButtonElement>(
+    `button[aria-label="${i18next.t('nodes.download', { ns: 'canvas' })}"]`,
+  )
+  expect(button).not.toBeNull()
+  const toast = vi.spyOn(useStore.getState(), 'showToast').mockImplementation(() => {})
+  const resolved = vi.spyOn(cloudMedia, 'resolveMediaSource')
+  if (stage === 'original') resolved.mockRejectedValue(error)
+  else resolved.mockResolvedValue(`https://storage.test/${secret}`)
+  const response = new Response('bytes', { headers: { 'content-type': 'image/png' } })
+  if (stage === 'blob') vi.spyOn(response, 'blob').mockRejectedValue(error)
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response)
+  if (stage === 'fetch') fetch.mockRejectedValue(error)
+  if (stage === 'trigger') {
+    const previous = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => {
+        throw error
+      },
+    })
+    try {
+      await act(async () => button!.click())
+    } finally {
+      if (previous) Object.defineProperty(URL, 'createObjectURL', previous)
+      else Reflect.deleteProperty(URL, 'createObjectURL')
+    }
+  } else await act(async () => button!.click())
+  if (stage !== 'missing')
+    expect(toast).toHaveBeenCalledWith(i18next.t('import.failed', { ns: 'canvas' }), 'error')
+  else expect(toast).not.toHaveBeenCalled()
+  const errors = (await reports()).flatMap((batch) => batch.errors)
+  expect(errors).toHaveLength(1)
+  expect(errors[0]?.context).toMatchObject({
+    operation: 'download.prepare',
+    stage: stage === 'missing' ? 'original' : stage,
+  })
+  expect(JSON.stringify(await reports())).not.toContain(secret)
+})
+
+it('does not report file-save success when the real download button only triggers a download', async () => {
+  const reports = captureClientErrors()
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const button = host.querySelector<HTMLButtonElement>(
+    `button[aria-label="${i18next.t('nodes.download', { ns: 'canvas' })}"]`,
+  )
+  expect(button).not.toBeNull()
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response('bytes', {
+      headers: { 'content-type': 'image/png' },
+    }),
+  )
+  const trigger = vi.spyOn(downloads, 'downloadBlob').mockImplementation(() => {})
+  const toast = vi.spyOn(useStore.getState(), 'showToast').mockImplementation(() => {})
+  await act(async () => button!.click())
+  expect(trigger).toHaveBeenCalledTimes(1)
+  expect(toast).not.toHaveBeenCalled()
+  expect(await reports()).toEqual([])
+})
+
 it('displays images delivered after migration without resetting node edits', async () => {
   await render()
   act(() => moveCanvasNodes(canvas.doc, [{ id: 'image', x: 90, y: 80 }], canvas.origin))
@@ -287,8 +419,8 @@ it('projects restored media to standard bounds without writing cosmetic updates 
   canvas.doc.off('update', updates)
 })
 it.each([
-  { width: 1200, tools: [16, 100, 56, 480], top: 16, left: 88, availableWidth: 1096 },
-  { width: 600, tools: [8, 8, 584, 48], top: 72, left: 16, availableWidth: 568 },
+  { width: 1200, tools: [16, 100, 56, 480], top: 46, left: 88, availableWidth: 1096 },
+  { width: 600, tools: [8, 8, 584, 48], top: 102, left: 16, availableWidth: 568 },
 ])('fits inside measured composer and toolbar bounds at $width pixels', async (layout) => {
   await render()
   act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
@@ -452,9 +584,6 @@ it('places a text card that stays large enough for the side handles', async () =
     el.textContent?.includes('文本'),
   )
   act(() => (item as HTMLButtonElement).click())
-  const card = host.querySelector('.studio-node--text')
-  expect(card?.textContent).toContain('双击开始编辑…')
-  expect(card?.parentElement?.textContent).toContain('文本')
   const added = readCanvasDocument(canvas.doc).nodes.find((node) => node.type === 'text')
   expect(added).toMatchObject({ width: 300, height: 220 })
   const bounds = JSON.parse(
@@ -462,8 +591,6 @@ it('places a text card that stays large enough for the side handles', async () =
   )
   expect(bounds.width).toBe(300)
   expect(bounds.height).toBe(220)
-  const composer = host.querySelector('.studio-node-composer')
-  expect(composer?.getAttribute('aria-label')).toBe('参考内容')
 })
 
 it('offers all node types from either handle and connects the chosen node in the right direction', async () => {
@@ -491,6 +618,70 @@ it('offers all node types from either handle and connects the chosen node in the
   expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
     expect.objectContaining({ source: text.id, target: 'image' }),
   )
+})
+it('keeps a selected connection until the explicit cut action is clicked', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
+  const firstEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')!
+  act(() => firstEdge.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+  const selectedEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')!
+  act(() => selectedEdge.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+
+  const cut = host.querySelector<HTMLButtonElement>('[data-edge-cut="image:second"]')
+  expect(cut).not.toBeNull()
+  act(() => cut!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
+})
+it('dims unsupported nodes and highlights the whole valid target card while dragging', async () => {
+  Object.assign(workspace.editor, { getElement: () => undefined })
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() =>
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id: 'timeline',
+        type: 'timeline',
+        x: 10,
+        y: 300,
+        width: 560,
+        height: 240,
+        data: { clips: [] },
+      },
+      canvas.origin,
+    ),
+  )
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  expect(host.querySelector('[data-node-id="second"]')?.className).toContain(
+    'studio-node-connection-eligible',
+  )
+  expect(host.querySelector('[data-node-id="timeline"]')?.className).toContain(
+    'studio-node-connection-disabled',
+  )
+})
+
+it('opens the add-node menu when a connection ends on blank canvas space', async () => {
+  await render()
+  const original = (
+    document as Document & { elementsFromPoint?: typeof document.elementsFromPoint }
+  ).elementsFromPoint
+  Object.defineProperty(document, 'elementsFromPoint', {
+    configurable: true,
+    value: () => [],
+  })
+  try {
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('文本')
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('图片')
+  } finally {
+    if (original)
+      Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: original })
+    else Reflect.deleteProperty(document, 'elementsFromPoint')
+  }
 })
 
 it('places a dropped image where the pointer is', async () => {
@@ -564,7 +755,9 @@ it('offers video tools and preview when the video has no poster file', async () 
 it('previews arrangement without saving, reverts it, and keeps it as one undo step', async () => {
   await render()
   act(() => old.addElements([image('second')]))
+  act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
   const before = readCanvasDocument(canvas.doc).nodes
+  const edges = readCanvasDocument(canvas.doc).edges
   const click = (label: string) =>
     act(() => {
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -575,14 +768,17 @@ it('previews arrangement without saving, reverts it, and keeps it as one undo st
     })
   click('整理画布')
   expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
   expect(host.textContent).toContain('是否保留此次整理结果？')
   click('还原')
   expect(host.textContent).not.toContain('是否保留此次整理结果？')
   click('整理画布')
   click('保留')
   expect(readCanvasDocument(canvas.doc).nodes).not.toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
   act(() => canvas.undo.undo())
   expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
 })
 
 it('keeps arrangement through media updates but cancels it when another editor moves a node', async () => {

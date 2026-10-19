@@ -1,6 +1,7 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import { fetchImageDataUrl, videoOutputUrl } from '../../../lib/channels/queueClient'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { blankVideoPoster, captureVideoPoster } from './videoPoster'
 
@@ -67,6 +68,8 @@ export function videoOutputFrame(output: QueueOutputRef): Promise<string | null>
  * 带缓存的入口替结果卡记着。
  */
 export async function artifactBitmap(artifact: AgentToolArtifact): Promise<string> {
+  if (artifact.media !== 'video' && artifact.mediaId)
+    return resolveMediaSource(`aip-media:${artifact.mediaId}`, 'original', true)
   if (artifact.media !== 'video')
     return fetchImageDataUrl(bffBaseUrl(), artifact.taskId, artifact.outputIndex, artifact.mime)
   return (await videoOutputFrame(artifact)) ?? blankVideoPoster(artifact)
@@ -80,4 +83,38 @@ export function previewArtifactBitmap(artifact: AgentToolArtifact): Promise<stri
       return null
     }),
   )
+}
+
+/**
+ * 只为看一眼：有媒体身份就取 1024px 的预览档（本机落盘、签名直链），没有才回退到原图。
+ * 下载、改图、抠图这些要像素的地方用 {@link previewArtifactBitmap}，它给的是原图。
+ */
+export function displayArtifactBitmap(artifact: AgentToolArtifact): Promise<string | null> {
+  if (artifact.media === 'video' || !artifact.mediaId) return previewArtifactBitmap(artifact)
+  return resolveMediaSource(`aip-media:${artifact.mediaId}`, 'display').catch(() =>
+    previewArtifactBitmap(artifact),
+  )
+}
+
+/**
+ * 产物当参考图时的来源。有媒体身份直接按 id 引用：不下载、不重新上传，模型拿到的是原图。
+ * 没有时（实时流里刚出的结果）先用画布上那份原件，再退回原图字节——同一份字节服务端按哈希认出，
+ * 不会存第二份。
+ */
+export async function artifactReferenceSource(
+  artifact: AgentToolArtifact,
+  canvasSource?: string,
+): Promise<string | null> {
+  return (
+    knownArtifactReferenceSource(artifact, canvasSource) ?? (await previewArtifactBitmap(artifact))
+  )
+}
+
+/** 不用取字节就知道的那份来源；调用方据此同步插入，免得等一拍时草稿已经变了。 */
+export function knownArtifactReferenceSource(
+  artifact: AgentToolArtifact,
+  canvasSource?: string,
+): string | undefined {
+  if (artifact.media !== 'video' && artifact.mediaId) return `aip-media:${artifact.mediaId}`
+  return canvasSource
 }

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { todayWindow } from '../../../../contracts'
 
 process.env.DATABASE_URL = await resetTestDatabase('admin_today')
@@ -413,8 +414,11 @@ describe('today generation overview', () => {
   })
 })
 
-it('only marks the exact device/account/catalog incident recovered, regardless of beacon order', async () => {
-  const now = to + 8 * 86400_000
+it.each([
+  ...CLIENT_ERROR_RECOVERY_OPERATIONS,
+])('only marks the exact device/account/%s incident recovered, regardless of beacon order', async (operation) => {
+  const now = to + (8 + CLIENT_ERROR_RECOVERY_OPERATIONS.indexOf(operation)) * 86400_000
+  const id = (suffix: string) => `${operation}-${suffix}`
   const incidentId = crypto.randomUUID()
   const failure = {
     kind: 'error' as const,
@@ -423,41 +427,45 @@ it('only marks the exact device/account/catalog incident recovered, regardless o
     received_at: now - 1000,
     device_id: 'catalog-device',
     user_id: 'today-user',
-    context: { incidentId, operation: 'project.catalog' },
+    context: { incidentId, operation },
   }
   await writer.db.insert(writer.schema.client_errors).values([
-    { ...failure, id: 'catalog-match' },
-    { ...failure, id: 'catalog-other-device', device_id: 'other-device' },
-    { ...failure, id: 'catalog-other-account', user_id: null },
+    { ...failure, id: id('match') },
+    { ...failure, id: id('other-device'), device_id: 'other-device' },
+    { ...failure, id: id('other-account'), user_id: null },
     {
       ...failure,
-      id: 'catalog-other-incident',
-      context: { incidentId: crypto.randomUUID(), operation: 'project.catalog' },
+      id: id('other-incident'),
+      context: { incidentId: crypto.randomUUID(), operation },
     },
     {
       ...failure,
-      id: 'catalog-other-operation',
-      context: { incidentId, operation: 'project.open' },
+      id: id('other-operation'),
+      context: {
+        incidentId,
+        operation: CLIENT_ERROR_RECOVERY_OPERATIONS.find((other) => other !== operation),
+      },
     },
-    { ...failure, id: 'catalog-legacy', context: null },
+    { ...failure, id: id('legacy'), context: null },
   ])
   await writer.db.insert(writer.schema.client_error_recoveries).values({
     id: crypto.randomUUID(),
     incident_id: incidentId,
-    operation: 'project.catalog',
+    operation,
     device_id: 'catalog-device',
     user_id: 'today-user',
     received_at: now - 2000,
   })
   const result = await getTodayErrors(now)
   expect(result.total).toBe(6)
-  expect(result.entries.find((e) => e.id === 'catalog-match')?.recovery).toMatchObject({
+  expect(result.entries.find((e) => e.id === id('match'))?.recovery).toMatchObject({
     state: 'recovered',
+    reason: '同一页面、账号的同一操作重试已成功（浏览器上报）',
     recoveredAt: now - 1000,
   })
-  for (const entry of result.entries.filter((e) => e.id !== 'catalog-match'))
+  for (const entry of result.entries.filter((e) => e.id !== id('match')))
     expect(entry.recovery?.state).toBe('unknown')
-  expect(result.entries.find((e) => e.id === 'catalog-legacy')?.recovery?.reason).toContain(
+  expect(result.entries.find((e) => e.id === id('legacy'))?.recovery?.reason).toContain(
     '未记录恢复标识',
   )
 })

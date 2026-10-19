@@ -66,6 +66,7 @@
 !scripts/check-dependencies.ts
 !scripts/check-shared-bff-modules.ts
 !scripts/release-router.ts
+!scripts/test-guard.ts
 
 # ── 上面 `!` 放行的目录里仍有 gitignored 兄弟，重新排除 ────────────
 # operator 的部署配置：vite 会把 public/** 原样复制进 dist，绝不能从宿主机带进来

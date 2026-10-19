@@ -524,7 +524,9 @@ describe('AgentPanel', () => {
     expect(host.querySelector('#agent-tool-card-tool-skill')?.getAttribute('data-slot')).toBe(
       'tool-call',
     )
-    expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
+    const image = host.querySelector('#agent-tool-card-tool-image')
+    expect(image?.querySelector('.studio-agent-inline-tile[data-pending="true"]')).not.toBeNull()
+    expect(image?.textContent).not.toContain('一只橘猫')
   })
 
   it('没读到的那次不显示成读到了', () => {
@@ -1988,6 +1990,31 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('未生成')
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('/confirmations')
   })
+})
+
+it('shows a cached image result as its tile while syncing instead of a prompt card', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ skills: [] })),
+  )
+  useAgentStore.setState({
+    conversationId: 'cached-conversation',
+    historyCached: true,
+    historyLoading: true,
+    messages: [
+      {
+        ...toolMessage('placed'),
+        id: 'cached-image',
+        toolName: 'generateImage',
+        prompt: '缓存里的完整提示词',
+      },
+    ],
+  })
+  render()
+  await settle()
+  const block = host.querySelector('[data-agent-message-id="cached-image"]')!
+  expect(block.querySelector('.studio-agent-inline-tile')).not.toBeNull()
+  expect(block.textContent).not.toContain('缓存里的完整提示词')
 })
 
 it('shows cached messages while syncing without mounting batch recovery effects', async () => {

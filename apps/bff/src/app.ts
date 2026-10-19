@@ -8,6 +8,7 @@ import { appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
+import { REQUEST_ID_HEADER } from './lib/request-context'
 import { gzipBlob } from './lib/staticCompression'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { accountRoutes } from './routes/account'
@@ -35,6 +36,7 @@ import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
+import { textGenerationRoutes } from './routes/textGeneration'
 
 const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
@@ -185,7 +187,7 @@ export const app = new Elysia()
     })
   })
   .use(apiErrorHandler())
-  .use(cors({ origin: corsOrigin, credentials: true }))
+  .use(cors({ origin: corsOrigin, credentials: true, exposeHeaders: [REQUEST_ID_HEADER] }))
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
   // commit that is serving.
   .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))
@@ -199,6 +201,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
+  .use(textGenerationRoutes)
   .use(productionRoutes)
   .use(syncRoutes)
   .use(projectRoutes)

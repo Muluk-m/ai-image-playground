@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentCreations from '../../../../features/agent/components/AgentCreations'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { CanvasDoc, type CanvasEl, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
+import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -41,6 +42,7 @@ function image(id: string, patch: Partial<ImageEl> = {}): ImageEl {
 let host: HTMLDivElement
 let root: Root
 let doc: CanvasDoc
+let editor: CanvasEditor
 
 function put(elements: CanvasEl[]): void {
   doc.restore(elements, { 'file-1': PIXEL })
@@ -48,7 +50,7 @@ function put(elements: CanvasEl[]): void {
 
 function render(): void {
   act(() => {
-    root.render(<AgentCreations doc={doc} />)
+    root.render(<AgentCreations doc={doc} editor={editor} />)
   })
 }
 
@@ -79,6 +81,7 @@ function exportedIds(): string[] {
 
 beforeEach(() => {
   doc = new CanvasDoc()
+  editor = { doc } as CanvasEditor
   setAgentCanvasSink(null)
   openImageExport.mockClear()
   host = document.createElement('div')

@@ -2,6 +2,12 @@
 
 本文件是代码 Agent 的工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
+## Agent 模型配置
+
+- 开始任务前，若 `~/.cursor/rules/pstack-models.mdc` 存在，必须完整读取，作为子 Agent 的角色模型与推理预算配置；该用户配置优先于 pstack 技能默认值，Codex 会话也须显式读取。
+- 配置仅约束已获准的子 Agent 调用，不改变主会话模型或委派权限。模型与推理强度通过当前工具支持的独立参数传入。
+- 配置缺失时说明未加载用户配置；配置的模型不可用时说明限制，不擅自降级。始终只使用当前会话明确提供的型号。
+
 ## 部署与灾备
 
 - **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
@@ -40,6 +46,11 @@
 
 任一项不过就不要合并或发布；为远端检查所需的工作分支推送例外，不代表验收通过。
 
+**资源受限机器的测试守卫**（[`scripts/test-guard.ts`](scripts/test-guard.ts)）：存在 `~/.config/test-guard/constrained`
+（尊重 `XDG_CONFIG_HOME`）且不在 CI 时，Vitest 配置与 Bun 隔离运行器拒绝未指定文件的全量运行，指定文件的运行强制单 worker、
+文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
+`rmake -c "pnpm test"` 或 CI；不要设置 `CI` 绕过守卫。
+
 CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm lint`、`pnpm typecheck`、
 `apps/web` 构建；公开 workspace 的完整 `pnpm test` 分两个并行 job：web 的 vitest 单独一个，其余包在带 PostgreSQL 的 job 中跑（Bun 数据库测试 4 路并发）；
 `with-overlay` job 再用 `private.lock` 钉住的 overlay 跑 lint / typecheck / build 与私有包测试。
@@ -49,6 +60,8 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
 **重任务在云端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给项目 Codex Cloud；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
+
+公开树云端测试与依赖恢复使用仓库内 `python3 scripts/cloud-test.py`，本机用 `submit` 派发至 CI；命令、SHA 核对、缓存与数据库生命周期见[云端测试入口](docs/agents/cloud-tests.md)。不要依赖仅存在于某次会话的 `/workspace/cloud-prep/test.sh`。
 
 ## 测试约定
 

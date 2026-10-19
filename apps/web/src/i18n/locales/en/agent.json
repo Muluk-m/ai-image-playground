@@ -54,7 +54,9 @@
   "reply": {
     "copyAria": "Copy reply",
     "copied": "Copied",
-    "copyFailed": "Copy failed. Select the reply text and copy it manually."
+    "copyFailed": "Copy failed. Select the reply text and copy it manually.",
+    "image": "Image",
+    "openImage": "View image: {{name}}"
   },
   "tool": {
     "canvasReadNodes": "Read nodes: {{nodes}}",
@@ -81,12 +83,8 @@
     "zoomResult": "Expand",
     "downloadResult": "Download",
     "downloadAll": "Download all",
-    "removeBackground": "Remove background",
     "batchCount_one": "{{count}} image",
     "batchCount_other": "{{count}} images",
-    "costDetail": "Details",
-    "editOnCanvas": "Edit on canvas",
-    "useAsReference": "Use as reference",
     "inpaint": "Inpaint",
     "erase": "Erase",
     "crop": "Crop",
@@ -243,6 +241,15 @@
   },
   "composer": {
     "editorAria": "Message the agent",
+    "nodeReferences": "Selected canvas node references",
+    "nodeTypes": {
+      "text": "Text",
+      "image": "Image",
+      "video": "Video",
+      "timeline": "Timeline",
+      "storyboard": "Storyboard",
+      "group": "Group"
+    },
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",
     "removeReferenceAria": "Remove reference image {{label}}",
@@ -502,8 +509,6 @@
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
-    "queueSlot": "Queued · #{{position}}",
-    "queueSlotShort": "#{{position}}",
     "doneCount": "{{done}}/{{total}} done",
     "progressAria": "Generation progress",
     "cancel": "Cancel job",
@@ -742,10 +747,13 @@
     "readPrompt": "Read the selected canvas nodes, review the existing material, and help me plan what to create next."
   },
   "nodeRun": {
-    "title": "Suggested node run",
+    "title": "Run nodes",
+    "run": "Run",
+    "undo": "Undo ({{seconds}}s)",
+    "startingIn": "Starting in {{seconds}}s. Undo now to skip charges.",
+    "running": "Running. Results go back to each node.",
+    "undone": "Undone. Nothing was submitted.",
     "unpriced": "Charged by actual model usage",
-    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
-    "changed": "The canvas or settings changed, or a confirmation is already open. Review again.",
-    "review": "Review nodes and confirm"
+    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist."
   }
 }

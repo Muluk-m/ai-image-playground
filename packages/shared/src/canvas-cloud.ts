@@ -309,7 +309,7 @@ export function validateCloudCanvas(
         node.type === 'text'
           ? ['text', 'fontSize', 'fill', 'name', 'richText']
           : node.type === 'storyboard'
-            ? ['shots', 'confirmed']
+            ? ['shots', 'confirmed', 'episode']
             : ['clips'],
       )
     )

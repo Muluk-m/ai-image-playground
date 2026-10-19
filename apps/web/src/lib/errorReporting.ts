@@ -15,8 +15,10 @@ import {
   type ClientErrorKind,
   type ClientErrorRecovery,
   type ClientErrorReport,
+  isClientErrorRecoveryOperation,
 } from '@image-playground/shared'
 import { BUILD_META_NAME } from '../boot/constants'
+import { accountScope } from './authScope'
 import { getDeviceId } from './deviceId'
 
 /** 一次页面会话最多报这么多条，出错循环的页面不该一直往外发。 */
@@ -198,14 +200,110 @@ export function reportRecoverableClientError(
 ): () => void {
   const incidentId = crypto.randomUUID()
   const operation = errorField(context, 'operation')
+  const sameAccount = accountScope()
+  const reportEndpoint = endpoint
   const recorded = reportClientError('error', error, { ...boundedContext(context, []), incidentId })
   let recovered = false
   return () => {
-    if (!recorded || recovered || endpoint === null || operation !== 'project.catalog') return
+    if (
+      !recorded ||
+      recovered ||
+      endpoint === null ||
+      endpoint !== reportEndpoint ||
+      !sameAccount() ||
+      !isClientErrorRecoveryOperation(operation)
+    )
+      return
     recovered = true
     recoveries.push({ incidentId, operation })
     scheduleFlush()
   }
+}
+
+type RecoverableDeliveryFailure =
+  | { operation: 'canvas.scene.save'; stage: 'put' | 'catalog' | 'queue' }
+  | { operation: 'agent.artifact.delivery'; stage: 'place' | 'focus' }
+type TerminalDeliveryFailure =
+  | { operation: 'media.upload'; stage: 'reserve' | 'put' | 'complete' }
+  | { operation: 'download.prepare'; stage: 'original' | 'fetch' | 'blob' | 'trigger' }
+
+const DELIVERY_ERROR_NAMES = new Set([
+  'Error',
+  'TypeError',
+  'AbortError',
+  'TimeoutError',
+  'QuotaExceededError',
+  'DataCloneError',
+  'InvalidStateError',
+  'UnknownError',
+])
+const DELIVERY_ERROR_CODES = new Set([
+  'media_upload_failed',
+  'invalid_media_upload',
+  'invalid_media_confirmation',
+  'original_missing',
+])
+
+export function reportDeliveryFailure(
+  failure: RecoverableDeliveryFailure,
+  error: unknown,
+): () => void
+export function reportDeliveryFailure(failure: TerminalDeliveryFailure, error: unknown): void
+export function reportDeliveryFailure(
+  failure: RecoverableDeliveryFailure | TerminalDeliveryFailure,
+  error: unknown,
+): (() => void) | void {
+  let message: string
+  switch (failure.operation) {
+    case 'canvas.scene.save':
+      message = {
+        put: 'Canvas scene persistence failed',
+        catalog: 'Canvas scene catalog update failed',
+        queue: 'Canvas scene save queue failed',
+      }[failure.stage]
+      break
+    case 'agent.artifact.delivery':
+      message = {
+        place: 'Agent artifact placement failed',
+        focus: 'Agent artifact focus failed',
+      }[failure.stage]
+      break
+    case 'media.upload':
+      message = {
+        reserve: 'Media upload reservation failed',
+        put: 'Media upload transfer failed',
+        complete: 'Media upload confirmation failed',
+      }[failure.stage]
+      break
+    case 'download.prepare':
+      message = {
+        original: 'Download original preparation failed',
+        fetch: 'Download request failed',
+        blob: 'Download byte retrieval failed',
+        trigger: 'Download trigger failed',
+      }[failure.stage]
+      break
+  }
+  const name = errorField(error, 'name')
+  const errorName =
+    typeof name === 'string' && DELIVERY_ERROR_NAMES.has(name) ? name : 'UnknownError'
+  const code = errorField(error, 'code')
+  const status = errorField(error, 'status')
+  const context = {
+    operation: failure.operation,
+    stage: failure.stage,
+    errorName,
+    ...(typeof code === 'string' && DELIVERY_ERROR_CODES.has(code) ? { errorCode: code } : {}),
+    ...(typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+      ? { status }
+      : {}),
+  }
+  const safeError = new Error(message)
+  safeError.name = errorName
+  safeError.stack = undefined
+  if (isClientErrorRecoveryOperation(failure.operation))
+    return reportRecoverableClientError(safeError, { ...context, operation: failure.operation })
+  reportClientError('error', safeError, context)
 }
 
 function scheduleFlush(): void {

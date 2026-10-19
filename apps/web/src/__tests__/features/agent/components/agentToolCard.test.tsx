@@ -6,8 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
 import AgentToolCard, { AgentImageRun } from '../../../../features/agent/components/AgentToolCard'
+import {
+  setAgentComposerAttach,
+  setAgentComposerReferences,
+} from '../../../../features/agent/lib/attachments'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
-import type { AgentToolMessage } from '../../../../features/agent/types'
+import type { AgentToolMessage, AgentTurnFooter } from '../../../../features/agent/types'
 import InspirationDetail from '../../../../features/inspiration/components/InspirationDetail'
 import { useInspirationStore } from '../../../../features/inspiration/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
@@ -18,7 +22,7 @@ const store = vi.hoisted(() => ({
   send: vi.fn(),
   placeOnCanvas: vi.fn(),
   messages: [] as AgentToolMessage[],
-  turns: {} as Record<string, { turnId: string }>,
+  turns: {} as Record<string, AgentTurnFooter>,
   cancelJob: vi.fn(async (_messageId: string) => {}),
   jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
   toolStartedAt: {} as Record<string, number>,
@@ -57,6 +61,9 @@ vi.mock('../../../../features/agent/lib/chatCutout', () => ({
 
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   previewArtifactBitmap: async () => 'data:image/png;base64,preview',
+  displayArtifactBitmap: async () => 'data:image/png;base64,preview',
+  artifactReferenceSource: async (artifact: { mediaId?: string }) =>
+    artifact.mediaId ? `aip-media:${artifact.mediaId}` : 'data:image/png;base64,preview',
   videoOutputFrame: async () => null,
   cachedVideoOutputFrame: () => undefined,
   rememberVideoOutputFrame: vi.fn(),
@@ -73,6 +80,7 @@ beforeEach(() => {
   store.cancelJob.mockClear()
   store.placeOnCanvas.mockReset()
   store.messages = []
+  store.turns = {}
   store.jobProgress = {}
   store.toolStartedAt = {}
   deployment.overlay = true
@@ -295,11 +303,6 @@ it('uses the same gallery in the canvas conversation and locates the selected ar
     expect(thumbnail).toHaveBeenCalledWith('first', 2.5)
     act(() => host.querySelectorAll<HTMLButtonElement>('.studio-agent-inline-open')[1]!.click())
     expect(viewCanvas).toHaveBeenCalledWith(['second'])
-    viewCanvas.mockClear()
-    act(() =>
-      host.querySelectorAll<HTMLButtonElement>('button[aria-label="在画布中编辑"]')[1]!.click(),
-    )
-    expect(viewCanvas).toHaveBeenCalledWith(['second'])
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
@@ -401,7 +404,7 @@ it('shows the assistant-ui image element only while an image result is pending',
     expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(
       '已提交',
     )
-    expect(host.textContent?.match(/一只橘猫/g)).toHaveLength(1)
+    expect(host.textContent).not.toContain('一只橘猫')
 
     act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
     expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
@@ -411,6 +414,121 @@ it('shows the assistant-ui image element only while an image result is pending',
     act(() => root.unmount())
   }
 })
+it('offers cancel on each pending tile instead of the batch action row', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pending = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    prompt: '在背景图中加入白色圆形台盆',
+    status: 'submitted',
+    job: { taskId: `task-${id}`, media: 'image' },
+  })
+  try {
+    act(() => root.render(<AgentImageRun messages={[pending('a'), pending('b')]} />))
+    const tiles = host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')
+    expect(tiles).toHaveLength(2)
+    for (const tile of tiles)
+      expect(tile.querySelector('button[aria-label="取消任务"]')).not.toBeNull()
+    expect(host.querySelectorAll('button[aria-label="取消任务"]')).toHaveLength(2)
+    expect(host.textContent).not.toContain('第 1 位')
+    expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toBe('0/2 完成')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('holds finished results in loading tiles until their previews arrive, without the prompt', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pendingThumbnails: ((source: string) => void)[] = []
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: () =>
+      new Promise<string>((resolve) => {
+        pendingThumbnails.push(resolve)
+      }),
+  } as unknown as AgentCanvasSink)
+  const done = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    prompt: '在第一张背景图中加入参考图里的白色圆形台盆',
+    status: 'succeeded',
+    delivery: 'placed',
+    artifacts: [
+      {
+        artifactId: `artifact-${id}`,
+        taskId: `task-${id}`,
+        outputIndex: 0,
+        media: 'image',
+        mime: 'image/png',
+        width: 1024,
+        height: 1024,
+      },
+    ],
+  })
+  try {
+    await act(async () => root.render(<AgentImageRun messages={[done('a'), done('b')]} />))
+    const pending = host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')
+    expect(pending).toHaveLength(2)
+    for (const tile of pending)
+      expect(
+        tile.querySelector('[data-slot="image-generation"]')?.getAttribute('data-generating'),
+      ).toBe('true')
+    expect(host.textContent).not.toContain('在第一张背景图中加入')
+    expect(host.textContent).not.toContain('白色圆形台盆')
+
+    await act(async () => {
+      for (const resolve of pendingThumbnails) resolve('data:image/png;base64,thumb')
+    })
+    expect(host.querySelectorAll('.studio-agent-inline-tile[data-pending="true"]')).toHaveLength(0)
+    expect(host.querySelectorAll('.studio-agent-inline-tile img')).toHaveLength(2)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it('shares one cancel request across every tile of the same job', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  let finish!: () => void
+  store.cancelJob.mockClear()
+  store.cancelJob.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)))
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'multi',
+    turnId: 'turn',
+    toolCallId: 'call-multi',
+    toolName: 'generateImage',
+    title: '三张台盆',
+    status: 'submitted',
+    job: { taskId: 'task-multi', media: 'image' },
+    snapshot: { mode: 'image', args: { n: 3 }, params: { size: '1024x1024' } },
+  }
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('.studio-agent-tile-cancel')]
+    expect(buttons()).toHaveLength(3)
+    act(() => buttons()[0]!.click())
+    act(() => buttons()[2]!.click())
+    expect(store.cancelJob).toHaveBeenCalledTimes(1)
+    expect(buttons().every((button) => button.disabled)).toBe(true)
+    await act(async () => finish())
+    expect(buttons().some((button) => button.disabled)).toBe(false)
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
 it.each([
   1, 3,
 ])('keeps %i image slots from submission through delivery and completion', async (count) => {
@@ -1094,7 +1212,7 @@ it('shows which canvas nodes a read used without replaying their full document',
   }
 })
 
-it('lays four generated images in one row with meta tags, hover tools and a wide column mark', async () => {
+it('shows batch results without hover editing tools', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   setAgentCanvasSink({
@@ -1152,20 +1270,11 @@ it('lays four generated images in one row with meta tags, hover tools and a wide
     expect(host.querySelector('button[aria-label="下载"]')).toBeNull()
     expect(host.querySelector('button[aria-label="再次生成"]')).toBeTruthy()
     expect(host.querySelector('button[aria-label="复制提示词"]')).toBeTruthy()
-    expect(host.querySelector('button[aria-label="更多操作"]')).toBeTruthy()
-    const tileTools = host.querySelectorAll('button[aria-label="去背景"]')
-    expect(tileTools).toHaveLength(4)
-    for (const label of ['用作参考', '局部重绘', '扩图', '去背景', '在画布中编辑']) {
-      const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
-      expect(button, label).toBeTruthy()
-      expect(button.getAttribute('aria-label')).toBe(label)
-      expect(button.hasAttribute('data-tooltip-trigger')).toBe(true)
-    }
-    cutout.run.mockClear()
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="去背景"]')!.click())
-    expect(cutout.run).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceMessageId: 'batch', artifactId: 'a' }),
-    )
+    expect(host.querySelectorAll('.studio-agent-inline-actions')).toHaveLength(0)
+    expect(host.querySelectorAll('.studio-agent-inline-tile')).toHaveLength(4)
+    const firstTile = host.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!
+    act(() => firstTile.click())
+    expect(host.querySelector('.studio-agent-inline-result')).toBeTruthy()
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
@@ -1276,6 +1385,75 @@ describe.each([
       else Reflect.deleteProperty(navigator, 'clipboard')
       if (execCommand) Object.defineProperty(document, 'execCommand', execCommand)
       else Reflect.deleteProperty(document, 'execCommand')
+    }
+  })
+})
+
+describe('生成结果的单层费用明细', () => {
+  it.each([false, true])('点明细直接展开费用，限免=%s', async (waived) => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    const message: AgentToolMessage = {
+      kind: 'tool',
+      id: 'receipt-image',
+      turnId: 'receipt-turn',
+      toolCallId: 'receipt-call',
+      toolName: 'generateImage',
+      title: '一张图片',
+      status: 'succeeded',
+      delivery: 'placed',
+      job: { taskId: 'receipt-job', media: 'image', chargedCredits: 100 },
+      artifacts: [
+        {
+          artifactId: 'receipt-artifact',
+          taskId: 'receipt-job',
+          outputIndex: 0,
+          media: 'image',
+          mime: 'image/png',
+          width: 1024,
+          height: 1024,
+        },
+      ],
+    }
+    store.messages = [message]
+    store.turns = {
+      'receipt-turn': {
+        turnId: 'receipt-turn',
+        stopReason: 'completed',
+        durationMs: 8000,
+        cost: { chat: 0, image: 100, video: 0, ...(waived ? { chatWaived: 20 } : {}) },
+      },
+    }
+    setAgentCanvasSink({
+      has: () => true,
+      thumbnail: async () => 'data:image/png;base64,receipt',
+    } as unknown as AgentCanvasSink)
+    try {
+      await act(async () => root.render(<AgentToolCard message={message} />))
+      const details = () =>
+        [...host.querySelectorAll('button')].filter((button) => button.textContent === '明细')
+      expect(details()).toHaveLength(1)
+      expect(host.querySelectorAll('[aria-label="100 积分"]')).toHaveLength(1)
+      expect(host.textContent).toContain('8s')
+      expect(host.textContent).toContain('1 张')
+      const toggle = details()[0]!
+      act(() => toggle.click())
+      expect(details()).toHaveLength(1)
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(host.textContent?.match(/8s/g)).toHaveLength(1)
+      if (waived) {
+        expect(host.textContent).toContain('原价120')
+        expect(host.textContent).toContain('对话减免−20')
+        expect(host.textContent).toContain('实扣100')
+      } else {
+        expect(host.textContent).toContain('生图 100')
+      }
+      act(() => toggle.click())
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(host.textContent).not.toContain(waived ? '原价' : '生图 100')
+    } finally {
+      act(() => root.unmount())
+      setAgentCanvasSink(null)
     }
   })
 })

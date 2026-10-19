@@ -8,6 +8,11 @@ const capture = vi.hoisted(() =>
   vi.fn(async (_url: string): Promise<string | null> => 'data:image/png;base64,FRAME'),
 )
 
+const media = vi.hoisted(() =>
+  vi.fn(async (source: string, variant = 'original') => `${variant}:${source}`),
+)
+vi.mock('../../../../lib/cloudMedia', () => ({ resolveMediaSource: media }))
+
 vi.mock('../../../../features/agent/lib/videoPoster', () => ({
   captureVideoPoster: (url: string) => capture(url),
   blankVideoPoster: () => BLANK,
@@ -15,7 +20,9 @@ vi.mock('../../../../features/agent/lib/videoPoster', () => ({
 
 import {
   artifactBitmap,
+  artifactReferenceSource,
   cachedVideoOutputFrame,
+  displayArtifactBitmap,
   previewArtifactBitmap,
   rememberVideoOutputFrame,
   videoOutputFrame,
@@ -161,4 +168,35 @@ it('keeps the decoded frame if an older background capture later fails', async (
   await expect(pending).resolves.toBeNull()
   await expect(videoOutputFrame(artifact)).resolves.toBe(FRAME)
   expect(capture).toHaveBeenCalledTimes(1)
+})
+
+describe('图片产物有云媒体身份时', () => {
+  const MEDIA = '6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10'
+
+  it('当参考图按媒体 id 引用，不取字节', async () => {
+    expect(
+      await artifactReferenceSource(image({ mediaId: MEDIA }), 'data:image/png;base64,CANVAS'),
+    ).toBe(`aip-media:${MEDIA}`)
+    expect(media).not.toHaveBeenCalled()
+    expect(imageUrls()).toEqual([])
+  })
+
+  it('没有身份时先用画布原件，再退回原图字节', async () => {
+    expect(await artifactReferenceSource(image(), 'data:image/png;base64,CANVAS')).toBe(
+      'data:image/png;base64,CANVAS',
+    )
+    imageResponse = () =>
+      new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } })
+    expect(await artifactReferenceSource(image())).toMatch(/^data:image\/png;base64,/)
+    expect(imageUrls()).toHaveLength(1)
+  })
+
+  it('展示走预览档，原图走媒体原件，都不经队列端点', async () => {
+    media.mockClear()
+    expect(await displayArtifactBitmap(image({ mediaId: MEDIA }))).toBe(
+      `display:aip-media:${MEDIA}`,
+    )
+    expect(await artifactBitmap(image({ mediaId: MEDIA }))).toBe(`original:aip-media:${MEDIA}`)
+    expect(imageUrls()).toEqual([])
+  })
 })
