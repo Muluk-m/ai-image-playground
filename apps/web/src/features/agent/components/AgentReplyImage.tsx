@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { artifactPreview, INLINE_RESULT_THUMBNAIL_SCALE } from '../lib/artifactPreview'
 import type { AgentPanelMessage } from '../types'
@@ -72,7 +73,8 @@ export function AgentReplyImage({ src, alt }: { src?: string; alt?: string }) {
   const context = useContext(ReplyImagesContext)
   const key = replyImageKey(src)
   const hit = key ? context?.images.get(key) : undefined
-  const [source, setSource] = useState<string | null>()
+  // 缩略图跟着图片身份走：引用换成另一张图时，旧图的位图不会冒充新图显示或被拿去预览。
+  const [loaded, setLoaded] = useState<{ identity: string; source: string | null }>()
   // 消息每次更新都会重建映射；按图片身份取图，同一张图不重复加载、不闪。
   const artifactRef = useRef(hit?.artifact)
   artifactRef.current = hit?.artifact
@@ -81,15 +83,15 @@ export function AgentReplyImage({ src, alt }: { src?: string; alt?: string }) {
     const artifact = artifactRef.current
     if (!identity || !artifact) return
     let live = true
-    setSource(undefined)
     void artifactPreview(artifact, INLINE_RESULT_THUMBNAIL_SCALE).then(
-      (preview) => live && setSource(preview.source),
-      () => live && setSource(null),
+      (preview) => live && setLoaded({ identity, source: preview.source }),
+      () => live && setLoaded({ identity, source: null }),
     )
     return () => {
       live = false
     }
   }, [identity])
+  const source = loaded && loaded.identity === identity ? loaded.source : undefined
   const label = alt?.trim() || t('reply.image')
   if (!hit || source === null) return <span className="text-muted-foreground">{`[${label}]`}</span>
   const ratio =
@@ -111,13 +113,14 @@ export function AgentReplyImage({ src, alt }: { src?: string; alt?: string }) {
     return <span className="my-1 block max-w-80">{image}</span>
   const preview = context.onPreview
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       aria-label={t('reply.openImage', { name: label })}
-      className="my-1 block max-w-80 cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-primary"
+      className="my-1 block h-auto w-full max-w-80 cursor-zoom-in rounded-lg p-0 hover:bg-transparent"
       onClick={() => preview(hit.messageId, hit.artifact.artifactId, source)}
     >
       {image}
-    </button>
+    </Button>
   )
 }
