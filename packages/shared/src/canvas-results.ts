@@ -1,6 +1,7 @@
 import type * as Y from 'yjs'
 import { type CanvasOrigin, type ImageNodeData, readCanvasDocument } from './canvas-document'
 import { canvasFingerprint } from './canvas-fingerprint'
+import { storyboardFingerprint } from './canvas-storyboard'
 import type { ProjectVideoRef } from './project-protocol'
 
 export type CanvasResultDisplay = Pick<
@@ -147,7 +148,7 @@ export function canvasInputFingerprint(doc: Y.Doc, nodeId: string): string {
   const target = nodes.get(nodeId)
   const meta = target && 'meta' in target.data ? target.data.meta : undefined
   // Storyboard outputs also belong to the reviewed shot revision, not just its asset inputs.
-  if (meta?.storyboardId && meta.storyboardRole)
+  if (meta?.storyboardId && meta.storyboardRole) {
     inputs.push([
       'storyboard',
       meta.storyboardFingerprint ?? null,
@@ -156,6 +157,13 @@ export function canvasInputFingerprint(doc: Y.Doc, nodeId: string): string {
       meta.storyboardFrameIds ?? null,
       meta.storyboardFrameInputs ?? null,
     ])
+    const board = nodes.get(meta.storyboardId)
+    if (board?.type === 'storyboard') {
+      const current = storyboardFingerprint(board.data.shots)
+      if (current !== meta.storyboardFingerprint)
+        inputs.push(['storyboard-edited', current])
+    }
+  }
   return canvasFingerprint(JSON.stringify(inputs))
 }
 
