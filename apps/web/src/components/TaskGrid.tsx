@@ -3,6 +3,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -491,59 +492,71 @@ export default function TaskGrid({
     [],
   )
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds])
-  const renderTask = (task: (typeof tasks)[0]): GridItem => ({
-    key: task.id,
-    taskId: task.id,
-    node: (
-      <TaskGridItem
-        key={task.id}
-        task={task}
-        attended={submittedIds.includes(task.id)}
-        selected={selectedSet.has(task.id)}
-        handlers={handlers}
-      />
-    ),
-  })
-
-  // 两边的卡按同一条时间轴排；套折成一条，落在它最新那条任务的位置上。
-  const rows: { at: number; nodes: GridItem[] }[] = historyItems.map((item) => {
-    if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
-    const expanded = expandedSetIds.includes(item.setId)
-    const title = storyboardTitles.get(item.setId)
-    const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
-    return {
-      at: item.tasks.reduce(
-        (latest, task) => Math.max(latest, task.createdAt),
-        Number.NEGATIVE_INFINITY,
+  // 列表只在任务、展开状态或选中态变化时重建；纯滚动的更新只处理可见行。
+  const { items, total } = useMemo(() => {
+    const renderTask = (task: (typeof tasks)[0]): GridItem => ({
+      key: task.id,
+      taskId: task.id,
+      node: (
+        <TaskGridItem
+          key={task.id}
+          task={task}
+          attended={submittedIds.includes(task.id)}
+          selected={selectedSet.has(task.id)}
+          handlers={handlers}
+        />
       ),
-      nodes: [
-        {
-          key: `set-${item.setId}`,
-          node: (
-            <SetHistoryCard
-              key={`set-${item.setId}`}
-              name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
-              actions={legacyActionLabels(job)}
-              tasks={item.tasks}
-              expanded={expanded}
-              onToggle={() =>
-                setExpandedSetIds((ids) =>
-                  ids.includes(item.setId)
-                    ? ids.filter((id) => id !== item.setId)
-                    : [...ids, item.setId],
-                )
-              }
-            />
-          ),
-        },
-        ...(expanded ? item.tasks.map(renderTask) : []),
-      ],
-    }
-  })
+    })
 
-  rows.sort((a, b) => b.at - a.at)
-  const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
-  const items = visibleRows.flatMap((row) => row.nodes)
+    // 两边的卡按同一条时间轴排；套折成一条，落在它最新那条任务的位置上。
+    const rows: { at: number; nodes: GridItem[] }[] = historyItems.map((item) => {
+      if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
+      const expanded = expandedSetIds.includes(item.setId)
+      const title = storyboardTitles.get(item.setId)
+      const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
+      return {
+        at: item.tasks.reduce(
+          (latest, task) => Math.max(latest, task.createdAt),
+          Number.NEGATIVE_INFINITY,
+        ),
+        nodes: [
+          {
+            key: `set-${item.setId}`,
+            node: (
+              <SetHistoryCard
+                key={`set-${item.setId}`}
+                name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
+                actions={legacyActionLabels(job)}
+                tasks={item.tasks}
+                expanded={expanded}
+                onToggle={() =>
+                  setExpandedSetIds((ids) =>
+                    ids.includes(item.setId)
+                      ? ids.filter((id) => id !== item.setId)
+                      : [...ids, item.setId],
+                  )
+                }
+              />
+            ),
+          },
+          ...(expanded ? item.tasks.map(renderTask) : []),
+        ],
+      }
+    })
+
+    rows.sort((a, b) => b.at - a.at)
+    const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
+    return { items: visibleRows.flatMap((row) => row.nodes), total: rows.length }
+  }, [
+    historyItems,
+    expandedSetIds,
+    storyboardTitles,
+    productShotJobs,
+    submittedIds,
+    selectedSet,
+    handlers,
+    limit,
+  ])
 
   // 展开后的作品一次全挂上会随数量线性变卡：按当前列数分行，只渲染视口附近的几行。
   const virtual = limit === undefined
@@ -555,13 +568,17 @@ export default function TaskGrid({
     return chunks
   }, [items, columns])
   const [scrollMargin, setScrollMargin] = useState(0)
+  const getItemKey = useCallback(
+    (index: number) => itemRows[index]?.map((item) => item.key).join('|') ?? index,
+    [itemRows],
+  )
   const virtualizer = useWindowVirtualizer({
     count: virtual ? itemRows.length : 0,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     gap: GRID_GAP,
     overscan: 2,
     scrollMargin,
-    getItemKey: (index) => itemRows[index]?.map((item) => item.key).join('|') ?? index,
+    getItemKey,
   })
   // 网格上方的标题、搜索栏高度会变，列表起点要跟着它走。
   useLayoutEffect(() => {
@@ -717,7 +734,7 @@ export default function TaskGrid({
           {items.map((item) => item.node)}
         </div>
       )}
-      {limit !== undefined && onExpand && (rows.length > limit || hasMore) && (
+      {limit !== undefined && onExpand && (total > limit || hasMore) && (
         <div className="flex justify-center pb-8">
           <Button
             variant="ghost"
