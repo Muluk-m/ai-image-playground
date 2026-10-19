@@ -72,6 +72,7 @@ export type AgentToolName =
   | 'arrangeNodes'
   | 'runNodes'
   | 'applyScriptPlan'
+  | 'importCanvasImage'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'

@@ -2,16 +2,20 @@ import {
   appendScriptEpisode,
   type CanvasNode,
   type CanvasOrigin,
+  canvasInputFingerprint,
+  canvasMainResult,
   canvasNodeKind,
   canvasNodeRegistry,
   canvasNodeSourceData,
   connectCanvasNodes,
+  chooseCanvasResult,
   deleteCanvasNode,
   insertCanvasNode,
   isCanvasStoryboardData,
   layoutCanvasArrange,
   moveCanvasNodes,
   readCanvasDocument,
+  recordCanvasResult,
   replaceStoryboardShots,
   type TextNodeData,
   ungroupCanvasNodes,
@@ -236,6 +240,84 @@ export const updateNodes = defineAgentTool({
   execute: (context) => async (callId, params) =>
     write(context, callId, '修改节点', params, (doc, origin) => {
       for (const node of params.nodes) patchAgentCanvasNode(doc, node, origin)
+    }),
+})
+
+export const importCanvasImage = defineAgentTool({
+  name: 'importCanvasImage',
+  label: '收图进素材',
+  modes,
+  available,
+  onError: 'continue',
+  guidance:
+    '用户指定画布上的已有图片作为素材时，先 readCanvas 确认来源图片节点和目标素材节点，再调用本工具；不要重新生成或只改提示词后声称已挂图。只有本工具成功保存后才能说已收进素材。',
+  description:
+    '把当前画布指定图片节点的真实主图收进指定素材节点，新增一个视角候选并成为主结果。保留来源节点、目标名称和已有候选；原子保存、可撤销，不提交生成任务、不产生生成费用。尚无真实图片的来源会被拒绝。',
+  parameters: Type.Object({
+    imageNodeId: id,
+    assetNodeId: id,
+    viewLabel: Type.Optional(Type.Literal('sheet')),
+  }),
+  call: () => ({ title: '收图进素材' }),
+  execute: (context) => async (callId, params) =>
+    write(context, callId, '收图进素材', params, (doc, origin) => {
+      const source = getNode(doc, params.imageNodeId)
+      const target = getNode(doc, params.assetNodeId)
+      if (target.type !== 'image' || target.data.meta?.nodeKind !== 'asset')
+        return invalid('目标必须是素材节点。')
+      if (source.id === target.id) invalid('来源图片与目标素材节点不能相同。')
+      if (source.type !== 'image' || canvasNodeKind(source) !== 'image' || !source.data.mediaId)
+        return invalid('来源节点尚无已同步的真实图片；请等待生成或上传完成，不能声称已挂图。')
+      const mediaId = source.data.mediaId
+      if (!canvasMainResult(doc, target.id) && target.data.mediaId) {
+        recordCanvasResult(
+          doc,
+          {
+            id: `import:${crypto.randomUUID()}`,
+            nodeId: target.id,
+            kind: 'image',
+            source: { type: 'media', mediaId: target.data.mediaId },
+            createdAt: Date.now() - 1,
+            adopted: true,
+            display: {
+              mediaId: target.data.mediaId,
+              ...(target.data.naturalWidth ? { naturalWidth: target.data.naturalWidth } : {}),
+              ...(target.data.naturalHeight ? { naturalHeight: target.data.naturalHeight } : {}),
+            },
+          },
+          origin,
+        )
+      }
+      const resultId = `import:${crypto.randomUUID()}`
+      recordCanvasResult(
+        doc,
+        {
+          id: resultId,
+          nodeId: target.id,
+          kind: 'image',
+          source: { type: 'media', mediaId },
+          createdAt: Date.now(),
+          inputFingerprint: canvasInputFingerprint(doc, target.id),
+          ...(params.viewLabel ? { assetViewLabel: params.viewLabel } : {}),
+        },
+        origin,
+      )
+      if (
+        !chooseCanvasResult(
+          doc,
+          target.id,
+          resultId,
+          {
+            data: {
+              mediaId,
+              naturalWidth: source.data.naturalWidth,
+              naturalHeight: source.data.naturalHeight,
+            },
+          },
+          origin,
+        )
+      )
+        invalid('图片未能收进素材，请重新读取画布。')
     }),
 })
 export const connectNodes = defineAgentTool({

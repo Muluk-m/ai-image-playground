@@ -135,6 +135,11 @@ export async function draftQueueTask(
   input: QueueTaskInput,
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+  if (context.experience === 'canvas' && context.canvas?.selectedNodeIds !== undefined)
+    throw new AgentToolError(
+      'invalid_params',
+      '画布生成必须属于目标节点。请先用 createNodes 或 updateNodes 准备节点，再用 runNodes 发起运行；结果将保留在该节点，不会创建无主图片。',
+    )
   const clarification =
     input.media === 'image'
       ? context.imageCombinations?.inspect(input.referenceIds ?? [], input.n ?? 1)
