@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        issue: [1364, 1366]
+        issue: [abort]
     services:
       postgres:
         image: postgres:17-alpine
@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: implement/issue-${{ matrix.issue }}
+          ref: ${{ matrix.issue == 'abort' && 'fix/agent-abort-dispatch-settlement' || format('implement/issue-{0}', matrix.issue) }}
       - name: Record exact source revision
         run: git rev-parse HEAD | tee validation-sha.txt
       - name: Check out video pricing prerequisite
@@ -61,6 +61,12 @@ jobs:
           fi
       - run: pnpm lint
       - run: pnpm typecheck
+      - name: Exercise blocked-dispatch abort repeatedly
+        if: matrix.issue == 'abort'
+        run: |
+          for attempt in 1 2 3 4 5; do
+            pnpm --dir apps/bff test --filter agent-request-budget || exit 1
+          done
       - run: pnpm test --concurrency=1 --env-mode=loose
       - run: pnpm --dir apps/web build:static-host
         env:
