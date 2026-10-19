@@ -116,9 +116,13 @@ it('mounts only the rows near the viewport when every work is shown', async () =
   expect(host.querySelector('[data-task-id="task-299"]')).toBeNull()
 })
 
-it('keeps the short hero list as a plain grid', async () => {
-  await act(async () => root.render(<TaskGrid hero limit={3} />))
-  expect(mounted().map((card) => card.dataset.taskId)).toEqual(['task-0', 'task-1', 'task-2'])
+it('virtualizes the home page immediately and ignores filters from the library', async () => {
+  useStore.setState({ searchQuery: 'no matching work', filterFavorite: true })
+  await act(async () => root.render(<TaskGrid hero />))
+  expect(mounted().length).toBeGreaterThan(0)
+  expect(mounted().length).toBeLessThan(40)
+  expect(mounted()[0]?.dataset.taskId).toBe('task-0')
+  expect(host.querySelector('[data-task-id="task-299"]')).toBeNull()
 })
 
 it('re-renders only the card whose task changed', async () => {

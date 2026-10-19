@@ -1587,3 +1587,18 @@ body .studio-global-account {
 .studio-node-reference-picking .studio-node-reference-disabled { opacity: .22; filter: grayscale(1); cursor: not-allowed; }
 .studio-node-reference-picking .studio-node-reference-eligible { cursor: crosshair; }
 .studio-node-reference-eligible:hover .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 4px; }
+
+html[data-home='true'] .app-inset-panel { overflow: clip; }
+.studio-works-fade {
+  position: sticky;
+  bottom: var(--mobile-nav-height, 0px);
+  z-index: 10;
+  height: 96px;
+  margin-top: -96px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, hsl(var(--background) / 0), hsl(var(--background) / .9));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
+  -webkit-mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
+}
