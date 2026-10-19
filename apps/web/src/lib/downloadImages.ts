@@ -1,3 +1,4 @@
+import { reportDeliveryFailure } from './errorReporting'
 import { loadImageOriginal } from './imageSource'
 
 export interface DownloadResult {
@@ -34,20 +35,29 @@ export async function downloadImagesByIds(
   let success = 0
   let failed = 0
   for (const id of ids) {
+    let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
     try {
       const url = await loadImageOriginal(id)
       if (!url) {
+        reportDeliveryFailure(
+          { operation: 'download.prepare', stage },
+          { code: 'original_missing' },
+        )
         failed++
         continue
       }
+      stage = 'fetch'
       const res = await fetch(url)
+      stage = 'blob'
       const blob = await res.blob()
       const ext = blob.type.split('/')[1] || 'png'
+      stage = 'trigger'
       downloadBlob(blob, `${filenamePrefix}-${Date.now()}-${success}.${ext}`)
       success++
       await new Promise((r) => setTimeout(r, 100))
     } catch (err) {
       console.error(err)
+      reportDeliveryFailure({ operation: 'download.prepare', stage }, err)
       failed++
     }
   }

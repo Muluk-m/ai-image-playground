@@ -1,5 +1,6 @@
 import { accountScope, scopedStorageName } from './authScope'
 import { MediaRequestError, mediaJson } from './cloudMedia'
+import { reportDeliveryFailure } from './errorReporting'
 import { bffBaseUrl } from './runtimeConfig'
 
 interface Upload {
@@ -86,6 +87,17 @@ function confirmMedia(
       waiters: 0,
       promise: Promise.resolve()
         .then(() => (schedule ? schedule(work) : work()))
+        .then((ready) => {
+          current()
+          if (ready.status !== 'ready' || ready.id !== id)
+            throw new Error('invalid_media_confirmation')
+          return ready
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted && sameAccount() && backend === bffBaseUrl())
+            reportDeliveryFailure({ operation: 'media.upload', stage: 'complete' }, error)
+          throw error
+        })
         .finally(() => {
           if (confirmations.get(key) === created) confirmations.delete(key)
         }),
@@ -136,6 +148,8 @@ export async function transferMedia(
   },
 ): Promise<Upload> {
   const { signal, current } = options
+  const sameAccount = accountScope()
+  const backend = bffBaseUrl()
   const reserve = () =>
     mediaJson<Upload>('/uploads', {
       method: 'POST',
@@ -148,50 +162,65 @@ export async function transferMedia(
         ...(options.purpose ? { purpose: options.purpose } : {}),
       }),
     })
-  let upload = await retry(reserve, signal, current)
-  current()
-  if (upload.status === 'ready') return upload
-  let refresh = false
-  upload = await retry(
-    async () => {
-      if (refresh) {
-        upload = await reserve()
+  let stage: 'reserve' | 'put' = 'reserve'
+  let upload: Upload
+  try {
+    upload = await retry(reserve, signal, current)
+    current()
+    if (upload.status === 'ready') return upload
+    let refresh = false
+    upload = await retry(
+      async () => {
+        if (refresh) {
+          stage = 'reserve'
+          upload = await reserve()
+          current()
+          refresh = false
+        }
+        if (upload.status === 'ready') return upload
+        stage = 'put'
+        if (!upload.uploadUrl) throw new Error('invalid_media_upload')
+        let sent: Response
+        try {
+          sent = await fetch(upload.uploadUrl, {
+            method: 'PUT',
+            credentials: 'omit',
+            signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]),
+            headers: { 'content-type': contentType },
+            body,
+          })
+        } catch (error) {
+          // Expired signatures can surface as CORS network errors in a browser.
+          refresh = true
+          throw error
+        }
         current()
-        refresh = false
-      }
-      if (upload.status === 'ready') return upload
-      if (!upload.uploadUrl) throw new Error('invalid_media_upload')
-      let sent: Response
+        if (sent.status === 403) {
+          // Refresh an expired signed URL without allocating a new media identity.
+          refresh = true
+          throw new MediaRequestError(503, 'media_upload_failed')
+        }
+        if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
+        return upload
+      },
+      signal,
+      current,
+    )
+  } catch (error) {
+    let active = !signal.aborted && sameAccount() && backend === bffBaseUrl()
+    if (active) {
       try {
-        sent = await fetch(upload.uploadUrl, {
-          method: 'PUT',
-          credentials: 'omit',
-          signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]),
-          headers: { 'content-type': contentType },
-          body,
-        })
-      } catch (error) {
-        // Expired signatures can surface as CORS network errors in a browser.
-        refresh = true
-        throw error
+        current()
+      } catch {
+        active = false
       }
-      current()
-      if (sent.status === 403) {
-        // Refresh an expired signed URL without allocating a new media identity.
-        refresh = true
-        throw new MediaRequestError(503, 'media_upload_failed')
-      }
-      if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
-      return upload
-    },
-    signal,
-    current,
-  )
+    }
+    if (active) reportDeliveryFailure({ operation: 'media.upload', stage }, error)
+    throw error
+  }
   if (upload.status === 'ready') return upload
   options.onVerifying?.()
   const ready = await confirmMedia(upload.id, signal, options.confirm)
   current()
-  if (ready.status !== 'ready' || ready.id !== upload.id)
-    throw new Error('invalid_media_confirmation')
   return { ...ready, leaseExpiresAt: ready.leaseExpiresAt ?? upload.leaseExpiresAt }
 }
