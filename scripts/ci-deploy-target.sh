@@ -45,22 +45,36 @@ finish() {
   exit 0
 }
 
+# lock_changed <changed paths> <importer>...: a lockfile edit ships a side only when the packages
+# that side installs changed (scripts/lock-closure-changed.mjs). Uses the base commit decide picked.
+# shellcheck disable=SC2329 # called through the *_changed functions
+lock_changed() {
+  changed_paths=$1
+  shift
+  printf '%s\n' "$changed_paths" | grep -qx 'pnpm-lock\.yaml' || return 1
+  node scripts/lock-closure-changed.mjs "$scan_base" "$target" "$@"
+}
+
 # The internal and paid sites read these; the Admin site reads its own list; the API image reads
 # the last. A path in several lists ships each of them.
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
+  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|packages/shared/|pnpm-workspace\.yaml$)' ||
+    lock_changed "$1" . apps/web apps/website packages/shared private/apps/web
 }
 # shellcheck disable=SC2329 # called through decide
 admin_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/shared/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)'
+  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/shared/|pnpm-workspace\.yaml$)' ||
+    lock_changed "$1" . apps/admin packages/shared private/apps/admin
 }
 # shellcheck disable=SC2329 # called through decide
 api_tree_changed() {
   # The VPS runs the copies of these scripts shipped inside the release tarball. A change that
   # does not roll out an API image never reaches the host.
-  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/lib/deploy-common\.sh$)'
+  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/lib/deploy-common\.sh$)' ||
+    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared \
+      private/apps/bff private/apps/admin
 }
 
 tip=$(git rev-parse origin/main)
