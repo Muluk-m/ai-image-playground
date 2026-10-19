@@ -22,7 +22,7 @@ export interface ModelChoice {
   model: string
   profileId: string
   label: string
-  description: string
+  description?: string
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -102,7 +102,7 @@ export function ModelList({
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
     ? options.filter((option) =>
-        `${option.label} ${option.model} ${option.description}`
+        `${option.label} ${option.model} ${option.description ?? ''}`
           .toLocaleLowerCase()
           .includes(needle),
       )
@@ -137,7 +137,9 @@ export function ModelList({
               role="option"
               aria-selected={selected}
               tabIndex={tabStop ? 0 : -1}
-              aria-label={`${option.label} · ${option.description}`}
+              aria-label={
+                option.description ? `${option.label} · ${option.description}` : option.label
+              }
               onClick={() => onPick(option.value)}
               className={cn(
                 'h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
@@ -150,10 +152,12 @@ export function ModelList({
               <span className="min-w-0 flex-1 break-words font-medium text-foreground">
                 {option.label}
               </span>
-              <OverflowText
-                text={option.description}
-                className="max-w-20 truncate text-label-sm text-muted-foreground"
-              />
+              {option.description && (
+                <OverflowText
+                  text={option.description}
+                  className="max-w-20 truncate text-label-sm text-muted-foreground"
+                />
+              )}
               {selected && <Icon name="check" />}
             </Button>
           )
