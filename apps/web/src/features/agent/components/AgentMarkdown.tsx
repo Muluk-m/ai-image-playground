@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react'
-import Markdown from 'react-markdown'
+import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { AgentReplyImage } from './AgentReplyImage'
 
 /**
  * 助手回复用的 Markdown 渲染。模型习惯用列表、加粗、代码回答，原样显示星号与短横
@@ -45,6 +46,10 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   blockquote: ({ node: _node, ...props }) => (
     <blockquote className={`${BLOCK} border-l-2 border-border pl-2 text-foreground`} {...props} />
   ),
+  // 模型偶尔用 Markdown 插图：只认本会话的图片，其余只留说明，不出裂图也不请求外链。
+  img: ({ node: _node, src, alt }) => (
+    <AgentReplyImage src={typeof src === 'string' ? src : undefined} alt={alt} />
+  ),
   hr: ({ node: _node, ...props }) => <hr className="my-2 border-border" {...props} />,
   table: ({ node: _node, ...props }) => (
     <div className={`${BLOCK} overflow-x-auto`}>
@@ -59,9 +64,13 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   ),
 }
 
+// 默认净化会清空 `aip-media:`；图片引用要靠它对上会话里的图，其余地址照常净化。
+const urlTransform: ComponentProps<typeof Markdown>['urlTransform'] = (url, key) =>
+  key === 'src' && /^aip-media:[0-9a-f-]{36}$/i.test(url) ? url : defaultUrlTransform(url)
+
 export default function AgentMarkdown({ text }: { text: string }) {
   return (
-    <Markdown remarkPlugins={[remarkGfm]} components={components}>
+    <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
       {text}
     </Markdown>
   )
