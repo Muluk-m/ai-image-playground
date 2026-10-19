@@ -79,7 +79,9 @@ async function runFile(file: string): Promise<Result> {
       stderr: log,
       stdin: 'ignore',
     })
+    running.add(child)
     const exitCode = await child.exited
+    running.delete(child)
     return finish(exitCode, logPath ? await Bun.file(logPath).text() : '')
   } catch (error) {
     // A spawn or log failure belongs to this file; the other files still run.
@@ -90,9 +92,21 @@ async function runFile(file: string): Promise<Result> {
 }
 
 const results: Result[] = []
+const running = new Set<ReturnType<typeof Bun.spawn>>()
 let next = 0
+let stopping = false
+// 中断时先停止派发、把信号转给在跑的测试进程并等它们退出，再退出（test-guard 的锁随进程退出释放），
+// 否则子进程还在跑，下一组测试已经拿到锁。
+for (const signal of ['SIGINT', 'SIGTERM'] as const)
+  process.on(signal, async () => {
+    if (stopping) return
+    stopping = true
+    for (const child of running) child.kill(signal)
+    await Promise.all([...running].map((child) => child.exited))
+    process.exit(130)
+  })
 async function worker(): Promise<void> {
-  while (next < testFiles.length) {
+  while (next < testFiles.length && !stopping) {
     const result = await runFile(testFiles[next++])
     if (jobs > 1) process.stdout.write(result.output)
     results.push(result)
