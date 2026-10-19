@@ -77,12 +77,12 @@ afterEach(() => {
 })
 
 describe('folding a product shot job in the history', () => {
-  it('counts folded sets rather than tasks when deciding whether more works exist', async () => {
+  it('keeps a set folded on the home page without expansion controls', async () => {
     useStore.setState({
       tasks: Array.from({ length: 4 }, (_, index) => task(`task-${index}`, 'job-1', 'done')),
       platformGenerations: [],
     })
-    await act(async () => root.render(<TaskGrid hero limit={3} onExpand={vi.fn()} />))
+    await act(async () => root.render(<TaskGrid hero />))
     expect(host.querySelectorAll('[data-set-history-card]')).toHaveLength(1)
     expect(host.textContent).not.toContain('展开更多作品')
   })
