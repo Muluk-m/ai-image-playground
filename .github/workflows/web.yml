@@ -33,26 +33,28 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
         run: |
-          set -eu
+          set -u
+          # 查不到、查询失败都按「没验证过」处理：照常全跑，绝不因为这一步出错而跳过检查。
           verified=false
-          if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+          check() {
+            [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ] || return 0
             pr=$(gh api "repos/$REPO/commits/$SHA/pulls" \
-              --jq "[.[] | select(.merged_at != null and .base.ref == \"main\" and .head.repo.full_name == \"$REPO\")][0] // empty")
-            if [ -n "$pr" ]; then
-              head=$(printf '%s' "$pr" | jq -r .head.sha)
-              number=$(printf '%s' "$pr" | jq -r .number)
-              tree=$(gh api "repos/$REPO/commits/$SHA" --jq .commit.tree.sha)
-              head_tree=$(gh api "repos/$REPO/commits/$head" --jq .commit.tree.sha)
-              passed=$(gh api "repos/$REPO/actions/workflows/web.yml/runs?event=pull_request&head_sha=$head&status=success" \
-                --jq '.total_count')
-              if [ "$tree" = "$head_tree" ] && [ "${passed:-0}" -gt 0 ]; then
-                verified=true
-                echo "::notice::Same tree as PR #$number head $head, which passed Web checks; skipping the rerun."
-              else
-                echo "::notice::PR #$number: tree match=$([ "$tree" = "$head_tree" ] && echo yes || echo no), passed runs=${passed:-0}; running every check."
-              fi
+              --jq "[.[] | select(.merged_at != null and .base.ref == \"main\" and .head.repo.full_name == \"$REPO\")][0] // empty") || return 1
+            [ -n "$pr" ] || { echo "::notice::No merged pull request for $SHA; running every check."; return 0; }
+            head=$(printf '%s' "$pr" | jq -er .head.sha) || return 1
+            number=$(printf '%s' "$pr" | jq -er .number) || return 1
+            tree=$(gh api "repos/$REPO/commits/$SHA" --jq .commit.tree.sha) || return 1
+            head_tree=$(gh api "repos/$REPO/commits/$head" --jq .commit.tree.sha) || return 1
+            passed=$(gh api "repos/$REPO/actions/workflows/web.yml/runs?event=pull_request&head_sha=$head&status=success" \
+              --jq '.total_count') || return 1
+            if [ -n "$tree" ] && [ "$tree" = "$head_tree" ] && [ "${passed:-0}" -gt 0 ]; then
+              verified=true
+              echo "::notice::Same tree as PR #$number head $head, which passed Web checks; skipping the rerun."
+            else
+              echo "::notice::PR #$number: tree match=$([ "$tree" = "$head_tree" ] && echo yes || echo no), passed runs=${passed:-0}; running every check."
             fi
-          fi
+          }
+          check || { verified=false; echo "::warning::Could not read the pull request history; running every check."; }
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
   web:
     needs: prior
@@ -63,6 +65,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - run: python3 scripts/test-cloud-test.py
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs
       - run: pnpm lint
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
