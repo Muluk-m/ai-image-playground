@@ -54,7 +54,9 @@
   "reply": {
     "copyAria": "Copy reply",
     "copied": "Copied",
-    "copyFailed": "Copy failed. Select the reply text and copy it manually."
+    "copyFailed": "Copy failed. Select the reply text and copy it manually.",
+    "image": "Image",
+    "openImage": "View image: {{name}}"
   },
   "tool": {
     "canvasReadNodes": "Read nodes: {{nodes}}",

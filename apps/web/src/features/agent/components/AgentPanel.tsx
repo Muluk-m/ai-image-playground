@@ -48,6 +48,7 @@ import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentImageActionStepView from './AgentImageActionStep'
 import AgentMessageQueue from './AgentMessageQueue'
 import AgentReply from './AgentReply'
+import { AgentReplyImagesProvider } from './AgentReplyImage'
 import AgentSaveCard from './AgentSaveCard'
 import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard, { AgentImageRun } from './AgentToolCard'
@@ -427,336 +428,338 @@ export default function AgentPanel({
   const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (
-    <div
-      ref={panelRef}
-      aria-label={t('panel.aria')}
-      data-dock={dock}
-      style={presentation === 'side' ? { width: panelWidth } : undefined}
-      className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
-    >
-      {presentation === 'side' && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t('panel.resizeAria')}
-          title={t('panel.resizeTitle')}
-          onPointerDown={startResize}
-          className={`absolute ${dock === 'right' ? '-left-1.5' : '-right-1.5'} top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60`}
-        />
-      )}
-      {presentation === 'side' && (
-        <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
-          {dock === 'right' ? (
-            <SegmentedTabs
-              label={t('panel.aria')}
-              tabs={TABS.map((one) => ({ value: one.id, label: t(one.labelKey) }))}
-              value={tab === 'layers' ? 'layers' : 'chat'}
-              onChange={setTab}
-            />
-          ) : (
-            <div className="flex items-center gap-1.5">
-              {TABS.map((one) => (
-                <Button
-                  key={one.id}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setTab(one.id)}
-                  className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
-                >
-                  {t(one.labelKey)}
-                </Button>
-              ))}
-            </div>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t('panel.collapseAria')}
-            title={t('panel.collapseAria')}
-            className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
-            onClick={() => setOpen(false)}
-          >
-            <Icon name={dock === 'right' ? 'minimize' : 'sidebar'} />
-          </Button>
-        </div>
-      )}
-
-      <AgentConnectionHint />
-
-      {presentation === 'page' && searchOpen && (
-        <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
-          <SearchField
-            autoFocus
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('panel.search')}
-            aria-label={t('panel.search')}
-            className="h-8 min-w-0 max-w-none flex-1"
+    <AgentReplyImagesProvider messages={messages} onPreview={onPreviewResult}>
+      <div
+        ref={panelRef}
+        aria-label={t('panel.aria')}
+        data-dock={dock}
+        style={presentation === 'side' ? { width: panelWidth } : undefined}
+        className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
+      >
+        {presentation === 'side' && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('panel.resizeAria')}
+            title={t('panel.resizeTitle')}
+            onPointerDown={startResize}
+            className={`absolute ${dock === 'right' ? '-left-1.5' : '-right-1.5'} top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60`}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onCloseSearch}
-            aria-label={t('panel.closeSearch')}
-          >
-            <Icon name="close" />
-          </Button>
-          {search.trim() && (
-            <div className="studio-conversation-search-results" aria-live="polite">
-              {searchResults.length ? (
-                searchResults.map((message) => (
+        )}
+        {presentation === 'side' && (
+          <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
+            {dock === 'right' ? (
+              <SegmentedTabs
+                label={t('panel.aria')}
+                tabs={TABS.map((one) => ({ value: one.id, label: t(one.labelKey) }))}
+                value={tab === 'layers' ? 'layers' : 'chat'}
+                onChange={setTab}
+              />
+            ) : (
+              <div className="flex items-center gap-1.5">
+                {TABS.map((one) => (
                   <Button
-                    key={message.id}
+                    key={one.id}
                     type="button"
                     variant="ghost"
-                    onClick={() => locateMessage(message.id)}
-                    className="h-auto w-full justify-start truncate rounded-md px-2 py-2 text-left text-xs font-normal hover:bg-muted"
+                    onClick={() => setTab(one.id)}
+                    className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
                   >
-                    {message.kind === 'text'
-                      ? message.text
-                      : message.kind === 'tool'
-                        ? message.title
-                        : message.kind === 'imageAction'
-                          ? t('imageAction.removeBackground')
-                          : message.question}
+                    {t(one.labelKey)}
                   </Button>
-                ))
-              ) : (
-                <p>{t('panel.noSearchResults')}</p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'layers' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentCreations doc={doc} editor={editor} onSelect={onViewCanvas} />
-        </div>
-      ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div
-            ref={logRef}
-            // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
-            data-selectable-text
-            aria-label={t('panel.logAria')}
-            onScroll={(event) => {
-              const log = event.currentTarget
-              followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
-              if (followLatest.current) setUnseen(false)
-            }}
-            className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
-            {...dropZoneProps}
-          >
-            <div
-              className={
-                presentation === 'page'
-                  ? 'studio-agent-log-content'
-                  : `flex shrink-0 flex-col gap-2.5 ${dock === 'right' && messages.length === 0 ? 'min-h-full' : ''}`
-              }
-            >
-              {messages.length === 0 &&
-                !historyLoading &&
-                !historyFailed &&
-                (dock === 'right' && presentation === 'side' ? (
-                  <CanvasAgentWelcome skills={skills} />
-                ) : (
-                  <div className="studio-chat-empty">
-                    <h3>{t('panel.emptyTitle')}</h3>
-                    <AgentSuggestions className="studio-suggestions" />
-                  </div>
                 ))}
-              {messages.map((message, index) => {
-                const planRun = planRuns.starts.get(index)
-                if (planRuns.absorbed.has(index) && !planRun) return null
-                if (planRun) {
-                  const lastIndex = index + planRun.length - 1
-                  const footer =
-                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                  return (
-                    <div
-                      key={`${message.id}:${historyCached}`}
-                      data-agent-message-id={message.id}
-                      className="studio-agent-message-block"
-                    >
-                      <fieldset disabled={historyCached} className="contents">
-                        <AgentGenerationPlan messages={planRun} />
-                      </fieldset>
-                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                      )}
-                    </div>
-                  )
-                }
-                const imageRun = imageRuns.starts.get(index)
-                if (imageRuns.absorbed.has(index) && !imageRun) return null
-                if (imageRun) {
-                  const lastIndex = index + imageRun.length - 1
-                  const footer =
-                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                  return (
-                    <div
-                      key={`${message.id}:${historyCached}`}
-                      data-agent-message-id={message.id}
-                      className="studio-agent-message-block"
-                    >
-                      <fieldset disabled={historyCached} className="contents">
-                        <AgentImageRun
-                          messages={imageRun}
-                          onViewCanvas={onViewCanvas}
-                          onPreviewResult={onPreviewResult}
-                          onPreviewProduction={onPreviewProduction}
-                        />
-                      </fieldset>
-                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                      )}
-                    </div>
-                  )
-                }
-                const fetchedRun = fetchedRuns?.starts.get(index)
-                if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
-                if (fetchedRun) {
-                  const lastIndex = index + fetchedRun.length - 1
-                  const footer =
-                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                  return (
-                    <div
-                      key={`${message.id}:${historyCached}`}
-                      className="studio-agent-message-block"
-                    >
-                      <div className="studio-agent-fetched-strip">
-                        {fetchedRun.map((image) => (
-                          <div
-                            key={image.id}
-                            data-agent-message-id={image.id}
-                            className="studio-agent-fetched-strip-item"
-                          >
-                            <fieldset disabled={historyCached} className="contents">
-                              <AgentToolCard
-                                message={image}
-                                onViewCanvas={onViewCanvas}
-                                onPreviewResult={onPreviewResult}
-                                compactFetched
-                              />
-                            </fieldset>
-                          </div>
-                        ))}
-                      </div>
-                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                      )}
-                    </div>
-                  )
-                }
-                const footer =
-                  lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
-                const trail = grouping.trails.get(index)
-                if (grouping.absorbed.has(index) && !trail && !footer) return null
-                // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
-                if (
-                  message.kind === 'text' &&
-                  message.role === 'assistant' &&
-                  !message.streaming &&
-                  !message.text.trim() &&
-                  !trail &&
-                  !footer
-                )
-                  return null
-                return (
-                  <div
-                    key={message.kind === 'text' ? message.id : `${message.id}:${historyCached}`}
-                    data-agent-message-id={message.id}
-                    className="studio-agent-message-block"
-                  >
-                    {trail && (
-                      <AgentActivityTrail
-                        steps={trail.steps}
-                        spent={trail.spent}
-                        revealId={located?.id}
-                        revealSeq={located?.seq}
-                      />
-                    )}
-                    {!grouping.absorbed.has(index) &&
-                      renderMessage(
-                        message,
-                        answerableId,
-                        skills,
-                        onViewCanvas,
-                        onPreviewResult,
-                        onPreviewProduction,
-                        historyCached,
-                      )}
-                    {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                      <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                    )}
-                  </div>
-                )
-              })}
-              <AgentActivity />
-              <AgentHistoryStatus />
-              {presentation === 'page' && <AgentFollowUpChips />}
-              {(error || returnedMessagesPending) && !historyFailed && (
-                <ErrorState
-                  title={t('panel.errorTitle')}
-                  detail={
-                    returnedMessagesPending
-                      ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
-                      : (error ?? undefined)
-                  }
-                  actions={
-                    <>
-                      {returnedMessagesPending && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void useAgentStore.getState().retryReturnedMessages()}
-                        >
-                          {t('draft.retryRestore')}
-                        </Button>
-                      )}
-                      <AgentCopyDiagnostic
-                        diagnostic={
-                          errorDiagnostic ?? {
-                            conversationId: diagnosticConversationId,
-                            message: error,
-                          }
-                        }
-                      />
-                    </>
-                  }
-                />
-              )}
-            </div>
-          </div>
-          {unseen && (
+              </div>
+            )}
             <Button
               type="button"
               variant="ghost"
-              onClick={jumpToLatest}
-              className={`${JUMP_TO_LATEST} h-auto font-normal`}
+              size="icon"
+              aria-label={t('panel.collapseAria')}
+              title={t('panel.collapseAria')}
+              className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
+              onClick={() => setOpen(false)}
             >
-              <Icon name="chevronDown" />
-              {t('panel.jumpToLatest')}
+              <Icon name={dock === 'right' ? 'minimize' : 'sidebar'} />
             </Button>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {tab === 'chat' && <AgentMessageQueue />}
-      {tab === 'chat' && (
-        <AgentComposer
-          productionMode={productionMode}
-          doc={doc}
-          editor={editor}
-          showLooks={presentation !== 'page' || messages.length === 0}
-          showCanvasReferences={presentation !== 'page'}
-          showFollowUpGhost={presentation !== 'page'}
-        />
-      )}
-    </div>
+        <AgentConnectionHint />
+
+        {presentation === 'page' && searchOpen && (
+          <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
+            <SearchField
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t('panel.search')}
+              aria-label={t('panel.search')}
+              className="h-8 min-w-0 max-w-none flex-1"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onCloseSearch}
+              aria-label={t('panel.closeSearch')}
+            >
+              <Icon name="close" />
+            </Button>
+            {search.trim() && (
+              <div className="studio-conversation-search-results" aria-live="polite">
+                {searchResults.length ? (
+                  searchResults.map((message) => (
+                    <Button
+                      key={message.id}
+                      type="button"
+                      variant="ghost"
+                      onClick={() => locateMessage(message.id)}
+                      className="h-auto w-full justify-start truncate rounded-md px-2 py-2 text-left text-xs font-normal hover:bg-muted"
+                    >
+                      {message.kind === 'text'
+                        ? message.text
+                        : message.kind === 'tool'
+                          ? message.title
+                          : message.kind === 'imageAction'
+                            ? t('imageAction.removeBackground')
+                            : message.question}
+                    </Button>
+                  ))
+                ) : (
+                  <p>{t('panel.noSearchResults')}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'layers' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto py-1">
+            <AgentCreations doc={doc} editor={editor} onSelect={onViewCanvas} />
+          </div>
+        ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div
+              ref={logRef}
+              // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
+              data-selectable-text
+              aria-label={t('panel.logAria')}
+              onScroll={(event) => {
+                const log = event.currentTarget
+                followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
+                if (followLatest.current) setUnseen(false)
+              }}
+              className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
+              {...dropZoneProps}
+            >
+              <div
+                className={
+                  presentation === 'page'
+                    ? 'studio-agent-log-content'
+                    : `flex shrink-0 flex-col gap-2.5 ${dock === 'right' && messages.length === 0 ? 'min-h-full' : ''}`
+                }
+              >
+                {messages.length === 0 &&
+                  !historyLoading &&
+                  !historyFailed &&
+                  (dock === 'right' && presentation === 'side' ? (
+                    <CanvasAgentWelcome skills={skills} />
+                  ) : (
+                    <div className="studio-chat-empty">
+                      <h3>{t('panel.emptyTitle')}</h3>
+                      <AgentSuggestions className="studio-suggestions" />
+                    </div>
+                  ))}
+                {messages.map((message, index) => {
+                  const planRun = planRuns.starts.get(index)
+                  if (planRuns.absorbed.has(index) && !planRun) return null
+                  if (planRun) {
+                    const lastIndex = index + planRun.length - 1
+                    const footer =
+                      lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
+                    return (
+                      <div
+                        key={`${message.id}:${historyCached}`}
+                        data-agent-message-id={message.id}
+                        className="studio-agent-message-block"
+                      >
+                        <fieldset disabled={historyCached} className="contents">
+                          <AgentGenerationPlan messages={planRun} />
+                        </fieldset>
+                        {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                          <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                        )}
+                      </div>
+                    )
+                  }
+                  const imageRun = imageRuns.starts.get(index)
+                  if (imageRuns.absorbed.has(index) && !imageRun) return null
+                  if (imageRun) {
+                    const lastIndex = index + imageRun.length - 1
+                    const footer =
+                      lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
+                    return (
+                      <div
+                        key={`${message.id}:${historyCached}`}
+                        data-agent-message-id={message.id}
+                        className="studio-agent-message-block"
+                      >
+                        <fieldset disabled={historyCached} className="contents">
+                          <AgentImageRun
+                            messages={imageRun}
+                            onViewCanvas={onViewCanvas}
+                            onPreviewResult={onPreviewResult}
+                            onPreviewProduction={onPreviewProduction}
+                          />
+                        </fieldset>
+                        {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                          <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                        )}
+                      </div>
+                    )
+                  }
+                  const fetchedRun = fetchedRuns?.starts.get(index)
+                  if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
+                  if (fetchedRun) {
+                    const lastIndex = index + fetchedRun.length - 1
+                    const footer =
+                      lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
+                    return (
+                      <div
+                        key={`${message.id}:${historyCached}`}
+                        className="studio-agent-message-block"
+                      >
+                        <div className="studio-agent-fetched-strip">
+                          {fetchedRun.map((image) => (
+                            <div
+                              key={image.id}
+                              data-agent-message-id={image.id}
+                              className="studio-agent-fetched-strip-item"
+                            >
+                              <fieldset disabled={historyCached} className="contents">
+                                <AgentToolCard
+                                  message={image}
+                                  onViewCanvas={onViewCanvas}
+                                  onPreviewResult={onPreviewResult}
+                                  compactFetched
+                                />
+                              </fieldset>
+                            </div>
+                          ))}
+                        </div>
+                        {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                          <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                        )}
+                      </div>
+                    )
+                  }
+                  const footer =
+                    lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
+                  const trail = grouping.trails.get(index)
+                  if (grouping.absorbed.has(index) && !trail && !footer) return null
+                  // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
+                  if (
+                    message.kind === 'text' &&
+                    message.role === 'assistant' &&
+                    !message.streaming &&
+                    !message.text.trim() &&
+                    !trail &&
+                    !footer
+                  )
+                    return null
+                  return (
+                    <div
+                      key={message.kind === 'text' ? message.id : `${message.id}:${historyCached}`}
+                      data-agent-message-id={message.id}
+                      className="studio-agent-message-block"
+                    >
+                      {trail && (
+                        <AgentActivityTrail
+                          steps={trail.steps}
+                          spent={trail.spent}
+                          revealId={located?.id}
+                          revealSeq={located?.seq}
+                        />
+                      )}
+                      {!grouping.absorbed.has(index) &&
+                        renderMessage(
+                          message,
+                          answerableId,
+                          skills,
+                          onViewCanvas,
+                          onPreviewResult,
+                          onPreviewProduction,
+                          historyCached,
+                        )}
+                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                      )}
+                    </div>
+                  )
+                })}
+                <AgentActivity />
+                <AgentHistoryStatus />
+                {presentation === 'page' && <AgentFollowUpChips />}
+                {(error || returnedMessagesPending) && !historyFailed && (
+                  <ErrorState
+                    title={t('panel.errorTitle')}
+                    detail={
+                      returnedMessagesPending
+                        ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
+                        : (error ?? undefined)
+                    }
+                    actions={
+                      <>
+                        {returnedMessagesPending && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void useAgentStore.getState().retryReturnedMessages()}
+                          >
+                            {t('draft.retryRestore')}
+                          </Button>
+                        )}
+                        <AgentCopyDiagnostic
+                          diagnostic={
+                            errorDiagnostic ?? {
+                              conversationId: diagnosticConversationId,
+                              message: error,
+                            }
+                          }
+                        />
+                      </>
+                    }
+                  />
+                )}
+              </div>
+            </div>
+            {unseen && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={jumpToLatest}
+                className={`${JUMP_TO_LATEST} h-auto font-normal`}
+              >
+                <Icon name="chevronDown" />
+                {t('panel.jumpToLatest')}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {tab === 'chat' && <AgentMessageQueue />}
+        {tab === 'chat' && (
+          <AgentComposer
+            productionMode={productionMode}
+            doc={doc}
+            editor={editor}
+            showLooks={presentation !== 'page' || messages.length === 0}
+            showCanvasReferences={presentation !== 'page'}
+            showFollowUpGhost={presentation !== 'page'}
+          />
+        )}
+      </div>
+    </AgentReplyImagesProvider>
   )
 }
 
