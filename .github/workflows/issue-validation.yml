@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        issue: [1365]
+        issue: [1366]
     services:
       postgres:
         image: postgres:17-alpine
