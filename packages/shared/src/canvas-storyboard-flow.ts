@@ -1,7 +1,13 @@
 import type * as Y from 'yjs'
 import {
-  type CanvasNode, type CanvasOrigin, type ImageNodeData, connectCanvasNodes, disconnectCanvasNodes,
-  insertCanvasNode, readCanvasDocument, updateCanvasNode,
+  type CanvasNode,
+  type CanvasOrigin,
+  connectCanvasNodes,
+  disconnectCanvasNodes,
+  type ImageNodeData,
+  insertCanvasNode,
+  readCanvasDocument,
+  updateCanvasNode,
 } from './canvas-document'
 import { findFreeCanvasPlacement, nodeCardSize } from './canvas-placement'
 import { canvasNodeKind, canvasNodeRegistry } from './canvas-registry'
@@ -9,7 +15,14 @@ import { canvasInputFingerprint, canvasMainResult, canvasResultIsStale } from '.
 import { storyboardFingerprint } from './canvas-storyboard'
 import { PRODUCTION_SHOTS_MAX, type ProductionShot } from './production-storyboard'
 import { PROJECT_META_VALUE_MAX_CHARS, PROJECT_TIMELINE_MAX_CLIPS } from './project-protocol'
-import { canonicalVideoVoice, clampVideoPreset, type VideoAspectRatio, type VideoDuration, type VideoModelSupport, type VideoResolution } from './video-presets'
+import {
+  canonicalVideoVoice,
+  clampVideoPreset,
+  type VideoAspectRatio,
+  type VideoDuration,
+  type VideoModelSupport,
+  type VideoResolution,
+} from './video-presets'
 
 export const STORYBOARD_GRID_MAX = 9
 export const STORYBOARD_TIMELINE_MAX_SECONDS = 600
@@ -22,7 +35,10 @@ export type StoryboardFlowErrorCode =
   | 'missingAssets'
 
 export class StoryboardFlowError extends Error {
-  constructor(readonly code: StoryboardFlowErrorCode, readonly assets: string[] = []) {
+  constructor(
+    readonly code: StoryboardFlowErrorCode,
+    readonly assets: string[] = [],
+  ) {
     super(code)
   }
 }
@@ -52,7 +68,11 @@ export interface StoryboardVideoModel {
 type StoryboardDocument = StoryboardFlowContext & { doc: Y.Doc }
 
 /** Use the same card geometry and collision avoidance as manual canvas placement. */
-function createNode(canvas: StoryboardDocument, kind: 'image' | 'video' | 'timeline', anchors: readonly CanvasNode[]) {
+function createNode(
+  canvas: StoryboardDocument,
+  kind: 'image' | 'video' | 'timeline',
+  anchors: readonly CanvasNode[],
+) {
   const id = crypto.randomUUID()
   const { width, height } = canvasNodeRegistry[kind].size
   const snapshot = readCanvasDocument(canvas.doc)
@@ -65,10 +85,19 @@ function createNode(canvas: StoryboardDocument, kind: 'image' | 'video' | 'timel
   const x = Math.max(...boxes.map((node) => node.x + node.width)) + gap
   const preferredY = Math.min(...boxes.map((node) => node.y))
   const offset = findFreeCanvasPlacement([{ x, y: preferredY, width, height }], occupied, gap)
-  insertCanvasNode(canvas.doc, {
-    id, type: kind === 'timeline' ? 'timeline' : 'image', x, y: preferredY + offset.y,
-    width, height, data: kind === 'timeline' ? { clips: [] } : { meta: { nodeKind: kind } },
-  }, canvas.origin)
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id,
+      type: kind === 'timeline' ? 'timeline' : 'image',
+      x,
+      y: preferredY + offset.y,
+      width,
+      height,
+      data: kind === 'timeline' ? { clips: [] } : { meta: { nodeKind: kind } },
+    },
+    canvas.origin,
+  )
   return id
 }
 
@@ -137,8 +166,7 @@ function shotPrompt(shot: ProductionShot, video = false) {
   ]
     .filter(Boolean)
     .join('\n')
-  if (prompt.length > PROJECT_META_VALUE_MAX_CHARS)
-    throw new StoryboardFlowError('promptTooLong')
+  if (prompt.length > PROJECT_META_VALUE_MAX_CHARS) throw new StoryboardFlowError('promptTooLong')
   return prompt
 }
 function gridPrompt(shots: readonly ProductionShot[]) {
@@ -172,9 +200,7 @@ export function patchStoryboardMedia(
   patch: Partial<ImageNodeData>,
   origin: CanvasOrigin,
 ) {
-  const raw = doc.getMap<Y.Map<unknown>>('nodes').get(id)?.get('data') as
-    | ImageNodeData
-    | undefined
+  const raw = doc.getMap<Y.Map<unknown>>('nodes').get(id)?.get('data') as ImageNodeData | undefined
   if (!raw) return
   updateCanvasNode(
     doc,
@@ -202,7 +228,12 @@ function linkSources(canvas: StoryboardDocument, target: string, sources: string
   for (const source of sources) connectCanvasNodes(canvas.doc, { source, target }, canvas.origin)
   const current = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === target)!
   if (current.type === 'image' || current.type === 'video')
-    patchStoryboardMedia(canvas.doc, target, { meta: { storyboardSources: JSON.stringify(sources) } }, canvas.origin)
+    patchStoryboardMedia(
+      canvas.doc,
+      target,
+      { meta: { storyboardSources: JSON.stringify(sources) } },
+      canvas.origin,
+    )
 }
 /** Document preparation is one undo step; generation only starts in the batch confirmation. */
 export function prepareStoryboardFrames(
@@ -223,21 +254,25 @@ export function prepareStoryboardFrames(
       const snapshot = readCanvasDocument(canvas.doc)
       const existing = findGenerated(snapshot.nodes, id, 'frame', shot.id)
       const frameId =
-        existing?.id ??
-        createNode(canvas, 'image', [{ ...board, y: board.y + index * 408 }])
+        existing?.id ?? createNode(canvas, 'image', [{ ...board, y: board.y + index * 408 }])
       const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === frameId)!
       if (node.type !== 'image') continue
-      patchStoryboardMedia(canvas.doc, frameId, {
-        name: canvas.names?.frame(index + 1) ?? `Shot ${index + 1} · First frame`,
-        meta: {
-          nodeKind: 'image',
-          storyboardId: id,
-          storyboardRole: 'frame',
-          storyboardShotId: shot.id,
-          storyboardFingerprint: fingerprint,
-          nodePrompt: shotPrompt(shot),
+      patchStoryboardMedia(
+        canvas.doc,
+        frameId,
+        {
+          name: canvas.names?.frame(index + 1) ?? `Shot ${index + 1} · First frame`,
+          meta: {
+            nodeKind: 'image',
+            storyboardId: id,
+            storyboardRole: 'frame',
+            storyboardShotId: shot.id,
+            storyboardFingerprint: fingerprint,
+            nodePrompt: shotPrompt(shot),
+          },
         },
-      }, canvas.origin)
+        canvas.origin,
+      )
       linkSources(canvas, frameId, assetIds(shot))
       frameIds.push(frameId)
     }
@@ -255,29 +290,34 @@ export function prepareStoryboardFrames(
             node.data.meta.storyboardRole === 'grid' &&
             node.data.meta.storyboardFrameIds === JSON.stringify(ids),
         )
-        const gridId =
-          existing?.id ??
-          createNode(canvas, 'image', [board])
+        const gridId = existing?.id ?? createNode(canvas, 'image', [board])
         const grid = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === gridId)!
         if (grid.type !== 'image') continue
-        patchStoryboardMedia(canvas.doc, gridId, {
-          name: canvas.names?.grid(batches.indexOf(shots) + 1) ?? `Contact sheet ${batches.indexOf(shots) + 1}`,
-          meta: {
-            nodeKind: 'image',
-            storyboardId: id,
-            storyboardRole: 'grid',
-            storyboardFingerprint: fingerprint,
-            storyboardFrameIds: JSON.stringify(ids),
-            storyboardFrameBaseline: JSON.stringify(
-              ids.map((id) => canvasMainResult(canvas.doc, id)?.id ?? null),
-            ),
-            storyboardFrameInputs: JSON.stringify(
-              ids.map((id) => canvasInputFingerprint(canvas.doc, id)),
-            ),
-            storyboardGrid: JSON.stringify({ columns, rows }),
-            nodePrompt: gridPrompt(shots),
+        patchStoryboardMedia(
+          canvas.doc,
+          gridId,
+          {
+            name:
+              canvas.names?.grid(batches.indexOf(shots) + 1) ??
+              `Contact sheet ${batches.indexOf(shots) + 1}`,
+            meta: {
+              nodeKind: 'image',
+              storyboardId: id,
+              storyboardRole: 'grid',
+              storyboardFingerprint: fingerprint,
+              storyboardFrameIds: JSON.stringify(ids),
+              storyboardFrameBaseline: JSON.stringify(
+                ids.map((id) => canvasMainResult(canvas.doc, id)?.id ?? null),
+              ),
+              storyboardFrameInputs: JSON.stringify(
+                ids.map((id) => canvasInputFingerprint(canvas.doc, id)),
+              ),
+              storyboardGrid: JSON.stringify({ columns, rows }),
+              nodePrompt: gridPrompt(shots),
+            },
           },
-        }, canvas.origin)
+          canvas.origin,
+        )
         linkSources(canvas, gridId, [...new Set(shots.flatMap(assetIds))])
         generateIds.push(gridId)
       }
@@ -317,9 +357,7 @@ export function prepareStoryboardVideos(
     for (const [index, shot] of board.data.shots.entries()) {
       const frame = frames[index]!,
         existing = findGenerated(readCanvasDocument(canvas.doc).nodes, id, 'video', shot.id)
-      const videoId =
-        existing?.id ??
-        createNode(canvas, 'video', [frame])
+      const videoId = existing?.id ?? createNode(canvas, 'video', [frame])
       const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === videoId)!
       if (node.type !== 'image' && node.type !== 'video') continue
       const voices = option.support.voices
@@ -332,23 +370,31 @@ export function prepareStoryboardVideos(
       const videoDraft: StoryboardVideoDraft = {
         ...draft,
         model: option.modelId,
-        ...clampVideoPreset(option.support, { ...draft, duration: shot.durationSeconds ?? draft.duration }),
+        ...clampVideoPreset(option.support, {
+          ...draft,
+          duration: shot.durationSeconds ?? draft.duration,
+        }),
         ...(voices.length ? { voices } : { voices: undefined }),
       }
-      patchStoryboardMedia(canvas.doc, videoId, {
-        name: canvas.names?.video(index + 1) ?? `Shot ${index + 1} · Video`,
-        meta: {
-          nodeKind: 'video',
-          storyboardId: id,
-          storyboardRole: 'video',
-          storyboardShotId: shot.id,
-          storyboardFingerprint: storyboardFingerprint(board.data.shots),
-          nodeVideoMode: 'first',
-          videoFirstFrame: frame.id,
-          nodeVideoDraft: JSON.stringify(videoDraft),
-          nodePrompt: shotPrompt(shot, true),
+      patchStoryboardMedia(
+        canvas.doc,
+        videoId,
+        {
+          name: canvas.names?.video(index + 1) ?? `Shot ${index + 1} · Video`,
+          meta: {
+            nodeKind: 'video',
+            storyboardId: id,
+            storyboardRole: 'video',
+            storyboardShotId: shot.id,
+            storyboardFingerprint: storyboardFingerprint(board.data.shots),
+            nodeVideoMode: 'first',
+            videoFirstFrame: frame.id,
+            nodeVideoDraft: JSON.stringify(videoDraft),
+            nodePrompt: shotPrompt(shot, true),
+          },
         },
-      }, canvas.origin)
+        canvas.origin,
+      )
       linkSources(canvas, videoId, [frame.id, ...assetIds(shot)])
       videoIds.push(videoId)
       durations.set(videoId, videoDraft.duration)
@@ -382,7 +428,11 @@ export function prepareStoryboardVideos(
       )
       const timelineId =
         existing?.id ??
-        createNode(canvas, 'timeline', videos.filter((node) => chunk.includes(node.id)))
+        createNode(
+          canvas,
+          'timeline',
+          videos.filter((node) => chunk.includes(node.id)),
+        )
       for (const source of chunk)
         connectCanvasNodes(canvas.doc, { source, target: timelineId }, canvas.origin)
       if (!existing)

@@ -2,6 +2,7 @@
 import {
   canvasOrigin,
   createCanvasUndoManager,
+  nodeCardSize,
   readCanvasDocument,
   synchronizeLegacyElements,
   updateCanvasNode,
@@ -12,7 +13,6 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { createNode } from '../../../../features/canvas/lib/nodeCanvasActions'
 import { fillImageNode } from '../../../../features/canvas/lib/nodeCanvasGenerate'
-import { nodeCardSize } from '@image-playground/shared'
 import type * as CanvasImage from '../../../../lib/canvasImage'
 
 const dimensions = vi.hoisted(() => vi.fn())

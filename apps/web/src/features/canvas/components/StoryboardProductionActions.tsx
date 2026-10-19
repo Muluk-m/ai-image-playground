@@ -12,10 +12,7 @@ import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
-import {
-  prepareStoryboardFrames,
-  prepareStoryboardVideos,
-} from '../lib/nodeStoryboardFlow'
+import { prepareStoryboardFrames, prepareStoryboardVideos } from '../lib/nodeStoryboardFlow'
 
 export default function StoryboardProductionActions({
   canvas,
