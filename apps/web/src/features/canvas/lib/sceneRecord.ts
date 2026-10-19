@@ -1,5 +1,7 @@
 import { i18next } from '../../../i18n'
 import { accountScope } from '../../../lib/authScope'
+import { reportDeliveryFailure } from '../../../lib/errorReporting'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
 import { useCanvasProjectStore } from '../projectStore'
 import type { CanvasEditor } from './editor'
@@ -34,6 +36,19 @@ export interface CloudSceneStrategy {
   requestSync(): void
 }
 
+type SceneSaveKind = 'flush' | 'persist' | 'rebind'
+interface SceneSaveAttempt {
+  kind: SceneSaveKind
+  key: string
+  removeKey?: string
+  committed: boolean
+}
+interface SaveIncident {
+  key: string
+  removeKey?: string
+  recovered: () => void
+}
+
 /**
  * 一个项目的画布存档：IndexedDB 里那一条记录只由它读、恢复、保存与改键。
  * 「只在本机」还是「跟着云端那份」是它内部的策略选择，调用方只说文档变了或检查点变了。
@@ -59,6 +74,8 @@ export class SceneRecord {
   private cameraRevision = 0
   private savedCameraRevision = 0
   private readonly sameAccount = accountScope()
+  private readonly backend = bffBaseUrl()
+  private readonly incidents: Partial<Record<SceneSaveKind, SaveIncident>> = {}
 
   constructor(
     readonly editor: CanvasEditor,
@@ -130,21 +147,23 @@ export class SceneRecord {
   /** 文档变过才落盘；没变过说明盘上那份已经是它。 */
   flush = (): Promise<boolean> => {
     clearTimeout(this.timer)
-    return this.enqueue(async () => {
+    return this.enqueue('flush', async (attempt) => {
       if (this.status.loading) return false
       if (this.savedRevision === this.revision && !this.status.saveFailed) return true
       const revision = this.revision
       const structureRevision = this.structureRevision
       const cameraRevision = this.cameraRevision
       let saved = await this.write(
+        attempt,
         structureRevision === this.savedStructureRevision,
         cameraRevision === this.savedCameraRevision,
       )
       if (this.gone()) return false
       if (saved) {
         try {
-          await useCanvasProjectStore.getState().recordScene(this.currentKey, this.editor.doc)
-        } catch {
+          await useCanvasProjectStore.getState().recordScene(attempt.key, this.editor.doc)
+        } catch (error) {
+          this.failSave(attempt, 'catalog', error)
           saved = false
         }
       }
@@ -162,25 +181,29 @@ export class SceneRecord {
   }
 
   /** 检查点变了：文档与检查点整份写一次，不看文档变没变。 */
-  persist = (): Promise<boolean> => this.enqueue(() => this.write(false))
+  persist = (): Promise<boolean> => this.enqueue('persist', (attempt) => this.write(attempt, false))
 
   /** 草稿转成会话存档：先原子提交新键并移走草稿，再改内存里的键；失败就继续留在原键上。 */
   rebind(key: string): Promise<boolean> {
-    return this.enqueue(async () => {
-      try {
-        await this.opening
-      } catch {
-        return false
-      }
-      const revision = this.revision
-      const saved = await this.put(this.localCheckpoint(), false, key, this.currentKey)
-      if (saved) {
-        this.currentKey = key
-        this.savedRevision = revision
-      }
-      this.update({ saveFailed: !saved })
-      return saved
-    })
+    return this.enqueue(
+      'rebind',
+      async (attempt) => {
+        try {
+          await this.opening
+        } catch {
+          return false
+        }
+        const revision = this.revision
+        const saved = await this.put(attempt, this.localCheckpoint(), false)
+        if (saved) {
+          this.currentKey = key
+          this.savedRevision = revision
+        }
+        this.update({ saveFailed: !saved })
+        return saved
+      },
+      key,
+    )
   }
 
   dispose(): void {
@@ -188,16 +211,33 @@ export class SceneRecord {
     clearTimeout(this.timer)
     this.listeners.clear()
     this.stopChanges?.()
+    for (const kind of ['flush', 'persist', 'rebind'] as const) delete this.incidents[kind]
   }
 
   /** 每次落盘都排在上一次后面：两条写路径共用一条队列，先后顺序就是盘上的顺序。 */
-  private enqueue(work: () => Promise<boolean>): Promise<boolean> {
-    const save = this.writes
-      .then(() => (this.gone() || !this.read || this.status.loadFailed ? false : work()))
-      .catch(() => {
+  private enqueue(
+    kind: SceneSaveKind,
+    work: (attempt: SceneSaveAttempt) => Promise<boolean>,
+    key?: string,
+  ): Promise<boolean> {
+    const save = this.writes.then(async () => {
+      if (this.gone() || !this.read || this.status.loadFailed) return false
+      const attempt: SceneSaveAttempt = {
+        kind,
+        key: key ?? this.currentKey,
+        ...(kind === 'rebind' ? { removeKey: this.currentKey } : {}),
+        committed: false,
+      }
+      try {
+        const saved = await work(attempt)
+        if (saved && attempt.committed) this.recoverSave(attempt)
+        return saved
+      } catch (error) {
+        this.failSave(attempt, 'queue', error)
         if (!this.gone()) this.update({ saveFailed: true })
         return false
-      })
+      }
+    })
     this.writes = save
     return save
   }
@@ -206,31 +246,72 @@ export class SceneRecord {
     return this.disposed || !this.sameAccount()
   }
 
-  private write(preserveStructure: boolean, preserveCamera = false): Promise<boolean> {
+  private failSave(
+    attempt: SceneSaveAttempt,
+    stage: 'put' | 'catalog' | 'queue',
+    error: unknown,
+  ): void {
+    if (
+      this.gone() ||
+      this.status.loading ||
+      this.status.loadFailed ||
+      this.backend !== bffBaseUrl()
+    )
+      return
+    const incident = this.incidents[attempt.kind]
+    if (incident?.key === attempt.key && incident.removeKey === attempt.removeKey) return
+    this.incidents[attempt.kind] = {
+      key: attempt.key,
+      removeKey: attempt.removeKey,
+      recovered: reportDeliveryFailure({ operation: 'canvas.scene.save', stage }, error),
+    }
+  }
+
+  private recoverSave(attempt: SceneSaveAttempt): void {
+    if (
+      this.gone() ||
+      this.status.loading ||
+      this.status.loadFailed ||
+      this.backend !== bffBaseUrl() ||
+      this.currentKey !== attempt.key
+    )
+      return
+    const incident = this.incidents[attempt.kind]
+    if (incident?.key === attempt.key && incident.removeKey === attempt.removeKey)
+      incident.recovered()
+    delete this.incidents[attempt.kind]
+  }
+
+  private write(
+    attempt: SceneSaveAttempt,
+    preserveStructure: boolean,
+    preserveCamera = false,
+  ): Promise<boolean> {
     const put = (checkpoint: CloudSceneCheckpoint | undefined) =>
-      this.put(checkpoint, preserveStructure, this.currentKey, undefined, preserveCamera)
+      this.put(attempt, checkpoint, preserveStructure, preserveCamera)
     return this.cloud ? this.cloud.save(put) : put(this.localCheckpoint())
   }
 
   private async put(
+    attempt: SceneSaveAttempt,
     checkpoint: CloudSceneCheckpoint | undefined,
     preserveStructure: boolean,
-    key = this.currentKey,
-    removeKey?: string,
     preserveCamera = false,
   ): Promise<boolean> {
     try {
       await writePersistedScene(
         persistedScene(this.editor.doc, checkpoint),
-        key,
-        removeKey,
+        attempt.key,
+        attempt.removeKey,
         preserveStructure,
         preserveCamera,
       )
+      attempt.committed = true
       this.exists = true
       return true
     } catch (error) {
       console.warn('[canvas] 场景持久化失败', error)
+      this.failSave(attempt, 'put', error)
       return false
     }
   }
