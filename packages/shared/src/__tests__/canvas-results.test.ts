@@ -27,6 +27,40 @@ import {
 } from '../canvas-results'
 
 const origin = canvasOrigin('user', 'results')
+it('marks preset output stale when its preset or supplemental requirement changes', () => {
+  const doc = fixture()
+  try {
+    updateCanvasNode(
+      doc,
+      'image',
+      {
+        data: { meta: { nodeImagePreset: 'character-sheet', nodePrompt: 'green coat' } },
+      },
+      origin,
+    )
+    const fingerprint = canvasInputFingerprint(doc, 'image')
+    updateCanvasNode(
+      doc,
+      'image',
+      {
+        data: { meta: { nodeImagePreset: 'character-sheet', nodePrompt: 'blue coat' } },
+      },
+      origin,
+    )
+    expect(canvasInputFingerprint(doc, 'image')).not.toBe(fingerprint)
+    updateCanvasNode(
+      doc,
+      'image',
+      {
+        data: { meta: { nodeImagePreset: '', nodePrompt: 'green coat' } },
+      },
+      origin,
+    )
+    expect(canvasInputFingerprint(doc, 'image')).not.toBe(fingerprint)
+  } finally {
+    doc.destroy()
+  }
+})
 function fixture() {
   const doc = new Y.Doc()
   insertCanvasNode(
