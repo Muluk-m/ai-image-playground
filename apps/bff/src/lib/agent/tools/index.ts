@@ -139,7 +139,7 @@ function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[]
   return TOOLS.filter(
     (tool) =>
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
-      (!audience?.nodeCanvas ||
+      (audience?.experience !== 'canvas' ||
         ![
           'editCanvasObject',
           'arrangeCanvas',
@@ -168,7 +168,6 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
     ...present(context.mode, {
       userId: context.userId,
       experience: context.experience,
-      nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
     }).map((spec) => {
       const tool = spec.create(context)
       const execute = tool.execute

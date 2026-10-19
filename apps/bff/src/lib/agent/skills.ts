@@ -446,7 +446,6 @@ export async function listAgentSkillSummaries(
  * 起轮前取一次，本轮之后处处按这一份算——`<available_skills>` 与 `/look-<id>` 才不会各说各的。
  */
 export interface AgentTurnAudience {
-  readonly nodeCanvas?: boolean
   readonly experience?: 'chat' | 'canvas'
   /** 登录用户；device-only 用户为 null。 */
   readonly userId: string | null

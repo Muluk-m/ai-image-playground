@@ -124,9 +124,67 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
-  expect(agentTurnTools({ ...context, canvas: undefined }).map((tool) => tool.name)).not.toContain(
+  expect(agentTurnTools({ ...context, userId: null }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
+})
+it('keeps an unselected canvas turn on node generation and rejects ownerless submissions', async () => {
+  const { context, graph } = await fixture()
+  const unselected = { ...context, canvas: { elements: [] } }
+  const tools = agentTurnTools(unselected)
+  const names = tools.map((tool) => tool.name)
+  for (const name of ['createNodes', 'updateNodes', 'runNodes', 'importCanvasImage'])
+    expect(names).toContain(name)
+  for (const name of ['generateImage', 'editImage', 'generateVideo', 'proposeBatchGeneration'])
+    expect(names).not.toContain(name)
+  await tools.find((tool) => tool.name === 'createNodes')!.execute(
+    'create-unselected',
+    { nodes: [{ id: 'target', type: 'image', prompt: '人物三视图' }] },
+    undefined,
+    undefined,
+  )
+  const proposal = await tools.find((tool) => tool.name === 'runNodes')!.execute(
+    'run-unselected',
+    { nodeIds: ['target'] },
+    undefined,
+    undefined,
+  )
+  expect(proposal).toMatchObject({ details: { canvasRun: { nodeIds: ['target'] } } })
+  const read = await tools.find((tool) => tool.name === 'readCanvas')!.execute(
+    'read-unselected',
+    {},
+    undefined,
+    undefined,
+  )
+  expect(JSON.stringify(read.content)).toContain('target')
+  await expect(
+    draftQueueTask(
+      { ...unselected, autoSubmit: { take: () => true } },
+      { toolName: 'generateImage', media: 'image', prompt: '人物三视图' },
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    proposeBatchGeneration.create(unselected).execute(
+      'batch-unselected',
+      { batchId: 'existing-analysis', expectedVersion: 1, items: [] },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    planImageBatch.create(unselected).execute(
+      'plan-unselected',
+      {
+        title: '人物三视图',
+        rule: '逐个生成',
+        items: [{ key: 'person', imageIds: [], kind: 'generation', prompt: '人物三视图', dependencies: [] }],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  expect((await graph()).nodes.map((node) => node.id)).toEqual(['target'])
 })
 it('persists creation, editing, legal references, arrangement and deletion without a browser', async () => {
   const { run, graph } = await fixture()

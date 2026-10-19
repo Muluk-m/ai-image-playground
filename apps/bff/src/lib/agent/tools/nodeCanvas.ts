@@ -72,7 +72,6 @@ const modes = ['image', 'video'] as const
 const available = (_mode: unknown, audience?: AgentToolAudience) =>
   Boolean(
     audience?.userId &&
-      audience.nodeCanvas &&
       audience.experience === 'canvas' &&
       isCapabilityEnabled('accounts:sync'),
   )
@@ -147,13 +146,7 @@ async function write(
   args: unknown,
   mutate: (doc: Y.Doc, origin: CanvasOrigin) => void,
 ) {
-  if (
-    !available(context.mode, {
-      ...context,
-      nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
-    })
-  )
-    invalid('当前会话没有可写的云端节点画布。')
+  if (!available(context.mode, context)) invalid('当前会话没有可写的云端节点画布。')
   const project = await agentCanvasProject(context)
   if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
   await context.assertExecution?.()
@@ -416,13 +409,7 @@ export const runNodes = defineAgentTool({
   }),
   call: () => ({ title: '建议运行节点' }),
   execute: (context) => async (_callId, params) => {
-    if (
-      !available(context.mode, {
-        ...context,
-        nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
-      })
-    )
-      invalid('当前会话没有可用的云端节点画布。')
+    if (!available(context.mode, context)) invalid('当前会话没有可用的云端节点画布。')
     const project = await agentCanvasProject(context)
     if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
     await context.assertExecution?.()
@@ -511,13 +498,7 @@ export const applyScriptPlan = defineAgentTool({
   }),
   call: () => ({ title: '拆分剧本' }),
   execute: (context) => async (callId, params) => {
-    if (
-      !available(context.mode, {
-        ...context,
-        nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
-      })
-    )
-      invalid('当前会话不能拆分剧本。')
+    if (!available(context.mode, context)) invalid('当前会话不能拆分剧本。')
     return write(context, callId, '拆分剧本', params, (doc, origin) => {
       const script = getNode(doc, params.scriptNodeId)
       const scriptText = textData(script)

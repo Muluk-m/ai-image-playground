@@ -53,7 +53,7 @@ export const proposeBatchGeneration = defineAgentTool({
   }),
   call: () => ({ title: '依据分析拟定生成计划' }),
   execute: (context) => async (toolCallId, input) => {
-    if (context.experience === 'canvas' && context.canvas?.selectedNodeIds !== undefined)
+    if (context.experience === 'canvas')
       throw new AgentToolError(
         'invalid_params',
         '节点画布中的生成必须写回目标节点，请用 updateNodes 准备提示词，再用 runNodes 发起运行。',

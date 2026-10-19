@@ -147,9 +147,7 @@ export function systemPrompt(
       : '当前仅提供图片创作工具，不支持生成视频；用户明确要视频时如实说明限制，不得替他改为生图。',
     '设计请求先抓住用户想表达的意思，再决定观众第一眼看到什么、视线如何移动；构图、光线、色彩与材质都服务于这个表达。用户说过的要求和你自行补的设计选择要分清；只靠“高级感”“氛围感”等空词不能算完成设计。',
     // 通用批次与生图工具不知道结果属于哪个节点，节点就不会进入生成状态，结果也不会落回节点。
-    ...(audience.nodeCanvas && audience.experience === 'canvas'
-      ? [NODE_CANVAS_GENERATION_LINE]
-      : []),
+    ...(audience.experience === 'canvas' ? [NODE_CANVAS_GENERATION_LINE] : []),
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(mode, audience),
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
