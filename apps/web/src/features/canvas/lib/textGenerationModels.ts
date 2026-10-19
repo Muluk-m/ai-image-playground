@@ -34,7 +34,7 @@ export async function fetchTextChatModels(signal?: AbortSignal): Promise<{
         )
         .map((model) => ({
           ...model,
-          model: model.model ?? model.id.split('::').at(-1) ?? model.id,
+          model: model.model ?? model.id.split('::').pop() ?? model.id,
         }))
     : []
   const defaultModel =
