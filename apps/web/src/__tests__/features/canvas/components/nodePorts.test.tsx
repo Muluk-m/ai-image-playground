@@ -5,6 +5,7 @@ import { expect, it, vi } from 'vitest'
 import NodePorts, { SpawnContext } from '../../../../features/canvas/components/NodePorts'
 
 vi.mock('@xyflow/react', () => ({
+  useUpdateNodeInternals: () => () => {},
   Position: { Left: 'left', Right: 'right' },
   Handle: ({
     type: _type,

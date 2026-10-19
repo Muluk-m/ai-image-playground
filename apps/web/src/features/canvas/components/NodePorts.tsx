@@ -1,5 +1,5 @@
-import { Handle, Position } from '@xyflow/react'
-import { createContext, useContext, useRef, useState } from 'react'
+import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 
@@ -70,6 +70,8 @@ function MagneticPort({ nodeId }: { nodeId: string }) {
 
 /** Hit areas stay still, so the moving button cannot escape an immediate click or shift an edge. */
 export default function NodePorts({ nodeId }: { nodeId: string }) {
+  const updateNodeInternals = useUpdateNodeInternals()
+  useEffect(() => updateNodeInternals(nodeId), [nodeId, updateNodeInternals])
   return (
     <>
       <Handle
