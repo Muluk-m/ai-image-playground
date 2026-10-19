@@ -134,7 +134,7 @@ export default function TextNodeComposer({
             side="top"
             align="start"
             collisionPadding={12}
-            className="w-max max-w-[calc(100vw-1.5rem)]"
+            className="w-max max-w-[calc(100vw-1.5rem)] p-1"
           >
             <ModelList
               options={choices}

@@ -142,7 +142,7 @@ export function ModelList({
               }
               onClick={() => onPick(option.value)}
               className={cn(
-                'h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
+                'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
                 selected && 'bg-accent',
               )}
             >
