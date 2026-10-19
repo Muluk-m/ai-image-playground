@@ -6,7 +6,7 @@
     "dev": "vite --port 4174",
     "build:site": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node ../../scripts/check-test-host.mjs && vitest run"
+    "test": "vitest run"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.44",

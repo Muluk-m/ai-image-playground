@@ -15,6 +15,7 @@
 import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, relative } from 'node:path'
+import { acquireTestLock, isConstrainedHost, refuseFullSuite } from './test-guard'
 
 const roots: string[] = []
 let jobs = Number(process.env.BUN_TEST_JOBS ?? 1)
@@ -28,6 +29,12 @@ for (let index = 0; index < args.length; index++) {
 }
 if (roots.length === 0) throw new Error('Pass at least one test root')
 if (!Number.isInteger(jobs) || jobs < 1) throw new Error('--jobs must be a positive integer')
+// 资源受限的机器只跑收窄过的文件，一次一个，整机同一时间只有一组测试（scripts/test-guard.ts）。
+if (isConstrainedHost()) {
+  if (!filter) refuseFullSuite(`${roots.join(', ')} 的全量 Bun 测试`)
+  jobs = 1
+  acquireTestLock(`bun ${roots.join(' ')} --filter ${filter}`)
+}
 
 const found = new Set<string>()
 const glob = new Bun.Glob('**/*.test.{ts,tsx}')
@@ -72,7 +79,9 @@ async function runFile(file: string): Promise<Result> {
       stderr: log,
       stdin: 'ignore',
     })
+    running.add(child)
     const exitCode = await child.exited
+    running.delete(child)
     return finish(exitCode, logPath ? await Bun.file(logPath).text() : '')
   } catch (error) {
     // A spawn or log failure belongs to this file; the other files still run.
@@ -83,9 +92,31 @@ async function runFile(file: string): Promise<Result> {
 }
 
 const results: Result[] = []
+const running = new Set<ReturnType<typeof Bun.spawn>>()
 let next = 0
+let stopping = false
+// 中断时先停止派发、把信号转给在跑的测试进程并等它们退出，再退出（test-guard 的锁随进程退出释放），
+// 否则子进程还在跑，下一组测试已经拿到锁。
+// 子进程不肯退时最多等 10 秒，再强杀；第二次中断立即强杀。
+const STOP_GRACE_MS = 10_000
+const forceStop = () => {
+  for (const child of running) child.kill('SIGKILL')
+}
+for (const signal of ['SIGINT', 'SIGTERM'] as const)
+  process.on(signal, async () => {
+    if (stopping) {
+      forceStop()
+      return
+    }
+    stopping = true
+    for (const child of running) child.kill(signal)
+    const timer = setTimeout(forceStop, STOP_GRACE_MS)
+    await Promise.all([...running].map((child) => child.exited))
+    clearTimeout(timer)
+    process.exit(130)
+  })
 async function worker(): Promise<void> {
-  while (next < testFiles.length) {
+  while (next < testFiles.length && !stopping) {
     const result = await runFile(testFiles[next++])
     if (jobs > 1) process.stdout.write(result.output)
     results.push(result)
