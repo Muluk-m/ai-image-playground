@@ -19,7 +19,6 @@ import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import GuestAccountMenu from './GuestAccountMenu'
 import HeaderMembershipChip from './HeaderMembershipChip'
 import LocaleGlobe from './LocaleGlobe'
-import LogoutDialog from './LogoutDialog'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 
@@ -30,7 +29,6 @@ export default function Header() {
   const appMode = useStore((s) => s.appMode)
   const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
-  const [logoutOpen, setLogoutOpen] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
@@ -86,6 +84,13 @@ export default function Header() {
     }
   }, [accountMenuOpen])
 
+  const handleLogout = () => {
+    if (loggingOut) return
+    setAccountMenuOpen(false)
+    setLoggingOut(true)
+    void auth.logout(false)
+  }
+
   const openSettings = () => {
     setAccountMenuOpen(false)
     setShowSettings(true)
@@ -118,7 +123,7 @@ export default function Header() {
               loggingOut={loggingOut}
               syncPending={syncPending}
               onOpenSettings={openSettings}
-              onLogout={() => setLogoutOpen(true)}
+              onLogout={handleLogout}
             />
           ) : null}
           {/* 访客也要能切主题与语言；登录后若私有 overlay 接管了账号簇，这份菜单让位。 */}
@@ -206,10 +211,7 @@ export default function Header() {
                         type="button"
                         role="menuitem"
                         disabled={loggingOut}
-                        onClick={() => {
-                          setAccountMenuOpen(false)
-                          setLogoutOpen(true)
-                        }}
+                        onClick={handleLogout}
                         variant="ghost"
                         className="w-full justify-start text-muted-foreground disabled:cursor-wait"
                       >
@@ -230,16 +232,6 @@ export default function Header() {
         </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
-      {logoutOpen && (
-        <LogoutDialog
-          onCancel={() => setLogoutOpen(false)}
-          onConfirm={(clearLocalData) => {
-            setLogoutOpen(false)
-            setLoggingOut(true)
-            void auth.logout(clearLocalData)
-          }}
-        />
-      )}
     </>
   )
 }
