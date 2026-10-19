@@ -37,7 +37,9 @@ const { agentTurnTools } = await import('../../../../lib/agent/tools')
 const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
 const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
 // These modules bind DATABASE_URL at load time, so static imports cannot precede the fixture setup.
-const { proposeBatchGeneration } = await import('../../../../lib/agent/tools/proposeBatchGeneration')
+const { proposeBatchGeneration } = await import(
+  '../../../../lib/agent/tools/proposeBatchGeneration'
+)
 const userId = 'node-command-owner'
 beforeAll(async () => {
   await db.insert(schema.users).values({
@@ -110,7 +112,14 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'importCanvasImage',
   ])
     expect(names).toContain(name)
-  for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline', 'generateImage', 'editImage', 'generateVideo'])
+  for (const name of [
+    'editCanvasObject',
+    'arrangeCanvas',
+    'arrangeTimeline',
+    'generateImage',
+    'editImage',
+    'generateVideo',
+  ])
     expect(names).not.toContain(name)
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
@@ -296,9 +305,16 @@ it('routes node canvas generation away from generic batch plans', async () => {
 it('rejects ownerless generation even when the turn has an automatic submission allowance', async () => {
   const { context, graph } = await fixture()
   await expect(
-    proposeBatchGeneration.create(context).execute('batch', {
-      batchId: 'existing-analysis', expectedVersion: 1, items: [],
-    }, undefined, undefined),
+    proposeBatchGeneration.create(context).execute(
+      'batch',
+      {
+        batchId: 'existing-analysis',
+        expectedVersion: 1,
+        items: [],
+      },
+      undefined,
+      undefined,
+    ),
   ).rejects.toThrow('runNodes')
   await expect(
     draftQueueTask(
@@ -315,20 +331,36 @@ it('imports an existing image into the specified asset as its primary candidate 
   const mediaId = crypto.randomUUID()
   const now = Date.now()
   await db.insert(schema.media_objects).values({
-    id: mediaId, user_id: userId, sha256: mediaId, bytes: 12,
-    content_type: 'image/png', status: 'ready', reserved_bytes: 0,
-    staging_key: `staging/${mediaId}`, object_key: `media/${mediaId}`,
-    expires_at: now + 86_400_000, created_at: now, updated_at: now,
+    id: mediaId,
+    user_id: userId,
+    sha256: mediaId,
+    bytes: 12,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
   })
-  await accessCanvasDocument(userId, projectId, async (doc) => {
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
     const vector = Y.encodeStateVector(doc)
     const origin = canvasOrigin('system', 'fixture')
     for (const node of [
       { id: 'source', data: { mediaId, name: '现有三视图' } },
-      { id: 'asset', data: { name: '林夏', meta: { nodeKind: 'asset' as const, assetKind: 'person' as const } } },
+      {
+        id: 'asset',
+        data: { name: '林夏', meta: { nodeKind: 'asset' as const, assetKind: 'person' as const } },
+      },
       { id: 'empty', data: {} },
-    ]) insertCanvasNode(doc, { ...node, type: 'image', x: 0, y: 0, width: 320, height: 240 }, origin)
-    return Y.encodeStateAsUpdate(doc, vector)
+    ])
+      insertCanvasNode(doc, { ...node, type: 'image', x: 0, y: 0, width: 320, height: 240 }, origin)
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
   })
   const beforeTasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
   await run(updateNodes, { nodes: [{ id: 'asset', prompt: '人物正面侧面背面三视图' }] })
@@ -338,23 +370,34 @@ it('imports an existing image into the specified asset as its primary candidate 
     meta: { nodeKind: 'asset', nodePrompt: '人物正面侧面背面三视图' },
   })
   const args = { imageNodeId: 'source', assetNodeId: 'asset', viewLabel: 'sheet' }
-  const receipt = await importCanvasImage.create(context).execute('import', args, undefined, undefined)
+  const receipt = await importCanvasImage
+    .create(context)
+    .execute('import', args, undefined, undefined)
   await importCanvasImage.create(context).execute('import', args, undefined, undefined)
   const doc = new Y.Doc()
   Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
   expect(readCanvasDocument(doc).nodes).toHaveLength(3)
   expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
-    name: '林夏', mediaId, meta: { nodeKind: 'asset', assetKind: 'person' },
+    name: '林夏',
+    mediaId,
+    meta: { nodeKind: 'asset', assetKind: 'person' },
   })
   expect(canvasMainResult(doc, 'asset')).toMatchObject({
-    nodeId: 'asset', kind: 'image', assetViewLabel: 'sheet', adopted: true,
+    nodeId: 'asset',
+    kind: 'image',
+    assetViewLabel: 'sheet',
+    adopted: true,
     source: { type: 'media', mediaId },
   })
   expect(doc.getMap('nodeResults').size).toBe(1)
   expect(JSON.stringify(receipt.content)).toContain('没有启动生成任务')
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(beforeTasks)
-  await expect(run(importCanvasImage, { imageNodeId: 'empty', assetNodeId: 'asset' })).rejects.toThrow('真实图片')
-  await expect(run(importCanvasImage, { imageNodeId: 'source', assetNodeId: 'empty' })).rejects.toThrow('素材节点')
+  await expect(
+    run(importCanvasImage, { imageNodeId: 'empty', assetNodeId: 'asset' }),
+  ).rejects.toThrow('真实图片')
+  await expect(
+    run(importCanvasImage, { imageNodeId: 'source', assetNodeId: 'empty' }),
+  ).rejects.toThrow('素材节点')
   expect((await graph()).nodes).toHaveLength(3)
   doc.destroy()
 })
