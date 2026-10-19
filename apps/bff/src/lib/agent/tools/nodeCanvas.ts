@@ -73,9 +73,7 @@ type NodeFields = Static<typeof updateParameters>['nodes'][number]
 const modes = ['image', 'video'] as const
 const available = (_mode: unknown, audience?: AgentToolAudience) =>
   Boolean(
-    audience?.userId &&
-      audience.experience === 'canvas' &&
-      isCapabilityEnabled('accounts:sync'),
+    audience?.userId && audience.experience === 'canvas' && isCapabilityEnabled('accounts:sync'),
   )
 const guidance =
   '修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。'

@@ -207,6 +207,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   )
   const visualWorkset = createVisualWorkset()
   const toolFailures = createToolFailureLog()
+  let dispatchAccounting = Promise.resolve()
   const initialState = turnInitialStateOf(input)
   const imageCombinations = createImageCombinationGuard({
     history: history.messages,
@@ -324,6 +325,14 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       return agentStreamFn(
         prepared.params?.thinkingDepth,
         {
+          onDispatchPending: (pending) => {
+            // The fetch path reports rejection; this barrier only waits for its accounting.
+            const settled = pending.then(
+              () => {},
+              () => {},
+            )
+            dispatchAccounting = dispatchAccounting.then(() => settled)
+          },
           onRetry: async (message) => {
             await ledger.finish(callId, message)
             callId = await ledger.begin('conversation', model.id, context)
@@ -815,6 +824,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     })
     .then(async () => {
       acceptingInterjections = false
+      // SDK abort can finish the stream while dispatch cancellation is still writing.
+      await dispatchAccounting
       // 已经排队的落库先等定，「这一轮写出过东西没有」才算得准。
       await writes
       // 没收尾的半截回复也算产出，空轮兜底连它一起看：失败与否必须在决定落不落它之前定死，

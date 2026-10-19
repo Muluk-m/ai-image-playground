@@ -294,31 +294,21 @@ describe('智能体生视频工具', () => {
     })
   })
 
-  it('rejects ownerless image and video drafts on an old image-mode canvas turn', async () => {
+  it.each([
+    { name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
+    { name: 'generateVideo', args: { prompt: 'An ocean shot', durationSeconds: 5 } },
+  ])('rejects ownerless $name on an old image-mode canvas turn', async ({ name, args }) => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion(
-            { id: 'image-draft', name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
-            {
-              id: 'video-draft',
-              name: 'generateVideo',
-              args: { prompt: 'An ocean shot', durationSeconds: 5 },
-            },
-          ),
+        () => toolCallCompletion({ id: 'ownerless-draft', name, args }),
         () => completionStream('Drafts ready'),
       ]),
     )
     const id = await startConversation('canvas')
     const frames = await runTurn(id, 'Create an ocean image and video', [], 'image')
     const drafts = eventsOfType(frames, 'toolEnd')
-    expect(drafts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ toolName: 'generateImage', status: 'failed' }),
-        expect.objectContaining({ toolName: 'generateVideo', status: 'failed' }),
-      ]),
-    )
+    expect(drafts).toEqual([expect.objectContaining({ toolName: name, status: 'failed' })])
     expect(
       (await db.select().from(schema.tasks)).filter((one) => one.kind === 'queue'),
     ).toHaveLength(0)
@@ -775,7 +765,6 @@ describe('智能体生视频工具', () => {
     expect(modelReport(calls)).toContain('referenceUnsupported')
   })
 
-
   it('takes the duration, resolution and aspect ratio the model inferred', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, {
@@ -886,7 +875,10 @@ describe('智能体生视频工具', () => {
 })
 
 describe('legacy timeline routing', () => {
-  it.each(['chat', 'canvas'] as const)('rejects legacy timeline writes in %s without changing the project', async (experience) => {
+  it.each([
+    'chat',
+    'canvas',
+  ] as const)('rejects legacy timeline writes in %s without changing the project', async (experience) => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -905,9 +897,10 @@ describe('legacy timeline routing', () => {
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolName: 'arrangeTimeline', status: 'failed' })
     expect(end!.timeline).toBeUndefined()
-    const [project] = await db.select().from(schema.canvas_projects).where(
-      eq(schema.canvas_projects.conversation_id, conversationId),
-    )
+    const [project] = await db
+      .select()
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.conversation_id, conversationId))
     expect(project!.document.elements).toEqual([])
     expect(await videoTasks()).toHaveLength(0)
   })

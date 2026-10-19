@@ -131,7 +131,10 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'createNodes',
   )
 })
-it.each([{ elements: [] }, undefined])('keeps canvas snapshot %j on node generation and rejects ownerless submissions', async (canvas) => {
+it.each([
+  { elements: [] },
+  undefined,
+])('keeps canvas snapshot %j on node generation and rejects ownerless submissions', async (canvas) => {
   const { context, graph } = await fixture()
   const unselected = { ...context, canvas }
   const tools = agentTurnTools(unselected)
@@ -140,25 +143,21 @@ it.each([{ elements: [] }, undefined])('keeps canvas snapshot %j on node generat
     expect(names).toContain(name)
   for (const name of ['generateImage', 'editImage', 'generateVideo', 'proposeBatchGeneration'])
     expect(names).not.toContain(name)
-  await tools.find((tool) => tool.name === 'createNodes')!.execute(
-    'create-unselected',
-    { nodes: [{ id: 'target', type: 'image', prompt: '人物三视图' }] },
-    undefined,
-    undefined,
-  )
-  const proposal = await tools.find((tool) => tool.name === 'runNodes')!.execute(
-    'run-unselected',
-    { nodeIds: ['target'] },
-    undefined,
-    undefined,
-  )
+  await tools
+    .find((tool) => tool.name === 'createNodes')!
+    .execute(
+      'create-unselected',
+      { nodes: [{ id: 'target', type: 'image', prompt: '人物三视图' }] },
+      undefined,
+      undefined,
+    )
+  const proposal = await tools
+    .find((tool) => tool.name === 'runNodes')!
+    .execute('run-unselected', { nodeIds: ['target'] }, undefined, undefined)
   expect(proposal).toMatchObject({ details: { canvasRun: { nodeIds: ['target'] } } })
-  const read = await tools.find((tool) => tool.name === 'readCanvas')!.execute(
-    'read-unselected',
-    { scope: 'all' },
-    undefined,
-    undefined,
-  )
+  const read = await tools
+    .find((tool) => tool.name === 'readCanvas')!
+    .execute('read-unselected', { scope: 'all' }, undefined, undefined)
   const content = read.content.find((block) => block.type === 'text')
   if (content?.type !== 'text') throw new Error('expected canvas document')
   expect(JSON.parse(content.text).nodes).toEqual(
@@ -172,12 +171,14 @@ it.each([{ elements: [] }, undefined])('keeps canvas snapshot %j on node generat
     ),
   ).rejects.toThrow('runNodes')
   await expect(
-    proposeBatchGeneration.create(unselected).execute(
-      'batch-unselected',
-      { batchId: 'existing-analysis', expectedVersion: 1, items: [] },
-      undefined,
-      undefined,
-    ),
+    proposeBatchGeneration
+      .create(unselected)
+      .execute(
+        'batch-unselected',
+        { batchId: 'existing-analysis', expectedVersion: 1, items: [] },
+        undefined,
+        undefined,
+      ),
   ).rejects.toThrow('runNodes')
   await expect(
     planImageBatch.create(unselected).execute(
@@ -185,7 +186,15 @@ it.each([{ elements: [] }, undefined])('keeps canvas snapshot %j on node generat
       {
         title: '人物三视图',
         rule: '逐个生成',
-        items: [{ key: 'person', imageIds: [], kind: 'generation', prompt: '人物三视图', dependencies: [] }],
+        items: [
+          {
+            key: 'person',
+            imageIds: [],
+            kind: 'generation',
+            prompt: '人物三视图',
+            dependencies: [],
+          },
+        ],
       },
       undefined,
       undefined,
