@@ -5,6 +5,7 @@ import {
   canvasResults,
   canvasSyncAck,
   canvasSyncStep1,
+  canvasSyncStep2,
   canvasSyncUpdate,
   chooseCanvasResult,
   deleteCanvasNode,
@@ -24,6 +25,7 @@ import type { AgentToolMessage } from '../../../../features/agent/types'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
 import { registerNodeCanvasFocus } from '../../../../features/canvas/lib/nodeCanvasFocus'
+import type { CanvasCommandSummary } from '../../../../features/canvas/lib/nodeCanvasHistory'
 import { type CloudSceneCheckpoint } from '../../../../features/canvas/lib/persistence'
 import { getCloudProject, ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
 import { projectDocument } from '../../../../features/canvas/lib/projectMedia'
@@ -33,6 +35,7 @@ import {
 } from '../../../../features/canvas/lib/projectRepository'
 import type { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
+import { setClientStorageScope } from '../../../../lib/authScope'
 import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
 
@@ -91,6 +94,7 @@ class Socket {
 const sessions: CloudNodeProjectSession[] = []
 afterEach(() => {
   for (const s of sessions.splice(0)) s.dispose()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   Socket.instances = []
@@ -134,6 +138,28 @@ async function fixture(
     expect(socket.sent.some((bytes) => readCanvasSyncMessage(bytes).kind === 'update')).toBe(true),
   )
   return { session, record, socket, server, project }
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((finish) => {
+    resolve = finish
+  })
+  return { promise, resolve }
+}
+function commandReads() {
+  return vi
+    .mocked(authenticatedBffFetch)
+    .mock.calls.filter(([url, init]) => url.endsWith('/canvas/commands') && !init?.method)
+}
+function acknowledgeWrites(socket: Socket, server: Y.Doc) {
+  const send = socket.send.bind(socket)
+  vi.spyOn(socket, 'send').mockImplementation((data) => {
+    send(data)
+    const message = readCanvasSyncMessage(data)
+    if (message.kind !== 'update') return
+    Y.applyUpdate(server, message.value)
+    queueMicrotask(() => socket.receive(canvasSyncAck(server)))
+  })
 }
 it('uses the server migration and does not start a second JSON cloud writer', async () => {
   const { session, record, socket, server } = await fixture()
@@ -336,6 +362,313 @@ it('refresh waits for the fetched document to reach the legacy editor', async ()
   await session.refresh()
   expect(record.editor.doc.elements[0]).toMatchObject({ x: 909, y: 808 })
   record.dispose()
+})
+
+it('keeps hidden heartbeats running without reading history for unchanged binary Step2 replies', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  await session.refresh()
+  const before = readCanvasDocument(session.canvas!.doc)
+  const reads = commandReads().length
+  const replies: Uint8Array[] = []
+  const send = socket.send.bind(socket)
+  vi.spyOn(socket, 'send').mockImplementation((data) => {
+    send(data)
+    const message = readCanvasSyncMessage(data)
+    if (message.kind !== 'vector') return
+    const reply = canvasSyncStep2(server, message.value)
+    replies.push(reply)
+    queueMicrotask(() => socket.receive(reply))
+  })
+  visibility.mockReturnValue('hidden')
+  document.dispatchEvent(new Event('visibilitychange'))
+
+  await vi.advanceTimersByTimeAsync(60_000)
+
+  expect(replies).toHaveLength(3)
+  for (const reply of replies) {
+    expect(readCanvasSyncMessage(reply).kind).toBe('update')
+    expect(reply).toEqual(canvasSyncStep2(server, Y.encodeStateVector(server)))
+  }
+  expect(commandReads()).toHaveLength(reads)
+  expect(readCanvasDocument(session.canvas!.doc)).toEqual(before)
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+
+it('merges hidden remote updates and completes media writes after vector and ACK messages', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  await session.refresh()
+  const reads = commandReads().length
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource).mockImplementationOnce(() => upload.promise)
+  visibility.mockReturnValue('hidden')
+  const vector = Y.encodeStateVector(server)
+  moveCanvasNodes(server, [{ id: 'text', x: 444, y: 555 }], origin)
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  expect(readCanvasDocument(session.canvas!.doc).nodes[0]).toMatchObject({ x: 444, y: 555 })
+  expect(record.editor.doc.elements[0]).toMatchObject({ x: 444, y: 555 })
+
+  const sent = socket.sent.length
+  record.editor.doc.files = { hidden: 'data:image/png;base64,aGlkZGVu' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'hidden', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'hidden' } },
+    session.canvas!.origin,
+  )
+  socket.receive(canvasSyncStep1(server))
+  await vi.waitFor(() =>
+    expect(uploadMediaSource).toHaveBeenCalledWith(
+      'data:image/png;base64,aGlkZGVu',
+      expect.anything(),
+    ),
+  )
+  expect(socket.sent).toHaveLength(sent)
+  upload.resolve({ id: '11111111-1111-4111-8111-111111111111', sha256: 'hidden-image' })
+  await vi.waitFor(() => expect(socket.sent.length).toBeGreaterThan(sent))
+  const update = readCanvasSyncMessage(socket.sent[socket.sent.length - 1]!)
+  expect(update.kind).toBe('update')
+  Y.applyUpdate(server, update.value)
+  expect(readCanvasDocument(server).nodes.find((node) => node.id === 'hidden')?.data).toMatchObject(
+    {
+      mediaId: '11111111-1111-4111-8111-111111111111',
+    },
+  )
+  expect(session.getSnapshot().status).toBe('syncing')
+  socket.receive(canvasSyncAck(server))
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(commandReads()).toHaveLength(reads)
+  record.dispose()
+})
+
+it('does not start history reads after a visible snapshot completes while hidden', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, server } = await fixture()
+  await session.refresh()
+  const reads = commandReads().length
+  const snapshot = deferred<Response>()
+  vi.mocked(authenticatedBffFetch).mockImplementationOnce(() => snapshot.promise)
+  const refresh = session.refresh()
+  await vi.waitFor(() =>
+    expect(authenticatedBffFetch).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/canvas$/),
+      expect.anything(),
+    ),
+  )
+  visibility.mockReturnValue('hidden')
+  moveCanvasNodes(server, [{ id: 'text', x: 909, y: 808 }], origin)
+  snapshot.resolve(new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer))
+  await refresh
+  expect(record.editor.doc.elements[0]).toMatchObject({ x: 909, y: 808 })
+  expect(commandReads()).toHaveLength(reads)
+  record.dispose()
+})
+
+it('allows an existing history read to finish after hiding without starting another', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, socket, server } = await fixture()
+  await session.refresh()
+  const reads = commandReads().length
+  const history = deferred<Response>()
+  vi.mocked(authenticatedBffFetch).mockImplementationOnce(() => history.promise)
+  socket.receive(canvasSyncStep2(server, Y.encodeStateVector(server)))
+  expect(commandReads()).toHaveLength(reads + 1)
+  visibility.mockReturnValue('hidden')
+  socket.receive(canvasSyncStep2(server, Y.encodeStateVector(server)))
+  history.resolve(
+    Response.json([
+      {
+        id: 'hidden-command',
+        label: 'Remote',
+        revision: 1,
+        reversed: false,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]),
+  )
+  await vi.waitFor(() => expect(session.canvas!.undo.undoStack).toHaveLength(1))
+  socket.receive(canvasSyncStep2(server, Y.encodeStateVector(server)))
+  expect(commandReads()).toHaveLength(reads + 1)
+  record.dispose()
+})
+
+it.each([
+  { reverseStatus: 200, oldReadStatus: 200 },
+  { reverseStatus: 200, oldReadStatus: 503 },
+  { reverseStatus: 409, oldReadStatus: 200 },
+  { reverseStatus: 409, oldReadStatus: 503 },
+])('reads a fresh revision after hidden reverse $reverseStatus overlaps history $oldReadStatus', async ({
+  reverseStatus,
+  oldReadStatus,
+}) => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  await session.refresh()
+  acknowledgeWrites(socket, server)
+  let command: CanvasCommandSummary = {
+    id: 'command',
+    label: 'Remote edit',
+    revision: 1,
+    reversed: false,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  const oldRead = deferred<Response>()
+  const reverse = deferred<Response>()
+  const posted: unknown[] = []
+  let reads = 0
+  let inFlight = 0
+  let maximumInFlight = 0
+  let reverseReturned = false
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (url, init) => {
+    if (url.endsWith('/reverse')) {
+      posted.push(JSON.parse(String(init?.body)))
+      if (posted.length === 1) {
+        const response = await reverse.promise
+        reverseReturned = true
+        return response
+      }
+      command = { ...command, revision: 3, reversed: false, updatedAt: 3 }
+      moveCanvasNodes(server, [{ id: 'text', x: 1, y: 2 }], origin)
+      return new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer)
+    }
+    if (!url.endsWith('/canvas/commands'))
+      return new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer)
+    reads++
+    inFlight++
+    maximumInFlight = Math.max(maximumInFlight, inFlight)
+    try {
+      return reads === 2 ? await oldRead.promise : Response.json([command])
+    } finally {
+      inFlight--
+    }
+  })
+  try {
+    await session.refresh()
+    const history = session.canvas!.undo
+    expect(history.undoStack).toHaveLength(1)
+    socket.receive(canvasSyncStep2(server, Y.encodeStateVector(server)))
+    expect(reads).toBe(2)
+    const stale = { ...command }
+    history.undo()
+    await vi.waitFor(() => expect(posted).toEqual([{ revision: 1 }]))
+    visibility.mockReturnValue('hidden')
+    command = { ...command, revision: 2, reversed: true, updatedAt: 2 }
+    moveCanvasNodes(server, [{ id: 'text', x: 333, y: 444 }], origin)
+    reverse.resolve(
+      reverseStatus === 200
+        ? new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer)
+        : Response.json({ error: 'revision_conflict' }, { status: reverseStatus }),
+    )
+    await vi.waitFor(() => expect(reverseReturned).toBe(true))
+    socket.receive(canvasSyncStep2(server, Y.encodeStateVector(server)))
+    expect(reads).toBe(2)
+    expect(inFlight).toBe(1)
+    oldRead.resolve(Response.json([stale], { status: oldReadStatus }))
+    await vi.waitFor(() => expect(history.redoStack).toHaveLength(1))
+    expect(history.undoStack).toHaveLength(0)
+    expect(reads).toBe(3)
+    expect(posted).toEqual([{ revision: 1 }])
+
+    history.redo()
+    await vi.waitFor(() => expect(posted).toEqual([{ revision: 1 }, { revision: 2 }]))
+    await vi.waitFor(() => expect(history.undoStack).toHaveLength(1))
+    expect(history.redoStack).toHaveLength(0)
+    expect(record.editor.doc.elements[0]).toMatchObject({ x: 1, y: 2 })
+    expect(reads).toBe(4)
+    expect(maximumInFlight).toBe(1)
+  } finally {
+    oldRead.resolve(Response.json([]))
+    reverse.resolve(Response.json({}, { status: 503 }))
+    record.dispose()
+  }
+})
+
+it('reports a new history read failure after reverse instead of swallowing it as an old failure', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  await session.refresh()
+  acknowledgeWrites(socket, server)
+  const command: CanvasCommandSummary = {
+    id: 'command',
+    label: 'Remote edit',
+    revision: 1,
+    reversed: false,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  let reversed = false
+  let reads = 0
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/reverse')) reversed = true
+    if (url.endsWith('/canvas/commands')) {
+      reads++
+      return reversed ? Response.json({}, { status: 503 }) : Response.json([command])
+    }
+    return new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer)
+  })
+  await session.refresh()
+  visibility.mockReturnValue('hidden')
+  session.canvas!.undo.undo()
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('offline'))
+  expect(reads).toBe(2)
+  expect(session.canvas!.undo.undoStack).toHaveLength(1)
+  record.dispose()
+})
+
+it.each([
+  'dispose',
+  'account switch',
+])('does not read history after %s while reverse waits for an old GET', async (endScope) => {
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  await session.refresh()
+  acknowledgeWrites(socket, server)
+  const command: CanvasCommandSummary = {
+    id: 'command',
+    label: 'Remote edit',
+    revision: 1,
+    reversed: false,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  const oldRead = deferred<Response>()
+  let reads = 0
+  let reversals = 0
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/reverse')) reversals++
+    if (url.endsWith('/canvas/commands')) {
+      reads++
+      return reads === 2 ? oldRead.promise : Response.json([command])
+    }
+    return new Response(new Uint8Array(Y.encodeStateAsUpdate(server)).buffer)
+  })
+  try {
+    await session.refresh()
+    const history = session.canvas!.undo
+    socket.receive(canvasSyncStep2(server, Y.encodeStateVector(server)))
+    expect(reads).toBe(2)
+    history.undo()
+    await vi.waitFor(() => expect(reversals).toBe(1))
+    if (endScope === 'dispose') session.dispose()
+    else setClientStorageScope('another-account')
+    oldRead.resolve(Response.json([command]))
+    await vi.waitFor(() => expect(history.undoStack).toHaveLength(1))
+    expect(reads).toBe(2)
+    expect(reversals).toBe(1)
+  } finally {
+    oldRead.resolve(Response.json([]))
+    setClientStorageScope(null)
+    record.dispose()
+  }
 })
 it('preserves local failure placeholders through the legacy adapter', async () => {
   const { session, record } = await fixture()
