@@ -42,6 +42,7 @@ import {
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
+import { nodeCardSize } from '@image-playground/shared'
 import {
   type CSSProperties,
   createContext,
@@ -106,7 +107,6 @@ import {
 } from '../lib/nodeCanvasFlow'
 import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
 import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
-import { nodeCardSize } from '../lib/nodeCanvasPlace'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
