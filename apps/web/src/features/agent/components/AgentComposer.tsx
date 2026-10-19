@@ -1313,10 +1313,11 @@ export default function AgentComposer({
             />
             {followUpGhost && showFollowUpGhost && (
               <>
+                {/* Keep the opaque shortcut badge clear of the empty editor's native caret. */}
                 <Button
                   type="button"
                   variant="ghost"
-                  className="pointer-events-none col-start-1 row-start-1 block h-auto w-full self-start whitespace-normal p-0 text-left text-base font-normal leading-[1.75] text-muted-foreground hover:bg-transparent"
+                  className="pointer-events-none col-start-1 row-start-1 block h-auto w-full self-start whitespace-normal p-0 pl-2 text-left text-base font-normal leading-[1.75] text-muted-foreground hover:bg-transparent"
                   aria-label={t('suggestions.followUpAccept')}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => acceptFollowUpRef.current(followUpGhost)}
