@@ -35,7 +35,10 @@ import {
   normalizeSettings,
 } from '../../../../lib/apiProfiles'
 import { resetChannelCatalog, setChannels } from '../../../../lib/channels/channelStore'
+import * as cloudMedia from '../../../../lib/cloudMedia'
+import * as downloads from '../../../../lib/downloadImages'
 import { useStore } from '../../../../store'
+import { captureClientErrors } from '../../../helpers/clientErrors'
 import { stubPointerApis } from '../../../helpers/radix'
 
 type TestViewport = { x: number; y: number; zoom: number }
@@ -240,6 +243,79 @@ afterEach(() => {
 async function render(active = true) {
   await act(async () => root.render(<NodeCanvas workspace={workspace} active={active} />))
 }
+
+it.each([
+  'original',
+  'fetch',
+  'blob',
+  'trigger',
+  'missing',
+])('reports the real download button %s failure with a safe payload', async (stage) => {
+  const reports = captureClientErrors()
+  const secret = 'SECRET-node-download-url-filename-prompt'
+  const error = Object.assign(new TypeError(secret), { code: secret, cause: new Error(secret) })
+  if (stage === 'missing') old.files = {}
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const button = host.querySelector<HTMLButtonElement>(
+    `button[aria-label="${i18next.t('nodes.download', { ns: 'canvas' })}"]`,
+  )
+  expect(button).not.toBeNull()
+  const toast = vi.spyOn(useStore.getState(), 'showToast').mockImplementation(() => {})
+  const resolved = vi.spyOn(cloudMedia, 'resolveMediaSource')
+  if (stage === 'original') resolved.mockRejectedValue(error)
+  else resolved.mockResolvedValue(`https://storage.test/${secret}`)
+  const response = new Response('bytes', { headers: { 'content-type': 'image/png' } })
+  if (stage === 'blob') vi.spyOn(response, 'blob').mockRejectedValue(error)
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response)
+  if (stage === 'fetch') fetch.mockRejectedValue(error)
+  if (stage === 'trigger') {
+    const previous = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => {
+        throw error
+      },
+    })
+    try {
+      await act(async () => button!.click())
+    } finally {
+      if (previous) Object.defineProperty(URL, 'createObjectURL', previous)
+      else Reflect.deleteProperty(URL, 'createObjectURL')
+    }
+  } else await act(async () => button!.click())
+  if (stage !== 'missing')
+    expect(toast).toHaveBeenCalledWith(i18next.t('import.failed', { ns: 'canvas' }), 'error')
+  else expect(toast).not.toHaveBeenCalled()
+  const errors = (await reports()).flatMap((batch) => batch.errors)
+  expect(errors).toHaveLength(1)
+  expect(errors[0]?.context).toMatchObject({
+    operation: 'download.prepare',
+    stage: stage === 'missing' ? 'original' : stage,
+  })
+  expect(JSON.stringify(await reports())).not.toContain(secret)
+})
+
+it('does not report file-save success when the real download button only triggers a download', async () => {
+  const reports = captureClientErrors()
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const button = host.querySelector<HTMLButtonElement>(
+    `button[aria-label="${i18next.t('nodes.download', { ns: 'canvas' })}"]`,
+  )
+  expect(button).not.toBeNull()
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response('bytes', {
+      headers: { 'content-type': 'image/png' },
+    }),
+  )
+  const trigger = vi.spyOn(downloads, 'downloadBlob').mockImplementation(() => {})
+  const toast = vi.spyOn(useStore.getState(), 'showToast').mockImplementation(() => {})
+  await act(async () => button!.click())
+  expect(trigger).toHaveBeenCalledTimes(1)
+  expect(toast).not.toHaveBeenCalled()
+  expect(await reports()).toEqual([])
+})
 
 it('displays images delivered after migration without resetting node edits', async () => {
   await render()

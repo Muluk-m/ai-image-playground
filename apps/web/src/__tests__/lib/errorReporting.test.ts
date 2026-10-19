@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
+import { CLIENT_ERROR_RECOVERY_OPERATIONS, CLIENT_ERRORS_PATH } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { setClientStorageScope } from '../../lib/authScope'
 import {
   _resetErrorReportingForTesting,
   configureErrorReporting,
   flushClientErrors,
   reportClientError,
+  reportDeliveryFailure,
   reportRecoverableClientError,
 } from '../../lib/errorReporting'
 
@@ -27,7 +29,112 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/workspace?code=secret#/projects')
 })
 afterEach(() => {
+  setClientStorageScope(null)
   Reflect.deleteProperty(navigator, 'sendBeacon')
+})
+
+it('projects handled failures to fixed stage messages and finite diagnostic fields', async () => {
+  configureErrorReporting('')
+  const secret = 'SECRET-MARKER-signed-url-filename-prompt-bearer'
+  const error = Object.assign(new Error(secret), {
+    name: secret,
+    code: secret,
+    status: 503,
+    stack: `https://storage.test/${secret}?signature=${secret}`,
+  })
+  Reflect.set(error, 'cause', error)
+  const failures = [
+    { operation: 'canvas.scene.save', stage: 'put' },
+    { operation: 'canvas.scene.save', stage: 'catalog' },
+    { operation: 'canvas.scene.save', stage: 'queue' },
+    { operation: 'agent.artifact.delivery', stage: 'place' },
+    { operation: 'agent.artifact.delivery', stage: 'focus' },
+  ] as const
+  for (const failure of failures) reportDeliveryFailure(failure, error)
+  for (const stage of ['reserve', 'put', 'complete'] as const)
+    reportDeliveryFailure({ operation: 'media.upload', stage }, error)
+  for (const stage of ['original', 'fetch', 'blob', 'trigger'] as const)
+    reportDeliveryFailure({ operation: 'download.prepare', stage }, error)
+  flushClientErrors()
+  const bodies = await sentBodies()
+  const reports = bodies.flatMap((sent) => sent.body.errors)
+  expect(reports).toHaveLength(12)
+  expect(new Set(reports.map((report) => report.message)).size).toBe(12)
+  expect(JSON.stringify(bodies)).not.toContain(secret)
+  for (const report of reports) {
+    expect(report.stack).toBeUndefined()
+    expect(report.context).toMatchObject({ errorName: 'UnknownError', status: 503 })
+    expect(report.context.errorCode).toBeUndefined()
+    expect(report.context.causes).toBeUndefined()
+  }
+})
+
+it('handles throwing diagnostic getters without reading message, stack or cause', async () => {
+  configureErrorReporting('')
+  const forbidden = vi.fn(() => {
+    throw new Error('do not inspect')
+  })
+  const hostile = Object.defineProperties(
+    {},
+    {
+      name: { get: forbidden },
+      code: { get: forbidden },
+      status: { get: forbidden },
+      message: { get: forbidden },
+      stack: { get: forbidden },
+      cause: { get: forbidden },
+    },
+  )
+  expect(() =>
+    reportDeliveryFailure({ operation: 'media.upload', stage: 'put' }, hostile),
+  ).not.toThrow()
+  expect(forbidden).toHaveBeenCalledTimes(3)
+  reportDeliveryFailure(
+    { operation: 'media.upload', stage: 'reserve' },
+    {
+      name: 'TypeError',
+      code: 'media_upload_failed',
+      status: 999,
+    },
+  )
+  flushClientErrors()
+  const reports = (await sentBodies()).flatMap((sent) => sent.body.errors)
+  expect(reports[0].context).toEqual({
+    operation: 'media.upload',
+    stage: 'put',
+    errorName: 'UnknownError',
+  })
+  expect(reports[1].context).toEqual({
+    operation: 'media.upload',
+    stage: 'reserve',
+    errorName: 'TypeError',
+    errorCode: 'media_upload_failed',
+  })
+})
+
+it.each(
+  CLIENT_ERROR_RECOVERY_OPERATIONS,
+)('accepts recovery only for the original %s account and endpoint', async (operation) => {
+  configureErrorReporting('https://api.test')
+  const same = reportRecoverableClientError(new Error('same scope'), { operation })
+  const account = reportRecoverableClientError(new Error('old account'), { operation })
+  const backend = reportRecoverableClientError(new Error('old endpoint'), { operation })
+  same()
+  flushClientErrors()
+  setClientStorageScope('changed')
+  account()
+  setClientStorageScope(null)
+  configureErrorReporting('https://other.test')
+  backend()
+  flushClientErrors()
+  const batches = await sentBodies()
+  const errors = batches.flatMap((sent) => sent.body.errors)
+  expect(batches.flatMap((sent) => sent.body.recoveries ?? [])).toEqual([
+    {
+      incidentId: errors.find((error) => error.message === 'same scope').context.incidentId,
+      operation,
+    },
+  ])
 })
 
 async function sentBodies() {

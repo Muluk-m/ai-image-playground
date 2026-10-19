@@ -7,11 +7,13 @@ import {
 import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { reportDeliveryFailure } from '../../../lib/errorReporting'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
 import { artifactBitmap } from './artifactSource'
 import {
   type AgentCanvasSink,
   type AgentPlacedArtifact,
+  type AgentPlaceOutcome,
   type AgentReservation,
   agentCanvasSink,
 } from './canvasSink'
@@ -28,6 +30,10 @@ interface DeliveryOrigin {
 interface DeliveryRecord {
   status: AgentDeliveryStatus
   pending: Promise<void>
+  incident?: Pick<DeliveryOrigin, 'generation' | 'scope' | 'canvas'> & {
+    recovered: () => void
+    needFocus: boolean
+  }
 }
 
 export interface TurnArtifactDelivery {
@@ -162,7 +168,7 @@ export function createArtifactDelivery(
     origin: DeliveryOrigin,
     message: AgentToolMessage,
     manual: boolean,
-  ): Promise<AgentDeliveryStatus> => {
+  ): Promise<AgentPlaceOutcome> => {
     const canvas = origin.canvas
     if (!canvas || !current(origin)) return 'unavailable'
     // 排时间线不产新媒体，只在画布上把已有的视频排成一条。
@@ -280,19 +286,62 @@ export function createArtifactDelivery(
       })
       return origin.pending
     }
-    const record: DeliveryRecord = { status: 'pending', pending: Promise.resolve() }
+    const incident = previous?.incident
+    const record: DeliveryRecord = {
+      status: 'pending',
+      pending: Promise.resolve(),
+      incident:
+        incident?.scope === origin.scope &&
+        incident.generation === origin.generation &&
+        incident.canvas === origin.canvas
+          ? incident
+          : undefined,
+    }
     records.set(message.id, record)
     if (belongs(origin)) changed(message.id, 'pending')
     record.pending = queue = queue.then(async () => {
+      const owns = () => records.get(message.id) === record && belongs(origin) && current(origin)
+      let stage: 'place' | 'focus' = 'place'
+      let didFocus = false
       try {
         record.status = await place(origin, message, manual)
         // 新结果不仅要落盘，还要进入当前视口；后台项目与重复事件不能抢走用户镜头。
-        if (record.status === 'placed' && belongs(origin) && origin.canvas === agentCanvasSink()) {
-          origin.canvas?.focus(deliveredIds(message))
+        if (
+          record.status === 'placed' &&
+          belongs(origin) &&
+          origin.canvas &&
+          origin.canvas === agentCanvasSink()
+        ) {
+          stage = 'focus'
+          origin.canvas.focus(deliveredIds(message))
+          didFocus = true
         }
       } catch (error) {
         console.warn('[agent] artifact delivery failed', error)
         record.status = 'failed'
+        if (owns()) {
+          if (!record.incident)
+            record.incident = {
+              scope: origin.scope,
+              generation: origin.generation,
+              canvas: origin.canvas,
+              recovered: reportDeliveryFailure(
+                { operation: 'agent.artifact.delivery', stage },
+                error,
+              ),
+              needFocus: stage === 'focus',
+            }
+          else if (stage === 'focus') record.incident.needFocus = true
+        }
+      }
+      if (
+        record.status === 'placed' &&
+        owns() &&
+        record.incident &&
+        (!record.incident.needFocus || didFocus)
+      ) {
+        record.incident.recovered()
+        record.incident = undefined
       }
       if (belongs(origin)) changed(message.id, record.status)
     })
