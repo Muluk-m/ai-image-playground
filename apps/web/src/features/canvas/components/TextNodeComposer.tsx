@@ -130,7 +130,12 @@ export default function TextNodeComposer({
               <Icon name="chevronDown" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-72">
+          <PopoverContent
+            side="top"
+            align="start"
+            collisionPadding={12}
+            className="w-max max-w-[calc(100vw-1.5rem)]"
+          >
             <ModelList
               options={choices}
               value={selected ?? ''}
