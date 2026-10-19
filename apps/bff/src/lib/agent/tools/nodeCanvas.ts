@@ -446,7 +446,9 @@ export const applyScriptPlan = defineAgentTool({
       const maximum = Math.max(...video.support.durations)
       for (const [index, shot] of params.shots.entries())
         if ((shot.durationSeconds ?? 5) > maximum)
-          invalid(`第 ${index + 1} 镜 ${shot.id} 时长超过 ${video.support.label} 的 ${maximum} 秒上限，请在分镜表里拆镜，保留原镜头 ID 并为新增镜头分配新 ID。`)
+          invalid(
+            `第 ${index + 1} 镜 ${shot.id} 时长超过 ${video.support.label} 的 ${maximum} 秒上限，请在分镜表里拆镜，保留原镜头 ID 并为新增镜头分配新 ID。`,
+          )
     }
     return write(context, callId, '拆分剧本', params, (doc, origin) => {
       const script = getNode(doc, params.scriptNodeId)
@@ -455,15 +457,19 @@ export const applyScriptPlan = defineAgentTool({
       const existingBoard = snapshot.nodes.find((node) => node.id === params.storyboardId)
       if (existingBoard && existingBoard.type !== 'storyboard')
         invalid(`节点不是分镜表：${params.storyboardId}`)
-      const boundEpisode = existingBoard?.type === 'storyboard' ? existingBoard.data.episode : undefined
-      const episodeNumber = params.episodeNumber ?? params.episode?.number ?? boundEpisode?.number ?? 1
+      const boundEpisode =
+        existingBoard?.type === 'storyboard' ? existingBoard.data.episode : undefined
+      const episodeNumber =
+        params.episodeNumber ?? params.episode?.number ?? boundEpisode?.number ?? 1
       if (params.episode && params.episode.number !== episodeNumber)
         invalid('追加的剧本集号必须与分镜表的 episodeNumber 一致。')
       if (
         boundEpisode &&
         (boundEpisode.scriptNodeId !== script.id || boundEpisode.number !== episodeNumber)
       )
-        invalid(`分镜表 ${params.storyboardId} 已属于原剧本第 ${boundEpisode.number} 集，请更新该集原表。`)
+        invalid(
+          `分镜表 ${params.storyboardId} 已属于原剧本第 ${boundEpisode.number} 集，请更新该集原表。`,
+        )
       const duplicate = snapshot.nodes.find(
         (node) =>
           node.type === 'storyboard' &&
@@ -471,7 +477,9 @@ export const applyScriptPlan = defineAgentTool({
           (node.data.episode?.number ?? 1) === episodeNumber,
       )
       if (duplicate)
-        invalid(`第 ${episodeNumber} 集已有生效分镜表 ${duplicate.id}，请用此 storyboardId 更新原表，不要新建第二张表。`)
+        invalid(
+          `第 ${episodeNumber} 集已有生效分镜表 ${duplicate.id}，请用此 storyboardId 更新原表，不要新建第二张表。`,
+        )
       const taken = new Set(snapshot.nodes.map((node) => node.id))
       taken.add(params.storyboardId)
       for (const asset of params.assets) {
@@ -530,9 +538,17 @@ export const applyScriptPlan = defineAgentTool({
       replaceStoryboardShots(doc, params.storyboardId, shots, origin)
       const updatedBoard = getNode(doc, params.storyboardId)
       if (updatedBoard.type === 'storyboard')
-        updateCanvasNode(doc, params.storyboardId, {
-          data: { ...updatedBoard.data, episode: { scriptNodeId: script.id, number: episodeNumber } },
-        }, origin)
+        updateCanvasNode(
+          doc,
+          params.storyboardId,
+          {
+            data: {
+              ...updatedBoard.data,
+              episode: { scriptNodeId: script.id, number: episodeNumber },
+            },
+          },
+          origin,
+        )
       const written = readCanvasDocument(doc).nodes.find((node) => node.id === params.storyboardId)
       if (written?.type !== 'storyboard' || written.data.shots.length !== shots.length)
         invalid('分镜表没有写入。')
