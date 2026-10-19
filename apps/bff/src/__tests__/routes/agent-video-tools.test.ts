@@ -294,31 +294,21 @@ describe('智能体生视频工具', () => {
     })
   })
 
-  it('rejects ownerless image and video drafts on an old image-mode canvas turn', async () => {
+  it.each([
+    { name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
+    { name: 'generateVideo', args: { prompt: 'An ocean shot', durationSeconds: 5 } },
+  ])('rejects ownerless $name on an old image-mode canvas turn', async ({ name, args }) => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion(
-            { id: 'image-draft', name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
-            {
-              id: 'video-draft',
-              name: 'generateVideo',
-              args: { prompt: 'An ocean shot', durationSeconds: 5 },
-            },
-          ),
+        () => toolCallCompletion({ id: 'ownerless-draft', name, args }),
         () => completionStream('Drafts ready'),
       ]),
     )
     const id = await startConversation('canvas')
     const frames = await runTurn(id, 'Create an ocean image and video', [], 'image')
     const drafts = eventsOfType(frames, 'toolEnd')
-    expect(drafts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ toolName: 'generateImage', status: 'failed' }),
-        expect.objectContaining({ toolName: 'generateVideo', status: 'failed' }),
-      ]),
-    )
+    expect(drafts).toEqual([expect.objectContaining({ toolName: name, status: 'failed' })])
     expect(
       (await db.select().from(schema.tasks)).filter((one) => one.kind === 'queue'),
     ).toHaveLength(0)
