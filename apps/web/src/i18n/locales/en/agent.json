@@ -85,7 +85,6 @@
     "downloadAll": "Download all",
     "batchCount_one": "{{count}} image",
     "batchCount_other": "{{count}} images",
-    "costDetail": "Details",
     "inpaint": "Inpaint",
     "erase": "Erase",
     "crop": "Crop",

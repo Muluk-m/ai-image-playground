@@ -1,4 +1,4 @@
-import { type AgentToolArtifact, agentTurnCostTotal } from '@image-playground/shared'
+import type { AgentToolArtifact } from '@image-playground/shared'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -8,13 +8,11 @@ import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-ru
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
-import Credits from '../../../components/Credits'
 import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
-import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { modelLabel } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -50,7 +48,6 @@ import {
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../lib/toolFailure'
-import { turnCostWithJobs } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
@@ -537,7 +534,6 @@ function StandardAgentToolCard({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const [costOpen, setCostOpen] = useState(false)
   const showReceipt = useAgentStore((state) => {
     for (let index = state.messages.length - 1; index >= 0; index -= 1) {
       const one = state.messages[index]
@@ -553,20 +549,14 @@ function StandardAgentToolCard({
   })
   const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
-  const receipt = useMemo(() => {
-    if (!turnFooter) return null
-    const jobs = turnMessages.filter(
-      (one): one is AgentToolMessage =>
-        one.kind === 'tool' && one.turnId === message.turnId && one.job !== undefined,
-    )
-    const cost = turnFooter.cost ? turnCostWithJobs(turnFooter.cost, jobs) : undefined
-    return {
-      footer: turnFooter,
-      jobs,
-      durationMs: turnFooter.durationMs,
-      credits: cost ? agentTurnCostTotal(cost) : null,
-    }
-  }, [message.turnId, turnFooter, turnMessages])
+  const receiptJobs = useMemo(
+    () =>
+      turnMessages.filter(
+        (one): one is AgentToolMessage =>
+          one.kind === 'tool' && one.turnId === message.turnId && one.job !== undefined,
+      ),
+    [message.turnId, turnMessages],
+  )
   const downloadTile = async (tile: { id: string; original: () => Promise<string | null> }) => {
     if (downloadingRef.current.has(tile.id)) return
     downloadingRef.current.add(tile.id)
@@ -1141,24 +1131,8 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
-        {showReceipt && (receipt?.durationMs !== undefined || receipt?.credits) && (
-          <p className="studio-agent-batch-cost">
-            {receipt.durationMs !== undefined && <span>{formatElapsed(receipt.durationMs)}</span>}
-            <span>{t('tool.batchCount', { count: tiles.length })}</span>
-            {receipt.credits ? <Credits credits={receipt.credits} /> : null}
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto px-0 py-0 text-xs font-normal"
-              aria-expanded={costOpen}
-              onClick={() => setCostOpen((open) => !open)}
-            >
-              {t('tool.costDetail')}
-            </Button>
-          </p>
-        )}
-        {showReceipt && costOpen && receipt?.footer && (
-          <AgentTurnCost footer={receipt.footer} jobs={receipt.jobs} />
+        {showReceipt && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={tiles.length} />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
