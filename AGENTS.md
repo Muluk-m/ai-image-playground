@@ -46,6 +46,11 @@
 
 任一项不过就不要合并或发布；为远端检查所需的工作分支推送例外，不代表验收通过。
 
+**资源受限机器的测试守卫**（[`scripts/test-guard.ts`](scripts/test-guard.ts)）：存在 `~/.config/test-guard/constrained`
+（尊重 `XDG_CONFIG_HOME`）且不在 CI 时，Vitest 配置与 Bun 隔离运行器拒绝未指定文件的全量运行，指定文件的运行强制单 worker、
+文件串行，并通过 `~/.cache/test-guard/run.lock` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
+`rmake -c "pnpm test"` 或 CI；不要设置 `CI` 绕过守卫。
+
 CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm lint`、`pnpm typecheck`、
 `apps/web` 构建；公开 workspace 的完整 `pnpm test` 分两个并行 job：web 的 vitest 单独一个，其余包在带 PostgreSQL 的 job 中跑（Bun 数据库测试 4 路并发）；
 `with-overlay` job 再用 `private.lock` 钉住的 overlay 跑 lint / typecheck / build 与私有包测试。
