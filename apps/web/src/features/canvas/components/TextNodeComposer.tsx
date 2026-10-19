@@ -63,9 +63,8 @@ export default function TextNodeComposer({
         profileId: 'chat',
         label:
           model.label === model.model ? compactModelName(model.model, model.label) : model.label,
-        description: t('composer.chatModel'),
       })),
-    [models, t],
+    [models],
   )
   const current = choices.find((model) => model.value === selected)
   const canSend = value.trim().length > 0 && Boolean(current) && !busy
