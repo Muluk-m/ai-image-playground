@@ -4,6 +4,8 @@ import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
+import { parseCLI } from 'vitest/node'
+import { vitestGuard } from '../../scripts/test-guard'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
@@ -79,6 +81,7 @@ export default defineConfig(() => {
     optimizeDeps: { exclude: ['@jsquash/webp', '@jsquash/avif', '@jsquash/oxipng'] },
     worker: { format: 'es' as const },
     test: {
+      ...vitestGuard('apps/web', parseCLI),
       // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
       // 所有断言中文文案的历史用例打红。
       setupFiles: ['./src/__tests__/setup/i18n.ts'],
