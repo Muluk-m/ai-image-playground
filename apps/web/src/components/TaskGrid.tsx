@@ -33,8 +33,6 @@ import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } 
 import type { TaskRecord } from '../types'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
-import { Button } from './ui/button'
-import { Icon } from './ui/icon'
 
 /** 网格列数与 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` 的断点保持一致。 */
 const COLUMN_QUERIES = [
@@ -143,20 +141,9 @@ function setFallbackName(task: TaskRecord | undefined): string {
  * 生成记录的网格。只有一种卡：只在平台留有记录的生成先被镜像成本机任务记录（见 `lib/cloudMirror`），
  * 再和本机生成一起按时间倒序排进同一个网格。像素存在哪儿不该从卡片上看出来。
  *
- * 给了 `limit` 就是生图入口的「最近生成」：只摆最近几条，且不受作品入口留下的搜索与筛选影响——
- * 那一页没有清除它们的入口。
+ * 首页直接展示视口附近的作品，不沿用资产页的搜索与筛选。
  */
-export default function TaskGrid({
-  limit,
-  hero,
-  hasMore = false,
-  onExpand,
-}: {
-  limit?: number
-  hero?: boolean
-  hasMore?: boolean
-  onExpand?: () => void
-} = {}) {
+export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
   const { t } = useTranslation('task')
   const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
   const submittedIds = useSyncExternalStore(
@@ -199,7 +186,7 @@ export default function TaskGrid({
   const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
   const [expandedSetIds, setExpandedSetIds] = useState<string[]>([])
 
-  const unfiltered = limit !== undefined
+  const unfiltered = Boolean(hero)
   const filteredTasks = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
     if (unfiltered) return sorted
@@ -493,7 +480,7 @@ export default function TaskGrid({
   )
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds])
   // 列表只在任务、展开状态或选中态变化时重建；纯滚动的更新只处理可见行。
-  const { items, total } = useMemo(() => {
+  const items = useMemo(() => {
     const renderTask = (task: (typeof tasks)[0]): GridItem => ({
       key: task.id,
       taskId: task.id,
@@ -545,8 +532,7 @@ export default function TaskGrid({
     })
 
     rows.sort((a, b) => b.at - a.at)
-    const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
-    return { items: visibleRows.flatMap((row) => row.nodes), total: rows.length }
+    return rows.flatMap((row) => row.nodes)
   }, [
     historyItems,
     expandedSetIds,
@@ -555,11 +541,9 @@ export default function TaskGrid({
     submittedIds,
     selectedSet,
     handlers,
-    limit,
   ])
 
-  // 展开后的作品一次全挂上会随数量线性变卡：按当前列数分行，只渲染视口附近的几行。
-  const virtual = limit === undefined
+  // 按当前列数分行，只渲染视口附近的几行。
   const columns = useGridColumns()
   const itemRows = useMemo(() => {
     const chunks: GridItem[][] = []
@@ -573,7 +557,7 @@ export default function TaskGrid({
     [itemRows],
   )
   const virtualizer = useWindowVirtualizer({
-    count: virtual ? itemRows.length : 0,
+    count: itemRows.length,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     gap: GRID_GAP,
     overscan: 2,
@@ -583,7 +567,7 @@ export default function TaskGrid({
   // 网格上方的标题、搜索栏高度会变，列表起点要跟着它走。
   useLayoutEffect(() => {
     const grid = gridRef.current
-    if (!virtual || !grid) return
+    if (!grid) return
     const top = Math.round(grid.getBoundingClientRect().top + window.scrollY)
     if (Math.abs(top - scrollMargin) > 1) setScrollMargin(top)
   })
@@ -591,22 +575,6 @@ export default function TaskGrid({
   cardRects.current = () => {
     const grid = gridRef.current
     if (!grid) return []
-    if (!virtual) {
-      return [...grid.querySelectorAll<HTMLElement>('.task-card-wrapper')].flatMap((card) => {
-        const taskId = card.dataset.taskId
-        if (!taskId) return []
-        const rect = card.getBoundingClientRect()
-        return [
-          {
-            taskId,
-            left: rect.left + window.scrollX,
-            right: rect.right + window.scrollX,
-            top: rect.top + window.scrollY,
-            bottom: rect.bottom + window.scrollY,
-          },
-        ]
-      })
-    }
     const bounds = grid.getBoundingClientRect()
     const left = bounds.left + window.scrollX
     const width = (bounds.width - GRID_GAP * (columns - 1)) / columns
@@ -654,7 +622,7 @@ export default function TaskGrid({
     if (!primary) {
       // 新作品排在最前；列表已往下滚、首行没挂载时先回到网格顶部，挂上后再高亮。
       // 只为确实在列表里的新作品回滚；被筛掉或收在套里的不去打断用户滚动。
-      if (virtual && items.some((item) => item.taskId && pending.includes(item.taskId)))
+      if (items.some((item) => item.taskId && pending.includes(item.taskId)))
         window.scrollTo({ top: Math.max(0, scrollMargin - 96) })
       return
     }
@@ -671,18 +639,7 @@ export default function TaskGrid({
       submittedAnnouncementRef.current = phrase
       setSubmittedAnnouncement(phrase)
     }
-  }, [
-    submittedIds,
-    filteredTasks,
-    expandedSetIds,
-    historyReady,
-    limit,
-    t,
-    virtual,
-    scrollMargin,
-    firstRow,
-    items,
-  ])
+  }, [submittedIds, filteredTasks, expandedSetIds, historyReady, t, scrollMargin, firstRow, items])
 
   if (hero && !historyReady) return <HomeWorksSkeleton />
 
@@ -713,40 +670,21 @@ export default function TaskGrid({
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {submittedAnnouncement}
       </div>
-      {virtual ? (
-        <div className="pb-6">
-          <div ref={gridRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
-            {virtualizer.getVirtualItems().map((row) => (
-              <div
-                key={row.key}
-                ref={virtualizer.measureElement}
-                data-index={row.index}
-                className="absolute left-0 top-0 grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-                style={{ transform: `translateY(${row.start - scrollMargin}px)` }}
-              >
-                {itemRows[row.index]?.map((item) => item.node)}
-              </div>
-            ))}
-          </div>
+      <div className="pb-6">
+        <div ref={gridRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((row) => (
+            <div
+              key={row.key}
+              ref={virtualizer.measureElement}
+              data-index={row.index}
+              className="absolute left-0 top-0 grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              style={{ transform: `translateY(${row.start - scrollMargin}px)` }}
+            >
+              {itemRows[row.index]?.map((item) => item.node)}
+            </div>
+          ))}
         </div>
-      ) : (
-        <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((item) => item.node)}
-        </div>
-      )}
-      {limit !== undefined && onExpand && (total > limit || hasMore) && (
-        <div className="flex justify-center pb-8">
-          <Button
-            variant="ghost"
-            className="h-10 gap-1 px-3 text-body-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg]:size-3.5"
-            onClick={onExpand}
-            aria-expanded={false}
-          >
-            {t('grid.expandMore')}
-            <Icon name="chevronDown" />
-          </Button>
-        </div>
-      )}
+      </div>
       {selectionBox && (
         <div
           className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"

@@ -28,6 +28,49 @@ const MANIFEST = {
   'quota:daily': false,
 }
 
+const observers = new Set<HistoryObserver>()
+class HistoryObserver implements IntersectionObserver {
+  readonly root = null
+  readonly rootMargin = '0px 0px 240px 0px'
+  readonly thresholds = [0]
+  target: Element | null = null
+  constructor(readonly callback: IntersectionObserverCallback) {}
+  observe(target: Element) {
+    this.target = target
+    observers.add(this)
+  }
+  unobserve() {}
+  disconnect() {
+    observers.delete(this)
+  }
+  takeRecords(): IntersectionObserverEntry[] {
+    return []
+  }
+}
+
+async function reachEnd(isIntersecting = true) {
+  await act(async () => {
+    for (const observer of [...observers]) {
+      if (!observer.target) continue
+      const rect = new DOMRectReadOnly()
+      observer.callback(
+        [
+          {
+            target: observer.target,
+            isIntersecting,
+            time: 0,
+            intersectionRatio: isIntersecting ? 1 : 0,
+            boundingClientRect: rect,
+            intersectionRect: rect,
+            rootBounds: null,
+          },
+        ],
+        observer,
+      )
+    }
+  })
+}
+
 beforeEach(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   setClientStorageScope('owner')
@@ -41,6 +84,8 @@ beforeEach(async () => {
   vi.unstubAllGlobals()
   // 平台记录进的是可整体替换的缓存（`lib/platformGenerations`），作品页的输入框也要读模板。
   vi.stubGlobal('indexedDB', new IDBFactory())
+  vi.stubGlobal('IntersectionObserver', HistoryObserver)
+  vi.stubGlobal('scrollTo', vi.fn())
   useStore.setState({
     prompt: '',
     params: { ...DEFAULT_PARAMS },
@@ -136,7 +181,7 @@ const waitCards = async (count: number) => {
   })
 }
 
-it('首页底部展开更多作品，并与顶部收起入口联动', async () => {
+it('首页直接展示虚拟作品列表，不再提供展开或加载更多按钮', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () =>
@@ -144,62 +189,112 @@ it('首页底部展开更多作品，并与顶部收起入口联动', async () =
     ),
   )
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
-  await waitCards(3)
-  await click('展开更多作品')
   await waitCards(4)
+  expect(findButton('展开全部')).toBe(false)
   expect(findButton('展开更多作品')).toBe(false)
-  await click('收起')
-  await waitCards(3)
-  expect(findButton('展开更多作品')).toBe(true)
+  expect(findButton('加载更多')).toBe(false)
+  expect(host.querySelector('input[type="search"]')).toBeNull()
 })
 
-it('展开全部留在创作页，去资产库才离开', async () => {
+it('首页保留去资产库入口', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () =>
-      page(Array.from({ length: 4 }, (_, index) => ({ ...item, id: `creation-${index}` }))),
-    ),
+    vi.fn(async () => page([item])),
   )
   useLibraryStore.setState({ tab: 'projects' })
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
-  await waitCards(3)
-  expect(findButton('展开全部')).toBe(true)
-  expect(findButton('去资产库')).toBe(true)
-  await click('展开全部')
-  await waitCards(4)
-  expect(useStore.getState().appMode).toBe('image')
-  expect(findButton('展开全部')).toBe(false)
+  await waitCards(1)
   await click('去资产库')
   expect(useStore.getState().appMode).toBe('library')
   expect(useLibraryStore.getState().tab).toBe('assets')
 })
 
-it('只有三条作品且没有下一页时，不展示底部更多入口', async () => {
+it('到达最后一页后移除底部遮罩，最后一张作品可完整查看', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () =>
-      page(Array.from({ length: 3 }, (_, index) => ({ ...item, id: `creation-${index}` }))),
-    ),
+    vi.fn(async () => page([item])),
   )
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
-  await waitCards(3)
-  expect(findButton('展开更多作品')).toBe(false)
+  await waitCards(1)
+  await reachEnd()
+  expect(host.querySelector('.studio-works-fade')).toBeNull()
+  await reachEnd(false)
+  expect(host.querySelector('.studio-works-fade')).not.toBeNull()
 })
 
-it('本页只有三条但云端还有下一页时，展开后保留加载更多入口', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      page(
-        Array.from({ length: 3 }, (_, index) => ({ ...item, id: `creation-${index}` })),
-        'next-page',
-      ),
-    ),
+it('接近列表底部时续读下一页，等待期间不重复请求', async () => {
+  let finishPage: ((response: Response) => void) | undefined
+  const nextPage = new Promise<Response>((resolve) => {
+    finishPage = resolve
+  })
+  const fetcher = vi.fn(async (url: string) =>
+    url.includes('cursor=next-page') ? nextPage : page([item], 'next-page'),
   )
+  vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
-  await waitCards(3)
-  await click('展开更多作品')
-  expect(findButton('加载更多')).toBe(true)
+  await waitCards(1)
+  await vi.waitFor(async () => {
+    await act(async () => {})
+    expect(host.querySelector('[role="status"]')).toBeNull()
+  })
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(1)
+  await reachEnd()
+  await reachEnd()
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('加载')
+  await act(async () =>
+    finishPage?.(page([{ ...item, id: 'second-page', createdAt: item.createdAt - 1 }])),
+  )
+  await waitCards(2)
+  await reachEnd()
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
+  expect(host.querySelector('.studio-works-fade')).toBeNull()
+})
+
+it('滚动加载失败时保留已读作品并停止自动重试', async () => {
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.includes('cursor=next-page')) throw new TypeError('network')
+    return page([item], 'next-page')
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(1)
+  await vi.waitFor(async () => {
+    await act(async () => {})
+    expect(host.querySelector('[role="status"]')).toBeNull()
+  })
+  await reachEnd()
+  await settle()
+  await reachEnd()
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
+  expect(cards()).toHaveLength(1)
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('刷新重试')
+  expect(findButton('刷新')).toBe(true)
+})
+
+it('不支持 IntersectionObserver 时仍能通过滚动续页', async () => {
+  vi.stubGlobal('IntersectionObserver', undefined)
+  let top = 2000
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(() => new DOMRect(0, top, 100, 1))
+  const fetcher = vi.fn(async (url: string) =>
+    url.includes('cursor=next-page')
+      ? page([{ ...item, id: 'fallback-page', createdAt: item.createdAt - 1 }])
+      : page([item], 'next-page'),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(1)
+  await vi.waitFor(async () => {
+    await act(async () => {})
+    expect(host.querySelector('[role="status"]')).toBeNull()
+  })
+  top = 100
+  await act(async () => window.dispatchEvent(new Event('scroll')))
+  await waitCards(2)
+  expect(fetcher.mock.calls.filter(([url]) => url.includes('cursor=next-page'))).toHaveLength(1)
+  bounds.mockRestore()
 })
 
 it('平台记录和本机生成用同一张卡：提示词、参数和动作都在上面', async () => {
