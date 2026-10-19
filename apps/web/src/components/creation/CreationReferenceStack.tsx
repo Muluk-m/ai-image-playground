@@ -9,6 +9,7 @@ import './creation.css'
 
 export function CreationReferenceStack({
   add,
+  leading,
   previews,
   count,
   children,
@@ -19,6 +20,8 @@ export function CreationReferenceStack({
   disabled = false,
 }: {
   add: ReactNode
+  /** Context tiles that stay beside attachments and the add action in both display modes. */
+  leading?: ReactNode
   previews: ReactNode[]
   count: number
   children: ReactNode
@@ -117,6 +120,7 @@ export function CreationReferenceStack({
         </div>
       )}
       <div className="creation-reference-list">
+        {leading}
         {children}
         {expanded && <div className="creation-stack-add">{add}</div>}
       </div>
@@ -152,6 +156,7 @@ export function CreationReferenceStack({
           panel
         ) : (
           <>
+            {leading}
             {count > 0 && (
               <PopoverAnchor asChild>
                 <div className="creation-stack-entry">
