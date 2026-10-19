@@ -233,8 +233,9 @@ it('接近列表底部时续读下一页，等待期间不重复请求', async (
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
-  await act(async () => {
-    await vi.waitFor(() => expect(host.querySelector('[role="status"]')).toBeNull())
+  await vi.waitFor(async () => {
+    await act(async () => {})
+    expect(host.querySelector('[role="status"]')).toBeNull()
   })
   expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(1)
   await reachEnd()
@@ -258,8 +259,9 @@ it('滚动加载失败时保留已读作品并停止自动重试', async () => {
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
-  await act(async () => {
-    await vi.waitFor(() => expect(host.querySelector('[role="status"]')).toBeNull())
+  await vi.waitFor(async () => {
+    await act(async () => {})
+    expect(host.querySelector('[role="status"]')).toBeNull()
   })
   await reachEnd()
   await settle()
@@ -284,8 +286,9 @@ it('不支持 IntersectionObserver 时仍能通过滚动续页', async () => {
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
-  await act(async () => {
-    await vi.waitFor(() => expect(host.querySelector('[role="status"]')).toBeNull())
+  await vi.waitFor(async () => {
+    await act(async () => {})
+    expect(host.querySelector('[role="status"]')).toBeNull()
   })
   top = 100
   await act(async () => window.dispatchEvent(new Event('scroll')))
