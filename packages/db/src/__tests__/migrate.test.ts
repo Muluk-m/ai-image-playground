@@ -247,6 +247,32 @@ describe('runMigrations', () => {
     }
   })
 
+  it('retains stage authorization scope and spend history during rollback', async () => {
+    const now = new Date()
+    await connection.client`INSERT INTO users (id, username, password_hash, status, created_at, updated_at) VALUES ('rollback-stage-owner', 'rollback-stage-owner', 'fixture', 'active', ${now}, ${now})`
+    try {
+      await connection.client`INSERT INTO agent_conversations (id, user_id, title, created_at, updated_at) VALUES ('rollback-stage-conversation', 'rollback-stage-owner', 'stage', ${now}, ${now})`
+      await connection.client`INSERT INTO canvas_projects (id, user_id, name, revision, document, element_count, conversation_id, receipts, created_at, updated_at) VALUES ('rollback-stage-project', 'rollback-stage-owner', 'stage', 1, '{"version":1,"elements":[]}'::jsonb, 0, 'rollback-stage-conversation', '[]'::jsonb, ${now}, ${now})`
+      const rollback = await Bun.file(
+        new URL('../../drizzle/rollback/0072_agent_stage_authorizations.down.sql', import.meta.url),
+      ).text()
+      for (const status of ['pending', 'active', 'exhausted', 'ended']) {
+        const state = { status, nodeIds: ['authorized-node'], budgetCap: 20, spentCredits: 10 }
+        await connection.client`INSERT INTO agent_stage_authorizations (id, user_id, conversation_id, project_id, proposal_key, state, created_at, updated_at) VALUES ('rollback-stage', 'rollback-stage-owner', 'rollback-stage-conversation', 'rollback-stage-project', 'proposal', ${JSON.stringify(state)}::jsonb, ${now.getTime()}, ${now.getTime()}) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state`
+        await expect(
+          connection.client.begin(async (tx) => {
+            await tx.unsafe(rollback)
+          }),
+        ).rejects.toThrow('stage authorization history')
+        const [saved] =
+          await connection.client`SELECT state FROM agent_stage_authorizations WHERE id = 'rollback-stage'`
+        expect(saved.state).toEqual(state)
+      }
+    } finally {
+      await connection.client`DELETE FROM users WHERE id = 'rollback-stage-owner'`
+    }
+  })
+
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     // Newest first, one down file per journal entry: a migration without a rollback fails here.
