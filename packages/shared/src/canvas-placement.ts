@@ -4,10 +4,37 @@ import { canvasNodeRegistry } from './canvas-registry'
 /** 文本卡的框是固定的。正文再短也不能把卡片缩成两个字，否则两侧加号会叠在字上。 */
 export const TEXT_CARD_WIDTH = 300
 export const TEXT_CARD_HEIGHT = 210
+const MEDIA_CARD_WIDTH = 360
+const MEDIA_CARD_HEIGHT = 240
 
-/** Display geometry is independent of media pixels; old documents remain unchanged on load. */
+/** 图片/视频卡在最大工作区内保持素材比例，不能用固定框裁剪原图。 */
 export function nodeCardSize(node: CanvasNode): { width: number; height: number } {
-  if (node.type === 'image' || node.type === 'video') return canvasNodeRegistry.image.size
+  if (node.type === 'image' || node.type === 'video') {
+    const data = node.data
+    const naturalWidth =
+      'naturalWidth' in data && typeof data.naturalWidth === 'number'
+        ? data.naturalWidth
+        : undefined
+    const naturalHeight =
+      'naturalHeight' in data && typeof data.naturalHeight === 'number'
+        ? data.naturalHeight
+        : undefined
+    if (
+      naturalWidth !== undefined &&
+      naturalHeight !== undefined &&
+      Number.isFinite(naturalWidth) &&
+      Number.isFinite(naturalHeight) &&
+      naturalWidth > 0 &&
+      naturalHeight > 0
+    ) {
+      const scale = Math.min(1, MEDIA_CARD_WIDTH / naturalWidth, MEDIA_CARD_HEIGHT / naturalHeight)
+      return {
+        width: Math.max(1, Math.round(naturalWidth * scale)),
+        height: Math.max(1, Math.round(naturalHeight * scale)),
+      }
+    }
+    return { width: MEDIA_CARD_WIDTH, height: MEDIA_CARD_HEIGHT }
+  }
   if (node.type !== 'text') return { width: node.width, height: node.height }
   return {
     width: Math.max(node.width, TEXT_CARD_WIDTH),
