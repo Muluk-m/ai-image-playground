@@ -97,12 +97,22 @@ let next = 0
 let stopping = false
 // 中断时先停止派发、把信号转给在跑的测试进程并等它们退出，再退出（test-guard 的锁随进程退出释放），
 // 否则子进程还在跑，下一组测试已经拿到锁。
+// 子进程不肯退时最多等 10 秒，再强杀；第二次中断立即强杀。
+const STOP_GRACE_MS = 10_000
+const forceStop = () => {
+  for (const child of running) child.kill('SIGKILL')
+}
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
   process.on(signal, async () => {
-    if (stopping) return
+    if (stopping) {
+      forceStop()
+      return
+    }
     stopping = true
     for (const child of running) child.kill(signal)
+    const timer = setTimeout(forceStop, STOP_GRACE_MS)
     await Promise.all([...running].map((child) => child.exited))
+    clearTimeout(timer)
     process.exit(130)
   })
 async function worker(): Promise<void> {

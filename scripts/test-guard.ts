@@ -30,7 +30,8 @@ const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
 const cacheHome = process.env.XDG_CACHE_HOME || join(homedir(), '.cache')
 export const CONSTRAINED_MARKER = join(configHome, 'test-guard', 'constrained')
 const LOCK_ROOT = join(cacheHome, 'test-guard')
-const LOCK = join(LOCK_ROOT, 'run.lock')
+// A plain file created by hard link; the name differs from the directory lock of an early draft.
+const LOCK = join(LOCK_ROOT, 'run-owner')
 const RECLAIM = join(LOCK_ROOT, 'reclaim.lock')
 /** Child processes of a run that already holds the lock must not wait for themselves. */
 const HELD = 'TEST_GUARD_HELD'
@@ -125,15 +126,17 @@ export function acquireTestLock(label: string): void {
   let announced = false
   while (!createWithContent(LOCK, owner)) {
     const seen = read(LOCK)
-    if (seen === null) continue
-    const pid = Number(seen.split('\n')[0])
-    if (!pid || !alive(pid)) {
+    const pid = seen === null ? 0 : Number(seen.split('\n')[0])
+    // Released between our attempt and the read: try again at once. An unreadable lock is waited on
+    // like a live one, never spun on.
+    if (seen !== null && (!pid || !alive(pid))) {
       reclaim(seen)
       continue
     }
+    if (seen === null && !existsSync(LOCK)) continue
     if (Date.now() > deadline)
       throw new Error(
-        `test-guard: 另一组测试仍在运行（${seen.split('\n').slice(1, 3).join(' @ ')}），等待超时。`,
+        `test-guard: 另一组测试仍在运行（${seen?.split('\n').slice(1, 3).join(' @ ') ?? LOCK}），等待超时。`,
       )
     if (!announced) {
       console.error(`test-guard: 等待另一组测试结束（pid ${pid}）…`)
