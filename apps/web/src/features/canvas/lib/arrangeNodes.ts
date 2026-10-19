@@ -1,5 +1,5 @@
 import type { CanvasSnapshot } from '@image-playground/shared'
-import { nodeCardSize } from './nodeCanvasPlace'
+import { nodeCardSize } from '@image-playground/shared'
 
 export type CanvasPlacement = { id: string; x: number; y: number }
 
