@@ -132,6 +132,7 @@ import NodeAssetPicker from './NodeAssetPicker'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
+import NodeConnectionLine from './NodeConnectionLine'
 import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
 import NodePorts, { SpawnContext } from './NodePorts'
@@ -871,6 +872,10 @@ function Flow({
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
+  const [connectingFrom, setConnectingFrom] = useState<{
+    nodeId: string
+    handleType: 'source' | 'target'
+  } | null>(null)
   const connectStart = useRef<{ x: number; y: number } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -1735,10 +1740,20 @@ function Flow({
       fromHandle: { type: 'source' | 'target' } | null
     },
   ) => {
+    const reset = () => {
+      connectStart.current = null
+      setConnectingFrom(null)
+    }
     const from = state.fromNode
-    if (!from) return
+    if (!from) {
+      reset()
+      return
+    }
     const point = 'changedTouches' in event ? event.changedTouches[0] : event
-    if (!point) return
+    if (!point) {
+      reset()
+      return
+    }
     const link = linkFromDrag(
       { nodeId: from.id, handleType: state.fromHandle?.type ?? null },
       nodeIdAtPoint(point.clientX, point.clientY),
@@ -1758,6 +1773,7 @@ function Flow({
         side: state.fromHandle?.type === 'target' ? 'left' : 'right',
       })
     }
+    reset()
   }
   const overview = viewportPlan.mode === 'overview'
   const mounted = overview ? new Set(viewportPlan.mountedIds) : null
@@ -1797,22 +1813,45 @@ function Flow({
                             ? nodes.filter((node) => mounted.has(node.id))
                             : nodes
                           ).map((node) => {
-                            if (referencePick)
-                              return {
-                                ...node,
-                                className: pickableIds.has(node.id)
+                            const classNames = [
+                              referencePick
+                                ? pickableIds.has(node.id)
                                   ? 'studio-node-reference-eligible'
-                                  : 'studio-node-reference-disabled',
+                                  : 'studio-node-reference-disabled'
+                                : '',
+                            ]
+                            if (connectingFrom) {
+                              if (node.id === connectingFrom.nodeId) {
+                                classNames.push('studio-node-connection-source')
+                              } else if (node.data.node) {
+                                const link =
+                                  connectingFrom.handleType === 'target'
+                                    ? { source: node.id, target: connectingFrom.nodeId }
+                                    : { source: connectingFrom.nodeId, target: node.id }
+                                classNames.push(
+                                  canvasLinkAllowed(snapshot, link)
+                                    ? 'studio-node-connection-eligible'
+                                    : 'studio-node-connection-disabled',
+                                )
+                              } else {
+                                classNames.push('studio-node-connection-disabled')
                               }
+                            }
                             const position = arrangementPositions.get(node.id)
-                            return position ? { ...node, position } : node
+                            return {
+                              ...node,
+                              ...(position ? { position } : {}),
+                              className: classNames.filter(Boolean).join(' ') || undefined,
+                            }
                           })}
                           className={
                             arrangementActive
                               ? 'studio-node-arranging'
                               : referencePick
                                 ? 'studio-node-reference-picking'
-                                : undefined
+                                : connectingFrom
+                                  ? 'studio-node-connecting'
+                                  : undefined
                           }
                           nodesDraggable={!arrangementActive && !referencePick}
                           nodesConnectable={!arrangementActive && !referencePick}
@@ -1849,6 +1888,7 @@ function Flow({
                             if (nextId && litRef.current?.has(nextId)) return
                             setLitEdgeIds(null)
                           }}
+                          connectionLineComponent={NodeConnectionLine}
                           edgeTypes={edgeTypes}
                           nodeTypes={nodeTypes}
                           zoomOnDoubleClick={false}
@@ -1910,12 +1950,25 @@ function Flow({
                           onEdgeClick={(event, edge) => {
                             event.stopPropagation()
                             if (referencePick) return
+                            if (selectedEdges.includes(edge.id)) {
+                              disconnectCanvasNodes(canvas.doc, edge.id, canvas.origin)
+                              setSelectedEdges([])
+                              return
+                            }
                             selectNode(null)
                             setSelectedEdges([edge.id])
                           }}
-                          onConnectStart={(event) => {
+                          onConnectStart={(event, params) => {
                             const point = 'touches' in event ? event.touches[0] : event
                             if (point) connectStart.current = { x: point.clientX, y: point.clientY }
+                            if (params.nodeId && params.handleType) {
+                              setConnectingFrom({
+                                nodeId: params.nodeId,
+                                handleType: params.handleType,
+                              })
+                            } else {
+                              setConnectingFrom(null)
+                            }
                           }}
                           elevateNodesOnSelect={false}
                           onNodesChange={(changes: NodeChange<FlowNode>[]) =>

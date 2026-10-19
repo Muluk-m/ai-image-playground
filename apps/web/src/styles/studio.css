@@ -1336,7 +1336,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-handle.connectingfrom .studio-node-port-button { opacity: 1; }
 .studio-node-port-button[data-following="true"] { background: hsl(var(--muted)); color: hsl(var(--primary)); border-color: hsl(var(--primary) / .6); }
 .studio-node-handle:focus-visible .studio-node-port-button { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
-.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 4px hsl(var(--primary) / .8)); }
+.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 3px hsl(var(--primary) / .65)); }
 .studio-edge-lit .studio-node-edge-energy, .react-flow__edge.selected .studio-node-edge-energy { opacity: 1; animation: studio-node-flow-energy 1800ms linear infinite; }
 @keyframes studio-node-flow-energy { to { stroke-dashoffset: -100; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1345,16 +1345,78 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 }
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
-  stroke: hsl(var(--foreground) / .72);
-  stroke-width: 2;
+  stroke: hsl(var(--foreground) / .28);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   transition: stroke 140ms ease-out, stroke-width 140ms ease-out;
 }
 .studio-node-canvas:has(.studio-edge-lit) .react-flow__edge:not(.studio-edge-lit) .react-flow__edge-path {
-  stroke: hsl(var(--foreground) / .22);
+  stroke: hsl(var(--foreground) / .12);
 }
-.studio-node-canvas .react-flow__edge.studio-edge-lit .react-flow__edge-path {
-  stroke: hsl(var(--primary));
+.studio-node-canvas .studio-node-connecting .react-flow__node-connection-disabled > .studio-node {
+  opacity: .28;
+  filter: saturate(.35);
+  transition: opacity 160ms ease-out, filter 160ms ease-out;
+}
+.studio-node-canvas .studio-node-connecting .react-flow__node-connection-eligible:hover > .studio-node,
+.studio-node-canvas .studio-node-connecting .react-flow__node-connection-eligible:has(.studio-node-handle.connectingto.valid) > .studio-node {
+  filter: drop-shadow(0 0 12px hsl(var(--primary) / .45));
+}
+.studio-node-canvas .studio-node-connecting .react-flow__node-connection-eligible > .studio-node {
+  transition: filter 160ms ease-out;
+}
+.studio-node-handle.connectingto.valid .studio-node-port-button {
+  opacity: 1;
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / .75);
+  box-shadow: 0 0 0 3px hsl(var(--primary) / .12), 0 0 14px hsl(var(--primary) / .6);
+}
+.studio-node-handle.connectingto.valid .studio-node-port-button::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border: 1px solid hsl(var(--primary) / .8);
+  border-radius: inherit;
+  animation: studio-node-port-ring 1100ms ease-out infinite;
+  pointer-events: none;
+}
+@keyframes studio-node-port-ring {
+  0% { opacity: .9; transform: scale(.7); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+.studio-node-connection-preview-path {
+  fill: none;
+  stroke: hsl(var(--primary) / .95);
   stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px hsl(var(--primary) / .45));
+}
+.studio-node-connection-preview--invalid .studio-node-connection-preview-path {
+  stroke: hsl(var(--destructive) / .75);
+  filter: drop-shadow(0 0 4px hsl(var(--destructive) / .35));
+}
+.studio-node-connection-preview-energy {
+  fill: none;
+  stroke: hsl(var(--primary));
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 14 86;
+  opacity: .9;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / .85));
+  pointer-events: none;
+  animation: studio-node-flow-energy 900ms linear infinite;
+}
+.studio-node-connection-preview--invalid .studio-node-connection-preview-energy {
+  stroke: hsl(var(--destructive));
+  filter: drop-shadow(0 0 5px hsl(var(--destructive) / .7));
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-node-port-button { transition: none; }
+  .studio-node-edge-energy,
+  .studio-node-connection-preview-energy,
+  .studio-node-handle.connectingto.valid .studio-node-port-button::before { animation: none !important; }
 }
 .studio-node-composer {
   /* 宽屏夹在左下工具条与右下对话入口之间；两侧留白跟着它们的宽度走。 */
