@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { IMAGE_PRESETS } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -46,6 +47,32 @@ afterEach(async () => {
 })
 const button = (label: string) =>
   host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+it('shows the preset badge and estimates one sheet without inheriting the global batch count', async () => {
+  const remove = vi.fn()
+  const send = vi.fn()
+  await act(async () =>
+    root.render(
+      <ImageNodeComposer
+        document={{}}
+        nodeId="preset-image"
+        references={[]}
+        files={{}}
+        value=""
+        busy={false}
+        preset={IMAGE_PRESETS[0]}
+        onRemovePreset={remove}
+        onChange={() => {}}
+        onSubmit={send}
+      />,
+    ),
+  )
+  expect(host.textContent).toContain('人物三视图')
+  expect(host.textContent).toContain('1 张拼图')
+  expect(mocks.guard).toHaveBeenCalledWith({ model: 'image-model', quantity: 1 })
+  expect(send).not.toHaveBeenCalled()
+  await act(async () => button('移除预设').click())
+  expect(remove).toHaveBeenCalledOnce()
+})
 it('submits temporary references without replacing the node and removes them independently', async () => {
   const send = vi.fn()
   await act(async () =>

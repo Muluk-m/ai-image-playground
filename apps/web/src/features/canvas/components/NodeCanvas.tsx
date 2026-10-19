@@ -13,6 +13,8 @@ import {
   createCanvasGroup,
   disconnectCanvasNodes,
   type ImageNodeData,
+  imagePreset,
+  imagePresetPrompt,
   moveCanvasGroups,
   moveCanvasNodes,
   type PendingGeneration,
@@ -117,6 +119,7 @@ import {
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
+import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
@@ -135,6 +138,7 @@ import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
 import NodeConnectionLine from './NodeConnectionLine'
 import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
+import NodeImagePresetMenu from './NodeImagePresetMenu'
 import NodePorts, { SpawnContext } from './NodePorts'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeResultPicker from './NodeResultPicker'
@@ -1535,6 +1539,7 @@ function Flow({
   const roles: Record<string, string> = {}
   for (const ref of references) roles[ref.id] = meta[`role:${ref.id}`] ?? 'reference'
   const draftValue = meta.nodePrompt ?? ''
+  const preset = imagePreset(meta.nodeImagePreset)
   const setMeta = (patch: Record<string, string>, trackUndo = true) => {
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
@@ -2337,6 +2342,20 @@ function Flow({
                                 }
                               }}
                             />
+                            {composerNode.type === 'image' &&
+                              nodeKind(composerNode) === 'image' && (
+                                <NodeImagePresetMenu
+                                  key={`preset:${composerNode.id}`}
+                                  onSelect={(preset) => {
+                                    const id = createImagePresetNode(
+                                      canvas,
+                                      composerNode.id,
+                                      preset,
+                                    )
+                                    if (id) selectNode(id)
+                                  }}
+                                />
+                              )}
                             {composerNode.type === 'image' && (
                               <NodeTool
                                 icon="layers"
@@ -2592,7 +2611,9 @@ function Flow({
                       )}
                       {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer
-                          templates
+                          templates={!preset}
+                          preset={preset}
+                          onRemovePreset={() => setMeta({ nodeImagePreset: '' })}
                           resultTools={
                             <>
                               <NodeResultPicker
@@ -2635,7 +2656,7 @@ function Flow({
                           }}
                           onSubmit={(temporaryReferences) => {
                             const look = useActiveLook.getState().look
-                            if (look) {
+                            if (look && !preset) {
                               void submitNodeWithLook(
                                 editor,
                                 canvas.doc,
@@ -2647,7 +2668,9 @@ function Flow({
                               )
                               return
                             }
-                            const value = draftValue
+                            const value = preset
+                              ? imagePresetPrompt(preset, draftValue)
+                              : draftValue
                             const urls = referenceFileIds(references, files).flatMap((id) => {
                               const source = files[id]
                               return source ? [source] : []
@@ -2661,6 +2684,14 @@ function Flow({
                                 .filter(Boolean)
                                 .join('\n\n'),
                               urls,
+                              undefined,
+                              undefined,
+                              preset
+                                ? {
+                                    settings: useStore.getState().settings,
+                                    params: { ...useStore.getState().params, n: 1 },
+                                  }
+                                : undefined,
                             )
                           }}
                         />
