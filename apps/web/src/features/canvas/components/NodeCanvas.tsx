@@ -326,6 +326,44 @@ function nodeIdAtPoint(x: number, y: number): string | null {
   }
   return null
 }
+function pendingConnectionPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  bounds: DOMRect,
+): string {
+  const fromX = from.x - bounds.left
+  const fromY = from.y - bounds.top
+  const toX = to.x - bounds.left
+  const toY = to.y - bounds.top
+  const direction = toX >= fromX ? 1 : -1
+  const bend = Math.max(48, Math.abs(toX - fromX) * 0.45)
+  return `M${fromX},${fromY} C${fromX + bend * direction},${fromY} ${toX - bend * direction},${toY} ${toX},${toY}`
+}
+function PendingConnectionOverlay({
+  pending,
+  container,
+}: {
+  pending: { from: { x: number; y: number }; to: { x: number; y: number } }
+  container: { current: HTMLElement | null }
+}) {
+  const element = container.current
+  const bounds = element?.getBoundingClientRect()
+  if (!element || !bounds) return null
+  const path = pendingConnectionPath(pending.from, pending.to, bounds)
+  return (
+    // design-allow inline-svg: 拖线落到空白时的持久预览路径，不是图标。
+    <svg
+      className="studio-node-pending-connection"
+      viewBox={`0 0 ${element.clientWidth} ${element.clientHeight}`}
+      width={element.clientWidth}
+      height={element.clientHeight}
+      aria-hidden="true"
+    >
+      <path d={path} className="studio-node-pending-connection-path" />
+      <path d={path} pathLength={100} className="studio-node-pending-connection-energy" />
+    </svg>
+  )
+}
 
 function Pending({ pending }: { pending: PendingGeneration }) {
   const { t } = useTranslation('canvas')
@@ -881,6 +919,10 @@ function Flow({
     handleType: 'source' | 'target'
   } | null>(null)
   const connectStart = useRef<{ x: number; y: number } | null>(null)
+  const [pendingConnection, setPendingConnection] = useState<{
+    from: { x: number; y: number }
+    to: { x: number; y: number }
+  } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mediaToolbarSize, setMediaToolbarSize] = useState({ width: 300, height: 44 })
@@ -919,7 +961,10 @@ function Flow({
   const placeAt = useRef({ x: 0, y: 0 })
   const fileInput = useRef<HTMLInputElement>(null)
   const fileDepth = useRef(0)
-  const closeMenu = () => setMenu(null)
+  const closeMenu = () => {
+    setMenu(null)
+    setPendingConnection(null)
+  }
   const remember = (viewport: { x: number; y: number; zoom: number }) => {
     const box = container.current
     setFrame({
@@ -1753,24 +1798,34 @@ function Flow({
     }
     const from = state.fromNode
     if (!from) {
+      setPendingConnection(null)
       reset()
       return
     }
     const point = 'changedTouches' in event ? event.changedTouches[0] : event
     if (!point) {
+      setPendingConnection(null)
       reset()
       return
     }
+    const targetId = nodeIdAtPoint(point.clientX, point.clientY)
     const link = linkFromDrag(
       { nodeId: from.id, handleType: state.fromHandle?.type ?? null },
-      nodeIdAtPoint(point.clientX, point.clientY),
+      targetId,
     )
-    if (link) connectCanvasNodes(canvas.doc, link, canvas.origin)
-    else if (
-      !nodeIdAtPoint(point.clientX, point.clientY) &&
+    if (link) {
+      setPendingConnection(null)
+      connectCanvasNodes(canvas.doc, link, canvas.origin)
+    } else if (
+      !targetId &&
       connectStart.current &&
       Math.hypot(point.clientX - connectStart.current.x, point.clientY - connectStart.current.y) > 8
     ) {
+      const start = connectStart.current
+      setPendingConnection({
+        from: start,
+        to: { x: point.clientX, y: point.clientY },
+      })
       placeAt.current =
         flowRef.current?.screenToFlowPosition({ x: point.clientX, y: point.clientY }) ?? center()
       setMenu({
@@ -1779,6 +1834,8 @@ function Flow({
         anchorIds: selectedIds.current.includes(from.id) ? selectedIds.current : [from.id],
         side: state.fromHandle?.type === 'target' ? 'left' : 'right',
       })
+    } else {
+      setPendingConnection(null)
     }
     reset()
   }
@@ -1972,6 +2029,7 @@ function Flow({
                             setSelectedEdges([edge.id])
                           }}
                           onConnectStart={(event, params) => {
+                            setPendingConnection(null)
                             const point = 'touches' in event ? event.touches[0] : event
                             if (point) connectStart.current = { x: point.clientX, y: point.clientY }
                             if (params.nodeId && params.handleType) {
@@ -2126,6 +2184,12 @@ function Flow({
                             <MiniMap pannable zoomable position="bottom-right" />
                           )}
                         </ReactFlow>
+                        {pendingConnection && (
+                          <PendingConnectionOverlay
+                            pending={pendingConnection}
+                            container={container}
+                          />
+                        )}
                         <CanvasOverview
                           active={overview}
                           container={container}

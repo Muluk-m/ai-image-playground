@@ -47,7 +47,7 @@ export default function NodeFlowEdge(props: EdgeProps) {
                 data.onCut?.()
               }}
             >
-              <Icon name="delete" />
+              <Icon name="cut" />
             </Button>
           </div>
         </EdgeLabelRenderer>
