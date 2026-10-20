@@ -203,13 +203,19 @@ const PAGE_HINT_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
  * 登录成功后在页面自己的源上留一份不含凭据的提示，并记住用户 id，刷新才会去请求 /api/auth/me。
  */
 export function noteBrowserSession(userId: string | null): void {
+  // The hint is presentation-only: the server session remains the sole authority.
+  // Both storage and cookies are best effort so privacy mode cannot create a redirect loop.
   rememberStorageUser(userId)
   if (typeof document === 'undefined') return
   const secure = globalThis.location?.protocol === 'https:' ? '; Secure' : ''
-  document.cookie =
-    userId === null
-      ? `${USER_SESSION_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
-      : `${USER_SESSION_HINT_COOKIE}=1; Path=/; Max-Age=${PAGE_HINT_MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+  try {
+    document.cookie =
+      userId === null
+        ? `${USER_SESSION_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+        : `${USER_SESSION_HINT_COOKIE}=1; Path=/; Max-Age=${PAGE_HINT_MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+  } catch {
+    // Cookie access can be blocked by browser policy; the auth bootstrap still works.
+  }
 }
 
 /** OAuth 成功落在前端时带的标记。读过就丢掉，避免刷新反复当作新登录。 */
@@ -231,12 +237,16 @@ export function shouldProbeSession(): boolean {
     const landing = new URLSearchParams(window.location.search).get(OAUTH_SESSION_QUERY_PARAM)
     if (landing === '1') return true
   }
-  if (typeof document !== 'undefined') {
-    const hinted = document.cookie.split(';').some((part) => {
-      const [name, value] = part.trim().split('=')
-      return name === USER_SESSION_HINT_COOKIE && Boolean(value)
-    })
-    if (hinted) return true
+  try {
+    if (typeof document !== 'undefined') {
+      const hinted = document.cookie.split(';').some((part) => {
+        const [name, value] = part.trim().split('=')
+        return name === USER_SESSION_HINT_COOKIE && Boolean(value)
+      })
+      if (hinted) return true
+    }
+  } catch {
+    // A blocked cookie jar must not hide a usable local-storage hint.
   }
   return hasRememberedSignedInUser()
 }
