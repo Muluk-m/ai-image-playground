@@ -372,6 +372,11 @@ export interface AgentTurnInput {
   /** 作为视觉证据随这一轮发出的产物：唤醒要复核的那些，每张一块原图。 */
   readonly reviewImageIds: readonly string[]
   /**
+   * 尽力附带的复核图（批次唤醒）：读不到或超出图片预算就跳过，不像 `reviewImageIds` 那样缺一张
+   * 就让整轮失败。预扣按全部附上估。
+   */
+  readonly optionalReviewImageIds?: readonly string[]
+  /**
    * 跟在引用清单后面的附注：并进这一轮的唤醒说明。它不是用户的话，不落库、不算授权原文。
    * 位置在清单之后——实发与估算都照这一条，两边才对得上。
    */
@@ -473,6 +478,7 @@ export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
             evidenceManifest([
               ...estimatedListings(shown),
               ...input.reviewImageIds.map((imageId) => ({ imageId })),
+              ...(input.optionalReviewImageIds ?? []).map((imageId) => ({ imageId })),
             ]),
         },
         ...shown.flatMap((reference) =>
@@ -484,6 +490,7 @@ export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
           ),
         ),
         ...input.reviewImageIds.map(() => PLACEHOLDER_IMAGE),
+        ...(input.optionalReviewImageIds ?? []).map(() => PLACEHOLDER_IMAGE),
       ],
       timestamp: now,
     },

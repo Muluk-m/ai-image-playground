@@ -14,8 +14,11 @@ export const BATCH_WAKE_REVIEW_IMAGE_MAX = 6
 
 export interface BatchWakeContent {
   readonly text: string
-  /** 生成项里已完成的产物，按批次顺序，最多 {@link BATCH_WAKE_REVIEW_IMAGE_MAX} 张。 */
-  readonly reviewImageIds: readonly string[]
+  /**
+   * 生成项里已完成的产物，按批次顺序，最多 {@link BATCH_WAKE_REVIEW_IMAGE_MAX} 张。尽力附带：
+   * 读不到或超出图片预算的会被跳过，不让整轮失败。
+   */
+  readonly optionalReviewImageIds: readonly string[]
 }
 
 /** Read only the confirmed version's durable outcomes, never prompts or image bytes. */
@@ -140,12 +143,12 @@ export async function batchWakeContent(
     )
   const hasAnalysis = rows.some((row) => row.kind === 'analysis')
   const hasGeneration = rows.some((row) => row.kind === 'generation')
-  const reviewImageIds = generated.slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+  const optionalReviewImageIds = generated.slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
   const guidance: string[] = []
   if (hasGeneration)
     guidance.push(
       generated.length
-        ? `生成项的产物：${generated.join('、')}。其中 ${reviewImageIds.join('、')} 已作为图片随这一轮附上，对照用户这一批的要求逐张复核：逐项写出用户要求保留或修改的属性是否做到，不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。${generated.length > reviewImageIds.length ? `其余 ${generated.length - reviewImageIds.length} 张没有附上，回复里如实说明尚未逐张查看，可以用 viewImage 查看。` : ''}`
+        ? `生成项的产物：${generated.join('、')}。前 ${optionalReviewImageIds.length} 张会尽量作为图片随这一轮附上，实际附上哪些以本轮图片清单为准。对照用户这一批的要求逐张复核附上的图：逐项写出用户要求保留或修改的属性是否做到，不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。清单里没有的产物如实说明尚未查看，可以用 viewImage 查看。`
         : '生成项没有可复核的产物：说明失败或取消的是哪几项，不要自行重新生成。',
     )
   if (hasAnalysis)
@@ -160,7 +163,7 @@ export async function batchWakeContent(
       JSON.stringify(results),
       ...guidance,
     ].join('\n'),
-    reviewImageIds,
+    optionalReviewImageIds,
   }
 }
 
