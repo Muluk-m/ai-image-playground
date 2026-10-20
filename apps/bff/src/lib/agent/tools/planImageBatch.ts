@@ -31,7 +31,9 @@ export const planImageBatch = defineAgentTool({
           maxItems: 100,
         }),
         prompt: Type.String({ minLength: 1, maxLength: 4000 }),
-        dependencies: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
+        dependencies: Type.Optional(
+          Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
+        ),
         aspectRatio: aspectRatioParameter,
       }),
       { minItems: 1, maxItems: 100 },
