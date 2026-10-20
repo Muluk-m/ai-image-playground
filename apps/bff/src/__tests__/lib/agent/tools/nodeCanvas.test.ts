@@ -396,3 +396,32 @@ it('splits a script into imageless assets and a storyboard, and appends the next
   ).rejects.toThrow('board')
   expect((await graph()).nodes.some((node) => node.id === 'board-2')).toBe(false)
 })
+
+it('names the closest nodes when an id is mistyped and stops a repeated failure loop', async () => {
+  const { context, run } = await fixture()
+  await run(createNodes, {
+    nodes: [
+      { id: 'agent_02c5d941-fef5-4e04-b95b-8d9dcf1ece43', type: 'text', name: '人物' },
+      { id: 'scene', type: 'text', name: '地点' },
+    ],
+  })
+  await expect(
+    run(arrangeNodes, { nodeIds: ['agent_02c5c9ef-4f84-4ace-2a77b9a24aaa'] }),
+  ).rejects.toThrow('最接近的现有节点：agent_02c5d941-fef5-4e04-b95b-8d9dcf1ece43（人物）')
+
+  const wrapped = agentTurnTools(context).find((tool) => tool.name === 'arrangeNodes')!
+  const attempt = () =>
+    wrapped.execute(
+      crypto.randomUUID(),
+      { nodeIds: ['agent_02c5c9ef-4f84-4ace-2a77b9a24aaa'] },
+      undefined,
+      undefined,
+    )
+  for (let i = 0; i < 3; i++) await expect(attempt()).rejects.toThrow('节点不存在')
+  await expect(attempt()).rejects.toThrow('已停止重试')
+  // 熔断只在这一轮内有效，下一轮重新计数。
+  const other = agentTurnTools(context).find((tool) => tool.name === 'arrangeNodes')!
+  await expect(
+    other.execute(crypto.randomUUID(), { nodeIds: ['scene'] }, undefined, undefined),
+  ).resolves.toBeDefined()
+})
