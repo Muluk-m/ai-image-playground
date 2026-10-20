@@ -255,6 +255,8 @@ export const inspiration_items = pgTable(
     skill_name: text('skill_name'),
     source_url: text('source_url'),
     author: text('author'),
+    thumb_width: integer('thumb_width'),
+    thumb_height: integer('thumb_height'),
     sort: integer('sort').notNull().default(0),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
