@@ -122,6 +122,8 @@ const DYNAMIC_PREFIXES = [
   'production:historySource.',
   // features/legal/LegalPage.tsx：按条款小节 id 拼 `sections.${id}.title` / `.body`。
   'legal:sections.',
+  // features/inspiration：九个分类组按稳定 id 拼 `group.${id}`。
+  'inspiration:group.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/
