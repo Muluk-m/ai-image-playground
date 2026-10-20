@@ -126,7 +126,7 @@ it('asks for a visual review of generation results instead of reading analysis f
     itemKeys,
   })
   expect(content).not.toBeNull()
-  expect(content!.reviewImageIds).toEqual([
+  expect(content!.optionalReviewImageIds).toEqual([
     'agent_four-task-0_0',
     'agent_four-task-1_0',
     'agent_four-task-3_0',
@@ -136,7 +136,7 @@ it('asks for a visual review of generation results instead of reading analysis f
   expect(JSON.parse(content!.text.split('\n')[2]!)).toHaveLength(4)
 })
 
-it('attaches only the first few results and says the rest were not viewed', async () => {
+it('offers only the first few results and tells the model to trust the attached list', async () => {
   const outcomes = Array.from({ length: 9 }, () => 'completed' as const)
   const itemKeys = await seedBatch('nine', outcomes)
   const content = await batchWakeContent('nine', OWNER, {
@@ -145,7 +145,8 @@ it('attaches only the first few results and says the rest were not viewed', asyn
     eventVersion: 1,
     itemKeys,
   })
-  expect(content!.reviewImageIds).toHaveLength(BATCH_WAKE_REVIEW_IMAGE_MAX)
+  expect(content!.optionalReviewImageIds).toHaveLength(BATCH_WAKE_REVIEW_IMAGE_MAX)
   expect(content!.text).toContain('agent_nine-task-8_0')
-  expect(content!.text).toContain(`其余 ${9 - BATCH_WAKE_REVIEW_IMAGE_MAX} 张没有附上`)
+  expect(content!.text).toContain(`前 ${BATCH_WAKE_REVIEW_IMAGE_MAX} 张会尽量作为图片随这一轮附上`)
+  expect(content!.text).toContain('清单里没有的产物如实说明尚未查看')
 })

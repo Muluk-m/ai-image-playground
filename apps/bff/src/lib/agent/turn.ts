@@ -80,7 +80,7 @@ import {
 } from './turn-input'
 import { recordAgentTurnSummary } from './turn-summary'
 import { createAgentUsageLedger } from './usage-ledger'
-import { assertVisualBytes } from './visual-resources'
+import { assertVisualBytes, visualByteLimit } from './visual-resources'
 import { createVisualWorkset } from './visual-workset'
 
 export interface AgentTurnSettlement {
@@ -798,6 +798,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           )
         preparedBytes += imageBytes(image)
         assertVisualBytes(preparedBytes)
+        reviewed.push(image)
+      }
+      // 批次唤醒的复核图尽力附带：旧产物可能已删、几批同时完成可能超预算，跳过即可，
+      // 唤醒说明让模型以图片清单为准，没附上的如实说未查看。
+      const byteLimit = visualByteLimit()
+      for (const id of input.optionalReviewImageIds ?? []) {
+        const image = await images.resolve(id).catch(() => null)
+        if (!image || preparedBytes + imageBytes(image) > byteLimit) continue
+        preparedBytes += imageBytes(image)
         reviewed.push(image)
       }
       const reviewSet = new Set(reviewed)
