@@ -54,7 +54,7 @@ async function batch(
   conversationId: string,
   id: string,
   status: 'draft' | 'running' | 'closed',
-  tasks: readonly ('completed' | 'failed' | 'running')[],
+  tasks: readonly ('completed' | 'failed' | 'in_progress')[],
   itemCount = tasks.length || 2,
   at = NOW,
 ) {
@@ -92,7 +92,7 @@ async function batch(
       kind: 'generation',
       inputs: [],
       prompt: 'prompt',
-      params: { model: 'fixture' },
+      params: { model: 'fixture', provider: 'openai-compat' as const },
       dependencies: [],
     })
     await db.insert(schema.tasks).values({
