@@ -443,7 +443,8 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 }
 
 .studio-home-intro { padding-top: 48px; }
-.studio-home-create { max-width: 768px; margin-inline: auto; }
+/* 问候语和模式切换之间留出提示条的高度，居中提示才不会压住标题或输入区。 */
+.studio-home-create { max-width: 768px; margin-inline: auto; padding-top: 5rem; }
 .studio-home-create .creation-body .creation-prompt { min-height: 96px; }
 @media (max-width: 767px) {
   .studio-home-create .creation-body .creation-prompt { min-height: 84px; }
