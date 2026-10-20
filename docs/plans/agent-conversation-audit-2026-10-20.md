@@ -16,7 +16,7 @@
 
 | # | 状态 | 分支 / PR | 已做 | 剩余 |
 | --- | --- | --- | --- | --- |
-| 1 | 已上线 | #1398（已合并，部署成功） | 1.1：`conversation-state.ts` 每轮从库里读未确认草稿与 24h 内批次进度、产物 ID，拼进本轮 prompt 正文（不进系统提示词），唤醒轮同样带上 | 1.3 前端聊天确认语拦截，与第 6 条一起做 |
+| 1 | 已上线 | #1398（已合并，部署成功，分支已删除） | 1.1：`conversation-state.ts` 每轮从库里读未确认草稿与 24h 内批次进度、产物 ID，拼进本轮 prompt 正文（不进系统提示词），唤醒轮同样带上 | 1.3 前端聊天确认语拦截，与第 6 条一起做 |
 | 2 | WIP 分支，未开 PR | `fix/agent-failure-alerts` | 2.1 + 2.2：`agent-pattern` 规则（6h 内同模型+错误码+HTTP 状态 ≥2 个轮次，或配置类 4xx 一次即报，30 分钟没再出现算恢复）；2.4：`blind` 规则（某块读数连续 3 轮取不到）。`packages/shared/src/__tests__/ops-alerts.test.ts` 本机单文件 45 例通过；BFF 侧 `readAgentFailurePattern` 的 SQL 未经 CI 验证 | 2.3 保存模型配置前预检未开始（思路：对每个档位用 `configuredAgentRuntime` 的 `models.streamSimple` 发 `maxTokens` 极小的请求，`reasoning` 传 `effort === 'off' ? undefined : effort`，与 `canvas-text.ts` 一致，非可信网关要走 `providerFetch`）；开 PR、跑 CI |
 | 3 | PR 待修 | #1400 | 3.1 `createNodes` 的 image 节点支持 `imageId`，经 `images.resolveMediaReferences` 写入用户自己的 `mediaId`；3.2 节点画布不下发 `planImageBatch`；3.3 提示词与节点工具 guidance 禁止要求用户拖图/选中 | CI `bff` 失败：`nodeCanvas.test.ts` 新增的断言“非节点画布包含 `planImageBatch`”不成立（测试环境没开批次计划能力），删掉这条断言即可 |
 | 4 | PR 待审 | #1401 | `generateImage` / `editImage` / `planImageBatch` 项加可选 `aspectRatio`，按用户当前清晰度档位换算尺寸，并去掉输入框的 `gemini_aspect_ratio`；回执写明实际尺寸；尺寸预设表 `IMAGE_SIZE_PRESETS` 移到 shared，web 改为引用 | 4.3 批次计划卡片展示尺寸（前端）；CI 结果待看 |
@@ -27,8 +27,6 @@
 | 9 | 未开始 | — | — | 全部 |
 | 10 | 未开始 | — | — | 先人工抽检 |
 | 11 | 部分无需做 | — | 11.3 不需要改：`model.ts` 的 `retryOverloadedStream` 已于 10-07（dc201faa6）上线，10-13/10-15 的过载失败是重试用尽后的结果 | 11.1、11.2 未开始 |
-
-本机临时 worktree（可删）：`/tmp/aip-audit-dedupe`、`/tmp/aip-audit-batch-review`、`/tmp/aip-audit-node-images`、`/tmp/aip-audit-aspect`、`/tmp/aip-audit-tool-loop`、`/tmp/aip-audit-alerts`、`/tmp/aip-audit-plan-status`。
 
 ## 背景
 
