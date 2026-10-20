@@ -19,7 +19,7 @@ import { log } from '../logger'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
-import { batchWakeSummary } from './batch-wake'
+import { BATCH_WAKE_REVIEW_IMAGE_MAX, batchWakeContent } from './batch-wake'
 import {
   type ChatTaskPricing,
   type ChatTaskReserved,
@@ -150,6 +150,8 @@ interface TurnContent {
   readonly references: readonly AgentTurnReference[]
   /** 作为视觉证据随这一轮发出的产物：唤醒要复核的那些。 */
   readonly reviewImageIds: readonly string[]
+  /** 批次唤醒尽力附带的产物，见 `AgentTurnInput.optionalReviewImageIds`。 */
+  readonly optionalReviewImageIds?: readonly string[]
   /** 并进这一轮的唤醒：此刻排着的全部。 */
   readonly wakes?: {
     readonly ids: readonly string[]
@@ -157,7 +159,11 @@ interface TurnContent {
      * 跟在用户原话后面的说明；点名的结果卡一张都不在时没有这一段，那几条唤醒照样取走。
      * 带着它预扣不下时整段丢掉，那几条唤醒也一并留在收件箱里，之后走自己的路。
      */
-    readonly note?: { readonly text: string; readonly reviewImageIds: readonly string[] }
+    readonly note?: {
+      readonly text: string
+      readonly reviewImageIds: readonly string[]
+      readonly optionalReviewImageIds?: readonly string[]
+    }
   }
   readonly mode: AgentMode
   readonly params?: AgentTurnParams
@@ -422,6 +428,14 @@ function sourceId(source: AgentTurnSource): string {
   return source.kind === 'wake' ? source.wake.id : source.resume.id
 }
 
+/** 几个批次同时完成并进一轮时，尽力附带的图合起来也只取这么多。 */
+function optionalReviewImages(ids: readonly string[]): {
+  readonly optionalReviewImageIds?: readonly string[]
+} {
+  const capped = [...new Set(ids)].slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+  return capped.length ? { optionalReviewImageIds: capped } : {}
+}
+
 /** 这一轮送给模型的那一份输入；估算与实发都只从它派生。 */
 function turnInputOf(
   history: AgentHistoryWindow,
@@ -442,6 +456,10 @@ function turnInputOf(
     references: content.references,
     mode: content.mode,
     reviewImageIds: [...content.reviewImageIds, ...(note?.reviewImageIds ?? [])],
+    ...optionalReviewImages([
+      ...(content.optionalReviewImageIds ?? []),
+      ...(note?.optionalReviewImageIds ?? []),
+    ]),
     ...(note ? { note: note.text } : {}),
     autoSubmit: content.params?.autoSubmit === true || content.params?.directImage === true,
     directImage: content.params?.directImage === true,
@@ -463,23 +481,25 @@ async function wakeContent(
   wake: QueuedWake,
 ): Promise<TurnContent | TurnUnprepared> {
   if (wake.batch) {
-    const [text, window] = await Promise.all([
-      batchWakeSummary(conversationId, owner, wake.batch),
+    const [summary, window] = await Promise.all([
+      batchWakeContent(conversationId, owner, wake.batch),
       history,
     ])
-    if (!text) return { kind: 'no_results' }
+    if (!summary) return { kind: 'no_results' }
     if ((await consecutiveAgentWakes(conversationId)) >= AGENT_MAX_CONSECUTIVE_WAKES)
       return { kind: 'wake_limit' }
     return {
-      text,
+      text: summary.text,
       references: [],
       reviewImageIds: [],
+      optionalReviewImageIds: summary.optionalReviewImageIds,
       mode: 'image',
       selectionHistoryStart: clarificationChainStart(window.messages),
       deviceId: wake.deviceId,
       userMessageId: `${turnId}:wake`,
       wake: {
-        authorizationPrompt: '仅汇总这版已确认批次的执行事实；新执行或视觉复核需要用户另行确认。',
+        authorizationPrompt:
+          '仅汇总并复核这版已确认批次的结果；新的生成或付费分析需要用户另行确认。',
       },
     }
   }
@@ -545,16 +565,17 @@ async function resumeContent(
   // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
   const jobs = wake ? wakeJobs(authorizedTurn, wake.taskIds) : []
   const batchSummary = wake?.batch
-    ? await batchWakeSummary(conversationId, owner, wake.batch)
+    ? await batchWakeContent(conversationId, owner, wake.batch)
     : null
   const setup = wake ? wakeTurnSetup(jobs) : resume
   const interruptedStart = window.messages.findIndex(
     (message) => message.turnId === resume.interruptedTurnId,
   )
   return {
-    text: resumeTurnPrompt(batchSummary ?? (wake ? wakeTurnPrompt(jobs) : undefined)),
+    text: resumeTurnPrompt(batchSummary?.text ?? (wake ? wakeTurnPrompt(jobs) : undefined)),
     references: [],
     reviewImageIds: wakeReviewImageIds(jobs),
+    ...(batchSummary ? { optionalReviewImageIds: batchSummary.optionalReviewImageIds } : {}),
     mode: resolveAgentMode(setup.mode ?? 'image'),
     ...(setup.params ? { params: setup.params } : {}),
     ...(resume.canvas ? { canvas: resume.canvas } : {}),
@@ -590,10 +611,10 @@ async function messageContent(
   const batchSummaries = (
     await Promise.all(
       wakes.flatMap((wake) =>
-        wake.batch ? [batchWakeSummary(conversationId, owner, wake.batch)] : [],
+        wake.batch ? [batchWakeContent(conversationId, owner, wake.batch)] : [],
       ),
     )
-  ).filter((text): text is string => text !== null)
+  ).filter((summary) => summary !== null)
   // 点名了哪几轮要取回来才知道，所以这一次查询只能串在后面；那几轮可能比历史窗口更老，一次全取回来。
   const jobs = wakeJobs(
     ordinaryWakes.length === 0
@@ -625,9 +646,12 @@ async function messageContent(
                   note: {
                     text: [
                       ...(jobs.length > 0 ? [mergedWakePrompt(jobs)] : []),
-                      ...batchSummaries,
+                      ...batchSummaries.map((summary) => summary.text),
                     ].join('\n'),
                     reviewImageIds: wakeReviewImageIds(jobs),
+                    optionalReviewImageIds: batchSummaries.flatMap(
+                      (summary) => summary.optionalReviewImageIds,
+                    ),
                   },
                 }
               : {}),
