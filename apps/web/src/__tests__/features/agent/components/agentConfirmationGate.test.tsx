@@ -5,6 +5,27 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentConfirmationGate from '../../../../features/agent/components/AgentConfirmationGate'
 import type { ConfirmationHint } from '../../../../features/agent/lib/pendingConfirmations'
 
+const startNodeRun = vi.hoisted(() => vi.fn(() => true))
+
+vi.mock('../../../../features/agent/lib/nodeRuns', () => ({
+  startAgentNodeRun: startNodeRun,
+}))
+
+vi.mock('../../../../features/agent/store', () => ({
+  useAgentStore: {
+    getState: () => ({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'nodes',
+          canvasRun: { projectId: 'project', nodeIds: ['n1'] },
+        },
+      ],
+      confirmAllPrompts: () => Promise.resolve({ confirmed: 0, failure: null }),
+    }),
+  },
+}))
+
 const pending: ConfirmationHint[] = [
   { kind: 'draft', messageId: 'draft-1' },
   { kind: 'batch', messageId: 'batch-card', batchId: 'batch-1' },
@@ -64,5 +85,24 @@ it('hides confirm-all when the only pending card is not a generation draft', () 
     ),
   )
   expect(button('全部确认生成')).toBeUndefined()
+  expect(button('确认运行节点（1）')).toBeUndefined()
   expect(button('跳到卡片')).toBeTruthy()
+})
+
+it('starts a pending node run from its own button and leaves generation drafts alone', () => {
+  startNodeRun.mockClear()
+  startNodeRun.mockReturnValue(true)
+  act(() =>
+    root.render(
+      <AgentConfirmationGate
+        pending={[{ kind: 'nodeRun', messageId: 'nodes' }]}
+        onJump={jump}
+        onSendAnyway={send}
+      />,
+    ),
+  )
+  expect(button('全部确认生成')).toBeUndefined()
+  act(() => button('确认运行节点（1）')!.click())
+  expect(startNodeRun).toHaveBeenCalledWith('nodes', { projectId: 'project', nodeIds: ['n1'] })
+  expect(host.textContent).not.toContain('没能开始')
 })
