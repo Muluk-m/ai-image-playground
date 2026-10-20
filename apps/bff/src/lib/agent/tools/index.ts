@@ -140,7 +140,8 @@ function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[]
   return TOOLS.filter(
     (tool) =>
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
-      // 节点画布的生成只走阶段授权。批次计划的生成项必然被拒，分析另有 proposeBatchAnalysis。
+      // 节点画布的生成只走阶段授权，结果必须落在节点上，无主生图不进清单。
+      // 批次计划的生成项必然被拒，分析另有 proposeBatchAnalysis，因此 planImageBatch 也不进清单。
       (audience?.experience !== 'canvas' ||
         ![
           'editCanvasObject',

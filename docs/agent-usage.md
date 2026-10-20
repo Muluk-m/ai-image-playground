@@ -65,7 +65,7 @@ BFF `GET /api/agent/stage-authorizations/:id` 返回所属会话/项目、范围
 回复必须以节点名称指代范围：提案只能说「待确认」，查询到授权的真实 `taskIds` 才能说「已提交」；
 提交不代表完成，结果仍须读取画布核实。可用 `runNodes` 的 `authorizationId` 查询真实状态，不产生第二次执行。
 
-数据库迁移 `0073_agent_stage_authorizations` 的回退脚本只允许清理空表；已有提案（包括已结束的授权）
+数据库迁移 `0074_agent_stage_authorizations` 的回退脚本只允许清理空表；已有提案（包括已结束的授权）
 必须保留范围、预算与花费审计，回退会明确拒绝丢弃这些记录。回退应用版本不要求删除这张兼容表。
 
 

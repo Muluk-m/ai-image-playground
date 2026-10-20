@@ -939,6 +939,13 @@ export const tasks = pgTable(
     attempt_count: integer('attempt_count').notNull().default(0),
     upstream_invocation_count: integer('upstream_invocation_count').notNull().default(0),
     next_retry_at: epochMs('next_retry_at'),
+    /**
+     * 进入结果确认的时刻。30 分钟告警和卡片上的「确认中」用它。
+     * 下次核对的时刻仍写在 next_retry_at，两者不能混用，否则退避会把告警时钟拨回去。
+     */
+    reconcile_started_at: epochMs('reconcile_started_at'),
+    /** 结果确认超过 30 分钟的告警已经发出的时刻。重启和多 worker 都靠它去重。 */
+    reconcile_alerted_at: epochMs('reconcile_alerted_at'),
     device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
     /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
     agent_conversation_id: text('agent_conversation_id'),
@@ -1017,6 +1024,8 @@ const {
   archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
   lease_expires_at: _leaseExpiresAt,
+  reconcile_started_at: _reconcileStartedAt,
+  reconcile_alerted_at: _reconcileAlertedAt,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>

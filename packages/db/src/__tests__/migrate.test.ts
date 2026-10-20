@@ -1,4 +1,12 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { SQL } from 'bun'
+import { drizzle } from 'drizzle-orm/bun-sql'
+import { migrate } from 'drizzle-orm/bun-sql/migrator'
 import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { runMigrations } from '../migrate'
@@ -16,6 +24,59 @@ interface IndexMetadata {
 
 const databaseUrl = await resetTestDatabase('db_migrate')
 const connection = createDb(databaseUrl)
+const migrationsDirectory = fileURLToPath(new URL('../../drizzle/', import.meta.url))
+
+async function migrationFileHash(tag: string): Promise<string> {
+  const query = await Bun.file(new URL(`../../drizzle/${tag}.sql`, import.meta.url)).text()
+  return createHash('sha256').update(query).digest('hex')
+}
+
+function migrationStamp(row: { hash: string; created_at: string | number | bigint }) {
+  return { hash: row.hash, created_at: String(row.created_at) }
+}
+
+/** Applies journal entries through `lastTag` onto an empty database. Later files stay unread. */
+async function migrateUntil(databaseUrl: string, lastTag: string): Promise<void> {
+  const end = journal.entries.findIndex((entry) => entry.tag === lastTag)
+  if (end < 0) throw new Error(`missing migration ${lastTag}`)
+  const entries = journal.entries.slice(0, end + 1)
+  const dir = await mkdtemp(join(tmpdir(), 'aip-migrate-'))
+  const client = new SQL(databaseUrl, { max: 1 })
+  try {
+    await mkdir(join(dir, 'meta'))
+    await Bun.write(
+      join(dir, 'meta/_journal.json'),
+      JSON.stringify({ version: journal.version, dialect: journal.dialect, entries }),
+    )
+    for (const entry of entries) {
+      await symlink(join(migrationsDirectory, `${entry.tag}.sql`), join(dir, `${entry.tag}.sql`))
+    }
+    await migrate(drizzle(client), { migrationsFolder: dir })
+  } finally {
+    await client.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+async function withEmptyDatabase(name: string, run: (url: string) => Promise<void>): Promise<void> {
+  const configured = process.env.TEST_DATABASE_URL?.trim()
+  if (!configured) throw new Error('TEST_DATABASE_URL is required')
+  const base = new URL(configured)
+  const databaseName = `aip_test_${name}`
+  const adminUrl = new URL(base)
+  adminUrl.pathname = '/postgres'
+  const admin = new SQL(adminUrl.toString(), { max: 1 })
+  const url = new URL(base)
+  url.pathname = `/${databaseName}`
+  try {
+    await admin.unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`)
+    await admin.unsafe(`CREATE DATABASE "${databaseName}"`)
+    await run(url.toString())
+  } finally {
+    await admin.unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`)
+    await admin.close()
+  }
+}
 
 afterAll(async () => {
   await connection.close()
@@ -254,7 +315,7 @@ describe('runMigrations', () => {
       await connection.client`INSERT INTO agent_conversations (id, user_id, title, created_at, updated_at) VALUES ('rollback-stage-conversation', 'rollback-stage-owner', 'stage', ${now}, ${now})`
       await connection.client`INSERT INTO canvas_projects (id, user_id, name, revision, document, element_count, conversation_id, receipts, created_at, updated_at) VALUES ('rollback-stage-project', 'rollback-stage-owner', 'stage', 1, '{"version":1,"elements":[]}'::jsonb, 0, 'rollback-stage-conversation', '[]'::jsonb, ${now}, ${now})`
       const rollback = await Bun.file(
-        new URL('../../drizzle/rollback/0073_agent_stage_authorizations.down.sql', import.meta.url),
+        new URL('../../drizzle/rollback/0074_agent_stage_authorizations.down.sql', import.meta.url),
       ).text()
       const [createdAt] = await connection.client<
         { data_type: string }[]
@@ -275,6 +336,85 @@ describe('runMigrations', () => {
     } finally {
       await connection.client`DELETE FROM users WHERE id = 'rollback-stage-owner'`
     }
+  })
+
+  it('migrates an empty database through 0073 and then 0074', async () => {
+    expect(journal.entries.at(-2)).toMatchObject({
+      idx: 73,
+      when: 1792400000000,
+      tag: '0073_reconcile_schedule',
+    })
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 74,
+      when: 1792500000000,
+      tag: '0074_agent_stage_authorizations',
+    })
+    const rows = await connection.client<{ hash: string; created_at: string | number }[]>`
+      SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id
+    `
+    expect(rows).toHaveLength(journal.entries.length)
+    expect(migrationStamp(rows.at(-2)!)).toEqual({
+      hash: await migrationFileHash('0073_reconcile_schedule'),
+      created_at: '1792400000000',
+    })
+    expect(migrationStamp(rows.at(-1)!)).toEqual({
+      hash: await migrationFileHash('0074_agent_stage_authorizations'),
+      created_at: '1792500000000',
+    })
+    const [stage] = await connection.client<{ name: string | null }[]>`
+      SELECT to_regclass('public.agent_stage_authorizations')::text AS name
+    `
+    expect(stage?.name).toBe('agent_stage_authorizations')
+    const [reconcile] = await connection.client<{ data_type: string }[]>`
+      SELECT data_type FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'reconcile_started_at'
+    `
+    expect(reconcile?.data_type).toBe('timestamp with time zone')
+  })
+
+  it('upgrades a database already at 0073 to 0074 without replaying reconcile', async () => {
+    await withEmptyDatabase('upgrade_0074', async (url) => {
+      await migrateUntil(url, '0073_reconcile_schedule')
+      const client = new SQL(url, { max: 1 })
+      try {
+        const before = await client<{ hash: string; created_at: string | number }[]>`
+          SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id
+        `
+        expect(before).toHaveLength(journal.entries.length - 1)
+        expect(migrationStamp(before.at(-1)!)).toEqual({
+          hash: await migrationFileHash('0073_reconcile_schedule'),
+          created_at: '1792400000000',
+        })
+        const [missing] = await client<{ name: string | null }[]>`
+          SELECT to_regclass('public.agent_stage_authorizations')::text AS name
+        `
+        expect(missing?.name).toBeNull()
+        const kept = new Date('2026-01-02T03:04:05.000Z')
+        await client`INSERT INTO tasks (id, provider, model, status, reconciliation_required, request_payload, submitted_at, reconcile_started_at) VALUES ('upgrade-sentinel', 'openai-compat', 'fixture', 'reconciling', true, '{"device_id":"fixture","prompt":"one","n":1}'::jsonb, ${kept}, ${kept})`
+
+        await runMigrations(url)
+
+        const after = await client<{ hash: string; created_at: string | number }[]>`
+          SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id
+        `
+        expect(after).toHaveLength(journal.entries.length)
+        expect(migrationStamp(after.at(-2)!)).toEqual(migrationStamp(before.at(-1)!))
+        expect(migrationStamp(after.at(-1)!)).toEqual({
+          hash: await migrationFileHash('0074_agent_stage_authorizations'),
+          created_at: '1792500000000',
+        })
+        const [stage] = await client<{ name: string | null }[]>`
+          SELECT to_regclass('public.agent_stage_authorizations')::text AS name
+        `
+        expect(stage?.name).toBe('agent_stage_authorizations')
+        const [saved] = await client<{ reconcile_started_at: Date }[]>`
+          SELECT reconcile_started_at FROM tasks WHERE id = 'upgrade-sentinel'
+        `
+        expect(new Date(saved.reconcile_started_at).toISOString()).toBe(kept.toISOString())
+      } finally {
+        await client.close()
+      }
+    })
   })
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
