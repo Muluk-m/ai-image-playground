@@ -5,6 +5,7 @@ import { agentStreamFn } from './model'
 import {
   AgentSettingsError,
   configuredAgentRuntime,
+  providerCredentialReady,
   validateAgentModelSettings,
 } from './provider-settings'
 
@@ -46,6 +47,10 @@ async function probeProfile(
   settings: AgentModelSettings,
   key: (typeof AGENT_PROFILE_KEYS)[number],
 ): Promise<void> {
+  const profile = settings.profiles[key]
+  const provider = settings.providers.find((item) => item.id === profile.providerId)
+  // 密钥还没配时打不了预检。保存仍然允许，真正调用时再拒绝，也不会去借网关的密钥。
+  if (!provider || !providerCredentialReady(provider)) return
   const runtime = configuredAgentRuntime(settings, key === 'default' ? undefined : key)
   let message: AssistantMessage
   try {
