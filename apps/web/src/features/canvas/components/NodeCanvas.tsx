@@ -13,6 +13,8 @@ import {
   createCanvasGroup,
   disconnectCanvasNodes,
   type ImageNodeData,
+  imagePreset,
+  imagePresetPrompt,
   moveCanvasGroups,
   moveCanvasNodes,
   type PendingGeneration,
@@ -38,6 +40,7 @@ import {
   ReactFlowProvider,
   type Rect,
   SelectionMode,
+  useStoreApi,
 } from '@xyflow/react'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useNodeMedia } from './NodeMediaImage'
@@ -117,6 +120,7 @@ import {
 import { spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
+import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
@@ -132,8 +136,10 @@ import NodeAssetPicker from './NodeAssetPicker'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
+import NodeConnectionLine from './NodeConnectionLine'
 import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
+import NodeImagePresetMenu from './NodeImagePresetMenu'
 import NodePorts, { SpawnContext } from './NodePorts'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeResultPicker from './NodeResultPicker'
@@ -320,6 +326,44 @@ function nodeIdAtPoint(x: number, y: number): string | null {
     if (id) return id
   }
   return null
+}
+function pendingConnectionPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  bounds: DOMRect,
+): string {
+  const fromX = from.x - bounds.left
+  const fromY = from.y - bounds.top
+  const toX = to.x - bounds.left
+  const toY = to.y - bounds.top
+  const direction = toX >= fromX ? 1 : -1
+  const bend = Math.max(48, Math.abs(toX - fromX) * 0.45)
+  return `M${fromX},${fromY} C${fromX + bend * direction},${fromY} ${toX - bend * direction},${toY} ${toX},${toY}`
+}
+function PendingConnectionOverlay({
+  pending,
+  container,
+}: {
+  pending: { from: { x: number; y: number }; to: { x: number; y: number } }
+  container: { current: HTMLElement | null }
+}) {
+  const element = container.current
+  const bounds = element?.getBoundingClientRect()
+  if (!element || !bounds) return null
+  const path = pendingConnectionPath(pending.from, pending.to, bounds)
+  return (
+    // design-allow inline-svg: 拖线落到空白时的持久预览路径，不是图标。
+    <svg
+      className="studio-node-pending-connection"
+      viewBox={`0 0 ${element.clientWidth} ${element.clientHeight}`}
+      width={element.clientWidth}
+      height={element.clientHeight}
+      aria-hidden="true"
+    >
+      <path d={path} className="studio-node-pending-connection-path" />
+      <path d={path} pathLength={100} className="studio-node-pending-connection-energy" />
+    </svg>
+  )
 }
 
 function Pending({ pending }: { pending: PendingGeneration }) {
@@ -807,6 +851,7 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
   const { theme } = useTheme()
@@ -878,9 +923,18 @@ function Flow({
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
+  const [connectingFrom, setConnectingFrom] = useState<{
+    nodeId: string
+    handleType: 'source' | 'target'
+  } | null>(null)
   const connectStart = useRef<{ x: number; y: number } | null>(null)
+  const [pendingConnection, setPendingConnection] = useState<{
+    from: { x: number; y: number }
+    to: { x: number; y: number }
+  } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [mediaToolbarSize, setMediaToolbarSize] = useState({ width: 300, height: 44 })
   const [textGeneration, setTextGeneration] = useState<
     Record<string, { busy: boolean; error: string | null }>
   >({})
@@ -916,7 +970,10 @@ function Flow({
   const placeAt = useRef({ x: 0, y: 0 })
   const fileInput = useRef<HTMLInputElement>(null)
   const fileDepth = useRef(0)
-  const closeMenu = () => setMenu(null)
+  const closeMenu = () => {
+    setMenu(null)
+    setPendingConnection(null)
+  }
   const remember = (viewport: { x: number; y: number; zoom: number }) => {
     const box = container.current
     setFrame({
@@ -1370,6 +1427,13 @@ function Flow({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!active || event.defaultPrevented) return
+      if (connectingFrom && event.key === 'Escape') {
+        event.preventDefault()
+        connectStart.current = null
+        setConnectingFrom(null)
+        flowStore.getState().cancelConnection()
+        return
+      }
       if (referencePick) {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -1537,6 +1601,8 @@ function Flow({
   const roles: Record<string, string> = {}
   for (const ref of references) roles[ref.id] = meta[`role:${ref.id}`] ?? 'reference'
   const draftValue = meta.nodePrompt ?? ''
+  const preset = imagePreset(meta.nodeImagePreset)
+  const mediaToolbarHalfWidth = Math.min(mediaToolbarSize.width, Math.max(0, frame.width - 24)) / 2
   const setMeta = (patch: Record<string, string>, trackUndo = true) => {
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
@@ -1742,20 +1808,40 @@ function Flow({
       fromHandle: { type: 'source' | 'target' } | null
     },
   ) => {
+    const reset = () => {
+      connectStart.current = null
+      setConnectingFrom(null)
+    }
     const from = state.fromNode
-    if (!from) return
+    if (!from || !connectStart.current) {
+      setPendingConnection(null)
+      reset()
+      return
+    }
     const point = 'changedTouches' in event ? event.changedTouches[0] : event
-    if (!point) return
+    if (!point) {
+      setPendingConnection(null)
+      reset()
+      return
+    }
+    const targetId = nodeIdAtPoint(point.clientX, point.clientY)
     const link = linkFromDrag(
       { nodeId: from.id, handleType: state.fromHandle?.type ?? null },
-      nodeIdAtPoint(point.clientX, point.clientY),
+      targetId,
     )
-    if (link) connectCanvasNodes(canvas.doc, link, canvas.origin)
-    else if (
-      !nodeIdAtPoint(point.clientX, point.clientY) &&
+    if (link) {
+      setPendingConnection(null)
+      connectCanvasNodes(canvas.doc, link, canvas.origin)
+    } else if (
+      !targetId &&
       connectStart.current &&
       Math.hypot(point.clientX - connectStart.current.x, point.clientY - connectStart.current.y) > 8
     ) {
+      const start = connectStart.current
+      setPendingConnection({
+        from: start,
+        to: { x: point.clientX, y: point.clientY },
+      })
       placeAt.current =
         flowRef.current?.screenToFlowPosition({ x: point.clientX, y: point.clientY }) ?? center()
       setMenu({
@@ -1764,7 +1850,15 @@ function Flow({
         anchorIds: selectedIds.current.includes(from.id) ? selectedIds.current : [from.id],
         side: state.fromHandle?.type === 'target' ? 'left' : 'right',
       })
+    } else {
+      setPendingConnection(null)
     }
+    reset()
+  }
+  const cutConnection = (edgeId: string) => {
+    disconnectCanvasNodes(canvas.doc, edgeId, canvas.origin)
+    setSelectedEdges([])
+    useStore.getState().showToast(t('nodes.connectionCut'), 'success')
   }
   const overview = viewportPlan.mode === 'overview'
   const mounted = overview ? new Set(viewportPlan.mountedIds) : null
@@ -1804,22 +1898,47 @@ function Flow({
                             ? nodes.filter((node) => mounted.has(node.id))
                             : nodes
                           ).map((node) => {
-                            if (referencePick)
-                              return {
-                                ...node,
-                                className: pickableIds.has(node.id)
+                            const classNames = [
+                              referencePick
+                                ? pickableIds.has(node.id)
                                   ? 'studio-node-reference-eligible'
-                                  : 'studio-node-reference-disabled',
+                                  : 'studio-node-reference-disabled'
+                                : '',
+                            ]
+                            if (connectingFrom) {
+                              if (node.id === connectingFrom.nodeId) {
+                                classNames.push('studio-node-connection-source')
+                              } else if (node.data.node) {
+                                const link =
+                                  connectingFrom.handleType === 'target'
+                                    ? { source: node.id, target: connectingFrom.nodeId }
+                                    : { source: connectingFrom.nodeId, target: node.id }
+                                classNames.push(
+                                  canvasLinkAllowed(snapshot, link)
+                                    ? 'studio-node-connection-eligible'
+                                    : 'studio-node-connection-disabled',
+                                )
+                              } else {
+                                classNames.push('studio-node-connection-disabled')
                               }
+                            }
                             const position = arrangementPositions.get(node.id)
-                            return position ? { ...node, position } : node
+                            const className = classNames.filter(Boolean).join(' ') || undefined
+                            if (!position && className === node.className) return node
+                            return {
+                              ...node,
+                              ...(position ? { position } : {}),
+                              ...(className ? { className } : { className: undefined }),
+                            }
                           })}
                           className={
                             arrangementActive
                               ? 'studio-node-arranging'
                               : referencePick
                                 ? 'studio-node-reference-picking'
-                                : undefined
+                                : connectingFrom
+                                  ? 'studio-node-connecting'
+                                  : undefined
                           }
                           nodesDraggable={!arrangementActive && !referencePick}
                           nodesConnectable={!arrangementActive && !referencePick}
@@ -1837,6 +1956,10 @@ function Flow({
                                 interactionWidth: 22,
                                 hidden: !connections && !referencePick,
                                 selected: selectedEdges.includes(edge.id),
+                                data: {
+                                  cutLabel: t('nodes.cutConnection'),
+                                  onCut: () => cutConnection(edge.id),
+                                },
                                 className: highlightedEdges.has(edge.id)
                                   ? 'studio-edge-lit'
                                   : undefined,
@@ -1856,6 +1979,7 @@ function Flow({
                             if (nextId && litRef.current?.has(nextId)) return
                             setLitEdgeIds(null)
                           }}
+                          connectionLineComponent={NodeConnectionLine}
                           edgeTypes={edgeTypes}
                           nodeTypes={nodeTypes}
                           zoomOnDoubleClick={false}
@@ -1920,9 +2044,18 @@ function Flow({
                             selectNode(null)
                             setSelectedEdges([edge.id])
                           }}
-                          onConnectStart={(event) => {
+                          onConnectStart={(event, params) => {
+                            setPendingConnection(null)
                             const point = 'touches' in event ? event.touches[0] : event
                             if (point) connectStart.current = { x: point.clientX, y: point.clientY }
+                            if (params.nodeId && params.handleType) {
+                              setConnectingFrom({
+                                nodeId: params.nodeId,
+                                handleType: params.handleType,
+                              })
+                            } else {
+                              setConnectingFrom(null)
+                            }
                           }}
                           elevateNodesOnSelect={false}
                           onNodesChange={(changes: NodeChange<FlowNode>[]) =>
@@ -1972,7 +2105,8 @@ function Flow({
                             closeMenu()
                           }}
                           onConnect={(connection) => {
-                            if (!connection.source || !connection.target) return
+                            if (!connectStart.current || !connection.source || !connection.target)
+                              return
                             connectCanvasNodes(
                               canvas.doc,
                               { source: connection.source, target: connection.target },
@@ -2067,6 +2201,12 @@ function Flow({
                             <MiniMap pannable zoomable position="bottom-right" />
                           )}
                         </ReactFlow>
+                        {pendingConnection && (
+                          <PendingConnectionOverlay
+                            pending={pendingConnection}
+                            container={container}
+                          />
+                        )}
                         <CanvasOverview
                           active={overview}
                           container={container}
@@ -2257,17 +2397,34 @@ function Flow({
                           ('fileId' in composerNode.data && composerNode.data.fileId)) && (
                           <div
                             className="studio-node-media-actions"
+                            ref={(node) => {
+                              if (!node) return
+                              const { width, height } = node.getBoundingClientRect()
+                              if (width && height)
+                                setMediaToolbarSize((current) =>
+                                  current.width === width && current.height === height
+                                    ? current
+                                    : { width, height },
+                                )
+                            }}
                             style={{
+                              maxWidth: Math.max(0, frame.width - 24),
                               left: Math.max(
-                                150,
+                                mediaToolbarHalfWidth + 12,
                                 Math.min(
                                   selected.position.x * frame.zoom +
                                     frame.x +
                                     ((selected.width ?? 0) * frame.zoom) / 2,
-                                  frame.width - 150,
+                                  frame.width - mediaToolbarHalfWidth - 12,
                                 ),
                               ),
-                              top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),
+                              top: Math.max(
+                                72,
+                                selected.position.y * frame.zoom +
+                                  frame.y -
+                                  mediaToolbarSize.height -
+                                  32,
+                              ),
                             }}
                           >
                             <NodeTool
@@ -2285,6 +2442,20 @@ function Flow({
                                 }
                               }}
                             />
+                            {composerNode.type === 'image' &&
+                              nodeKind(composerNode) === 'image' && (
+                                <NodeImagePresetMenu
+                                  key={`preset:${composerNode.id}`}
+                                  onSelect={(preset) => {
+                                    const id = createImagePresetNode(
+                                      canvas,
+                                      composerNode.id,
+                                      preset,
+                                    )
+                                    if (id) selectNode(id)
+                                  }}
+                                />
+                              )}
                             {composerNode.type === 'image' && (
                               <NodeTool
                                 icon="layers"
@@ -2540,7 +2711,9 @@ function Flow({
                       )}
                       {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer
-                          templates
+                          templates={!preset}
+                          preset={preset}
+                          onRemovePreset={() => setMeta({ nodeImagePreset: '' })}
                           resultTools={
                             <>
                               <NodeResultPicker
@@ -2583,7 +2756,7 @@ function Flow({
                           }}
                           onSubmit={(temporaryReferences) => {
                             const look = useActiveLook.getState().look
-                            if (look) {
+                            if (look && !preset) {
                               void submitNodeWithLook(
                                 editor,
                                 canvas.doc,
@@ -2595,7 +2768,9 @@ function Flow({
                               )
                               return
                             }
-                            const value = draftValue
+                            const value = preset
+                              ? imagePresetPrompt(preset, draftValue)
+                              : draftValue
                             const urls = referenceFileIds(references, files).flatMap((id) => {
                               const source = files[id]
                               return source ? [source] : []
@@ -2609,6 +2784,14 @@ function Flow({
                                 .filter(Boolean)
                                 .join('\n\n'),
                               urls,
+                              undefined,
+                              undefined,
+                              preset
+                                ? {
+                                    settings: useStore.getState().settings,
+                                    params: { ...useStore.getState().params, n: 1 },
+                                  }
+                                : undefined,
                             )
                           }}
                         />

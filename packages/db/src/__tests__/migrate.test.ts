@@ -254,11 +254,15 @@ describe('runMigrations', () => {
       await connection.client`INSERT INTO agent_conversations (id, user_id, title, created_at, updated_at) VALUES ('rollback-stage-conversation', 'rollback-stage-owner', 'stage', ${now}, ${now})`
       await connection.client`INSERT INTO canvas_projects (id, user_id, name, revision, document, element_count, conversation_id, receipts, created_at, updated_at) VALUES ('rollback-stage-project', 'rollback-stage-owner', 'stage', 1, '{"version":1,"elements":[]}'::jsonb, 0, 'rollback-stage-conversation', '[]'::jsonb, ${now}, ${now})`
       const rollback = await Bun.file(
-        new URL('../../drizzle/rollback/0072_agent_stage_authorizations.down.sql', import.meta.url),
+        new URL('../../drizzle/rollback/0073_agent_stage_authorizations.down.sql', import.meta.url),
       ).text()
+      const [createdAt] = await connection.client<
+        { data_type: string }[]
+      >`SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_stage_authorizations' AND column_name = 'created_at'`
+      expect(createdAt?.data_type).toBe('timestamp with time zone')
       for (const status of ['pending', 'active', 'exhausted', 'ended']) {
         const state = { status, nodeIds: ['authorized-node'], budgetCap: 20, spentCredits: 10 }
-        await connection.client`INSERT INTO agent_stage_authorizations (id, user_id, conversation_id, project_id, proposal_key, state, created_at, updated_at) VALUES ('rollback-stage', 'rollback-stage-owner', 'rollback-stage-conversation', 'rollback-stage-project', 'proposal', ${JSON.stringify(state)}::jsonb, ${now.getTime()}, ${now.getTime()}) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state`
+        await connection.client`INSERT INTO agent_stage_authorizations (id, user_id, conversation_id, project_id, proposal_key, state, created_at, updated_at) VALUES ('rollback-stage', 'rollback-stage-owner', 'rollback-stage-conversation', 'rollback-stage-project', 'proposal', ${state}::jsonb, ${now}, ${now}) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state`
         await expect(
           connection.client.begin(async (tx) => {
             await tx.unsafe(rollback)

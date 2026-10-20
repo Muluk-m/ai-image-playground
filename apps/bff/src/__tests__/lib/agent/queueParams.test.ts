@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { queueParamsFor, requestedImageCount } from '../../../lib/agent/tools/queueParams'
+import { imageSizeTier, sizeForAspectRatio } from '@image-playground/shared'
+import {
+  queueParamsFor,
+  requestedImageCount,
+  withAspectRatio,
+} from '../../../lib/agent/tools/queueParams'
 
 describe('轮参数映射进队列请求', () => {
   it('size 为 auto 视同没选，不往上游发', () => {
@@ -46,5 +51,43 @@ describe('轮参数映射进队列请求', () => {
   it('gemini 系不带 openai 才认的输出格式', () => {
     const mapped = queueParamsFor('gemini', { output_format: 'webp' })
     expect(mapped.output_format).toBeUndefined()
+  })
+})
+
+describe('模型按用户原话指定比例', () => {
+  it('保持用户的清晰度档位，换成指定比例的尺寸', () => {
+    expect(withAspectRatio({ size: '1024x1024', quality: 'high' }, '16:9')).toEqual({
+      size: '1280x720',
+      quality: 'high',
+    })
+    expect(withAspectRatio({ size: '2048x2048' }, '9:16')?.size).toBe('1440x2560')
+    expect(withAspectRatio({ size: '3840x2160' }, '1:1')?.size).toBe('2880x2880')
+  })
+
+  it('输入框是 auto 或没有参数时按 1K 档换算', () => {
+    expect(withAspectRatio({ size: 'auto' }, '16:9')?.size).toBe('1280x720')
+    expect(withAspectRatio(undefined, '3:4')?.size).toBe('768x1024')
+  })
+
+  it('没指定比例时原样沿用轮参数', () => {
+    const params = { size: '1024x1536' }
+    expect(withAspectRatio(params, undefined)).toBe(params)
+  })
+
+  it('换算后的尺寸送进队列请求；gemini 归到最接近的 aspectRatio', () => {
+    expect(
+      queueParamsFor('openai-compat', withAspectRatio({ size: '1024x1024' }, '16:9')),
+    ).toMatchObject({
+      size: '1280x720',
+    })
+    expect(
+      queueParamsFor(
+        'gemini',
+        withAspectRatio({ size: '1024x1024', gemini_aspect_ratio: '1:1' }, '9:16'),
+      ),
+    ).toMatchObject({ aspect_ratio: '9:16' })
+    expect(imageSizeTier('1536x1024')).toBe('1K')
+    expect(imageSizeTier('2560x1440')).toBe('2K')
+    expect(sizeForAspectRatio('2560x1440', '4:3')).toBe('2048x1536')
   })
 })

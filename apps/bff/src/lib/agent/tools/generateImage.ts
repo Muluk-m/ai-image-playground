@@ -2,7 +2,12 @@ import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { designPrompt } from '../design-intent'
 import { defineAgentTool } from './adapter'
-import { imageCountParameter, requestedImageCount, reviewParameter } from './queueParams'
+import {
+  aspectRatioParameter,
+  imageCountParameter,
+  requestedImageCount,
+  reviewParameter,
+} from './queueParams'
 import { draftQueueTask, resolveAgentModel } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
@@ -36,6 +41,7 @@ const parameters = Type.Object({
     }),
   ),
   n: imageCountParameter,
+  aspectRatio: aspectRatioParameter,
   reviewAfterCompletion: reviewParameter,
 })
 
@@ -71,6 +77,7 @@ export const generateImage = defineAgentTool({
         toolCallId,
         prompt: designPrompt(params.prompt, params.designIntent),
         n: requestedImageCount(params.n, context.params?.n),
+        ...(params.aspectRatio ? { aspectRatio: params.aspectRatio } : {}),
         review: params.reviewAfterCompletion === true,
       },
       signal,

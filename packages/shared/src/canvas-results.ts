@@ -147,6 +147,8 @@ export function canvasInputFingerprint(doc: Y.Doc, nodeId: string): string {
     })
   const target = nodes.get(nodeId)
   const meta = target && 'meta' in target.data ? target.data.meta : undefined
+  if (meta?.nodeImagePreset)
+    inputs.push(['image-preset', meta.nodeImagePreset, meta.nodePrompt ?? ''])
   // Storyboard outputs also belong to the reviewed shot revision, not just its asset inputs.
   if (meta?.storyboardId && meta.storyboardRole) {
     inputs.push([

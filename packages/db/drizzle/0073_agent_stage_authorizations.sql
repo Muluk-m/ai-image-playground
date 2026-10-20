@@ -6,8 +6,8 @@ CREATE TABLE "agent_stage_authorizations" (
   "proposal_key" text NOT NULL,
   "execution_token_hash" text,
   "state" jsonb NOT NULL,
-  "created_at" bigint NOT NULL,
-  "updated_at" bigint NOT NULL
+  "created_at" timestamp with time zone NOT NULL,
+  "updated_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "idx_agent_stage_proposal" ON "agent_stage_authorizations" ("conversation_id", "proposal_key");

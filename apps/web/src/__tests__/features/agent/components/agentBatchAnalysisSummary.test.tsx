@@ -133,7 +133,7 @@ it('shows whole-scope inspection findings without declaring an unresolved joint 
     )
     expect(host.textContent).toContain('另一页的商品有划痕')
     expect(host.textContent).toContain('联合比较')
-    expect(host.textContent).toContain('待核查')
+    expect(host.textContent).toContain('结果确认中')
     expect(host.textContent).not.toContain('分析已完成')
     expect(requests.every((request) => request.method === 'GET')).toBe(true)
   } finally {

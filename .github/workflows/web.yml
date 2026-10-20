@@ -63,10 +63,33 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: python3 scripts/test-cloud-test.py
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs
       - run: pnpm lint
+      # The production Dockerfile rebuilds the web package from an allowlisted context.
+      # Run the same web stage when build inputs change, so missing .dockerignore entries
+      # fail in CI instead of blocking a later production deployment.
+      - name: Detect Docker web build changes
+        id: docker-web-context
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          [ -n "$base" ] || base="$(git rev-parse HEAD^)"
+          changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
+          if printf '%s\n' "$changed" | grep -Eq '(^Dockerfile$|^\.dockerignore$|(^|/)vite\.config\.(ts|js|mjs|cjs)$|^scripts/)'; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build Docker web stage
+        if: steps.docker-web-context.outputs.required == 'true'
+        run: docker buildx build --progress=plain --target web-build --build-arg TARGETARCH=amd64 --build-arg PRIVATE_OVERLAY_PRESENT=false .
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
       - run: pnpm typecheck

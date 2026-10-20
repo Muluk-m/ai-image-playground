@@ -1,3 +1,4 @@
+import type { ImagePreset } from '@image-playground/shared'
 import type { ChangeEvent, ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
 import Credits from '../../../components/Credits'
@@ -15,6 +16,7 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/api
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import AgentSkillBadge from '../../agent/components/AgentSkillBadge'
 import { applyLookToComposer, useActiveLook } from '../../library/lib/activeLook'
 import { checkLookSubmission } from '../../library/lib/lookSubmit'
 import { useLibraryStore } from '../../library/store'
@@ -40,6 +42,8 @@ export default function ImageNodeComposer({
   onChange,
   onSubmit,
   templates = false,
+  preset,
+  onRemovePreset,
 }: {
   resultTools?: ReactNode
   referenceTools?: ReactNode
@@ -54,6 +58,8 @@ export default function ImageNodeComposer({
   onChange: (value: string) => void
   onSubmit: (temporaryReferences: string[]) => void
   templates?: boolean
+  preset?: ImagePreset
+  onRemovePreset?: () => void
 }) {
   const { t } = useTranslation('canvas')
   const uploadInput = useRef<HTMLInputElement>(null)
@@ -69,7 +75,7 @@ export default function ImageNodeComposer({
   const profile = getActiveApiProfile(settings)
   const guard = usePrivateSubmissionGuard({
     model: clientProfileToApiProfile(profile).model,
-    quantity: Math.max(1, count),
+    quantity: preset ? 1 : Math.max(1, count),
   })
   const activeLook = useActiveLook((state) => (templates ? state.look : null))
   const libraryAssets = useLibraryStore((state) => state.assets)
@@ -86,7 +92,7 @@ export default function ImageNodeComposer({
     !busy &&
     !uploading &&
     (lookCheck?.ok ?? true) &&
-    (value.trim().length > 0 || hasContext || Boolean(activeLook))
+    (value.trim().length > 0 || hasContext || Boolean(activeLook) || Boolean(preset))
   const submit = () => {
     if (canSend) onSubmit(temporary.map((item) => item.url))
   }
@@ -153,6 +159,27 @@ export default function ImageNodeComposer({
             onRemove={() => useActiveLook.getState().set(null)}
           />
         )}
+        {preset && (
+          <div className="flex items-center gap-2">
+            <AgentSkillBadge
+              skill={{
+                name: preset.skillName,
+                icon: preset.icon,
+                title: t(`imagePresets.${preset.skillName}.title`),
+              }}
+            />
+            <span className="text-xs text-muted-foreground">{t('imagePresets.singleSheet')}</span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={t('imagePresets.remove')}
+              disabled={busy}
+              onClick={onRemovePreset}
+            >
+              <Icon name="close" />
+            </Button>
+          </div>
+        )}
         <NodePromptInput
           value={value}
           onChange={onChange}
@@ -191,7 +218,7 @@ export default function ImageNodeComposer({
             <Icon name="imageAdd" />
           </Button>
         )}
-        <ParamControls showCount />
+        <ParamControls showCount={!preset} />
       </CreationToolbar>
       {templates && <LookChips onPick={applyLookToComposer} />}
       <input

@@ -1,6 +1,6 @@
 import type { InspirationReferenceInput } from '@image-playground/shared'
 import { ImageOff, Loader2, Plus, Upload, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,13 +74,72 @@ interface AssetPickerProps {
   hint?: string
   value: string
   onChange: (next: string) => void
+  /** 封面换图时回传像素宽高。文件量到的尺寸优先；地址加载失败不覆盖这次文件测量。 */
+  onDimensions?: (size: { width: number; height: number } | null) => void
   clearable?: boolean
 }
 
-export function AssetPicker({ label, hint, value, onChange, clearable }: AssetPickerProps) {
+function measureImage(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+        resolve({ width: image.naturalWidth, height: image.naturalHeight })
+        return
+      }
+      reject(new Error('empty image'))
+    }
+    image.onerror = () => reject(new Error('image'))
+    image.src = src
+  })
+}
+
+export function AssetPicker({
+  label,
+  hint,
+  value,
+  onChange,
+  onDimensions,
+  clearable,
+}: AssetPickerProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const { busy, error, upload } = useAssetUpload()
   const preview = assetUrl(value)
+  const onDimensionsRef = useRef(onDimensions)
+  onDimensionsRef.current = onDimensions
+  const skipUrlMeasure = useRef(false)
+  const previousValue = useRef<string | null>(null)
+
+  useEffect(() => {
+    const prior = previousValue.current
+    previousValue.current = value
+    if (!onDimensionsRef.current) return
+    if (skipUrlMeasure.current) {
+      skipUrlMeasure.current = false
+      return
+    }
+    if (prior === null || prior === value) return
+    const url = assetUrl(value)
+    if (!url) {
+      onDimensionsRef.current(null)
+      return
+    }
+    onDimensionsRef.current(null)
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void measureImage(url)
+        .then((size) => {
+          if (!cancelled) onDimensionsRef.current?.(size)
+        })
+        .catch(() => {
+          // 地址量不到就保留刚才清空的结果，不把上一次文件测量写回去。
+        })
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [value])
 
   return (
     <div className="space-y-2">
@@ -104,7 +163,22 @@ export function AssetPicker({ label, hint, value, onChange, clearable }: AssetPi
               accept={ACCEPT}
               className="hidden"
               onChange={(event) => {
-                void upload(event.target.files?.[0], (publicUrl) => onChange(publicUrl))
+                const file = event.target.files?.[0]
+                void (async () => {
+                  if (file && onDimensionsRef.current) {
+                    const objectUrl = URL.createObjectURL(file)
+                    try {
+                      const size = await measureImage(objectUrl)
+                      skipUrlMeasure.current = true
+                      onDimensionsRef.current(size)
+                    } catch {
+                      // 文件量不到时交给地址加载。
+                    } finally {
+                      URL.revokeObjectURL(objectUrl)
+                    }
+                  }
+                  await upload(file, (publicUrl) => onChange(publicUrl))
+                })()
                 event.target.value = ''
               }}
             />

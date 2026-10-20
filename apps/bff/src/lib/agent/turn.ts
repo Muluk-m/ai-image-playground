@@ -41,6 +41,7 @@ import {
   resolveTurnReferences,
   shownImageRequests,
 } from './images'
+import { AGENT_LENGTH_CONTINUE_NOTE, agentLengthFailureText } from './length-continuation'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
@@ -80,7 +81,7 @@ import {
 } from './turn-input'
 import { recordAgentTurnSummary } from './turn-summary'
 import { createAgentUsageLedger } from './usage-ledger'
-import { assertVisualBytes } from './visual-resources'
+import { assertVisualBytes, visualByteLimit } from './visual-resources'
 import { createVisualWorkset } from './visual-workset'
 
 export interface AgentTurnSettlement {
@@ -278,6 +279,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   let failure: AgentTurnFailure | undefined
   let error: AgentTurnErrorCode | undefined
   let aborted = false
+  /** 本轮已经为长度截断续写过一次。再截断就失败，避免无限续。 */
+  let lengthContinuations = 0
+  /** 截断消息里的工具参数不完整，那些 start/end 不能变成用户看得见的工具卡。 */
+  let ignoringTruncatedTools = false
+  /** 这一轮已经成功写入计划的项数，失败文案用它告诉用户续写从哪接着。 */
+  let savedPlanItems = 0
   const agent = new Agent({
     initialState: {
       ...initialState,
@@ -515,6 +522,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (pending?.length === 0) steeringReferences.delete(text)
     }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
+      ignoringTruncatedTools = false
       open = { id: crypto.randomUUID(), text: '' }
     }
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
@@ -540,16 +548,26 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       }
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。工具失败时的中止也走这里，
       // 那时 error 已经写好，别让它把更准的那个原因盖掉。
-      if (
-        (event.message.stopReason === 'error' || event.message.stopReason === 'length') &&
-        !aborted
-      ) {
+      // 长度截断先续写一次：没有工具调用时自己补一条续写说明；有工具调用时 pi 会带着
+      // 「参数可能被截断」的工具结果再问一次。第二次仍截断才判失败，已写出的文字留下。
+      const truncated = event.message.stopReason === 'length'
+      if (truncated && !aborted && lengthContinuations < 1 && !error) {
+        lengthContinuations += 1
+        ignoringTruncatedTools = true
+        await closeOpen()
+        if (!event.message.content.some((block) => block.type === 'toolCall')) {
+          agent.followUp({
+            role: 'user',
+            content: [{ type: 'text', text: AGENT_LENGTH_CONTINUE_NOTE }],
+            timestamp: Date.now(),
+          })
+        }
+      } else if ((event.message.stopReason === 'error' || truncated) && !aborted) {
+        if (truncated) ignoringTruncatedTools = true
         error ??= 'agent_upstream_error'
         failure ??= agentTurnFailure(
           error,
-          event.message.stopReason === 'length'
-            ? '模型输出达到长度上限，回复未完成。请缩小请求或手动继续。'
-            : event.message.errorMessage,
+          truncated ? agentLengthFailureText(savedPlanItems) : event.message.errorMessage,
           model.id,
         )
         const local =
@@ -563,13 +581,19 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           },
           local ? 'agent request was rejected locally' : 'agent upstream call failed',
         )
-        await discardOpen()
+        if (truncated) await closeOpen()
+        else await discardOpen()
       } else await closeOpen()
       open = null
       flushQueued()
     }
     // Pi 为截断后跳过的工具也发 start/end；失败响应不能据此生成已执行的工具卡。
-    if (event.type === 'tool_execution_start' && !error && isAgentToolName(event.toolName)) {
+    if (
+      event.type === 'tool_execution_start' &&
+      !error &&
+      !ignoringTruncatedTools &&
+      isAgentToolName(event.toolName)
+    ) {
       const messageId = crypto.randomUUID()
       const start = agentToolStart(
         mode,
@@ -620,6 +644,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     if (event.type === 'tool_execution_end') {
       const pending = openTools.get(event.toolCallId)
       if (!pending) return
+      if (event.toolName === 'planImageBatch' && !event.isError) {
+        const items = pending.start.snapshot?.args.items
+        if (Array.isArray(items)) savedPlanItems += items.length
+      }
       openTools.delete(event.toolCallId)
       const toolFailure = event.isError ? toolFailures.take(event.toolCallId, aborted) : null
       const { block, abortsTurn } = agentToolEnd(pending.start, event.result, toolFailure)
@@ -800,6 +828,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           )
         preparedBytes += imageBytes(image)
         assertVisualBytes(preparedBytes)
+        reviewed.push(image)
+      }
+      // 批次唤醒的复核图尽力附带：旧产物可能已删、几批同时完成可能超预算，跳过即可，
+      // 唤醒说明让模型以图片清单为准，没附上的如实说未查看。
+      const byteLimit = visualByteLimit()
+      for (const id of input.optionalReviewImageIds ?? []) {
+        const image = await images.resolve(id).catch(() => null)
+        if (!image || preparedBytes + imageBytes(image) > byteLimit) continue
+        preparedBytes += imageBytes(image)
         reviewed.push(image)
       }
       const reviewSet = new Set(reviewed)

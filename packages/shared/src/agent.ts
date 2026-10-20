@@ -419,6 +419,7 @@ export type AgentToolStatus =
  * - `content_policy`：上游按内容安全策略拒绝了这次生成。原样重试稳定复现，出路是改提示词，
  *   在智能体这一侧就是让它改写后再提交。
  * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
+ * - `service_unavailable`：批次执行开关关着。重试同一个工具不会自己恢复，交给智能体换路径。
  * - `cancelled`：用户中止了这一轮，不需要出路。
  * - `unknown`：归不进上面任何一类。
  *
@@ -436,6 +437,7 @@ export type AgentToolErrorCode =
   | 'source_unavailable'
   | 'content_policy'
   | 'model_unavailable'
+  | 'service_unavailable'
   | 'cancelled'
   | 'unknown'
 
@@ -451,6 +453,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'source_unavailable',
   'content_policy',
   'model_unavailable',
+  'service_unavailable',
   'cancelled',
   'unknown',
 ]
@@ -681,16 +684,21 @@ export interface AgentVisualObservation {
   readonly evidence: readonly AgentVisualEvidence[]
 }
 
-/** Persisted stage proposal. Execution credentials are never part of conversation history. */
+/**
+ * Persisted canvas run card. Stage fields are present on authorization proposals.
+ * Older cards only have a project, node ids, and sometimes `autoRun`; that flag never grants execution.
+ * Execution credentials are never part of conversation history.
+ */
 export interface AgentCanvasRunProposal {
   readonly projectId: string
   readonly nodeIds: readonly string[]
-  readonly nodeNames: readonly string[]
-  readonly authorizationId: string
-  readonly stage: string
-  readonly estimatedCredits: number
-  readonly budgetCap: number
-  readonly status: 'pending' | 'active' | 'exhausted' | 'ended'
+  readonly nodeNames?: readonly string[]
+  readonly authorizationId?: string
+  readonly stage?: string
+  readonly estimatedCredits?: number
+  readonly budgetCap?: number
+  readonly status?: 'pending' | 'active' | 'exhausted' | 'ended'
+  readonly autoRun?: boolean
 }
 
 export interface AgentToolResultBlock {
@@ -893,6 +901,11 @@ export interface AgentBackgroundJobProgress {
    * 结果已归档、正在确认时是 `confirming`。旧服务端缺席，这时按 `stage` 读。
    */
   readonly phase?: TaskProgressPhase
+  /**
+   * 当前阶段开始的时刻。结果确认用它判断是否已经超过 30 分钟；
+   * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
+   */
+  readonly phaseSince?: number
 }
 
 export interface AgentBackgroundJobsResponse {
@@ -1372,7 +1385,12 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
   if (block.canvasRun) {
     const proposal = block.canvasRun
-    if (!proposal.authorizationId || !Array.isArray(proposal.nodeNames))
+    if (
+      !proposal.authorizationId ||
+      !Array.isArray(proposal.nodeNames) ||
+      proposal.stage === undefined ||
+      proposal.budgetCap === undefined
+    )
       return `${title}：旧运行建议仅供查看，没有阶段授权执行凭证；如需运行，先读取当前画布并重新提出阶段授权。历史 autoRun 标记不授予执行权限。`
     const lookup = JSON.stringify({
       authorizationId: proposal.authorizationId,

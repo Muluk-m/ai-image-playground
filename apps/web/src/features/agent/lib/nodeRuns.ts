@@ -24,11 +24,16 @@ const origins = new Set<string>()
 const runs = new Map<string, AgentNodeRun>()
 const controls = new Map<string, { control: AbortController; authorizationId: string }>()
 const listeners = new Set<() => void>()
+let revision = 0
 export function registerAgentNodeRunOrigin(key: string) {
   origins.add(key)
   for (const listener of listeners) listener()
 }
 export const isAgentNodeRunOrigin = (key: string) => origins.has(key)
+/** 运行表换代的次数。输入栏用它知道哪张运行卡已经开跑，不必再当成待确认。 */
+export function agentNodeRunRevision(): number {
+  return revision
+}
 export const agentNodeRun = (key: string) => runs.get(key)
 export function subscribeAgentNodeRuns(listener: () => void) {
   listeners.add(listener)
@@ -37,6 +42,7 @@ export function subscribeAgentNodeRuns(listener: () => void) {
   }
 }
 function publish(key: string, run: AgentNodeRun) {
+  revision += 1
   runs.set(key, run)
   for (const listener of listeners) listener()
 }
@@ -46,18 +52,19 @@ export function startAgentNodeRun(
   proposal: AgentCanvasRunProposal,
   undoSeconds = AGENT_NODE_RUN_UNDO_SECONDS,
 ): boolean {
-  if (!origins.has(key) || runs.has(key)) return false
+  const authorizationId = proposal.authorizationId
+  if (!authorizationId || !origins.has(key) || runs.has(key)) return false
   const plan = agentNodeRunBridge()?.quote(proposal)
   if (!plan || plan.error || plan.blocked) return false
   const sameAccount = accountScope()
   const base: RunBase = { jobs: plan.jobs, credits: plan.credits }
   const control = new AbortController()
-  controls.set(key, { control, authorizationId: proposal.authorizationId })
+  controls.set(key, { control, authorizationId })
   publish(key, { ...base, status: 'confirming' })
   void (async () => {
     let authorization: StageAuthorization | undefined
     try {
-      const confirmed = await stageAuthorizationClient.confirm(proposal.authorizationId)
+      const confirmed = await stageAuthorizationClient.confirm(authorizationId)
       authorization = confirmed.authorization
       if (control.signal.aborted || !sameAccount()) return
       if (undoSeconds > 0)
@@ -103,7 +110,7 @@ export function startAgentNodeRun(
         },
         confirmed.executionToken,
       )
-      authorization = await stageAuthorizationClient.read(proposal.authorizationId)
+      authorization = await stageAuthorizationClient.read(authorizationId)
       publish(key, { ...base, authorization, status: 'done' })
     } catch (error) {
       const run = runs.get(key)
@@ -137,7 +144,7 @@ export function startAgentNodeRun(
       controls.delete(key)
       if (authorization && sameAccount()) {
         try {
-          const ended = await stageAuthorizationClient.end(proposal.authorizationId)
+          const ended = await stageAuthorizationClient.end(authorizationId)
           const run = runs.get(key)
           if (run) publish(key, { ...run, authorization: ended })
         } catch {

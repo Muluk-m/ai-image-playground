@@ -30,12 +30,13 @@ export default function AgentNodeRunCard({
   const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
   const [stored, setStored] = useState<StageAuthorization>()
   useEffect(() => {
-    if (!proposal.authorizationId) return
+    const authorizationId = proposal.authorizationId
+    if (!authorizationId) return
     let active = true
     let timer: number | undefined
     const refresh = async () => {
       try {
-        const state = await stageAuthorizationClient.read(proposal.authorizationId)
+        const state = await stageAuthorizationClient.read(authorizationId)
         if (!active) return
         setStored(state)
         if (state.status === 'pending' || state.status === 'active')

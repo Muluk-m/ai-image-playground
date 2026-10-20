@@ -125,11 +125,19 @@ import {
   subscribeAttachmentUploads,
   withKnownAttachmentMedia,
 } from '../lib/attachmentUploads'
+import { batchDraftSnapshot, subscribeBatchDrafts } from '../lib/batchDrafts'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
+import { shouldHoldConfirmation } from '../lib/confirmationPhrase'
 import { conversationImages } from '../lib/conversationImages'
 import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
 import { referenceTileLabel } from '../lib/imageMentions'
 import type { MarkRenderer } from '../lib/markedReferences'
+import { agentNodeRun, agentNodeRunRevision, subscribeAgentNodeRuns } from '../lib/nodeRuns'
+import {
+  type ConfirmationHint,
+  confirmationHintKey,
+  resolvePendingConfirmations,
+} from '../lib/pendingConfirmations'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory } from '../lib/promptHistory'
 import {
@@ -150,6 +158,7 @@ import {
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
+import AgentConfirmationGate, { scrollToAgentMessage } from './AgentConfirmationGate'
 import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
 import { useAssetSlots } from './useAssetSlots'
@@ -314,6 +323,22 @@ export default function AgentComposer({
         (message) => message.kind === 'tool' && Boolean(message.artifacts?.length),
       ),
     ),
+  )
+  const confirmationKey = useAgentStore((state) => confirmationHintKey(state.messages))
+  const confirmationCandidates = useMemo(
+    () => (confirmationKey ? (JSON.parse(confirmationKey) as ConfirmationHint[]) : []),
+    [confirmationKey],
+  )
+  const nodeRunRevision = useSyncExternalStore(subscribeAgentNodeRuns, agentNodeRunRevision)
+  const draftBatchIds = useSyncExternalStore(subscribeBatchDrafts, batchDraftSnapshot)
+  const pendingConfirmations = useMemo(
+    () =>
+      resolvePendingConfirmations(
+        confirmationCandidates,
+        draftBatchIds,
+        (messageId) => agentNodeRun(messageId) !== undefined,
+      ),
+    [confirmationCandidates, draftBatchIds, nodeRunRevision],
   )
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
@@ -911,9 +936,23 @@ export default function AgentComposer({
    * 用户照常打字、照常发，`send` 会静默等中止落定再起新轮。
    */
   const stopMode = running && !stopping && !draft.prompt.trim()
+  const bypassConfirmation = useRef(false)
+  const [confirmationHeld, setConfirmationHeld] = useState(false)
+  useEffect(() => {
+    setConfirmationHeld(false)
+  }, [draft.prompt])
 
   const submit = () => {
     if (loading || submitting || historyBlocked || uploadsBlocked) return
+    if (
+      !bypassConfirmation.current &&
+      shouldHoldConfirmation(draft.prompt, pendingConfirmations.length)
+    ) {
+      setConfirmationHeld(true)
+      return
+    }
+    bypassConfirmation.current = false
+    setConfirmationHeld(false)
     void useAgentStore.getState().submitDraft({
       session,
       snapshot: draft,
@@ -1055,6 +1094,16 @@ export default function AgentComposer({
             <Icon name="close" />
           </Button>
         </div>
+      )}
+      {confirmationHeld && pendingConfirmations.length > 0 && (
+        <AgentConfirmationGate
+          pending={pendingConfirmations}
+          onJump={scrollToAgentMessage}
+          onSendAnyway={() => {
+            bypassConfirmation.current = true
+            submit()
+          }}
+        />
       )}
       <CreationFrame className={dragging ? 'ring-2 ring-primary' : ''}>
         {productionMode && (

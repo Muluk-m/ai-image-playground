@@ -35,7 +35,7 @@
       "generating": "Generating...",
       "reconnecting": "Reconnecting...",
       "confirming": "Confirming result...",
-      "reconciling": "Awaiting verification"
+      "reconciling": "Checking the result (already submitted, no extra charge)"
     },
     "inpaint": "Inpaint",
     "transparentBackground": "Transparent"
@@ -90,9 +90,6 @@
     "dialog": "Image preview"
   },
   "grid": {
-    "expandAll": "Expand all",
-    "expandMore": "Show more creations",
-    "collapse": "Collapse",
     "openLibrary": "Open library",
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
     "noMatches": "No matching records",

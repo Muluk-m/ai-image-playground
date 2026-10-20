@@ -3,6 +3,7 @@ import {
   canvasOrigin,
   connectCanvasNodes,
   createCanvasUndoManager,
+  IMAGE_PRESETS,
   importLegacyElements,
   insertCanvasNode,
   moveCanvasNodes,
@@ -67,6 +68,7 @@ vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
 }))
 vi.mock('../../../../theme/useTheme', () => ({ useTheme: () => ({ theme: 'dark' }) }))
 vi.mock('@xyflow/react', () => ({
+  useUpdateNodeInternals: () => () => {},
   applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
@@ -98,17 +100,24 @@ vi.mock('@xyflow/react', () => ({
       children,
     ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  useStoreApi: () => ({ getState: () => ({ cancelConnection: () => {} }) }),
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
+    edges,
     nodeTypes,
     children,
     onInit,
     onPaneClick,
     onNodeClick,
+    onEdgeClick,
+    onConnect,
+    onConnectStart,
+    onConnectEnd,
     onSelectionChange,
     onMove,
     style,
+    className,
   }: {
     nodes: {
       id: string
@@ -119,13 +128,35 @@ vi.mock('@xyflow/react', () => ({
       width: number
       height: number
       selected?: boolean
+      className?: string
+    }[]
+    edges?: {
+      id: string
+      source: string
+      target: string
+      selected?: boolean
+      data?: { onCut?: () => void }
     }[]
     nodeTypes: Record<string, ElementType>
     children: ReactNode
     onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
     onMove?: (event: unknown, viewport: TestViewport) => void
     style?: CSSProperties
+    className?: string
     onNodeClick?: (event: unknown, node: { id: string }) => void
+    onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
+    onConnect?: (connection: { source: string; target: string }) => void
+    onConnectStart?: (
+      event: { clientX: number; clientY: number },
+      params: { nodeId: string; handleType: 'source' | 'target' },
+    ) => void
+    onConnectEnd?: (
+      event: { clientX: number; clientY: number },
+      state: {
+        fromNode: { id: string } | null
+        fromHandle: { type: 'source' | 'target' } | null
+      },
+    ) => void
     onPaneClick?: () => void
     onInit?: (flow: {
       screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
@@ -148,7 +179,7 @@ vi.mock('@xyflow/react', () => ({
     }, [])
     return createElement(
       'div',
-      { className: 'react-flow', style },
+      { className: `react-flow ${className ?? ''}`, style },
       ...nodes
         .filter((node) => !mocks.hiddenNodeIds.has(node.id))
         .map((node) =>
@@ -156,7 +187,7 @@ vi.mock('@xyflow/react', () => ({
             'div',
             {
               key: node.id,
-              className: `react-flow__node${node.selected ? ' selected' : ''}`,
+              className: `react-flow__node${node.selected ? ' selected' : ''}${node.className ? ` ${node.className}` : ''}`,
               'data-node-id': node.id,
               onClick: (event: unknown) => {
                 onSelectionChange?.({ nodes: [node] })
@@ -172,7 +203,44 @@ vi.mock('@xyflow/react', () => ({
             createElement(nodeTypes[node.type], { data: node.data, selected: node.selected }),
           ),
         ),
-      children,
+      ...(edges ?? []).flatMap((edge) => [
+        createElement('button', {
+          key: edge.id,
+          type: 'button',
+          'data-edge-id': edge.id,
+          onClick: (event: { stopPropagation: () => void }) => onEdgeClick?.(event, edge),
+        }),
+        ...(edge.selected && edge.data?.onCut
+          ? [
+              createElement('button', {
+                key: `${edge.id}:cut`,
+                type: 'button',
+                'data-edge-cut': edge.id,
+                onClick: edge.data.onCut,
+              }),
+            ]
+          : []),
+      ]),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'start-connection',
+        onClick: () =>
+          onConnectStart?.({ clientX: 0, clientY: 0 }, { nodeId: 'image', handleType: 'source' }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'commit-connection',
+        onClick: () => onConnect?.({ source: 'image', target: 'second' }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'drop-connection',
+        onClick: () =>
+          onConnectEnd?.(
+            { clientX: 100, clientY: 120 },
+            { fromNode: { id: 'image' }, fromHandle: { type: 'source' } },
+          ),
+      }),
       createElement('button', {
         type: 'button',
         'data-testid': 'pane',
@@ -572,7 +640,7 @@ it('places a text card that stays large enough for the side handles', async () =
   expect(bounds.height).toBe(220)
 })
 
-it('offers all node types from either handle and connects the chosen node in the right direction', async () => {
+it('offers node types only from the right handle and connects the chosen downstream node', async () => {
   await render()
   const handle = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[data-node-id="image"] [aria-label="${label}"]`)!
@@ -591,12 +659,98 @@ it('offers all node types from either handle and connects the chosen node in the
   expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
     expect.objectContaining({ source: 'image', target: added.id }),
   )
-  act(() => handle('接入上文').click())
-  choose('文本')
-  const text = readCanvasDocument(canvas.doc).nodes.find((n) => n.type === 'text')!
-  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
-    expect.objectContaining({ source: text.id, target: 'image' }),
+  expect(handle('接入上文')).toBeNull()
+})
+it('keeps a selected connection until the explicit cut action is clicked', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
+  const firstEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')!
+  act(() => firstEdge.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+  const selectedEdge = host.querySelector<HTMLButtonElement>('[data-edge-id="image:second"]')!
+  act(() => selectedEdge.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+
+  const cut = host.querySelector<HTMLButtonElement>('[data-edge-cut="image:second"]')
+  expect(cut).not.toBeNull()
+  act(() => cut!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
+})
+it('dims unsupported nodes and highlights the whole valid target card while dragging', async () => {
+  Object.assign(workspace.editor, { getElement: () => undefined })
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() =>
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id: 'timeline',
+        type: 'timeline',
+        x: 10,
+        y: 300,
+        width: 560,
+        height: 240,
+        data: { clips: [] },
+      },
+      canvas.origin,
+    ),
   )
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  expect(host.querySelector('[data-node-id="second"]')?.className).toContain(
+    'studio-node-connection-eligible',
+  )
+  expect(host.querySelector('[data-node-id="timeline"]')?.className).toContain(
+    'studio-node-connection-disabled',
+  )
+})
+
+it('commits an active drag through React Flow before its end callback', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="commit-connection"]')!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
+    expect.objectContaining({ source: 'image', target: 'second' }),
+  )
+})
+
+it('restores the scene on Escape and ignores the subsequent connection drop', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  expect(host.querySelector('.studio-node-connecting')).not.toBeNull()
+  act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(host.querySelector('.studio-node-connecting')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="commit-connection"]')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
+})
+
+it('opens the add-node menu when a connection ends on blank canvas space', async () => {
+  await render()
+  const original = (
+    document as Document & { elementsFromPoint?: typeof document.elementsFromPoint }
+  ).elementsFromPoint
+  Object.defineProperty(document, 'elementsFromPoint', {
+    configurable: true,
+    value: () => [],
+  })
+  try {
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+    expect(host.querySelector('[data-node-id="image"]')?.className).toContain(
+      'studio-node-connection-source',
+    )
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('文本')
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('图片')
+  } finally {
+    if (original)
+      Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: original })
+    else Reflect.deleteProperty(document, 'elementsFromPoint')
+  }
 })
 
 it('places a dropped image where the pointer is', async () => {
@@ -670,7 +824,9 @@ it('offers video tools and preview when the video has no poster file', async () 
 it('previews arrangement without saving, reverts it, and keeps it as one undo step', async () => {
   await render()
   act(() => old.addElements([image('second')]))
+  act(() => connectCanvasNodes(canvas.doc, { source: 'image', target: 'second' }, canvas.origin))
   const before = readCanvasDocument(canvas.doc).nodes
+  const edges = readCanvasDocument(canvas.doc).edges
   const click = (label: string) =>
     act(() => {
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -681,14 +837,17 @@ it('previews arrangement without saving, reverts it, and keeps it as one undo st
     })
   click('整理画布')
   expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
   expect(host.textContent).toContain('是否保留此次整理结果？')
   click('还原')
   expect(host.textContent).not.toContain('是否保留此次整理结果？')
   click('整理画布')
   click('保留')
   expect(readCanvasDocument(canvas.doc).nodes).not.toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
   act(() => canvas.undo.undo())
   expect(readCanvasDocument(canvas.doc).nodes).toEqual(before)
+  expect(readCanvasDocument(canvas.doc).edges).toEqual(edges)
 })
 
 it('keeps arrangement through media updates but cancels it when another editor moves a node', async () => {
@@ -791,6 +950,50 @@ it('shows the prompt composer only for a selected node', async () => {
   expect(host.querySelector('.studio-node-composer')).toBeNull()
   act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
   expect(host.querySelector('.studio-node-composer')).not.toBeNull()
+})
+
+it.each(
+  IMAGE_PRESETS,
+)('prepares $skillName with its source reference and only generates on Send', async (preset) => {
+  const params = useStore.getState().params
+  useStore.setState({ params: { ...params, n: 3 } })
+  try {
+    await render()
+    await act(async () => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+    const original = structuredClone(readCanvasDocument(canvas.doc).nodes[0])
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="预设"]')!.click())
+    const title = i18next.t(`imagePresets.${preset.skillName}.title`, { ns: 'canvas' })
+    const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (button) => button.textContent?.includes(title),
+    )!
+    expect(choice).toBeTruthy()
+    await act(async () => choice.click())
+    const snapshot = readCanvasDocument(canvas.doc)
+    const result = snapshot.nodes.find((node) => node.id !== 'image')!
+    expect(snapshot.nodes.find((node) => node.id === 'image')).toEqual(original)
+    expect(snapshot.edges).toContainEqual(
+      expect.objectContaining({ source: 'image', target: result.id }),
+    )
+    expect(host.querySelector('[data-skill-name]')?.textContent).toContain(title)
+    expect(mocks.submitImage).not.toHaveBeenCalled()
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="生成"]')!.click())
+    expect(mocks.submitImage).toHaveBeenCalledWith(
+      expect.anything(),
+      canvas.doc,
+      result.id,
+      expect.stringContaining(preset.instruction),
+      ['data:image/png;base64,AA=='],
+      undefined,
+      undefined,
+      expect.objectContaining({ params: expect.objectContaining({ n: 1 }) }),
+    )
+    expect(useStore.getState().params.n).toBe(3)
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="移除预设"]')!.click())
+    expect(host.querySelector('[data-skill-name]')).toBeNull()
+    expect(readCanvasDocument(canvas.doc).edges).toHaveLength(1)
+  } finally {
+    useStore.setState({ params })
+  }
 })
 
 it('sends a preset template through the selected image node', async () => {

@@ -46,11 +46,13 @@ export function useAgentNodeRun({
         const plan = quote(proposal)
         if (!plan || plan.signature !== signature || plan.error || plan.blocked)
           throw new NodeBatchFailure(plan?.error ?? 'changed')
+        if (!proposal.authorizationId) throw new NodeBatchFailure('authorization')
+        const authorizationId = proposal.authorizationId
         const authorizations: Record<string, StageAuthorizationSubmission> = {}
         for (const job of plan.jobs) {
           if (signal.aborted) throw new NodeBatchFailure('cancelled')
           const attemptId = crypto.randomUUID()
-          await stageAuthorizationClient.preflight(proposal.authorizationId, {
+          await stageAuthorizationClient.preflight(authorizationId, {
             executionToken,
             attemptId,
             nodeId: job.id,
@@ -59,7 +61,7 @@ export function useAgentNodeRun({
             unitMultiplier: job.unitMultiplier ?? 1,
           })
           authorizations[job.id] = {
-            authorizationId: proposal.authorizationId,
+            authorizationId,
             nodeId: job.id,
             attemptId,
             executionToken,

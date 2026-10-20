@@ -119,8 +119,11 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'generateImage',
     'editImage',
     'generateVideo',
+    'proposeBatchGeneration',
+    'planImageBatch',
   ])
     expect(names).not.toContain(name)
+  // 非节点画布是否带 planImageBatch 取决于批次能力开关，这套夹具没开，不在这里断言它出现。
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
@@ -352,6 +355,58 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   ).rejects.toThrow('云端节点画布')
 })
 
+it('turns a chat attachment into an image node the user does not have to drag in', async () => {
+  const { context, run, graph } = await fixture()
+  const now = Date.now()
+  const mediaId = crypto.randomUUID()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: userId,
+    sha256: 'b'.repeat(64),
+    bytes: 1024,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 1024,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    width: 800,
+    height: 600,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  const attached = {
+    ...context,
+    images: createAgentImageSource({
+      references: [{ imageId: 'file_bathtub', mediaId, name: '浴缸正面' }],
+      history: [],
+      conversationId: context.conversationId,
+      userId,
+    }),
+  }
+  const runAttached = (args: unknown) =>
+    createNodes.create(attached).execute(crypto.randomUUID(), args, undefined, undefined)
+  await runAttached({
+    nodes: [
+      { id: 'bathtub', type: 'image', imageId: 'file_bathtub' },
+      { id: 'scene', type: 'image', prompt: '把浴缸放进海景浴室' },
+    ],
+  })
+  const saved = await graph()
+  expect(saved.nodes.find((node) => node.id === 'bathtub')?.data).toMatchObject({
+    mediaId,
+    name: '浴缸正面',
+    meta: { nodeKind: 'image' },
+  })
+  expect(saved.nodes.find((node) => node.id === 'scene')?.data).not.toHaveProperty('mediaId')
+  await expect(
+    runAttached({ nodes: [{ id: 'ghost', type: 'image', imageId: 'file_missing' }] }),
+  ).rejects.toThrow('file_bathtub')
+  await expect(
+    run(createNodes, { nodes: [{ id: 'note', type: 'text', imageId: 'file_bathtub' }] }),
+  ).rejects.toThrow('只有 image 节点可以设置 imageId')
+})
+
 it('routes node canvas generation away from generic batch plans', async () => {
   const { context } = await fixture()
   const items = [{ key: 'a', imageIds: ['image-a'], prompt: '换背景', dependencies: [] }]
@@ -532,4 +587,33 @@ it('splits a script into imageless assets and a storyboard, and appends the next
     }),
   ).rejects.toThrow('board')
   expect((await graph()).nodes.some((node) => node.id === 'board-2')).toBe(false)
+})
+
+it('names the closest nodes when an id is mistyped and stops a repeated failure loop', async () => {
+  const { context, run } = await fixture()
+  await run(createNodes, {
+    nodes: [
+      { id: 'agent_02c5d941-fef5-4e04-b95b-8d9dcf1ece43', type: 'text', name: '人物' },
+      { id: 'scene', type: 'text', name: '地点' },
+    ],
+  })
+  await expect(
+    run(arrangeNodes, { nodeIds: ['agent_02c5c9ef-4f84-4ace-2a77b9a24aaa'] }),
+  ).rejects.toThrow('最接近的现有节点：agent_02c5d941-fef5-4e04-b95b-8d9dcf1ece43（人物）')
+
+  const wrapped = agentTurnTools(context).find((tool) => tool.name === 'arrangeNodes')!
+  const attempt = () =>
+    wrapped.execute(
+      crypto.randomUUID(),
+      { nodeIds: ['agent_02c5c9ef-4f84-4ace-2a77b9a24aaa'] },
+      undefined,
+      undefined,
+    )
+  for (let i = 0; i < 3; i++) await expect(attempt()).rejects.toThrow('节点不存在')
+  await expect(attempt()).rejects.toThrow('已停止重试')
+  // 熔断只在这一轮内有效，下一轮重新计数。
+  const other = agentTurnTools(context).find((tool) => tool.name === 'arrangeNodes')!
+  await expect(
+    other.execute(crypto.randomUUID(), { nodeIds: ['scene'] }, undefined, undefined),
+  ).resolves.toBeDefined()
 })

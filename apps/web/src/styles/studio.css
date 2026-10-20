@@ -443,7 +443,8 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 }
 
 .studio-home-intro { padding-top: 48px; }
-.studio-home-create { max-width: 768px; margin-inline: auto; }
+/* 问候语和模式切换之间留出提示条的高度，居中提示才不会压住标题或输入区。 */
+.studio-home-create { max-width: 768px; margin-inline: auto; padding-top: 5rem; }
 .studio-home-create .creation-body .creation-prompt { min-height: 96px; }
 @media (max-width: 767px) {
   .studio-home-create .creation-body .creation-prompt { min-height: 84px; }
@@ -1287,7 +1288,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .react-flow__node.selected > .studio-node { border-color: hsl(var(--primary)); }
 .studio-node-canvas .react-flow__resize-control.line { border-color: transparent; }
 .studio-node--image, .studio-node--video { background: hsl(var(--muted) / .4); }
-.studio-node-media { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; user-select: none; }
+.studio-node-media { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
 .studio-node[data-rotated] { overflow: visible; border-radius: 0; }
 .studio-node-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .studio-node--text {
@@ -1317,10 +1318,9 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   width: 6px; height: 6px; z-index: 4; border: 0; background: transparent;
   transform: translateY(-50%);
 }
-.studio-node-canvas .studio-node-handle.react-flow__handle-left { left: 0; }
+.studio-node-canvas .react-flow__handle.studio-node-input-anchor { left: 0; opacity: 0; pointer-events: none; }
 .studio-node-canvas .studio-node-handle.react-flow__handle-right { right: 0; }
 .studio-node-port-range { position: absolute; top: 50%; width: 64px; height: 64px; transform: translateY(-50%); pointer-events: auto; cursor: crosshair; }
-.studio-node-handle.react-flow__handle-left .studio-node-port-range { right: 6px; }
 .studio-node-handle.react-flow__handle-right .studio-node-port-range { left: 6px; }
 .studio-node-port-button {
   position: absolute; top: 18px; left: 18px; display: grid; place-items: center; width: 28px; height: 28px;
@@ -1336,7 +1336,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-node-handle.connectingfrom .studio-node-port-button { opacity: 1; }
 .studio-node-port-button[data-following="true"] { background: hsl(var(--muted)); color: hsl(var(--primary)); border-color: hsl(var(--primary) / .6); }
 .studio-node-handle:focus-visible .studio-node-port-button { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
-.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 4px hsl(var(--primary) / .8)); }
+.studio-node-edge-energy { stroke: hsl(var(--primary)); stroke-width: 1.25; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0; pointer-events: none; filter: drop-shadow(0 0 3px hsl(var(--primary) / .65)); }
 .studio-edge-lit .studio-node-edge-energy, .react-flow__edge.selected .studio-node-edge-energy { opacity: 1; animation: studio-node-flow-energy 1800ms linear infinite; }
 @keyframes studio-node-flow-energy { to { stroke-dashoffset: -100; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1345,16 +1345,104 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 }
 .studio-node-canvas .react-flow__edge-path,
 .studio-node-canvas .react-flow__connection-path {
-  stroke: hsl(var(--foreground) / .72);
-  stroke-width: 2;
+  stroke: hsl(var(--foreground) / .34);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   transition: stroke 140ms ease-out, stroke-width 140ms ease-out;
 }
 .studio-node-canvas:has(.studio-edge-lit) .react-flow__edge:not(.studio-edge-lit) .react-flow__edge-path {
-  stroke: hsl(var(--foreground) / .22);
+  stroke: hsl(var(--foreground) / .2);
 }
-.studio-node-canvas .react-flow__edge.studio-edge-lit .react-flow__edge-path {
+.studio-node-canvas .studio-edge-lit .react-flow__edge-path,
+.studio-node-canvas .react-flow__edge.selected .react-flow__edge-path {
   stroke: hsl(var(--primary));
+  stroke-width: 1.25;
+}
+/* Keep the scene subdued while candidate cards remain readable above the backdrop. */
+.studio-node-connecting::before { content: ''; position: absolute; inset: 0; z-index: 0; background: hsl(var(--scrim) / .5); pointer-events: none; }
+.studio-node-connecting .react-flow__node { filter: brightness(.3) saturate(.4); }
+.studio-node-connecting .studio-node-connection-source { filter: none; }
+.studio-node-connecting .studio-node-connection-eligible { filter: brightness(.8); }
+.studio-node-connecting .studio-node-connection-eligible:hover { filter: none; }
+.studio-node-connecting .react-flow__edges { opacity: .2; }
+.studio-node-connecting .react-flow__resize-control,
+.studio-node-connecting .studio-node-connection-eligible .studio-node-handle,
+.studio-node-connecting .studio-node-connection-disabled .studio-node-handle { visibility: hidden; }
+.studio-node-canvas .studio-node-connection-eligible:hover > .studio-node {
+  border-color: hsl(var(--primary) / .7);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / .45);
+}
+.studio-node-connection-preview-path {
+  fill: none;
+  stroke: hsl(var(--primary) / .95);
   stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px hsl(var(--primary) / .45));
+}
+.studio-node-connection-preview--invalid .studio-node-connection-preview-path {
+  stroke: hsl(var(--destructive) / .75);
+  filter: drop-shadow(0 0 4px hsl(var(--destructive) / .35));
+}
+.studio-node-connection-preview-energy {
+  fill: none;
+  stroke: hsl(var(--primary));
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 14 86;
+  opacity: .9;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / .85));
+  pointer-events: none;
+  animation: studio-node-flow-energy 900ms linear infinite;
+}
+.studio-node-connection-preview--invalid .studio-node-connection-preview-energy {
+  stroke: hsl(var(--destructive));
+  filter: drop-shadow(0 0 5px hsl(var(--destructive) / .7));
+}
+.studio-node-pending-connection {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+.studio-node-pending-connection-path {
+  fill: none;
+  stroke: hsl(var(--primary) / .8);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px hsl(var(--primary) / .55));
+}
+.studio-node-pending-connection-energy {
+  fill: none;
+  stroke: hsl(var(--primary));
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-dasharray: 14 86;
+  opacity: .9;
+  filter: drop-shadow(0 0 6px hsl(var(--primary) / .8));
+  pointer-events: none;
+  animation: studio-node-flow-energy 900ms linear infinite;
+}
+.studio-node-edge-cut {
+  pointer-events: all;
+  position: absolute;
+  z-index: 2;
+}
+.studio-node-edge-cut button {
+  border: 1px solid hsl(var(--primary) / .65);
+  background: hsl(var(--card) / .96);
+  color: hsl(var(--foreground));
+  box-shadow: 0 0 14px hsl(var(--primary) / .25);
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-node-port-button { transition: none; }
+  .studio-node-edge-energy,
+  .studio-node-connection-preview-energy,
+  .studio-node-pending-connection-energy,
+  .studio-node-handle.connectingto.valid .studio-node-port-button::before { animation: none !important; }
 }
 .studio-node-composer {
   /* 宽屏夹在左下工具条与右下对话入口之间；两侧留白跟着它们的宽度走。 */
@@ -1476,7 +1564,7 @@ body .studio-global-account {
   .studio-node-composer { left: 8px; right: 8px; bottom: 68px; }
 }
 .studio-node-project-title { position: absolute; left: 16px; top: 16px; z-index: 24; max-width: calc(100% - 32px); }
-.studio-node-media-actions { position: absolute; z-index: 24; display: flex; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
+.studio-node-media-actions { position: absolute; z-index: 24; width: max-content; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px; padding: 4px; transform: translateX(-50%); border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); box-shadow: 0 6px 20px hsl(var(--scrim) / .1); }
 .studio-node-canvas .react-flow__node.selected > .react-flow__handle.studio-node-handle { pointer-events: all; }
 
 /* Group frames stay behind cards; only their header takes pointer input. */
@@ -1525,3 +1613,18 @@ body .studio-global-account {
 .studio-node-reference-picking .studio-node-reference-disabled { opacity: .22; filter: grayscale(1); cursor: not-allowed; }
 .studio-node-reference-picking .studio-node-reference-eligible { cursor: crosshair; }
 .studio-node-reference-eligible:hover .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 4px; }
+
+html[data-home='true'] .app-inset-panel { overflow: clip; }
+.studio-works-fade {
+  position: sticky;
+  bottom: var(--mobile-nav-height, 0px);
+  z-index: 10;
+  height: 96px;
+  margin-top: -96px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, hsl(var(--background) / 0), hsl(var(--background) / .9));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
+  -webkit-mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
+}

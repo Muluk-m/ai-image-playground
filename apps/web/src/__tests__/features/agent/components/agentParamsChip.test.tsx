@@ -359,6 +359,18 @@ it('模型和画幅收在同一颗胶囊里，点选具体模型后摘要改用�
   expect(sections.indexOf('画幅')).toBeLessThan(sections.indexOf('思考深度'))
 })
 
+it('直接出图在卡片里显示为开，用户可以关掉', () => {
+  useAgentStore.setState({ autoSubmit: true })
+  render()
+  toggle()
+  const toggleSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!
+  expect(toggleSwitch.getAttribute('aria-checked')).toBe('true')
+  expect(document.body.textContent).toContain('默认开启')
+  act(() => toggleSwitch.click())
+  expect(useAgentStore.getState().autoSubmit).toBe(false)
+  expect(toggleSwitch.getAttribute('aria-checked')).toBe('false')
+})
+
 it('直接出图只在卡片里切换，胶囊上不再单独挂闪电', () => {
   useAgentStore.setState({ autoSubmit: false })
   render()

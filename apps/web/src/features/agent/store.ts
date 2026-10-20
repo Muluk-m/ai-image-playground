@@ -84,6 +84,7 @@ import {
   deliverable,
   type TurnArtifactDelivery,
 } from './lib/artifactDelivery'
+import { readAutoSubmitPreference } from './lib/autoSubmitPreference'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
@@ -166,8 +167,9 @@ function readThinkingDepth(): AgentThinkingDepth {
 }
 
 /**
- * 出图模式（生成工具拟好稿当场提交，不逐张等确认）。与思考档位同样是本机偏好：
+ * 直接出图（生成工具拟好稿当场提交，不逐张等确认）。与思考档位同样是本机偏好：
  * 它换掉的是用户那道花钱闸门，跨会话记住才不用每批都重开，但也绝不跟着账号同步。
+ * 没存过时默认打开；读法见 `readAutoSubmitPreference`。
  */
 const AUTO_SUBMIT_KEY = 'image-playground-agent-auto-submit'
 
@@ -197,8 +199,8 @@ export interface AgentState {
   thinkingDepth: AgentThinkingDepth
   setThinkingDepth(depth: AgentThinkingDepth): void
   /**
-   * 出图模式：生成工具拟好稿当场提交，不再逐张等确认（`AgentTurnParams.autoSubmit`）。
-   * 与思考档位同属本机偏好，起轮时随参数快照送到服务端。
+   * 直接出图：生成工具拟好稿当场提交，不再逐张等确认（`AgentTurnParams.autoSubmit`）。
+   * 与思考档位同属本机偏好，起轮时随参数快照送到服务端。没记下过选择时为开。
    */
   autoSubmit: boolean
   setAutoSubmit(autoSubmit: boolean): void
@@ -1686,7 +1688,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       safeLocalStorage.setItem(THINKING_DEPTH_KEY, thinkingDepth)
       set({ thinkingDepth })
     },
-    autoSubmit: safeLocalStorage.getItem(AUTO_SUBMIT_KEY) === '1',
+    autoSubmit: readAutoSubmitPreference(safeLocalStorage.getItem(AUTO_SUBMIT_KEY)),
     setAutoSubmit: (autoSubmit) => {
       safeLocalStorage.setItem(AUTO_SUBMIT_KEY, autoSubmit ? '1' : '0')
       set({ autoSubmit })
