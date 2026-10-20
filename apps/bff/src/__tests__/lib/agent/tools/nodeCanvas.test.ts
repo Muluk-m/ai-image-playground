@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  canvasMainResult,
   canvasNodeSourceData,
   canvasOrigin,
   chooseCanvasResult,
@@ -26,6 +27,7 @@ const {
   deleteNodes,
   applyScriptPlan,
   arrangeNodes,
+  importCanvasImage,
   runNodes,
   patchAgentCanvasNode,
 } = await import('../../../../lib/agent/tools/nodeCanvas')
@@ -33,6 +35,11 @@ const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
 const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
+const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
+// These modules bind DATABASE_URL at load time, so static imports cannot precede the fixture setup.
+const { proposeBatchGeneration } = await import(
+  '../../../../lib/agent/tools/proposeBatchGeneration'
+)
 const userId = 'node-command-owner'
 beforeAll(async () => {
   await db.insert(schema.users).values({
@@ -89,7 +96,7 @@ async function fixture() {
       doc.destroy()
     }
   }
-  return { context, run, graph }
+  return { context, run, graph, projectId }
 }
 it('exposes new tools only for authenticated node canvas and keeps legacy writes out of that turn', async () => {
   const { context } = await fixture()
@@ -102,17 +109,100 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'arrangeNodes',
     'runNodes',
     'applyScriptPlan',
+    'importCanvasImage',
   ])
     expect(names).toContain(name)
-  for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline', 'planImageBatch'])
+  for (const name of [
+    'editCanvasObject',
+    'arrangeCanvas',
+    'arrangeTimeline',
+    'generateImage',
+    'editImage',
+    'generateVideo',
+    'planImageBatch',
+  ])
     expect(names).not.toContain(name)
   // 非节点画布是否带 planImageBatch 取决于批次能力开关，这套夹具没开，不在这里断言它出现。
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
-  expect(agentTurnTools({ ...context, canvas: undefined }).map((tool) => tool.name)).not.toContain(
+  expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).toEqual(
+    expect.arrayContaining(['generateImage', 'editImage']),
+  )
+  expect(agentTurnTools({ ...context, userId: null }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
+})
+it.each([
+  { elements: [] },
+  undefined,
+])('keeps canvas snapshot %j on node generation and rejects ownerless submissions', async (canvas) => {
+  const { context, graph } = await fixture()
+  const unselected = { ...context, canvas }
+  const tools = agentTurnTools(unselected)
+  const names = tools.map((tool) => tool.name)
+  for (const name of ['createNodes', 'updateNodes', 'runNodes', 'importCanvasImage'])
+    expect(names).toContain(name)
+  for (const name of ['generateImage', 'editImage', 'generateVideo', 'proposeBatchGeneration'])
+    expect(names).not.toContain(name)
+  await tools
+    .find((tool) => tool.name === 'createNodes')!
+    .execute(
+      'create-unselected',
+      { nodes: [{ id: 'target', type: 'image', prompt: '人物三视图' }] },
+      undefined,
+      undefined,
+    )
+  const proposal = await tools
+    .find((tool) => tool.name === 'runNodes')!
+    .execute('run-unselected', { nodeIds: ['target'] }, undefined, undefined)
+  expect(proposal).toMatchObject({ details: { canvasRun: { nodeIds: ['target'] } } })
+  const read = await tools
+    .find((tool) => tool.name === 'readCanvas')!
+    .execute('read-unselected', { scope: 'all' }, undefined, undefined)
+  const content = read.content.find((block) => block.type === 'text')
+  if (content?.type !== 'text') throw new Error('expected canvas document')
+  expect(JSON.parse(content.text).nodes).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: 'target' })]),
+  )
+  await expect(
+    draftQueueTask(
+      { ...unselected, autoSubmit: { take: () => true } },
+      { toolName: 'generateImage', media: 'image', prompt: '人物三视图' },
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    proposeBatchGeneration
+      .create(unselected)
+      .execute(
+        'batch-unselected',
+        { batchId: 'existing-analysis', expectedVersion: 1, items: [] },
+        undefined,
+        undefined,
+      ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    planImageBatch.create(unselected).execute(
+      'plan-unselected',
+      {
+        title: '人物三视图',
+        rule: '逐个生成',
+        items: [
+          {
+            key: 'person',
+            imageIds: [],
+            kind: 'generation',
+            prompt: '人物三视图',
+            dependencies: [],
+          },
+        ],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  expect((await graph()).nodes.map((node) => node.id)).toEqual(['target'])
 })
 it('persists creation, editing, legal references, arrangement and deletion without a browser', async () => {
   const { run, graph } = await fixture()
@@ -338,6 +428,106 @@ it('routes node canvas generation away from generic batch plans', async () => {
       undefined,
     ),
   ).rejects.toThrow('runNodes')
+})
+
+it('rejects ownerless generation even when the turn has an automatic submission allowance', async () => {
+  const { context, graph } = await fixture()
+  await expect(
+    proposeBatchGeneration.create(context).execute(
+      'batch',
+      {
+        batchId: 'existing-analysis',
+        expectedVersion: 1,
+        items: [],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    draftQueueTask(
+      { ...context, autoSubmit: { take: () => true } },
+      { toolName: 'generateImage', media: 'image', prompt: '人物三视图' },
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  expect((await graph()).nodes).toHaveLength(0)
+})
+
+it('imports an existing image into the specified asset as its primary candidate without generation', async () => {
+  const { context, run, graph, projectId } = await fixture()
+  const mediaId = crypto.randomUUID()
+  const now = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: userId,
+    sha256: mediaId,
+    bytes: 12,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    for (const node of [
+      { id: 'source', data: { mediaId, name: '现有三视图' } },
+      {
+        id: 'asset',
+        data: { name: '林夏', meta: { nodeKind: 'asset' as const, assetKind: 'person' as const } },
+      },
+      { id: 'empty', data: {} },
+    ])
+      insertCanvasNode(doc, { ...node, type: 'image', x: 0, y: 0, width: 320, height: 240 }, origin)
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  const beforeTasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+  await run(updateNodes, { nodes: [{ id: 'asset', prompt: '人物正面侧面背面三视图' }] })
+  const proposal = await run(runNodes, { nodeIds: ['asset'] })
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['asset'])
+  expect((await graph()).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
+    meta: { nodeKind: 'asset', nodePrompt: '人物正面侧面背面三视图' },
+  })
+  const args = { imageNodeId: 'source', assetNodeId: 'asset', viewLabel: 'sheet' }
+  const receipt = await importCanvasImage
+    .create(context)
+    .execute('import', args, undefined, undefined)
+  await importCanvasImage.create(context).execute('import', args, undefined, undefined)
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
+  expect(readCanvasDocument(doc).nodes).toHaveLength(3)
+  expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
+    name: '林夏',
+    mediaId,
+    meta: { nodeKind: 'asset', assetKind: 'person' },
+  })
+  expect(canvasMainResult(doc, 'asset')).toMatchObject({
+    nodeId: 'asset',
+    kind: 'image',
+    assetViewLabel: 'sheet',
+    adopted: true,
+    source: { type: 'media', mediaId },
+  })
+  expect(doc.getMap('nodeResults').size).toBe(1)
+  expect(JSON.stringify(receipt.content)).toContain('没有启动生成任务')
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(beforeTasks)
+  await expect(
+    run(importCanvasImage, { imageNodeId: 'empty', assetNodeId: 'asset' }),
+  ).rejects.toThrow('真实图片')
+  await expect(
+    run(importCanvasImage, { imageNodeId: 'source', assetNodeId: 'empty' }),
+  ).rejects.toThrow('素材节点')
+  expect((await graph()).nodes).toHaveLength(3)
+  doc.destroy()
 })
 
 it('splits a script into imageless assets and a storyboard, and appends the next episode', async () => {

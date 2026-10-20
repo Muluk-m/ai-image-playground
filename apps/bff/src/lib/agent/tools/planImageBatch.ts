@@ -42,11 +42,7 @@ export const planImageBatch = defineAgentTool({
   call: ({ title }) => ({ title: typeof title === 'string' ? title : '批次计划' }),
   execute: (context) => async (toolCallId, params) => {
     // 节点画布的生成要绑到目标节点上，通用批次的结果落不回节点。
-    if (
-      context.experience === 'canvas' &&
-      context.canvas?.selectedNodeIds !== undefined &&
-      params.items.some((item) => item.kind !== 'analysis')
-    )
+    if (context.experience === 'canvas' && params.items.some((item) => item.kind !== 'analysis'))
       throw new AgentToolError(
         'invalid_params',
         '节点画布中的生成不能使用批次计划。请用 createNodes 或 updateNodes 准备节点，再用 runNodes 指定要运行的节点。',
