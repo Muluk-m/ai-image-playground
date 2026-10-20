@@ -11,9 +11,12 @@ function useFeedWidth() {
     if (!node) return
     const measure = () => {
       setWidth(node.clientWidth)
-      setCompact(window.matchMedia('(max-width: 767px)').matches)
+      setCompact(
+        typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 767px)').matches,
+      )
     }
     measure()
+    if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()

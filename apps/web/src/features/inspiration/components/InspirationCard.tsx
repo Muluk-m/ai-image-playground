@@ -8,8 +8,8 @@ import { modelLabel } from '../../../lib/channels/publicChannels'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
+import { groupOf } from '../lib/groups'
 import { inspirationImageUrl, ratioForItem, rememberRatio } from '../lib/imageRatio'
-import { inspirationFacetLabel } from '../lib/labels'
 import { plainPrompt } from '../lib/promptArgs'
 import type { InspirationItem } from '../types'
 
@@ -31,7 +31,7 @@ export default function InspirationCard({ item, pinned, onClick, imageHeight, on
   const showToast = useStore((s) => s.showToast)
   const { t } = useTranslation('inspiration')
   const hasReference = (item.referenceImages?.length ?? 0) > 0
-  const category = inspirationFacetLabel(item.category)
+  const category = t(`group.${groupOf(item.category)}`)
   const modelName = compactModelName(
     item.recommendedModel,
     modelLabel(item.recommendedModel, item.recommendedProvider),
