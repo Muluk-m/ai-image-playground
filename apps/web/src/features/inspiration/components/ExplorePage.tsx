@@ -50,7 +50,7 @@ export default function ExplorePage() {
   }).length
 
   return (
-    <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col">
+    <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col">
       <PageHeader title={APP_MODE_LABELS.explore}>
         <div className="hidden items-center gap-2 md:flex">
           <InspirationProviderTabs />
