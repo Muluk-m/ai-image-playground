@@ -15,7 +15,7 @@ function draft(id: string, n: number): AgentToolMessage {
     title: id,
     status: 'awaiting_confirmation',
     snapshot: {
-      mode: 'default',
+      mode: 'image',
       args: { n },
       target: { provider: 'openai-compat', model: 'fixture' },
     },
