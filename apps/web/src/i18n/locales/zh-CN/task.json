@@ -35,7 +35,7 @@
       "generating": "生成中...",
       "reconnecting": "恢复连接中...",
       "confirming": "结果确认中...",
-      "reconciling": "待核查"
+      "reconciling": "结果确认中（已提交，不会重复扣费）"
     },
     "inpaint": "局部重绘",
     "transparentBackground": "透明背景"

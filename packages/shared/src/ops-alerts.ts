@@ -19,6 +19,7 @@ export type AlertRule =
   | 'agent'
   | 'agent-pattern'
   | 'blind'
+  | 'reconciling'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。

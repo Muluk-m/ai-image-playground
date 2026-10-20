@@ -485,7 +485,8 @@
       "generating": "生成中",
       "reconnecting": "重新连接中",
       "confirming": "保存结果中",
-      "reconciling": "待核查",
+      "reconciling": "结果确认中（已提交给上游，正在核对，不会重复扣费）",
+      "reconcilingLate": "结果确认超时，已通知处理，你可以先重新生成；若原任务最终失败会自动退款",
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
@@ -599,7 +600,7 @@
       "completed": "已完成",
       "failed": "生成失败",
       "cancelled": "已取消",
-      "reconciling": "待核查",
+      "reconciling": "结果确认中",
       "ready": "待派发",
       "in_flight": "执行中",
       "blocked": "依赖受阻"
