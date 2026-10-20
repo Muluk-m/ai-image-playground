@@ -25,9 +25,9 @@ export const copy = {
     view: '查看分镜',
     terms: '服务条款',
     privacy: '隐私政策',
-    homeTitle: '幕芽 Muvloom — AI 图片、视频与画布创作平台',
+    homeTitle: '幕芽 Muvloom · AI 图片与视频创作',
     description:
-      '从一个想法开始，用幕芽 Muvloom 创作图片与视频，在画布中整理参考、编辑作品，让你的角色和故事继续发生。',
+      '说出你要的画面，剩下的交给幕芽：智能体写提示词、排生成计划，图片和视频一次出齐，在无限画布上接着改。',
     loginTitle: '登录幕芽 Muvloom',
     loginLead: '继续你的创作。',
     loading: '正在连接…',
@@ -69,9 +69,9 @@ export const copy = {
     view: 'View storyboard',
     terms: 'Terms',
     privacy: 'Privacy',
-    homeTitle: 'Muvloom — AI Image, Video and Canvas Creation',
+    homeTitle: 'Muvloom — AI image and video creation',
     description:
-      'Create images and videos with Muvloom. Bring references together on a canvas, refine your work, and develop your characters and stories with AI.',
+      'Describe the picture you want. Muvloom writes the prompt, plans the generation, and delivers images and video together on an infinite canvas.',
     loginTitle: 'Sign in to Muvloom',
     loginLead: 'Continue creating.',
     loading: 'Connecting…',
