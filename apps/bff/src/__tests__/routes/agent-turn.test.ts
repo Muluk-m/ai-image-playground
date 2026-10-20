@@ -121,7 +121,38 @@ afterAll(async () => {
 })
 
 describe('POST /api/agent/conversations/:id/turns', () => {
-  it('reports truncated output as failed, retains usage and does not retry or execute tools', async () => {
+  it('continues once after a length stop and completes when the next reply finishes', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => {
+          const response = controlledCompletion()
+          response.push('还没说完')
+          response.finish('length')
+          return response.responseFor()
+        },
+        () => completionStream('续上了'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    const { frames } = await runTurn(conversationId, '说明方案')
+    expect(frames.at(-1)?.event).toMatchObject({
+      type: 'turnEnd',
+      stopReason: 'completed',
+      usage: { inputTokens: 24, outputTokens: 8 },
+    })
+    expect(calls).toHaveLength(2)
+    expect(JSON.stringify(calls[1]?.messages)).toContain('请从断点继续')
+    const assistant = (await readMessages(conversationId)).filter(
+      (message) => message.role === 'assistant',
+    )
+    expect(assistant.map((message) => JSON.stringify(message.content))).toEqual([
+      expect.stringContaining('还没说完'),
+      expect.stringContaining('续上了'),
+    ])
+  })
+
+  it('reports a second length stop as failed, keeps the partial text and does not execute truncated tools', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       recordingAgentFetch(calls, () => {
@@ -142,15 +173,20 @@ describe('POST /api/agent/conversations/:id/turns', () => {
       type: 'turnEnd',
       stopReason: 'failed',
       error: 'agent_upstream_error',
-      usage: { inputTokens: 12, outputTokens: 4 },
-      failure: { message: '模型输出达到长度上限，回复未完成。请缩小请求或手动继续。' },
+      usage: { inputTokens: 24, outputTokens: 8 },
+      failure: {
+        message: '这次要生成的内容太多，回复没有写完。可以回复「继续」接着做，或减少张数。',
+      },
     })
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
     expect(types(frames)).not.toContain('toolStart')
     expect(
       (await readMessages(conversationId)).filter((message) => message.role === 'assistant'),
-    ).toHaveLength(0)
-    expect((await db.select().from(schema.agent_model_calls))[0]?.status).toBe('failed')
+    ).toHaveLength(2)
+    expect((await db.select().from(schema.agent_model_calls)).map((call) => call.status)).toEqual([
+      'failed',
+      'failed',
+    ])
     for (const tool of calls[0]!.tools ?? []) expect(tool.function).not.toHaveProperty('strict')
   })
 
