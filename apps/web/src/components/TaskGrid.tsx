@@ -651,7 +651,8 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         </div>
       )
     }
-    // 灵感推荐只在创作页的冷启动露出；资产·作品空了就说空了，别把探索页搬过来。
+    // 灵感瀑布只在创作页的冷启动露出；资产·作品空了就说空了，别把探索页搬过来。
+    // 首页一次只挂一条无限列表：没作品时是这里的灵感，有作品时仍是下面这条虚拟网格。
     if (!hero)
       return (
         <div className="text-center py-20 text-muted-foreground">

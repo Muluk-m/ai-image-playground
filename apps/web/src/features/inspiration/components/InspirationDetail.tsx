@@ -9,13 +9,13 @@ import { modelLabel } from '../../../lib/channels/publicChannels'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { applyInspiration, useInspirationAsReference } from '../lib/applyInspiration'
+import { groupOf } from '../lib/groups'
 import {
   inspirationDetailIdFromHash,
   inspirationShareUrl,
   writeInspirationHash,
 } from '../lib/hashRoute'
 import { aspectText, inspirationImageUrl, rememberRatio } from '../lib/imageRatio'
-import { inspirationFacetLabel } from '../lib/labels'
 import { plainPrompt, promptHasArguments, promptSegments } from '../lib/promptArgs'
 import { visibleInspirationItems } from '../lib/visibleItems'
 import { useInspirationStore } from '../store'
@@ -144,7 +144,7 @@ export default function InspirationDetail() {
   const pinned = pinnedIds.includes(item.id)
   const author = displayAuthor(item.author)
   const source = item.sourceUrl
-  const category = inspirationFacetLabel(item.category)
+  const category = t(`group.${groupOf(item.category)}`)
   const modelName = compactModelName(
     item.recommendedModel,
     modelLabel(item.recommendedModel, item.recommendedProvider),
