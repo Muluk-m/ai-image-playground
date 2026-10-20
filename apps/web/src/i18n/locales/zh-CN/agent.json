@@ -162,11 +162,18 @@
     "allPending_other": "{{count}} 张稿等你确认",
     "allSubmit_other": "全部确认（{{count}}）",
     "allSubmitting": "逐张提交中…",
-    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。"
+    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。",
+    "gate": "有 {{count}} 张待确认的卡片。",
+    "gateConfirm": "全部确认生成",
+    "gateJump": "跳到卡片",
+    "gateSend": "仍然发送这句话",
+    "gateRunNodes": "确认运行节点（{{count}}）",
+    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。"
   },
   "plan": {
     "title": "生成计划",
     "summary_other": "{{count}} 张",
+    "summaryCredits_other": "{{count}} 张待确认，合计约 {{credits}} 积分",
     "hint": "点击一行可修改提示词，取消勾选即跳过",
     "generate_other": "全部生成（{{count}}）",
     "cancel": "取消",

@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
+import { agentPlanCreditTotal } from '../lib/draftCredits'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
@@ -27,6 +28,7 @@ export default function AgentGenerationPlan({
   const [error, setError] = useState<string | null>(null)
   const selected = messages.filter((message) => checked[message.id] !== false)
   const count = selected.reduce((sum, message) => sum + agentDraftOutputCount(message), 0)
+  const credits = agentPlanCreditTotal(selected)
 
   const confirm = () => {
     if (!selected.length || submitting) return
@@ -73,7 +75,11 @@ export default function AgentGenerationPlan({
       <header className="studio-agent-plan-head">
         <Icon name="image" />
         <h3>{t('plan.title')}</h3>
-        <span>{t('plan.summary', { count })}</span>
+        <span>
+          {credits === undefined
+            ? t('plan.summary', { count })
+            : t('plan.summaryCredits', { count, credits })}
+        </span>
       </header>
       <ul className="studio-agent-plan-rows">
         {messages.map((message) => {
