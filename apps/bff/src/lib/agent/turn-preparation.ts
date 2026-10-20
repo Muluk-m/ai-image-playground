@@ -238,7 +238,6 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   const audience: AgentTurnAudience = {
     ...loadedAudience,
     experience,
-    nodeCanvas: turnContent.canvas?.selectedNodeIds !== undefined,
   }
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，

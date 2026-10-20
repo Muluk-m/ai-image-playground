@@ -7,7 +7,6 @@ import {
   type AgentTurnEvent,
   type ChannelCapability,
   DEVICE_ID_HEADER,
-  projectArtifactId,
 } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -104,7 +103,7 @@ async function post(path: string, body: unknown) {
   return { status: response.status, json: await response.json() }
 }
 
-async function startConversation(experience: 'chat' | 'canvas' = 'canvas'): Promise<string> {
+async function startConversation(experience: 'chat' | 'canvas' = 'chat'): Promise<string> {
   const { status, json } = await post('/api/agent/conversations', { deviceId: DEVICE })
   expect(status).toBe(200)
   const id = (json as { conversation: { id: string } }).conversation.id
@@ -143,7 +142,7 @@ async function runTurn(
         'content-type': 'application/json',
         cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
       },
-      // 默认覆盖视频画布；Chat 用例显式传 image，验证跨创作类型工具装配。
+      // 默认覆盖对话里的视频生成；显式 image 用例验证跨创作类型工具装配。
       body: JSON.stringify({ deviceId: DEVICE, text, references, mode, params }),
     }),
   )
@@ -295,35 +294,28 @@ describe('智能体生视频工具', () => {
     })
   })
 
-  it('offers image and video creation in one old image-mode canvas turn without submitting either draft', async () => {
+  it.each([
+    { name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
+    { name: 'generateVideo', args: { prompt: 'An ocean shot', durationSeconds: 5 } },
+  ])('rejects ownerless $name on an old image-mode canvas turn', async ({ name, args }) => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion(
-            { id: 'image-draft', name: 'generateImage', args: { prompt: 'An ocean poster', n: 1 } },
-            {
-              id: 'video-draft',
-              name: 'generateVideo',
-              args: { prompt: 'An ocean shot', durationSeconds: 5 },
-            },
-          ),
+        () => toolCallCompletion({ id: 'ownerless-draft', name, args }),
         () => completionStream('Drafts ready'),
       ]),
     )
     const id = await startConversation('canvas')
     const frames = await runTurn(id, 'Create an ocean image and video', [], 'image')
     const drafts = eventsOfType(frames, 'toolEnd')
-    expect(drafts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ toolName: 'generateImage', status: 'awaiting_confirmation' }),
-        expect.objectContaining({ toolName: 'generateVideo', status: 'awaiting_confirmation' }),
-      ]),
-    )
+    expect(drafts).toEqual([expect.objectContaining({ toolName: name, status: 'failed' })])
     expect(
       (await db.select().from(schema.tasks)).filter((one) => one.kind === 'queue'),
     ).toHaveLength(0)
-    expect(calls[0]!.tools!.map((tool) => tool.function.name)).toContain('arrangeTimeline')
+    const names = calls[0]!.tools!.map((tool) => tool.function.name)
+    for (const name of ['generateImage', 'generateVideo', 'arrangeTimeline'])
+      expect(names).not.toContain(name)
+    expect(await confirmDrafts(id)).toHaveLength(0)
   })
 
   it('generates video from an image-kind chat, confirms once and restores playable results', async () => {
@@ -602,25 +594,10 @@ describe('智能体生视频工具', () => {
 
     await runTurn(conversationId, '你好')
 
-    // 视频轮照样带着生图与改图：首帧要先画出来、改到位，再让它动起来。
-    // `loadSkill` 在场是因为 `apps/bff/skills/video` 里有随仓库发的技能。
-    expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
-      'arrangeCanvas',
-      'arrangeTimeline',
-      'askClarification',
-      'editCanvasObject',
-      'editImage',
-      'generateImage',
-      'generateVideo',
-      'loadSkill',
-      'readCanvas',
-      'readConversationImages',
-      'readLibrary',
-      'viewImage',
-      'viewVideo',
-      'webFetch',
-      'webSearch',
-    ])
+    const names = calls[0]!.tools?.map((tool) => tool.function.name)
+    expect(names).toEqual(expect.arrayContaining(['generateImage', 'editImage', 'generateVideo']))
+    for (const name of ['readCanvas', 'editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'])
+      expect(names).not.toContain(name)
   })
 
   it('drafts the text-to-video request, and submits it once the user confirms', async () => {
@@ -788,19 +765,6 @@ describe('智能体生视频工具', () => {
     expect(modelReport(calls)).toContain('referenceUnsupported')
   })
 
-  it('describes the reference limit of the current model in the tool parameters', async () => {
-    const calls: AgentCall[] = []
-    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好')]))
-    const conversationId = await startConversation()
-
-    await runTurn(conversationId, '你好')
-
-    const tools = JSON.stringify(calls[0]!.tools)
-    expect(tools).toContain('referenceImageIds')
-    expect(tools).toContain('最多 7 张')
-    expect(tools).toContain('720p')
-  })
-
   it('takes the duration, resolution and aspect ratio the model inferred', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, {
@@ -910,84 +874,11 @@ describe('智能体生视频工具', () => {
   })
 })
 
-describe('智能体排时间线工具', () => {
-  /** 先出一段视频：拟稿、确认、等它跑完，返回它落画布的产物 id。 */
-  async function generatedVideo(conversationId: string): Promise<string> {
-    const calls: AgentCall[] = []
-    videoTurn(calls, { prompt: '第一镜' })
-    await runTurn(conversationId, '先出第一镜')
-    const stop = settleSubmittedTasks()
-    await confirmDrafts(conversationId)
-    await settledJobs(conversationId)
-    stop()
-    const jobs = await db.select().from(schema.agent_jobs)
-    const mine = new Set(
-      jobs.filter((job) => job.conversation_id === conversationId).map((job) => job.task_id),
-    )
-    const [task] = (await db.select().from(schema.tasks)).filter(
-      (one) => one.request_payload.video && mine.has(one.id),
-    )
-    return projectArtifactId(task!.id, 0)
-  }
-
-  it('arranges finished videos in order without submitting or charging anything', async () => {
-    const conversationId = await startConversation()
-    const videoId = await generatedVideo(conversationId)
-    const before = (await db.select().from(schema.tasks)).length
-    const calls: AgentCall[] = []
-    setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion({
-            id: 'call-t',
-            name: 'arrangeTimeline',
-            args: { clips: [{ videoId, inSeconds: 1 }, { videoId: 'agent_missing_0' }] },
-          }),
-        () => completionStream('排好了'),
-      ]),
-    )
-
-    const frames = await runTurn(conversationId, '排进时间线')
-
-    const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.status).toBe('succeeded')
-    expect(end!.timeline!.timelineId).toMatch(/^timeline_/)
-    expect(end!.timeline!.clips).toEqual([{ videoId, in: 1, out: 5 }])
-    expect(modelReport(calls)).toContain('agent_missing_0')
-    // 只多了这一轮对话本身的任务，没有生成任务，也没有额外预扣。
-    const after = await db.select().from(schema.tasks)
-    expect(after.filter((one) => one.request_payload.video)).toHaveLength(1)
-    expect(after.length - before).toBeLessThanOrEqual(1)
-  })
-
-  it('skips videos from another conversation and clips that start at the end', async () => {
-    const elsewhere = await generatedVideo(await startConversation())
-    const conversationId = await startConversation()
-    const videoId = await generatedVideo(conversationId)
-    const calls: AgentCall[] = []
-    setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion({
-            id: 'call-t',
-            name: 'arrangeTimeline',
-            args: {
-              clips: [{ videoId: elsewhere }, { videoId, inSeconds: 5 }, { videoId }],
-            },
-          }),
-        () => completionStream('排好了'),
-      ]),
-    )
-
-    const frames = await runTurn(conversationId, '排进时间线')
-
-    const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.timeline!.clips).toEqual([{ videoId, in: 0, out: 5 }])
-    expect(modelReport(calls)).toContain(elsewhere)
-    expect(modelReport(calls)).toContain('入点已经到了结尾')
-  })
-
-  it('reports and places nothing when no listed video can be used', async () => {
+describe('legacy timeline routing', () => {
+  it.each([
+    'chat',
+    'canvas',
+  ] as const)('rejects legacy timeline writes in %s without changing the project', async (experience) => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -997,15 +888,20 @@ describe('智能体排时间线工具', () => {
             name: 'arrangeTimeline',
             args: { clips: [{ videoId: 'agent_missing_0' }] },
           }),
-        () => completionStream('没排成'),
+        () => completionStream('未修改'),
       ]),
     )
-    const conversationId = await startConversation()
-
+    const conversationId = await startConversation(experience)
     const frames = await runTurn(conversationId, '排进时间线')
-
+    expect(calls[0]!.tools?.map((tool) => tool.function.name)).not.toContain('arrangeTimeline')
     const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end).toMatchObject({ toolName: 'arrangeTimeline', status: 'failed' })
     expect(end!.timeline).toBeUndefined()
-    expect(modelReport(calls)).toContain('没有可以排的视频')
+    const [project] = await db
+      .select()
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.conversation_id, conversationId))
+    expect(project!.document.elements).toEqual([])
+    expect(await videoTasks()).toHaveLength(0)
   })
 })

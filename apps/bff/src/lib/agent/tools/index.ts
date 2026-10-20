@@ -33,6 +33,7 @@ import {
   connectNodes,
   createNodes,
   deleteNodes,
+  importCanvasImage,
   runNodes,
   updateNodes,
 } from './nodeCanvas'
@@ -98,6 +99,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   arrangeNodes,
   runNodes,
   applyScriptPlan,
+  importCanvasImage,
   generateVideo,
   arrangeTimeline,
   editCanvasObject,
@@ -128,6 +130,7 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'arrangeNodes',
   'runNodes',
   'applyScriptPlan',
+  'importCanvasImage',
   'editCanvasObject',
   'arrangeCanvas',
   'arrangeTimeline',
@@ -137,11 +140,19 @@ function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[]
   return TOOLS.filter(
     (tool) =>
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
-      // 节点画布里批次计划只收分析项，生成项必然被拒；分析另有 proposeBatchAnalysis。
-      (!audience?.nodeCanvas ||
-        !['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline', 'planImageBatch'].includes(
-          tool.name,
-        )) &&
+      // 画布模式的生成必须落在节点上，无主生图不进清单。批次计划在这里只可能收分析项，
+      // 生成项必然被拒，分析另有 proposeBatchAnalysis，因此 planImageBatch 也不进清单。
+      (audience?.experience !== 'canvas' ||
+        ![
+          'editCanvasObject',
+          'arrangeCanvas',
+          'arrangeTimeline',
+          'generateImage',
+          'editImage',
+          'generateVideo',
+          'proposeBatchGeneration',
+          'planImageBatch',
+        ].includes(tool.name)) &&
       (tool.available?.(mode, audience) ?? true),
   )
 }
@@ -189,7 +200,6 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
     ...present(context.mode, {
       userId: context.userId,
       experience: context.experience,
-      nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
     }).map((spec) => {
       const tool = spec.create(context)
       const execute = tool.execute

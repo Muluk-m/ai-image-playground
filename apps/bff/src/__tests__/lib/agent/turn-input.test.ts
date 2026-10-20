@@ -531,15 +531,11 @@ describe('这一轮的观众', () => {
 
   it('节点画布把节点生成指向 runNodes，其它画面不出现这句', () => {
     const canvas = { ...audience, experience: 'canvas' as const }
-    expect(
-      turnInitialState([], 'image', false, 0, { ...canvas, nodeCanvas: true }).systemPrompt,
-    ).toContain(NODE_CANVAS_GENERATION_LINE)
-    expect(turnInitialState([], 'image', false, 0, canvas).systemPrompt).not.toContain(
+    expect(turnInitialState([], 'image', false, 0, canvas).systemPrompt).toContain(
       NODE_CANVAS_GENERATION_LINE,
     )
     expect(
-      turnInitialState([], 'image', false, 0, { ...audience, experience: 'chat', nodeCanvas: true })
-        .systemPrompt,
+      turnInitialState([], 'image', false, 0, { ...audience, experience: 'chat' }).systemPrompt,
     ).not.toContain(NODE_CANVAS_GENERATION_LINE)
   })
 

@@ -563,6 +563,7 @@
     "assetDragHint": "Click an asset to add it, or drag it onto the canvas.",
     "assetNoImage": "This asset has no reference image. Generation will use its name and description, so appearance may vary.",
     "assetNode": "Asset",
+    "assetPending": "Awaiting image",
     "saveAsAsset": "Save as asset",
     "assetThreeViews": "Generate character views",
     "assetEmptyScene": "Generate empty scene",

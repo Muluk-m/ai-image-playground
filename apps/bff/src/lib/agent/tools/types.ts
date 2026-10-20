@@ -36,7 +36,6 @@ import type { VisualWorkset } from '../visual-workset'
 export interface AgentToolAudience {
   readonly userId: string | null
   readonly experience?: 'chat' | 'canvas'
-  readonly nodeCanvas?: boolean
 }
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */

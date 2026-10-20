@@ -409,6 +409,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
   if (node?.type !== 'image') return null
   const { pending, fileId, rotation } = node.data
   const empty = !pending && !fileId
+  const pendingAsset = node.data.meta?.nodeKind === 'asset' && !fileId && !node.data.mediaId
   return (
     <>
       <NodePorts nodeId={node.id} />
@@ -443,11 +444,17 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
       <div
         className="studio-node studio-node--image"
         data-rotated={rotation ? true : undefined}
+        data-asset-pending={pendingAsset || undefined}
         onDoubleClick={(e) => {
           e.stopPropagation()
           if (fileId && files[fileId]) preview(files[fileId])
         }}
       >
+        {pendingAsset && (
+          <span className="absolute right-3 top-3 rounded-full bg-warning/15 px-2 py-1 text-xs font-medium text-warning">
+            {t('nodes.assetPending')}
+          </span>
+        )}
         {fileId ? (
           <Picture fileId={fileId} rotation={rotation} />
         ) : pending ? (
