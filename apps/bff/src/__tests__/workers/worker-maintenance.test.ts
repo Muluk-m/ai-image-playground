@@ -19,6 +19,7 @@ mock.module(path('config.ts'), () => ({ config }));
 mock.module(path('db/client.ts'), () => ({ close: done }));
 mock.module(path('db/maintenance.ts'), () => ({ purgeOldHostSamples: done, recoverAbandonedTasks: done, recoverTasksByIds: done }));
 mock.module(path('lib/analysis-tasks.ts'), () => ({ recoverAnalysisTasks: done }));
+mock.module(path('lib/auto-reconcile.ts'), () => ({ autoReconcileTasks: done }));
 mock.module(path('lib/capabilities.ts'), () => ({ isCapabilityEnabled: () => false }));
 mock.module(path('lib/channels.ts'), () => ({ initChannels: () => ({ warnings: [] }) }));
 mock.module(path('lib/heartbeat.ts'), () => ({ purgeStaleHeartbeats: done, startHeartbeat: () => noop }));
