@@ -136,8 +136,11 @@ function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[]
   return TOOLS.filter(
     (tool) =>
       (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
+      // 节点画布里批次计划只收分析项，生成项必然被拒；分析另有 proposeBatchAnalysis。
       (!audience?.nodeCanvas ||
-        !['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'].includes(tool.name)) &&
+        !['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline', 'planImageBatch'].includes(
+          tool.name,
+        )) &&
       (tool.available?.(mode, audience) ?? true),
   )
 }
