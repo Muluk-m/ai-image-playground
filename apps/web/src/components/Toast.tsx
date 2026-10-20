@@ -1,8 +1,11 @@
+import { useLayoutEffect, useRef } from 'react'
 import { useStore } from '../store'
 import { Icon } from './ui/icon'
 
 export default function Toast() {
   const toast = useStore((s) => s.toast)
+  const appMode = useStore((s) => s.appMode)
+  const hostRef = useRef<HTMLDivElement>(null)
 
   const getIcon = (type: NonNullable<typeof toast>['type']) => {
     switch (type) {
@@ -28,9 +31,35 @@ export default function Toast() {
   }
 
   // live region 必须常驻：节点和文字同时出现时读屏常常不播报，所以只切换里面的内容。
-  // 放在页头下方：底部会压住输入框和它向下展开的生成设置弹层。
+  // 默认贴在页头下方：再往下会压住输入框和它向下展开的生成设置。创作页的大标题也占着
+  // 这一截，出现问候语时改放到问候语下面那条空档里，避免盖住标题。
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    const place = () => {
+      const intro = document.querySelector('.studio-home-intro')
+      if (!intro) {
+        host.style.top = ''
+        return
+      }
+      const bottom = intro.getBoundingClientRect().bottom
+      host.style.top = `${Math.ceil(bottom + 12)}px`
+    }
+    place()
+    const intro = document.querySelector('.studio-home-intro')
+    const observer = intro ? new ResizeObserver(place) : null
+    observer?.observe(intro)
+    window.addEventListener('resize', place)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', place)
+      host.style.top = ''
+    }
+  }, [toast, appMode])
+
   return (
     <div
+      ref={hostRef}
       role="status"
       aria-live="polite"
       className="fixed left-1/2 top-16 z-[1400] pointer-events-none"
