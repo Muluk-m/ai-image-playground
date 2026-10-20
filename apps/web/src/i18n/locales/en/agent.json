@@ -176,7 +176,11 @@
     "allSubmit_other": "Confirm all ({{count}})",
     "allSubmitting": "Submitting one by one…",
     "allFailed_one": "Stopped after confirming {{count}}. Please retry the rest one by one.",
-    "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one."
+    "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one.",
+    "gate": "{{count}} cards are still waiting for confirmation.",
+    "gateConfirm": "Confirm all and generate",
+    "gateJump": "Jump to the cards",
+    "gateSend": "Send this message anyway"
   },
   "plan": {
     "title": "Generation plan",

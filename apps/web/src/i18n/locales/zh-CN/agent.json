@@ -162,7 +162,11 @@
     "allPending_other": "{{count}} 张稿等你确认",
     "allSubmit_other": "全部确认（{{count}}）",
     "allSubmitting": "逐张提交中…",
-    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。"
+    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。",
+    "gate": "有 {{count}} 张待确认的卡片。",
+    "gateConfirm": "全部确认生成",
+    "gateJump": "跳到卡片",
+    "gateSend": "仍然发送这句话"
   },
   "plan": {
     "title": "生成计划",
