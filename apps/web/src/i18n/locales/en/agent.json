@@ -176,12 +176,20 @@
     "allSubmit_other": "Confirm all ({{count}})",
     "allSubmitting": "Submitting one by one…",
     "allFailed_one": "Stopped after confirming {{count}}. Please retry the rest one by one.",
-    "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one."
+    "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one.",
+    "gate": "{{count}} cards are still waiting for confirmation.",
+    "gateConfirm": "Confirm all and generate",
+    "gateJump": "Jump to the cards",
+    "gateSend": "Send this message anyway",
+    "gateRunNodes": "Run these nodes ({{count}})",
+    "nodeRunMissed": "{{count}} could not start. Open that canvas and confirm on the card."
   },
   "plan": {
     "title": "Generation plan",
     "summary_one": "{{count}} image",
     "summary_other": "{{count}} images",
+    "summaryCredits_one": "{{count}} image waiting, about {{credits}} credits",
+    "summaryCredits_other": "{{count}} images waiting, about {{credits}} credits",
     "hint": "Click a row to edit its prompt. Uncheck a row to skip it.",
     "generate_one": "Generate all ({{count}})",
     "generate_other": "Generate all ({{count}})",
