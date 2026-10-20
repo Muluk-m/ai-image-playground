@@ -1,5 +1,8 @@
 .studio-shell { background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .studio-layout { display: flex; position: relative; height: 100%; width: 100%; }
+/* 面板是 app-chrome 里第一个常规流子元素，不隔开的话它的上外边距会穿过 app-chrome 和 body 折叠到页顶，
+   页顶那条缝露出的是 body 的亮底，在侧栏右侧、面板圆角上方凸出一块。让 app-chrome 自成格式化上下文。 */
+.app-chrome { display: flow-root; }
 /* 主内容是抬起的圆角面板，缝隙露出更深的侧栏底。侧栏收起时变量把缝和圆角收成 0。 */
 .app-inset-panel {
   background: hsl(var(--background));
