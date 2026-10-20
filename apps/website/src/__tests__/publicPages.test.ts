@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { seoFiles } from '../../seo'
-import { alternatePage, editions, findPage, pageList } from '../catalog'
+import { alternatePage, editions, findPage, pageList, pageMeta } from '../catalog'
 import { searchGuide, structuredData } from '../guideData'
 
 describe('public page contract', () => {
@@ -18,6 +18,17 @@ describe('public page contract', () => {
     for (const page of pageList) expect(alternatePage(alternatePage(page))).toEqual(page)
     expect(findPage('/guide/missing/')).toBeUndefined()
     expect(findPage('/p/private-project')).toBeUndefined()
+  })
+  it('names the marketing home after the v4.1 hero', () => {
+    const zh = pageMeta(findPage('/')!)
+    expect(zh.title).toContain('说出你要的画面')
+    expect(zh.title).toContain('剩下的交给幕芽')
+    expect(zh.title).toContain('AI 图片、视频与画布创作平台')
+    expect(zh.title).not.toContain('故事，由你发生')
+    const en = pageMeta(findPage('/en/')!)
+    expect(en.title).toContain('Say the picture you want')
+    expect(en.title).toContain('AI Image, Video and Canvas Creation')
+    expect(en.title).not.toContain('Your story starts here')
   })
   it('does not publish login, workbench or private project URLs in the sitemap', () => {
     const files = seoFiles('https://example.com', true)

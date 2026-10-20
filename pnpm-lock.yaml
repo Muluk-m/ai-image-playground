@@ -25,7 +25,7 @@ importers:
     dependencies:
       '@elysiajs/cors':
         specifier: ^1.4.0
-        version: 1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))
+        version: 1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))
       '@image-playground/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -37,10 +37,10 @@ importers:
         version: link:../../packages/shared
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.4.2)(postgres@3.4.9)
+        version: 0.45.2(bun-types@1.4.3)(postgres@3.4.9)
       elysia:
         specifier: ^1.4.0
-        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
     devDependencies:
       '@hookform/resolvers':
         specifier: ^5.7.1
@@ -116,7 +116,7 @@ importers:
         version: 14.6.1(@testing-library/dom@10.4.1)
       '@types/bun':
         specifier: latest
-        version: 1.4.2
+        version: 1.4.3
       '@types/react':
         specifier: ^19.1.2
         version: 19.2.14
@@ -194,7 +194,7 @@ importers:
         version: 0.85.1(ws@8.21.0)(zod@4.6.7)
       '@elysiajs/cors':
         specifier: ^1.4.0
-        version: 1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))
+        version: 1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))
       '@image-playground/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -206,10 +206,10 @@ importers:
         version: link:../../packages/shared
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.4.2)(postgres@3.4.9)
+        version: 0.45.2(bun-types@1.4.3)(postgres@3.4.9)
       elysia:
         specifier: ^1.4.0
-        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
       eventsource-parser:
         specifier: ^4.1.1
         version: 4.1.1
@@ -234,7 +234,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: latest
-        version: 1.4.2
+        version: 1.4.3
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -355,7 +355,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: ^4.4.1
-        version: 4.7.0(vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.7.0(vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.0(postcss@8.5.14)
@@ -379,10 +379,10 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^6.3.2
-        version: 6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
+        version: 6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))
       wrangler:
         specifier: ^4.124.0
         version: 4.124.0
@@ -397,7 +397,13 @@ importers:
         version: 1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/react-start':
         specifier: 1.169.2
-        version: 1.169.2(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 1.169.2(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
+      gsap:
+        specifier: ^3.15.0
+        version: 3.15.0
+      lenis:
+        specifier: ^1.3.27
+        version: 1.3.27(react@19.2.6)
       react:
         specifier: ^19.2.1
         version: 19.2.6
@@ -416,7 +422,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: 6.1.2
-        version: 6.1.2(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 6.1.2(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.0(postcss@8.5.30)
@@ -428,10 +434,10 @@ importers:
         version: 5.9.3
       vite:
         specifier: 8.3.4
-        version: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+        version: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
 
   packages/db:
     dependencies:
@@ -440,11 +446,11 @@ importers:
         version: link:../shared
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.4.2)(postgres@3.4.9)
+        version: 0.45.2(bun-types@1.4.3)(postgres@3.4.9)
     devDependencies:
       '@types/bun':
         specifier: latest
-        version: 1.4.2
+        version: 1.4.3
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
@@ -524,14 +530,14 @@ importers:
         version: link:../../../packages/db
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.4.2)(postgres@3.4.9)
+        version: 0.45.2(bun-types@1.4.3)(postgres@3.4.9)
       elysia:
         specifier: ^1.4.0
-        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
     devDependencies:
       '@types/bun':
         specifier: latest
-        version: 1.4.2
+        version: 1.4.3
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -550,7 +556,7 @@ importers:
     devDependencies:
       '@types/bun':
         specifier: latest
-        version: 1.4.2
+        version: 1.4.3
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
@@ -3597,8 +3603,8 @@ packages:
   '@types/bun@1.3.14':
     resolution: {integrity: sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw==}
 
-  '@types/bun@1.4.2':
-    resolution: {integrity: sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ==}
+  '@types/bun@1.4.3':
+    resolution: {integrity: sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -3889,8 +3895,8 @@ packages:
   bun-types@1.3.14:
     resolution: {integrity: sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ==}
 
-  bun-types@1.4.2:
-    resolution: {integrity: sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w==}
+  bun-types@1.4.3:
+    resolution: {integrity: sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg==}
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -4448,6 +4454,9 @@ packages:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
 
+  gsap@3.15.0:
+    resolution: {integrity: sha512-dMW4CWBTUK1AEEDeZc1g4xpPGIrSf9fJF960qbTZmN/QwZIWY5wgliS6JWl9/25fpTGJrMRtSjGtOmPnfjZB+A==}
+
   has-symbols@1.1.0:
     resolution: {integrity: sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ==}
     engines: {node: '>= 0.4'}
@@ -4631,6 +4640,20 @@ packages:
 
   konva@10.3.0:
     resolution: {integrity: sha512-gt19K2gzY4lHbnkvsku7eSmB+A9PTS2jG4F9coBMsdjM1UKfJNxJbDbXVpeCW1wjEGRwBD3nBamcHnqJhAeKlg==}
+
+  lenis@1.3.27:
+    resolution: {integrity: sha512-QIHNH4LIfWyLfgH/5K0aTGZgyFJJ7GfHNcaH/AIgyKjb8gstLh5siNGvrVqz1w5ClLXzOvllBVk7vby8JzUVPQ==}
+    peerDependencies:
+      '@nuxt/kit': '>=3.0.0'
+      react: '>=17.0.0'
+      vue: '>=3.0.0'
+    peerDependenciesMeta:
+      '@nuxt/kit':
+        optional: true
+      react:
+        optional: true
+      vue:
+        optional: true
 
   lib0@0.2.119:
     resolution: {integrity: sha512-vh+TiejVy8Xm+hCdnRfn9BthGNvNUZdEXltNjVZL3TzRIKP3s1lnQh8pWd/Q0wCgY0FPAGVVjFF4ZiHUV3LFgA==}
@@ -6680,9 +6703,9 @@ snapshots:
 
   '@earendil-works/pi-telemetry@0.85.1': {}
 
-  '@elysiajs/cors@1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))':
+  '@elysiajs/cors@1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))':
     dependencies:
-      elysia: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+      elysia: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
 
   '@emnapi/runtime@1.11.3':
     dependencies:
@@ -8805,14 +8828,14 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
 
-  '@tanstack/react-start-rsc@0.1.63(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/react-start-rsc@0.1.63(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@tanstack/react-router': 1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/router-core': 1.171.37
       '@tanstack/router-utils': 1.162.4
       '@tanstack/start-client-core': 1.170.37
       '@tanstack/start-fn-stubs': 1.162.0
-      '@tanstack/start-plugin-core': 1.171.53(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.53(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-storage-context': 1.167.39
       pathe: 2.0.3
       react: 19.2.6
@@ -8838,21 +8861,21 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
 
-  '@tanstack/react-start@1.169.2(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/react-start@1.169.2(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@tanstack/react-router': 1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/react-start-client': 1.168.42(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@tanstack/react-start-rsc': 0.1.63(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/react-start-rsc': 0.1.63(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-start-server': 1.167.50(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/router-utils': 1.162.4
       '@tanstack/start-client-core': 1.170.37
-      '@tanstack/start-plugin-core': 1.171.53(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.53(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-server-core': 1.169.43
       pathe: 2.0.3
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
     optionalDependencies:
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -8947,7 +8970,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@tanstack/router-plugin@1.168.46(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/router-plugin@1.168.46(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/template': 7.29.7
@@ -8956,11 +8979,11 @@ snapshots:
       '@tanstack/router-generator': 1.167.44
       '@tanstack/router-utils': 1.162.4
       chokidar: 5.0.0
-      unplugin: 3.4.0(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      unplugin: 3.4.0(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       zod: 4.6.7
     optionalDependencies:
       '@tanstack/react-router': 1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -9018,7 +9041,7 @@ snapshots:
 
   '@tanstack/start-fn-stubs@1.162.0': {}
 
-  '@tanstack/start-plugin-core@1.171.53(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/start-plugin-core@1.171.53(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@babel/code-frame': 7.29.7
       '@babel/core': 7.29.7
@@ -9026,7 +9049,7 @@ snapshots:
       '@jridgewell/remapping': 2.3.5
       '@tanstack/router-core': 1.171.37
       '@tanstack/router-generator': 1.167.44
-      '@tanstack/router-plugin': 1.168.46(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/router-plugin': 1.168.46(@tanstack/react-router@1.170.44(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/router-utils': 1.162.4
       '@tanstack/start-server-core': 1.169.43
       exsolve: 1.1.3
@@ -9038,11 +9061,11 @@ snapshots:
       srvx: 1.0.5
       tinyglobby: 0.2.17
       ufo: 1.6.4
-      vitefu: 1.1.3(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      vitefu: 1.1.3(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       xmlbuilder2: 4.0.3
       zod: 4.6.7
     optionalDependencies:
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -9166,9 +9189,9 @@ snapshots:
     dependencies:
       bun-types: 1.3.14
 
-  '@types/bun@1.4.2':
+  '@types/bun@1.4.3':
     dependencies:
-      bun-types: 1.4.2
+      bun-types: 1.4.3
 
   '@types/chai@5.2.3':
     dependencies:
@@ -9289,7 +9312,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-react@4.7.0(vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@vitejs/plugin-react@4.7.0(vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
@@ -9297,14 +9320,14 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-beta.27
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
-      vite: 6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-react@6.1.2(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@vitejs/plugin-react@6.1.2(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
 
   '@vitest/expect@4.1.6':
     dependencies:
@@ -9323,21 +9346,21 @@ snapshots:
     optionalDependencies:
       vite: 6.4.1(@types/node@26.6.2)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
 
-  '@vitest/mocker@4.1.6(vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.6(vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.6
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
 
-  '@vitest/mocker@4.1.6(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.6(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.6
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.6':
     dependencies:
@@ -9495,9 +9518,10 @@ snapshots:
     dependencies:
       '@types/node': 25.7.0
 
-  bun-types@1.4.2:
+  bun-types@1.4.3:
     dependencies:
       '@types/node': 25.7.0
+      undici-types: 8.9.0
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
@@ -9696,9 +9720,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(bun-types@1.4.2)(postgres@3.4.9):
+  drizzle-orm@0.45.2(bun-types@1.4.3)(postgres@3.4.9):
     optionalDependencies:
-      bun-types: 1.4.2
+      bun-types: 1.4.3
       postgres: 3.4.9
 
   dunder-proto@1.0.1:
@@ -9713,7 +9737,7 @@ snapshots:
 
   electron-to-chromium@1.5.353: {}
 
-  elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3):
+  elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.3)(exact-mirror@0.2.7(@sinclair/typebox@0.34.49))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3):
     dependencies:
       '@sinclair/typebox': 0.34.49
       cookie: 1.1.1
@@ -9723,7 +9747,7 @@ snapshots:
       memoirist: 0.4.0
       openapi-types: 12.1.3
     optionalDependencies:
-      '@types/bun': 1.4.2
+      '@types/bun': 1.4.3
       typescript: 5.9.3
 
   entities@6.0.1: {}
@@ -10025,6 +10049,8 @@ snapshots:
 
   gopd@1.2.0: {}
 
+  gsap@3.15.0: {}
+
   has-symbols@1.1.0: {}
 
   has-tostringtag@1.0.2:
@@ -10229,6 +10255,10 @@ snapshots:
   kleur@4.1.5: {}
 
   konva@10.3.0: {}
+
+  lenis@1.3.27(react@19.2.6):
+    optionalDependencies:
+      react: 19.2.6
 
   lib0@0.2.119:
     dependencies:
@@ -11258,7 +11288,7 @@ snapshots:
     dependencies:
       chokidar: 3.6.0
       immutable: 4.3.9
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
     optional: true
 
   saxes@6.0.0:
@@ -11547,8 +11577,7 @@ snapshots:
 
   undici-types@7.21.0: {}
 
-  undici-types@8.9.0:
-    optional: true
+  undici-types@8.9.0: {}
 
   undici@7.28.0: {}
 
@@ -11597,7 +11626,7 @@ snapshots:
       picomatch: 4.0.4
       webpack-virtual-modules: 0.6.2
 
-  unplugin@3.4.0(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)):
+  unplugin@3.4.0(esbuild@0.28.1)(rolldown@1.2.14)(rollup@4.60.3)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@jridgewell/remapping': 2.3.5
       picomatch: 4.0.7
@@ -11606,7 +11635,7 @@ snapshots:
       esbuild: 0.28.1
       rolldown: 1.2.14
       rollup: 4.60.3
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
 
   update-browserslist-db@1.2.3(browserslist@4.28.2):
     dependencies:
@@ -11698,7 +11727,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.9.0
 
-  vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0):
+  vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
@@ -11709,13 +11738,13 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.7.0
       fsevents: 2.3.3
-      jiti: 1.21.7
+      jiti: 2.7.0
       lightningcss: 1.33.0
       sass: 1.51.0
       tsx: 4.21.0
       yaml: 2.9.0
 
-  vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0):
+  vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -11726,18 +11755,18 @@ snapshots:
       '@types/node': 25.7.0
       esbuild: 0.28.1
       fsevents: 2.3.3
-      jiti: 2.7.0
+      jiti: 1.21.7
       tsx: 4.21.0
       yaml: 2.9.0
 
-  vitefu@1.1.3(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitefu@1.1.3(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)):
     optionalDependencies:
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
 
-  vitest@4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.6
-      '@vitest/mocker': 4.1.6(vite@6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.6(vite@6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.6
       '@vitest/runner': 4.1.6
       '@vitest/snapshot': 4.1.6
@@ -11754,7 +11783,7 @@ snapshots:
       tinyexec: 1.1.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 6.4.2(@types/node@25.7.0)(jiti@1.21.7)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 6.4.2(@types/node@25.7.0)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(tsx@4.21.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.7.0
@@ -11762,10 +11791,10 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.6(@types/node@25.7.0)(jsdom@25.0.1)(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.6
-      '@vitest/mocker': 4.1.6(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.6(vite@8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.6
       '@vitest/runner': 4.1.6
       '@vitest/snapshot': 4.1.6
@@ -11782,7 +11811,7 @@ snapshots:
       tinyexec: 1.1.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@25.7.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.7.0

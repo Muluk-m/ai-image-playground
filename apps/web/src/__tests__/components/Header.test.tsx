@@ -126,6 +126,26 @@ describe('the header', () => {
     )
   })
 
+  it('滚离页顶后右上角账号簇带上磨砂底，回到顶部则去掉', () => {
+    act(() => root.render(<Header />))
+    const float = host.querySelector('.studio-header-float')
+    expect(float?.hasAttribute('data-scrolled')).toBe(false)
+
+    const scrollY = vi.spyOn(window, 'scrollY', 'get')
+    scrollY.mockReturnValue(24)
+    act(() => {
+      document.dispatchEvent(new Event('scroll'))
+    })
+    expect(float?.hasAttribute('data-scrolled')).toBe(true)
+
+    scrollY.mockReturnValue(0)
+    act(() => {
+      document.dispatchEvent(new Event('scroll'))
+    })
+    expect(float?.hasAttribute('data-scrolled')).toBe(false)
+    scrollY.mockRestore()
+  })
+
   it('语言和访客菜单是 40px 图标，画布窄屏也留着深色顶栏', () => {
     act(() => root.render(<Header />))
     expect(host.querySelector('[aria-label="界面语言"]')?.className).toContain('size-10')
