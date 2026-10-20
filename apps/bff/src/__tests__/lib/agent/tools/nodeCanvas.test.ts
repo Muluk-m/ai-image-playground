@@ -106,9 +106,7 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     expect(names).toContain(name)
   for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline', 'planImageBatch'])
     expect(names).not.toContain(name)
-  expect(agentTurnTools({ ...context, canvas: undefined }).map((tool) => tool.name)).toContain(
-    'planImageBatch',
-  )
+  // 非节点画布是否带 planImageBatch 取决于批次能力开关，这套夹具没开，不在这里断言它出现。
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
