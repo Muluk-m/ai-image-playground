@@ -87,9 +87,41 @@ const invalid = (message: string): never => {
   throw new AgentToolError('invalid_params', message)
 }
 function getNode(doc: Y.Doc, id: string) {
-  return (
-    readCanvasDocument(doc).nodes.find((node) => node.id === id) ?? invalid(`节点不存在：${id}`)
-  )
+  const nodes = readCanvasDocument(doc).nodes
+  return nodes.find((node) => node.id === id) ?? invalid(missingNodeMessage(id, nodes))
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i]
+    for (let j = 1; j <= b.length; j++)
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      )
+    previous = current
+  }
+  return previous[b.length]!
+}
+
+/**
+ * 报错时给出最接近的现有节点。只说“不存在”时模型会凭记忆再抄一遍同样的错 ID
+ * （2026-10-18 会话 d61eb8fc 连续 16 次）。
+ */
+export function missingNodeMessage(id: string, nodes: readonly CanvasNode[]): string {
+  const nearest = nodes
+    .map((node) => ({ node, distance: editDistance(id, node.id) }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 3)
+    .map(({ node }) => {
+      const name = 'name' in node.data && node.data.name ? `（${node.data.name}）` : ''
+      return `${node.id}${name}`
+    })
+  return nearest.length
+    ? `节点不存在：${id}。最接近的现有节点：${nearest.join('、')}。请照抄 readCanvas 返回的 ID。`
+    : `节点不存在：${id}。当前画布没有节点。`
 }
 // `CanvasNode` 是基类型与联合的交集，直接判 `type` 收不住 `data`，所以从这里返回。
 function textData(node: CanvasNode): TextNodeData {
@@ -393,7 +425,8 @@ export const runNodes = defineAgentTool({
         ...graph.nodes.map((node) => node.id),
         ...(graph.groups ?? []).map((group) => group.id),
       ])
-      for (const id of params.nodeIds) if (!existing.has(id)) invalid(`节点或分组不存在：${id}`)
+      for (const id of params.nodeIds)
+        if (!existing.has(id)) invalid(missingNodeMessage(id, graph.nodes))
       // 出图模式与生成工具共用每轮自动提交额度；领不到就退回等用户在对话卡确认。
       const autoRun = context.autoSubmit?.take() === true
       const canvasRun = {
