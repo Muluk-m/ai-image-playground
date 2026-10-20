@@ -356,6 +356,8 @@ function evaluateAgentPatterns(
         breached:
           pattern !== null &&
           (configuration || pattern.turns >= OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_TURNS),
+        // 静默窗口内这组还在，轮次暂时跌破阈值也不算恢复。组从窗口里消失才发已恢复。
+        recovered: pattern === null,
         sustainMs: 0,
         firingText: pattern ? patternText(pattern, configuration) : '',
         resolvedText: `已恢复：${identity.model} 的同类 Agent 失败（${identity.code}）${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS)}内没有再出现`,

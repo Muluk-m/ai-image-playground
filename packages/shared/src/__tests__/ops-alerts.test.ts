@@ -510,6 +510,15 @@ describe('同类 Agent 失败', () => {
     )
   })
 
+  it('轮次跌破阈值但静默窗口内还有失败时不报恢复', () => {
+    const opened = evaluateAlerts(pattern(2, T0), {}, T0)
+    expect(opened.messages.map((message) => message.kind)).toEqual(['firing'])
+    const dipped = evaluateAlerts(pattern(1, T0 + 10 * minute), opened.state, T0 + 10 * minute)
+    expect(dipped.messages).toEqual([])
+    const quiet = evaluateAlerts({ agentFailurePatterns: [] }, dipped.state, T0 + 41 * minute)
+    expect(quiet.messages.map((message) => message.kind)).toEqual(['resolved'])
+  })
+
   it('没有失败时不报', () => {
     expect(run([[T0, { agentFailurePatterns: null }]])).toEqual([[]])
   })

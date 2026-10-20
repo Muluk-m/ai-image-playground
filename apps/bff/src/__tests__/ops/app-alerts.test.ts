@@ -283,6 +283,22 @@ it('keeps a smaller configuration failure visible beside a larger overload class
         ),
         created_at: now - minute,
       },
+      {
+        conversation_id: conversationId,
+        turn_id: 'auth-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Chat upstream returned 401: invalid api key'),
+        created_at: now - minute,
+      },
+      {
+        conversation_id: conversationId,
+        turn_id: 'missing-model-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Upstream HTTP 404'),
+        created_at: now - minute,
+      },
     ])
     const observation = await observeApp({
       now,
@@ -294,6 +310,8 @@ it('keeps a smaller configuration failure visible beside a larger overload class
       expect.arrayContaining([
         expect.objectContaining({ turns: 3, upstreamStatus: null, code: 'agent_upstream_error' }),
         expect.objectContaining({ turns: 1, upstreamStatus: 400, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 401, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 404, code: 'agent_upstream_error' }),
       ]),
     )
   } finally {

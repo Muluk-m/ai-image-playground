@@ -186,7 +186,10 @@ async function readAgentFailurePatterns(): Promise<AgentFailurePattern[]> {
   const rows = (await db.execute(sql`
     SELECT failure->>'model' AS model,
       failure->>'code' AS code,
-      substring(failure->>'message' from '^([0-9]{3})') AS status,
+      (regexp_match(
+        failure->>'message',
+        '(^|[Rr]eturned[[:space:]]+|[Hh][Tt][Tt][Pp][[:space:]]+)([0-9]{3})([^0-9]|$)'
+      ))[2] AS status,
       COUNT(DISTINCT turn_id) AS turns,
       EXTRACT(EPOCH FROM MAX(created_at)) * 1000 AS last_at,
       (array_agg(failure->>'message' ORDER BY created_at DESC))[1] AS message
