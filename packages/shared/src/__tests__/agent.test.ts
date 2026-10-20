@@ -8,9 +8,19 @@ import {
   agentMessageText,
   agentToolResultSummary,
   agentTurnCostTotal,
+  canvasStageRunsDirectly,
   encodeAgentFrame,
   parseAgentFrame,
 } from '../agent'
+
+describe('canvasStageRunsDirectly', () => {
+  it('defaults on unless the turn preference is explicitly off', () => {
+    expect(canvasStageRunsDirectly(undefined)).toBe(true)
+    expect(canvasStageRunsDirectly({})).toBe(true)
+    expect(canvasStageRunsDirectly({ autoSubmit: true })).toBe(true)
+    expect(canvasStageRunsDirectly({ autoSubmit: false })).toBe(false)
+  })
+})
 
 describe('agentConversationTitle', () => {
   it('collapses whitespace in the first user message', () => {
@@ -113,6 +123,31 @@ describe('confirmed generation instructions in model history', () => {
     expect(summary).toContain('"nodeIds":["seed"]')
     expect(summary).toContain('当前状态必须查询')
     expect(summary).toContain('范围 嫩芽')
+    expect(summary).toContain('待确认的提案')
+  })
+
+  it('tells the model a direct canvas run is already handed to the origin tab', () => {
+    const summary = agentToolResultSummary({
+      type: 'toolResult',
+      toolCallId: 'proposal',
+      toolName: 'runNodes',
+      title: '阶段授权',
+      status: 'succeeded',
+      canvasRun: {
+        authorizationId: 'stage-lookup',
+        projectId: 'project',
+        stage: '素材',
+        nodeIds: ['seed'],
+        nodeNames: ['嫩芽'],
+        estimatedCredits: 20,
+        budgetCap: 20,
+        status: 'pending',
+        direct: true,
+      },
+    })
+    expect(summary).toContain('直接出图')
+    expect(summary).toContain('不要说待确认')
+    expect(summary).not.toContain('待确认的提案')
   })
 })
 

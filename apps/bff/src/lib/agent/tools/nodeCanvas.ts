@@ -7,6 +7,7 @@ import {
   canvasNodeKind,
   canvasNodeRegistry,
   canvasNodeSourceData,
+  canvasStageRunsDirectly,
   chooseCanvasResult,
   connectCanvasNodes,
   deleteCanvasNode,
@@ -473,9 +474,9 @@ export const runNodes = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '为画布节点生成图片或视频都用 runNodes 提案阶段授权。先 readCanvas 确认节点名称与范围，说明预估积分。授权前只能说「待确认」，查询到实际 taskIds 后才说「已提交」，有真实结果后才说「已完成」。画布不使用出图模式每轮自动提交额度。',
+    '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
   description:
-    '为当前云端画布的一组节点发起持久化阶段授权；stage 为阶段名称，estimatedCredits 为本次申请的预算上限。用户确认后仅原标签页执行，开跑前可撤销。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
+    '为当前云端画布的一组节点登记持久化阶段授权；stage 为阶段名称，estimatedCredits 为本次申请的预算上限。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
     nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
     stage: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
@@ -529,6 +530,7 @@ export const runNodes = defineAgentTool({
         (node) => ids.has(node.id) && ['image', 'video', 'asset'].includes(canvasNodeKind(node)),
       )
       if (!nodes.length) return invalid('范围内没有可生成的节点。')
+      const direct = canvasStageRunsDirectly(context.params)
       const authorization = await proposeStageAuthorization({
         userId: context.userId,
         conversationId: context.conversationId,
@@ -548,6 +550,7 @@ export const runNodes = defineAgentTool({
         estimatedCredits: authorization.estimatedCredits,
         budgetCap: authorization.budgetCap,
         status: authorization.status,
+        direct,
       }
       return {
         content: [
@@ -556,7 +559,9 @@ export const runNodes = defineAgentTool({
             text: JSON.stringify({
               ...canvasRun,
               submitted: false,
-              note: '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
+              note: direct
+                ? '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。'
+                : '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
             }),
           },
         ],

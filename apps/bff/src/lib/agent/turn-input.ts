@@ -1,7 +1,11 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ImageContent, Model } from '@earendil-works/pi-ai'
 import type { AgentMessageView, AgentMode, AgentTurnReference } from '@image-playground/shared'
-import { agentClarificationSummary, agentToolResultSummary } from '@image-playground/shared'
+import {
+  agentClarificationSummary,
+  agentToolResultSummary,
+  canvasStageRunsDirectly,
+} from '@image-playground/shared'
 import { reservationCeiling, storedSummaryTokens } from './compaction'
 import { compactionSettings } from './compaction-settings'
 import type { AgentHistoryWindow } from './conversations'
@@ -126,7 +130,13 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
 }
 
 export const NODE_CANVAS_GENERATION_LINE =
-  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待授权、已提交或失败。回复用节点名称，不用内部 ID。'
+  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待确认、已开跑、已提交或失败。回复用节点名称，不用内部 ID。'
+
+const NODE_CANVAS_DIRECT_LINE =
+  '节点画布这一轮是直接出图：runNodes 登记阶段授权后由原标签页立即开跑，不弹确认卡，也不等待撤销。不使用出图模式每轮自动提交额度。不要说待确认。只有查到实际任务记录才能称已提交，真实结果才能称已完成；范围外或预算不足须重新提案。用户偏好由本轮请求决定，不要自己声称已经关掉或打开直接出图。'
+
+const NODE_CANVAS_CONFIRM_LINE =
+  '节点画布这一轮用户关掉了直接出图：runNodes 返回待确认提案，不使用出图模式每轮额度；用户在确认卡上点过之后才由原标签页开跑，开跑前可撤销。授权状态可查询，只有实际任务记录才能称已提交，真实结果才能称已完成；范围外或预算不足须重新提案。'
 
 const DIRECT_IMAGE_LINE =
   '这一轮是图片生成：不要追问、不要改写成另一套方案，用用户原话调用一次生图工具，张数用本轮参数里的 n。工具会当场提交。'
@@ -156,7 +166,9 @@ export function systemPrompt(
       ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑；不要承诺结果已写入画布。'
       : '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     audience.experience === 'canvas'
-      ? '节点画布只使用阶段授权：runNodes 返回待确认提案，不使用出图模式每轮额度；用户确认后由原标签页开跑。授权状态可查询，只有实际任务记录才能称已提交，真实结果才能称已完成；范围外或预算不足须重新提案。'
+      ? autoSubmit
+        ? NODE_CANVAS_DIRECT_LINE
+        : NODE_CANVAS_CONFIRM_LINE
       : directImage
         ? DIRECT_IMAGE_LINE
         : SUBMIT_LINE[autoSubmit ? 'auto' : 'draft'],

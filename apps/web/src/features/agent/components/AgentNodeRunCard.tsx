@@ -30,8 +30,12 @@ export default function AgentNodeRunCard({
   const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
   const [stored, setStored] = useState<StageAuthorization>()
   useEffect(() => {
+    if (!proposal.direct || !origin || !bridge) return
+    startAgentNodeRun(runKey, proposal, 0)
+  }, [bridge, origin, proposal, runKey])
+  useEffect(() => {
     const authorizationId = proposal.authorizationId
-    if (!authorizationId) return
+    if (!authorizationId || proposal.direct) return
     let active = true
     let timer: number | undefined
     const refresh = async () => {
@@ -55,7 +59,7 @@ export default function AgentNodeRunCard({
       active = false
       clearTimeout(timer)
     }
-  }, [proposal.authorizationId])
+  }, [proposal.authorizationId, proposal.direct])
   const authorization =
     run?.authorization &&
     (run.status !== 'running' || run.authorization.audit.length > (stored?.audit.length ?? 0))
@@ -95,7 +99,8 @@ export default function AgentNodeRunCard({
         : run?.status === 'failed'
           ? t(`canvas:nodeBatch.${run.error}`)
           : subtitle
-  const canConfirm = !run && pending && origin
+  const canConfirm = !proposal.direct && !run && pending && origin
+  if (proposal.direct && !run && !plan?.error && !plan?.blocked) return null
   const canUndo = run?.status === 'countdown'
   return (
     <ApprovalCard

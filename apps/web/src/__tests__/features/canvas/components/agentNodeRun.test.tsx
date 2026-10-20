@@ -66,7 +66,7 @@ function fixturePlan(signature: string): NodeBatchPlan {
     params: useStore.getState().params,
   }
 }
-async function mount(runKey: string, origin = true) {
+async function mount(runKey: string, origin = true, next: AgentCanvasRunProposal = proposal) {
   if (origin) registerAgentNodeRunOrigin(runKey)
   const doc = new Y.Doc(),
     source = canvasOrigin('user', 'test'),
@@ -87,7 +87,7 @@ async function mount(runKey: string, origin = true) {
       revision: plan.signature,
       files: {},
     })
-    return <AgentNodeRunCard runKey={runKey} proposal={proposal} />
+    return <AgentNodeRunCard runKey={runKey} proposal={next} />
   }
   const host = document.createElement('div')
   document.body.append(host)
@@ -172,6 +172,26 @@ it('shows scope and budget, confirms once, then preflights and runs only after t
   expect(document.body.textContent).toContain('本组生成已完成。')
   expect(document.body.textContent).toContain('已用额度20')
 })
+it('starts a direct run with no confirmation card and no undo wait', async () => {
+  await mount('direct', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(button('确认运行')).toBeUndefined()
+  expect(document.body.textContent).not.toContain('确认运行')
+  expect(document.body.textContent).not.toContain('撤销')
+  expect(confirms).toBe(1)
+  expect(preflights).toBe(1)
+  expect(mocks.run).toHaveBeenCalledOnce()
+})
+
+it('does not start a direct run from another device', async () => {
+  await mount('direct-elsewhere', false, { ...proposal, direct: true })
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(button('确认运行')).toBeUndefined()
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
+})
+
 it('refuses to confirm a blocked quote', async () => {
   plan = { ...fixturePlan('busy'), error: 'busy' }
   await mount('blocked')

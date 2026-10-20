@@ -330,16 +330,20 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   const proposal = await run(runNodes, { nodeIds: ['image'] })
   expect(proposal.details?.canvasRun?.nodeIds).toEqual(['image'])
   expect(proposal.details).not.toHaveProperty('job')
+  expect(proposal.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(proposal.details?.canvasRun).not.toHaveProperty('autoRun')
-  const auto = await runNodes
-    .create({ ...context, autoSubmit: { take: () => true } })
-    .execute('auto', { nodeIds: ['image'] }, undefined, undefined)
-  expect(auto.details?.canvasRun).toMatchObject({ status: 'pending', nodeIds: ['image'] })
-  expect(auto.details?.canvasRun).not.toHaveProperty('autoRun')
-  const exhausted = await runNodes
-    .create({ ...context, autoSubmit: { take: () => false } })
-    .execute('exhausted', { nodeIds: ['image'] }, undefined, undefined)
-  expect(exhausted.details?.canvasRun).not.toHaveProperty('autoRun')
+  const rows = await db
+    .select({ id: schema.agent_stage_authorizations.id })
+    .from(schema.agent_stage_authorizations)
+  expect(rows.length).toBeGreaterThan(0)
+  const turnedOff = await runNodes
+    .create({ ...context, params: { autoSubmit: false }, autoSubmit: { take: () => true } })
+    .execute('manual', { nodeIds: ['image'], autoSubmit: true } as never, undefined, undefined)
+  expect(turnedOff.details?.canvasRun).toMatchObject({ direct: false, status: 'pending' })
+  const explicit = await runNodes
+    .create({ ...context, params: { autoSubmit: true } })
+    .execute('direct', { nodeIds: ['image'] }, undefined, undefined)
+  expect(explicit.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(await graph()).toEqual(before)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
   await expect(run(runNodes, { nodeIds: ['missing'] })).rejects.toThrow('不存在')
