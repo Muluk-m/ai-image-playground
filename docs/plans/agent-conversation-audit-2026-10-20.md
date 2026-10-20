@@ -2,13 +2,33 @@
 
 日期：2026-10-20
 
-状态：方案已确认（2026-10-20），按建议顺序实施中。
+状态：方案已确认（2026-10-20）。第 1 条已上线，第 2、3、4、5、7 条有分支或 PR 待审，其余未开始。进度见下方“实施进度”，后续由其他 Agent 接手。
 
 已确认的决策：
 
 - 第 10 条先抽检 20 张产物定性，再决定复核口径与工作流的改法。
-- `20911719` 中重复生成的 6 张（共 600 积分，扣自充值余额）予以退还，由运营在后台“充值积分调整”中操作，原因注明本次重复生成。
+- `20911719` 中重复生成的 6 张（共 600 积分，扣自充值余额）予以退还，由运营在后台“充值积分调整”中操作，原因注明本次重复生成。**尚未执行**：Agent 代为操作被权限系统拦下，需要运营手动处理。
 - 第 1 条原计划的“提示词指纹重复保护”（1.2）取消，原因见第 1 条。
+
+## 实施进度
+
+更新于 2026-10-20。PR 都在 `Muluk-m/ai-image-playground`，建 PR 用的是 Muluk-m 账号（当前机器 gh 默认账号 nain-ma 不是协作者，可用 `GH_TOKEN=$(gh auth token -u Muluk-m) gh …` 单条命令使用，不切换全局账号）。合并到 `main` 后 Web checks 跑完即自动部署生产，纯文档改动也会触发。
+
+| # | 状态 | 分支 / PR | 已做 | 剩余 |
+| --- | --- | --- | --- | --- |
+| 1 | 已上线 | #1398（已合并，部署成功） | 1.1：`conversation-state.ts` 每轮从库里读未确认草稿与 24h 内批次进度、产物 ID，拼进本轮 prompt 正文（不进系统提示词），唤醒轮同样带上 | 1.3 前端聊天确认语拦截，与第 6 条一起做 |
+| 2 | WIP 分支，未开 PR | `fix/agent-failure-alerts` | 2.1 + 2.2：`agent-pattern` 规则（6h 内同模型+错误码+HTTP 状态 ≥2 个轮次，或配置类 4xx 一次即报，30 分钟没再出现算恢复）；2.4：`blind` 规则（某块读数连续 3 轮取不到）。`packages/shared/src/__tests__/ops-alerts.test.ts` 本机单文件 45 例通过；BFF 侧 `readAgentFailurePattern` 的 SQL 未经 CI 验证 | 2.3 保存模型配置前预检未开始（思路：对每个档位用 `configuredAgentRuntime` 的 `models.streamSimple` 发 `maxTokens` 极小的请求，`reasoning` 传 `effort === 'off' ? undefined : effort`，与 `canvas-text.ts` 一致，非可信网关要走 `providerFetch`）；开 PR、跑 CI |
+| 3 | PR 待修 | #1400 | 3.1 `createNodes` 的 image 节点支持 `imageId`，经 `images.resolveMediaReferences` 写入用户自己的 `mediaId`；3.2 节点画布不下发 `planImageBatch`；3.3 提示词与节点工具 guidance 禁止要求用户拖图/选中 | CI `bff` 失败：`nodeCanvas.test.ts` 新增的断言“非节点画布包含 `planImageBatch`”不成立（测试环境没开批次计划能力），删掉这条断言即可 |
+| 4 | PR 待审 | #1401 | `generateImage` / `editImage` / `planImageBatch` 项加可选 `aspectRatio`，按用户当前清晰度档位换算尺寸，并去掉输入框的 `gemini_aspect_ratio`；回执写明实际尺寸；尺寸预设表 `IMAGE_SIZE_PRESETS` 移到 shared，web 改为引用 | 4.3 批次计划卡片展示尺寸（前端）；CI 结果待看 |
+| 5 | PR 待审 | #1399（CI 全绿） | 生成批次唤醒说明不再引导调用 `readBatchAnalysis`，列出产物并要求逐张复核；前 6 张作为“尽力附带”的复核图（`optionalReviewImageIds`：读不到或超图片预算就跳过，多个批次合并时总数也封顶 6，不让整轮失败，按 PR 评审意见修改）；`readBatchAnalysis` 对无分析项版本的报错改为提示用 `viewImage` | 批次自动复核会增加这一轮的对话费用，合并前确认可以接受 |
+| 6 | 未开始 | — | — | 全部（6.1 全部确认、6.2 由第 1 条的状态摘要覆盖了唤醒轮提示，6.3、6.4） |
+| 7 | PR 待查 | #1402 | 节点 ID 校验失败时列出编辑距离最近的 3 个节点；`agentTurnTools` 内同一工具同一错误码连续 3 次后不再执行，记 `agent.tool_retry_circuit_open` | CI `with-overlay` 失败在启动冒烟“Upload did not create a node”，看起来与本改动无关，未细查 |
+| 8 | 未开始 | — | — | 全部 |
+| 9 | 未开始 | — | — | 全部 |
+| 10 | 未开始 | — | — | 先人工抽检 |
+| 11 | 部分无需做 | — | 11.3 不需要改：`model.ts` 的 `retryOverloadedStream` 已于 10-07（dc201faa6）上线，10-13/10-15 的过载失败是重试用尽后的结果 | 11.1、11.2 未开始 |
+
+本机临时 worktree（可删）：`/tmp/aip-audit-dedupe`、`/tmp/aip-audit-batch-review`、`/tmp/aip-audit-node-images`、`/tmp/aip-audit-aspect`、`/tmp/aip-audit-tool-loop`、`/tmp/aip-audit-alerts`、`/tmp/aip-audit-plan-status`。
 
 ## 背景
 
@@ -34,7 +54,7 @@
 | 8 | P2 | 输出达到长度上限直接判失败，“继续”也失败 | 大请求做不下去 | 截断时自动续写一次；引导分批 |
 | 9 | P2 | 任务中止后进入人工对账，68 小时后才补完，用户侧一直转圈 | 用户只能自己暂停重做 | 自动对账；超时告警；卡片展示“结果确认中” |
 | 10 | P2 | 多角度出图疑似效果不达标，Agent 复核几乎都说“基本达到” | 用户反复重做同一需求 | 先人工抽检定性，再调整复核口径与工作流 |
-| 11 | P3 | `planImageBatch` 的 `dependencies` 必填；`batch_execution_unavailable` 归为 unknown；上游过载无重试 | 零星失败、流程中断 | 字段改可选；错误码归类；过载自动重试一次 |
+| 11 | P3 | `planImageBatch` 的 `dependencies` 必填；`batch_execution_unavailable` 归为 unknown；上游过载失败 | 零星失败、流程中断 | 字段改可选；错误码归类；过载重试已存在，无需改 |
 
 建议实施顺序：1 → 5 → 3 → 4 → 6 → 2 → 7 → 9 → 8 → 11，第 10 条先做人工抽检再定。每条独立分支、独立 PR、独立验证。
 
@@ -466,7 +486,7 @@ aspectRatio: Type.Optional(Type.Union(['1:1','16:9','9:16','4:3','3:4','3:2','2:
 
 **背景**：`gpt-6.1-sol` 在 10-13 15:08、10-15 14:07 返回 “Our servers are currently overloaded”，轮直接失败，用户手动重发。
 
-**方案**：模型调用遇到 429/503/overloaded 时，在同一轮内退避 2 秒、5 秒各重试一次。仍然失败时，再按现有逻辑判失败。重试次数计入 `agent_model_calls.http_dispatch_count`。
+**方案**：无需改动。`model.ts` 的 `retryOverloadedStream` 已在 10-07 上线，会在没有任何输出前对明确的过载拒绝退避重试；这两次是重试用尽后的失败。
 
 ---
 
