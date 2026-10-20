@@ -298,7 +298,7 @@
     "thinkingLegend": "思考深度",
     "thinkingSummary": "思考：{{label}}",
     "autoSubmitLabel": "直接出图",
-    "autoSubmitHint": "助手拟好提示词就直接生成并扣费，不再逐张等你确认。"
+    "autoSubmitHint": "默认开启。拟好提示词就直接生成并扣费。关掉后才逐张等你确认。"
   },
   "mentions": {
     "headingResults": "会话图片",
