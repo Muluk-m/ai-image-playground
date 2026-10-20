@@ -19,7 +19,7 @@ import { log } from '../logger'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
-import { batchWakeSummary } from './batch-wake'
+import { batchWakeContent } from './batch-wake'
 import {
   type ChatTaskPricing,
   type ChatTaskReserved,
@@ -463,23 +463,24 @@ async function wakeContent(
   wake: QueuedWake,
 ): Promise<TurnContent | TurnUnprepared> {
   if (wake.batch) {
-    const [text, window] = await Promise.all([
-      batchWakeSummary(conversationId, owner, wake.batch),
+    const [summary, window] = await Promise.all([
+      batchWakeContent(conversationId, owner, wake.batch),
       history,
     ])
-    if (!text) return { kind: 'no_results' }
+    if (!summary) return { kind: 'no_results' }
     if ((await consecutiveAgentWakes(conversationId)) >= AGENT_MAX_CONSECUTIVE_WAKES)
       return { kind: 'wake_limit' }
     return {
-      text,
+      text: summary.text,
       references: [],
-      reviewImageIds: [],
+      reviewImageIds: [...summary.reviewImageIds],
       mode: 'image',
       selectionHistoryStart: clarificationChainStart(window.messages),
       deviceId: wake.deviceId,
       userMessageId: `${turnId}:wake`,
       wake: {
-        authorizationPrompt: '仅汇总这版已确认批次的执行事实；新执行或视觉复核需要用户另行确认。',
+        authorizationPrompt:
+          '仅汇总并复核这版已确认批次的结果；新的生成或付费分析需要用户另行确认。',
       },
     }
   }
@@ -545,16 +546,16 @@ async function resumeContent(
   // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
   const jobs = wake ? wakeJobs(authorizedTurn, wake.taskIds) : []
   const batchSummary = wake?.batch
-    ? await batchWakeSummary(conversationId, owner, wake.batch)
+    ? await batchWakeContent(conversationId, owner, wake.batch)
     : null
   const setup = wake ? wakeTurnSetup(jobs) : resume
   const interruptedStart = window.messages.findIndex(
     (message) => message.turnId === resume.interruptedTurnId,
   )
   return {
-    text: resumeTurnPrompt(batchSummary ?? (wake ? wakeTurnPrompt(jobs) : undefined)),
+    text: resumeTurnPrompt(batchSummary?.text ?? (wake ? wakeTurnPrompt(jobs) : undefined)),
     references: [],
-    reviewImageIds: wakeReviewImageIds(jobs),
+    reviewImageIds: [...wakeReviewImageIds(jobs), ...(batchSummary?.reviewImageIds ?? [])],
     mode: resolveAgentMode(setup.mode ?? 'image'),
     ...(setup.params ? { params: setup.params } : {}),
     ...(resume.canvas ? { canvas: resume.canvas } : {}),
@@ -590,10 +591,10 @@ async function messageContent(
   const batchSummaries = (
     await Promise.all(
       wakes.flatMap((wake) =>
-        wake.batch ? [batchWakeSummary(conversationId, owner, wake.batch)] : [],
+        wake.batch ? [batchWakeContent(conversationId, owner, wake.batch)] : [],
       ),
     )
-  ).filter((text): text is string => text !== null)
+  ).filter((summary) => summary !== null)
   // 点名了哪几轮要取回来才知道，所以这一次查询只能串在后面；那几轮可能比历史窗口更老，一次全取回来。
   const jobs = wakeJobs(
     ordinaryWakes.length === 0
@@ -625,9 +626,12 @@ async function messageContent(
                   note: {
                     text: [
                       ...(jobs.length > 0 ? [mergedWakePrompt(jobs)] : []),
-                      ...batchSummaries,
+                      ...batchSummaries.map((summary) => summary.text),
                     ].join('\n'),
-                    reviewImageIds: wakeReviewImageIds(jobs),
+                    reviewImageIds: [
+                      ...wakeReviewImageIds(jobs),
+                      ...batchSummaries.flatMap((summary) => summary.reviewImageIds),
+                    ],
                   },
                 }
               : {}),
