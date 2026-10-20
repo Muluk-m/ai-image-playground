@@ -126,7 +126,7 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
 }
 
 export const NODE_CANVAS_GENERATION_LINE =
-  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备节点与提示词，再用 runNodes 指定要运行的节点或分组；不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。'
+  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备节点与提示词，再用 runNodes 指定要运行的节点或分组；不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。'
 
 const DIRECT_IMAGE_LINE =
   '这一轮是图片生成：不要追问、不要改写成另一套方案，用用户原话调用一次生图工具，张数用本轮参数里的 n。工具会当场提交。'
