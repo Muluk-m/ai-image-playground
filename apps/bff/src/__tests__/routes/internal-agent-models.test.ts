@@ -21,9 +21,62 @@ const { resolveConfiguredAgentRuntime } = await import('../../lib/agent/model-se
 const { agentStreamFn, setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { completionStream } = await import('../helpers/agentStubs')
 
+/** 保存预检要能被各协议当成成功。聊天补全、Responses、Anthropic 的成功帧不一样。 */
+function acceptedProbe(input: RequestInfo | URL): Response {
+  const url = input instanceof Request ? input.url : String(input)
+  if (url.includes('/responses')) {
+    return new Response(
+      `data: ${JSON.stringify({
+        type: 'response.completed',
+        response: {
+          id: 'resp_probe',
+          status: 'completed',
+          output: [],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        },
+      })}\n\n`,
+      { headers: { 'content-type': 'text/event-stream' } },
+    )
+  }
+  if (url.includes('/messages')) {
+    const events = [
+      [
+        'message_start',
+        {
+          type: 'message_start',
+          message: {
+            id: 'msg_probe',
+            type: 'message',
+            role: 'assistant',
+            model: 'probe',
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+      ],
+      [
+        'message_delta',
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { output_tokens: 1 },
+        },
+      ],
+      ['message_stop', { type: 'message_stop' }],
+    ] as const
+    return new Response(
+      events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join(''),
+      { headers: { 'content-type': 'text/event-stream' } },
+    )
+  }
+  return completionStream('ok')
+}
+
 beforeEach(async () => {
   _setSafeFetchForTesting({ resolve: async () => [{ address: '8.8.8.8', family: 4 }] })
-  setAgentFetchForTesting(async () => completionStream('ok'))
+  setAgentFetchForTesting(async (input) => acceptedProbe(input))
   await db.delete(schema.agent_model_settings)
   await db.delete(schema.operator_audits)
 })
