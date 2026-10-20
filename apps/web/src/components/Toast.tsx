@@ -48,7 +48,7 @@ export default function Toast() {
     place()
     const intro = document.querySelector('.studio-home-intro')
     const observer = intro ? new ResizeObserver(place) : null
-    observer?.observe(intro)
+    if (intro && observer) observer.observe(intro)
     window.addEventListener('resize', place)
     return () => {
       observer?.disconnect()
