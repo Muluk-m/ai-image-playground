@@ -23,6 +23,7 @@ const { completionStream } = await import('../helpers/agentStubs')
 
 beforeEach(async () => {
   _setSafeFetchForTesting({ resolve: async () => [{ address: '8.8.8.8', family: 4 }] })
+  setAgentFetchForTesting(async () => completionStream('ok'))
   await db.delete(schema.agent_model_settings)
   await db.delete(schema.operator_audits)
 })
@@ -63,6 +64,24 @@ it('requires internal authentication and never returns credential values', async
   expect(view.templates.some((item) => item.id === 'google')).toBe(false)
   expect(JSON.stringify(view)).not.toContain('legacy-fixture-key')
   expect(JSON.stringify(view)).not.toContain('provider-fixture-secret')
+})
+
+it('refuses to save when the upstream rejects the preflight', async () => {
+  const view = await initial()
+  setAgentFetchForTesting(
+    async () =>
+      new Response(JSON.stringify({ error: { message: "Invalid value: 'off'." } }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      }),
+  )
+  const response = await request('PUT', { revision: view.revision, settings: view.settings })
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({
+    error: expect.stringContaining("Invalid value: 'off'."),
+  })
+  expect((await initial()).revision).toBe(0)
+  expect(await db.select().from(schema.operator_audits)).toHaveLength(0)
 })
 
 it('persists independent model effort per product depth, audits changes and rejects stale writes', async () => {
