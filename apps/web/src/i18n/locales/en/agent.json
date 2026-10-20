@@ -320,7 +320,7 @@
     "thinkingLegend": "Thinking depth",
     "thinkingSummary": "Thinking: {{label}}",
     "autoSubmitLabel": "Generate directly",
-    "autoSubmitHint": "The assistant starts generating (and charging) as soon as it drafts a prompt, without waiting for your confirmation."
+    "autoSubmitHint": "On by default. The assistant generates and charges as soon as the prompt is ready. Turn this off to confirm each card first."
   },
   "mentions": {
     "headingResults": "Conversation images",
