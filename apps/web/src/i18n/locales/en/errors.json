@@ -90,6 +90,7 @@
     "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
     "content_policy": "The prompt didn't pass content review, so the provider rejected it",
     "model_unavailable": "The model it needed isn't available right now",
+    "service_unavailable": "Batch execution isn't open. Ask the assistant to draft from the per-image results",
     "cancelled": "Stopped",
     "fallback": "Didn't finish"
   },

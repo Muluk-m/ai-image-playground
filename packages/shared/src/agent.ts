@@ -418,6 +418,7 @@ export type AgentToolStatus =
  * - `content_policy`：上游按内容安全策略拒绝了这次生成。原样重试稳定复现，出路是改提示词，
  *   在智能体这一侧就是让它改写后再提交。
  * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
+ * - `service_unavailable`：批次执行开关关着。重试同一个工具不会自己恢复，交给智能体换路径。
  * - `cancelled`：用户中止了这一轮，不需要出路。
  * - `unknown`：归不进上面任何一类。
  *
@@ -435,6 +436,7 @@ export type AgentToolErrorCode =
   | 'source_unavailable'
   | 'content_policy'
   | 'model_unavailable'
+  | 'service_unavailable'
   | 'cancelled'
   | 'unknown'
 
@@ -450,6 +452,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'source_unavailable',
   'content_policy',
   'model_unavailable',
+  'service_unavailable',
   'cancelled',
   'unknown',
 ]
