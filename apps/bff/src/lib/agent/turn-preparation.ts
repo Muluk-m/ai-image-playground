@@ -28,6 +28,7 @@ import {
   chatTurnsBilled,
   reserveChatTask,
 } from './chat-task'
+import { conversationStateNote } from './conversation-state'
 import {
   type AgentHistoryWindow,
   type AgentOwner,
@@ -264,6 +265,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
     const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
     const currentTime = new Date().toISOString()
+    const conversationState = await conversationStateNote(conversationId)
     let modelHistory: AgentTurnInput['modelHistory']
     if (
       source.kind === 'message' &&
@@ -296,7 +298,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       )
     }
     const estimated = (one: TurnContent): EstimatedTurnInput => {
-      const input = { ...turnInputOf(window, one, audience, skillTexts, currentTime), modelHistory }
+      const input = {
+        ...turnInputOf(window, one, audience, skillTexts, currentTime, conversationState),
+        modelHistory,
+      }
       return { input, estimatedInputTokens: estimateTurnInputTokens(input, model) }
     }
     const withNote = estimated(content)
@@ -424,11 +429,13 @@ function turnInputOf(
   audience: AgentTurnAudience,
   skillTexts: ReadonlyMap<string, string>,
   currentTime: string,
+  conversationState: string | undefined,
 ): AgentTurnInput {
   const note = content.wakes?.note
   return {
     history,
     currentTime,
+    ...(conversationState ? { conversationState } : {}),
     text: content.text,
     ...(content.params?.production ? { production: content.params.production } : {}),
     ...(content.params?.productionMode ? { productionMode: true as const } : {}),
