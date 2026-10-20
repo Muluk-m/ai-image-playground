@@ -6,6 +6,7 @@ import {
   CreationSend,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
@@ -58,14 +59,14 @@ export default function TextNodeComposer({
     () =>
       models.map((model) => ({
         value: model.id,
-        model: model.id,
+        model: model.model,
         profileId: 'chat',
-        label: model.label,
-        description: t('composer.chatModel'),
+        label:
+          model.label === model.model ? compactModelName(model.model, model.label) : model.label,
       })),
-    [models, t],
+    [models],
   )
-  const current = models.find((model) => model.id === selected)
+  const current = choices.find((model) => model.value === selected)
   const canSend = value.trim().length > 0 && Boolean(current) && !busy
   const displayedError = error ?? directoryError
   return (
@@ -121,7 +122,7 @@ export default function TextNodeComposer({
               aria-label={t('composer.chooseModel')}
               disabled={!choices.length || busy}
             >
-              <Icon name="model" />
+              {current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
               <OverflowText
                 text={current?.label ?? t('composer.chooseModel')}
                 className="min-w-0 truncate"
@@ -129,7 +130,12 @@ export default function TextNodeComposer({
               <Icon name="chevronDown" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-72">
+          <PopoverContent
+            side="top"
+            align="start"
+            collisionPadding={12}
+            className="w-max max-w-[calc(100vw-1.5rem)] p-1"
+          >
             <ModelList
               options={choices}
               value={selected ?? ''}

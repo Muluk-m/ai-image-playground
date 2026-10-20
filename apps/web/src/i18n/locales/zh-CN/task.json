@@ -35,7 +35,7 @@
       "generating": "生成中...",
       "reconnecting": "恢复连接中...",
       "confirming": "结果确认中...",
-      "reconciling": "待核查"
+      "reconciling": "结果确认中（已提交，不会重复扣费）"
     },
     "inpaint": "局部重绘",
     "transparentBackground": "透明背景"
@@ -90,9 +90,6 @@
     "dialog": "图片预览"
   },
   "grid": {
-    "expandAll": "展开全部",
-    "expandMore": "展开更多作品",
-    "collapse": "收起",
     "openLibrary": "去资产库",
     "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",
     "noMatches": "没有找到匹配的记录",

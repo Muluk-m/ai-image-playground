@@ -167,7 +167,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
               <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
             </div>
             {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
-            <div className="studio-home-create pt-8 md:pt-5">
+            <div className="studio-home-create">
               <CreateTargetSwitch />
               <div className="pt-6 md:pt-4">
                 <InputBar inline />

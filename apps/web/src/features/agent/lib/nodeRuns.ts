@@ -23,10 +23,17 @@ export type AgentNodeRun = RunBase &
 const runs = new Map<string, AgentNodeRun>()
 const controls = new Map<string, AbortController>()
 const listeners = new Set<() => void>()
+let revision = 0
 
 function publish(key: string, run: AgentNodeRun) {
+  revision += 1
   runs.set(key, run)
   for (const listener of listeners) listener()
+}
+
+/** 运行表换代的次数。输入栏用它知道哪张运行卡已经开跑，不必再当成待确认。 */
+export function agentNodeRunRevision(): number {
+  return revision
 }
 
 function batchError(error: unknown): NodeBatchError {

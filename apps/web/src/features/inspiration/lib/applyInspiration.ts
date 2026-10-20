@@ -3,13 +3,20 @@ import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
-import { CANVAS_HANDOFF_ADMISSION, referenceAdmission } from '../../../lib/referenceDraft'
+import {
+  CANVAS_HANDOFF_ADMISSION,
+  referenceAdmission,
+  referenceRefusal,
+  referenceRefusalMessage,
+  referenceTally,
+} from '../../../lib/referenceDraft'
 import { storeImageFromUrl, useStore } from '../../../store'
 import type { InputImage } from '../../../types'
 import { startCanvasFromComposer } from '../../agent/lib/heroHandoff'
 import { useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import { matchProfile } from './matchProfile'
+import { plainPrompt } from './promptArgs'
 
 /**
  * 把灵感库示例应用到主 InputBar：
@@ -59,7 +66,7 @@ async function doApply(item: InspirationItem): Promise<void> {
     if (!current.attachInputImages(images, CANVAS_HANDOFF_ADMISSION)) return
     // BFF's explicit skill syntax is /skill-name, not /skill name. Handoff transfers the
     // already-staged reference IDs to the first agent turn.
-    current.setPrompt(`/${item.skill} ${item.prompt}`)
+    current.setPrompt(`/${item.skill} ${plainPrompt(item.prompt)}`)
     inspiration.closeDetail()
     // 跟首屏输入框同一套：选的是「对话」就开对话项目，其余（画布、快速生成）开画布。
     const experience = current.createTarget === 'chat' ? 'chat' : 'canvas'
@@ -103,7 +110,7 @@ async function doApply(item: InspirationItem): Promise<void> {
       'info',
     )
   }
-  current.setPrompt(item.prompt)
+  current.setPrompt(plainPrompt(item.prompt))
   current.setParams({
     size: item.params.size,
     ...(item.params.quality ? { quality: item.params.quality } : {}),
@@ -111,4 +118,37 @@ async function doApply(item: InspirationItem): Promise<void> {
   })
   inspiration.closeDetail()
   current.setAppMode('image')
+}
+
+/**
+ * 把案例的结果图放进创作输入框，当参考图。不改提示词，也不改尺寸和质量。
+ * 条里放不下时只提示，不去下载。
+ */
+export async function useInspirationAsReference(item: InspirationItem): Promise<void> {
+  if (item.kind === 'skill') return
+  const main = useStore.getState()
+  const admission = referenceAdmission(getActiveApiProfile(main.settings))
+  const refusal = referenceRefusal(
+    referenceTally(main.inputImages, admission),
+    { total: 1 },
+    admission,
+  )
+  if (refusal) {
+    main.showToast(referenceRefusalMessage(refusal), 'error')
+    return
+  }
+  let image: InputImage
+  try {
+    image = await storeImageFromUrl(item.imageUrl ?? item.thumbnailUrl)
+  } catch {
+    useStore
+      .getState()
+      .showToast(i18next.t('apply.referenceFailed', { ns: 'inspiration' }), 'error')
+    return
+  }
+  const current = useStore.getState()
+  if (!current.attachInputImages([image], admission)) return
+  useInspirationStore.getState().closeDetail()
+  current.setAppMode('image')
+  current.showToast(i18next.t('detail.referenceAdded', { ns: 'inspiration' }), 'success')
 }

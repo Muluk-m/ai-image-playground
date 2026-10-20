@@ -73,6 +73,8 @@ export function emptyDraft(categoryId: string): InspirationWriteInput {
     skillName: null,
     sourceUrl: null,
     author: null,
+    thumbWidth: null,
+    thumbHeight: null,
     sort: 0,
   }
 }
@@ -96,6 +98,8 @@ export function toWriteInput(item: InspirationAdminItem): InspirationWriteInput 
     skillName: item.skillName,
     sourceUrl: item.sourceUrl,
     author: item.author,
+    thumbWidth: item.thumbWidth ?? null,
+    thumbHeight: item.thumbHeight ?? null,
     sort: item.sort,
   }
 }

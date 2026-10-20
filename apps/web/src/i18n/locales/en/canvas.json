@@ -477,8 +477,8 @@
     "composerText": "Write this text",
     "composerSend": "Generate",
     "contextLabel": "Context",
-    "connectIn": "Use as incoming context",
     "connectOut": "Connect to the next node",
+    "cutConnection": "Cut connection",
     "addVideo": "Video",
     "select": "Select",
     "pan": "Pan canvas",
@@ -492,6 +492,7 @@
     "paste": "Paste",
     "duplicate": "Duplicate",
     "delete": "Delete",
+    "connectionCut": "Connection cut",
     "preview": "Fullscreen preview",
     "download": "Download original",
     "rename": "Node name",
@@ -706,5 +707,22 @@
     "episode1": "Episode 1",
     "confirm": "Create text node",
     "cancel": "Cancel"
+  },
+  "imagePresets": {
+    "open": "Presets",
+    "singleSheet": "1 image sheet",
+    "remove": "Remove preset",
+    "character-sheet": {
+      "title": "Character three views",
+      "description": "Front, side and back of the same character"
+    },
+    "multi-camera-grid": {
+      "title": "Nine camera angles",
+      "description": "Nine camera views of the same scene and moment"
+    },
+    "continuous-storyboard": {
+      "title": "Continuous storyboard",
+      "description": "Turn a story into a continuous storyboard sheet"
+    }
   }
 }

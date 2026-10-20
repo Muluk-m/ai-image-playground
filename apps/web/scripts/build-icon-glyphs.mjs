@@ -51,6 +51,7 @@ const GLYPHS = {
   back: ['solar', 'arrow-left'],
   upscale: ['solar', 'maximize-square'],
   removeBg: ['solar', 'scissors'],
+  cut: ['solar', 'scissors'],
   brush: ['solar', 'paint-brush'],
   crop: ['solar', 'crop'],
   outpaint: ['solar', 'maximize-square-2'],

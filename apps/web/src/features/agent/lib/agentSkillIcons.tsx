@@ -9,6 +9,8 @@ const AGENT_SKILL_ICONS: Readonly<Record<string, IconName>> = {
   clapperboard: 'storyboard',
   flame: 'flame',
   focus: 'focus',
+  film: 'clip',
+  'grid-3x3': 'slice',
   house: 'home',
   'image-play': 'imageAnimate',
   'image-plus': 'imageAdd',

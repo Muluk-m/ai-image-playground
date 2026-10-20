@@ -406,3 +406,82 @@ describe('消息写明当前值与阈值', () => {
     expect(messages[0]?.text).toBe('已恢复：磁盘已用 40%')
   })
 })
+
+describe('同类 Agent 失败', () => {
+  const pattern = (
+    turns: number,
+    lastAt: number,
+    message = 'Our servers are currently overloaded.',
+  ) => ({
+    agentFailurePattern: {
+      model: 'gpt-6-luna',
+      code: 'agent_upstream_error',
+      upstreamStatus: message.startsWith('400') ? 400 : null,
+      turns,
+      lastAt,
+      message,
+    },
+  })
+
+  it('低流量下分散的失败：6 小时内两轮同类失败就报，30 分钟没再出现算恢复', () => {
+    expect(
+      run([
+        [T0, pattern(1, T0)],
+        [T0 + 40 * minute, pattern(2, T0 + 40 * minute)],
+        [T0 + 50 * minute, pattern(2, T0 + 40 * minute)],
+        [T0 + 80 * minute, pattern(2, T0 + 40 * minute)],
+      ]),
+    ).toEqual([[], ['firing:agent-pattern'], [], ['resolved:agent-pattern']])
+  })
+
+  it('配置类 4xx 出现一次就报，正文带模型与上游报错', () => {
+    const message = '400: {"message":"Invalid value: \'off\'.","type":"invalid_request_error"}'
+    const result = evaluateAlerts(pattern(1, T0, message), {}, T0)
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]?.text).toContain('Agent 模型配置被上游拒绝：gpt-6-luna')
+    expect(result.messages[0]?.text).toContain('HTTP 400')
+  })
+
+  it('没有失败时不报', () => {
+    expect(run([[T0, { agentFailurePattern: null }]])).toEqual([[]])
+  })
+
+  it('同一轮里的重复不算，一轮失败不报', () => {
+    expect(evaluateAlerts(pattern(1, T0), {}, T0).messages).toEqual([])
+  })
+
+  it('内容策略拒绝不计入，即使它看起来像配置 4xx', () => {
+    expect(
+      evaluateAlerts(
+        {
+          agentFailurePattern: {
+            model: 'gpt-6-luna',
+            code: 'content_policy',
+            upstreamStatus: 400,
+            turns: 4,
+            lastAt: T0,
+            message: 'content_policy: rejected',
+          },
+        },
+        {},
+        T0,
+      ).messages,
+    ).toEqual([])
+  })
+})
+
+describe('告警读数失明', () => {
+  it('同一块连续 3 轮取不到才报，恢复后发已恢复', () => {
+    const blind = (rounds: number) => ({
+      blindBlocks: rounds ? [{ block: 'failures', rounds }] : [],
+    })
+    expect(
+      run([
+        [T0, blind(1)],
+        [T0 + minute, blind(2)],
+        [T0 + 2 * minute, blind(3)],
+        [T0 + 3 * minute, blind(0)],
+      ]),
+    ).toEqual([[], [], ['firing:blind'], ['resolved:blind']])
+  })
+})

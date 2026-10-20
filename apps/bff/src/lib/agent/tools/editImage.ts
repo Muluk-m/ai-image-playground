@@ -4,7 +4,12 @@ import { requireAgentImages } from '../images'
 import { prepareMaskedEdit } from '../masked-edit'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
-import { imageCountParameter, requestedImageCount, reviewParameter } from './queueParams'
+import {
+  aspectRatioParameter,
+  imageCountParameter,
+  requestedImageCount,
+  reviewParameter,
+} from './queueParams'
 import { draftQueueTask, resolveAgentModel } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
@@ -80,6 +85,7 @@ const parameters = Type.Object({
     ),
   ),
   n: imageCountParameter,
+  aspectRatio: aspectRatioParameter,
   reviewAfterCompletion: reviewParameter,
 })
 
@@ -185,6 +191,7 @@ export const editImage = defineAgentTool({
           // 确认时提交的都是这一句。
           prompt: prepared?.prompt ?? params.prompt,
           n: requestedImageCount(params.n, context.params?.n),
+          ...(params.aspectRatio ? { aspectRatio: params.aspectRatio } : {}),
           referenceIds: images.map((image) => image.imageId),
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
           ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),

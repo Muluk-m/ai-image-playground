@@ -5,38 +5,66 @@
   "filter": {
     "provider": "Model",
     "all": "All",
-    "imageEdit": "Image edits · Before & after",
-    "imageEditShort": "Before & after"
+    "groups": "Categories"
+  },
+  "group": {
+    "posters": "Posters & type",
+    "illustration": "Illustration & art",
+    "photo": "Photography & realism",
+    "product": "Product & commerce",
+    "people": "People & portraits",
+    "scene": "Scenes & spaces",
+    "infographic": "Infographics",
+    "brand": "Brand & interface",
+    "other": "Other"
   },
   "list": {
     "loading": "Loading…",
     "empty": "No matching inspiration",
-    "resetFilters": "Reset filters"
+    "resetFilters": "Reset filters",
+    "count": "{{count}} cases",
+    "end": "All {{count}} cases shown",
+    "backToTop": "Back to top",
+    "noResult": "No cases found for “{{q}}”",
+    "noResultHint": "Try another keyword, or start from a category below",
+    "noFilterResult": "No cases match this filter",
+    "noFilterHint": "Try another category or model",
+    "clearSearch": "Clear search"
   },
   "card": {
-    "pin": "Pin",
-    "unpin": "Unpin",
+    "pin": "Favorite",
+    "unpin": "Remove favorite",
     "imageEdit": "Image edit",
     "before": "Before",
     "after": "After",
     "beforeAlt": "Input image for {{title}}",
     "afterAlt": "Generated result for {{title}}",
-    "referenceCount": "{{count}} reference images",
-    "viewCase": "View case"
+    "referenceCount": "{{count}} reference images"
   },
   "detail": {
     "back": "Back to list",
-    "openOriginalHint": "Open the full-size result in a new tab",
-    "openOriginal": "View full image",
-    "openBefore": "Open input image",
-    "openAfter": "Open generated result",
+    "close": "Close",
     "source": "View source",
     "promptLabel": "Full prompt",
     "copyPrompt": "Copy prompt",
-    "apply": "Use this prompt",
-    "applyWithReference": "Try with input image",
+    "copy": "Copy",
+    "apply": "Make this",
+    "applyWithReference": "Make this with the original",
+    "useAsReference": "Use as reference",
+    "referenceAdded": "Added this image to the composer as a reference",
     "promptCopied": "Prompt copied",
-    "copyFailed": "Could not copy. Select the text manually."
+    "copyFailed": "Could not copy. Select the text manually.",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied",
+    "navHint": "Switch",
+    "prev": "Previous",
+    "next": "Next",
+    "argHint": "Highlighted text can be replaced with your own",
+    "autoSize": "Auto size",
+    "qualityHigh": "High quality",
+    "qualityMedium": "Medium quality",
+    "qualityLow": "Low quality",
+    "qualityAuto": "Auto quality"
   },
   "hero": {
     "title": "Inspiration",

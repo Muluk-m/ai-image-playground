@@ -21,9 +21,11 @@ const BREAKDOWN = [
 export default function AgentTurnCost({
   footer,
   jobs = [],
+  outputCount,
 }: {
   footer: AgentTurnFooter
   jobs?: readonly AgentToolMessage[]
+  outputCount?: number
 }) {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
@@ -38,7 +40,7 @@ export default function AgentTurnCost({
     footer.stopReason === 'completed' && cost?.chat === 0 && cost.chatWaived !== undefined
 
   if (waivedChat && cost && total)
-    return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} />
+    return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} outputCount={outputCount} />
 
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const extra: ReactNode[] = []
@@ -75,6 +77,7 @@ export default function AgentTurnCost({
   const receipt = (
     <CostLine
       durationMs={footer.durationMs}
+      outputCount={outputCount}
       amount={total && total > 0 ? total : null}
       open={open}
       onToggle={() => setOpen(!open)}
@@ -122,6 +125,7 @@ export default function AgentTurnCost({
 /** `28s · 100 积分 · 明细`。明细展开分类或减免，不再用悬浮的箭头。 */
 function CostLine({
   durationMs,
+  outputCount,
   amount,
   open,
   onToggle,
@@ -129,6 +133,7 @@ function CostLine({
   breakdown,
 }: {
   durationMs?: number
+  outputCount?: number
   amount: number | null
   open: boolean
   onToggle: () => void
@@ -138,18 +143,31 @@ function CostLine({
   const { t } = useTranslation('agent')
   const duration = durationMs !== undefined ? formatElapsed(durationMs) : null
   return (
-    <div className="studio-agent-turn-cost flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-sm text-muted-foreground">
+    <div
+      className={
+        outputCount === undefined
+          ? 'studio-agent-turn-cost flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-sm text-muted-foreground'
+          : 'studio-agent-batch-cost'
+      }
+    >
       {extra}
       {duration && (
         <span className="tabular-nums" aria-label={t('cost.duration', { duration })}>
           {duration}
         </span>
       )}
+      {outputCount !== undefined && <span>{t('tool.batchCount', { count: outputCount })}</span>}
       {amount !== null && (
         <>
-          {duration && <span aria-hidden="true">·</span>}
-          <span className="tabular-nums">{t('cost.credits', { amount: formatCount(amount) })}</span>
-          <span aria-hidden="true">·</span>
+          {duration && outputCount === undefined && <span aria-hidden="true">·</span>}
+          {outputCount === undefined ? (
+            <span className="tabular-nums">
+              {t('cost.credits', { amount: formatCount(amount) })}
+            </span>
+          ) : (
+            <Credits credits={amount} />
+          )}
+          {outputCount === undefined && <span aria-hidden="true">·</span>}
           <Button
             type="button"
             variant="ghost"
@@ -167,12 +185,21 @@ function CostLine({
   )
 }
 
-function ChatFreeReceipt({ cost, durationMs }: { cost: TurnCost; durationMs?: number }) {
+function ChatFreeReceipt({
+  cost,
+  durationMs,
+  outputCount,
+}: {
+  cost: TurnCost
+  durationMs?: number
+  outputCount?: number
+}) {
   const [open, setOpen] = useState(false)
   const spent = agentTurnCostTotal(cost)
   return (
     <CostLine
       durationMs={durationMs}
+      outputCount={outputCount}
       amount={spent > 0 ? spent : null}
       open={open}
       onToggle={() => setOpen(!open)}

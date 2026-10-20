@@ -459,8 +459,8 @@
     "composerText": "写下这段文字",
     "composerSend": "生成",
     "contextLabel": "引用",
-    "connectIn": "接入上文",
     "connectOut": "接到下一个节点",
+    "cutConnection": "剪断连线",
     "addVideo": "视频",
     "select": "选择",
     "pan": "移动画布",
@@ -474,6 +474,7 @@
     "paste": "粘贴",
     "duplicate": "创建副本",
     "delete": "删除",
+    "connectionCut": "连线已剪断",
     "preview": "全屏查看",
     "download": "下载原图",
     "rename": "节点名称",
@@ -685,5 +686,22 @@
     "episode1": "第 1 集",
     "confirm": "生成文本节点",
     "cancel": "取消"
+  },
+  "imagePresets": {
+    "open": "预设",
+    "singleSheet": "1 张拼图",
+    "remove": "移除预设",
+    "character-sheet": {
+      "title": "人物三视图",
+      "description": "同一人物的正面、侧面和背面"
+    },
+    "multi-camera-grid": {
+      "title": "多机位九宫格",
+      "description": "同一场景、同一时刻的九种机位"
+    },
+    "continuous-storyboard": {
+      "title": "连续分镜图",
+      "description": "把一段剧情画成连续的分镜拼图"
+    }
   }
 }

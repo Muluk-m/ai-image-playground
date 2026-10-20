@@ -80,7 +80,6 @@
     "downloadResult": "下载",
     "downloadAll": "全部下载",
     "batchCount_other": "{{count}} 张",
-    "costDetail": "明细",
     "inpaint": "局部重绘",
     "erase": "擦除",
     "crop": "裁剪",
@@ -163,11 +162,18 @@
     "allPending_other": "{{count}} 张稿等你确认",
     "allSubmit_other": "全部确认（{{count}}）",
     "allSubmitting": "逐张提交中…",
-    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。"
+    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。",
+    "gate": "有 {{count}} 张待确认的卡片。",
+    "gateConfirm": "全部确认生成",
+    "gateJump": "跳到卡片",
+    "gateSend": "仍然发送这句话",
+    "gateRunNodes": "确认运行节点（{{count}}）",
+    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。"
   },
   "plan": {
     "title": "生成计划",
     "summary_other": "{{count}} 张",
+    "summaryCredits_other": "{{count}} 张待确认，合计约 {{credits}} 积分",
     "hint": "点击一行可修改提示词，取消勾选即跳过",
     "generate_other": "全部生成（{{count}}）",
     "cancel": "取消",
@@ -299,7 +305,7 @@
     "thinkingLegend": "思考深度",
     "thinkingSummary": "思考：{{label}}",
     "autoSubmitLabel": "直接出图",
-    "autoSubmitHint": "助手拟好提示词就直接生成并扣费，不再逐张等你确认。"
+    "autoSubmitHint": "默认开启。拟好提示词就直接生成并扣费。关掉后才逐张等你确认。"
   },
   "mentions": {
     "headingResults": "会话图片",
@@ -479,7 +485,8 @@
       "generating": "生成中",
       "reconnecting": "重新连接中",
       "confirming": "保存结果中",
-      "reconciling": "待核查",
+      "reconciling": "结果确认中（已提交给上游，正在核对，不会重复扣费）",
+      "reconcilingLate": "结果确认超时，已通知处理，你可以先重新生成；若原任务最终失败会自动退款",
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
@@ -593,7 +600,7 @@
       "completed": "已完成",
       "failed": "生成失败",
       "cancelled": "已取消",
-      "reconciling": "待核查",
+      "reconciling": "结果确认中",
       "ready": "待派发",
       "in_flight": "执行中",
       "blocked": "依赖受阻"
