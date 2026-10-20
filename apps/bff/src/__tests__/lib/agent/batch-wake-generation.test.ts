@@ -60,7 +60,7 @@ async function seedBatch(id: string, outcomes: readonly ('completed' | 'failed')
       kind: 'generation',
       inputs: [],
       prompt: 'prompt',
-      params: { model: 'fixture' },
+      params: { model: 'fixture', provider: 'openai-compat' as const },
       dependencies: [],
     })
     await db.insert(schema.tasks).values({
