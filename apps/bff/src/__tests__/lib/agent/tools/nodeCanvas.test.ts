@@ -104,8 +104,9 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'applyScriptPlan',
   ])
     expect(names).toContain(name)
-  for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'])
+  for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline', 'planImageBatch'])
     expect(names).not.toContain(name)
+  // 非节点画布是否带 planImageBatch 取决于批次能力开关，这套夹具没开，不在这里断言它出现。
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
@@ -260,6 +261,58 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('turns a chat attachment into an image node the user does not have to drag in', async () => {
+  const { context, run, graph } = await fixture()
+  const now = Date.now()
+  const mediaId = crypto.randomUUID()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: userId,
+    sha256: 'b'.repeat(64),
+    bytes: 1024,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 1024,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    width: 800,
+    height: 600,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  const attached = {
+    ...context,
+    images: createAgentImageSource({
+      references: [{ imageId: 'file_bathtub', mediaId, name: '浴缸正面' }],
+      history: [],
+      conversationId: context.conversationId,
+      userId,
+    }),
+  }
+  const runAttached = (args: unknown) =>
+    createNodes.create(attached).execute(crypto.randomUUID(), args, undefined, undefined)
+  await runAttached({
+    nodes: [
+      { id: 'bathtub', type: 'image', imageId: 'file_bathtub' },
+      { id: 'scene', type: 'image', prompt: '把浴缸放进海景浴室' },
+    ],
+  })
+  const saved = await graph()
+  expect(saved.nodes.find((node) => node.id === 'bathtub')?.data).toMatchObject({
+    mediaId,
+    name: '浴缸正面',
+    meta: { nodeKind: 'image' },
+  })
+  expect(saved.nodes.find((node) => node.id === 'scene')?.data).not.toHaveProperty('mediaId')
+  await expect(
+    runAttached({ nodes: [{ id: 'ghost', type: 'image', imageId: 'file_missing' }] }),
+  ).rejects.toThrow('file_bathtub')
+  await expect(
+    run(createNodes, { nodes: [{ id: 'note', type: 'text', imageId: 'file_bathtub' }] }),
+  ).rejects.toThrow('只有 image 节点可以设置 imageId')
 })
 
 it('routes node canvas generation away from generic batch plans', async () => {
