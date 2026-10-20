@@ -17,6 +17,8 @@ export type AlertRule =
   | 'api'
   | 'generation'
   | 'agent'
+  | 'agent-pattern'
+  | 'blind'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
@@ -40,6 +42,34 @@ export interface AlertObservation {
     error_routes: Record<string, number>
   }
   failures?: { generation_system: number; agent: number }
+  /** 近 6 小时最突出的一类 Agent 轮次失败；没有失败时为 null。 */
+  agentFailurePattern?: AgentFailurePattern | null
+  /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
+  blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
+}
+
+export interface AgentFailurePattern {
+  model: string
+  code: string
+  /** 上游 HTTP 状态码；报错里认不出时为 null。 */
+  upstreamStatus: number | null
+  turns: number
+  lastAt: number
+  /** 最近一次的报错，已截断。 */
+  message: string
+}
+
+/** 参数或鉴权类的上游拒绝：重试不会自己好，只能改配置，出现一次就报。 */
+export function isConfigurationFailure(pattern: AgentFailurePattern): boolean {
+  return (
+    (pattern.upstreamStatus !== null && [400, 401, 403, 404].includes(pattern.upstreamStatus)) ||
+    /invalid_request_error|invalid value|model_not_found|unsupported/i.test(pattern.message)
+  )
+}
+
+/** 内容策略拒绝是用户那条提示词的问题，不是服务事故。 */
+export function isContentPolicyFailure(pattern: AgentFailurePattern): boolean {
+  return /content_policy/i.test(pattern.code) || /content_policy/i.test(pattern.message)
 }
 
 interface RuleState {
@@ -112,6 +142,39 @@ function readings(
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
   const { host, queue, backup, restoreDrill, heartbeats, failures } = observation
+
+  const pattern = observation.agentFailurePattern
+  if (pattern !== undefined) {
+    const active =
+      pattern !== null &&
+      now - pattern.lastAt <= OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS &&
+      !isContentPolicyFailure(pattern)
+        ? pattern
+        : null
+    const configuration = active !== null && isConfigurationFailure(active)
+    out['agent-pattern'] = {
+      breached:
+        active !== null &&
+        (configuration || active.turns >= OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_TURNS),
+      sustainMs: 0,
+      firingText: active
+        ? `${configuration ? 'Agent 模型配置被上游拒绝' : '同一类 Agent 失败反复出现'}：${active.model} 近 ${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_WINDOW_MS)}有 ${active.turns} 轮以 ${active.code}${active.upstreamStatus ? `（HTTP ${active.upstreamStatus}）` : ''} 失败；最近一次：${active.message}`
+        : '',
+      resolvedText: `已恢复：同类 Agent 失败 ${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS)}内没有再出现`,
+    }
+  }
+
+  if (observation.blindBlocks) {
+    const blind = observation.blindBlocks.filter(
+      (one) => one.rounds >= OPS_THRESHOLDS.ALERT_BLIND_ROUNDS,
+    )
+    out.blind = {
+      breached: blind.length > 0,
+      sustainMs: 0,
+      firingText: `告警读数连续取不到，对应规则暂时失效：${blind.map((one) => `${one.block}（${one.rounds} 轮）`).join('、')}`,
+      resolvedText: '已恢复：告警读数恢复正常',
+    }
+  }
 
   if (failures) {
     out.generation = {

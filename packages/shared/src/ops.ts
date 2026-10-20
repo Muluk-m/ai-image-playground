@@ -32,6 +32,16 @@ export const OPS_THRESHOLDS = {
   /** 最近 15 分钟的系统性业务失败；内容策略拒绝不属于服务事故。 */
   GENERATION_SYSTEM_FAILURES: 3,
   AGENT_TURN_FAILURES: 3,
+  /**
+   * 同一模型、同一错误码与上游状态码在 6 小时内出现在这么多个不同轮次，就是系统性故障：
+   * 低流量时失败分散，15 分钟计数永远到不了线（2026-10-16 luna 拒绝 reasoning off 持续约 16 小时）。
+   */
+  AGENT_FAILURE_PATTERN_TURNS: 2,
+  AGENT_FAILURE_PATTERN_WINDOW_MS: 6 * 60 * 60 * 1000,
+  /** 同类失败这么久没再出现就算恢复。 */
+  AGENT_FAILURE_PATTERN_QUIET_MS: 30 * 60 * 1000,
+  /** 某一块告警读数连续这么多轮取不到，就说明对应规则已经失明。 */
+  ALERT_BLIND_ROUNDS: 3,
   /** 看板判断「最近」接口情况的窗口。 */
   API_RECENT_WINDOW_MS: 15 * 60 * 1000,
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
