@@ -57,6 +57,14 @@ const createParameters = Type.Object({
         Type.Literal('storyboard'),
       ]),
       ...fields,
+      imageId: Type.Optional(
+        Type.String({
+          minLength: 1,
+          maxLength: 128,
+          description:
+            '仅 image 节点：用对话里已有图片的 ID（本轮附图或会话图片）建成素材节点，节点直接显示这张图，可作为参考连给生成节点。',
+        }),
+      ),
     }),
     { minItems: 1, maxItems: 100 },
   ),
@@ -74,7 +82,7 @@ const available = (_mode: unknown, audience?: AgentToolAudience) =>
       isCapabilityEnabled('accounts:sync'),
   )
 const guidance =
-  '修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。'
+  '修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
 const invalid = (message: string): never => {
   throw new AgentToolError('invalid_params', message)
 }
@@ -186,8 +194,9 @@ export const createNodes = defineAgentTool({
     '在当前云端画布批量创建节点。id 必须是新的唯一节点标识；不填位置时排列到已有内容右侧。视频必须显式选择 videoMode: text文生、first首帧、frames首尾帧、reference参考生。不会生成媒体。',
   parameters: createParameters,
   call: () => ({ title: '创建节点' }),
-  execute: (context) => async (callId, params) =>
-    write(context, callId, '创建节点', params, (doc, origin) => {
+  execute: (context) => async (callId, params) => {
+    const sources = await nodeImageSources(context, params.nodes)
+    return write(context, callId, '创建节点', params, (doc, origin) => {
       const existing = readCanvasDocument(doc).nodes
       const right = existing.length
         ? Math.max(...existing.map((node) => node.x + node.width)) + 168
@@ -214,15 +223,46 @@ export const createNodes = defineAgentTool({
                   ? { clips: [] }
                   : node.type === 'storyboard'
                     ? { shots: [] }
-                    : { meta: { nodeKind: node.type } },
+                    : { ...sources.get(node.id), meta: { nodeKind: node.type } },
           },
           origin,
         )
         patchAgentCanvasNode(doc, node, origin)
         nextY = (node.y ?? nextY) + (node.height ?? canvasNodeRegistry[node.type].size.height) + 168
       }
-    }),
+    })
+  },
 })
+
+/**
+ * 对话里的图要接进节点画布，只能先落成带云媒体的素材节点。没有这一步时模型只能请用户把附图拖进画布
+ * 再选中（2026-10-19 会话 e71a6e9e 连续四轮卡在这里）。
+ */
+async function nodeImageSources(
+  context: AgentToolContext,
+  nodes: Static<typeof createParameters>['nodes'],
+): Promise<Map<string, { mediaId: string; name?: string }>> {
+  const wanted = nodes.filter((node) => node.imageId)
+  for (const node of wanted)
+    if (node.type !== 'image') invalid(`只有 image 节点可以设置 imageId：${node.id}`)
+  if (!wanted.length) return new Map()
+  const resolved = await context.images.resolveMediaReferences(wanted.map((node) => node.imageId!))
+  const sources = new Map<string, { mediaId: string; name?: string }>()
+  for (const [index, node] of wanted.entries()) {
+    const reference = resolved[index]
+    if (!reference) {
+      const available = context.images.references.map((one) => one.imageId).join('、')
+      invalid(
+        `找不到可用作素材的图片：${node.imageId}。${available ? `本轮可用的图片 ID：${available}。` : '请让用户重新上传这张图。'}`,
+      )
+    }
+    sources.set(node.id, {
+      mediaId: reference!.mediaId,
+      ...(reference!.name ? { name: reference!.name } : {}),
+    })
+  }
+  return sources
+}
 export const updateNodes = defineAgentTool({
   name: 'updateNodes',
   label: '修改节点',
