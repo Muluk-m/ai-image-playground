@@ -52,7 +52,10 @@ export const readBatchAnalysis = defineAgentTool({
     if (!owned) throw new AgentToolError('invalid_params', '没有找到当前对话的批次版本。')
     const summary = await readBatchAnalysisSummary(input.batchId, input.version)
     if (!summary)
-      throw new AgentToolError('invalid_params', '该版本没有分析项，请读取来源分析版本。')
+      throw new AgentToolError(
+        'invalid_params',
+        '该版本没有分析项。生成批次没有分析结果，请用 viewImage 查看它的产物；分析计划的修订版本请读取来源分析版本。',
+      )
     const { findings, ...coverage } = summary
     const offset = input.offset ?? 0
     const limit = input.limit ?? 20
