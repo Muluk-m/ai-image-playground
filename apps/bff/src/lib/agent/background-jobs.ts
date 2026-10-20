@@ -267,6 +267,7 @@ export async function agentJobViews(
       upstream_task_ids: schema.tasks.upstream_task_ids,
       lease_expires_at: schema.tasks.lease_expires_at,
       next_retry_at: schema.tasks.next_retry_at,
+      reconcile_started_at: schema.tasks.reconcile_started_at,
     })
     .from(schema.tasks)
     .where(
@@ -287,8 +288,8 @@ export async function agentJobViews(
                 stage: task.status === 'queued' ? 'submitted' : 'running',
                 submittedAt: task.submitted_at,
                 phase: taskProgressPhase(task),
-                ...(task.status === 'reconciling' && task.next_retry_at != null
-                  ? { phaseSince: task.next_retry_at }
+                ...(task.status === 'reconciling' && task.reconcile_started_at != null
+                  ? { phaseSince: task.reconcile_started_at }
                   : {}),
               },
             ],

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test'
-import { type AlertObservation, type AlertState, evaluateAlerts } from '../ops-alerts'
+import {
+  type AgentFailurePattern,
+  type AlertObservation,
+  type AlertState,
+  evaluateAlerts,
+  isConfigurationFailure,
+  isUserInputFailure,
+} from '../ops-alerts'
 
 const minute = 60_000
 const hour = 60 * minute
@@ -408,19 +415,26 @@ describe('消息写明当前值与阈值', () => {
 })
 
 describe('同类 Agent 失败', () => {
+  const one = (
+    turns: number,
+    lastAt: number,
+    message = 'Our servers are currently overloaded.',
+    extra: Partial<AgentFailurePattern> = {},
+  ): AgentFailurePattern => ({
+    model: 'gpt-6-luna',
+    code: 'agent_upstream_error',
+    upstreamStatus: message.startsWith('400') ? 400 : null,
+    turns,
+    lastAt,
+    message,
+    ...extra,
+  })
   const pattern = (
     turns: number,
     lastAt: number,
     message = 'Our servers are currently overloaded.',
-  ) => ({
-    agentFailurePattern: {
-      model: 'gpt-6-luna',
-      code: 'agent_upstream_error',
-      upstreamStatus: message.startsWith('400') ? 400 : null,
-      turns,
-      lastAt,
-      message,
-    },
+  ): AlertObservation => ({
+    agentFailurePatterns: [one(turns, lastAt, message)],
   })
 
   it('低流量下分散的失败：6 小时内两轮同类失败就报，30 分钟没再出现算恢复', () => {
@@ -442,8 +456,71 @@ describe('同类 Agent 失败', () => {
     expect(result.messages[0]?.text).toContain('HTTP 400')
   })
 
+  it('过载告警还开着时，新的配置类 400 单独触发', () => {
+    const overload = one(4, T0)
+    const opened = evaluateAlerts({ agentFailurePatterns: [overload] }, {}, T0)
+    expect(opened.messages.map((message) => message.kind)).toEqual(['firing'])
+    const config = one(
+      1,
+      T0 + minute,
+      '400: {"message":"Invalid value: \'off\'.","type":"invalid_request_error"}',
+    )
+    const next = evaluateAlerts(
+      { agentFailurePatterns: [overload, config] },
+      opened.state,
+      T0 + minute,
+    )
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]?.text).toContain('Agent 模型配置被上游拒绝')
+    expect(next.messages[0]?.text).toContain('HTTP 400')
+  })
+
+  it('上下文过长、无效图片和裸的 unsupported 不是模型配置错误', () => {
+    const context = one(
+      1,
+      T0,
+      'agent request needs ~120000 input tokens, over the 80000 budget。请选择缩小共同查看范围或指定必要区域；逐图摘要不能代替完整联合比较。',
+      { code: 'agent_context_overflow', upstreamStatus: null },
+    )
+    const image = one(1, T0, '400: {"message":"Invalid image","code":"invalid_image"}')
+    const unsupportedImage = one(1, T0, '400: unsupported image input')
+    const bare = one(1, T0, '400 unsupported')
+    expect(isUserInputFailure(context)).toBe(true)
+    expect(isUserInputFailure(image)).toBe(true)
+    expect(isConfigurationFailure(context)).toBe(false)
+    expect(isConfigurationFailure(image)).toBe(false)
+    expect(isConfigurationFailure(unsupportedImage)).toBe(false)
+    expect(isConfigurationFailure(bare)).toBe(false)
+    expect(
+      evaluateAlerts({ agentFailurePatterns: [context, image, unsupportedImage, bare] }, {}, T0)
+        .messages,
+    ).toEqual([])
+  })
+
+  it('字节限额配坏仍按配置错误，出现一次就报', () => {
+    const message =
+      'Model request byte limit is invalid and the request was not sent. Contact the operator.'
+    const pattern = one(1, T0, message, {
+      code: 'agent_request_budget_exceeded',
+      upstreamStatus: null,
+    })
+    expect(isConfigurationFailure(pattern)).toBe(true)
+    expect(evaluateAlerts({ agentFailurePatterns: [pattern] }, {}, T0).messages[0]?.text).toContain(
+      'Agent 模型配置被上游拒绝',
+    )
+  })
+
+  it('轮次跌破阈值但静默窗口内还有失败时不报恢复', () => {
+    const opened = evaluateAlerts(pattern(2, T0), {}, T0)
+    expect(opened.messages.map((message) => message.kind)).toEqual(['firing'])
+    const dipped = evaluateAlerts(pattern(1, T0 + 10 * minute), opened.state, T0 + 10 * minute)
+    expect(dipped.messages).toEqual([])
+    const quiet = evaluateAlerts({ agentFailurePatterns: [] }, dipped.state, T0 + 41 * minute)
+    expect(quiet.messages.map((message) => message.kind)).toEqual(['resolved'])
+  })
+
   it('没有失败时不报', () => {
-    expect(run([[T0, { agentFailurePattern: null }]])).toEqual([[]])
+    expect(run([[T0, { agentFailurePatterns: null }]])).toEqual([[]])
   })
 
   it('同一轮里的重复不算，一轮失败不报', () => {
@@ -454,14 +531,16 @@ describe('同类 Agent 失败', () => {
     expect(
       evaluateAlerts(
         {
-          agentFailurePattern: {
-            model: 'gpt-6-luna',
-            code: 'content_policy',
-            upstreamStatus: 400,
-            turns: 4,
-            lastAt: T0,
-            message: 'content_policy: rejected',
-          },
+          agentFailurePatterns: [
+            {
+              model: 'gpt-6-luna',
+              code: 'content_policy',
+              upstreamStatus: 400,
+              turns: 4,
+              lastAt: T0,
+              message: 'content_policy: rejected',
+            },
+          ],
         },
         {},
         T0,
