@@ -263,6 +263,10 @@ export const QUEUE_TIMEOUTS = {
    * 前提是单 worker 进程；要跑多副本得改成 row lease（locked_by + heartbeat_at）。
    */
   STALE_IN_PROGRESS_MS: 16 * 60 * 1000,
+  /** 进入结果确认后，隔这么久再向上游核对一次。 */
+  AUTO_RECONCILE_AFTER_MS: 5 * 60 * 1000,
+  /** 结果确认超过这么久仍未结束，通知运维，卡片改口说可以先重新生成。 */
+  RECONCILE_ALERT_AFTER_MS: 30 * 60 * 1000,
   /** worker 扫描无主 in_progress 的间隔。 */
   STALE_SCAN_INTERVAL_MS: 5 * 60 * 1000,
   /** 后台清理过期任务的轮询间隔。 */

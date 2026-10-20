@@ -41,6 +41,8 @@ export interface AgentToolProgress {
   readonly phase: AgentJobPhase
   /** 已用时间的起点（epoch 毫秒）。后台任务取服务端受理时刻；缺席即不知道何时开始。 */
   readonly since?: number
+  /** 当前阶段的起点。结果确认用它判断是否超过 30 分钟；其它阶段缺席。 */
+  readonly phaseSince?: number
 }
 
 /**
@@ -59,8 +61,14 @@ export function agentToolProgress(
   startedAt?: number,
 ): AgentToolProgress | null {
   const since = job?.submittedAt ?? startedAt
-  const at = (phase: AgentJobPhase): AgentToolProgress =>
-    since === undefined ? { phase } : { phase, since }
+  const at = (phase: AgentJobPhase): AgentToolProgress => {
+    const phaseSince = phase === 'reconciling' ? job?.phaseSince : undefined
+    return {
+      phase,
+      ...(since === undefined ? {} : { since }),
+      ...(phaseSince === undefined ? {} : { phaseSince }),
+    }
+  }
   if (message.status === 'running') {
     // 查素材库这类不出图的调用没有这几个阶段。
     if (!message.toolName || !GENERATION_TOOLS.has(message.toolName)) return null

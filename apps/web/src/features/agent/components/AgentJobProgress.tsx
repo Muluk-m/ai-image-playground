@@ -1,15 +1,11 @@
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { i18next, useTranslation } from '../../../i18n'
 import { CARD_NOTE } from '../agentStyles'
-import {
-  type AgentJobPhase,
-  type AgentToolProgress,
-  agentToolProgress,
-  formatElapsed,
-} from '../lib/jobProgress'
+import { type AgentToolProgress, agentToolProgress, formatElapsed } from '../lib/jobProgress'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 
@@ -34,8 +30,17 @@ export function useElapsed(since: number | undefined): number | null {
   return since === undefined ? null : Math.max(0, now - since)
 }
 
-export function agentJobPhaseLabel(phase: AgentJobPhase): string {
-  return i18next.t(`job.phase.${phase}`, { ns: 'agent' })
+export function agentJobPhaseLabel(
+  progress: Pick<AgentToolProgress, 'phase' | 'phaseSince'>,
+  now = Date.now(),
+): string {
+  if (
+    progress.phase === 'reconciling' &&
+    progress.phaseSince !== undefined &&
+    now - progress.phaseSince >= QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS
+  )
+    return i18next.t('job.phase.reconcilingLate', { ns: 'agent' })
+  return i18next.t(`job.phase.${progress.phase}`, { ns: 'agent' })
 }
 
 /** 「生成中 · 已用 0:42」这一句；卡片与画布占位说的是同一句。 */
@@ -43,7 +48,7 @@ export function useAgentJobProgressText(progress: AgentToolProgress | null): str
   useTranslation('agent')
   const elapsed = useElapsed(progress?.since)
   if (!progress) return null
-  const phase = agentJobPhaseLabel(progress.phase)
+  const phase = agentJobPhaseLabel(progress)
   if (elapsed === null) return phase
   return i18next.t('job.progress', { ns: 'agent', phase, elapsed: formatElapsed(elapsed) })
 }
