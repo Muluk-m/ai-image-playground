@@ -77,7 +77,7 @@ export default function InspirationEmptyHero() {
           {items.map((item) => (
             <div
               key={item.id}
-              className={`flex-shrink-0 snap-start sm:w-auto sm:flex-shrink ${item.referenceImages?.length ? 'w-[78%] sm:col-span-2' : 'w-[42%]'}`}
+              className="w-[42%] flex-shrink-0 snap-start sm:w-auto sm:flex-shrink"
             >
               <InspirationCard
                 item={item}

@@ -66,6 +66,8 @@ function rowToAdmin(row: typeof schema.inspiration_items.$inferSelect): Inspirat
     skillName: row.skill_name,
     sourceUrl: row.source_url,
     author: row.author,
+    thumbWidth: row.thumb_width,
+    thumbHeight: row.thumb_height,
     sort: row.sort,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -105,6 +107,9 @@ function rowToManifest(
       : {}),
     ...(row.skill_name ? { skill: row.skill_name } : {}),
     ...(slots.length ? { slots } : {}),
+    ...(row.thumb_width && row.thumb_height && row.thumb_width > 0 && row.thumb_height > 0
+      ? { thumbWidth: row.thumb_width, thumbHeight: row.thumb_height }
+      : {}),
   }
 }
 
@@ -221,7 +226,39 @@ async function validateForPublish(input: InspirationWriteInput): Promise<void> {
   }
 }
 
-const writeColumns = (input: InspirationWriteInput, now: number, operatorId: string) => ({
+function thumbColumns(
+  input: InspirationWriteInput,
+  previous?: Pick<InspirationAdminItem, 'coverKey' | 'thumbWidth' | 'thumbHeight'>,
+): { thumb_width: number | null; thumb_height: number | null } {
+  const width = input.thumbWidth
+  const height = input.thumbHeight
+  const omitted = width === undefined && height === undefined
+  const coverUnchanged = Boolean(previous && previous.coverKey.trim() === input.coverKey.trim())
+  if (omitted && coverUnchanged && previous) {
+    return {
+      thumb_width: previous.thumbWidth ?? null,
+      thumb_height: previous.thumbHeight ?? null,
+    }
+  }
+  if (
+    typeof width === 'number' &&
+    typeof height === 'number' &&
+    Number.isInteger(width) &&
+    Number.isInteger(height) &&
+    width > 0 &&
+    height > 0
+  ) {
+    return { thumb_width: width, thumb_height: height }
+  }
+  return { thumb_width: null, thumb_height: null }
+}
+
+const writeColumns = (
+  input: InspirationWriteInput,
+  now: number,
+  operatorId: string,
+  previous?: Pick<InspirationAdminItem, 'coverKey' | 'thumbWidth' | 'thumbHeight'>,
+) => ({
   id: input.id.trim(),
   kind: input.kind,
   featured: input.featured,
@@ -244,6 +281,7 @@ const writeColumns = (input: InspirationWriteInput, now: number, operatorId: str
   skill_name: input.kind === 'skill' ? input.skillName?.trim() || null : null,
   source_url: input.sourceUrl?.trim() || null,
   author: input.author?.trim() || null,
+  ...thumbColumns(input, previous),
   sort: input.sort,
   updated_at: now,
   updated_by: operatorId,
@@ -429,7 +467,7 @@ export async function updateInspirationItem(
     return await db.transaction(async (tx) => {
       const [updated] = await tx
         .update(schema.inspiration_items)
-        .set(writeColumns(input, Date.now(), operatorId))
+        .set(writeColumns(input, Date.now(), operatorId, existing))
         .where(eq(schema.inspiration_items.id, id))
         .returning()
       if (!updated) throw new InspirationOperationError('item_not_found')
