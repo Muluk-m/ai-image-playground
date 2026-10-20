@@ -4,6 +4,7 @@ import { batchExecutionAvailable } from '../batch-execution'
 import { batchPlansAvailable, createAgentBatchPlan } from '../batch-plans'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
+import { aspectRatioParameter } from './queueParams'
 
 export const planImageBatch = defineAgentTool({
   name: 'planImageBatch',
@@ -31,6 +32,7 @@ export const planImageBatch = defineAgentTool({
         }),
         prompt: Type.String({ minLength: 1, maxLength: 4000 }),
         dependencies: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
+        aspectRatio: aspectRatioParameter,
       }),
       { minItems: 1, maxItems: 100 },
     ),

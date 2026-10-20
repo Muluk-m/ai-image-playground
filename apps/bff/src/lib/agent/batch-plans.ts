@@ -10,7 +10,9 @@ import type {
   AgentBatchView,
   AgentMediaReference,
   AnalysisIntent,
+  ImagePresetRatio,
 } from '@image-playground/shared'
+import { sizeForAspectRatio } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
@@ -48,6 +50,7 @@ interface PlanInput {
     readonly imageIds: readonly string[]
     readonly prompt: string
     readonly dependencies: readonly string[]
+    readonly aspectRatio?: ImagePresetRatio
   }[]
 }
 
@@ -166,7 +169,15 @@ export async function createAgentBatchPlan(
     } else {
       const target = resolveAgentModel('image', context.params?.model)
       if (!target) throw new AgentToolError('model_unavailable', '暂时没有可用的生图模型')
-      items.push({ ...common, kind: 'generation', params: { ...params, ...target } })
+      items.push({
+        ...common,
+        kind: 'generation',
+        params: {
+          ...params,
+          ...(item.aspectRatio ? { size: sizeForAspectRatio(params.size, item.aspectRatio) } : {}),
+          ...target,
+        },
+      })
     }
   }
   const now = Date.now()
