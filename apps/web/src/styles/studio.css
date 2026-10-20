@@ -310,6 +310,24 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   background: transparent;
   box-shadow: none;
 }
+/* 滚离页顶后，右上角这一簇不再光着压在图片上。尺寸不进测量，页头让位保持原样。 */
+@media (min-width: 768px) {
+  .studio-header-float[data-scrolled] { position: relative; isolation: isolate; }
+  .studio-header-float[data-scrolled]::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -6px -10px;
+    border-radius: 999px;
+    background: hsl(var(--scrim) / .72);
+    border: 1px solid hsl(var(--foreground) / .12);
+    box-shadow: 0 10px 28px hsl(var(--scrim) / .35);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    pointer-events: none;
+  }
+  .studio-header-float[data-scrolled] button.rounded-full { color: hsl(0 0% 96%); }
+}
 .studio-global-account {
   align-items: center;
 }

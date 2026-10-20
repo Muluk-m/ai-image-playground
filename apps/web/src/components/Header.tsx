@@ -33,6 +33,7 @@ export default function Header() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const headerActionsRef = useRef<HTMLDivElement>(null)
+  const floatRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
 
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
@@ -53,6 +54,54 @@ export default function Header() {
       observer?.disconnect()
       document.documentElement.style.removeProperty('--studio-header-actions-width')
     }
+  }, [])
+  // 停在页顶时账号簇仍是平的。一旦页面（或从它下面滚过去的主滚动区）离开顶部，
+  // 补一层暗色磨砂底，避免浮在灵感瀑布流的图片上。
+  useEffect(() => {
+    const float = floatRef.current
+    if (!float) return
+    const under = new Set<HTMLElement>()
+    const overlaps = (el: HTMLElement) => {
+      const cluster = float.getBoundingClientRect()
+      const box = el.getBoundingClientRect()
+      return (
+        box.left < cluster.right &&
+        box.right > cluster.left &&
+        box.top < cluster.bottom &&
+        box.bottom > cluster.top
+      )
+    }
+    const apply = () => {
+      let covered = window.scrollY > 0
+      if (!covered) {
+        for (const el of under) {
+          if (el.scrollTop <= 0) {
+            under.delete(el)
+            continue
+          }
+          if (overlaps(el)) {
+            covered = true
+            break
+          }
+        }
+      }
+      float.toggleAttribute('data-scrolled', covered)
+    }
+    const onScroll = (event: Event) => {
+      const target = event.target
+      if (target === document || target === document.documentElement || target === document.body) {
+        apply()
+        return
+      }
+      if (!(target instanceof HTMLElement) || target.clientHeight < 200) return
+      if (target.closest('[role="menu"], [role="dialog"]')) return
+      if (target.scrollTop > 0) under.add(target)
+      else under.delete(target)
+      apply()
+    }
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    apply()
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
   }, [])
   // 中文品牌名后面还跟一个拉丁字标；英文里字标就是品牌名本身，没有第二段可跟。
 
@@ -113,7 +162,7 @@ export default function Header() {
         className="studio-global-account fixed z-40 flex items-center gap-2"
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
-        <div className="studio-header-float flex items-center gap-2">
+        <div ref={floatRef} className="studio-header-float flex items-center gap-2">
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
           <LocaleGlobe />
