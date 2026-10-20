@@ -153,7 +153,9 @@ export async function reconcileTasks(
         error_message: reason,
         execution_token: null,
         lease_expires_at: null,
-        next_retry_at: null,
+        // 这一刻进入结果确认。认领队列只看 status=queued，所以这里借用 next_retry_at 记时，
+        // 维护循环据此等 5 分钟再核对、超过 30 分钟再告警。
+        next_retry_at: Date.now(),
         completed_at: null,
       })
       .where(

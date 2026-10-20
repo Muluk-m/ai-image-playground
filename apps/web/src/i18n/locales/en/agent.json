@@ -513,7 +513,8 @@
       "generating": "Generating",
       "reconnecting": "Reconnecting",
       "confirming": "Saving result",
-      "reconciling": "Awaiting verification",
+      "reconciling": "Checking the result (already sent upstream; this does not charge again)",
+      "reconcilingLate": "Result check timed out and operators were notified. You can generate again; a failed original task is refunded automatically",
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
@@ -630,7 +631,7 @@
       "completed": "Completed",
       "failed": "Generation failed",
       "cancelled": "Cancelled",
-      "reconciling": "Awaiting reconciliation",
+      "reconciling": "Checking the result",
       "ready": "Ready",
       "in_flight": "In progress",
       "blocked": "Dependency blocked"
