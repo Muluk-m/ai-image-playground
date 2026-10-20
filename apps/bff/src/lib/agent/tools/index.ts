@@ -8,6 +8,7 @@ import type {
   AgentToolResultBlock,
   AgentTurnParams,
 } from '@image-playground/shared'
+import { log } from '../../logger'
 import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
 import {
@@ -20,7 +21,7 @@ import { arrangeCanvas } from './arrangeCanvas'
 import { arrangeTimeline } from './arrangeTimeline'
 import { editCanvasObject } from './editCanvasObject'
 import { editImage } from './editImage'
-import type { ToolFailureLog } from './errors'
+import { AgentToolError, type ToolFailureLog } from './errors'
 import { fetchImage } from './fetchImage'
 import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
@@ -155,7 +156,35 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  * 这一轮注册给模型的整份工具清单：注册表里此刻可用的那些，加上澄清工具——它不出工具卡，
  * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
  */
+/** 同一工具以同一错误码连续失败到这个次数，下一次调用不再执行。 */
+export const AGENT_TOOL_FAILURE_STREAK_LIMIT = 3
+
+/**
+ * 一轮内的重复失败熔断：模型拿着同一个错参数反复重试只会烧调用次数（2026-10-18 会话 d61eb8fc
+ * 一轮 22 次模型调用、16 次相同报错）。成功一次即清零。
+ */
+function createFailureStreaks() {
+  const streaks = new Map<string, { code: string; count: number }>()
+  return {
+    tripped(toolName: string): boolean {
+      return (streaks.get(toolName)?.count ?? 0) >= AGENT_TOOL_FAILURE_STREAK_LIMIT
+    },
+    failed(toolName: string, thrown: unknown) {
+      const code = thrown instanceof AgentToolError ? thrown.code : 'unknown'
+      const streak = streaks.get(toolName)
+      streaks.set(toolName, {
+        code,
+        count: streak?.code === code ? streak.count + 1 : 1,
+      })
+    },
+    succeeded(toolName: string) {
+      streaks.delete(toolName)
+    },
+  }
+}
+
 export function agentTurnTools(context: AgentToolContext, failures?: ToolFailureLog): AgentTool[] {
+  const streaks = createFailureStreaks()
   return [
     ...present(context.mode, {
       userId: context.userId,
@@ -169,14 +198,34 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
         execute: async (...args: Parameters<typeof execute>) => {
           const [toolCallId, params, signal] = args
           failures?.started(toolCallId)
+          if (streaks.tripped(spec.name)) {
+            log.warn(
+              {
+                event: 'agent.tool_retry_circuit_open',
+                conversationId: context.conversationId,
+                turnId: context.turnId,
+                tool: spec.name,
+              },
+              'agent tool kept failing with the same error',
+            )
+            const stopped = new AgentToolError(
+              'invalid_params',
+              `${spec.name} 在这一轮已连续 ${AGENT_TOOL_FAILURE_STREAK_LIMIT} 次以同样的错误失败，已停止重试。不要再调用它，向用户说明遇到的问题和已完成的部分。`,
+            )
+            failures?.failed(toolCallId, stopped, false)
+            throw stopped
+          }
           try {
             await context.assertExecution?.()
             const replayed = context.replay && replayedJob(spec, context, params)
             if (replayed) return replayed
-            return await execute(...args)
+            const result = await execute(...args)
+            streaks.succeeded(spec.name)
+            return result
           } catch (thrown) {
             // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
             failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
+            if (!signal?.aborted) streaks.failed(spec.name, thrown)
             throw thrown
           }
         },
