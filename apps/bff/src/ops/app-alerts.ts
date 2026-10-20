@@ -58,7 +58,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const missed = options.onMissed
-  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePattern] =
+  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns] =
     await Promise.all([
       attempt(
         'queue',
@@ -175,13 +175,13 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
         },
         missed,
       ),
-      attempt('agentFailurePattern', readAgentFailurePattern, missed),
+      attempt('agentFailurePatterns', readAgentFailurePatterns, missed),
     ])
-  return { queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePattern }
+  return { queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns }
 }
 
-/** 近 6 小时最突出的一类失败：同一模型、错误码与上游状态码，按涉及的轮次数排。 */
-async function readAgentFailurePattern(): Promise<AgentFailurePattern | null> {
+/** 近 6 小时每一类失败：同一模型、错误码与上游状态码各算一类，互不挤掉。 */
+async function readAgentFailurePatterns(): Promise<AgentFailurePattern[]> {
   const windowSeconds = OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_WINDOW_MS / 1000
   const rows = (await db.execute(sql`
     SELECT failure->>'model' AS model,
@@ -197,18 +197,15 @@ async function readAgentFailurePattern(): Promise<AgentFailurePattern | null> {
       AND created_at >= NOW() - ${windowSeconds} * INTERVAL '1 second'
     GROUP BY 1, 2, 3
     ORDER BY turns DESC, last_at DESC
-    LIMIT 1
   `)) as unknown as Array<Record<string, unknown>>
-  const row = rows[0]
-  if (!row) return null
-  return {
+  return rows.map((row) => ({
     model: String(row.model ?? 'unknown'),
     code: String(row.code ?? 'unknown'),
     upstreamStatus: row.status ? Number(row.status) : null,
     turns: Number(row.turns ?? 0),
     lastAt: Number(row.last_at ?? 0),
     message: String(row.message ?? '').slice(0, 200),
-  }
+  }))
 }
 
 interface AppAlertingOptions {
