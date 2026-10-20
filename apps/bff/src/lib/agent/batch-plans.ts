@@ -27,7 +27,7 @@ import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-d
 import { batchItem, batchItemValues } from './batch-items'
 import { updatePendingBatchPhase } from './batch-phase-edit'
 import { lockConversation } from './confirmations'
-import { AgentToolError } from './tools/errors'
+import { AgentToolError, BATCH_EXECUTION_UNAVAILABLE_MESSAGE } from './tools/errors'
 import { queueArtifacts, resolveAgentModel } from './tools/queueTask'
 import type { AgentToolAudience, AgentToolContext } from './tools/types'
 
@@ -49,7 +49,7 @@ interface PlanInput {
     readonly intent?: AnalysisIntent
     readonly imageIds: readonly string[]
     readonly prompt: string
-    readonly dependencies: readonly string[]
+    readonly dependencies?: readonly string[]
     readonly aspectRatio?: ImagePresetRatio
   }[]
 }
@@ -128,7 +128,8 @@ export async function createAgentBatchPlan(
   for (const [ordinal, item] of input.items.entries()) {
     if (!item.key.trim() || keys.has(item.key) || !item.prompt.trim())
       invalid('处理项编号不能重复，提示词不能为空。')
-    if (item.dependencies.some((key) => !keys.has(key))) invalid('依赖必须指向前面的处理项。')
+    const dependencies = item.dependencies ?? []
+    if (dependencies.some((key) => !keys.has(key))) invalid('依赖必须指向前面的处理项。')
     keys.add(item.key)
     const inputs = item.imageIds.map((imageId): AgentMediaReference => {
       const identified = context.images.identify(imageId)
@@ -144,7 +145,7 @@ export async function createAgentBatchPlan(
       ordinal,
       inputs,
       prompt: item.prompt,
-      dependencies: item.dependencies,
+      dependencies,
     }
     if (item.kind === 'analysis') {
       if (!isCapabilityEnabled('agent:batch-analysis') || !config.agent.model)
@@ -296,7 +297,7 @@ export class BatchPlanError extends Error {
       | 'batch_not_found',
     readonly status: 400 | 404 | 409 | 422,
   ) {
-    super(code)
+    super(code === 'batch_execution_unavailable' ? BATCH_EXECUTION_UNAVAILABLE_MESSAGE : code)
   }
 }
 
