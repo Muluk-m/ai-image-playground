@@ -891,6 +891,11 @@ export interface AgentBackgroundJobProgress {
    * 结果已归档、正在确认时是 `confirming`。旧服务端缺席，这时按 `stage` 读。
    */
   readonly phase?: TaskProgressPhase
+  /**
+   * 当前阶段开始的时刻。结果确认用它判断是否已经超过 30 分钟；
+   * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
+   */
+  readonly phaseSince?: number
 }
 
 export interface AgentBackgroundJobsResponse {

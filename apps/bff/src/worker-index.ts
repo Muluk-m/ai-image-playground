@@ -3,6 +3,7 @@ import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
 import { recoverAnalysisTasks } from './lib/analysis-tasks'
+import { autoReconcileTasks } from './lib/auto-reconcile'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
@@ -81,7 +82,11 @@ const staleScanTimer = setInterval(() => {
     )
   })
   if (!scheduler.drainStatus().draining)
-    Promise.all([recoverAbandonedTasks(runningTaskIds()), recoverAnalysisTasks()]).catch((err) => {
+    Promise.all([
+      recoverAbandonedTasks(runningTaskIds()),
+      recoverAnalysisTasks(),
+      autoReconcileTasks(),
+    ]).catch((err) => {
       log.error(
         {
           event: 'worker.stale_scan_failed',
