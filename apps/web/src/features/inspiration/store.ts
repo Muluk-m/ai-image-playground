@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { readCache, writeCache } from './lib/cache'
 import { fetchManifestWithFallback, resolveRemoteManifestUrl } from './lib/fetchManifest'
+import type { InspirationGroupId } from './lib/groups'
 import type { InspirationItem } from './types'
 
 const REMOTE_TTL_MS = 5 * 60 * 1000
@@ -17,6 +18,7 @@ export interface InspirationState {
 
   selectedProvider: InspirationProviderFilter
   selectedCategory: string | null
+  selectedGroup: InspirationGroupId | null
   onlyImageEdits: boolean
   searchKeyword: string
   detailItemId: string | null
@@ -29,6 +31,7 @@ export interface InspirationState {
 
   setProvider: (provider: InspirationProviderFilter) => void
   setCategory: (category: string | null) => void
+  setGroup: (group: InspirationGroupId | null) => void
   setOnlyImageEdits: (enabled: boolean) => void
   setSearch: (keyword: string) => void
   showDetail: (id: string, fallback?: InspirationItem) => void
@@ -52,6 +55,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
 
   selectedProvider: 'all',
   selectedCategory: null,
+  selectedGroup: null,
   onlyImageEdits: false,
   searchKeyword: '',
   detailItemId: null,
@@ -103,8 +107,10 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   setRemoteError: (remoteError) => set({ remoteError }),
   setStatus: (status) => set({ status }),
 
-  setProvider: (selectedProvider) => set({ selectedProvider, selectedCategory: null }),
+  setProvider: (selectedProvider) =>
+    set({ selectedProvider, selectedCategory: null, selectedGroup: null }),
   setCategory: (selectedCategory) => set({ selectedCategory }),
+  setGroup: (selectedGroup) => set({ selectedGroup }),
   setOnlyImageEdits: (onlyImageEdits) => set({ onlyImageEdits }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
   showDetail: (detailItemId, detailFallback) =>

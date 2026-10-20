@@ -159,6 +159,58 @@ describe('inspiration publication', () => {
     )
   })
 
+  it('publishes cover dimensions and keeps them when an update omits the pair', async () => {
+    const sized = {
+      ...ITEM,
+      id: 'sized-card',
+      kind: 'showcase',
+      title: 'Sized card',
+      prompt: 'A sized card',
+      thumbWidth: 800,
+      thumbHeight: 1200,
+      sort: 2,
+    }
+    expect((await request('/internal/admin/inspirations', 'POST', sized)).status).toBe(201)
+    expect(
+      (
+        await request(`/internal/admin/inspirations/${sized.id}/status`, 'POST', {
+          status: 'published',
+        })
+      ).status,
+    ).toBe(200)
+    const published = await (
+      await request('/api/inspirations/manifest', 'GET', undefined, false)
+    ).json()
+    expect(published.items).toContainEqual(
+      expect.objectContaining({ id: sized.id, thumbWidth: 800, thumbHeight: 1200 }),
+    )
+
+    const { thumbWidth: _width, thumbHeight: _height, ...withoutDimensions } = sized
+    expect(
+      (await request(`/internal/admin/inspirations/${sized.id}`, 'PUT', withoutDimensions)).status,
+    ).toBe(200)
+    const kept = await (await request('/api/inspirations/manifest', 'GET', undefined, false)).json()
+    expect(kept.items).toContainEqual(
+      expect.objectContaining({ id: sized.id, thumbWidth: 800, thumbHeight: 1200 }),
+    )
+
+    expect(
+      (
+        await request(`/internal/admin/inspirations/${sized.id}`, 'PUT', {
+          ...withoutDimensions,
+          coverKey: 'https://example.com/card-2.png',
+        })
+      ).status,
+    ).toBe(200)
+    const cleared = await (
+      await request('/api/inspirations/manifest', 'GET', undefined, false)
+    ).json()
+    const clearedItem = cleared.items.find((entry: { id: string }) => entry.id === sized.id)
+    expect(clearedItem.thumbnailUrl).toBe('https://example.com/card-2.png')
+    expect(clearedItem.thumbWidth).toBeUndefined()
+    expect(clearedItem.thumbHeight).toBeUndefined()
+  })
+
   it('rejects model/provider mismatch and templates without fillable slots before publication', async () => {
     const mismatched = { ...ITEM, kind: 'showcase', recommendedProvider: 'gemini' }
     expect((await request('/internal/admin/inspirations', 'POST', mismatched)).status).toBe(201)

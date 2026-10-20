@@ -68,6 +68,10 @@ export async function fetchManifestWithFallback(
   }
 }
 
+function positiveDimension(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 function validateManifest(payload: unknown): InspirationManifest | null {
   if (!payload || typeof payload !== 'object') return null
   const record = payload as Record<string, unknown>
@@ -116,7 +120,18 @@ function validateManifest(payload: unknown): InspirationManifest | null {
           }
         })
       : []
-    return [{ ...(entry as InspirationManifest['items'][number]), kind, referenceImages }]
+    const base = { ...(entry as InspirationManifest['items'][number]), kind, referenceImages }
+    const thumbWidth = positiveDimension(r.thumbWidth) ?? positiveDimension(r.width)
+    const thumbHeight = positiveDimension(r.thumbHeight) ?? positiveDimension(r.height)
+    delete base.thumbWidth
+    delete base.thumbHeight
+    delete base.width
+    delete base.height
+    if (thumbWidth && thumbHeight) {
+      base.thumbWidth = thumbWidth
+      base.thumbHeight = thumbHeight
+    }
+    return [base]
   })
   if (items.length === 0) return null
 

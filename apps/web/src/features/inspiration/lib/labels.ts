@@ -1,4 +1,5 @@
 import { currentLocale } from '../../../i18n'
+import { INSPIRATION_GROUPS, type InspirationGroupId } from './groups'
 
 /**
  * 灵感库的分类和标签是清单里的中文数据，不随界面语言改写存储值。
@@ -67,7 +68,29 @@ const EN_FACETS: Record<string, string> = {
   复古: 'Retro',
 }
 
+const EN_GROUPS: Record<InspirationGroupId, string> = {
+  posters: 'Posters & type',
+  illustration: 'Illustration & art',
+  photo: 'Photography & realism',
+  product: 'Product & commerce',
+  people: 'People & portraits',
+  scene: 'Scenes & spaces',
+  infographic: 'Infographics',
+  brand: 'Brand & interface',
+  other: 'Other',
+}
+
 export function inspirationFacetLabel(value: string, locale = currentLocale()): string {
   if (!locale.toLowerCase().startsWith('en')) return value
   return EN_FACETS[value] ?? value
+}
+
+/** 分组 id 或清单里的中文分组名。英文界面走固定译文，和 locale 文件一致。 */
+export function inspirationGroupLabel(value: string, locale = currentLocale()): string {
+  const group =
+    INSPIRATION_GROUPS.find((entry) => entry.id === value) ??
+    INSPIRATION_GROUPS.find((entry) => entry.name === value)
+  if (!group) return inspirationFacetLabel(value, locale)
+  if (!locale.toLowerCase().startsWith('en')) return group.name
+  return EN_GROUPS[group.id]
 }

@@ -202,6 +202,8 @@ export const EXPECTED_COLUMNS = [
   'user_sessions.user_agent',
   'user_sessions.ip',
   'user_sessions.last_active_at',
+  'inspiration_items.thumb_width',
+  'inspiration_items.thumb_height',
 ] as const
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */
