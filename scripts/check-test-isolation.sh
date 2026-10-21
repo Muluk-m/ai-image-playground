@@ -17,21 +17,42 @@ case "$mode" in
     [ "$(basename "$input")" = image-playground-test ] || reject 'unexpected application project'
     [ -r "$input/app.env" ] && [ -r "$input/migrate.env" ] && [ -r "$input/operator-config.json" ] || reject 'application, migrator and operator configuration required'
     # Match docker run/create --env-file (docker/cli pkg/kvfile): data, not shell.
-    # Leading whitespace on the line is trimmed; blank lines and # comments are skipped.
-    # Values are literal — no quote stripping, no variable expansion. Last assignment wins.
-    # See https://docs.docker.com/reference/cli/docker/container/run/#env and
+    # Line endings (\n or \r\n) and a first-line UTF-8 BOM are dropped, leading whitespace is
+    # trimmed, blank lines and # comments are skipped. Values are literal: quotes are kept,
+    # variables are not expanded, trailing whitespace stays. The last assignment wins.
+    # Lines Docker rejects (empty key, key with whitespace) or resolves from the host
+    # environment (KEY without =) are refused here instead of being read as unset.
+    # https://docs.docker.com/reference/cli/docker/container/run/#env
     # https://github.com/docker/cli/blob/master/pkg/kvfile/kvfile.go
+    env_lines='
+      {
+        line = $0
+        sub(/\r$/, "", line)
+        if (NR == 1) sub(/^\357\273\277/, "", line)
+        sub(/^[ \t\r\f\v]+/, "", line)
+        if (line == "" || substr(line, 1, 1) == "#") next
+        separator = index(line, "=")
+      }'
+    validate() {
+      [ -r "$1" ] || reject "$2 is not readable"
+      problem=$(awk "$env_lines"'
+        separator == 0 { print "line " NR " has no = (Docker would inherit it from the host)"; exit }
+        separator == 1 { print "line " NR " has no variable name"; exit }
+        substr(line, 1, separator - 1) ~ /[ \t]/ { print "line " NR " has whitespace in its variable name"; exit }
+      ' "$1") || reject "$2 could not be parsed"
+      [ -z "$problem" ] || reject "$2 is not a valid Docker env file: $problem"
+    }
     value() {
-      awk -v key="$2=" '
-        {
-          line = $0
-          sub(/^[ \t]+/, "", line)
-          if (line == "" || substr(line, 1, 1) == "#") next
-          if (index(line, key) == 1) result = substr(line, length(key) + 1)
-        }
+      awk -v key="$2" "$env_lines"'
+        substr(line, 1, separator - 1) == key { result = substr(line, separator + 1) }
         END { print result }
       ' "$1"
     }
+    validate "$input/app.env" app.env
+    validate "$input/migrate.env" migrate.env
+    for production in image-playground-paid image-playground-internal; do
+      validate "$(dirname "$input")/$production/app.env" "$production app.env"
+    done
     for name in APP_DATABASE_URL ADMIN_DATABASE_URL; do
       setting=$(value "$input/app.env" "$name")
       case "$name:$setting" in

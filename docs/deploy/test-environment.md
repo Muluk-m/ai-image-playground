@@ -18,7 +18,7 @@
 
 原先测试站连接生产 API；新发布链路**拒绝**该配置，不能自动回退。`check-test-isolation.sh` 在 Pages 发布前检查固定项目、域名、API 与 origin override；后端收包前检查独立数据库、存储、认证地址及密钥不复用生产值。R2 凭据必须从 Cloudflare 创建为仅访问测试桶，不能仅靠不同 prefix。
 
-后端 `runtime` 模式按 `docker run/create --env-file` 解释 `app.env` / `migrate.env`（与 `rollout-runtime.sh` 一致）：值是字面量，不剥首尾引号、不展开变量；行首空白会去掉，空行与 `#` 注释忽略，同名键取最后一次。不要给这些文件写成 shell 引号形式，否则检查器与容器里看到的字符串会带上引号本身。Pages 模式仍用 shell `source`，只用于 CI 的 pages env。
+后端 `runtime` 模式按 `docker run/create --env-file` 解释 `app.env` / `migrate.env`（与 `rollout-runtime.sh` 一致）：值是字面量，不剥首尾引号、不展开变量，值尾空白保留；行尾 `\r\n` 与首行 BOM 去掉，行首空白去掉，空行与 `#` 注释忽略，同名键取最后一次。没有 `=` 的行（Docker 会从宿主环境继承）、变量名为空或含空白的行直接拒绝，不当作未设置。不要给这些文件写成 shell 引号形式，否则检查器与容器里看到的字符串会带上引号本身。Pages 模式仍用 shell `source`，只用于 CI 的 pages env。
 
 ## 发布链路
 
