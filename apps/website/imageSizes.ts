@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { guideEntries, pageBlocks } from '../web/src/features/guide/model'
 import { editions } from './src/catalog'
 
 export function guideImageSizes(publicDir: string) {
   const paths = new Set(
     Object.values(editions).flatMap((edition) =>
-      edition.chapters.flatMap((chapter) =>
-        [
-          ...(chapter.intro ?? []),
-          ...chapter.subsections.flatMap((section) => section.blocks),
-        ].flatMap((block) => (block.type === 'shot' ? [block.src] : [])),
+      guideEntries(edition).flatMap(({ page }) =>
+        pageBlocks(page).flatMap((block) =>
+          block.type === 'shot' ? [block.src] : block.type === 'video' ? [block.poster] : [],
+        ),
       ),
     ),
   )
