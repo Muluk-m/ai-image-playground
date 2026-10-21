@@ -1,4 +1,5 @@
 import type { StageExecutionBinding } from './stage-execution'
+import type { StageRunRecord } from './stage-run'
 
 export type StageAuthorizationStatus = 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
 
@@ -26,13 +27,23 @@ export interface StageAuthorizationAudit {
     | 'proposed'
     | 'confirmed'
     | 'preflight'
+    | 'retry'
     | 'submitted'
+    | 'reported'
     | 'exhausted'
     | 'ended'
     | 'expired'
   readonly nodeId?: string
   readonly taskId?: string
   readonly credits?: number
+}
+/**
+ * 首帧阶段授权绑定的分镜表。确认授权时服务端把这张表写成定稿；
+ * 提案之后镜头表被改过（指纹不同）就拒绝确认，需要重新提案。
+ */
+export interface StageStoryboardFinalization {
+  readonly storyboardId: string
+  readonly fingerprint: string
 }
 export interface StageAuthorization {
   readonly id: string
@@ -50,10 +61,14 @@ export interface StageAuthorization {
    * 消费执行凭证时必须与真实提交一致；缺了就拒绝，不能只凭令牌跑任意内容。
    */
   readonly bindings?: readonly StageExecutionBinding[]
+  /** 首帧阶段才有：确认即定稿的分镜表。 */
+  readonly storyboard?: StageStoryboardFinalization
   readonly spentCredits: number
   readonly status: StageAuthorizationStatus
   readonly attempts: readonly StageAuthorizationAttempt[]
   readonly audit: readonly StageAuthorizationAudit[]
+  /** 这一批运行的回报；收到后授权结束，智能体被唤醒一次。 */
+  readonly run?: StageRunRecord
 }
 /** Ephemeral execution credential; never store it in a canvas, message, or browser storage. */
 export interface StageAuthorizationSubmission {

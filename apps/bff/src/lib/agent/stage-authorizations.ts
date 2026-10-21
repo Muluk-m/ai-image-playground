@@ -1,17 +1,25 @@
 import { createHash } from 'node:crypto'
 import {
   billedStageQuantity,
+  canvasOrigin,
+  readCanvasDocument,
+  STAGE_RUN_MAX_RETRIES,
   type StageAuthorization,
   type StageAuthorizationCharge,
   type StageAuthorizationPreflight,
   type StageAuthorizationSubmission,
   type StageExecutionBinding,
   type StageExecutionFingerprint,
+  type StageStoryboardFinalization,
   stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
+  storyboardFingerprint,
+  updateCanvasNode,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
+import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
+import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
@@ -30,12 +38,21 @@ export const STAGE_AUTHORIZATION_ACTIVE_TTL_MS = 30 * 60 * 1000
 /** 一轮定期回收最多处理这么多条，剩下的等下一轮。 */
 export const STAGE_AUTHORIZATION_EXPIRE_BATCH = 50
 const IN_FLIGHT_TASK = new Set(['queued', 'in_progress', 'reconciling'])
+const FAILED_TASK = new Set(['failed', 'cancelled'])
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 export interface StageChargeInput {
   readonly nodeId: string
   readonly model: string
   readonly quantity: number
   readonly unitMultiplier: number
+}
+/** 锁住这个用户的一条授权，并核对会话与项目都还在、仍属于他。 */
+export async function lockOwnedStageAuthorization(tx: BffTransaction, userId: string, id: string) {
+  return owned(tx, userId, id)
+}
+/** 执行凭证与授权行上记下的是同一枚。 */
+export function stageExecutionTokenMatches(row: typeof table.$inferSelect, token: string) {
+  return row.execution_token_hash !== null && row.execution_token_hash === hashToken(token)
 }
 async function owned(tx: BffTransaction, userId: string, id: string) {
   const [row] = await tx
@@ -85,6 +102,63 @@ async function hasInFlight(tx: BffTransaction, state: StageAuthorization): Promi
     .from(schema.tasks)
     .where(inArray(schema.tasks.id, [...ids]))
   return rows.some((row) => IN_FLIGHT_TASK.has(row.status))
+}
+/** 这些已提交的尝试都以失败或取消收场：节点可以在授权内再试一次。任务行缺了不算。 */
+async function startedAttemptsFailed(
+  tx: BffTransaction,
+  attempts: readonly StageAuthorization['attempts'][number][],
+): Promise<boolean> {
+  const ids = [...new Set(attempts.flatMap((attempt) => attempt.taskIds))]
+  if (!ids.length) return false
+  const rows = await tx
+    .select({ status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(inArray(schema.tasks.id, ids))
+  return rows.length === ids.length && rows.every((row) => FAILED_TASK.has(row.status))
+}
+/**
+ * 节点的已提交尝试都失败了：按任务实际结算的积分（失败多半已退回）改写这些尝试的占用，退回的部分还给授权。
+ * 只有这样，预算正好等于报价的授权才容得下一次自动重试；读不到结算的任务按原占用算，不多放。
+ */
+async function releaseFailedAttempts(
+  tx: BffTransaction,
+  state: StageAuthorization,
+  nodeId: string,
+): Promise<StageAuthorization> {
+  const failed = state.attempts.filter(
+    (attempt) => attempt.nodeId === nodeId && attempt.taskIds.length > 0,
+  )
+  if (!failed.length || !(await startedAttemptsFailed(tx, failed))) return state
+  const charged: Readonly<Record<string, number>> = isCapabilityEnabled('billing:credits')
+    ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
+        taskIds: failed.flatMap((attempt) => attempt.taskIds),
+      })
+    : Object.fromEntries(failed.flatMap((attempt) => attempt.taskIds.map((id) => [id, 0])))
+  let released = 0
+  const attempts = state.attempts.map((attempt) => {
+    if (!failed.includes(attempt)) return attempt
+    const settled = attempt.taskIds.map((id) => charged[id])
+    if (settled.some((credits) => typeof credits !== 'number' || !Number.isFinite(credits)))
+      return attempt
+    const spent = Math.min(
+      attempt.spentCredits,
+      settled.reduce<number>((sum, credits) => sum + (credits ?? 0), 0),
+    )
+    released += attempt.spentCredits - spent
+    return {
+      ...attempt,
+      spentCredits: spent,
+      reservedCredits: Math.min(attempt.reservedCredits, spent),
+    }
+  })
+  const spentCredits = state.spentCredits - released
+  return {
+    ...state,
+    attempts,
+    spentCredits,
+    status:
+      state.status === 'exhausted' && spentCredits < state.budgetCap ? 'active' : state.status,
+  }
 }
 async function maybeExpire(tx: BffTransaction, row: typeof table.$inferSelect, now = Date.now()) {
   const state = row.state
@@ -205,11 +279,14 @@ function proposalAgrees(
     nodeNames: readonly string[]
     nodes: readonly StageChargeInput[]
     bindings: readonly StageExecutionBinding[]
+    storyboard?: StageStoryboardFinalization
   },
 ) {
   const state = row.state
   return (
     row.user_id === input.userId &&
+    state.storyboard?.storyboardId === input.storyboard?.storyboardId &&
+    state.storyboard?.fingerprint === input.storyboard?.fingerprint &&
     row.project_id === input.projectId &&
     state.projectId === input.projectId &&
     state.stage === input.stage &&
@@ -261,7 +338,7 @@ async function assertStageOwnership(
   )
     throw new StageAuthorizationError('stage_authorization_scope')
 }
-export async function proposeStageAuthorization(input: {
+export interface StageProposalInput {
   userId: string
   conversationId: string
   projectId: string
@@ -271,120 +348,231 @@ export async function proposeStageAuthorization(input: {
   nodeNames: string[]
   nodes: readonly StageChargeInput[]
   bindings: readonly StageExecutionBinding[]
-}) {
+  storyboard?: StageStoryboardFinalization
+}
+export async function proposeStageAuthorization(input: StageProposalInput) {
+  return db.transaction((tx) => proposeStageAuthorizationInTransaction(tx, input))
+}
+/** 与画布写入同一事务登记提案：提案失败时本次铺出的节点一起回滚。 */
+export async function proposeStageAuthorizationInTransaction(
+  tx: BffTransaction,
+  input: StageProposalInput,
+): Promise<StageAuthorization> {
   const now = Date.now(),
     id = crypto.randomUUID()
-  return db.transaction(async (tx) => {
-    await assertStageOwnership(tx, input.userId, input.conversationId, input.projectId)
-    if (
-      !sameIdSet(
-        input.bindings.map((binding) => binding.nodeId),
-        input.nodeIds,
-      )
+  await assertStageOwnership(tx, input.userId, input.conversationId, input.projectId)
+  if (
+    !sameIdSet(
+      input.bindings.map((binding) => binding.nodeId),
+      input.nodeIds,
     )
-      throw new StageAuthorizationError('stage_authorization_scope')
-    const priced = await pricedCharges(tx, input.userId, input.nodes)
-    const state: StageAuthorization = {
+  )
+    throw new StageAuthorizationError('stage_authorization_scope')
+  const priced = await pricedCharges(tx, input.userId, input.nodes)
+  const state: StageAuthorization = {
+    id,
+    conversationId: input.conversationId,
+    projectId: input.projectId,
+    stage: input.stage,
+    nodeIds: input.nodeIds,
+    nodeNames: input.nodeNames,
+    estimatedCredits: priced.total,
+    budgetCap: priced.total,
+    charges: priced.charges,
+    bindings: input.bindings,
+    ...(input.storyboard
+      ? {
+          storyboard: {
+            storyboardId: input.storyboard.storyboardId,
+            fingerprint: input.storyboard.fingerprint,
+          },
+        }
+      : {}),
+    spentCredits: 0,
+    status: 'pending',
+    attempts: [],
+    audit: [{ kind: 'proposed', at: now }],
+  }
+  const inserted = await tx
+    .insert(table)
+    .values({
       id,
-      conversationId: input.conversationId,
-      projectId: input.projectId,
-      stage: input.stage,
-      nodeIds: input.nodeIds,
-      nodeNames: input.nodeNames,
-      estimatedCredits: priced.total,
-      budgetCap: priced.total,
-      charges: priced.charges,
-      bindings: input.bindings,
-      spentCredits: 0,
-      status: 'pending',
-      attempts: [],
-      audit: [{ kind: 'proposed', at: now }],
-    }
-    const inserted = await tx
-      .insert(table)
-      .values({
-        id,
-        user_id: input.userId,
-        conversation_id: input.conversationId,
-        project_id: input.projectId,
-        proposal_key: input.proposalKey,
-        state,
-        created_at: now,
-        updated_at: now,
-      })
-      .onConflictDoNothing()
-      .returning({ id: table.id })
-    if (inserted.length > 0) return state
-    const [row] = await tx
-      .select()
-      .from(table)
-      .where(
-        and(
-          eq(table.conversation_id, input.conversationId),
-          eq(table.proposal_key, input.proposalKey),
-        ),
-      )
-      .for('update')
-    if (!row) throw new StageAuthorizationError('stage_authorization_conflict')
-    if (!proposalAgrees(row, input))
-      throw new StageAuthorizationError('stage_authorization_conflict')
-    return row.state
-  })
+      user_id: input.userId,
+      conversation_id: input.conversationId,
+      project_id: input.projectId,
+      proposal_key: input.proposalKey,
+      state,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: table.id })
+  if (inserted.length > 0) return state
+  const [row] = await tx
+    .select()
+    .from(table)
+    .where(
+      and(
+        eq(table.conversation_id, input.conversationId),
+        eq(table.proposal_key, input.proposalKey),
+      ),
+    )
+    .for('update')
+  if (!row) throw new StageAuthorizationError('stage_authorization_conflict')
+  if (!proposalAgrees(row, input)) throw new StageAuthorizationError('stage_authorization_conflict')
+  return row.state
+}
+/**
+ * 同一次工具调用（proposalKey）已经登记过的提案。幂等重放时直接返回它，
+ * 不再按当前画布重新提案：画布在首次登记后可能已被改过。
+ */
+export async function readStageProposal(
+  userId: string,
+  conversationId: string,
+  proposalKey: string,
+  tx?: BffTransaction,
+): Promise<StageAuthorization | undefined> {
+  if (!tx)
+    return db.transaction((inner) => readStageProposal(userId, conversationId, proposalKey, inner))
+  const [row] = await tx
+    .select()
+    .from(table)
+    .where(
+      and(
+        eq(table.user_id, userId),
+        eq(table.conversation_id, conversationId),
+        eq(table.proposal_key, proposalKey),
+      ),
+    )
+    .for('update')
+  // 与 readStageAuthorization 一样先按 TTL 收回，重放不能把已过期的授权说成仍可运行。
+  return row ? (await maybeExpire(tx, row)).state : undefined
 }
 export async function readStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => (await maybeExpire(tx, await owned(tx, userId, id))).state)
+}
+async function confirmInTransaction(
+  tx: BffTransaction,
+  userId: string,
+  id: string,
+  charges?: readonly StageChargeInput[],
+) {
+  const row = await maybeExpire(tx, await owned(tx, userId, id))
+  if (row.state.status !== 'pending')
+    throw new StageAuthorizationError('stage_authorization_already_confirmed')
+  let state = row.state
+  if (charges?.length) {
+    const normalized = charges.map((charge) => ({
+      ...charge,
+      quantity: billedStageQuantity(charge.quantity),
+    }))
+    const wanted = new Set(state.nodeIds)
+    const given = new Set(normalized.map((charge) => charge.nodeId))
+    // 重复的 nodeId 用 Set 会看起来刚好覆盖范围，但报价会被加两次。
+    if (
+      normalized.length !== wanted.size ||
+      given.size !== wanted.size ||
+      [...wanted].some((nodeId) => !given.has(nodeId))
+    )
+      throw new StageAuthorizationError('stage_authorization_scope')
+    const stored = state.charges ?? []
+    // 提案快照是唯一可执行规格。现场模型或数量变了就拒绝，不能在确认时改价。
+    if (!stageExecutionSpecsMatch(normalized, stored))
+      throw new StageAuthorizationError('stage_authorization_stale')
+    const billing = isCapabilityEnabled('billing:credits')
+    state = {
+      ...state,
+      charges: stored.map((charge) => {
+        const givenCharge = normalized.find((item) => item.nodeId === charge.nodeId)
+        if (!charge.model && !billing && givenCharge?.model)
+          return { ...charge, model: givenCharge.model }
+        return charge
+      }),
+    }
+  }
+  const executionToken = crypto.randomUUID()
+  await tx
+    .update(table)
+    .set({ execution_token_hash: hashToken(executionToken) })
+    .where(eq(table.id, id))
+  const authorization = await save(tx, {
+    ...state,
+    status: 'active',
+    audit: [...state.audit, { kind: 'confirmed', at: Date.now() }],
+  })
+  return { authorization, executionToken }
+}
+const finalizeOrigin = canvasOrigin('system', 'stage-authorization')
+/**
+ * 首帧阶段「确认即定稿」：在授权确认的同一事务里把分镜表写成定稿。
+ * 镜头表在提案之后改过就拒绝，授权保持待确认，需要重新提案。已经是同一份定稿时不写。
+ */
+function finalizeStoryboard(
+  doc: Y.Doc,
+  storyboard: StageStoryboardFinalization,
+  authorization: StageAuthorization,
+): Uint8Array | undefined {
+  const board = readCanvasDocument(doc).nodes.find((node) => node.id === storyboard.storyboardId)
+  if (
+    board?.type !== 'storyboard' ||
+    storyboardFingerprint(board.data.shots) !== storyboard.fingerprint
+  )
+    throw new StageAuthorizationError('stage_authorization_stale')
+  if (board.data.confirmed?.fingerprint === storyboard.fingerprint) return undefined
+  const draft = new Y.Doc({ gc: false })
+  try {
+    Y.applyUpdate(draft, Y.encodeStateAsUpdate(doc))
+    const vector = Y.encodeStateVector(draft)
+    updateCanvasNode(
+      draft,
+      board.id,
+      {
+        data: {
+          ...board.data,
+          confirmed: {
+            fingerprint: storyboard.fingerprint,
+            model: authorization.charges?.find((charge) => charge.model)?.model ?? '',
+            quantity: board.data.shots.length,
+            credits: authorization.budgetCap,
+          },
+        },
+      },
+      finalizeOrigin,
+    )
+    return Y.encodeStateAsUpdate(draft, vector)
+  } finally {
+    draft.destroy()
+  }
 }
 export async function confirmStageAuthorization(
   userId: string,
   id: string,
   charges?: readonly StageChargeInput[],
-) {
-  return db.transaction(async (tx) => {
-    const row = await maybeExpire(tx, await owned(tx, userId, id))
-    if (row.state.status !== 'pending')
-      throw new StageAuthorizationError('stage_authorization_already_confirmed')
-    let state = row.state
-    if (charges?.length) {
-      const normalized = charges.map((charge) => ({
-        ...charge,
-        quantity: billedStageQuantity(charge.quantity),
-      }))
-      const wanted = new Set(state.nodeIds)
-      const given = new Set(normalized.map((charge) => charge.nodeId))
-      // 重复的 nodeId 用 Set 会看起来刚好覆盖范围，但报价会被加两次。
-      if (
-        normalized.length !== wanted.size ||
-        given.size !== wanted.size ||
-        [...wanted].some((nodeId) => !given.has(nodeId))
-      )
-        throw new StageAuthorizationError('stage_authorization_scope')
-      const stored = state.charges ?? []
-      // 提案快照是唯一可执行规格。现场模型或数量变了就拒绝，不能在确认时改价。
-      if (!stageExecutionSpecsMatch(normalized, stored))
-        throw new StageAuthorizationError('stage_authorization_stale')
-      const billing = isCapabilityEnabled('billing:credits')
-      state = {
-        ...state,
-        charges: stored.map((charge) => {
-          const givenCharge = normalized.find((item) => item.nodeId === charge.nodeId)
-          if (!charge.model && !billing && givenCharge?.model)
-            return { ...charge, model: givenCharge.model }
-          return charge
-        }),
-      }
-    }
-    const executionToken = crypto.randomUUID()
-    await tx
-      .update(table)
-      .set({ execution_token_hash: hashToken(executionToken) })
-      .where(eq(table.id, id))
-    const authorization = await save(tx, {
-      ...state,
-      status: 'active',
-      audit: [...state.audit, { kind: 'confirmed', at: Date.now() }],
+): Promise<{ authorization: StageAuthorization; executionToken: string }> {
+  const [peek] = await db
+    .select({ projectId: table.project_id, state: table.state })
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.user_id, userId)))
+  const storyboard = peek?.state.storyboard
+  if (!peek || !storyboard)
+    return db.transaction((tx) => confirmInTransaction(tx, userId, id, charges))
+  // 画布文档与授权在同一事务里提交：定稿失败时授权不生效，授权失败时也不留定稿。
+  let confirmed: { authorization: StageAuthorization; executionToken: string } | undefined
+  try {
+    await accessCanvasDocument(userId, peek.projectId, async (doc, tx) => {
+      confirmed = await confirmInTransaction(tx, userId, id, charges)
+      return finalizeStoryboard(doc, storyboard, confirmed.authorization)
     })
-    return { authorization, executionToken }
-  })
+  } catch (error) {
+    if (error instanceof CanvasSyncError)
+      throw new StageAuthorizationError(
+        error.status === 400 ? 'stage_authorization_stale' : 'stage_authorization_not_found',
+        error.status === 400 ? 409 : 404,
+      )
+    throw error
+  }
+  if (!confirmed) throw new StageAuthorizationError('stage_authorization_not_found', 404)
+  return confirmed
 }
 /**
  * 登出时在一个事务里收回这个用户还开着的阶段授权。
@@ -481,7 +669,15 @@ export async function preflightStageAuthorization(
   input: StageAuthorizationPreflight,
 ) {
   return db.transaction(async (tx) => {
-    const row = await maybeExpire(tx, await owned(tx, userId, id))
+    let row = await maybeExpire(tx, await owned(tx, userId, id))
+    // 额度用尽后只有授权内的自动重试还能再要：失败任务退回的额度先还给授权，仍然不够就说成超预算，
+    // 浏览器据此停下，请智能体重新申请授权。
+    if (row.state.status === 'exhausted' && stageExecutionTokenMatches(row, input.executionToken)) {
+      const released = await releaseFailedAttempts(tx, row.state, input.nodeId)
+      if (released.status === 'exhausted')
+        throw new StageAuthorizationError('stage_authorization_budget')
+      row = { ...row, state: released }
+    }
     assertExecution(row, input.executionToken)
     let state = row.state
     if (!state.nodeIds.includes(input.nodeId))
@@ -522,15 +718,24 @@ export async function preflightStageAuthorization(
         throw new StageAuthorizationError('stage_authorization_attempt_conflict')
       return state
     }
-    // A submitted node stays taken. An attempt that never created a task can be replaced,
-    // so cancel or a lost submit does not block this authorization or a later one.
-    if (
-      state.attempts.some(
-        (attempt) => attempt.nodeId === input.nodeId && attempt.taskIds.length > 0,
-      )
+    // A submitted node stays taken unless every submitted attempt failed: then it may be retried
+    // STAGE_RUN_MAX_RETRIES times. The failed attempts keep counting what they were actually charged.
+    // An attempt that never created a task can be replaced, so cancel or a lost submit does not
+    // block this authorization or a later one.
+    const started = state.attempts.filter(
+      (attempt) => attempt.nodeId === input.nodeId && attempt.taskIds.length > 0,
     )
-      throw new StageAuthorizationError('stage_authorization_node_already_started')
-    const openAttempts = state.attempts.filter((attempt) => attempt.nodeId !== input.nodeId)
+    const retry = started.length > 0
+    if (retry) {
+      if (started.length > STAGE_RUN_MAX_RETRIES)
+        throw new StageAuthorizationError('stage_authorization_retry_limit')
+      if (!(await startedAttemptsFailed(tx, started)))
+        throw new StageAuthorizationError('stage_authorization_node_already_started')
+      state = await releaseFailedAttempts(tx, state, input.nodeId)
+    }
+    const openAttempts = state.attempts.filter(
+      (attempt) => attempt.nodeId !== input.nodeId || attempt.taskIds.length > 0,
+    )
     const credits = await quote(tx, userId, { ...input, quantity })
     const committed = openAttempts.reduce((sum, attempt) => sum + attempt.reservedCredits, 0)
     if (committed + credits > state.budgetCap)
@@ -551,7 +756,10 @@ export async function preflightStageAuthorization(
           taskIds: [],
         },
       ],
-      audit: [...state.audit, { kind: 'preflight', at: Date.now(), nodeId: input.nodeId, credits }],
+      audit: [
+        ...state.audit,
+        { kind: retry ? 'retry' : 'preflight', at: Date.now(), nodeId: input.nodeId, credits },
+      ],
     })
   })
 }

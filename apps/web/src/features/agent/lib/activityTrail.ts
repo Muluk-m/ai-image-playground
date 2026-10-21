@@ -28,6 +28,7 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   runNodes: undefined,
   applyScriptPlan: undefined,
   importCanvasImage: undefined,
+  runStoryboardFrames: undefined,
   loadSkill: true,
   planImageBatch: undefined,
   proposeBatchGeneration: undefined,
