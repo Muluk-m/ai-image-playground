@@ -18,7 +18,7 @@
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { schema } from '@image-playground/db'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { config } from '../src/config'
 import { close, db } from '../src/db/client'
 import { initChannels } from '../src/lib/channels'
@@ -148,6 +148,8 @@ try {
             result.targets.map((row) => row.id),
           ),
         )
+        // Lock in id order so overlapping batches (this script or inspiration-repoint) can't deadlock.
+        .orderBy(asc(schema.inspiration_items.id))
         .for('update')
       const current = new Map(locked.map((row) => [row.id, row]))
       // Compare the whole row, not just updated_at: any edit since validation (even one landing in
