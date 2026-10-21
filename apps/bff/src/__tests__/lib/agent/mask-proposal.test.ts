@@ -25,6 +25,7 @@ const {
   maskProposalAnswer,
   maskProposalFromResult,
   maskProposalTool,
+  seedPoints,
 } = await import('../../../lib/agent/mask-proposal')
 const { maskedEditSize } = await import('../../../lib/agent/masked-input')
 const { protectMaskedOutput } = await import('../../../lib/agent/masked-output')
@@ -617,5 +618,17 @@ describe('EdgeTAM segmenter', () => {
     settings.segmenterNamespace = 'image-playground-test'
     expect(segmenterKey('m1')).toBe('image-playground-test:media:m1')
     settings.segmenterNamespace = ''
+  })
+
+  it("lets a click override the agent's point right next to it", () => {
+    const agent = [
+      { x: 0.5, y: 0.6, include: true },
+      { x: 0.88, y: 0.56, include: true },
+    ]
+    expect(seedPoints(agent, [{ x: 0.9, y: 0.56, include: false }])).toEqual([
+      { x: 0.5, y: 0.6, include: true },
+      { x: 0.9, y: 0.56, include: false },
+    ])
+    expect(seedPoints(undefined, [])).toEqual([])
   })
 })
