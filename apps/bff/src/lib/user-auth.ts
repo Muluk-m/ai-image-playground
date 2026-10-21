@@ -3,7 +3,12 @@ import type { AuthUserView } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { config } from '../config'
 import { isCapabilityEnabled } from './capabilities'
-import { resolveUserSession, sessionClientFromRequest, USER_SESSION_COOKIE } from './user-session'
+import {
+  resolveUserSession,
+  sessionClientFromRequest,
+  USER_LOGOUT_PATH,
+  USER_SESSION_COOKIE,
+} from './user-session'
 
 /** Resolve a valid cookie independently from whether new logins are enabled. */
 export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
@@ -13,7 +18,7 @@ export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
     const token = typeof raw === 'string' ? raw : ''
     const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
     // 登出要先按会话主人收回阶段授权。derive 不能先删掉禁用账号的会话。
-    const keepDisabledSession = new URL(request.url).pathname === '/api/auth/logout'
+    const keepDisabledSession = new URL(request.url).pathname === USER_LOGOUT_PATH
     return { authUser: await resolveUserSession(token, client, { keepDisabledSession }) }
   },
 )

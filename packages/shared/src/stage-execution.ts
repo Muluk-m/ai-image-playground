@@ -457,11 +457,18 @@ type StageInputRef = {
 }
 
 /**
- * 一张会送进队列的图的身份。有 fileId 就按文件去重（两个上游引用同一张画布文件、
- * 或一次临时上传，都只算一张）；还没落成文件的上游按节点算一次。
- * 图片和视频、提案快照和提交清单都用这一条。
+ * 一张会送进队列的图的身份。提案快照和提交清单都用这一条，张数才能和 input_images 对齐。
+ * 本阶段会重跑的上游按节点计：现在共用一个文件，跑完也是两张新图。
+ * 视频首帧、尾帧按槽位计，两个节点即使现在是同一个文件也会各交一张。
+ * 阶段外的参考图有 fileId 就按文件去重；还没落成文件的按节点计。
  */
-function stageInputIdentity(ref: { readonly id: string; readonly fileId?: string }): string {
+function stageInputIdentity(
+  ref: { readonly id: string; readonly fileId?: string },
+  authorizedIds: ReadonlySet<string>,
+  role?: string,
+): string {
+  if (role === 'first' || role === 'last') return `slot:${role}:${ref.id}`
+  if (authorizedIds.has(ref.id)) return `node:${ref.id}`
   if (ref.fileId) return `file:${ref.fileId}`
   return `node:${ref.id}`
 }
@@ -487,11 +494,12 @@ export function stageSubmittedFileIds(
   refs: readonly StageInputRef[],
   authorizedIds: ReadonlySet<string>,
   _kind: 'image' | 'video',
+  roles: Readonly<Record<string, string>> = {},
 ): string[] {
   const fileIds: string[] = []
   const seen = new Set<string>()
   for (const ref of stageInputImages(refs, authorizedIds)) {
-    const key = stageInputIdentity(ref)
+    const key = stageInputIdentity(ref, authorizedIds, roles[ref.id])
     if (seen.has(key)) continue
     seen.add(key)
     if (ref.fileId) fileIds.push(ref.fileId)
@@ -503,9 +511,12 @@ export function stageSubmittedInputCount(
   refs: readonly StageInputRef[],
   authorizedIds: ReadonlySet<string>,
   _kind: 'image' | 'video',
+  roles: Readonly<Record<string, string>> = {},
 ): number {
   const seen = new Set<string>()
-  for (const ref of stageInputImages(refs, authorizedIds)) seen.add(stageInputIdentity(ref))
+  for (const ref of stageInputImages(refs, authorizedIds)) {
+    seen.add(stageInputIdentity(ref, authorizedIds, roles[ref.id]))
+  }
   return seen.size
 }
 
@@ -553,7 +564,7 @@ export function stageExecutionBinding(input: {
       assetContext: kind === 'image' ? stageAssetContext(input.node) : '',
       references: active.refs,
     }),
-    inputCount: stageSubmittedInputCount(active.refs, input.authorizedIds, kind),
+    inputCount: stageSubmittedInputCount(active.refs, input.authorizedIds, kind, active.roles),
     ...(kind === 'video' && input.video
       ? {
           video: {

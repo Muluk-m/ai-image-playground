@@ -409,7 +409,7 @@ it('quotes one image for each storyboard frame or contact sheet regardless of th
   expect(plan.credits).toBe(6)
 })
 
-it('submits one url per file and leaves browser-only uploads out of the stage payload', () => {
+it('counts each in-stage image, dedupes external files, and leaves browser-only uploads out', () => {
   const refs = [
     { id: 'a', kind: 'image' as const, label: 'a', fileId: 'same' },
     { id: 'b', kind: 'image' as const, label: 'b', fileId: 'same' },
@@ -418,8 +418,10 @@ it('submits one url per file and leaves browser-only uploads out of the stage pa
   const files = { same: 'data:a', 'temp-upload': 'data:upload', draft: 'data:draft' }
   expect(stageAuthorizedImageInputs(refs, files, new Set(['a', 'b']), {})).toEqual([
     'data:a',
+    'data:a',
     'data:upload',
   ])
+  expect(stageAuthorizedImageInputs(refs, files, new Set(), {})).toEqual(['data:a', 'data:upload'])
   expect(
     stageAuthorizedImageInputs(
       [...refs, { id: 'draft', kind: 'image', label: 'draft', fileId: 'draft' }],
@@ -427,5 +429,5 @@ it('submits one url per file and leaves browser-only uploads out of the stage pa
       new Set(['a', 'b']),
       { draft: 'data:draft' },
     ),
-  ).toEqual(['data:a', 'data:upload'])
+  ).toEqual(['data:a', 'data:a', 'data:upload'])
 })

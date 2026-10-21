@@ -8,12 +8,16 @@ import {
 import { and, eq, gt, lte, ne } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { accountProfileView } from './account-profile-view'
+import { endStageAuthorizationsForUser } from './agent/stage-authorizations'
 import { deviceLabel } from './device-label'
 import { clientAddress } from './http'
+import { log } from './logger'
 
 type SessionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export { USER_SESSION_COOKIE }
+/** 登出路径。会话解析要认出它，避免先删掉禁用账号的会话。 */
+export const USER_LOGOUT_PATH = '/api/auth/logout'
 export const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 /** 活跃会话不在每个请求上写库；超过这个间隔才刷新最后活跃时间和设备。 */
 export const SESSION_ACTIVITY_TOUCH_MS = 5 * 60 * 1000
@@ -158,11 +162,19 @@ export async function resolveUserSession(
     return accountProfileView(row)
   }
 
-  // 禁用但未过期：普通请求删掉会话，避免账号恢复后旧 cookie 又能登录。
-  // 登出是例外。derive 先于处理函数执行，这里若先删掉，处理函数就查不到主人，收不回阶段授权。
-  // 登出路径保留这一行，交给 resolveSessionUserId 收回后再撤销。
+  // 禁用但未过期：普通请求先收回阶段授权再删会话。pending 不在 30 分钟扫描里，
+  // 这里不收回的话，随后登出已经查不到主人。收回失败只记日志，会话照样删，避免旧 cookie 在账号恢复后复活。
+  // 登出路径保留这一行。derive 若先删掉，处理函数就不知道该收回谁。
   if (row.status !== 'active' && row.expires_at > now) {
     if (!options?.keepDisabledSession) {
+      try {
+        await endStageAuthorizationsForUser(row.id)
+      } catch (error) {
+        log.warn(
+          { err: error, event: 'auth.session.disabled_reclaim_failed' },
+          'stage authorization reclaim failed while dropping a disabled session',
+        )
+      }
       await db.delete(schema.user_sessions).where(eq(schema.user_sessions.token_hash, tokenHash))
     }
     return null

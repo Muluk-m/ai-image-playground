@@ -473,9 +473,9 @@ const turnSource = (taken: AgentConversationState, turnId: string): AgentTurnSou
  * 换会话时要清掉的一切：属于上一个会话的消息、页脚、排队、草稿卡上改过的字、任务进度、
  * 工具起跑时刻、重试被拒盖在占位上的那一层，连同断线提示与上一次的报错。
  * 返回的是一份补丁，调用方一次 `set` 下去：任何一次渲染都不能看见「消息已清、会话还是旧的」。
+ * 运行卡来源要在这次 `set` 返回之后再释放，订阅者不能先看见旧消息配上已经清掉的来源。
  */
 const sessionReset = (conversationId: string | null): Partial<AgentState> => {
-  releaseIdleAgentNodeRunOrigins()
   return {
     conversationId,
     messages: [],
@@ -989,6 +989,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       returnedMessagesPending: false,
       returnedMessagesError: null,
     })
+    if (!same) releaseIdleAgentNodeRunOrigins()
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let remoteSettled = false
     void owner.read().then((panel) => {
@@ -1019,6 +1020,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (!isCurrent()) return
           openProject(project.id)
           set({ ...sessionReset(null), error: CONVERSATION_GONE(), errorDiagnostic: null })
+          releaseIdleAgentNodeRunOrigins()
         } catch {
           if (isCurrent()) {
             set({ historyLoading: false, historyFailed: true })
@@ -1570,6 +1572,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         tab: 'chat',
         open: true,
       })
+      releaseIdleAgentNodeRunOrigins()
       // 会话都还没建起来就断在半路的那几条：这里没有历史要等，直接补发。
       if (!project.conversationId) void resumeOutgoing(project.id)
     },
@@ -1828,6 +1831,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       selectCanvasWorkspace(canvasSceneKey(null))
       safeLocalStorage.removeItem(conversationKey())
       set(sessionReset(null))
+      releaseIdleAgentNodeRunOrigins()
     },
 
     async retryHistory() {

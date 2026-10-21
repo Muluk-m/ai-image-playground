@@ -347,7 +347,8 @@ export async function executeNodeBatch(
 }
 
 /**
- * 阶段提交的图片清单与服务端冻结张数使用同一套 fileId 身份。
+ * 阶段提交的图片清单与服务端冻结张数使用同一套身份。
+ * 本阶段会重跑的上游各交一张；阶段外的图按 fileId 去重。
  * 只在浏览器里的临时上传不在这份清单里：服务端快照看不到它们，确认前就会拒绝。
  */
 export function stageAuthorizedImageInputs(

@@ -60,6 +60,7 @@ _setPrivateBffOverlayForTesting({
 })
 // Module loading must follow isolated DATABASE_URL and billing-boundary installation.
 const { app } = await import('../../app')
+const { config } = await import('../../config')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, hashSessionToken, USER_SESSION_COOKIE } = await import(
   '../../lib/user-session'
@@ -1487,7 +1488,7 @@ it('submits an authorized image and a fractional reference video through confirm
     const imageBinding = imageState.bindings.find(
       (binding: { nodeId: string }) => binding.nodeId === 'out',
     )
-    expect(imageBinding).toMatchObject({ kind: 'image', prompt: '成片', inputCount: 2 })
+    expect(imageBinding).toMatchObject({ kind: 'image', prompt: '成片', inputCount: 3 })
     const { executionToken: imageToken } = await (
       await request(image.authorizationId, '/confirm', {})
     ).json()
@@ -1507,7 +1508,7 @@ it('submits an authorized image and a fractional reference video through confirm
       prompt: '成片',
       device_id: 'stage-test-device',
       client_request_id: crypto.randomUUID(),
-      input_images: [PIXEL, PIXEL],
+      input_images: [PIXEL, PIXEL, PIXEL],
       stage_authorization: {
         authorizationId: image.authorizationId,
         executionToken: imageToken,
@@ -1784,4 +1785,67 @@ it('revokes the session when stage reclaim fails during logout', async () => {
     .from(schema.user_sessions)
     .where(eq(schema.user_sessions.token_hash, hashSessionToken(token)))
   expect(sessions).toHaveLength(0)
+})
+
+it('reclaims authorizations before dropping a disabled session, including when login is off', async () => {
+  await db.update(schema.users).set({ status: 'active' }).where(eq(schema.users.id, 'stage-owner'))
+  const pending = await fixture()
+  await db
+    .update(schema.users)
+    .set({ status: 'disabled' })
+    .where(eq(schema.users.id, 'stage-owner'))
+  const token = await db.transaction((tx) => createUserSession('stage-owner', tx))
+  const me = await app.handle(
+    new Request('http://localhost/api/auth/me', {
+      headers: { cookie: `${USER_SESSION_COOKIE}=${token}` },
+    }),
+  )
+  expect(me.status).toBe(401)
+  const [dropped] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, pending.authorizationId))
+  expect(dropped?.state.status).toBe('ended')
+  expect(
+    await db
+      .select({ token_hash: schema.user_sessions.token_hash })
+      .from(schema.user_sessions)
+      .where(eq(schema.user_sessions.token_hash, hashSessionToken(token))),
+  ).toHaveLength(0)
+
+  await db.update(schema.users).set({ status: 'active' }).where(eq(schema.users.id, 'stage-owner'))
+  const gated = await fixture()
+  await db
+    .update(schema.users)
+    .set({ status: 'disabled' })
+    .where(eq(schema.users.id, 'stage-owner'))
+  const gatedToken = await db.transaction((tx) => createUserSession('stage-owner', tx))
+  const previous = config.operator.capabilities['accounts:login']
+  Object.assign(config.operator.capabilities, { 'accounts:login': false })
+  try {
+    const logout = await app.handle(
+      new Request('http://localhost/api/auth/logout', {
+        method: 'POST',
+        headers: { cookie: `${USER_SESSION_COOKIE}=${gatedToken}` },
+      }),
+    )
+    expect(logout.status).toBe(200)
+  } finally {
+    Object.assign(config.operator.capabilities, { 'accounts:login': previous })
+    await db
+      .update(schema.users)
+      .set({ status: 'active' })
+      .where(eq(schema.users.id, 'stage-owner'))
+  }
+  const [ended] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, gated.authorizationId))
+  expect(ended?.state.status).toBe('ended')
+  expect(
+    await db
+      .select({ token_hash: schema.user_sessions.token_hash })
+      .from(schema.user_sessions)
+      .where(eq(schema.user_sessions.token_hash, hashSessionToken(gatedToken))),
+  ).toHaveLength(0)
 })

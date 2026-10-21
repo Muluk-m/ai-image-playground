@@ -33,6 +33,7 @@ import {
   revokeUserSession,
   sessionClientFromRequest,
   setUserSessionCookie,
+  USER_LOGOUT_PATH,
   USER_SESSION_COOKIE,
 } from '../lib/user-session'
 
@@ -282,8 +283,8 @@ export const userAuthRoutes = new Elysia()
       }),
     },
   )
-  .post('/api/auth/logout', async ({ cookie }) => {
-    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+  .post(USER_LOGOUT_PATH, async ({ cookie }) => {
+    // 登录能力关掉之后，已经发出的会话仍要能退出。清理不能被这个开关挡住。
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
     const userId = token ? await resolveSessionUserId(token) : null

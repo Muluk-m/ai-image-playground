@@ -206,18 +206,22 @@ describe('stage execution binding', () => {
     )
   })
 
-  it('counts image and video inputs by file id, including an uploaded file', () => {
+  it('counts in-stage nodes and frame slots separately, and dedupes external files', () => {
     const shared = [
       { id: 'a', kind: 'image' as const, fileId: 'same' },
       { id: 'b', kind: 'image' as const, fileId: 'same' },
       { id: 'upload', kind: 'image' as const, fileId: 'temp-upload' },
     ]
     const authorized = new Set(['a', 'b'])
-    expect(stageSubmittedInputCount(shared, authorized, 'image')).toBe(2)
-    expect(stageSubmittedFileIds(shared, authorized, 'image')).toEqual(['same', 'temp-upload'])
+    expect(stageSubmittedInputCount(shared, authorized, 'image')).toBe(3)
+    expect(stageSubmittedFileIds(shared, authorized, 'image')).toEqual([
+      'same',
+      'same',
+      'temp-upload',
+    ])
     expect(stageSubmittedInputCount(shared, new Set(), 'image')).toBe(2)
     expect(stageSubmittedFileIds(shared, new Set(), 'image')).toEqual(['same', 'temp-upload'])
-    expect(stageSubmittedInputCount(shared, authorized, 'video')).toBe(2)
+    expect(stageSubmittedInputCount(shared, new Set(), 'video', { a: 'first', b: 'last' })).toBe(3)
     expect(
       stageSubmittedInputCount(
         [
@@ -260,5 +264,64 @@ describe('stage execution binding', () => {
         },
       ),
     ).toBe(false)
+  })
+
+  it('keeps both frame slots when they share a file and collapses reference copies', () => {
+    const frame = (id: string) => ({
+      id,
+      type: 'image' as const,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      z: 0,
+      data: { fileId: 'same' },
+    })
+    const clip = {
+      id: 'clip',
+      type: 'video' as const,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      z: 1,
+      data: {
+        video: { taskId: 'task', outputIndex: 0 },
+        meta: {
+          nodePrompt: '海浪',
+          nodeVideoMode: 'frames',
+          videoFirstFrame: 'a',
+          videoLastFrame: 'b',
+        },
+      },
+    }
+    const draft = {
+      model: 'grok-imagine-video',
+      duration: 5,
+      resolution: '720p' as const,
+      aspectRatio: '16:9' as const,
+    }
+    const frames = stageExecutionBinding({
+      node: clip,
+      nodes: [frame('a'), frame('b'), clip],
+      edges: [
+        { source: 'a', target: 'clip' },
+        { source: 'b', target: 'clip' },
+      ],
+      authorizedIds: new Set(['clip']),
+      video: { mode: 'frames', draft },
+    })
+    expect(frames.inputCount).toBe(2)
+    const reference = stageExecutionBinding({
+      node: clip,
+      nodes: [frame('a'), frame('b'), clip],
+      edges: [
+        { source: 'a', target: 'clip' },
+        { source: 'b', target: 'clip' },
+      ],
+      authorizedIds: new Set(['clip']),
+      video: { mode: 'reference', draft },
+    })
+    expect(reference.inputCount).toBe(1)
   })
 })

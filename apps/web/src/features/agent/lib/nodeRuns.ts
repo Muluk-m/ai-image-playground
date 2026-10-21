@@ -25,25 +25,18 @@ export type AgentNodeRun = RunBase &
   )
 // Execution rights live only in this document. Reloads, snapshots and other tabs cannot acquire them.
 const origins = new Set<string>()
-const ORIGIN_LIMIT = 200
 const runs = new Map<string, AgentNodeRun>()
 const controls = new Map<string, { control: AbortController; authorizationId: string }>()
 const listeners = new Set<() => void>()
 let revision = 0
 export function registerAgentNodeRunOrigin(key: string) {
   origins.add(key)
-  trimAgentNodeRunOrigins()
   for (const listener of listeners) listener()
 }
-function trimAgentNodeRunOrigins() {
-  if (origins.size <= ORIGIN_LIMIT) return
-  for (const key of origins) {
-    if (origins.size <= ORIGIN_LIMIT) break
-    if (runs.has(key)) continue
-    origins.delete(key)
-  }
-}
-/** 换会话或清掉消息时丢掉已经没有运行卡的来源，避免这张表跟着历史一直涨。 */
+/**
+ * 换会话或清掉消息之后调用。还没确认的提案不在 runs 里，随消息一起丢掉。
+ * 已经开跑的运行卡留下。不要在注册时按数量裁剪：未确认的卡片还没有 run，裁掉就会失去确认入口。
+ */
 export function releaseIdleAgentNodeRunOrigins() {
   let changed = false
   for (const key of origins) {
