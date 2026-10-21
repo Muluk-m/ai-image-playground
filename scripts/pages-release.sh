@@ -190,10 +190,9 @@ while :; do
   sleep 5
 done
 
-if [ "$app" = web ]; then
-  stage "Verify the homepage, all JS/CSS assets, and missing-asset behavior"
-  node "$repo_root/scripts/verify-pages-release.mjs" "$public_origin" "$repo_root/apps/web/dist"
-fi
+# Both apps mark /assets/* immutable for a year, so both must prove a missing asset stays a 404.
+stage "Verify the homepage, all JS/CSS assets, and missing-asset behavior"
+node "$repo_root/scripts/verify-pages-release.mjs" "$public_origin" "$repo_root/apps/$app/dist" "$app"
 
 released=true
 append_deploy_log "$deployment_name" "pages:$pages_project" ok
