@@ -1,14 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import PageHeader from '../../../components/patterns/PageHeader'
 import SearchField from '../../../components/patterns/SearchField'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import { APP_MODE_LABELS } from '../../../store'
+import { APP_MODE_LABELS, useStore } from '../../../store'
+import { visibleInspirationItems } from '../lib/visibleItems'
 import { useInspirationStore } from '../store'
-import InspirationCategoryChips from './InspirationCategoryChips'
-import InspirationCategoryFilter from './InspirationCategoryFilter'
 import InspirationDetail from './InspirationDetail'
 import InspirationGrid from './InspirationGrid'
+import InspirationGroupChips from './InspirationGroupChips'
 import InspirationProviderTabs from './InspirationProviderTabs'
 
 /** 「探索」入口：别人的东西（灵感清单）。自己的东西在「资产」里，两条线不混。 */
@@ -16,59 +17,104 @@ export default function ExplorePage() {
   const { t } = useTranslation('inspiration')
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const setSearch = useInspirationStore((s) => s.setSearch)
-  const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
-  const setOnlyImageEdits = useInspirationStore((s) => s.setOnlyImageEdits)
   const detailItemId = useInspirationStore((s) => s.detailItemId)
+  const items = useInspirationStore((s) => s.items)
+  const selectedProvider = useInspirationStore((s) => s.selectedProvider)
+  const selectedCategory = useInspirationStore((s) => s.selectedCategory)
+  const selectedGroup = useInspirationStore((s) => s.selectedGroup)
+  const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
+  const pinnedIds = useStore((s) => s.pinnedInspirationIds)
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+  const mounted = useRef(false)
 
-  // 清单 872KB，站到这一页才拉；已加载过的不重复下载。
   useEffect(() => {
     void useInspirationStore.getState().loadRemote()
   }, [])
 
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true
+      return
+    }
+    scroller?.scrollTo({ top: 0 })
+  }, [selectedProvider, selectedGroup, selectedCategory, searchKeyword, onlyImageEdits, scroller])
+
+  const count = visibleInspirationItems({
+    items,
+    provider: selectedProvider,
+    category: selectedCategory,
+    group: selectedGroup,
+    onlyImageEdits,
+    keyword: searchKeyword,
+    pinnedIds,
+  }).length
+
   return (
-    <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col">
+    <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col">
       <PageHeader title={APP_MODE_LABELS.explore}>
         <div className="hidden items-center gap-2 md:flex">
           <InspirationProviderTabs />
         </div>
-        <Button
-          type="button"
-          aria-pressed={onlyImageEdits}
-          onClick={() => setOnlyImageEdits(!onlyImageEdits)}
-          variant={onlyImageEdits ? 'secondary' : 'outline'}
-          size="xs"
-          className="ml-auto hidden shrink-0 md:inline-flex"
-        >
-          {t('filter.imageEdit')}
-        </Button>
-        <SearchField
-          value={searchKeyword}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={t('panel.searchPlaceholder')}
-          className="hidden max-w-xs rounded-full bg-card/40 md:flex"
-        />
+        <div className="relative ml-auto hidden w-full max-w-xs md:block">
+          <SearchField
+            value={searchKeyword}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('panel.searchPlaceholder')}
+            className="max-w-none rounded-full bg-card/40 pr-8"
+          />
+          {searchKeyword ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              autoTooltip={false}
+              aria-label={t('list.clearSearch')}
+              className="absolute right-1 top-1"
+              onClick={() => setSearch('')}
+            >
+              <Icon name="close" />
+            </Button>
+          ) : null}
+        </div>
       </PageHeader>
       <div className="space-y-3 border-b border-border px-4 py-3 md:hidden">
-        <SearchField
-          value={searchKeyword}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={t('panel.searchPlaceholder')}
-          className="max-w-none rounded-full border-border/80 bg-card/50"
-        />
+        <div className="relative">
+          <SearchField
+            value={searchKeyword}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('panel.searchPlaceholder')}
+            className="max-w-none rounded-full border-border/80 bg-card/50 pr-8"
+          />
+          {searchKeyword ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              autoTooltip={false}
+              aria-label={t('list.clearSearch')}
+              className="absolute right-1 top-1"
+              onClick={() => setSearch('')}
+            >
+              <Icon name="close" />
+            </Button>
+          ) : null}
+        </div>
         <div className="overflow-x-auto">
           <InspirationProviderTabs />
         </div>
-        <InspirationCategoryChips />
       </div>
-      <div className="relative flex min-h-0 flex-1">
-        <aside className="hidden w-52 shrink-0 overflow-y-auto border-r border-border md:block">
-          <InspirationCategoryFilter />
-        </aside>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:p-6">
-          <InspirationGrid />
+      <div ref={setScroller} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-10 flex items-center gap-3 bg-background/95 px-4 py-2.5 backdrop-blur md:px-4">
+          <InspirationGroupChips />
+          <span className="hidden shrink-0 text-label-sm text-muted-foreground md:inline">
+            {items.length > 0 ? t('list.count', { count }) : ''}
+          </span>
         </div>
-        {detailItemId && <InspirationDetail />}
+        <div className="px-4 pb-6">
+          <InspirationGrid scroller={scroller} />
+        </div>
       </div>
+      {detailItemId ? <InspirationDetail /> : null}
     </main>
   )
 }

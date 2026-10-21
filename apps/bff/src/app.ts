@@ -13,6 +13,7 @@ import { gzipBlob } from './lib/staticCompression'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { accountRoutes } from './routes/account'
 import { agentRoutes } from './routes/agent'
+import { stageAuthorizationRoutes } from './routes/agent-stage-authorizations'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { canvasSyncRoutes } from './routes/canvasSync'
@@ -201,6 +202,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
+  .use(stageAuthorizationRoutes)
   .use(textGenerationRoutes)
   .use(productionRoutes)
   .use(syncRoutes)

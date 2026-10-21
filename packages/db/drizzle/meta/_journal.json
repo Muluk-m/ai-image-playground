@@ -498,6 +498,27 @@
       "when": 1792232000000,
       "tag": "0071_agent_draft_task_index",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792300000000,
+      "tag": "0072_inspiration_thumb_dimensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1792400000000,
+      "tag": "0073_reconcile_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0074_agent_stage_authorizations",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,10 @@
-import { formatImageRatio, parseImageSize } from '@image-playground/shared'
+import {
+  formatImageRatio,
+  IMAGE_SIZE_PRESETS,
+  type ImagePresetRatio,
+  type ImageSizeTier,
+  parseImageSize,
+} from '@image-playground/shared'
 
 export { nearestAspectRatio } from '@image-playground/shared'
 
@@ -10,8 +16,8 @@ const MIN_PIXELS = 655_360
 const MAX_PIXELS = 8_294_400
 const MAX_1K_PIXELS = 1_572_864
 
-export type SizeTier = '1K' | '2K' | '4K'
-type PresetRatio = '1:1' | '3:2' | '2:3' | '16:9' | '9:16' | '4:3' | '3:4' | '21:9'
+export type SizeTier = ImageSizeTier
+type PresetRatio = ImagePresetRatio
 
 function roundToMultiple(value: number, multiple: number) {
   return Math.max(multiple, Math.round(value / multiple) * multiple)
@@ -134,38 +140,7 @@ const TIER_PIXEL_BUDGET: Record<SizeTier, number> = {
  * 常用比例优先使用官方示例或通用显示标准，避免按像素预算计算出不常见尺寸。
  * 其中 21:9 的常见显示器尺寸会按 16 倍数约束做轻微规整。
  */
-const COMMON_SIZE_PRESETS: Record<SizeTier, Record<PresetRatio, string>> = {
-  '1K': {
-    '1:1': '1024x1024',
-    '3:2': '1536x1024',
-    '2:3': '1024x1536',
-    '16:9': '1280x720',
-    '9:16': '720x1280',
-    '4:3': '1024x768',
-    '3:4': '768x1024',
-    '21:9': '1280x544',
-  },
-  '2K': {
-    '1:1': '2048x2048',
-    '3:2': '2160x1440',
-    '2:3': '1440x2160',
-    '16:9': '2560x1440',
-    '9:16': '1440x2560',
-    '4:3': '2048x1536',
-    '3:4': '1536x2048',
-    '21:9': '2560x1088',
-  },
-  '4K': {
-    '1:1': '2880x2880',
-    '3:2': '3456x2304',
-    '2:3': '2304x3456',
-    '16:9': '3840x2160',
-    '9:16': '2160x3840',
-    '4:3': '3200x2400',
-    '3:4': '2400x3200',
-    '21:9': '3840x1600',
-  },
-}
+const COMMON_SIZE_PRESETS = IMAGE_SIZE_PRESETS
 
 /** 把「宽:高」约到最简；非整数比例原样拼回。 */
 export function reduceRatio(width: number, height: number): string {

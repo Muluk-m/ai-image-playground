@@ -3,6 +3,7 @@ import type {
   AgentToolArtifact,
   AgentToolName,
   ChannelMedia,
+  ImagePresetRatio,
   PersistedVideoRequest,
   QueueProvider,
   VideoGenerationRecord,
@@ -16,7 +17,7 @@ import { saveGenerationDraft } from '../confirmations'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { bindProductionGeneration } from '../production-generation-binding'
 import { AgentToolError } from './errors'
-import { queueParamsFor, requestedImageCount } from './queueParams'
+import { queueParamsFor, requestedImageCount, withAspectRatio } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
 interface MediaWords {
@@ -46,6 +47,8 @@ export interface QueueTaskInput {
   readonly prompt: string
   /** 图片工具选择的产出张数。缺席时 {@link draftQueueTask} 沿用用户本轮选择的张数。 */
   readonly n?: number
+  /** 模型按用户原话指定的比例；缺席即沿用轮参数里的尺寸。 */
+  readonly aspectRatio?: ImagePresetRatio
   readonly referenceIds?: readonly string[]
   readonly inputImages?: readonly string[]
   readonly mask?: string
@@ -66,16 +69,22 @@ export interface QueueTaskInput {
  * 拟好稿之后给模型的那句话。它不会在这一轮回到模型手里（拟稿即收尾，见 `turn.ts`），
  * 但会作为历史进下一轮：那时模型要知道的是「这次没有提交，也没有花钱，等用户确认」。
  */
-function draftText(words: MediaWords, count: number): string {
-  return `已按用户要求拟好${words.verb}提示词（${count} ${words.unit}），提示词已原样展示给用户，等他确认。这次调用没有提交任何任务，也没有产生任何费用。用户可以直接修改提示词再点「确认生成」，届时系统按他确认的那一份原样提交。不要说已经在生成或已经生成好，也不要描述成品的样子；不要为同一件事再拟一次稿。`
+/** 回执写明实际尺寸：模型只能照它说比例，不能凭用户原话断言。视频没有这一项。 */
+function sizeText(size: string | undefined): string {
+  if (size === undefined) return ''
+  return size === 'auto' ? '，尺寸由模型自动决定' : `，尺寸 ${size}`
+}
+
+function draftText(words: MediaWords, count: number, size?: string): string {
+  return `已按用户要求拟好${words.verb}提示词（${count} ${words.unit}${sizeText(size)}），提示词已原样展示给用户，等他确认。这次调用没有提交任何任务，也没有产生任何费用。用户可以直接修改提示词再点「确认生成」，届时系统按他确认的那一份原样提交。不要说已经在生成或已经生成好，也不要描述成品的样子；不要为同一件事再拟一次稿。`
 }
 
 /**
  * 出图模式下提交完给模型的那句话。这一轮不会因此收尾，模型接着往下做，所以措辞要让它
  * 明白「这一张已经在跑、已经计费」，别再为同一件事提交第二次。
  */
-function submittedText(words: MediaWords, count: number): string {
-  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，结果会显示在对话的产物卡片中。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+function submittedText(words: MediaWords, count: number, size?: string): string {
+  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}${sizeText(size)}），这次调用已经提交并计费，结果会显示在对话的产物卡片中。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
 }
 
 /**
@@ -135,6 +144,11 @@ export async function draftQueueTask(
   input: QueueTaskInput,
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+  if (context.experience === 'canvas')
+    throw new AgentToolError(
+      'invalid_params',
+      '画布生成必须属于目标节点。请先用 createNodes 或 updateNodes 准备节点，再用 runNodes 发起运行；结果将保留在该节点，不会创建无主图片。',
+    )
   const clarification =
     input.media === 'image'
       ? context.imageCombinations?.inspect(input.referenceIds ?? [], input.n ?? 1)
@@ -207,11 +221,14 @@ export async function draftQueueTask(
     prompt: input.prompt,
     device_id: context.deviceId,
     // 视频档位由 input.video 自己带，图片参数对它没有意义。
-    ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
+    ...(input.media === 'image'
+      ? queueParamsFor(target.provider, withAspectRatio(context.params, input.aspectRatio))
+      : {}),
     n: count,
     ...(inputImages?.length ? { input_images: [...inputImages] } : {}),
     ...(input.mask ? { mask: input.mask } : {}),
   }
+  const imageSize = input.media === 'image' ? (request.size ?? 'auto') : undefined
   const draftSubmission = {
     ...(bound
       ? {
@@ -244,7 +261,7 @@ export async function draftQueueTask(
       context.maskedEditPlan?.submitted(submission)
       if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
       return {
-        content: [{ type: 'text', text: submittedText(words, count) }],
+        content: [{ type: 'text', text: submittedText(words, count, imageSize) }],
         details: {
           executedPrompt: input.prompt,
           job: submitted.job,
@@ -271,7 +288,7 @@ export async function draftQueueTask(
   context.maskedEditPlan?.submitted(submission)
   if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
   return {
-    content: [{ type: 'text', text: draftText(words, count) }],
+    content: [{ type: 'text', text: draftText(words, count, imageSize) }],
     details: {
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,

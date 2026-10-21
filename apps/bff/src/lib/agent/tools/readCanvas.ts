@@ -67,7 +67,7 @@ export const readCanvas = defineAgentTool({
         : '看画布',
   }),
   execute: (context) => async (_toolCallId, params) => {
-    if (context.canvas?.selectedNodeIds !== undefined) {
+    if (context.experience === 'canvas') {
       const graph = await readAgentNodeCanvas(context, params)
       if (!graph)
         throw new AgentToolError(

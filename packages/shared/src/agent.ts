@@ -72,6 +72,7 @@ export type AgentToolName =
   | 'arrangeNodes'
   | 'runNodes'
   | 'applyScriptPlan'
+  | 'importCanvasImage'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
@@ -313,12 +314,19 @@ export interface AgentTurnParams {
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
   /**
-   * 出图模式：生成工具拟好稿就当场提交，不再停在「等待确认」等用户逐张点。
+   * 原标签页工作台当前的出图模型。只给阶段授权报价，让提案和预检用同一条模型；
+   * 不改变这一轮对话要调用的生成模型。
+   */
+  readonly canvasImageModel?: string
+  /**
+   * 直接出图：用户在参数里打开时，生成工具拟好稿就当场提交，不再逐张等确认。
    *
-   * 它换掉的是用户那道花钱闸门，所以只认显式的 `true`：缺席、`false` 都是对话模式。
+   * 对话里的生图工具只认显式 `true`；缺席和 `false` 都是拟稿等确认。
+   * 节点画布的 `runNodes` 相反：缺席按默认打开，只有显式 `false` 才弹阶段授权卡。
+   * 这个值只来自本轮请求里的用户偏好，模型不能在工具参数里改口。
    * 一轮最多自动提交 {@link AGENT_AUTO_SUBMIT_MAX_PER_TURN} 次，超出的照常退回等待确认。
    */
-  readonly autoSubmit?: true
+  readonly autoSubmit?: boolean
   /**
    * 图片生成模式：用用户原话调用一次生图工具，不追问、不改写成另一套方案，张数用本轮 `n`。
    * 只认显式 `true`，并且要和 `autoSubmit` 一起送，工具才会当场提交。
@@ -349,6 +357,16 @@ export interface AgentTurnParams {
  * 圈几张就能出几张；真正的硬上限是余额。
  */
 export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 50
+
+/**
+ * 节点画布这一轮要不要直接跑 `runNodes`。
+ * 只看本轮请求上的用户偏好：没带偏好时默认开，只有显式 `false` 才走确认卡。
+ */
+export function canvasStageRunsDirectly(
+  params: { readonly autoSubmit?: boolean } | null | undefined,
+): boolean {
+  return params?.autoSubmit !== false
+}
 
 /** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
 export const AGENT_IMAGE_MAX_N = 10
@@ -418,6 +436,7 @@ export type AgentToolStatus =
  * - `content_policy`：上游按内容安全策略拒绝了这次生成。原样重试稳定复现，出路是改提示词，
  *   在智能体这一侧就是让它改写后再提交。
  * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
+ * - `service_unavailable`：批次执行开关关着。重试同一个工具不会自己恢复，交给智能体换路径。
  * - `cancelled`：用户中止了这一轮，不需要出路。
  * - `unknown`：归不进上面任何一类。
  *
@@ -435,6 +454,7 @@ export type AgentToolErrorCode =
   | 'source_unavailable'
   | 'content_policy'
   | 'model_unavailable'
+  | 'service_unavailable'
   | 'cancelled'
   | 'unknown'
 
@@ -450,6 +470,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'source_unavailable',
   'content_policy',
   'model_unavailable',
+  'service_unavailable',
   'cancelled',
   'unknown',
 ]
@@ -680,12 +701,35 @@ export interface AgentVisualObservation {
   readonly evidence: readonly AgentVisualEvidence[]
 }
 
-/** A proposal only. The client must review the live estimate and confirm the batch before submission. */
+/**
+ * Persisted canvas run card. Stage fields are present on authorization proposals.
+ * Older cards only have a project, node ids, and sometimes `autoRun`; that flag never grants execution.
+ * Execution credentials are never part of conversation history.
+ */
 export interface AgentCanvasRunProposal {
   readonly projectId: string
   readonly nodeIds: readonly string[]
-  /** 出图模式下由发起这一轮的标签页直接开跑，开跑前留撤销时间；缺席即等用户在对话卡确认。 */
-  readonly autoRun?: true
+  readonly nodeNames?: readonly string[]
+  readonly authorizationId?: string
+  readonly stage?: string
+  readonly estimatedCredits?: number
+  readonly budgetCap?: number
+  readonly status?: 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
+  /**
+   * 服务端按本轮用户偏好写下的直接出图标记。为真时原标签页立即开跑，不弹确认卡。
+   * 历史卡片没有这个字段，不能据此开跑。
+   */
+  readonly direct?: boolean
+  readonly autoRun?: boolean
+  /**
+   * 提案时冻结的执行规格。确认和预检必须与它一致；工作台之后改了模型或数量，要重新提案。
+   */
+  readonly specs?: readonly {
+    readonly nodeId: string
+    readonly model: string
+    readonly quantity: number
+    readonly unitMultiplier: number
+  }[]
 }
 
 export interface AgentToolResultBlock {
@@ -888,6 +932,11 @@ export interface AgentBackgroundJobProgress {
    * 结果已归档、正在确认时是 `confirming`。旧服务端缺席，这时按 `stage` 读。
    */
   readonly phase?: TaskProgressPhase
+  /**
+   * 当前阶段开始的时刻。结果确认用它判断是否已经超过 30 分钟；
+   * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
+   */
+  readonly phaseSince?: number
 }
 
 export interface AgentBackgroundJobsResponse {
@@ -1365,10 +1414,24 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
-  if (block.canvasRun)
-    return block.canvasRun.autoRun
-      ? `${title}：已请求直接运行节点 ${block.canvasRun.nodeIds.join('、')}；用户可在开跑前撤销，实际执行情况需重新读取节点。`
-      : `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户在对话卡确认后才运行，实际执行情况需重新读取节点。`
+  if (block.canvasRun) {
+    const proposal = block.canvasRun
+    if (
+      !proposal.authorizationId ||
+      !Array.isArray(proposal.nodeNames) ||
+      proposal.stage === undefined ||
+      proposal.budgetCap === undefined
+    )
+      return `${title}：旧运行建议仅供查看，没有阶段授权执行凭证；如需运行，先读取当前画布并重新提出阶段授权。历史 autoRun 标记不授予执行权限。`
+    const lookup = JSON.stringify({
+      authorizationId: proposal.authorizationId,
+      nodeIds: proposal.nodeIds,
+    })
+    const stance = proposal.direct
+      ? '这一轮用户开了直接出图：授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。'
+      : '此记录是当时待确认的提案。'
+    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
+  }
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =

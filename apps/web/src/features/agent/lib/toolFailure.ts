@@ -51,6 +51,7 @@ export function agentToolFailureAction(
     // 原样重试会重复失败：参数、来源、提示词或模型需要改变。
     case 'content_policy':
     case 'model_unavailable':
+    case 'service_unavailable':
       return 'reprocess'
     default:
       // 可重试的那几个码正常由重试按钮收场。重出不了时它们就一个出路都没有了，交给智能体
@@ -89,6 +90,8 @@ export function agentToolFailureText(code: AgentToolErrorCode | undefined): stri
       return t('agentTool.content_policy')
     case 'model_unavailable':
       return t('agentTool.model_unavailable')
+    case 'service_unavailable':
+      return t('agentTool.service_unavailable')
     case 'cancelled':
       return t('agentTool.cancelled')
     default:

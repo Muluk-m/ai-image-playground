@@ -25,6 +25,7 @@ describe('useInspirationStore', () => {
       remoteError: null,
       selectedProvider: 'all',
       selectedCategory: null,
+      selectedGroup: null,
       searchKeyword: '',
       detailItemId: null,
       detailFallback: null,
@@ -51,9 +52,21 @@ describe('useInspirationStore', () => {
     const s = useInspirationStore.getState()
     s.setCategory('头像')
     expect(useInspirationStore.getState().selectedCategory).toBe('头像')
+    s.setGroup('photo')
     s.setProvider('gemini')
     expect(useInspirationStore.getState().selectedProvider).toBe('gemini')
     expect(useInspirationStore.getState().selectedCategory).toBeNull()
+    expect(useInspirationStore.getState().selectedGroup).toBeNull()
+  })
+
+  it('setGroup keeps the provider and category filters', () => {
+    const s = useInspirationStore.getState()
+    s.setProvider('gemini')
+    s.setCategory('摄影与写实')
+    s.setGroup('photo')
+    expect(useInspirationStore.getState().selectedGroup).toBe('photo')
+    expect(useInspirationStore.getState().selectedProvider).toBe('gemini')
+    expect(useInspirationStore.getState().selectedCategory).toBe('摄影与写实')
   })
 
   it('keeps an offline detail separate when the remote list refreshes', () => {

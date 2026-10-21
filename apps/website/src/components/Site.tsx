@@ -1,11 +1,11 @@
-import { type CSSProperties, lazy, Suspense, useEffect, useRef, useState } from 'react'
-import Overlay from '../../../web/src/components/patterns/Overlay'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
-import { alternatePage, copy, editions, type Locale, type SitePage, scenarios } from '../catalog'
+import { alternatePage, copy, editions, type Locale, type SitePage } from '../catalog'
 import { structuredData } from '../guideData'
 import { AuthBoundary } from './AuthBoundary'
 import { Guide } from './Guide'
+import { MarketingHome } from './MarketingHome'
 
 const Auth = lazy(() => import('./SiteAuth'))
 const hero = '/website-assets/creator-hero.webp'
@@ -22,7 +22,6 @@ export function Site({ page }: { page: SitePage }) {
   const text = copy[page.locale]
   const [login, setLogin] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [art, setArt] = useState(false)
   useEffect(() => {
     setMounted(true)
   }, [])
@@ -61,12 +60,7 @@ export function Site({ page }: { page: SitePage }) {
   return (
     <div className="marketing-site" data-locale={page.locale}>
       {page.kind === 'home' ? (
-        <Home
-          locale={page.locale}
-          start={start}
-          navigation={navigation}
-          showArt={() => setArt(true)}
-        />
+        <MarketingHome locale={page.locale} start={start} />
       ) : (
         <>
           {page.kind !== 'login' ? navigation : null}
@@ -130,7 +124,7 @@ export function Site({ page }: { page: SitePage }) {
           </Suspense>
         </AuthBoundary>
       ) : null}
-      {page.kind !== 'login' ? (
+      {page.kind !== 'login' && page.kind !== 'home' ? (
         <footer className="site-footer">
           <Brand locale={page.locale} />
           <div>
@@ -142,215 +136,8 @@ export function Site({ page }: { page: SitePage }) {
           <span>© Muvloom</span>
         </footer>
       ) : null}
-      {art ? (
-        <Overlay onClose={() => setArt(false)} label={text.view}>
-          <section className="site-art-dialog">
-            <Button variant="ghost" onClick={() => setArt(false)}>
-              {text.close}
-              <Icon name="close" />
-            </Button>
-            <img src={board} alt={text.storyboard} />
-          </section>
-        </Overlay>
-      ) : null}
       <StructuredData page={page} />
     </div>
-  )
-}
-function Home({
-  locale,
-  start,
-  navigation,
-  showArt,
-}: {
-  locale: Locale
-  start: () => void
-  navigation: React.ReactNode
-  showArt: () => void
-}) {
-  const text = copy[locale],
-    story = useRef<HTMLElement>(null)
-  const [scene, setScene] = useState(0)
-  useEffect(() => {
-    const container = story.current
-    if (!container) return
-    const cover = container.querySelector<HTMLElement>('.site-hero')!
-    const query = matchMedia('(prefers-reduced-motion: reduce)')
-    let frame = 0
-    const clamp = (n: number) => Math.max(0, Math.min(1, n))
-    const ease = (n: number) => {
-      n = clamp(n)
-      return n * n * (3 - 2 * n)
-    }
-    const update = () => {
-      frame = 0
-      const p = query.matches
-        ? 0
-        : clamp(
-            -container.getBoundingClientRect().top /
-              Math.max(1, container.offsetHeight - cover.offsetHeight),
-          )
-      cover.style.setProperty('--morph', String(ease((p - 0.06) / 0.86)))
-      cover.style.setProperty('--out', String(ease(p / 0.35)))
-      cover.style.setProperty('--caption', String(ease((p - 0.48) / 0.42)))
-      for (const el of cover.querySelectorAll<HTMLElement>('[data-intro]')) el.inert = p > 0.35
-      const caption = cover.querySelector<HTMLElement>('.site-workflow')!
-      caption.inert = p < 0.6
-      for (const el of document.querySelectorAll<HTMLElement>('.site-story-panel'))
-        el.style.setProperty(
-          '--entry',
-          String(
-            query.matches
-              ? 1
-              : ease((innerHeight - el.getBoundingClientRect().top) / (innerHeight * 0.7)),
-          ),
-        )
-    }
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(update)
-    }
-    const pointer = (e: PointerEvent) => {
-      if (query.matches || e.pointerType === 'touch') return
-      const rect = cover.getBoundingClientRect()
-      cover.style.setProperty('--mx', String(((e.clientX - rect.left) / rect.width) * 2 - 1))
-      cover.style.setProperty('--my', String(((e.clientY - rect.top) / rect.height) * 2 - 1))
-    }
-    const reset = () => {
-      cover.style.setProperty('--mx', '0')
-      cover.style.setProperty('--my', '0')
-    }
-    addEventListener('scroll', schedule, { passive: true })
-    addEventListener('resize', schedule)
-    query.addEventListener('change', schedule)
-    cover.addEventListener('pointermove', pointer)
-    cover.addEventListener('pointerleave', reset)
-    update()
-    return () => {
-      cancelAnimationFrame(frame)
-      removeEventListener('scroll', schedule)
-      removeEventListener('resize', schedule)
-      query.removeEventListener('change', schedule)
-      cover.removeEventListener('pointermove', pointer)
-      cover.removeEventListener('pointerleave', reset)
-    }
-  }, [])
-  return (
-    <main>
-      <section className="site-scroll-story" ref={story}>
-        <div className="site-hero">
-          <div className="site-visual">
-            <img
-              className="site-cover"
-              src={scene === 0 ? hero : board}
-              width={1536}
-              height={1024}
-              fetchPriority="high"
-              alt={scene === 0 ? text.character : text.boards}
-            />
-            <div className="site-shade" />
-            <span className="site-art-credit">MUVLOOM ORIGINAL</span>
-          </div>
-          <div data-intro>{navigation}</div>
-          <div className="site-hero-copy" data-intro>
-            <span className="site-eyebrow">{text.kicker}</span>
-            <h1>
-              {locale === 'zh-CN'
-                ? text.title.split('，').map((phrase, index) => (
-                    <span className="site-title-phrase" key={phrase}>
-                      {phrase}
-                      {index === 0 ? '，' : ''}
-                    </span>
-                  ))
-                : text.title}
-            </h1>
-            <Button className="site-hero-action" onClick={start}>
-              {text.start}
-              <span>
-                <Icon name="arrowRight" />
-              </span>
-            </Button>
-          </div>
-          <div className="site-picker" data-intro>
-            {[hero, board].map((src, i) => (
-              <Button
-                variant="ghost"
-                key={src}
-                aria-pressed={scene === i}
-                onClick={() => setScene(i)}
-                aria-label={i === 0 ? text.character : text.boards}
-              >
-                <img src={src} width={88} height={54} alt="" />
-                <span>0{i + 1}</span>
-              </Button>
-            ))}
-            <span>{scene === 0 ? text.character : text.boards}</span>
-          </div>
-          <div className="site-hero-bottom" data-intro>
-            <span>CHARACTERS. WORLDS. STORIES.</span>
-            <a href="#features">{text.scroll} ↓</a>
-          </div>
-          <div className="site-workflow">
-            <span>{text.idea}</span>
-            <h2>{text.world}</h2>
-            <Button variant="link" onClick={start}>
-              {text.start} ↗
-            </Button>
-          </div>
-        </div>
-      </section>
-      <section className="site-features" id="features">
-        <header>
-          <div>
-            <span className="site-eyebrow">ONE CHARACTER. ENDLESS STORIES.</span>
-            <h2>{text.storyboard}</h2>
-          </div>
-          <span className="site-index">01 — 03 / STORYBOARD</span>
-        </header>
-        <div className="site-story-grid">
-          {text.beats.map((beat, i) => (
-            <article
-              className="site-story-panel"
-              key={beat}
-              style={{ '--panel-index': i } as CSSProperties}
-            >
-              <Button
-                variant="ghost"
-                className="site-panel-art"
-                onClick={showArt}
-                aria-label={`${text.view} — ${beat}`}
-              >
-                <img src={board} alt={beat} loading="lazy" width={1536} height={1024} />
-                <span>
-                  <Icon name="arrowRight" />
-                </span>
-              </Button>
-              <div className="site-panel-label">
-                <span>
-                  0{i + 1} / {beat}
-                </span>
-                <small>{['IMAGINE', 'EXPLORE', 'BECOME'][i]}</small>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-      <section className="site-scenarios" aria-label={text.scenarios}>
-        {scenarios.map((id) => (
-          <a href={`${locale === 'en' ? '/en' : ''}/create/${id}/`} key={id}>
-            <span>{text[id]}</span>
-            <Icon name="arrowRight" />
-          </a>
-        ))}
-      </section>
-      <section className="site-closing">
-        <span className="site-eyebrow">MAKE SOMETHING ONLY YOU CAN.</span>
-        <h2>{text.next}</h2>
-        <Button onClick={start}>
-          {text.start}
-          <Icon name="arrowRight" />
-        </Button>
-      </section>
-    </main>
   )
 }
 function StructuredData({ page }: { page: SitePage }) {

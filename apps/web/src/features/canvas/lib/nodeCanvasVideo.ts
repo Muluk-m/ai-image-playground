@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   canvasInputFingerprint,
   canvasMainResult,
@@ -89,6 +90,7 @@ export function submitNodeVideo(
   roles: Record<string, string>,
   files: Readonly<Record<string, string>>,
   nodeDraft?: VideoDraft,
+  stageAuthorization?: StageAuthorizationSubmission,
 ): boolean {
   const node = mediaNode(doc, id)
   if (!node) return false
@@ -175,6 +177,7 @@ export function submitNodeVideo(
           (inputs as string[]).map((source) => resolveMediaSource(source, 'original', true)),
         ),
         clientRequestId: meta.clientRequestId,
+        stageAuthorization,
       })
       claimResume(doc, id, requestId)
       const job = canvasNodeJobs(doc).find((job) => job.id === jobId)

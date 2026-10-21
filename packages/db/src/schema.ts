@@ -37,6 +37,7 @@ import type {
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
+  StageAuthorization,
   TaskErrorType,
   TaskKind,
   TaskStatus,
@@ -57,6 +58,7 @@ import {
   pgView,
   primaryKey,
   text,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
@@ -255,6 +257,8 @@ export const inspiration_items = pgTable(
     skill_name: text('skill_name'),
     source_url: text('source_url'),
     author: text('author'),
+    thumb_width: integer('thumb_width'),
+    thumb_height: integer('thumb_height'),
     sort: integer('sort').notNull().default(0),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
@@ -432,6 +436,7 @@ export const canvas_projects = pgTable(
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
     uniqueIndex('idx_canvas_projects_conversation').on(t.conversation_id),
+    unique('canvas_projects_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -515,6 +520,7 @@ export const agent_conversations = pgTable(
     index('idx_agent_conversations_device_time')
       .on(t.device_id, t.updated_at.desc())
       .where(sql`${t.device_id} IS NOT NULL`),
+    unique('agent_conversations_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -936,6 +942,13 @@ export const tasks = pgTable(
     attempt_count: integer('attempt_count').notNull().default(0),
     upstream_invocation_count: integer('upstream_invocation_count').notNull().default(0),
     next_retry_at: epochMs('next_retry_at'),
+    /**
+     * 进入结果确认的时刻。30 分钟告警和卡片上的「确认中」用它。
+     * 下次核对的时刻仍写在 next_retry_at，两者不能混用，否则退避会把告警时钟拨回去。
+     */
+    reconcile_started_at: epochMs('reconcile_started_at'),
+    /** 结果确认超过 30 分钟的告警已经发出的时刻。重启和多 worker 都靠它去重。 */
+    reconcile_alerted_at: epochMs('reconcile_alerted_at'),
     device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
     /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
     agent_conversation_id: text('agent_conversation_id'),
@@ -1014,6 +1027,8 @@ const {
   archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
   lease_expires_at: _leaseExpiresAt,
+  reconcile_started_at: _reconcileStartedAt,
+  reconcile_alerted_at: _reconcileAlertedAt,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
@@ -1613,5 +1628,41 @@ export const server_logs = pgTable(
       'server_logs_level_check',
       sql`${t.level} IN ('trace', 'debug', 'info', 'warn', 'error', 'fatal')`,
     ),
+  ],
+)
+
+/** Scope, activation and the append-only spend trail share one row lock. */
+export const agent_stage_authorizations = pgTable(
+  'agent_stage_authorizations',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_projects.id, { onDelete: 'cascade' }),
+    proposal_key: text('proposal_key').notNull(),
+    execution_token_hash: text('execution_token_hash'),
+    state: bunJsonb('state').$type<StageAuthorization>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_agent_stage_proposal').on(t.conversation_id, t.proposal_key),
+    index('idx_agent_stage_owner').on(t.user_id, t.conversation_id),
+    foreignKey({
+      columns: [t.user_id, t.conversation_id],
+      foreignColumns: [agent_conversations.user_id, agent_conversations.id],
+      name: 'agent_stage_authorizations_owner_conversation_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.user_id, t.project_id],
+      foreignColumns: [canvas_projects.user_id, canvas_projects.id],
+      name: 'agent_stage_authorizations_owner_project_fk',
+    }).onDelete('cascade'),
   ],
 )

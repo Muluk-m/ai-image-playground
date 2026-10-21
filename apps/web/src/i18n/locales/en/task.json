@@ -35,7 +35,7 @@
       "generating": "Generating...",
       "reconnecting": "Reconnecting...",
       "confirming": "Confirming result...",
-      "reconciling": "Awaiting verification"
+      "reconciling": "Checking the result (already submitted, no extra charge)"
     },
     "inpaint": "Inpaint",
     "transparentBackground": "Transparent"

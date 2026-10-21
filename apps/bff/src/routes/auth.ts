@@ -10,8 +10,10 @@ import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { accountProfileView } from '../lib/account-profile-view'
+import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
+import { log } from '../lib/logger'
 import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
 import {
   issueRegistrationVerification,
@@ -27,9 +29,11 @@ import { resolveAuthUser } from '../lib/user-auth'
 import {
   clearUserSessionCookie,
   createUserSession,
+  resolveSessionUserId,
   revokeUserSession,
   sessionClientFromRequest,
   setUserSessionCookie,
+  USER_LOGOUT_PATH,
   USER_SESSION_COOKIE,
 } from '../lib/user-session'
 
@@ -60,6 +64,28 @@ const registrationLimiter = createRateLimiter({
 })
 const verificationSourceLimiter = createWindowLimiter(60 * 60_000, 2048)
 const verificationEmailLimiter = createWindowLimiter(60 * 60_000, 2048)
+
+/**
+ * 授权回收是尽力而为。失败只记日志，会话和 cookie 仍在 finally 里清掉，
+ * 避免回收事务出错时登出请求失败、登录态还留着。
+ */
+export async function finishLogout(
+  token: string,
+  clearCookie: () => void,
+  reclaim: () => Promise<void>,
+): Promise<void> {
+  try {
+    await reclaim()
+  } catch (error) {
+    log.warn(
+      { err: error, event: 'auth.logout.reclaim_failed' },
+      'stage authorization reclaim failed during logout',
+    )
+  } finally {
+    clearCookie()
+    await revokeUserSession(token)
+  }
+}
 
 const passwordChangeLimiter = createRateLimiter({
   maxFailures: 10,
@@ -257,11 +283,18 @@ export const userAuthRoutes = new Elysia()
       }),
     },
   )
-  .post('/api/auth/logout', async ({ cookie }) => {
-    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+  .post(USER_LOGOUT_PATH, async ({ cookie }) => {
+    // 登录能力关掉之后，已经发出的会话仍要能退出。清理不能被这个开关挡住。
     const raw = cookie[USER_SESSION_COOKIE]?.value
-    await revokeUserSession(typeof raw === 'string' ? raw : '')
-    clearUserSessionCookie(cookie)
+    const token = typeof raw === 'string' ? raw : ''
+    const userId = token ? await resolveSessionUserId(token) : null
+    await finishLogout(
+      token,
+      () => clearUserSessionCookie(cookie),
+      async () => {
+        if (userId) await endStageAuthorizationsForUser(userId)
+      },
+    )
     return { ok: true }
   })
   .get('/api/auth/me', ({ authUser, status }) => {

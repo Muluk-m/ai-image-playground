@@ -162,11 +162,18 @@
     "allPending_other": "{{count}} 张稿等你确认",
     "allSubmit_other": "全部确认（{{count}}）",
     "allSubmitting": "逐张提交中…",
-    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。"
+    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。",
+    "gate": "有 {{count}} 张待确认的卡片。",
+    "gateConfirm": "全部确认生成",
+    "gateJump": "跳到卡片",
+    "gateSend": "仍然发送这句话",
+    "gateRunNodes": "确认运行节点（{{count}}）",
+    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。"
   },
   "plan": {
     "title": "生成计划",
     "summary_other": "{{count}} 张",
+    "summaryCredits_other": "{{count}} 张待确认，合计约 {{credits}} 积分",
     "hint": "点击一行可修改提示词，取消勾选即跳过",
     "generate_other": "全部生成（{{count}}）",
     "cancel": "取消",
@@ -298,7 +305,7 @@
     "thinkingLegend": "思考深度",
     "thinkingSummary": "思考：{{label}}",
     "autoSubmitLabel": "直接出图",
-    "autoSubmitHint": "助手拟好提示词就直接生成并扣费，不再逐张等你确认。"
+    "autoSubmitHint": "默认开启。拟好提示词就直接生成并扣费。关掉后才逐张等你确认。"
   },
   "mentions": {
     "headingResults": "会话图片",
@@ -478,7 +485,8 @@
       "generating": "生成中",
       "reconnecting": "重新连接中",
       "confirming": "保存结果中",
-      "reconciling": "待核查",
+      "reconciling": "结果确认中（已提交给上游，正在核对，不会重复扣费）",
+      "reconcilingLate": "结果确认超时，已通知处理，你可以先重新生成；若原任务最终失败会自动退款",
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
@@ -592,7 +600,7 @@
       "completed": "已完成",
       "failed": "生成失败",
       "cancelled": "已取消",
-      "reconciling": "待核查",
+      "reconciling": "结果确认中",
       "ready": "待派发",
       "in_flight": "执行中",
       "blocked": "依赖受阻"
@@ -714,13 +722,28 @@
     "readPrompt": "请读取当前选中的画布节点，梳理已有素材，并帮我规划下一步创作。"
   },
   "nodeRun": {
-    "title": "运行节点",
+    "title": "阶段授权",
     "run": "确认运行",
+    "confirming": "正在确认授权，尚未提交任务。",
+    "scope": "授权范围",
+    "budget": "预算上限",
+    "spent": "已用额度",
+    "originOnly": "此卡仅展示授权状态；请在发起提案的标签页确认。刷新不会自动运行。",
+    "submitted": "已提交，结果尚未确认完成。",
+    "status": {
+      "pending": "待确认，尚未提交任务。",
+      "active": "授权生效，尚未提交任务。",
+      "exhausted": "授权预算已用尽。",
+      "ended": "授权已结束。",
+      "expired": "授权已过期，没有继续提交。"
+    },
     "undo": "撤销（{{seconds}} 秒）",
     "startingIn": "{{seconds}} 秒后开始运行，撤销不扣费。",
     "running": "正在运行，结果会写回对应节点。",
     "undone": "已撤销，没有提交任务。",
     "unpriced": "按实际模型用量结算",
-    "unavailable": "请打开对应画布，并确认建议中的节点仍然存在。"
+    "unavailable": "请打开对应画布，并确认建议中的节点仍然存在。",
+    "readFailed": "读不到授权状态。",
+    "retryRead": "重试"
   }
 }

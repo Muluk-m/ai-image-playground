@@ -136,8 +136,66 @@ describe('readConversationStateFacts', () => {
     await batch('busy', 'done', 'closed', ['completed', 'completed', 'failed'])
     await batch('busy', 'waiting', 'draft', [], 4)
 
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'busy',
+        id: 'run-manual',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-run',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '建议运行节点',
+            canvasRun: { projectId: 'project', nodeIds: ['tub', 'scene'] },
+          },
+        ],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'busy',
+        id: 'run-auto',
+        turn_id: 'turn',
+        seq: 2,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-auto',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '直接运行',
+            canvasRun: { projectId: 'project', nodeIds: ['auto'], autoRun: true },
+          },
+        ],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'busy',
+        id: 'run-direct',
+        turn_id: 'turn',
+        seq: 3,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-direct',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '直接出图',
+            canvasRun: { projectId: 'project', nodeIds: ['direct'], direct: true },
+          },
+        ],
+        created_at: NOW,
+      },
+    ])
+
     const facts = await readConversationStateFacts('busy', NOW)
     expect(facts.pendingDrafts).toEqual([{ title: '把浴缸换成图2的款式' }])
+    expect(facts.pendingNodeRuns).toEqual([{ title: '建议运行节点', nodeIds: ['tub', 'scene'] }])
     const done = facts.batches.find((one) => one.batchId === 'done')
     expect(done).toMatchObject({ status: 'closed', itemCount: 3, completed: 2, failed: 1 })
     expect(done?.artifactIds).toEqual(['agent_done-task-0_0', 'agent_done-task-1_0'])
@@ -152,7 +210,7 @@ describe('readConversationStateFacts', () => {
     await conversation('quiet')
     await batch('quiet', 'old', 'closed', ['completed'], 1, NOW - CONVERSATION_STATE_WINDOW_MS - 1)
     const facts = await readConversationStateFacts('quiet', NOW)
-    expect(facts).toEqual({ pendingDrafts: [], batches: [] })
+    expect(facts).toEqual({ pendingDrafts: [], pendingNodeRuns: [], batches: [] })
     expect(renderConversationState(facts)).toBeUndefined()
   })
 })
@@ -161,6 +219,7 @@ describe('renderConversationState', () => {
   it('tells the model a confirmation phrase must not resubmit finished work', () => {
     const text = renderConversationState({
       pendingDrafts: [{ title: '正面近景' }, { title: '俯视近景' }],
+      pendingNodeRuns: [{ title: '建议运行节点', nodeIds: ['tub'] }],
       batches: [
         {
           batchId: 'b1',
@@ -183,6 +242,9 @@ describe('renderConversationState', () => {
       ],
     })
     expect(text).toContain('待用户在卡片上确认的生成 2 张')
+    expect(text).toContain('待用户在卡片上确认的节点运行 1 组')
+    expect(text).toContain('节点 tub')
+    expect(text).toContain('不要再催确认')
     expect(text).toContain('「正面近景」、「俯视近景」')
     expect(text).toContain('批次 b1「六角度」：已执行完毕，完成 6/6；产物：agent_t1_0')
     expect(text).toContain('批次 b2「修正」：执行中，已完成 1/3')

@@ -1,5 +1,6 @@
 import {
   type AgentToolErrorCode,
+  QUEUE_TIMEOUTS,
   type TaskErrorType,
   taskFailureCode,
 } from '@image-playground/shared'
@@ -145,6 +146,7 @@ export async function reconcileTasks(
   executor?: BffTransaction,
 ): Promise<string[]> {
   const reconcile = async (tx: BffTransaction) => {
+    const enteredAt = Date.now()
     const rows = await tx
       .update(schema.tasks)
       .set({
@@ -153,7 +155,11 @@ export async function reconcileTasks(
         error_message: reason,
         execution_token: null,
         lease_expires_at: null,
-        next_retry_at: null,
+        // 进入时刻单独记下，给 30 分钟告警和卡片用。next_retry_at 只表示下次核对，
+        // 认领队列只看 status=queued，这里把它拨到 5 分钟后，核对失败再继续往后推。
+        reconcile_started_at: enteredAt,
+        reconcile_alerted_at: null,
+        next_retry_at: enteredAt + QUEUE_TIMEOUTS.AUTO_RECONCILE_AFTER_MS,
         completed_at: null,
       })
       .where(
