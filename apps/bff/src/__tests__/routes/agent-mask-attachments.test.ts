@@ -192,7 +192,9 @@ it('reopens a complete media selection and submits its unchanged original and ma
     return Response.json({ data: [{ b64_json: source.toString('base64') }] })
   })
   await runTask(cards[0]!.job!.taskId)
-  expect(sent).toHaveLength(1)
+  // 桩子把原图原样交回：选区没变，系统只为这块选区再要两次（上限），仍送同一张原图。
+  expect(sent).toHaveLength(3)
+  expect(sent.every((one) => one.original.equals(source))).toBe(true)
   expect(sent[0]!.original).toEqual(source)
   expect(sent[0]!.mask).toEqual(mask)
   expect(sent[0]!.prompt).toContain('selection_')

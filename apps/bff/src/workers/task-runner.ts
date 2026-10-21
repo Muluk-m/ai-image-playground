@@ -6,7 +6,7 @@ import {
 } from '@image-playground/shared'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
-import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
@@ -15,6 +15,7 @@ import {
 } from '../lib/generationMedia'
 import {
   archiveOutputImages,
+  fetchSourceImage,
   hydrateInputImages,
   MaskedOutputArchiveError,
   ObjectStorageError,
@@ -154,12 +155,15 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       request = preserved
     }
     const hydratedRequest = await hydrateInputImages(request)
+    // 只在这一次新鲜的生成里允许逐区域重试：续跑归档、核查恢复都只合成，不再向上游要图。
+    let repairRegions: ((mask: string) => Promise<Uint8Array | null>) | undefined
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
       ? await protectMaskedOutput(
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
           request.masked_original_size,
+          { repair: async (mask) => (repairRegions ? repairRegions(mask) : null) },
         )
       : undefined
     if (archivePayload) {
@@ -193,6 +197,24 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       })
       return
     }
+    if (request.preserve_outside_mask && !task.reconciliation_required && !resume)
+      repairRegions = async (mask) => {
+        const { payload } = await callUpstream({
+          provider: task.provider,
+          model: task.model,
+          request: { ...hydratedRequest, mask, n: 1 },
+          signal,
+          beforeRequest: async () => {
+            if (await execution.recordUpstreamInvocation()) return
+            execution.abort()
+            throw new DOMException('Task is no longer running', 'AbortError')
+          },
+        })
+        const ref = resolveImageBytesRef(task.provider, payload, 0)
+        if (!ref || ref.kind === 'object') return null
+        if (ref.kind === 'b64') return Buffer.from(ref.data, 'base64')
+        return (await fetchSourceImage(ref.data, { signal })).bytes
+      }
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
