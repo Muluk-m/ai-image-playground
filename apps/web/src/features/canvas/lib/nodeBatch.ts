@@ -1,4 +1,3 @@
-import type { StageAuthorizationSubmission, StageRunReason } from '@image-playground/shared'
 import {
   type CanvasNode,
   type CanvasNodeJob,
@@ -11,6 +10,9 @@ import {
   orderStageReferences,
   readCanvasDocument,
   resolveStageImageExecution,
+  STAGE_RUN_MAX_RETRIES,
+  type StageAuthorizationSubmission,
+  type StageRunReason,
   stageActiveReferences,
   stageIncomingReferences,
   stageNodePrompt,
@@ -333,7 +335,10 @@ export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly
  * 重试一次，或者记下失败、跳过依赖它的下游，接着跑其余节点。
  */
 export interface NodeBatchHooks {
-  /** 返回 `retry` 再提交一次；返回 `skip` 记为失败并跳过下游；抛出则整批停下。 */
+  /**
+   * 返回 `retry` 再提交一次（同一节点至多 `STAGE_RUN_MAX_RETRIES` 次，超出按 `skip` 处理）；
+   * 返回 `skip` 记为失败并跳过下游；抛出则整批停下。
+   */
   recover?: (job: NodeBatchJob, error: unknown) => Promise<'retry' | 'skip'>
   /** 节点有了真实结果。 */
   completed?: (job: NodeBatchJob) => void
@@ -369,14 +374,16 @@ export async function executeNodeBatch(
     )
       throw new NodeBatchFailure(current.error ?? 'failed')
     control.progress(index, job.id)
-    for (;;) {
+    // 执行器自己也把住重试次数：钩子一直要 `retry` 也只再提交这么多次，之后按放弃处理。
+    for (let retries = 0; ; retries += 1) {
       try {
         await control.submit(job)
         control.completed?.(job)
         break
       } catch (error) {
         if (!control.recover) throw error
-        if ((await control.recover(job, error)) === 'retry') {
+        const next = await control.recover(job, error)
+        if (next === 'retry' && retries < STAGE_RUN_MAX_RETRIES) {
           if (control.signal.aborted) throw new NodeBatchFailure('cancelled')
           continue
         }
@@ -486,6 +493,7 @@ export async function runNodeBatch(
         doc,
         job.id,
         previous,
+        previousJobs,
         canvasNodeJobs(doc, job.id).filter((one) => !previousJobs.has(one.id)),
         signal,
       )
@@ -499,6 +507,7 @@ function waitForNodeBatchResult(
   doc: Y.Doc,
   id: string,
   previous: ReadonlySet<string>,
+  previousJobs: ReadonlySet<string>,
   submitted: readonly CanvasNodeJob[],
   signal: AbortSignal,
 ): Promise<void> {
@@ -524,7 +533,8 @@ function waitForNodeBatchResult(
     const check = () => {
       if (signal.aborted || doc.isDestroyed) return finish('cancelled')
       if (!doc.getMap('nodes').has(id)) return finish('changed')
-      const jobs = canvasNodeJobs(doc, id)
+      // 只看这一次提交建出的任务：同一节点上一次失败留下的错误任务（授权内重试时）不算这次失败。
+      const jobs = canvasNodeJobs(doc, id).filter((job) => !previousJobs.has(job.id))
       remember(jobs)
       if (jobs.some((job) => job.status === 'error' || job.status === 'stale'))
         return finish('failed')

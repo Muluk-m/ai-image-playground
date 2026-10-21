@@ -369,6 +369,65 @@ it('rejects reports that disagree with what the server recorded', async () => {
   expect((await request(run.authorizationId, '/wake')).status).toBe(404)
 })
 
+it('checks outcomes against the tasks the server holds, not what the browser claims', async () => {
+  const run = await proposal()
+  const token = await confirm(run.authorizationId)
+  // 「a」第一次失败退款、重试后成功；「b」提交了但失败。
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'failed', 0)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-2')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-2', 'task-a-2', 'completed', 6)
+  expect((await preflight(run.authorizationId, token, 'b', 'b-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'b-1', 'task-b-1', 'failed', 6)
+  const report = (b: object, a: object = { nodeId: 'a', outcome: 'completed' }) =>
+    request(run.authorizationId, '/report', { executionToken: token, nodes: [a, b] })
+  // 任务在服务端是失败的，不能报已完成；提交过的也不能报没轮到或被拦下。
+  expect((await report({ nodeId: 'b', outcome: 'completed' })).status).toBe(422)
+  expect((await report({ nodeId: 'b', outcome: 'skipped', reason: 'stopped' })).status).toBe(422)
+  expect((await report({ nodeId: 'b', outcome: 'blocked', reason: 'missing_media' })).status).toBe(
+    422,
+  )
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  // 「重试过」按服务端的尝试算：浏览器给反了也照实记。
+  const accepted = await report(
+    { nodeId: 'b', outcome: 'failed', reason: 'generation_failed', retried: true },
+    { nodeId: 'a', outcome: 'completed', retried: false },
+  )
+  expect(accepted.status).toBe(200)
+  expect((await stored(run.authorizationId)).run?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'completed', retried: true },
+    { nodeId: 'b', outcome: 'failed', reason: 'generation_failed' },
+  ])
+})
+
+it('records a failed node that never created a task as blocked', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    nodes: [{ nodeId: 'a', outcome: 'failed', reason: 'authorization' }],
+  })
+  expect(report.status).toBe(200)
+  expect((await stored(run.authorizationId)).run?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'blocked', reason: 'authorization' },
+  ])
+})
+
+it('refuses a report after the user ended the authorization and does not wake', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  expect((await request(run.authorizationId, '/end', {})).status).toBe(200)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(409)
+  expect(await report.json()).toMatchObject({ error: 'stage_authorization_inactive' })
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  expect((await stored(run.authorizationId)).run).toBeUndefined()
+})
+
 it('retries a failed node once inside the budget when the failed task was refunded', async () => {
   const run = await proposal(['a'])
   const token = await confirm(run.authorizationId)

@@ -480,6 +480,13 @@ function turnInputOf(
  * 唤醒轮：后台任务结束，智能体回来看结果。没有用户消息可落，模型收到的是一段系统说明，
  * 点名这一批里的结果；要复核的产物作为视觉证据随这一轮发出去。
  */
+/**
+ * 运行回报唤醒轮的授权原文：只汇总结果，不把发起那批运行的用户原话当成再花钱的授权。
+ * 被打断后续跑也照这一条，不退回通用的唤醒授权。
+ */
+const STAGE_RUN_WAKE_AUTHORIZATION =
+  '仅汇总这批画布节点运行的结果；新的运行要先向用户说明并等他同意，再用 runNodes 发起新的阶段授权。'
+
 async function wakeContent(
   conversationId: string,
   owner: AgentOwner,
@@ -505,8 +512,7 @@ async function wakeContent(
       deviceId: wake.deviceId,
       userMessageId: `${turnId}:wake`,
       wake: {
-        authorizationPrompt:
-          '仅汇总这批画布节点运行的结果；新的运行要先向用户说明并等他同意，再用 runNodes 发起新的阶段授权。',
+        authorizationPrompt: STAGE_RUN_WAKE_AUTHORIZATION,
       },
     }
   }
@@ -624,7 +630,9 @@ async function resumeContent(
     userMessageId: `${turnId}:resume`,
     wake: {
       // 授权原文仍是用户的原话：被打断那一轮的，唤醒轮则是提交那一批的那一轮的。
-      authorizationPrompt: wakeAuthorizationPrompt(authorizedTurn, authorizedTurnId),
+      authorizationPrompt: stageSummary
+        ? STAGE_RUN_WAKE_AUTHORIZATION
+        : wakeAuthorizationPrompt(authorizedTurn, authorizedTurnId),
       ...(plan ? { plan } : {}),
       // 被打断那一轮已经提交的任务：同样的调用再来一次时交回它，不再提交。
       ...(submissions.length > 0 ? { replay: createSubmissionReplay(submissions) } : {}),

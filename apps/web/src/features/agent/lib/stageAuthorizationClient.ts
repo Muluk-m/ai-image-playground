@@ -3,6 +3,7 @@ import type {
   StageAuthorizationPreflight,
   StageRunReportInput,
   StageRunReportResult,
+  StageRunWakeReceipt,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { getDeviceId } from '../../../lib/deviceId'
@@ -52,4 +53,6 @@ export const stageAuthorizationClient = {
       ...input,
       deviceId: getDeviceId(),
     }),
+  /** 这条授权的回报唤醒走到了哪一步；服务端还没收到回报时抛错（404）。 */
+  wake: (id: string) => request<StageRunWakeReceipt>(id, '/wake'),
 }

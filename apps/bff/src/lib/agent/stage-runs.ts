@@ -10,7 +10,7 @@ import {
   type StageRunReportResult,
   type StageRunWakeReceipt,
 } from '@image-playground/shared'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
@@ -51,25 +51,58 @@ function sameNodeSet(reported: readonly StageRunNodeReport[], scope: readonly st
   )
 }
 
-/** 回报与服务端记下的提交对得上：完成的节点必须真的提交过，被拦下的不能提交过。 */
-function assertReportAgrees(
+/** 授权上记下的、这批节点真正建出的任务现在是什么状态。 */
+async function submittedTaskStatuses(
+  tx: BffTransaction,
+  state: StageAuthorization,
+): Promise<ReadonlyMap<string, string>> {
+  const ids = [...new Set(state.attempts.flatMap((attempt) => attempt.taskIds))]
+  if (!ids.length) return new Map()
+  const rows = await tx
+    .select({ id: schema.tasks.id, status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(inArray(schema.tasks.id, ids))
+  return new Map(rows.map((row) => [row.id, row.status]))
+}
+
+/**
+ * 回报来自浏览器，只当作「浏览器看到了什么」，凡是服务端自己记着的都以服务端为准：
+ * - 节点集合必须与授权范围完全一致；
+ * - 报「已完成」的节点必须有一个任务在服务端确实已完成；没提交过任务的不能报已完成；
+ * - 提交过任务的不能报「被拦下」或「没轮到」；
+ * - 报「失败」却一个任务都没建出来（预检被拒、提交没被接受）的，按被拦下记，不说成「已提交」；
+ * - 「自动重试过」按授权上这个节点建出任务的尝试次数算，不信浏览器给的值。
+ */
+async function verifiedReport(
+  tx: BffTransaction,
   state: StageAuthorization,
   confirmed: boolean,
   input: StageRunReportInput,
-) {
+): Promise<StageRunNodeReport[]> {
   if (!sameNodeSet(input.nodes, state.nodeIds))
     throw new StageAuthorizationError('stage_run_report_scope', 422)
-  for (const node of input.nodes) {
-    const started = state.attempts.some(
+  const statuses = await submittedTaskStatuses(tx, state)
+  return input.nodes.map((node) => {
+    const submitted = state.attempts.filter(
       (attempt) => attempt.nodeId === node.nodeId && attempt.taskIds.length > 0,
     )
+    const succeeded = submitted.some((attempt) =>
+      attempt.taskIds.some((taskId) => statuses.get(taskId) === 'completed'),
+    )
     if (
-      (node.outcome === 'completed' && !started) ||
-      (node.outcome === 'blocked' && started) ||
-      (!confirmed && (node.outcome === 'completed' || node.outcome === 'failed'))
+      (!confirmed && (node.outcome === 'completed' || node.outcome === 'failed')) ||
+      (node.outcome === 'completed' && !succeeded) ||
+      ((node.outcome === 'blocked' || node.outcome === 'skipped') && submitted.length > 0)
     )
       throw new StageAuthorizationError('stage_run_report_mismatch', 422)
-  }
+    const outcome = node.outcome === 'failed' && submitted.length === 0 ? 'blocked' : node.outcome
+    return {
+      nodeId: node.nodeId,
+      outcome,
+      ...(outcome !== 'completed' && node.reason ? { reason: node.reason } : {}),
+      ...(submitted.length > 1 ? { retried: true } : {}),
+    }
+  })
 }
 
 /**
@@ -94,6 +127,9 @@ export async function reportStageRun(
       .for('update')
     const row = await lockOwnedStageAuthorization(tx, userId, id)
     if (row.state.run) return { authorization: row.state, wake: 'duplicate' as const }
+    // 授权已被用户结束或已过期：不再收回报、不再唤醒（结束就是用户不要智能体接着看这批了）。
+    if (row.state.status === 'ended' || row.state.status === 'expired')
+      throw new StageAuthorizationError('stage_authorization_inactive')
     const confirmed = row.execution_token_hash !== null
     if (
       confirmed
@@ -101,26 +137,19 @@ export async function reportStageRun(
         : input.executionToken !== undefined
     )
       throw new StageAuthorizationError('stage_authorization_inactive')
-    assertReportAgrees(row.state, confirmed, input)
     const now = Date.now()
-    const open = row.state.status === 'pending' || row.state.status === 'active'
     const run: StageRunRecord = {
       reportedAt: now,
-      nodes: input.nodes.map((node) => ({
-        nodeId: node.nodeId,
-        outcome: node.outcome,
-        ...(node.outcome !== 'completed' && node.reason ? { reason: node.reason } : {}),
-        ...(node.retried ? { retried: true } : {}),
-      })),
+      nodes: await verifiedReport(tx, row.state, confirmed, input),
     }
     const authorization: StageAuthorization = {
       ...row.state,
-      status: open ? 'ended' : row.state.status,
+      status: row.state.status === 'exhausted' ? 'exhausted' : 'ended',
       run,
       audit: [
         ...row.state.audit,
         { kind: 'reported', at: now },
-        ...(open ? [{ kind: 'ended' as const, at: now }] : []),
+        ...(row.state.status === 'exhausted' ? [] : [{ kind: 'ended' as const, at: now }]),
       ],
     }
     await tx.update(table).set({ state: authorization, updated_at: now }).where(eq(table.id, id))

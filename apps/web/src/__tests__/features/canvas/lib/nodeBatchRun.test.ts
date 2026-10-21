@@ -174,11 +174,10 @@ it('retries a failed node when the authorization allows it', async () => {
     { recover, completed: (job) => completed.push(job.id) },
   )
   const submit = mocks.submit.getMockImplementation()!
-  // 重试是一次新提交：画布上换一条新的任务记录。
+  // 重试是一次新提交：画布上多一条新的任务记录，上一次失败的那条照旧留在节点上。
   mocks.submit.mockImplementation((editor, doc, id, ...rest) => {
     if (id !== 'a') return submit(editor, doc, id, ...rest)
     t.started.push(id)
-    finishCanvasNodeJob(t.doc, 'job-a', origin)
     setCanvasNodeJob(
       t.doc,
       {
@@ -241,5 +240,47 @@ it('drops a node that gives up, keeps its siblings and skips its dependents', as
   await running
   expect(t.started).toEqual(['a', 'x'])
   expect(completed).toEqual(['x'])
+  expect(skipped).toEqual(['b'])
+})
+it('caps retries itself even when the hook keeps asking for one', async () => {
+  const t = setup(),
+    skipped: string[] = []
+  const recover = vi.fn(async () => 'retry' as const)
+  let attempt = 0
+  const submit = mocks.submit.getMockImplementation()!
+  mocks.submit.mockImplementation((editor, doc, id, ...rest) => {
+    if (id !== 'a') return submit(editor, doc, id, ...rest)
+    t.started.push(id)
+    attempt += 1
+    setCanvasNodeJob(
+      t.doc,
+      {
+        id: `job-a-${attempt}`,
+        nodeId: 'a',
+        status: 'error',
+        createdAt: Date.now(),
+        message: 'upstream failed',
+        meta: { prompt: 'a', clientRequestId: `job-a-${attempt}` },
+      },
+      origin,
+    )
+    return true
+  })
+  const running = runNodeBatch(
+    t.doc,
+    t.editor,
+    t.ids,
+    t.plan,
+    new AbortController().signal,
+    () => {},
+    undefined,
+    { recover, skipped: (job) => skipped.push(job.id) },
+  )
+  await vi.waitFor(() => expect(t.started).toEqual(['a', 'a', 'x']))
+  t.complete('x')
+  await running
+  // 一次原提交加一次重试，之后不再提交；依赖它的下游跳过。
+  expect(t.started).toEqual(['a', 'a', 'x'])
+  expect(recover).toHaveBeenCalledTimes(2)
   expect(skipped).toEqual(['b'])
 })

@@ -46,7 +46,10 @@ export interface StageRunNodeReport {
   readonly nodeId: string
   readonly outcome: StageRunOutcome
   readonly reason?: StageRunReason
-  /** 这个节点在授权内自动重试过。 */
+  /**
+   * 这个节点在授权内自动重试过。浏览器给的只作参考，服务端按授权上建出任务的尝试次数重算后才记下；
+   * 重试上限同样由服务端的预检把守，不看这个值。
+   */
   readonly retried?: boolean
 }
 

@@ -183,9 +183,10 @@ function batchError(error: unknown): NodeBatchError {
   return 'failed'
 }
 /**
- * 把这一批的结局交给 BFF：它结束授权、唤醒智能体一次。交上了就让发起的那张卡去接唤醒轮。
- * 没交上（网络、授权已失效）只在卡上说明，不重放：同一批重复上报服务端也不会再唤醒。
- * 终局先带着「正在交」发出去，卡在交完之前不会把这次运行收走。返回服务端结束后的授权。
+ * 把这一批的结局交给 BFF：它结束授权、唤醒智能体一次。服务端收下了（这一次排上、或早已收过）就让
+ * 发起的那张卡去接唤醒轮。请求出错时回报可能已在服务端落库、只是响应丢了，先按唤醒回执确认一次：
+ * 收下了照常接唤醒轮；确认没收下才在卡上说明没交上，不重放。
+ * 终局先带着「正在交」发出去，卡在交完之前不会把这次运行收走。返回服务端是否已收下这份回报。
  */
 async function reportRun(
   key: string,
@@ -194,7 +195,7 @@ async function reportRun(
   nodes: readonly StageRunNodeReport[],
   executionToken: string | undefined,
   sameAccount: () => boolean,
-): Promise<StageAuthorization | undefined> {
+): Promise<boolean> {
   const origin = origins.get(key)
   let published = false
   const update = (report: AgentNodeRunReport, authorization?: StageAuthorization) => {
@@ -204,6 +205,9 @@ async function reportRun(
     published = true
     publish(key, { ...run, report, ...(authorization ? { authorization } : {}) })
   }
+  const follow = () => {
+    if (sameAccount()) origin?.onReported?.(authorizationId)
+  }
   update({ nodes, wake: 'reporting' })
   try {
     const result = await stageAuthorizationClient.report(authorizationId, {
@@ -211,11 +215,21 @@ async function reportRun(
       ...(executionToken ? { executionToken } : {}),
     })
     update({ nodes, wake: result.wake }, result.authorization)
-    if (result.wake === 'queued' && sameAccount()) origin?.onReported?.(authorizationId)
-    return result.authorization
+    // 重复上报说明早已有人交上（响应丢了重交、或另一处先交了）：那条唤醒照样要接。
+    if (result.wake === 'queued' || result.wake === 'duplicate') follow()
+    return true
   } catch {
+    const receipt = await stageAuthorizationClient.wake(authorizationId).catch(() => null)
+    if (receipt) {
+      const authorization = await stageAuthorizationClient
+        .read(authorizationId)
+        .catch(() => undefined)
+      update({ nodes, wake: 'duplicate' }, authorization)
+      follow()
+      return true
+    }
     update({ nodes, wake: 'failed' })
-    return undefined
+    return false
   }
 }
 const skippedWakes = new Map<string, NonNullable<StageRunRecord['wakeSkipped']>>()
@@ -252,8 +266,8 @@ export function startAgentNodeRun(
       blockedReport(proposal, plan, error),
       undefined,
       sameAccount,
-    ).then((authorization) => {
-      if (!authorization) void stageAuthorizationClient.end(authorizationId).catch(() => {})
+    ).then((reported) => {
+      if (!reported) void stageAuthorizationClient.end(authorizationId).catch(() => {})
     })
     return true
   }

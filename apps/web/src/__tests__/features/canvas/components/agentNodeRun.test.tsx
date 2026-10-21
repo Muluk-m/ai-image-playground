@@ -45,6 +45,9 @@ const proposal: AgentCanvasRunProposal = {
 let plan: NodeBatchPlan
 let authorization: StageAuthorization
 let rejectPreflight: boolean
+let loseReport: boolean
+let reportWake: 'queued' | 'duplicate'
+let ends: number
 let confirms: number
 let preflights: number
 let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retried?: boolean }[] }[]
@@ -115,6 +118,9 @@ const button = (text: string) =>
 beforeEach(() => {
   vi.useFakeTimers()
   rejectPreflight = false
+  loseReport = false
+  reportWake = 'queued'
+  ends = 0
   confirms = 0
   preflights = 0
   reports = []
@@ -139,8 +145,14 @@ beforeEach(() => {
       if (url.endsWith('/report')) {
         reports.push(JSON.parse(String(init?.body)))
         authorization = { ...authorization, status: 'ended' }
-        return Response.json({ authorization, wake: 'queued' })
+        // 服务端已经收下，响应却在路上丢了。
+        if (loseReport) throw new TypeError('Failed to fetch')
+        return Response.json({ authorization, wake: reportWake })
       }
+      if (url.endsWith('/wake'))
+        return reports.length
+          ? Response.json({ status: 'pending' })
+          : Response.json({ error: 'stage_run_not_reported' }, { status: 404 })
       if (url.endsWith('/confirm')) {
         confirms += 1
         authorization = { ...authorization, status: 'active' }
@@ -151,7 +163,10 @@ beforeEach(() => {
         if (rejectPreflight)
           return Response.json({ error: 'stage_authorization_budget' }, { status: 409 })
       }
-      if (url.endsWith('/end')) authorization = { ...authorization, status: 'ended' }
+      if (url.endsWith('/end')) {
+        ends += 1
+        authorization = { ...authorization, status: 'ended' }
+      }
       return Response.json(authorization)
     }),
   )
@@ -203,6 +218,23 @@ it('reports the batch once and hands the wake to the origin', async () => {
   expect(reports).toHaveLength(1)
   expect(onReported).toHaveBeenCalledWith('authorization')
   expect(authorization.status).toBe('ended')
+})
+it('still follows the wake when the report response is lost after the server took it', async () => {
+  loseReport = true
+  const onReported = vi.fn()
+  await mount('lost-report', true, { ...proposal, direct: true }, onReported)
+  await act(async () => {})
+  expect(reports).toHaveLength(1)
+  expect(onReported).toHaveBeenCalledWith('authorization')
+  expect(ends).toBe(0)
+  expect(document.body.textContent).toContain('已把这批结果交给智能体')
+})
+it('follows the wake of a batch the server had already taken', async () => {
+  reportWake = 'duplicate'
+  const onReported = vi.fn()
+  await mount('duplicate-report', true, { ...proposal, direct: true }, onReported)
+  await act(async () => {})
+  expect(onReported).toHaveBeenCalledWith('authorization')
 })
 it('retries a failed node once inside the authorization, then reports it failed', async () => {
   mocks.run.mockImplementation(async (...args: unknown[]) => {
