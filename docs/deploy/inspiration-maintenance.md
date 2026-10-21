@@ -39,10 +39,11 @@
   `sort` 越小越靠前（整数）。模型固定 `openai-compat` / `gpt-image-2.5-flare`。上传前先整体校验（字段类型、重复 id、文件、分类，
   `--publish` 时还会预跑发布校验含模型），有任何问题都不会上传。已存在的 id：本脚本建的同内容草稿会续跑，同内容已发布的跳过；
   归档条目、内容不同或别人建的草稿一律报冲突并中止——归档条目只能用 `inspiration-status.ts --restore` 显式恢复。
-- `inspiration-repoint.ts <map.json> [--apply]`：走 `updateInspirationItem`（与 Admin 编辑同一路径）改 `cover_key` / `image_key`，
+- `inspiration-repoint.ts <map.json> [--apply]`：批量改 `cover_key` / `image_key`，
   `map.json` 形如 `{ "<id>": { "cover": "<url>?w=320&q=85", "image": "<url>" } }`，两个 URL 都必须是 https。
-  已发布条目更新时会重跑发布校验（需要容器里的渠道配置），dry run 会提前报出；已指向目标 URL 的条目跳过，可重复执行。
-  每条更新各自刷新一次 publication，条目多时版本号会连续递增，属正常现象。
+  已发布条目先跑与 Admin 编辑相同的发布校验（需要容器里的渠道配置），dry run 会提前报出。`--apply` 在**一个事务**里完成：
+  锁定这些行，期间有人改过就整体中止不写库；只改两列图片字段，每条写一条 `inspiration.update` 审计（含新旧 URL），
+  最后刷新一次 publication。要么全改、要么全不改；已指向目标 URL 的条目跳过，可重复执行。
 
 ## 在生产 / 测试上运行
 
