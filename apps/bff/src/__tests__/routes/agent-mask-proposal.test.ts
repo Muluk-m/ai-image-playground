@@ -10,6 +10,7 @@ import {
   completionStream,
   eventsOfType,
   parseFrames,
+  recordingAgentFetch,
   scriptedAgentFetch,
   toolCallCompletion,
 } from '../helpers/agentStubs'
@@ -39,6 +40,7 @@ const { hydrateInputImages } = await import('../../lib/imageArchive')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { editMaskPng } = await import('../../lib/agent/mask-proposal')
 const { setSegmentationProviderForTesting } = await import('../../lib/agent/segmentation')
+const { setFastRegionRoutingForTesting } = await import('../../lib/agent/fast-region')
 type SegmentationRequest = import('../../lib/agent/segmentation').SegmentationRequest
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -144,6 +146,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  setFastRegionRoutingForTesting()
   setSegmentationProviderForTesting()
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
@@ -268,21 +271,8 @@ describe('范围确认卡', () => {
       dataUrl: dataUrl(ORIGINAL),
       maskDataUrl: dataUrl(MASK),
     }))!.id
-    setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion({
-            id: 'edit',
-            name: 'editImage',
-            args: {
-              prompt: '杯身换成米白色釉面',
-              imageIds: [original.id],
-              selectionBindings: [{ imageId: original.id, selectionId }],
-            },
-          }),
-        () => completionStream('已经按确认的范围提交'),
-      ]),
-    )
+    // 确认那一轮不问模型：要改哪张、蒙版、改什么都已经定了，按提议直接提交。
+    setAgentFetchForTesting(scriptedAgentFetch(calls, []))
     const answered = await runTurn(
       conversationId,
       '按确认的范围修改「杯身和把手」：换成米白色釉面\n标注 1（箭头）：把手内侧也要改',
@@ -331,8 +321,206 @@ describe('范围确认卡', () => {
       .raw()
       .toBuffer()
     expect(raw.equals(await sharp(ORIGINAL).ensureAlpha().raw().toBuffer())).toBe(true)
-    const modelSaw = JSON.stringify(calls.map((call) => call.messages))
-    expect(modelSaw).toContain('把手内侧也要改')
+    expect(calls).toHaveLength(1)
+    // 选区绑定按提议与蒙版现算，执行指令仍由服务端按用户原文（含标注）拼出来。
+    expect(task!.request_payload.prompt).toContain('把手内侧也要改')
+    expect(task!.request_payload.prompt).toContain(selectionId)
+  }, 20_000)
+
+  it('proposes on an inline upload by saving its original, and submits the confirmation without a model call', async () => {
+    // 附件上传没开时用户的图随消息内联过来，云媒体里没有它的原件（浴缸那一单就是这样）。
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const imageId = 'file_bathtub'
+    // 内联上限内的一份原件（与蒙版同尺寸）。
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 90 }).toBuffer()
+    const inline = `data:image/jpeg;base64,${bath.toString('base64')}`
+    setSegmentationProviderForTesting({
+      id: 'edgetam',
+      async segment() {
+        const data = new Uint8Array(320 * 240)
+        for (let y = 80; y < 170; y++) for (let x = 110; x < 210; x++) data[y * 320 + x] = 255
+        return [{ data, width: 320, height: 240, score: 0.9 }]
+      },
+    })
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'propose',
+            name: 'proposeEditRegion',
+            args: {
+              imageId,
+              target: '浴缸',
+              segmentPrompt: 'bathtub',
+              change: '换一个浴缸，背景不变',
+              keep: ['墙面', '地面'],
+              box: { x: 0.3, y: 0.3, width: 0.4, height: 0.45 },
+            },
+          }),
+        () => completionStream('不该走到这里'),
+      ]),
+    )
+    const asked = await runTurn(
+      conversationId,
+      '我想把这个浴缸换一下背景不变那种',
+      [{ imageId, dataUrl: inline }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    const [question] = eventsOfType(asked, 'clarification') as unknown as AgentClarificationBlock[]
+    const proposal = question?.maskProposal
+    expect(proposal).toMatchObject({ imageId, width: WIDTH, height: HEIGHT, target: '浴缸' })
+    expect(calls).toHaveLength(1)
+    // 原件在服务端存成媒体、挂到会话上：卡片与点选都按这个 id 读同一份字节。
+    const [stored] = await db
+      .select()
+      .from(schema.media_objects)
+      .where(eq(schema.media_objects.id, proposal!.mediaId))
+    expect(stored).toMatchObject({ user_id: USER, status: 'ready', bytes: bath.length })
+    // 模型看的是缩略图，不是整份原件。
+    const sent = JSON.stringify(calls[0]!.messages)
+    expect(sent).not.toContain(bath.toString('base64').slice(0, 2000))
+
+    // 卡上确认：网页把内联原件和蒙版一起带回来，这一轮不问模型，按提议直接提交。
+    const answered = await runTurn(
+      conversationId,
+      '按确认的范围修改「浴缸」：换一个浴缸，背景不变',
+      [{ imageId, dataUrl: inline, maskDataUrl: dataUrl(MASK), editAction: 'inpaint' }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls).toHaveLength(1)
+    const [end] = eventsOfType(answered, 'toolEnd')
+    expect(end).toMatchObject({ toolName: 'editImage' })
+    expect(end!.status).not.toBe('awaiting_confirmation')
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, end!.job!.taskId))
+    expect(task!.model).toBe('gpt-image-2.5-flare')
+    expect(task!.request_payload.n).toBe(2)
+    expect(task!.request_payload.preserve_outside_mask).toBe(true)
+    expect(eventsOfType(answered, 'turnEnd')[0]).toMatchObject({ stopReason: 'completed' })
+  }, 20_000)
+
+  it('stops after one failed region proposal and tells the user, without retrying', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'propose',
+            name: 'proposeEditRegion',
+            args: {
+              imageId: 'file_wide',
+              target: '浴缸',
+              segmentPrompt: 'bathtub',
+              change: '换一个浴缸',
+              keep: [],
+              box: { x: 0.3, y: 0.3, width: 0.4, height: 0.45 },
+            },
+          }),
+        () => completionStream('请你在图上手动圈选浴缸'),
+      ]),
+    )
+    // 严格蒙版模型改不了这么宽的原图：范围确认不可用。
+    const wide = await sharp({
+      create: { width: 4200, height: 1000, channels: 4, background: '#808080' },
+    })
+      .png()
+      .toBuffer()
+    const frames = await runTurn(
+      conversationId,
+      '把浴缸换一下',
+      [{ imageId: 'file_wide', dataUrl: dataUrl(wide) }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls).toHaveLength(1)
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(0)
+    const said = eventsOfType(frames, 'textDelta')
+      .map((event) => (event as unknown as { delta: string }).delta)
+      .join('')
+    expect(said).toContain('没有改图')
+    expect(said).not.toMatch(/手动|圈选后|自己画/)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    const stored = await db
+      .select()
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.conversation_id, conversationId))
+    expect(JSON.stringify(stored.map((row) => row.content))).toContain('没有改图')
+  }, 20_000)
+
+  it('lets the fast tier pick the region while the configured tier runs alongside', async () => {
+    setFastRegionRoutingForTesting(true)
+    setSegmentationProviderForTesting({
+      id: 'edgetam',
+      async segment() {
+        const data = new Uint8Array(320 * 240)
+        for (let y = 80; y < 170; y++) for (let x = 110; x < 210; x++) data[y * 320 + x] = 255
+        return [{ data, width: 320, height: 240, score: 0.9 }]
+      },
+    })
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const inline = `data:image/jpeg;base64,${bath.toString('base64')}`
+    const propose = () =>
+      toolCallCompletion({
+        id: 'propose',
+        name: 'proposeEditRegion',
+        args: {
+          imageId: 'file_bathtub',
+          target: '浴缸',
+          segmentPrompt: 'bathtub',
+          change: '换一个浴缸',
+          keep: ['墙面'],
+          box: { x: 0.3, y: 0.3, width: 0.4, height: 0.45 },
+        },
+      })
+    const turn = async (fastAnswer: () => Response, mainAnswer: () => Response) => {
+      const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+      const conversationId = (json as { conversation: { id: string } }).conversation.id
+      const calls: AgentCall[] = []
+      // 两条请求并发，按请求里的模型分别作答。
+      const fast = recordingAgentFetch(calls, fastAnswer)
+      const main = recordingAgentFetch(calls, mainAnswer)
+      setAgentFetchForTesting((async (input: string, init: { body: string }) =>
+        (JSON.parse(init.body).model === 'gpt-6-luna' ? fast : main)(
+          input,
+          init as RequestInit,
+        )) as unknown as typeof fetch)
+      const frames = await runTurn(
+        conversationId,
+        '我想把这个浴缸换一下背景不变那种',
+        [{ imageId: 'file_bathtub', dataUrl: inline }],
+        { thinkingDepth: 'medium', model: 'agnes-image' },
+      )
+      const ledger = await db
+        .select()
+        .from(schema.agent_model_calls)
+        .where(eq(schema.agent_model_calls.conversation_id, conversationId))
+      return { frames, calls, ledger }
+    }
+
+    // 快档在框选：用它，当前档那一条掐掉；两条都记账。
+    const won = await turn(propose, () => completionStream('当前档的回答'))
+    expect(won.calls.map((call) => call.model).sort()).toEqual(['gpt-6-luna', 'gpt-6.1-sol'])
+    expect(won.calls.find((call) => call.model === 'gpt-6-luna')?.reasoning_effort).toBe('low')
+    const [question] = eventsOfType(
+      won.frames,
+      'clarification',
+    ) as unknown as AgentClarificationBlock[]
+    expect(question?.maskProposal?.target).toBe('浴缸')
+    expect(won.ledger).toHaveLength(2)
+
+    // 快档没在框选：照常用当前档的回答，快档那条只记账。
+    const lost = await turn(
+      () => completionStream('快档的回答'),
+      () => completionStream('当前档的回答'),
+    )
+    const said = eventsOfType(lost.frames, 'textDelta')
+      .map((event) => (event as unknown as { delta: string }).delta)
+      .join('')
+    expect(said).toBe('当前档的回答')
+    expect(eventsOfType(lost.frames, 'clarification')).toHaveLength(0)
+    expect(lost.ledger).toHaveLength(2)
   }, 20_000)
 
   it('does not let the agent edit the image without a mask while the region is pending', async () => {

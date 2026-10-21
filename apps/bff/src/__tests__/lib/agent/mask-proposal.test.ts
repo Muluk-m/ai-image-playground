@@ -24,6 +24,8 @@ const {
   editMaskPng,
   maskProposalAnswer,
   maskProposalFromResult,
+  MaskProposalUnavailable,
+  maskProposalFailedText,
   maskProposalTool,
   seedPoints,
 } = await import('../../../lib/agent/mask-proposal')
@@ -240,12 +242,31 @@ describe('proposeEditRegion', () => {
     await expect(run(maskProposalTool(masked), args)).rejects.toThrow('已经有用户画好的选区')
     const unsaved = context({}, image)
     ;(unsaved.images as { resolveMediaReferences: unknown }).resolveMediaReferences = async () => []
-    await expect(run(maskProposalTool(unsaved), args)).rejects.toThrow('没有可直接引用的原件')
+    // 未登录又没有保存的原件：说清楚不可用，告诉模型别再调，也不叫用户手画。
+    const refused = run(maskProposalTool(unsaved), args)
+    await expect(refused).rejects.toBeInstanceOf(MaskProposalUnavailable)
+    await expect(refused).rejects.toThrow('不要再调用 proposeEditRegion')
+    await expect(refused).rejects.not.toThrow(/手动圈选|自己画/)
   })
 
   it('refuses originals the strict model cannot edit instead of silently downscaling', async () => {
     const tool = maskProposalTool(context({}, url(await picture(4200, 1000))))
-    await expect(run(tool, args)).rejects.toThrow('不要改成整图编辑')
+    const refused = run(tool, args)
+    await expect(refused).rejects.toBeInstanceOf(MaskProposalUnavailable)
+    await expect(refused).rejects.toThrow('4200×1000')
+  })
+
+  it('tells the user in one sentence why the region could not be proposed', () => {
+    const sized = maskProposalFailedText(
+      new MaskProposalUnavailable('原图尺寸超出模型支持的局部编辑范围；原图 4200×1000').message,
+    )
+    expect(sized).toContain('4200×1000')
+    expect(sized).toContain('没有改图')
+    const generic = maskProposalFailedText('外接框太小')
+    expect(generic).toContain('没有改图')
+    for (const text of [sized, generic]) {
+      expect(text).not.toMatch(/proposeEditRegion|手动|圈选后|自己画/)
+    }
   })
 
   it('fails closed when no strict mask model is configured', () => {

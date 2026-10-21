@@ -64,7 +64,7 @@ const PLACEHOLDER_SELECTION = {
 function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
   return references.map((reference) => ({
     imageId: reference.imageId,
-    representation: 'mediaId' in reference && !referenceHasMask(reference) ? 'preview' : 'original',
+    representation: referenceHasMask(reference) ? 'original' : 'preview',
     ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
     ...('editAction' in reference && reference.editAction
       ? { editAction: reference.editAction }
