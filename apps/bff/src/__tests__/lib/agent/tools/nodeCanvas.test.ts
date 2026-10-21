@@ -894,7 +894,7 @@ it('blocks the first-frame stage while referenced assets have no image and lays 
   const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
   const blocked = run(runStoryboardFrames, { storyboardId: 'board' })
   await expect(blocked).rejects.toThrow('林夏（lin）')
-  await expect(run(runStoryboardFrames, { storyboardId: 'board' })).rejects.toThrow('素材阶段授权')
+  await expect(run(runStoryboardFrames, { storyboardId: 'board' })).rejects.toThrow('素材阶段')
   // 只重出第 2 镜时只看这一镜的素材：窗台仍缺图。
   await expect(
     run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
@@ -902,9 +902,31 @@ it('blocks the first-frame stage while referenced assets have no image and lays 
   await expect(
     run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
   ).rejects.not.toThrow('林夏')
+  // 单镜重出时回执要求素材出完后沿用这一镜，不扩大到整张表。
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
+  ).rejects.toThrow('沿用这次的 shotIds（["shot-2"]）')
   expect(await graph()).toEqual(before)
   expect(await stageRows()).toBe(rows)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
+})
+
+it('tells the agent to start the asset stage in the same turn instead of stopping at missing assets', async () => {
+  const { context, run } = await storyboardFixture()
+  // 直接出图开着：回执给出能照抄的 runNodes 参数，明说不用等确认、不要停下来转述。
+  const direct = run(runStoryboardFrames, { storyboardId: 'board' })
+  await expect(direct).rejects.toThrow('先出素材、再出首帧')
+  await expect(run(runStoryboardFrames, { storyboardId: 'board' })).rejects.toThrow(
+    '现在就在同一轮里调用 runNodes（nodeIds: ["lin","sill"]，stage: "素材"）发起素材阶段，它会直接开跑',
+  )
+  await expect(run(runStoryboardFrames, { storyboardId: 'board' })).rejects.toThrow(
+    '素材批跑完后系统会唤醒你，那时再调用 runStoryboardFrames',
+  )
+  // 用户关掉了直接出图：同样接着提案，由确认卡确认。
+  const manual = runStoryboardFrames
+    .create({ ...context, params: { autoSubmit: false } })
+    .execute('manual-missing', { storyboardId: 'board' }, undefined, undefined)
+  await expect(manual).rejects.toThrow('提出素材阶段授权，由用户在确认卡上确认')
 })
 
 it('lays out grid first frames with asset references and finalizes the storyboard only on confirmation', async () => {
@@ -992,6 +1014,18 @@ it('re-runs one shot individually and refuses confirmation after the shot table 
   await expect(
     run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-9'] }),
   ).rejects.toThrow('shot-9')
+  // 认不出的 id 回执列出这张表真正的镜头 id，模型照着改正就能在同一轮重试。
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-9'] }),
+  ).rejects.toThrow('这张分镜表的镜头是：第 1 镜 shot-1、第 2 镜 shot-2')
+  // 把首帧节点 id 当镜头传进来：换成它的镜头，授权范围仍是那一镜的首帧，不会登记空授权。
+  const byFrame = await run(runStoryboardFrames, { storyboardId: 'board', shotIds: [frame!.id] })
+  expect(byFrame.details?.canvasRun?.nodeIds).toEqual([frame?.id])
+  // 手工建的、不是这张表铺出的图片节点不算首帧，照未知镜头拒绝。
+  await run(createNodes, { nodes: [{ id: 'manual-frame', type: 'image', prompt: '第 2 镜首帧' }] })
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['manual-frame'] }),
+  ).rejects.toThrow('不是首帧节点或素材节点 id')
   const authorizationId = single.details?.canvasRun?.authorizationId
   if (!authorizationId) throw new Error('missing authorization')
   await run(applyScriptPlan, {

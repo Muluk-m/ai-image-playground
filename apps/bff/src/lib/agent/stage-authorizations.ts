@@ -17,7 +17,7 @@ import {
   storyboardFingerprint,
   updateCanvasNode,
 } from '@image-playground/shared'
-import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
@@ -339,6 +339,54 @@ async function assertStageOwnership(
   )
     throw new StageAuthorizationError('stage_authorization_scope')
 }
+/**
+ * 这张分镜表、这份镜头表（fingerprint）还没结束的授权（待确认或进行中），逐行加锁并先按 TTL 收回：
+ * 确认后过了有效期又没有在途任务的 active 不算，免得一条没人收的旧授权永远挡住后面的首帧。
+ * `exceptProposalKey` 排除本次调用自己的提案，它的幂等重放走 proposal_key 那条路。
+ */
+async function openStoryboardAuthorizations(
+  tx: BffTransaction,
+  userId: string,
+  projectId: string,
+  storyboard: StageStoryboardFinalization,
+  exceptProposalKey?: string,
+) {
+  const rows = await tx
+    .select()
+    .from(table)
+    .where(
+      and(
+        eq(table.user_id, userId),
+        eq(table.project_id, projectId),
+        sql`${table.state}->'storyboard'->>'storyboardId' = ${storyboard.storyboardId}`,
+        sql`${table.state}->'storyboard'->>'fingerprint' = ${storyboard.fingerprint}`,
+        sql`${table.state}->>'status' in ('pending', 'active')`,
+        ...(exceptProposalKey === undefined ? [] : [ne(table.proposal_key, exceptProposalKey)]),
+      ),
+    )
+    .orderBy(asc(table.created_at), asc(table.id))
+    .for('update')
+  const open: (typeof table.$inferSelect)[] = []
+  for (const row of rows) {
+    const current = await maybeExpire(tx, row)
+    if (current.state.status === 'pending' || current.state.status === 'active') open.push(current)
+  }
+  return open
+}
+/**
+ * 唤醒轮判断要不要接着出首帧时用的提示：这张表、这份镜头表是否已有没结束的授权。
+ * 只是省一次多余的工具调用；真正防重复的是登记提案时的去重（见 {@link proposeStageAuthorizationInTransaction}）。
+ */
+export async function hasOpenStoryboardAuthorization(
+  userId: string,
+  projectId: string,
+  storyboard: StageStoryboardFinalization,
+): Promise<boolean> {
+  return db.transaction(
+    async (tx) =>
+      (await openStoryboardAuthorizations(tx, userId, projectId, storyboard)).length > 0,
+  )
+}
 export interface StageProposalInput {
   userId: string
   conversationId: string
@@ -370,6 +418,32 @@ export async function proposeStageAuthorizationInTransaction(
     )
   )
     throw new StageAuthorizationError('stage_authorization_scope')
+  // 首帧阶段按分镜表去重：上面 assertStageOwnership 已对项目行 FOR UPDATE，同一项目的提案在这里串行，
+  // 后到的事务一定看得到先到的那份。同一张表、同一份镜头表任何时候最多一份没结束的授权：
+  // - 节点、规格都一致的直接交回，重复或并发的唤醒不会铺出两份首帧、扣两次费；
+  // - 规格不同、还待确认的旧提案作废（记 ended），由这次的新提案取代，旧卡确认会被拒绝；
+  // - 规格不同、已经确认在跑的，拒绝这次提案，等它结束再说，不让两份首帧并行扣费。
+  if (input.storyboard) {
+    const open = await openStoryboardAuthorizations(
+      tx,
+      input.userId,
+      input.projectId,
+      input.storyboard,
+      input.proposalKey,
+    )
+    // 先清理其余没结束的行再决定复用：以前留下的多份（比如修复前登记的）也收敛成一份。
+    const reusable = open.find((row) => proposalAgrees(row, input))
+    const others = open.filter((row) => row !== reusable)
+    if (others.some((row) => row.state.status === 'active'))
+      throw new StageAuthorizationError('stage_authorization_storyboard_busy')
+    for (const row of others)
+      await save(tx, {
+        ...row.state,
+        status: 'ended',
+        audit: [...row.state.audit, { kind: 'ended', at: now }],
+      })
+    if (reusable) return reusable.state
+  }
   const priced = await pricedCharges(tx, input.userId, input.nodes)
   const state: StageAuthorization = {
     id,
