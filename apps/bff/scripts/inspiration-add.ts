@@ -182,11 +182,11 @@ const sameContent = (existing: InspirationAdminItem, item: NewItem, categoryId: 
   existing.recommendedModel === MODEL.model
 
 /**
- * Read a validated file without a check-then-use race: open it without following a final symlink,
- * then confirm through the open descriptor itself that it is still inside root before reading.
+ * Read a validated file without a check-then-use race: open it, then confirm through the open
+ * descriptor itself (whatever symlinks led there) that it is still inside root before reading.
  */
 function readInside(rootReal: string, path: string): Blob {
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const fd = openSync(path, constants.O_RDONLY)
   try {
     const opened = realpathSync(`/proc/self/fd/${fd}`)
     if (!opened.startsWith(rootReal + sep)) throw new Error(`${path}: moved outside ${rootReal}`)
