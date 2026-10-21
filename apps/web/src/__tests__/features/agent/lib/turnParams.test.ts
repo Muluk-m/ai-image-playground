@@ -13,7 +13,7 @@ describe('toAgentTurnParams', () => {
     ).toMatchObject({ model: 'model-a', n: 4, autoSubmit: true })
     expect(
       toAgentTurnParams({ ...DEFAULT_PARAMS, n: 1 }, undefined, false, { includeCount: true }),
-    ).toBeUndefined()
+    ).toEqual({ autoSubmit: false })
   })
 
   it('不在 1/2/3/4/6/8 里的张数收到最近的一档，超出范围的不送', () => {

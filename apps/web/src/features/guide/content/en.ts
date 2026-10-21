@@ -577,7 +577,7 @@ export const guideEn: GuideContent = {
             ),
             p('When several drafts are pending, click [[Confirm all]] to submit them together.'),
             tip(
-              'With ⚡ [[Direct generation mode]] on, the agent generates as soon as the prompt is ready, without waiting for confirmation. Credits are consumed immediately.',
+              'Direct generation is on by default: the agent generates and spends credits as soon as the prompt is ready. Turn it off in the input settings to get a draft first, then click [[Confirm and generate]].',
             ),
           ],
         },
@@ -725,7 +725,7 @@ export const guideEn: GuideContent = {
       },
       {
         q: 'I messaged the agent but no image was generated. Why?',
-        a: 'The agent prepares a prompt draft first and waits for you to click Confirm and generate. Direct generation mode skips confirmation but consumes credits immediately.',
+        a: 'Direct generation is on by default, so a finished prompt starts generating and spends credits. A draft means the switch is off: turn it back on in the input settings, or click Confirm and generate on the card.',
       },
       {
         q: 'Where does Save as template store my prompt?',

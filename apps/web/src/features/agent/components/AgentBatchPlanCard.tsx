@@ -28,6 +28,7 @@ import {
   updateBatchPlan,
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
+import { noteBatchAwaitingConfirmation } from '../lib/batchDrafts'
 import { batchResultFiles, exportBatchResults } from '../lib/batchResultExport'
 import {
   BATCH_ITEM_PAGE_SIZE,
@@ -208,6 +209,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       active = false
     }
   }, [batchId, commands])
+  useEffect(() => {
+    if (!page) return
+    noteBatchAwaitingConfirmation(batchId, page.batch.status === 'draft')
+  }, [batchId, page])
   const apply = async (request: () => Promise<AgentBatchPage>, control = false) => {
     if (working.current || !commands.current()) return
     working.current = true

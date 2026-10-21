@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
 import { canvasOrigin, createCanvasUndoManager, insertCanvasNode } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -6,7 +8,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRunCard'
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
-import { startAgentNodeRun } from '../../../../features/agent/lib/nodeRuns'
+import {
+  registerAgentNodeRunOrigin,
+  startAgentNodeRun,
+} from '../../../../features/agent/lib/nodeRuns'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import type { NodeBatchPlan } from '../../../../features/canvas/lib/nodeBatch'
@@ -17,16 +22,28 @@ const mocks = vi.hoisted(() => ({
   current: vi.fn(),
   run: vi.fn<(...args: unknown[]) => Promise<void>>(async () => {}),
 }))
+// The batch runner is the canvas execution boundary of the authorization store seam.
 vi.mock('../../../../features/canvas/lib/nodeBatch', async (original) => ({
   ...(await original<typeof import('../../../../features/canvas/lib/nodeBatch')>()),
   currentNodeBatch: mocks.current,
   runNodeBatch: mocks.run,
 }))
-
-const proposal = { projectId: 'project', nodeIds: ['a'] }
+const proposal: AgentCanvasRunProposal = {
+  projectId: 'project',
+  nodeIds: ['a'],
+  nodeNames: ['萌芽'],
+  authorizationId: 'authorization',
+  stage: '素材',
+  estimatedCredits: 20,
+  budgetCap: 20,
+  status: 'pending',
+}
 let plan: NodeBatchPlan
+let authorization: StageAuthorization
+let rejectPreflight: boolean
+let confirms: number
+let preflights: number
 let cleanup: () => Promise<void>
-
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
     signature,
@@ -49,17 +66,17 @@ function fixturePlan(signature: string): NodeBatchPlan {
     params: useStore.getState().params,
   }
 }
-
-async function mount(runKey: string) {
+async function mount(runKey: string, origin = true, next: AgentCanvasRunProposal = proposal) {
+  if (origin) registerAgentNodeRunOrigin(runKey)
   const doc = new Y.Doc(),
-    origin = canvasOrigin('user', 'test'),
-    undo = createCanvasUndoManager(doc, origin)
-  const canvas = { doc, origin, undo, destroy: async () => {} },
+    source = canvasOrigin('user', 'test'),
+    undo = createCanvasUndoManager(doc, source)
+  const canvas = { doc, origin: source, undo, destroy: async () => {} },
     editor = new CanvasEditor(new CanvasDoc())
   insertCanvasNode(
     doc,
     { id: 'a', type: 'image', x: 0, y: 0, width: 100, height: 100, data: {} },
-    origin,
+    source,
   )
   function Canvas() {
     useAgentNodeRun({
@@ -70,7 +87,7 @@ async function mount(runKey: string) {
       revision: plan.signature,
       files: {},
     })
-    return <AgentNodeRunCard runKey={runKey} proposal={proposal} />
+    return <AgentNodeRunCard runKey={runKey} proposal={next} />
   }
   const host = document.createElement('div')
   document.body.append(host)
@@ -83,36 +100,117 @@ async function mount(runKey: string) {
     doc.destroy()
   }
 }
-
 const button = (text: string) =>
-  [...document.querySelectorAll('button')].find((b) => b.textContent === text)
-
+  [...document.querySelectorAll('button')].find((item) => item.textContent === text)
 beforeEach(() => {
+  vi.useFakeTimers()
+  rejectPreflight = false
+  confirms = 0
+  preflights = 0
+  authorization = {
+    id: 'authorization',
+    conversationId: 'conversation',
+    projectId: 'project',
+    stage: '素材',
+    nodeIds: ['a'],
+    nodeNames: ['萌芽'],
+    estimatedCredits: 20,
+    budgetCap: 20,
+    spentCredits: 0,
+    status: 'pending',
+    attempts: [],
+    audit: [],
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/confirm')) {
+        confirms += 1
+        authorization = { ...authorization, status: 'active' }
+        return Response.json({ authorization, executionToken: 'ephemeral-token' })
+      }
+      if (url.endsWith('/preflight')) {
+        preflights += 1
+        if (rejectPreflight)
+          return Response.json({ error: 'stage_authorization_budget' }, { status: 409 })
+      }
+      if (url.endsWith('/end')) authorization = { ...authorization, status: 'ended' }
+      return Response.json(authorization)
+    }),
+  )
   plan = fixturePlan('first')
   mocks.current.mockImplementation(() => plan)
   mocks.run.mockReset()
-  mocks.run.mockImplementation(async () => {})
+  mocks.run.mockImplementation(async () => {
+    authorization = { ...authorization, spentCredits: 20 }
+  })
 })
 afterEach(async () => {
   await cleanup()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
   expect(agentNodeRunBridge()).toBeNull()
 })
-
-it('keeps proposals inert until the card is confirmed once, then runs the current quote', async () => {
+it('shows scope and budget, confirms once, then preflights and runs only after the undo window', async () => {
   await mount('confirm')
+  expect(document.body.textContent).toContain('素材')
+  expect(document.body.textContent).toContain('预算上限20')
+  expect(document.body.textContent).toContain('萌芽')
   expect(mocks.run).not.toHaveBeenCalled()
-  expect(document.querySelector('[role=dialog]')).toBeNull()
-  expect(agentNodeRunBridge()?.quote({ ...proposal, projectId: 'foreign' })).toBeNull()
-  expect(agentNodeRunBridge()?.quote({ ...proposal, nodeIds: ['deleted'] })).toBeNull()
   await act(async () => button('确认运行')!.click())
-  expect(mocks.run).toHaveBeenCalledOnce()
-  expect(mocks.run.mock.calls[0]?.[2]).toEqual(['a'])
-  expect(mocks.run.mock.calls[0]?.[3]).toMatchObject({ signature: 'first' })
-  expect(document.body.textContent).toContain('本组生成已完成。')
-  expect(button('确认运行')).toBeUndefined()
+  expect(confirms).toBe(1)
+  expect(preflights).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
   expect(startAgentNodeRun('confirm', proposal)).toBe(false)
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(preflights).toBe(1)
   expect(mocks.run).toHaveBeenCalledOnce()
+  expect(mocks.run.mock.calls[0]?.[6]).toMatchObject({
+    a: { authorizationId: 'authorization', executionToken: 'ephemeral-token', nodeId: 'a' },
+  })
+  expect(document.body.textContent).toContain('本组生成已完成。')
+  expect(document.body.textContent).toContain('已用额度20')
+})
+it('starts a direct run with no confirmation card and no undo wait', async () => {
+  await mount('direct', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(button('确认运行')).toBeUndefined()
+  expect(document.body.textContent).not.toContain('确认运行')
+  expect(document.body.textContent).not.toContain('撤销')
+  expect(confirms).toBe(1)
+  expect(preflights).toBe(1)
+  expect(mocks.run).toHaveBeenCalledOnce()
+})
+
+it('stops rereading an authorization after repeated failures', async () => {
+  let reads = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      reads += 1
+      return new Response('unavailable', { status: 503 })
+    }),
+  )
+  await mount('read-backoff')
+  expect(reads).toBe(1)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120_000)
+  })
+  expect(reads).toBe(5)
+  expect(document.body.textContent).toContain('读不到授权状态')
+  expect(button('确认运行')).toBeUndefined()
+  await act(async () => button('重试')!.click())
+  expect(reads).toBe(6)
+})
+
+it('does not start a direct run from another device', async () => {
+  await mount('direct-elsewhere', false, { ...proposal, direct: true })
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(button('确认运行')).toBeUndefined()
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
 })
 
 it('refuses to confirm a blocked quote', async () => {
@@ -120,47 +218,86 @@ it('refuses to confirm a blocked quote', async () => {
   await mount('blocked')
   expect(button('确认运行')?.disabled).toBe(true)
   expect(startAgentNodeRun('blocked', proposal)).toBe(false)
-  expect(mocks.run).not.toHaveBeenCalled()
+  expect(confirms).toBe(0)
 })
-
-it('lets an auto run be undone during the countdown without submitting', async () => {
-  vi.useFakeTimers()
+it('ends authorization before start when the countdown is undone', async () => {
   await mount('undo')
-  await act(async () => {
-    startAgentNodeRun('undo', proposal, 5)
-  })
-  expect(document.body.textContent).toContain('5 秒后开始运行')
-  await act(async () => vi.advanceTimersByTime(2000))
+  await act(async () => button('确认运行')!.click())
+  await act(async () => vi.advanceTimersByTimeAsync(2000))
   await act(async () => button('撤销（3 秒）')!.click())
-  await act(async () => vi.advanceTimersByTime(5000))
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(preflights).toBe(0)
   expect(mocks.run).not.toHaveBeenCalled()
+  expect(authorization).toMatchObject({ status: 'ended', spentCredits: 0 })
   expect(document.body.textContent).toContain('已撤销，没有提交任务。')
 })
-
-it('starts an auto run after the countdown and fails closed when the canvas changed meanwhile', async () => {
-  vi.useFakeTimers()
-  await mount('auto')
-  await act(async () => {
-    startAgentNodeRun('auto', proposal, 5)
-  })
+it('fails closed when the canvas changes during the undo window', async () => {
+  await mount('changed')
+  await act(async () => button('确认运行')!.click())
   plan = fixturePlan('edited')
-  await act(async () => vi.advanceTimersByTime(5000))
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
   expect(mocks.run).not.toHaveBeenCalled()
   expect(document.body.textContent).toContain('节点输入、设置或计价已改变')
 })
-
+it('stops a browser-only upload before confirm and does not submit', async () => {
+  const job = fixturePlan('local').jobs[0]!
+  plan = { ...fixturePlan('local'), jobs: [{ ...job, temporary: { draft: 'data:draft' } }] }
+  await mount('local-upload', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('没有写入画布')
+  expect(authorization.status).toBe('ended')
+})
+it('asks for a new proposal when the workbench spec no longer matches the snapshot', async () => {
+  const snapped = {
+    ...proposal,
+    specs: [{ nodeId: 'a', model: 'other-model', quantity: 2, unitMultiplier: 1 }],
+  }
+  await mount('stale-spec', true, snapped)
+  await act(async () => {})
+  expect(document.body.textContent).toContain('工作台模型或规格已变化，请让智能体重新提出阶段授权')
+  expect(startAgentNodeRun('stale-spec', snapped)).toBe(false)
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+})
+it('does not submit when the BFF refuses scope or budget', async () => {
+  rejectPreflight = true
+  await mount('budget')
+  await act(async () => button('确认运行')!.click())
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(mocks.run).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('请让智能体重新提出阶段授权')
+})
+it.each([
+  'pending',
+  'active',
+] as const)('only renders a %s restored card on refresh or another device', async (status) => {
+  authorization = { ...authorization, status }
+  await mount(`restored-${status}`, false)
+  await act(async () => vi.advanceTimersByTimeAsync(10000))
+  expect(button('确认运行')).toBeUndefined()
+  expect(startAgentNodeRun(`restored-${status}`, proposal)).toBe(false)
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('刷新不会自动运行')
+})
 it('stops later nodes when the running card is stopped', async () => {
   let signal: AbortSignal | undefined
   mocks.run.mockImplementation(
     (...args: unknown[]) =>
       new Promise<void>((_resolve, reject) => {
         signal = args[4] as AbortSignal
-        signal.addEventListener('abort', () => reject({ code: 'cancelled' }))
+        signal.addEventListener('abort', () =>
+          reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })),
+        )
       }),
   )
   await mount('stop')
   await act(async () => button('确认运行')!.click())
-  expect(document.body.textContent).toContain('正在运行')
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
   await act(async () => button('停止后续任务')!.click())
   expect(signal?.aborted).toBe(true)
   expect(document.body.textContent).toContain('已停止后续任务')

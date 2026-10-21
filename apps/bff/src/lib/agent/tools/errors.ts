@@ -5,7 +5,12 @@ import type { CreateQueueTaskOutcome } from '../../taskSubmission'
  * 带分类的工具失败。消息照旧是给模型读的那句话；`code` 是给界面的——界面只认它（ADR 0006）。
  * pi 接住工具抛的错时只留下文字（`createErrorToolResult`），所以分类要在 pi 之外记一份，
  * 见 {@link createToolFailureLog}。
+ *
+ * 批次执行没开放时，这句话只给模型：不要重试，改走已经有的逐图结果。
  */
+export const BATCH_EXECUTION_UNAVAILABLE_MESSAGE =
+  '批次执行当前没有开放。不要重试这个工具。如果已经有逐图核查结果，就按那些结果拟一份生成计划，交给用户确认；不要依赖联合核查。'
+
 export class AgentToolError extends Error {
   constructor(
     readonly code: AgentToolErrorCode,
@@ -46,6 +51,14 @@ export interface ToolFailureLog {
   take(toolCallId: string, aborted: boolean): AgentToolErrorCode
 }
 
+function recordedFailureCode(thrown: unknown, aborted: boolean): AgentToolErrorCode {
+  if (thrown instanceof AgentToolError) return thrown.code
+  // 批次开关关掉时抛的不是 AgentToolError，但模型需要一个明确的码，而不是 unknown。
+  if (thrown instanceof Error && 'code' in thrown && thrown.code === 'batch_execution_unavailable')
+    return 'service_unavailable'
+  return aborted ? 'cancelled' : 'unknown'
+}
+
 export function createToolFailureLog(): ToolFailureLog {
   const started = new Set<string>()
   const codes = new Map<string, AgentToolErrorCode>()
@@ -54,10 +67,7 @@ export function createToolFailureLog(): ToolFailureLog {
       started.add(toolCallId)
     },
     failed(toolCallId, thrown, aborted) {
-      codes.set(
-        toolCallId,
-        thrown instanceof AgentToolError ? thrown.code : aborted ? 'cancelled' : 'unknown',
-      )
+      codes.set(toolCallId, recordedFailureCode(thrown, aborted))
     },
     take(toolCallId, aborted) {
       const code = codes.get(toolCallId)

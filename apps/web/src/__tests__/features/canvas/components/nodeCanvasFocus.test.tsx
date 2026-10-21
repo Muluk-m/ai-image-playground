@@ -52,6 +52,7 @@ vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
 }))
 vi.mock('../../../../theme/useTheme', () => ({ useTheme: () => ({ theme: 'dark' }) }))
 vi.mock('@xyflow/react', () => ({
+  useUpdateNodeInternals: () => () => {},
   applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
@@ -83,6 +84,7 @@ vi.mock('@xyflow/react', () => ({
       children,
     ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  useStoreApi: () => ({ getState: () => ({ cancelConnection: () => {} }) }),
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,

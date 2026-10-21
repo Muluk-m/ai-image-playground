@@ -489,8 +489,8 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     await page.goto(origin + '/', {waitUntil:'networkidle'})
     if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
     if (loginEnabled) {
-      await page.getByRole('heading',{name:/故事，\s*由你发生。/}).waitFor()
-      await page.locator('.site-nav').getByRole('button',{name:'开始创作',exact:true}).click()
+      await page.getByRole('heading',{name:/说出你要的画面\s*剩下的交给幕芽/}).waitFor()
+      await page.locator('.nav').getByRole('button',{name:'免费开始',exact:true}).click()
       await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
       await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
       if (!(await page.title()).includes('AI 图片、视频与画布创作平台')) throw new Error('Auth changed the marketing title')
@@ -505,6 +505,10 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       await page.locator('h1').waitFor()
       if (new URL(page.url()).pathname !== path) throw new Error(`Hydration changed the static URL: ${path}`)
       if (await page.locator('html').getAttribute('lang') !== lang) throw new Error(`Wrong locale: ${path}`)
+      if (path === '/en/') {
+        await page.getByRole('heading',{name:/Say the picture you want\s*Muvloom handles the rest/}).waitFor()
+        if (!(await page.title()).includes('AI Image, Video and Canvas Creation')) throw new Error('English marketing title drifted')
+      }
       if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
     }
     await page.setViewportSize({width:390,height:844})

@@ -3,6 +3,7 @@ import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
+import { expireStaleStageAuthorizations } from './lib/agent/stage-authorizations'
 import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
@@ -130,6 +131,18 @@ startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
     : []),
   ...(agentEnabled
     ? [
+        {
+          event: 'periodic.expire_stage_authorizations_failed',
+          run: async () => {
+            const expired = await expireStaleStageAuthorizations()
+            if (expired > 0) {
+              log.info(
+                { event: 'periodic.expired_stage_authorizations', count: expired },
+                'expired idle stage authorizations',
+              )
+            }
+          },
+        },
         {
           event: 'periodic.purge_agent_events_failed',
           run: async () => {

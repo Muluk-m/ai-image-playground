@@ -531,16 +531,26 @@ describe('这一轮的观众', () => {
 
   it('节点画布把节点生成指向 runNodes，其它画面不出现这句', () => {
     const canvas = { ...audience, experience: 'canvas' as const }
-    expect(
-      turnInitialState([], 'image', false, 0, { ...canvas, nodeCanvas: true }).systemPrompt,
-    ).toContain(NODE_CANVAS_GENERATION_LINE)
-    expect(turnInitialState([], 'image', false, 0, canvas).systemPrompt).not.toContain(
+    expect(turnInitialState([], 'image', false, 0, canvas).systemPrompt).toContain(
       NODE_CANVAS_GENERATION_LINE,
     )
     expect(
-      turnInitialState([], 'image', false, 0, { ...audience, experience: 'chat', nodeCanvas: true })
-        .systemPrompt,
+      turnInitialState([], 'image', false, 0, { ...audience, experience: 'chat' }).systemPrompt,
     ).not.toContain(NODE_CANVAS_GENERATION_LINE)
+  })
+
+  it('runs canvas nodes immediately when direct generation is on, and asks for a card only when it is off', () => {
+    const canvas = { ...audience, experience: 'canvas' as const }
+    const direct = turnInitialState([], 'image', true, 0, canvas).systemPrompt
+    expect(direct).toContain('直接出图')
+    expect(direct).toContain('不弹确认卡')
+    expect(direct).toContain('只有查到实际任务记录才能称已提交')
+    expect(direct).not.toContain('这一轮是出图模式')
+    expect(direct).not.toContain('拟好提示词就当场提交并计费')
+    const manual = turnInitialState([], 'image', false, 0, canvas).systemPrompt
+    expect(manual).toContain('关掉了直接出图')
+    expect(manual).toContain('待确认提案')
+    expect(manual).not.toContain('不弹确认卡')
   })
 
   it('没有观众的那一轮一条模板都不露', () => {

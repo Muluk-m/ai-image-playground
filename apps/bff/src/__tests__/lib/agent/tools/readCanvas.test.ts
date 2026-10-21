@@ -628,6 +628,7 @@ it('reads full selected text, edges and groups from the server Y.Doc instead of 
   doc.destroy()
   const toolContext = {
     ...context('conv-graph', USER),
+    experience: 'canvas' as const,
     canvas: {
       selectedNodeIds: ['script'],
       elements: [
@@ -730,6 +731,7 @@ it('reads full selected text, edges and groups from the server Y.Doc instead of 
 it('does not replace unavailable node documents with a truncated legacy snapshot', async () => {
   const tool = readCanvas.create({
     ...context('missing', USER),
+    experience: 'canvas',
     canvas: { elements: [], selectedNodeIds: [] },
   })
   await expect(tool.execute('call', {}, undefined, undefined)).rejects.toThrow('尚未同步')

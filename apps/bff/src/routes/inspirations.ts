@@ -52,6 +52,8 @@ const writeSchema = t.Object({
   skillName: t.Nullable(t.String({ maxLength: 128 })),
   sourceUrl: t.Nullable(t.String({ maxLength: 2048 })),
   author: t.Nullable(t.String({ maxLength: 256 })),
+  thumbWidth: t.Optional(t.Nullable(t.Integer({ minimum: 1, maximum: 20000 }))),
+  thumbHeight: t.Optional(t.Nullable(t.Integer({ minimum: 1, maximum: 20000 }))),
   sort: t.Integer(),
 })
 

@@ -84,6 +84,7 @@ import {
   deliverable,
   type TurnArtifactDelivery,
 } from './lib/artifactDelivery'
+import { readAutoSubmitPreference } from './lib/autoSubmitPreference'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
@@ -103,7 +104,7 @@ import {
   removeQueuedMessage,
   returnQueuedToDraft,
 } from './lib/messageQueue'
-import { AGENT_NODE_RUN_UNDO_SECONDS, startAgentNodeRun } from './lib/nodeRuns'
+import { registerAgentNodeRunOrigin, releaseIdleAgentNodeRunOrigins } from './lib/nodeRuns'
 import {
   bindOutgoingConversation,
   forgetOutgoing,
@@ -166,8 +167,9 @@ function readThinkingDepth(): AgentThinkingDepth {
 }
 
 /**
- * 出图模式（生成工具拟好稿当场提交，不逐张等确认）。与思考档位同样是本机偏好：
+ * 直接出图（生成工具拟好稿当场提交，不逐张等确认）。与思考档位同样是本机偏好：
  * 它换掉的是用户那道花钱闸门，跨会话记住才不用每批都重开，但也绝不跟着账号同步。
+ * 没存过时默认打开；读法见 `readAutoSubmitPreference`。
  */
 const AUTO_SUBMIT_KEY = 'image-playground-agent-auto-submit'
 
@@ -197,8 +199,8 @@ export interface AgentState {
   thinkingDepth: AgentThinkingDepth
   setThinkingDepth(depth: AgentThinkingDepth): void
   /**
-   * 出图模式：生成工具拟好稿当场提交，不再逐张等确认（`AgentTurnParams.autoSubmit`）。
-   * 与思考档位同属本机偏好，起轮时随参数快照送到服务端。
+   * 直接出图：生成工具拟好稿当场提交，不再逐张等确认（`AgentTurnParams.autoSubmit`）。
+   * 与思考档位同属本机偏好，起轮时随参数快照送到服务端。没记下过选择时为开。
    */
   autoSubmit: boolean
   setAutoSubmit(autoSubmit: boolean): void
@@ -471,28 +473,31 @@ const turnSource = (taken: AgentConversationState, turnId: string): AgentTurnSou
  * 换会话时要清掉的一切：属于上一个会话的消息、页脚、排队、草稿卡上改过的字、任务进度、
  * 工具起跑时刻、重试被拒盖在占位上的那一层，连同断线提示与上一次的报错。
  * 返回的是一份补丁，调用方一次 `set` 下去：任何一次渲染都不能看见「消息已清、会话还是旧的」。
+ * 运行卡来源要在这次 `set` 返回之后再释放，订阅者不能先看见旧消息配上已经清掉的来源。
  */
-const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
-  conversationId,
-  messages: [],
-  turns: {},
-  queue: [],
-  promptDrafts: {},
-  jobProgress: {},
-  toolStartedAt: {},
-  retryRefusals: {},
-  turn: 'idle',
-  stopping: false,
-  reconnecting: false,
-  activeTurn: null,
-  error: null,
-  errorDiagnostic: null,
-  historyCached: false,
-  historyLoading: false,
-  historyFailed: false,
-  returnedMessagesPending: false,
-  returnedMessagesError: null,
-})
+const sessionReset = (conversationId: string | null): Partial<AgentState> => {
+  return {
+    conversationId,
+    messages: [],
+    turns: {},
+    queue: [],
+    promptDrafts: {},
+    jobProgress: {},
+    toolStartedAt: {},
+    retryRefusals: {},
+    turn: 'idle',
+    stopping: false,
+    reconnecting: false,
+    activeTurn: null,
+    error: null,
+    errorDiagnostic: null,
+    historyCached: false,
+    historyLoading: false,
+    historyFailed: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
+  }
+}
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
@@ -680,9 +685,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const card = panelMessage(event.messageId, turnId, 'assistant', [
         { ...event, type: 'toolResult' },
       ])
-      // 出图模式的节点运行只由发出这一轮的标签页开跑；刷新、换设备与重放都只显示确认卡。
-      if (sent && card.kind === 'tool' && card.canvasRun?.autoRun)
-        startAgentNodeRun(card.id, card.canvasRun, AGENT_NODE_RUN_UNDO_SECONDS)
+      // Origin rights are memory-only. History, reconnects and other devices never auto-start.
+      if (sent && card.kind === 'tool' && card.canvasRun) registerAgentNodeRunOrigin(card.id)
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -985,6 +989,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       returnedMessagesPending: false,
       returnedMessagesError: null,
     })
+    if (!same) releaseIdleAgentNodeRunOrigins()
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let remoteSettled = false
     void owner.read().then((panel) => {
@@ -1015,6 +1020,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (!isCurrent()) return
           openProject(project.id)
           set({ ...sessionReset(null), error: CONVERSATION_GONE(), errorDiagnostic: null })
+          releaseIdleAgentNodeRunOrigins()
         } catch {
           if (isCurrent()) {
             set({ historyLoading: false, historyFailed: true })
@@ -1350,6 +1356,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       ...toAgentTurnParams(params, model, imageDirect || get().autoSubmit, {
         includeCount: imageDirect,
       }),
+      // 工作台出图模型单独送：默认智能选模型时不把它写进对话模型，阶段授权仍要按它报价。
+      ...(selected ? { canvasImageModel: selected } : {}),
       ...(imageDirect ? { directImage: true as const } : {}),
       thinkingDepth: get().thinkingDepth,
       ...(mode === 'video' && useVideoStore.getState().draft.model
@@ -1564,6 +1572,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         tab: 'chat',
         open: true,
       })
+      releaseIdleAgentNodeRunOrigins()
       // 会话都还没建起来就断在半路的那几条：这里没有历史要等，直接补发。
       if (!project.conversationId) void resumeOutgoing(project.id)
     },
@@ -1687,7 +1696,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       safeLocalStorage.setItem(THINKING_DEPTH_KEY, thinkingDepth)
       set({ thinkingDepth })
     },
-    autoSubmit: safeLocalStorage.getItem(AUTO_SUBMIT_KEY) === '1',
+    autoSubmit: readAutoSubmitPreference(safeLocalStorage.getItem(AUTO_SUBMIT_KEY)),
     setAutoSubmit: (autoSubmit) => {
       safeLocalStorage.setItem(AUTO_SUBMIT_KEY, autoSubmit ? '1' : '0')
       set({ autoSubmit })
@@ -1822,6 +1831,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       selectCanvasWorkspace(canvasSceneKey(null))
       safeLocalStorage.removeItem(conversationKey())
       set(sessionReset(null))
+      releaseIdleAgentNodeRunOrigins()
     },
 
     async retryHistory() {

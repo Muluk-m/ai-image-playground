@@ -1,0 +1,8 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:sync": true,
+    "billing:credits": true
+  },
+  "quotas": { "sync:user-projects": 30 }
+}

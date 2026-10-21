@@ -17,6 +17,9 @@ export type AlertRule =
   | 'api'
   | 'generation'
   | 'agent'
+  | 'agent-pattern'
+  | 'blind'
+  | 'reconciling'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
@@ -40,6 +43,60 @@ export interface AlertObservation {
     error_routes: Record<string, number>
   }
   failures?: { generation_system: number; agent: number }
+  /**
+   * 近 6 小时每一类 Agent 轮次失败（模型、错误码、上游状态码各算一类）。
+   * 没有失败时为 null 或空数组。整块没取到就不要给这个字段。
+   */
+  agentFailurePatterns?: readonly AgentFailurePattern[] | null
+  /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
+  blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
+}
+
+export interface AgentFailurePattern {
+  model: string
+  code: string
+  /** 上游 HTTP 状态码；报错里认不出时为 null。 */
+  upstreamStatus: number | null
+  turns: number
+  lastAt: number
+  /** 最近一次的报错，已截断。 */
+  message: string
+}
+
+/**
+ * 用户自己的输入问题：上下文过长、请求体过大、图片不合法。
+ * 改模型配置不会让它消失，不能当成「配置被上游拒绝」。
+ * 文案取自请求预算、出站字节闸和上游图片拒绝里已经出现的写法。
+ */
+const USER_INPUT_MESSAGE =
+  /input tokens, over the|缩小共同查看范围|UTF-8 bytes|the local limit is|invalid[_ ]image|unsupported image|could not be processed|不是图片|context[_ ]length|maximum context length|prompt too long/i
+
+/** 部署把限额配坏、请求体无法计量：正文要求联系运营，不是用户那张图的问题。 */
+const OPERATOR_BUDGET_MESSAGE =
+  /contact the operator|byte limit is invalid|cannot be measured safely/i
+
+/** 参数或鉴权类的上游拒绝。裸的 400/404/`unsupported` 不够，用户输入也常带着这些字。 */
+const CONFIG_MESSAGE =
+  /invalid_request_error|invalid value|model_not_found|unsupported (?:value|parameter|model|field)|unknown parameter|invalid api key|incorrect api key/i
+
+export function isUserInputFailure(pattern: AgentFailurePattern): boolean {
+  if (pattern.code === 'agent_context_overflow') return true
+  if (pattern.code === 'agent_request_budget_exceeded')
+    return !OPERATOR_BUDGET_MESSAGE.test(pattern.message)
+  return USER_INPUT_MESSAGE.test(pattern.message)
+}
+
+/** 参数或鉴权类的上游拒绝：重试不会自己好，只能改配置，出现一次就报。 */
+export function isConfigurationFailure(pattern: AgentFailurePattern): boolean {
+  if (isContentPolicyFailure(pattern) || isUserInputFailure(pattern)) return false
+  if (pattern.upstreamStatus === 401 || pattern.upstreamStatus === 403) return true
+  if (OPERATOR_BUDGET_MESSAGE.test(pattern.message)) return true
+  return CONFIG_MESSAGE.test(pattern.message)
+}
+
+/** 内容策略拒绝是用户那条提示词的问题，不是服务事故。 */
+export function isContentPolicyFailure(pattern: AgentFailurePattern): boolean {
+  return /content_policy/i.test(pattern.code) || /content_policy/i.test(pattern.message)
 }
 
 interface RuleState {
@@ -56,8 +113,16 @@ interface ApiRuleState extends RuleState {
   successesAtTrigger: Record<string, number>
 }
 
+/** 一类失败自己的状态。键是模型、错误码和上游状态码，互不覆盖。 */
+export interface AgentPatternGroupState extends RuleState {
+  model: string
+  code: string
+  upstreamStatus: number | null
+}
+
 export type AlertState = Partial<Record<Exclude<AlertRule, 'api'>, RuleState>> & {
   api?: ApiRuleState
+  agentPatterns?: Record<string, AgentPatternGroupState>
 }
 
 export interface AlertMessage {
@@ -112,6 +177,18 @@ function readings(
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
   const { host, queue, backup, restoreDrill, heartbeats, failures } = observation
+
+  if (observation.blindBlocks) {
+    const blind = observation.blindBlocks.filter(
+      (one) => one.rounds >= OPS_THRESHOLDS.ALERT_BLIND_ROUNDS,
+    )
+    out.blind = {
+      breached: blind.length > 0,
+      sustainMs: 0,
+      firingText: `告警读数连续取不到，对应规则暂时失效：${blind.map((one) => `${one.block}（${one.rounds} 轮）`).join('、')}`,
+      resolvedText: '已恢复：告警读数恢复正常',
+    }
+  }
 
   if (failures) {
     out.generation = {
@@ -211,6 +288,94 @@ function readings(
     }
   }
   return out
+}
+
+function patternKey(
+  pattern: Pick<AgentFailurePattern, 'model' | 'code' | 'upstreamStatus'>,
+): string {
+  return `${pattern.model}\u0000${pattern.code}\u0000${pattern.upstreamStatus ?? ''}`
+}
+
+function patternText(pattern: AgentFailurePattern, configuration: boolean): string {
+  return `${configuration ? 'Agent 模型配置被上游拒绝' : '同一类 Agent 失败反复出现'}：${pattern.model} 近 ${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_WINDOW_MS)}有 ${pattern.turns} 轮以 ${pattern.code}${pattern.upstreamStatus ? `（HTTP ${pattern.upstreamStatus}）` : ''} 失败；最近一次：${pattern.message}`
+}
+
+function stepRule(
+  rule: AlertRule,
+  reading: Reading,
+  previous: RuleState | undefined,
+  now: number,
+): { state: RuleState; messages: AlertMessage[] } {
+  const prior = previous ?? { breachedSince: null, firing: false, lastSentAt: null }
+  // 报过的规则停在告警线与恢复线之间时，按「还没好」处理：不发已恢复，到点照常再提醒。
+  const breached = reading.breached || (prior.firing && !(reading.recovered ?? !reading.breached))
+  if (!breached) {
+    return {
+      state: { breachedSince: null, firing: false, lastSentAt: null },
+      messages: prior.firing ? [{ rule, kind: 'resolved', text: reading.resolvedText }] : [],
+    }
+  }
+  const breachedSince = prior.breachedSince ?? now
+  const due =
+    now - breachedSince >= reading.sustainMs &&
+    (!prior.firing || prior.lastSentAt === null || now - prior.lastSentAt >= REMIND_AFTER_MS)
+  return {
+    state: {
+      breachedSince,
+      firing: prior.firing || due,
+      lastSentAt: due ? now : prior.lastSentAt,
+    },
+    messages: due ? [{ rule, kind: 'firing', text: reading.firingText }] : [],
+  }
+}
+
+/** 每一类失败单独记状态。读数整块缺失时原样留下，不把还在报的类说成已恢复。 */
+function evaluateAgentPatterns(
+  patterns: readonly AgentFailurePattern[] | null | undefined,
+  previous: Record<string, AgentPatternGroupState> | undefined,
+  now: number,
+): { state: Record<string, AgentPatternGroupState>; messages: AlertMessage[] } {
+  if (patterns === undefined) return { state: previous ?? {}, messages: [] }
+  const active = new Map<string, AgentFailurePattern>()
+  for (const pattern of patterns ?? []) {
+    if (isContentPolicyFailure(pattern)) continue
+    if (now - pattern.lastAt > OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS) continue
+    active.set(patternKey(pattern), pattern)
+  }
+  const state: Record<string, AgentPatternGroupState> = {}
+  const messages: AlertMessage[] = []
+  for (const key of new Set([...Object.keys(previous ?? {}), ...active.keys()])) {
+    const pattern = active.get(key) ?? null
+    const prior = previous?.[key]
+    const configuration = pattern !== null && isConfigurationFailure(pattern)
+    const identity = pattern ?? prior
+    if (!identity) continue
+    const stepped = stepRule(
+      'agent-pattern',
+      {
+        breached:
+          pattern !== null &&
+          (configuration || pattern.turns >= OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_TURNS),
+        // 静默窗口内这组还在，轮次暂时跌破阈值也不算恢复。组从窗口里消失才发已恢复。
+        recovered: pattern === null,
+        sustainMs: 0,
+        firingText: pattern ? patternText(pattern, configuration) : '',
+        resolvedText: `已恢复：${identity.model} 的同类 Agent 失败（${identity.code}）${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS)}内没有再出现`,
+      },
+      prior,
+      now,
+    )
+    messages.push(...stepped.messages)
+    if (stepped.state.firing || stepped.state.breachedSince !== null) {
+      state[key] = {
+        ...stepped.state,
+        model: identity.model,
+        code: identity.code,
+        upstreamStatus: identity.upstreamStatus,
+      }
+    }
+  }
+  return { state, messages }
 }
 
 function evaluateApi(
@@ -314,33 +479,22 @@ export function evaluateAlerts(
     next.api = { ...state.api, recoverySince: null }
   }
 
+  if (observation.agentFailurePatterns !== undefined) {
+    const patterns = evaluateAgentPatterns(
+      observation.agentFailurePatterns,
+      state.agentPatterns,
+      now,
+    )
+    next.agentPatterns = patterns.state
+    messages.push(...patterns.messages)
+  }
+
   for (const [rule, reading] of Object.entries(readings(observation, state, now)) as Array<
     [Exclude<AlertRule, 'api'>, Reading]
   >) {
-    const previous = state[rule] ?? { breachedSince: null, firing: false, lastSentAt: null }
-
-    // 报过的规则停在告警线与恢复线之间时，按「还没好」处理：不发已恢复，到点照常再提醒。
-    const breached =
-      reading.breached || (previous.firing && !(reading.recovered ?? !reading.breached))
-    if (!breached) {
-      if (previous.firing) messages.push({ rule, kind: 'resolved', text: reading.resolvedText })
-      next[rule] = { breachedSince: null, firing: false, lastSentAt: null }
-      continue
-    }
-
-    const breachedSince = previous.breachedSince ?? now
-    const sustained = now - breachedSince >= reading.sustainMs
-    const due =
-      sustained &&
-      (!previous.firing ||
-        previous.lastSentAt === null ||
-        now - previous.lastSentAt >= REMIND_AFTER_MS)
-    if (due) messages.push({ rule, kind: 'firing', text: reading.firingText })
-    next[rule] = {
-      breachedSince,
-      firing: previous.firing || due,
-      lastSentAt: due ? now : previous.lastSentAt,
-    }
+    const stepped = stepRule(rule, reading, state[rule], now)
+    messages.push(...stepped.messages)
+    next[rule] = stepped.state
   }
 
   return { messages, state: next }

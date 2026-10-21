@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  canvasMainResult,
   canvasNodeSourceData,
   canvasOrigin,
   chooseCanvasResult,
@@ -26,13 +27,22 @@ const {
   deleteNodes,
   applyScriptPlan,
   arrangeNodes,
+  importCanvasImage,
   runNodes,
   patchAgentCanvasNode,
 } = await import('../../../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
+const { confirmStageAuthorization, preflightStageAuthorization } = await import(
+  '../../../../lib/agent/stage-authorizations'
+)
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
 const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
+const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
+// These modules bind DATABASE_URL at load time, so static imports cannot precede the fixture setup.
+const { proposeBatchGeneration } = await import(
+  '../../../../lib/agent/tools/proposeBatchGeneration'
+)
 const userId = 'node-command-owner'
 beforeAll(async () => {
   await db.insert(schema.users).values({
@@ -89,7 +99,7 @@ async function fixture() {
       doc.destroy()
     }
   }
-  return { context, run, graph }
+  return { context, run, graph, projectId }
 }
 it('exposes new tools only for authenticated node canvas and keeps legacy writes out of that turn', async () => {
   const { context } = await fixture()
@@ -102,16 +112,101 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'arrangeNodes',
     'runNodes',
     'applyScriptPlan',
+    'importCanvasImage',
   ])
     expect(names).toContain(name)
-  for (const name of ['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'])
+  for (const name of [
+    'editCanvasObject',
+    'arrangeCanvas',
+    'arrangeTimeline',
+    'generateImage',
+    'editImage',
+    'generateVideo',
+    'proposeBatchGeneration',
+    'planImageBatch',
+  ])
     expect(names).not.toContain(name)
+  // 非节点画布是否带 planImageBatch 取决于批次能力开关，这套夹具没开，不在这里断言它出现。
   expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
-  expect(agentTurnTools({ ...context, canvas: undefined }).map((tool) => tool.name)).not.toContain(
+  expect(agentTurnTools({ ...context, experience: 'chat' }).map((tool) => tool.name)).toEqual(
+    expect.arrayContaining(['generateImage', 'editImage']),
+  )
+  expect(agentTurnTools({ ...context, userId: null }).map((tool) => tool.name)).not.toContain(
     'createNodes',
   )
+})
+it.each([
+  { elements: [] },
+  undefined,
+])('keeps canvas snapshot %j on node generation and rejects ownerless submissions', async (canvas) => {
+  const { context, graph } = await fixture()
+  const unselected = { ...context, canvas }
+  const tools = agentTurnTools(unselected)
+  const names = tools.map((tool) => tool.name)
+  for (const name of ['createNodes', 'updateNodes', 'runNodes', 'importCanvasImage'])
+    expect(names).toContain(name)
+  for (const name of ['generateImage', 'editImage', 'generateVideo', 'proposeBatchGeneration'])
+    expect(names).not.toContain(name)
+  await tools
+    .find((tool) => tool.name === 'createNodes')!
+    .execute(
+      'create-unselected',
+      { nodes: [{ id: 'target', type: 'image', prompt: '人物三视图' }] },
+      undefined,
+      undefined,
+    )
+  const proposal = await tools
+    .find((tool) => tool.name === 'runNodes')!
+    .execute('run-unselected', { nodeIds: ['target'] }, undefined, undefined)
+  expect(proposal).toMatchObject({ details: { canvasRun: { nodeIds: ['target'] } } })
+  const read = await tools
+    .find((tool) => tool.name === 'readCanvas')!
+    .execute('read-unselected', { scope: 'all' }, undefined, undefined)
+  const content = read.content.find((block) => block.type === 'text')
+  if (content?.type !== 'text') throw new Error('expected canvas document')
+  expect(JSON.parse(content.text).nodes).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: 'target' })]),
+  )
+  await expect(
+    draftQueueTask(
+      { ...unselected, autoSubmit: { take: () => true } },
+      { toolName: 'generateImage', media: 'image', prompt: '人物三视图' },
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    proposeBatchGeneration
+      .create(unselected)
+      .execute(
+        'batch-unselected',
+        { batchId: 'existing-analysis', expectedVersion: 1, items: [] },
+        undefined,
+        undefined,
+      ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    planImageBatch.create(unselected).execute(
+      'plan-unselected',
+      {
+        title: '人物三视图',
+        rule: '逐个生成',
+        items: [
+          {
+            key: 'person',
+            imageIds: [],
+            kind: 'generation',
+            prompt: '人物三视图',
+            dependencies: [],
+          },
+        ],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  expect((await graph()).nodes.map((node) => node.id)).toEqual(['target'])
 })
 it('persists creation, editing, legal references, arrangement and deletion without a browser', async () => {
   const { run, graph } = await fixture()
@@ -235,18 +330,39 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   await run(createNodes, { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] })
   const before = await graph()
   const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
-  const proposal = await run(runNodes, { nodeIds: ['image'] })
+  const proposal = await run(runNodes, { nodeIds: ['image'], estimatedCredits: 0 })
   expect(proposal.details?.canvasRun?.nodeIds).toEqual(['image'])
+  expect(proposal.details?.canvasRun).toMatchObject({ budgetCap: 0, estimatedCredits: 0 })
+  const authorizationId = proposal.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, authorizationId, [
+    { nodeId: 'image', model: 'fixture-image', quantity: 1, unitMultiplier: 1 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, authorizationId, {
+    nodeId: 'image',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'unbilled',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  expect(preflight.budgetCap).toBe(0)
   expect(proposal.details).not.toHaveProperty('job')
+  expect(proposal.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(proposal.details?.canvasRun).not.toHaveProperty('autoRun')
-  const auto = await runNodes
-    .create({ ...context, autoSubmit: { take: () => true } })
-    .execute('auto', { nodeIds: ['image'] }, undefined, undefined)
-  expect(auto.details?.canvasRun?.autoRun).toBe(true)
-  const exhausted = await runNodes
-    .create({ ...context, autoSubmit: { take: () => false } })
-    .execute('exhausted', { nodeIds: ['image'] }, undefined, undefined)
-  expect(exhausted.details?.canvasRun).not.toHaveProperty('autoRun')
+  const rows = await db
+    .select({ id: schema.agent_stage_authorizations.id })
+    .from(schema.agent_stage_authorizations)
+  expect(rows.length).toBeGreaterThan(0)
+  const turnedOff = await runNodes
+    .create({ ...context, params: { autoSubmit: false }, autoSubmit: { take: () => true } })
+    .execute('manual', { nodeIds: ['image'], autoSubmit: true } as never, undefined, undefined)
+  expect(turnedOff.details?.canvasRun).toMatchObject({ direct: false, status: 'pending' })
+  const explicit = await runNodes
+    .create({ ...context, params: { autoSubmit: true } })
+    .execute('direct', { nodeIds: ['image'] }, undefined, undefined)
+  expect(explicit.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(await graph()).toEqual(before)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
   await expect(run(runNodes, { nodeIds: ['missing'] })).rejects.toThrow('不存在')
@@ -260,6 +376,188 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('uses the workbench image model and adopts a real model when the unbilled placeholder is empty', async () => {
+  const { context } = await fixture()
+  await createNodes
+    .create(context)
+    .execute(
+      'create',
+      { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] },
+      undefined,
+      undefined,
+    )
+  const aligned = await runNodes
+    .create({ ...context, params: { canvasImageModel: 'workbench-image' } })
+    .execute('aligned', { nodeIds: ['image'] }, undefined, undefined)
+  const alignedId = aligned.details?.canvasRun?.authorizationId
+  if (!alignedId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, alignedId)
+  expect(confirmed.authorization.charges).toMatchObject([
+    { nodeId: 'image', model: 'workbench-image', quantity: 1, unitMultiplier: 1, credits: 0 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, alignedId, {
+    nodeId: 'image',
+    model: 'workbench-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'workbench',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  await expect(
+    preflightStageAuthorization(userId, alignedId, {
+      nodeId: 'image',
+      model: 'other-image',
+      quantity: 1,
+      unitMultiplier: 1,
+      executionToken: confirmed.executionToken,
+      attemptId: 'other',
+    }),
+  ).rejects.toThrow('stage_authorization_scope')
+  const placeholder = await runNodes
+    .create(context)
+    .execute('placeholder', { nodeIds: ['image'] }, undefined, undefined)
+  const placeholderId = placeholder.details?.canvasRun?.authorizationId
+  if (!placeholderId) throw new Error('missing placeholder')
+  const open = await confirmStageAuthorization(userId, placeholderId)
+  expect(open.authorization.charges?.[0]?.model).toBe('')
+  const adopted = await preflightStageAuthorization(userId, placeholderId, {
+    nodeId: 'image',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: open.executionToken,
+    attemptId: 'adopted',
+  })
+  expect(adopted.charges).toMatchObject([{ nodeId: 'image', model: 'fixture-image' }])
+  expect(adopted.attempts).toHaveLength(1)
+})
+
+it('authorizes an asset node that has a prompt and rejects a promptless asset', async () => {
+  const { context, projectId } = await fixture()
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'person',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
+        data: {
+          name: '林夏',
+          meta: { nodeKind: 'asset', assetKind: 'person', nodePrompt: '三视图' },
+        },
+      },
+      origin,
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  const proposal = await runNodes
+    .create(context)
+    .execute('assets', { nodeIds: ['person'] }, undefined, undefined)
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['person'])
+  expect(proposal.details?.canvasRun).toMatchObject({ budgetCap: 0, estimatedCredits: 0 })
+  const authorizationId = proposal.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, authorizationId, [
+    { nodeId: 'person', model: 'fixture-image', quantity: 1, unitMultiplier: 1 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, authorizationId, {
+    nodeId: 'person',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'asset-sheet',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'blank',
+        type: 'image',
+        x: 400,
+        y: 0,
+        width: 320,
+        height: 240,
+        data: { name: '空素材', meta: { nodeKind: 'asset', assetKind: 'location' } },
+      },
+      origin,
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  await expect(
+    runNodes.create(context).execute('blank', { nodeIds: ['blank'] }, undefined, undefined),
+  ).rejects.toThrow('没有提示词')
+})
+
+it('turns a chat attachment into an image node the user does not have to drag in', async () => {
+  const { context, run, graph } = await fixture()
+  const now = Date.now()
+  const mediaId = crypto.randomUUID()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: userId,
+    sha256: 'b'.repeat(64),
+    bytes: 1024,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 1024,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    width: 800,
+    height: 600,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  const attached = {
+    ...context,
+    images: createAgentImageSource({
+      references: [{ imageId: 'file_bathtub', mediaId, name: '浴缸正面' }],
+      history: [],
+      conversationId: context.conversationId,
+      userId,
+    }),
+  }
+  const runAttached = (args: unknown) =>
+    createNodes.create(attached).execute(crypto.randomUUID(), args, undefined, undefined)
+  await runAttached({
+    nodes: [
+      { id: 'bathtub', type: 'image', imageId: 'file_bathtub' },
+      { id: 'scene', type: 'image', prompt: '把浴缸放进海景浴室' },
+    ],
+  })
+  const saved = await graph()
+  expect(saved.nodes.find((node) => node.id === 'bathtub')?.data).toMatchObject({
+    mediaId,
+    name: '浴缸正面',
+    meta: { nodeKind: 'image' },
+  })
+  expect(saved.nodes.find((node) => node.id === 'scene')?.data).not.toHaveProperty('mediaId')
+  await expect(
+    runAttached({ nodes: [{ id: 'ghost', type: 'image', imageId: 'file_missing' }] }),
+  ).rejects.toThrow('file_bathtub')
+  await expect(
+    run(createNodes, { nodes: [{ id: 'note', type: 'text', imageId: 'file_bathtub' }] }),
+  ).rejects.toThrow('只有 image 节点可以设置 imageId')
 })
 
 it('routes node canvas generation away from generic batch plans', async () => {
@@ -285,6 +583,106 @@ it('routes node canvas generation away from generic batch plans', async () => {
       undefined,
     ),
   ).rejects.toThrow('runNodes')
+})
+
+it('rejects ownerless generation even when the turn has an automatic submission allowance', async () => {
+  const { context, graph } = await fixture()
+  await expect(
+    proposeBatchGeneration.create(context).execute(
+      'batch',
+      {
+        batchId: 'existing-analysis',
+        expectedVersion: 1,
+        items: [],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  await expect(
+    draftQueueTask(
+      { ...context, autoSubmit: { take: () => true } },
+      { toolName: 'generateImage', media: 'image', prompt: '人物三视图' },
+      undefined,
+    ),
+  ).rejects.toThrow('runNodes')
+  expect((await graph()).nodes).toHaveLength(0)
+})
+
+it('imports an existing image into the specified asset as its primary candidate without generation', async () => {
+  const { context, run, graph, projectId } = await fixture()
+  const mediaId = crypto.randomUUID()
+  const now = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: userId,
+    sha256: mediaId,
+    bytes: 12,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    for (const node of [
+      { id: 'source', data: { mediaId, name: '现有三视图' } },
+      {
+        id: 'asset',
+        data: { name: '林夏', meta: { nodeKind: 'asset' as const, assetKind: 'person' as const } },
+      },
+      { id: 'empty', data: {} },
+    ])
+      insertCanvasNode(doc, { ...node, type: 'image', x: 0, y: 0, width: 320, height: 240 }, origin)
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  const beforeTasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+  await run(updateNodes, { nodes: [{ id: 'asset', prompt: '人物正面侧面背面三视图' }] })
+  const proposal = await run(runNodes, { nodeIds: ['asset'] })
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['asset'])
+  expect((await graph()).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
+    meta: { nodeKind: 'asset', nodePrompt: '人物正面侧面背面三视图' },
+  })
+  const args = { imageNodeId: 'source', assetNodeId: 'asset', viewLabel: 'sheet' }
+  const receipt = await importCanvasImage
+    .create(context)
+    .execute('import', args, undefined, undefined)
+  await importCanvasImage.create(context).execute('import', args, undefined, undefined)
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
+  expect(readCanvasDocument(doc).nodes).toHaveLength(3)
+  expect(readCanvasDocument(doc).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
+    name: '林夏',
+    mediaId,
+    meta: { nodeKind: 'asset', assetKind: 'person' },
+  })
+  expect(canvasMainResult(doc, 'asset')).toMatchObject({
+    nodeId: 'asset',
+    kind: 'image',
+    assetViewLabel: 'sheet',
+    adopted: true,
+    source: { type: 'media', mediaId },
+  })
+  expect(doc.getMap('nodeResults').size).toBe(1)
+  expect(JSON.stringify(receipt.content)).toContain('没有启动生成任务')
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(beforeTasks)
+  await expect(
+    run(importCanvasImage, { imageNodeId: 'empty', assetNodeId: 'asset' }),
+  ).rejects.toThrow('真实图片')
+  await expect(
+    run(importCanvasImage, { imageNodeId: 'source', assetNodeId: 'empty' }),
+  ).rejects.toThrow('素材节点')
+  expect((await graph()).nodes).toHaveLength(3)
+  doc.destroy()
 })
 
 it('splits a script into imageless assets and a storyboard, and appends the next episode', async () => {
@@ -342,4 +740,33 @@ it('splits a script into imageless assets and a storyboard, and appends the next
     }),
   ).rejects.toThrow('board')
   expect((await graph()).nodes.some((node) => node.id === 'board-2')).toBe(false)
+})
+
+it('names the closest nodes when an id is mistyped and stops a repeated failure loop', async () => {
+  const { context, run } = await fixture()
+  await run(createNodes, {
+    nodes: [
+      { id: 'agent_02c5d941-fef5-4e04-b95b-8d9dcf1ece43', type: 'text', name: '人物' },
+      { id: 'scene', type: 'text', name: '地点' },
+    ],
+  })
+  await expect(
+    run(arrangeNodes, { nodeIds: ['agent_02c5c9ef-4f84-4ace-2a77b9a24aaa'] }),
+  ).rejects.toThrow('最接近的现有节点：agent_02c5d941-fef5-4e04-b95b-8d9dcf1ece43（人物）')
+
+  const wrapped = agentTurnTools(context).find((tool) => tool.name === 'arrangeNodes')!
+  const attempt = () =>
+    wrapped.execute(
+      crypto.randomUUID(),
+      { nodeIds: ['agent_02c5c9ef-4f84-4ace-2a77b9a24aaa'] },
+      undefined,
+      undefined,
+    )
+  for (let i = 0; i < 3; i++) await expect(attempt()).rejects.toThrow('节点不存在')
+  await expect(attempt()).rejects.toThrow('已停止重试')
+  // 熔断只在这一轮内有效，下一轮重新计数。
+  const other = agentTurnTools(context).find((tool) => tool.name === 'arrangeNodes')!
+  await expect(
+    other.execute(crypto.randomUUID(), { nodeIds: ['scene'] }, undefined, undefined),
+  ).resolves.toBeDefined()
 })

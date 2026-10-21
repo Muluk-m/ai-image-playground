@@ -1,4 +1,5 @@
 import {
+  canvasMainResult,
   canvasNodeJobs,
   canvasOrigin,
   canvasResults,
@@ -381,10 +382,15 @@ it('retains an asset candidate when automatic library persistence fails', async 
       ...mocks.start.mock.results[mocks.start.mock.results.length - 1]!.value[0],
       requestId: 'queued-asset',
     },
-    { images: ['data:image/png;base64,AA'] },
+    { images: ['data:image/png;base64,AA', 'data:image/png;base64,AQ'] },
   )
-  expect(canvasResults(doc, 'asset')).toHaveLength(1)
-  expect(canvasResults(doc, 'asset')[0]?.assetViewLabel).toBe('sheet')
+  expect(readCanvasDocument(doc).nodes.map((node) => node.id)).toEqual(['asset'])
+  expect(canvasResults(doc, 'asset')).toHaveLength(2)
+  expect(canvasMainResult(doc, 'asset')).toMatchObject({
+    nodeId: 'asset',
+    assetViewLabel: 'sheet',
+    source: { type: 'queue', taskId: 'queued-asset', outputIndex: 0 },
+  })
   expect(mocks.saveAsset).toHaveBeenCalledWith(editor, doc, 'asset')
   expect(canvasNodeJobs(doc, 'asset')).toHaveLength(0)
 })

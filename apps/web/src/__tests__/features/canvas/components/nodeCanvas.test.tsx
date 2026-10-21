@@ -68,6 +68,7 @@ vi.mock('../../../../features/canvas/lib/konvaShapes', () => ({
 }))
 vi.mock('../../../../theme/useTheme', () => ({ useTheme: () => ({ theme: 'dark' }) }))
 vi.mock('@xyflow/react', () => ({
+  useUpdateNodeInternals: () => () => {},
   applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
   Background: () => null,
   BackgroundVariant: { Dots: 'dots' },
@@ -99,6 +100,7 @@ vi.mock('@xyflow/react', () => ({
       children,
     ),
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  useStoreApi: () => ({ getState: () => ({ cancelConnection: () => {} }) }),
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
   ReactFlow: ({
     nodes,
@@ -109,11 +111,13 @@ vi.mock('@xyflow/react', () => ({
     onPaneClick,
     onNodeClick,
     onEdgeClick,
+    onConnect,
     onConnectStart,
     onConnectEnd,
     onSelectionChange,
     onMove,
     style,
+    className,
   }: {
     nodes: {
       id: string
@@ -138,8 +142,10 @@ vi.mock('@xyflow/react', () => ({
     onSelectionChange?: (selection: { nodes: { id: string }[] }) => void
     onMove?: (event: unknown, viewport: TestViewport) => void
     style?: CSSProperties
+    className?: string
     onNodeClick?: (event: unknown, node: { id: string }) => void
     onEdgeClick?: (event: { stopPropagation: () => void }, edge: { id: string }) => void
+    onConnect?: (connection: { source: string; target: string }) => void
     onConnectStart?: (
       event: { clientX: number; clientY: number },
       params: { nodeId: string; handleType: 'source' | 'target' },
@@ -173,7 +179,7 @@ vi.mock('@xyflow/react', () => ({
     }, [])
     return createElement(
       'div',
-      { className: 'react-flow', style },
+      { className: `react-flow ${className ?? ''}`, style },
       ...nodes
         .filter((node) => !mocks.hiddenNodeIds.has(node.id))
         .map((node) =>
@@ -220,6 +226,11 @@ vi.mock('@xyflow/react', () => ({
         'data-testid': 'start-connection',
         onClick: () =>
           onConnectStart?.({ clientX: 0, clientY: 0 }, { nodeId: 'image', handleType: 'source' }),
+      }),
+      createElement('button', {
+        type: 'button',
+        'data-testid': 'commit-connection',
+        onClick: () => onConnect?.({ source: 'image', target: 'second' }),
       }),
       createElement('button', {
         type: 'button',
@@ -300,6 +311,41 @@ afterEach(() => {
 async function render(active = true) {
   await act(async () => root.render(<NodeCanvas workspace={workspace} active={active} />))
 }
+
+it('labels imageless assets as pending and removes the label when a real image arrives', async () => {
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'asset-pending',
+      type: 'image',
+      x: 200,
+      y: 0,
+      width: 360,
+      height: 240,
+      data: {
+        name: '林夏',
+        meta: { nodeKind: 'asset', assetKind: 'person', assetDescription: '插画师' },
+      },
+    },
+    canvas.origin,
+  )
+  await render()
+  const asset = () => host.querySelector<HTMLElement>('[data-node-id="asset-pending"]')!
+  expect(asset().textContent).toContain('待出图')
+  expect(host.querySelector('[data-node-id="image"]')?.textContent).not.toContain('待出图')
+  await act(async () => {
+    updateCanvasNode(
+      canvas.doc,
+      'asset-pending',
+      {
+        data: { fileId: 'file', name: '林夏', meta: { nodeKind: 'asset', assetKind: 'person' } },
+      },
+      canvas.origin,
+    )
+  })
+  expect(asset().textContent).not.toContain('待出图')
+  expect(asset().querySelector('img')).not.toBeNull()
+})
 
 it.each([
   'original',
@@ -594,7 +640,7 @@ it('places a text card that stays large enough for the side handles', async () =
   expect(bounds.height).toBe(220)
 })
 
-it('offers all node types from either handle and connects the chosen node in the right direction', async () => {
+it('offers node types only from the right handle and connects the chosen downstream node', async () => {
   await render()
   const handle = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[data-node-id="image"] [aria-label="${label}"]`)!
@@ -613,12 +659,7 @@ it('offers all node types from either handle and connects the chosen node in the
   expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
     expect.objectContaining({ source: 'image', target: added.id }),
   )
-  act(() => handle('接入上文').click())
-  choose('文本')
-  const text = readCanvasDocument(canvas.doc).nodes.find((n) => n.type === 'text')!
-  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
-    expect.objectContaining({ source: text.id, target: 'image' }),
-  )
+  expect(handle('接入上文')).toBeNull()
 })
 it('keeps a selected connection until the explicit cut action is clicked', async () => {
   await render()
@@ -664,6 +705,29 @@ it('dims unsupported nodes and highlights the whole valid target card while drag
   )
 })
 
+it('commits an active drag through React Flow before its end callback', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="commit-connection"]')!.click())
+  expect(readCanvasDocument(canvas.doc).edges).toContainEqual(
+    expect.objectContaining({ source: 'image', target: 'second' }),
+  )
+})
+
+it('restores the scene on Escape and ignores the subsequent connection drop', async () => {
+  await render()
+  act(() => old.addElements([image('second')]))
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+  expect(host.querySelector('.studio-node-connecting')).not.toBeNull()
+  act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(host.querySelector('.studio-node-connecting')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="commit-connection"]')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(readCanvasDocument(canvas.doc).edges).toHaveLength(0)
+})
+
 it('opens the add-node menu when a connection ends on blank canvas space', async () => {
   await render()
   const original = (
@@ -675,7 +739,11 @@ it('opens the add-node menu when a connection ends on blank canvas space', async
   })
   try {
     act(() => host.querySelector<HTMLButtonElement>('[data-testid="start-connection"]')!.click())
+    expect(host.querySelector('[data-node-id="image"]')?.className).toContain(
+      'studio-node-connection-source',
+    )
     act(() => host.querySelector<HTMLButtonElement>('[data-testid="drop-connection"]')!.click())
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(document.querySelector('[role="menu"]')?.textContent).toContain('文本')
     expect(document.querySelector('[role="menu"]')?.textContent).toContain('图片')
   } finally {

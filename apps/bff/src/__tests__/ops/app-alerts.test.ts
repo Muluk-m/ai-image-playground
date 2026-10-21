@@ -247,6 +247,83 @@ describe('createAppAlerting', () => {
   })
 })
 
+it('keeps a smaller configuration failure visible beside a larger overload class', async () => {
+  const { eq } = await import('drizzle-orm')
+  const conversationId = 'alert-pattern-conversation'
+  try {
+    await writer.db.insert(writer.schema.agent_conversations).values({
+      id: conversationId,
+      device_id: 'alert-pattern-device',
+      title: 'patterns',
+      created_at: now,
+      updated_at: now,
+    })
+    const failure = (message: string) => ({
+      code: 'agent_upstream_error' as const,
+      message,
+      model: 'gpt-6-luna',
+      occurredAt: new Date(now).toISOString(),
+    })
+    await writer.db.insert(writer.schema.agent_turns).values([
+      ...[1, 2, 3].map((index) => ({
+        conversation_id: conversationId,
+        turn_id: `overload-${index}`,
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Our servers are currently overloaded.'),
+        created_at: now - minute,
+      })),
+      {
+        conversation_id: conversationId,
+        turn_id: 'config-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure(
+          '400: {"message":"Invalid value: \'off\'.","type":"invalid_request_error"}',
+        ),
+        created_at: now - minute,
+      },
+      {
+        conversation_id: conversationId,
+        turn_id: 'auth-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Chat upstream returned 401: invalid api key'),
+        created_at: now - minute,
+      },
+      {
+        conversation_id: conversationId,
+        turn_id: 'missing-model-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Upstream HTTP 404'),
+        created_at: now - minute,
+      },
+    ])
+    const observation = await observeApp({
+      now,
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+    })
+    const patterns = observation.agentFailurePatterns ?? []
+    expect(patterns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ turns: 3, upstreamStatus: null, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 400, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 401, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 404, code: 'agent_upstream_error' }),
+      ]),
+    )
+  } finally {
+    await writer.db
+      .delete(writer.schema.agent_turns)
+      .where(eq(writer.schema.agent_turns.conversation_id, conversationId))
+    await writer.db
+      .delete(writer.schema.agent_conversations)
+      .where(eq(writer.schema.agent_conversations.id, conversationId))
+  }
+})
+
 it('aggregates error minute counts across instances without counting client errors as successes', async () => {
   const { eq } = await import('drizzle-orm')
   const errorMinute = Math.floor((now - 3 * minute) / minute) * minute

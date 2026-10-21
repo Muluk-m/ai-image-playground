@@ -36,7 +36,7 @@ export default function ExportTool() {
   return (
     <main
       {...intake.dropZoneProps}
-      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] min-h-0 flex-col ${intake.dragging ? 'bg-primary/5' : ''}`}
+      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] min-h-0 flex-col ${intake.dragging ? 'bg-primary/5' : ''}`}
     >
       {intake.inputs}
       <ToolboxHeader

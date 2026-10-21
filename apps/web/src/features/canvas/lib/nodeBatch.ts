@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   type CanvasNode,
   type CanvasNodeJob,
@@ -7,8 +8,13 @@ import {
   canvasNodeJobs,
   canvasNodeKind,
   canvasResults,
+  orderStageReferences,
   readCanvasDocument,
-  videoRateMultiplier,
+  resolveStageImageExecution,
+  stageActiveReferences,
+  stageIncomingReferences,
+  stageNodePrompt,
+  stageSubmittedFileIds,
   videoRequestRejection,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
@@ -23,16 +29,10 @@ import { useVideoStore } from '../../video/store'
 import type { VideoDraft } from '../../video/types'
 import type { CanvasEditor } from './editor'
 import { assetNodeContext } from './nodeAssetGeneration'
-import {
-  composeNodePrompt,
-  incomingReferences,
-  type NodeReference,
-  referenceFileIds,
-} from './nodeCanvasFlow'
+import { type NodeReference, referenceFileIds } from './nodeCanvasFlow'
 import { submitNodeImage } from './nodeCanvasGenerate'
 import { submitNodeVideo } from './nodeCanvasVideo'
 import { nodeVideoConfiguration } from './nodeVideoConfiguration'
-import { nodeVideoInputs } from './nodeVideoModes'
 import { nodeReferenceDraft } from './useNodeReferenceDraft'
 
 export type NodeBatchError =
@@ -47,10 +47,19 @@ export type NodeBatchError =
   | 'cancelled'
   | 'limit'
   | 'balance'
+  | 'authorization'
+  | 'stale'
+  | 'local'
 export class NodeBatchFailure extends Error {
   constructor(public readonly code: NodeBatchError) {
     super(code)
   }
+}
+/** 视频时长与阶段报价对齐：支持矩阵里的档位已经是整数，没有矩阵时向上取整。 */
+export function billedNodeQuantity(job: Pick<NodeBatchJob, 'kind' | 'quantity'>): number {
+  if (job.kind !== 'video') return job.quantity
+  const quantity = Math.ceil(job.quantity)
+  return Number.isSafeInteger(quantity) && quantity >= 1 ? quantity : job.quantity
 }
 export interface NodeBatchJob {
   id: string
@@ -88,17 +97,10 @@ export interface NodeBatchInput {
   guard?: typeof getPrivateSubmissionGuard
 }
 function referencesFor(snapshot: CanvasSnapshot, node: CanvasNode) {
-  const refs = incomingReferences(snapshot.nodes, snapshot.edges, node.id)
   const meta = 'meta' in node.data ? (node.data.meta ?? {}) : {}
-  let order: string[] = []
-  try {
-    const list = JSON.parse(meta.referenceOrder ?? '[]')
-    if (Array.isArray(list)) order = list.filter((id) => typeof id === 'string')
-  } catch {}
-  return refs.sort(
-    (a, b) =>
-      (order.includes(a.id) ? order.indexOf(a.id) : 999) -
-      (order.includes(b.id) ? order.indexOf(b.id) : 999),
+  return orderStageReferences(
+    stageIncomingReferences(snapshot.nodes, snapshot.edges, node.id),
+    meta.referenceOrder,
   )
 }
 /** Select generators only; text, imported media, assets and timelines remain their inputs. */
@@ -146,26 +148,35 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       model = imageProfile.model,
       quantity = ['frame', 'grid'].includes(meta.storyboardRole ?? '') ? 1 : params.n,
       unitMultiplier: number | undefined
+    const image = resolveStageImageExecution({
+      model: imageProfile.model,
+      count: params.n,
+      storyboardRole: meta.storyboardRole,
+    })
+    if (kind === 'image' && image) {
+      model = image.model
+      quantity = image.quantity
+    }
     if (kind === 'video') {
       const config = nodeVideoConfiguration(meta, refs, input.videoDraft, input.options)
       if (!config.option) error ??= 'model'
       draft = config.draft
-      model = draft.model
-      quantity = draft.duration
-      unitMultiplier = videoRateMultiplier(model, draft.resolution)
-      const inputs = nodeVideoInputs(
-        config.mode,
-        refs.map((ref) => (ids.has(ref.id) ? { ...ref, fileId: `batch-source:${ref.id}` } : ref)),
-        {
-          first: meta.videoFirstFrame ?? config.legacyFirst,
-          last: meta.videoLastFrame ?? config.legacyLast,
+      model = config.spec.model
+      quantity = config.spec.quantity
+      unitMultiplier = config.spec.unitMultiplier
+      const inputs = stageActiveReferences({
+        kind,
+        incoming: refs,
+        authorizedIds: ids,
+        video: {
+          mode: config.mode,
+          legacyFirst: config.legacyFirst,
+          legacyLast: config.legacyLast,
+          explicitFirst: meta.videoFirstFrame,
+          explicitLast: meta.videoLastFrame,
         },
-      )
-      activeRefs = inputs.refs.map((ref) =>
-        ref.kind === 'image' && ids.has(ref.id)
-          ? refs.find((original) => original.id === ref.id)!
-          : ref,
-      )
+      })
+      activeRefs = inputs.refs
       roles = inputs.roles
       if (inputs.missing) error ??= 'media'
       const max =
@@ -173,12 +184,12 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       if (max !== undefined && activeRefs.filter((ref) => ref.kind === 'image').length > max)
         error ??= 'limit'
     }
-    const prompt = [
-      kind === 'image' ? assetNodeContext(node) : '',
-      composeNodePrompt(meta.nodePrompt ?? '', activeRefs),
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+    const prompt = stageNodePrompt({
+      kind,
+      nodePrompt: meta.nodePrompt ?? '',
+      assetContext: assetNodeContext(node),
+      references: activeRefs,
+    })
     const imageRefs = activeRefs.filter(
       (ref) => ref.kind === 'image' && (!ref.asset || ref.fileId || ids.has(ref.id)),
     )
@@ -335,6 +346,27 @@ export async function executeNodeBatch(
   control.progress(plan.jobs.length, '')
 }
 
+/**
+ * 阶段提交的图片清单与服务端冻结张数使用同一套身份。
+ * 本阶段会重跑的上游各交一张；阶段外的图按 fileId 去重。
+ * 只在浏览器里的临时上传不在这份清单里：服务端快照看不到它们，确认前就会拒绝。
+ */
+export function stageAuthorizedImageInputs(
+  refs: readonly NodeReference[],
+  files: Readonly<Record<string, string>>,
+  authorizedIds: ReadonlySet<string>,
+  temporary: Readonly<Record<string, string>>,
+): string[] {
+  const onCanvas = refs.filter(
+    (ref) => !temporary[ref.id] && !(ref.fileId && temporary[ref.fileId]),
+  )
+  return stageSubmittedFileIds(onCanvas, authorizedIds, 'image').map((id) => {
+    const url = files[id]
+    if (!url) throw new NodeBatchFailure('media')
+    return url
+  })
+}
+
 export async function runNodeBatch(
   doc: Y.Doc,
   editor: CanvasEditor,
@@ -342,6 +374,7 @@ export async function runNodeBatch(
   plan: NodeBatchPlan,
   signal: AbortSignal,
   progress: (completed: number, id: string) => void,
+  stageAuthorizations?: Readonly<Record<string, StageAuthorizationSubmission>>,
 ) {
   const sameAccount = accountScope()
   const completedResults = new Map<string, string>()
@@ -361,7 +394,9 @@ export async function runNodeBatch(
     submit: async (job) => {
       const current = currentNodeBatch(doc, editor, ids).jobs.find((one) => one.id === job.id)
       if (!current) throw new NodeBatchFailure('changed')
+      const stage = stageAuthorizations?.[job.id]
       const files = { ...editor.doc.files, ...current.temporary }
+      const authorizedIds = new Set(plan.jobs.map((item) => item.id))
       if (
         current.refs.some(
           (ref) =>
@@ -380,10 +415,16 @@ export async function runNodeBatch(
               doc,
               job.id,
               job.prompt,
-              referenceFileIds(current.refs, files).map((id) => files[id]!),
+              stage
+                ? stageAuthorizedImageInputs(current.refs, files, authorizedIds, current.temporary)
+                : referenceFileIds(current.refs, files).map((id) => files[id]!),
               undefined,
               undefined,
-              { settings: plan.settings, params: { ...plan.params, n: job.quantity } },
+              {
+                settings: plan.settings,
+                params: { ...plan.params, n: job.quantity },
+                stageAuthorization: stageAuthorizations?.[job.id],
+              },
             )
           : submitNodeVideo(
               editor,
@@ -394,6 +435,7 @@ export async function runNodeBatch(
               current.roles,
               files,
               job.draft,
+              stageAuthorizations?.[job.id],
             )
       if (!accepted) throw new NodeBatchFailure('failed')
       await waitForNodeBatchResult(

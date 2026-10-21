@@ -554,7 +554,7 @@ it('polls one active batch at a time, exposes each outcome, and stops after its 
     expect(host.textContent).toContain('已完成')
     expect(host.querySelector('details[data-batch-status="completed"]')).toBeNull()
     expect(host.querySelector('details[data-batch-status="reconciling"]')?.textContent).toContain(
-      '待核查',
+      '结果确认中',
     )
     expect(imageReads).toBe(0)
     saved = {
