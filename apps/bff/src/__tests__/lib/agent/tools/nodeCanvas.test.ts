@@ -13,6 +13,7 @@ import {
   setCanvasNodeJob,
   storyboardFingerprint,
 } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import * as Y from 'yjs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_node_canvas_commands')
@@ -963,4 +964,28 @@ it('re-runs one shot individually and refuses confirmation after the shot table 
   expect((await readStageAuthorization(userId, authorizationId)).status).toBe('pending')
   const board = (await graph()).nodes.find((node) => node.id === 'board')
   expect(board?.type === 'storyboard' && board.data.confirmed).toBeFalsy()
+})
+
+it('rolls back laid-out first frames when the stage proposal cannot be registered', async () => {
+  const { context, run, graph, stageRows } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  await run(updateNodes, { nodes: [{ id: 'lin', prompt: '林夏三视图' }] })
+  // 同一个工具调用 ID 已经登记过别的提案：首帧阶段的提案冲突，铺出的节点必须一起回滚。
+  await runNodes.create(context).execute('shared-call', { nodeIds: ['lin'] }, undefined, undefined)
+  const before = await graph()
+  const rows = await stageRows()
+  await expect(
+    runStoryboardFrames
+      .create(context)
+      .execute('shared-call', { storyboardId: 'board' }, undefined, undefined),
+  ).rejects.toThrow('stage_authorization_conflict')
+  expect(await graph()).toEqual(before)
+  expect(await stageRows()).toBe(rows)
+  expect(
+    await db
+      .select({ id: schema.canvas_commands.id })
+      .from(schema.canvas_commands)
+      .where(eq(schema.canvas_commands.tool_call_id, 'shared-call')),
+  ).toEqual([])
 })

@@ -271,7 +271,7 @@ async function assertStageOwnership(
   )
     throw new StageAuthorizationError('stage_authorization_scope')
 }
-export async function proposeStageAuthorization(input: {
+export interface StageProposalInput {
   userId: string
   conversationId: string
   projectId: string
@@ -282,73 +282,78 @@ export async function proposeStageAuthorization(input: {
   nodes: readonly StageChargeInput[]
   bindings: readonly StageExecutionBinding[]
   storyboard?: StageStoryboardFinalization
-}) {
+}
+export async function proposeStageAuthorization(input: StageProposalInput) {
+  return db.transaction((tx) => proposeStageAuthorizationInTransaction(tx, input))
+}
+/** 与画布写入同一事务登记提案：提案失败时本次铺出的节点一起回滚。 */
+export async function proposeStageAuthorizationInTransaction(
+  tx: BffTransaction,
+  input: StageProposalInput,
+): Promise<StageAuthorization> {
   const now = Date.now(),
     id = crypto.randomUUID()
-  return db.transaction(async (tx) => {
-    await assertStageOwnership(tx, input.userId, input.conversationId, input.projectId)
-    if (
-      !sameIdSet(
-        input.bindings.map((binding) => binding.nodeId),
-        input.nodeIds,
-      )
+  await assertStageOwnership(tx, input.userId, input.conversationId, input.projectId)
+  if (
+    !sameIdSet(
+      input.bindings.map((binding) => binding.nodeId),
+      input.nodeIds,
     )
-      throw new StageAuthorizationError('stage_authorization_scope')
-    const priced = await pricedCharges(tx, input.userId, input.nodes)
-    const state: StageAuthorization = {
+  )
+    throw new StageAuthorizationError('stage_authorization_scope')
+  const priced = await pricedCharges(tx, input.userId, input.nodes)
+  const state: StageAuthorization = {
+    id,
+    conversationId: input.conversationId,
+    projectId: input.projectId,
+    stage: input.stage,
+    nodeIds: input.nodeIds,
+    nodeNames: input.nodeNames,
+    estimatedCredits: priced.total,
+    budgetCap: priced.total,
+    charges: priced.charges,
+    bindings: input.bindings,
+    ...(input.storyboard
+      ? {
+          storyboard: {
+            storyboardId: input.storyboard.storyboardId,
+            fingerprint: input.storyboard.fingerprint,
+          },
+        }
+      : {}),
+    spentCredits: 0,
+    status: 'pending',
+    attempts: [],
+    audit: [{ kind: 'proposed', at: now }],
+  }
+  const inserted = await tx
+    .insert(table)
+    .values({
       id,
-      conversationId: input.conversationId,
-      projectId: input.projectId,
-      stage: input.stage,
-      nodeIds: input.nodeIds,
-      nodeNames: input.nodeNames,
-      estimatedCredits: priced.total,
-      budgetCap: priced.total,
-      charges: priced.charges,
-      bindings: input.bindings,
-      ...(input.storyboard
-        ? {
-            storyboard: {
-              storyboardId: input.storyboard.storyboardId,
-              fingerprint: input.storyboard.fingerprint,
-            },
-          }
-        : {}),
-      spentCredits: 0,
-      status: 'pending',
-      attempts: [],
-      audit: [{ kind: 'proposed', at: now }],
-    }
-    const inserted = await tx
-      .insert(table)
-      .values({
-        id,
-        user_id: input.userId,
-        conversation_id: input.conversationId,
-        project_id: input.projectId,
-        proposal_key: input.proposalKey,
-        state,
-        created_at: now,
-        updated_at: now,
-      })
-      .onConflictDoNothing()
-      .returning({ id: table.id })
-    if (inserted.length > 0) return state
-    const [row] = await tx
-      .select()
-      .from(table)
-      .where(
-        and(
-          eq(table.conversation_id, input.conversationId),
-          eq(table.proposal_key, input.proposalKey),
-        ),
-      )
-      .for('update')
-    if (!row) throw new StageAuthorizationError('stage_authorization_conflict')
-    if (!proposalAgrees(row, input))
-      throw new StageAuthorizationError('stage_authorization_conflict')
-    return row.state
-  })
+      user_id: input.userId,
+      conversation_id: input.conversationId,
+      project_id: input.projectId,
+      proposal_key: input.proposalKey,
+      state,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: table.id })
+  if (inserted.length > 0) return state
+  const [row] = await tx
+    .select()
+    .from(table)
+    .where(
+      and(
+        eq(table.conversation_id, input.conversationId),
+        eq(table.proposal_key, input.proposalKey),
+      ),
+    )
+    .for('update')
+  if (!row) throw new StageAuthorizationError('stage_authorization_conflict')
+  if (!proposalAgrees(row, input)) throw new StageAuthorizationError('stage_authorization_conflict')
+  return row.state
 }
 export async function readStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => (await maybeExpire(tx, await owned(tx, userId, id))).state)

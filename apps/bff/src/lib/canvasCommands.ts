@@ -5,6 +5,7 @@ import * as Y from 'yjs'
 import { schema } from '../db/client'
 import { prepareCanvasCommand, reverseCanvasCommand } from './canvasCommandHistory'
 import { accessCanvasDocument, CanvasSyncError } from './canvasSyncStore'
+import type { BffTransaction } from './private-overlay'
 
 const commands = schema.canvas_commands
 const encode = (bytes: Uint8Array) =>
@@ -19,12 +20,17 @@ const summaryFields = {
   updatedAt: commands.updated_at,
 }
 
-/** Both the history record and its validated graph update commit under the project owner lock. */
+/**
+ * Both the history record and its validated graph update commit under the project owner lock.
+ * `after` runs in the same transaction with the document as it will be saved (also on replay),
+ * so a write that must not outlive a related record rolls back together with it.
+ */
 export async function executeCanvasCommand(
   userId: string,
   projectId: string,
   call: { turnId: string; toolCallId: string; label: string; args: unknown },
   mutate: (doc: Y.Doc, origin: CanvasOrigin) => void,
+  after?: (tx: BffTransaction, state: Uint8Array) => Promise<void>,
 ) {
   const fingerprint = createHash('sha256').update(JSON.stringify(call.args)).digest('hex')
   let commandId = ''
@@ -43,6 +49,7 @@ export async function executeCanvasCommand(
       if (existing.fingerprint !== fingerprint)
         throw new CanvasSyncError(409, 'canvas_command_conflict')
       commandId = existing.id
+      await after?.(tx, Y.encodeStateAsUpdate(doc))
       return undefined
     }
     const record = prepareCanvasCommand(Y.encodeStateAsUpdate(doc), mutate)
@@ -77,6 +84,7 @@ export async function executeCanvasCommand(
             expired.map((item) => item.id),
           ),
         )
+    if (after) await after(tx, Y.mergeUpdates([record.before, record.update]))
     return record.update
   })
   return { commandId }
