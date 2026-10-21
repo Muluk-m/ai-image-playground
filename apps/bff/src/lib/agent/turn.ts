@@ -28,6 +28,7 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
+import { singleObjectEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { fastRegionRouting, raceRegionProposal } from './fast-region'
@@ -82,6 +83,7 @@ import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {
   type AgentTurnInput,
+  clarificationChainStart,
   expandSkillInvocation,
   requestAgentReferences,
   turnInitialStateOf,
@@ -244,6 +246,21 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       visualWorkset,
       imageCombinations,
       maskProposals: new Set<string>(),
+      // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
+      singleObjectEdit:
+        !prepared.wake &&
+        singleObjectEditIntent(
+          [
+            ...history.messages
+              .slice(clarificationChainStart(history.messages))
+              .flatMap((message) =>
+                message.role === 'user'
+                  ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
+                  : [],
+              ),
+            input.text,
+          ].join('\n'),
+        ),
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
