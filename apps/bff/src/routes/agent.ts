@@ -218,8 +218,12 @@ const paramsSchema = t.Optional(
     ),
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
-    /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
-    autoSubmit: t.Optional(t.Literal(true)),
+    /** 原标签页工作台的出图模型。只用于阶段授权报价，不改变对话模型。 */
+    canvasImageModel: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+    /**
+     * 直接出图偏好。对话生图只认 true。画布 runNodes 缺席按默认开，只有 false 弹确认卡。
+     */
+    autoSubmit: t.Optional(t.Boolean()),
     /** 图片生成：原话出图，不改写。只认显式 true。 */
     directImage: t.Optional(t.Literal(true)),
     size: t.Optional(t.String({ maxLength: 32 })),

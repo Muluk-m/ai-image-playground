@@ -1,117 +1,147 @@
 import type { MouseEvent } from 'react'
+import { compactModelName } from '../../../components/ModelIdentity'
+import Badge from '../../../components/patterns/Badge'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { modelLabel } from '../../../lib/channels/publicChannels'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
-import { inspirationFacetLabel } from '../lib/labels'
+import { applyInspiration } from '../lib/applyInspiration'
+import { groupOf } from '../lib/groups'
+import { inspirationImageUrl, ratioForItem, rememberRatio } from '../lib/imageRatio'
+import { plainPrompt } from '../lib/promptArgs'
 import type { InspirationItem } from '../types'
 
 interface Props {
   item: InspirationItem
   pinned: boolean
   onClick: () => void
+  /** 瀑布流算好的图片高度。首页横滑不传，按实测比例撑开。 */
+  imageHeight?: number
+  onMeasured?: (width: number, height: number) => void
 }
 
 /**
- * 打开案例的是一张铺满卡片的真实按钮，置顶按钮是它的兄弟节点。
- * 不能把按钮套进 role=button：嵌套交互控件是无效 HTML，无障碍树会乱。
+ * 打开案例的是一张铺满卡片的真实按钮，工具条和收藏是它的兄弟节点。
+ * 不能把按钮套进 role=button：嵌套交互控件是无效 HTML。
  */
-export default function InspirationCard({ item, pinned, onClick }: Props) {
+export default function InspirationCard({ item, pinned, onClick, imageHeight, onMeasured }: Props) {
   const togglePin = useStore((s) => s.toggleInspirationPin)
+  const showToast = useStore((s) => s.showToast)
   const { t } = useTranslation('inspiration')
-  const reference = item.referenceImages?.[0]
-  const referenceCount = item.referenceImages?.length ?? 0
+  const hasReference = (item.referenceImages?.length ?? 0) > 0
+  const category = t(`group.${groupOf(item.category)}`)
+  const modelName = compactModelName(
+    item.recommendedModel,
+    modelLabel(item.recommendedModel, item.recommendedProvider),
+  )
+  const ratio = ratioForItem(item)
+  const imageStyle =
+    imageHeight && imageHeight > 0 ? { height: imageHeight } : { aspectRatio: `1 / ${ratio}` }
 
-  const handlePinClick = (e: MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
+  const stop = (event: MouseEvent) => {
+    event.stopPropagation()
+  }
+
+  const handleApply = (event: MouseEvent<HTMLButtonElement>) => {
+    stop(event)
+    applyInspiration(item)
+  }
+
+  const handleCopy = async (event: MouseEvent<HTMLButtonElement>) => {
+    stop(event)
+    try {
+      await copyTextToClipboard(plainPrompt(item.prompt))
+      showToast(t('detail.promptCopied'), 'success')
+    } catch (error) {
+      showToast(getClipboardFailureMessage(t('detail.copyFailed'), error), 'error')
+    }
+  }
+
+  const handlePin = (event: MouseEvent<HTMLButtonElement>) => {
+    stop(event)
     togglePin(item.id)
   }
 
   return (
-    <article className="group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
+    <article className="group relative" data-testid="inspiration-card">
       <Button
         type="button"
         variant="ghost"
         onClick={onClick}
         autoTooltip={false}
         aria-label={item.title}
-        className="absolute inset-0 z-0 h-auto rounded-2xl p-0 hover:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+        className="absolute inset-0 z-0 h-auto rounded-2xl p-0 hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       />
-      <div className="pointer-events-none relative z-[1] flex h-full w-full flex-col">
-        <div
-          className={`relative overflow-hidden bg-muted ${reference ? 'aspect-[4/3]' : 'aspect-[3/4]'}`}
-        >
-          {reference ? (
-            <div className="grid h-full grid-cols-2 gap-0.5 bg-border/70">
-              <div className="relative min-w-0 overflow-hidden bg-muted">
-                <img
-                  src={reference.url}
-                  alt={t('card.beforeAlt', { title: item.title })}
-                  loading="lazy"
-                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                />
-                <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-label-sm font-medium text-white">
-                  {t('card.before')}
-                </span>
-              </div>
-              <div className="relative min-w-0 overflow-hidden bg-muted">
-                <img
-                  src={item.thumbnailUrl}
-                  alt={t('card.afterAlt', { title: item.title })}
-                  loading="lazy"
-                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                />
-                <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-label-sm font-medium text-white">
-                  {t('card.after')}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <img
-              src={item.thumbnailUrl}
-              alt=""
-              loading="lazy"
-              className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
-            />
-          )}
+      <div className="pointer-events-none relative z-[1]">
+        <div className="relative overflow-hidden rounded-2xl bg-muted" style={imageStyle}>
+          <img
+            src={inspirationImageUrl(item.thumbnailUrl, 480)}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03] group-focus-within:scale-[1.03]"
+            onLoad={(event) => {
+              const image = event.currentTarget
+              if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return
+              rememberRatio(item.id, image.naturalWidth, image.naturalHeight)
+              onMeasured?.(image.naturalWidth, image.naturalHeight)
+            }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 max-md:hidden" />
+          {hasReference ? (
+            <Badge tone="overlay" className="absolute left-2 top-2">
+              {t('card.imageEdit')}
+            </Badge>
+          ) : null}
+          {pinned ? (
+            <span className="absolute right-2 top-2 grid size-7 place-items-center rounded-md bg-black/55 text-primary md:group-hover:hidden md:group-focus-within:hidden">
+              <Icon name="favorite" filled />
+            </span>
+          ) : null}
+          <div className="pointer-events-auto absolute inset-x-2 bottom-2 hidden items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 md:flex">
+            <Button
+              type="button"
+              size="xs"
+              autoTooltip={false}
+              className="min-w-0 flex-1"
+              onClick={handleApply}
+            >
+              <Icon name="generate" />
+              {hasReference ? t('detail.applyWithReference') : t('detail.apply')}
+            </Button>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="secondary"
+              autoTooltip={false}
+              aria-label={t('detail.copyPrompt')}
+              onClick={handleCopy}
+            >
+              <Icon name="copy" />
+            </Button>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="secondary"
+              autoTooltip={false}
+              aria-pressed={pinned}
+              aria-label={pinned ? t('card.unpin') : t('card.pin')}
+              onClick={handlePin}
+            >
+              <Icon name="favorite" filled={pinned} />
+            </Button>
+          </div>
         </div>
-
-        <div className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3">
-          <span className="mb-2 inline-flex w-fit max-w-full truncate rounded-full bg-secondary px-2.5 py-1 text-label-sm font-medium text-secondary-foreground">
-            {reference ? t('card.imageEdit') : inspirationFacetLabel(item.category)}
-          </span>
-          <div className="line-clamp-2 text-sm font-semibold leading-snug text-foreground transition group-hover:text-primary">
+        <div className="flex h-[46px] flex-col justify-center pt-2">
+          <div className="truncate text-body-sm font-medium text-foreground transition-colors group-hover:text-primary">
             {item.title}
           </div>
-          {item.description && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-              {item.description}
-            </p>
-          )}
-          <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-label-sm text-muted-foreground">
-            <span className="truncate">
-              {inspirationFacetLabel(item.category)}
-              {referenceCount > 0 && ` · ${t('card.referenceCount', { count: referenceCount })}`}
-            </span>
-            <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-primary max-md:min-h-11">
-              {t('card.viewCase')}
-              <Icon name="arrowRight" size="xs" />
-            </span>
+          <div className="truncate text-label-sm text-muted-foreground">
+            {category} · {modelName}
           </div>
         </div>
       </div>
-
-      <Button
-        type="button"
-        onClick={handlePinClick}
-        aria-pressed={pinned}
-        aria-label={pinned ? t('card.unpin') : t('card.pin')}
-        variant="secondary"
-        size="icon-xs"
-        className={`absolute right-2 top-2 z-10 size-11 md:size-7 ${pinned ? 'text-primary' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'}`}
-      >
-        <Icon name="favorite" filled={pinned} />
-      </Button>
     </article>
   )
 }

@@ -45,14 +45,15 @@ it('shows readable model names and OpenAI logos while submitting the selected op
   await act(async () => trigger.click())
   const options = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
   expect(options.map((option) => option.textContent)).toEqual([
-    'GPT-6 LunaChat 模型',
-    'GPT-6.1 SolChat 模型',
-    'GPT-6 AstraChat 模型',
+    'GPT-6 Luna',
+    'GPT-6.1 Sol',
+    'GPT-6 Astra',
   ])
   for (const option of options) {
     expect(option.querySelector('svg[viewBox="0 0 256 260"]')).not.toBeNull()
     expect(option.textContent).not.toContain('gpt-6')
     expect(option.textContent).not.toContain('网关')
+    expect(option.getAttribute('aria-label')).toBe(option.textContent)
   }
   await act(async () => options[1]!.click())
   expect(trigger.textContent).toBe('GPT-6.1 Sol')

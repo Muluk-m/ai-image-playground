@@ -33,7 +33,7 @@ export default function ToolShell({
   return (
     <main
       {...dropZoneProps}
-      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col"
+      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col"
     >
       {inputs}
       <ToolboxHeader

@@ -10,6 +10,77 @@ export const IMAGE_MIME_TYPES = [
 /** 数的是 data URL 字符数，不是解码后的字节数。 */
 export const IMAGE_DATA_URL_MAX_CHARS = 4_000_000
 
+export type ImageSizeTier = '1K' | '2K' | '4K'
+export const IMAGE_PRESET_RATIOS = [
+  '1:1',
+  '3:2',
+  '2:3',
+  '16:9',
+  '9:16',
+  '4:3',
+  '3:4',
+  '21:9',
+] as const
+export type ImagePresetRatio = (typeof IMAGE_PRESET_RATIOS)[number]
+
+/**
+ * 常用比例在各档位下的尺寸。输入框选比例与智能体按用户原话指定比例共用这一张表，
+ * 两条路给同一个比例才会得到同一个尺寸。
+ */
+export const IMAGE_SIZE_PRESETS: Record<ImageSizeTier, Record<ImagePresetRatio, string>> = {
+  '1K': {
+    '1:1': '1024x1024',
+    '3:2': '1536x1024',
+    '2:3': '1024x1536',
+    '16:9': '1280x720',
+    '9:16': '720x1280',
+    '4:3': '1024x768',
+    '3:4': '768x1024',
+    '21:9': '1280x544',
+  },
+  '2K': {
+    '1:1': '2048x2048',
+    '3:2': '2160x1440',
+    '2:3': '1440x2160',
+    '16:9': '2560x1440',
+    '9:16': '1440x2560',
+    '4:3': '2048x1536',
+    '3:4': '1536x2048',
+    '21:9': '2560x1088',
+  },
+  '4K': {
+    '1:1': '2880x2880',
+    '3:2': '3456x2304',
+    '2:3': '2304x3456',
+    '16:9': '3840x2160',
+    '9:16': '2160x3840',
+    '4:3': '3200x2400',
+    '3:4': '2400x3200',
+    '21:9': '3840x1600',
+  },
+}
+
+const TIER_MAX_PIXELS: ReadonlyArray<readonly [ImageSizeTier, number]> = [
+  ['1K', 1_572_864],
+  ['2K', 4_194_304],
+]
+
+/** 尺寸串所在的清晰度档位；`auto` 或认不出时按 1K。 */
+export function imageSizeTier(size: string | undefined): ImageSizeTier {
+  const parsed = size ? parseImageSize(size) : null
+  if (!parsed) return '1K'
+  const pixels = parsed.width * parsed.height
+  return TIER_MAX_PIXELS.find(([, max]) => pixels <= max)?.[0] ?? '4K'
+}
+
+/** 保持用户当前清晰度档位，换成指定比例的尺寸。 */
+export function sizeForAspectRatio(
+  currentSize: string | undefined,
+  ratio: ImagePresetRatio,
+): string {
+  return IMAGE_SIZE_PRESETS[imageSizeTier(currentSize)][ratio]
+}
+
 /**
  * Gemini 只接受这几档 aspectRatio。顺序不影响结果，取的是数值上最接近的那一档。
  */

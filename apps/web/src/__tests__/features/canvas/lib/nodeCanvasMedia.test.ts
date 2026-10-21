@@ -21,11 +21,19 @@ vi.mock('../../../../lib/canvasImage', async (original) => ({
   getImageDimensions: dimensions,
 }))
 
+const displaySize = (width: number, height: number) => {
+  const scale = Math.min(1, 360 / width, 240 / height)
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  }
+}
+
 it.each([
   { width: 2400, height: 800 },
   { width: 800, height: 2400 },
   { width: 32, height: 48 },
-])('keeps empty, uploaded, replaced and restored cards at one size for $width × $height pixels', async (size) => {
+])('keeps authored geometry while display size follows $width × $height pixels', async (size) => {
   const doc = new Y.Doc()
   const origin = canvasOrigin('user', 'media-test')
   const undo = createCanvasUndoManager(doc, origin)
@@ -63,18 +71,19 @@ it.each([
     try {
       Y.applyUpdate(restored, Y.encodeStateAsUpdate(doc))
       expect(readCanvasDocument(restored).nodes[0]).toMatchObject(bounds)
-      expect(nodeCardSize(readCanvasDocument(restored).nodes[0]!)).toEqual({
-        width: 360,
-        height: 240,
-      })
+      expect(nodeCardSize(readCanvasDocument(restored).nodes[0]!)).toEqual(
+        displaySize(size.height, size.width),
+      )
     } finally {
       restored.destroy()
     }
-    // Existing documents retain their authored geometry; only display geometry is standardized.
+    // Existing documents retain their authored geometry; display geometry follows the source ratio.
     updateCanvasNode(doc, id, { width: 520, height: 170 }, origin)
     await fillImageNode(editor, doc, id, new File(['third'], 'new.png', { type: 'image/png' }))
     expect(readCanvasDocument(doc).nodes[0]).toMatchObject({ width: 520, height: 170 })
-    expect(nodeCardSize(readCanvasDocument(doc).nodes[0]!)).toEqual({ width: 360, height: 240 })
+    expect(nodeCardSize(readCanvasDocument(doc).nodes[0]!)).toEqual(
+      displaySize(size.height, size.width),
+    )
     const video = createNode(canvas, 'video', { x: 1000, y: 300 }, '')
     expect(readCanvasDocument(doc).nodes.find((node) => node.id === video)).toMatchObject({
       width: 360,

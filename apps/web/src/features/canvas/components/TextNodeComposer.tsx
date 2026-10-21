@@ -63,9 +63,8 @@ export default function TextNodeComposer({
         profileId: 'chat',
         label:
           model.label === model.model ? compactModelName(model.model, model.label) : model.label,
-        description: t('composer.chatModel'),
       })),
-    [models, t],
+    [models],
   )
   const current = choices.find((model) => model.value === selected)
   const canSend = value.trim().length > 0 && Boolean(current) && !busy
@@ -131,7 +130,12 @@ export default function TextNodeComposer({
               <Icon name="chevronDown" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-72">
+          <PopoverContent
+            side="top"
+            align="start"
+            collisionPadding={12}
+            className="w-max max-w-[calc(100vw-1.5rem)] p-1"
+          >
             <ModelList
               options={choices}
               value={selected ?? ''}

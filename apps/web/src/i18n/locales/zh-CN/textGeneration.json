@@ -2,7 +2,6 @@
   "composer": {
     "label": "文本生成",
     "chooseModel": "选择 Chat 模型",
-    "chatModel": "Chat 模型",
     "placeholder": "描述想写什么，或如何修改……",
     "send": "生成文本"
   },

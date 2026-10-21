@@ -19,11 +19,11 @@ const OUTPUT_PATH = resolve(REPO_ROOT, 'src/generated/heroSeed.json')
 // 首页精选池：只从这批审核过的案例轮换，避免随机抽到图文不符的旧条目。
 const HERO_SEED_IDS = [
   'gpt-image-2-travel-journal-edit', // 插画与艺术 - 真实输入图与手绘效果
-  'gpt-image-2-room-sketch-render', // 建筑与空间 - 草图与写实效果
+  'r26-22', // 建筑与空间 - 悬崖玻璃别墅
   'gpt-image-2-dumplings-editorial-poster', // 海报与字体 - 新版编辑设计
   'i25-01', // 海报与字体 - 街头潮牌广告
-  'i25-02', // 产品与电商 - 白底产品图
-  'i25-03', // 图表与信息图 - 教学图解
+  'r26-09', // 产品与电商 - 香水瓶水面倒影
+  'r26b-14', // 图表与信息图 - 咖啡机剖面图解
   'i25-04', // 摄影与写实 - 人像特写
   'i25-08', // 人物与角色 - 角色设定
 ]
