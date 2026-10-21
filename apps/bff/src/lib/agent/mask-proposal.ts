@@ -39,6 +39,17 @@ const EPSILON = 1e-6
 export const MASK_REGION_MAX = 6
 /** 卡片上一个区域至多累积的点（含智能体给的）；与分割服务的上限一致。 */
 export const MASK_PROMPT_POINTS_MAX = 16
+/** 卡片上显示得下的长度与条数；模型多写的部分截掉，不当参数错误。 */
+const MASK_TARGET_MAX = 40
+const MASK_SEGMENT_PROMPT_MAX = 60
+const MASK_CHANGE_MAX = 120
+const MASK_KEEP_MAX = 4
+const MASK_KEEP_ITEM_MAX = 24
+const MASK_LABEL_MAX = 16
+const MASK_POINTS_MAX = 8
+const MASK_INSTANCE_POINTS_MAX = 4
+
+const clip = (text: string, max: number) => Array.from(text).slice(0, max).join('')
 
 const unit = (description: string) => Type.Number({ minimum: 0, maximum: 1, description })
 
@@ -65,25 +76,27 @@ const parameters = Type.Object({
   imageId: Type.String({
     description: '要改的那张图的真实图片 id（用户引用、会话图片或本轮产物）。一次只提一张。',
   }),
+  // 长度与条数的上限都放宽、在服务端截断：参数校验失败这一轮就不再重试（见 turn.ts），
+  // 多写一项「不动」不该让用户拿不到卡片。
   target: Type.String({
     minLength: 1,
-    maxLength: 40,
+    maxLength: 200,
     description: '要改的对象，名词短语，用用户的语言，例如「杯身和把手」。只写对象，不写动作。',
   }),
   segmentPrompt: Type.String({
     minLength: 1,
-    maxLength: 60,
+    maxLength: 200,
     description: '给分割模型的英文短名词，只写对象类别，例如 "mug" 或 "left shoe"。',
   }),
   change: Type.String({
     minLength: 1,
-    maxLength: 120,
+    maxLength: 400,
     description: '要改成什么，照用户原话压成一句，例如「换成米白色釉面」。不要替他加没说过的属性。',
   }),
   keep: Type.Optional(
-    Type.Array(Type.String({ minLength: 1, maxLength: 24 }), {
-      maxItems: 4,
-      description: '用户明确或显然不想动的东西，至多 4 项，例如「桌面」「书」。',
+    Type.Array(Type.String({ maxLength: 200 }), {
+      maxItems: 32,
+      description: '用户明确或显然不想动的东西，至多 4 项（多写的会被截掉），例如「桌面」「书」。',
     }),
   ),
   box: boxSchema(
@@ -91,7 +104,7 @@ const parameters = Type.Object({
   ),
   points: Type.Optional(
     Type.Array(pointSchema, {
-      maxItems: 8,
+      maxItems: 32,
       description:
         '可选的提示点：至少一个落在目标上最有代表性的位置；对象挨着不想改的东西时，在那里放一个 include=false 的点。',
     }),
@@ -107,16 +120,15 @@ const parameters = Type.Object({
       Type.Object({
         box: boxSchema('这一个对象的外接框，按原图归一化'),
         label: Type.Optional(
-          Type.String({ minLength: 1, maxLength: 16, description: '短称呼，例如「左边的杯子」' }),
+          Type.String({ maxLength: 200, description: '短称呼，例如「左边的杯子」' }),
         ),
         selected: Type.Boolean({ description: '用户要改的是不是这一个' }),
         points: Type.Optional(
-          Type.Array(pointSchema, { maxItems: 4, description: '可选，落在这一个对象上的点' }),
+          Type.Array(pointSchema, { maxItems: 32, description: '可选，落在这一个对象上的点' }),
         ),
       }),
       {
-        minItems: 2,
-        maxItems: MASK_REGION_MAX,
+        maxItems: 32,
         description:
           '画面里有多个相似对象（例如几只杯子、几个人）时逐个列出，含不改的那几个，按从左到右排；selected 标出用户要改的。卡片上按编号显示，用户可以点编号增减。只有一个目标时不要写。',
       },
@@ -173,8 +185,9 @@ interface InstanceParams {
 
 /** 相似对象按从左到右、从上到下编号；至少要有一个选中，不然卡片打开就是空的。 */
 function cleanInstances(instances: readonly InstanceParams[] | undefined) {
-  if (!instances?.length) return undefined
-  if (instances.length < 2 || instances.length > MASK_REGION_MAX)
+  // 只列了一个就是单个目标，照 box 处理。
+  if (!instances || instances.length < 2) return undefined
+  if (instances.length > MASK_REGION_MAX)
     throw new AgentToolError(
       'invalid_params',
       `instances 只在有 2–${MASK_REGION_MAX} 个相似对象时写；只有一个目标就只给 box`,
@@ -182,9 +195,9 @@ function cleanInstances(instances: readonly InstanceParams[] | undefined) {
   const cleaned = instances
     .map((one) => ({
       box: cleanBox(one.box),
-      label: one.label?.trim() || undefined,
+      label: clip(one.label?.trim() ?? '', MASK_LABEL_MAX) || undefined,
       selected: one.selected === true,
-      points: cleanPoints(one.points),
+      points: cleanPoints(one.points)?.slice(0, MASK_INSTANCE_POINTS_MAX),
     }))
     .sort((a, b) => a.box.x + a.box.width / 2 - (b.box.x + b.box.width / 2) || a.box.y - b.box.y)
   if (!cleaned.some((one) => one.selected))
@@ -297,21 +310,19 @@ async function propose(
       'invalid_params',
       '本轮已经有用户画好的选区，直接按选区调 editImage，不要再提议范围。',
     )
-  const target = params.target.trim()
-  const change = params.change.trim()
-  const prompt = params.segmentPrompt.trim()
+  const target = clip(params.target.trim(), MASK_TARGET_MAX)
+  const change = clip(params.change.trim(), MASK_CHANGE_MAX)
+  const prompt = clip(params.segmentPrompt.trim(), MASK_SEGMENT_PROMPT_MAX)
   if (!target || !change || !prompt)
     throw new AgentToolError('invalid_params', '要写清改哪个对象、改成什么，以及英文分割提示')
   const box = cleanBox(params.box)
-  const points = cleanPoints(params.points)
-  const instances = cleanInstances(params.instances)
+  const points = cleanPoints(params.points)?.slice(0, MASK_POINTS_MAX)
   const invert = params.invert === true
-  if (invert && instances)
-    throw new AgentToolError(
-      'invalid_params',
-      '换背景（invert）时只框要保留的那一个主体，不要同时写 instances',
-    )
-  const keep = [...new Set((params.keep ?? []).map((one) => one.trim()).filter(Boolean))]
+  // 换背景只认 box 框住的那一个主体；多列的相似对象没有意义，丢掉。
+  const instances = invert ? undefined : cleanInstances(params.instances)
+  const keep = [...new Set((params.keep ?? []).map((one) => clip(one.trim(), MASK_KEEP_ITEM_MAX)))]
+    .filter(Boolean)
+    .slice(0, MASK_KEEP_MAX)
 
   const imageId = context.images.identify(params.imageId)
   const image = await context.images.resolve(imageId, 'original')
