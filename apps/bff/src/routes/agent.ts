@@ -90,6 +90,7 @@ import {
 } from '../lib/agent/retry'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
+import { segmenterStatus } from '../lib/agent/segmentation'
 import {
   InvalidSelectionError,
   selectionPreview,
@@ -446,6 +447,15 @@ export const agentRoutes = new Elysia()
       return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  // 自建分割服务的状态（部署后核对用）；`?probe=1` 再量一次真实往返，至多每 30 秒一次。
+  .get(
+    '/api/agent/edit-region/segmenter',
+    async ({ query, set }) => {
+      set.headers['cache-control'] = 'no-store'
+      return segmenterStatus(query.probe === '1')
+    },
+    { query: t.Object({ probe: t.Optional(t.String({ maxLength: 1 })) }) },
   )
   // 范围确认卡上点一下（包含 / 排除）：在提议的区域上重新分割，回一张编辑格式的 PNG 蒙版。
   // 只给登录用户：原图按会话认领读，提议必须是这个会话里的那一张。

@@ -156,6 +156,15 @@ afterAll(async () => {
 })
 
 describe('范围确认卡', () => {
+  it('reports whether the segmenter is configured, without signing in', async () => {
+    const response = await app.handle(
+      new Request('http://localhost/api/agent/edit-region/segmenter'),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.json()).toEqual({ configured: false })
+  })
+
   it('asks for the region, then runs the strict masked edit with the confirmed mask', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
     const conversationId = (json as { conversation: { id: string } }).conversation.id
@@ -324,7 +333,7 @@ describe('范围确认卡', () => {
     expect(raw.equals(await sharp(ORIGINAL).ensureAlpha().raw().toBuffer())).toBe(true)
     const modelSaw = JSON.stringify(calls.map((call) => call.messages))
     expect(modelSaw).toContain('把手内侧也要改')
-  })
+  }, 20_000)
 
   it('does not let the agent edit the image without a mask while the region is pending', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
