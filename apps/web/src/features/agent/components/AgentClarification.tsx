@@ -8,6 +8,7 @@ import { CARD_CONTROL } from '../agentStyles'
 import { clarificationAnswer } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
+import AgentMaskProposalCard, { AnsweredMaskProposal } from './AgentMaskProposalCard'
 
 function AnsweredClarification({
   message,
@@ -75,6 +76,22 @@ export default function AgentClarification({
     void useAgentStore.getState().send(written)
   }
 
+  if (message.maskProposal) {
+    if (answered)
+      return (
+        <AnsweredMaskProposal
+          proposal={message.maskProposal}
+          confirmed={answer?.startsWith(t('maskProposal.answerConfirmed')) ?? false}
+        />
+      )
+    return (
+      <AgentMaskProposalCard
+        message={message}
+        proposal={message.maskProposal}
+        answered={answered}
+      />
+    )
+  }
   if (answer !== null) return <AnsweredClarification message={message} answer={answer} />
   if (answered)
     return (
