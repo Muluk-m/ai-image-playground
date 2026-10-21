@@ -42,7 +42,7 @@ function draftTitle(prompt: string): string {
 
 /**
  * 节点运行建议只写在助手消息的工具结果里，服务端看不到用户后来有没有在卡片上点过。
- * 出图模式的 autoRun 已经请求开跑，不再列进待确认。模型若发现画布上已在生成，应按提示改口。
+ * 历史 autoRun 和本轮直接出图都已经交给原标签页，不再列进待确认。
  */
 function manualNodeRuns(content: unknown): PendingNodeRunFact[] {
   if (!Array.isArray(content)) return []
@@ -52,9 +52,14 @@ function manualNodeRuns(content: unknown): PendingNodeRunFact[] {
     const record = block as {
       type?: unknown
       title?: unknown
-      canvasRun?: { autoRun?: unknown; nodeIds?: unknown }
+      canvasRun?: { autoRun?: unknown; direct?: unknown; nodeIds?: unknown }
     }
-    if (record.type !== 'toolResult' || !record.canvasRun || record.canvasRun.autoRun === true)
+    if (
+      record.type !== 'toolResult' ||
+      !record.canvasRun ||
+      record.canvasRun.autoRun === true ||
+      record.canvasRun.direct === true
+    )
       continue
     const nodeIds = Array.isArray(record.canvasRun.nodeIds)
       ? record.canvasRun.nodeIds.filter(

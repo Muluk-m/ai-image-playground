@@ -5,13 +5,17 @@ import type {
   PersistedSubmitRequest,
   PersistedVideoRequest,
   QueueProvider,
+  StageAuthorizationSubmission,
   SubmitRequest,
   TaskErrorType,
   TaskStatus,
 } from '@image-playground/shared'
 import {
+  billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
   QUEUE_TIMEOUTS,
+  stageAuthorizedVideoDuration,
+  videoModelSupportOf,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
@@ -19,6 +23,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
 import { prepareMaskedInput } from './agent/masked-input'
+import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
@@ -38,6 +43,7 @@ export interface PreparedQueueTask {
 }
 
 export interface CreateQueueTaskInput {
+  readonly stageAuthorization?: StageAuthorizationSubmission
   /** Server-only preparation; its caller owns cleanup after its transaction commits or rolls back. */
   readonly prepared?: PreparedQueueTask
   readonly provider: QueueProvider
@@ -105,7 +111,7 @@ function pricingOf(input: CreateQueueTaskInput) {
   const n = input.request.n ?? 1
   if (!input.video) return { quantity: n, unitMultiplier: 1, quotaUnits: n }
   return {
-    quantity: input.video.duration_seconds,
+    quantity: billedStageQuantity(input.video.duration_seconds),
     unitMultiplier: videoRateMultiplier(input.model, input.video.resolution),
     quotaUnits: 1,
   }
@@ -132,6 +138,15 @@ function commandHash(input: CreateQueueTaskInput) {
           conversationId: input.agent.conversationId,
           turnId: input.agent.turnId,
         },
+        ...(input.stageAuthorization
+          ? {
+              stageAuthorization: {
+                authorizationId: input.stageAuthorization.authorizationId,
+                attemptId: input.stageAuthorization.attemptId,
+                nodeId: input.stageAuthorization.nodeId,
+              },
+            }
+          : {}),
       }),
     )
     .digest('hex')
@@ -280,9 +295,20 @@ export async function discardQueueTaskPreparation(prepared: PreparedQueueTask): 
   await discardArchivedInputs(prepared.taskId)
 }
 
-export async function createQueueTask(
-  input: CreateQueueTaskInput,
-): Promise<CreateQueueTaskOutcome> {
+/** 带授权的视频时长改成提案快照的同一档，再计价、落库。已经准备好的请求保持原哈希。 */
+function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput {
+  if (!input.stageAuthorization || !input.video || input.prepared) return input
+  const duration_seconds = stageAuthorizedVideoDuration(
+    input.video.duration_seconds,
+    videoModelSupportOf(input.model),
+    input.video.resolution,
+  )
+  if (duration_seconds === input.video.duration_seconds) return input
+  return { ...input, video: { ...input.video, duration_seconds } }
+}
+
+export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
+  const input = alignStageSubmission(raw)
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
@@ -341,6 +367,7 @@ export async function createQueueTask(
 
     if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
 
+    let reservedCredits = 0
     if (isCapabilityEnabled('billing:credits')) {
       if (!input.userId) {
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
@@ -358,6 +385,7 @@ export async function createQueueTask(
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
         return reservation
       }
+      reservedCredits = reservation.credits
     } else if (dailyQuotaEnabled) {
       const quota = await tryConsumeQuotaInTransaction(
         tx,
@@ -370,6 +398,33 @@ export async function createQueueTask(
         return { kind: 'quota_exceeded' as const, quota }
       }
     }
+    if (input.stageAuthorization)
+      await consumeStageAuthorization(
+        tx,
+        input.userId,
+        input.stageAuthorization,
+        id,
+        {
+          model: input.model,
+          quantity: pricing.quantity,
+          unitMultiplier: pricing.unitMultiplier,
+        },
+        reservedCredits,
+        {
+          prompt: input.request.prompt,
+          inputCount: requestPayload.input_images?.length ?? 0,
+          // 指纹用归一化后的计价数量，和提案快照是同一个数。1.9 秒在带授权时已经收成合法档。
+          ...(input.video
+            ? {
+                video: {
+                  durationSeconds: pricing.quantity,
+                  resolution: input.video.resolution,
+                  aspectRatio: input.video.aspect_ratio,
+                },
+              }
+            : {}),
+        },
+      )
     if (input.userId && commandId)
       await tx.insert(schema.generation_commands).values({
         user_id: input.userId,
@@ -404,7 +459,13 @@ export async function createQueueTask(
       submittedAt: inserted[0]!.submitted_at,
     }
   }
-  const outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
+  let outcome: CreateQueueTaskOutcome
+  try {
+    outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
+  } catch (error) {
+    if (!input.prepared) await discardArchivedInputs(id)
+    throw error
+  }
 
   if (!input.prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
     await discardArchivedInputs(id)

@@ -35,6 +35,17 @@ const messages: AgentPanelMessage[] = [
     canvasRun: { projectId: 'project', nodeIds: ['n2'], autoRun: true },
     toolName: 'runNodes',
   }),
+  tool({
+    id: 'direct-nodes',
+    canvasRun: {
+      projectId: 'project',
+      nodeIds: ['n3'],
+      authorizationId: 'auth',
+      stage: '素材',
+      direct: true,
+    },
+    toolName: 'runNodes',
+  }),
   { kind: 'text', id: 'user', turnId: 'turn', role: 'user', text: '确认', streaming: false },
 ]
 

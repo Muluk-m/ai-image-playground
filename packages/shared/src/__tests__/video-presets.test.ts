@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import {
   clampVideoPreset,
+  narrowVideoModelSupport,
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTIONS,
   type VideoModelSupport,
@@ -456,6 +457,19 @@ describe('videoDurationsForResolution', () => {
   it('narrows Veo 1080p to the single length it renders', () => {
     expect(videoDurationsForResolution(VIDEO_MODEL_SUPPORT[VEO_FAST], '1080p')).toEqual([8])
     expect(videoDurationsForResolution(VIDEO_MODEL_SUPPORT[VEO_LITE], '720p')).toEqual([4, 6, 8])
+  })
+
+  it('ignores an unknown resolution cap instead of clearing every resolution', () => {
+    const grok = VIDEO_MODEL_SUPPORT[GROK]!
+    const unknown = {
+      ...grok,
+      referenceImages: { max: 7, maxResolution: '999p' as '720p', withFrames: true },
+      guideMaxResolution: 'nope' as '720p',
+    }
+    expect(narrowVideoModelSupport(unknown, 'reference').resolutions).toEqual(grok.resolutions)
+    expect(narrowVideoModelSupport(unknown, 'frames').resolutions).toEqual(grok.resolutions)
+    expect(narrowVideoModelSupport(grok, 'reference').resolutions).not.toContain('1080p')
+    expect(narrowVideoModelSupport(grok, 'reference').resolutions).toContain('720p')
   })
 
   it('narrows to the subset the model declares for that resolution', () => {

@@ -173,6 +173,24 @@ describe('readConversationStateFacts', () => {
         ],
         created_at: NOW,
       },
+      {
+        conversation_id: 'busy',
+        id: 'run-direct',
+        turn_id: 'turn',
+        seq: 3,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-direct',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '直接出图',
+            canvasRun: { projectId: 'project', nodeIds: ['direct'], direct: true },
+          },
+        ],
+        created_at: NOW,
+      },
     ])
 
     const facts = await readConversationStateFacts('busy', NOW)

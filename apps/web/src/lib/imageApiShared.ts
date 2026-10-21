@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import { i18next } from '../i18n'
 import type { AppSettings, TaskParams } from '../types'
@@ -13,6 +14,7 @@ export const MAX_MASK_EDIT_FILE_BYTES = 50 * 1024 * 1024
 export const MAX_IMAGE_INPUT_PAYLOAD_BYTES = 512 * 1024 * 1024
 
 export interface CallApiOptions {
+  stageAuthorization?: StageAuthorizationSubmission
   outputRetention?: 'candidate'
   settings: AppSettings
   prompt: string

@@ -2,11 +2,14 @@ import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image
 import {
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
+  stageAuthorizedVideoDuration,
+  videoModelSupportOf,
   videoPromptRejection,
   videoRequestRejection,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
 import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema, validationMessage } from '../lib/http'
@@ -23,6 +26,14 @@ const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1, maxLength: QUEUE_PROMPT_MAX_CHARS }),
   output_retention: t.Optional(t.Literal('candidate')),
+  stage_authorization: t.Optional(
+    t.Object({
+      authorizationId: t.String({ minLength: 1, maxLength: 128 }),
+      nodeId: t.String({ minLength: 1, maxLength: 128 }),
+      attemptId: t.String({ minLength: 1, maxLength: 128 }),
+      executionToken: t.String({ minLength: 1, maxLength: 128 }),
+    }),
+  ),
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),
@@ -110,6 +121,10 @@ export const submitRoutes = new Elysia()
   .use(requireUser)
   // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
+    if (error instanceof StageAuthorizationError) {
+      set.status = error.status
+      return { error: error.code }
+    }
     if (code === 'VALIDATION') {
       set.status = 400
       return { error: 'invalid_request', message: validationMessage(error) }
@@ -124,7 +139,19 @@ export const submitRoutes = new Elysia()
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
-      const video = body.video as VideoRequest | undefined
+      let video = body.video as VideoRequest | undefined
+      // 带阶段授权时，时长先收成提案快照用的那一档，再做模型校验。
+      // 不带授权的 1.9 秒仍然是非法档位，原样拒绝。
+      if (video && body.stage_authorization) {
+        video = {
+          ...video,
+          duration_seconds: stageAuthorizedVideoDuration(
+            video.duration_seconds,
+            videoModelSupportOf(model),
+            video.resolution,
+          ),
+        }
+      }
       const media = resolveModelMedia(model)
       if (video && media !== 'video') {
         return status(400, { error: 'video_not_supported', message: '该模型不支持视频生成' })
@@ -163,7 +190,7 @@ export const submitRoutes = new Elysia()
         }
       }
 
-      const { video: _rawVideo, ...rest } = body
+      const { video: _rawVideo, stage_authorization: stageAuthorization, ...rest } = body
       let inputImages: string[] | undefined
       try {
         inputImages = await resolveMediaInputs(authUser?.id ?? null, rest.input_images, {
@@ -180,6 +207,7 @@ export const submitRoutes = new Elysia()
         request: inputImages ? { ...rest, input_images: inputImages } : rest,
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
+        ...(stageAuthorization ? { stageAuthorization } : {}),
       })
 
       if (outcome.kind === 'idempotency_mismatch')

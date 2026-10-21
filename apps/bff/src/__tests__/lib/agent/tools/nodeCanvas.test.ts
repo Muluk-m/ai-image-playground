@@ -33,6 +33,9 @@ const {
 } = await import('../../../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
+const { confirmStageAuthorization, preflightStageAuthorization } = await import(
+  '../../../../lib/agent/stage-authorizations'
+)
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
 const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
 const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
@@ -119,6 +122,7 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'generateImage',
     'editImage',
     'generateVideo',
+    'proposeBatchGeneration',
     'planImageBatch',
   ])
     expect(names).not.toContain(name)
@@ -326,18 +330,39 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   await run(createNodes, { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] })
   const before = await graph()
   const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
-  const proposal = await run(runNodes, { nodeIds: ['image'] })
+  const proposal = await run(runNodes, { nodeIds: ['image'], estimatedCredits: 0 })
   expect(proposal.details?.canvasRun?.nodeIds).toEqual(['image'])
+  expect(proposal.details?.canvasRun).toMatchObject({ budgetCap: 0, estimatedCredits: 0 })
+  const authorizationId = proposal.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, authorizationId, [
+    { nodeId: 'image', model: 'fixture-image', quantity: 1, unitMultiplier: 1 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, authorizationId, {
+    nodeId: 'image',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'unbilled',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  expect(preflight.budgetCap).toBe(0)
   expect(proposal.details).not.toHaveProperty('job')
+  expect(proposal.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(proposal.details?.canvasRun).not.toHaveProperty('autoRun')
-  const auto = await runNodes
-    .create({ ...context, autoSubmit: { take: () => true } })
-    .execute('auto', { nodeIds: ['image'] }, undefined, undefined)
-  expect(auto.details?.canvasRun?.autoRun).toBe(true)
-  const exhausted = await runNodes
-    .create({ ...context, autoSubmit: { take: () => false } })
-    .execute('exhausted', { nodeIds: ['image'] }, undefined, undefined)
-  expect(exhausted.details?.canvasRun).not.toHaveProperty('autoRun')
+  const rows = await db
+    .select({ id: schema.agent_stage_authorizations.id })
+    .from(schema.agent_stage_authorizations)
+  expect(rows.length).toBeGreaterThan(0)
+  const turnedOff = await runNodes
+    .create({ ...context, params: { autoSubmit: false }, autoSubmit: { take: () => true } })
+    .execute('manual', { nodeIds: ['image'], autoSubmit: true } as never, undefined, undefined)
+  expect(turnedOff.details?.canvasRun).toMatchObject({ direct: false, status: 'pending' })
+  const explicit = await runNodes
+    .create({ ...context, params: { autoSubmit: true } })
+    .execute('direct', { nodeIds: ['image'] }, undefined, undefined)
+  expect(explicit.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(await graph()).toEqual(before)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
   await expect(run(runNodes, { nodeIds: ['missing'] })).rejects.toThrow('不存在')
@@ -351,6 +376,136 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('uses the workbench image model and adopts a real model when the unbilled placeholder is empty', async () => {
+  const { context } = await fixture()
+  await createNodes
+    .create(context)
+    .execute(
+      'create',
+      { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] },
+      undefined,
+      undefined,
+    )
+  const aligned = await runNodes
+    .create({ ...context, params: { canvasImageModel: 'workbench-image' } })
+    .execute('aligned', { nodeIds: ['image'] }, undefined, undefined)
+  const alignedId = aligned.details?.canvasRun?.authorizationId
+  if (!alignedId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, alignedId)
+  expect(confirmed.authorization.charges).toMatchObject([
+    { nodeId: 'image', model: 'workbench-image', quantity: 1, unitMultiplier: 1, credits: 0 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, alignedId, {
+    nodeId: 'image',
+    model: 'workbench-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'workbench',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  await expect(
+    preflightStageAuthorization(userId, alignedId, {
+      nodeId: 'image',
+      model: 'other-image',
+      quantity: 1,
+      unitMultiplier: 1,
+      executionToken: confirmed.executionToken,
+      attemptId: 'other',
+    }),
+  ).rejects.toThrow('stage_authorization_scope')
+  const placeholder = await runNodes
+    .create(context)
+    .execute('placeholder', { nodeIds: ['image'] }, undefined, undefined)
+  const placeholderId = placeholder.details?.canvasRun?.authorizationId
+  if (!placeholderId) throw new Error('missing placeholder')
+  const open = await confirmStageAuthorization(userId, placeholderId)
+  expect(open.authorization.charges?.[0]?.model).toBe('')
+  const adopted = await preflightStageAuthorization(userId, placeholderId, {
+    nodeId: 'image',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: open.executionToken,
+    attemptId: 'adopted',
+  })
+  expect(adopted.charges).toMatchObject([{ nodeId: 'image', model: 'fixture-image' }])
+  expect(adopted.attempts).toHaveLength(1)
+})
+
+it('authorizes an asset node that has a prompt and rejects a promptless asset', async () => {
+  const { context, projectId } = await fixture()
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'person',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
+        data: {
+          name: '林夏',
+          meta: { nodeKind: 'asset', assetKind: 'person', nodePrompt: '三视图' },
+        },
+      },
+      origin,
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  const proposal = await runNodes
+    .create(context)
+    .execute('assets', { nodeIds: ['person'] }, undefined, undefined)
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['person'])
+  expect(proposal.details?.canvasRun).toMatchObject({ budgetCap: 0, estimatedCredits: 0 })
+  const authorizationId = proposal.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, authorizationId, [
+    { nodeId: 'person', model: 'fixture-image', quantity: 1, unitMultiplier: 1 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, authorizationId, {
+    nodeId: 'person',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'asset-sheet',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'blank',
+        type: 'image',
+        x: 400,
+        y: 0,
+        width: 320,
+        height: 240,
+        data: { name: '空素材', meta: { nodeKind: 'asset', assetKind: 'location' } },
+      },
+      origin,
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  await expect(
+    runNodes.create(context).execute('blank', { nodeIds: ['blank'] }, undefined, undefined),
+  ).rejects.toThrow('没有提示词')
 })
 
 it('turns a chat attachment into an image node the user does not have to drag in', async () => {

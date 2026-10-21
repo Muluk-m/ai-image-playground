@@ -539,6 +539,20 @@ describe('这一轮的观众', () => {
     ).not.toContain(NODE_CANVAS_GENERATION_LINE)
   })
 
+  it('runs canvas nodes immediately when direct generation is on, and asks for a card only when it is off', () => {
+    const canvas = { ...audience, experience: 'canvas' as const }
+    const direct = turnInitialState([], 'image', true, 0, canvas).systemPrompt
+    expect(direct).toContain('直接出图')
+    expect(direct).toContain('不弹确认卡')
+    expect(direct).toContain('只有查到实际任务记录才能称已提交')
+    expect(direct).not.toContain('这一轮是出图模式')
+    expect(direct).not.toContain('拟好提示词就当场提交并计费')
+    const manual = turnInitialState([], 'image', false, 0, canvas).systemPrompt
+    expect(manual).toContain('关掉了直接出图')
+    expect(manual).toContain('待确认提案')
+    expect(manual).not.toContain('不弹确认卡')
+  })
+
   it('没有观众的那一轮一条模板都不露', () => {
     expect(turnInitialState([], 'image').systemPrompt).not.toContain('look-l1')
   })
