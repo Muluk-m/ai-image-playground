@@ -119,15 +119,18 @@ export function shownTurnReferences<T extends AgentImageReference>(
 }
 
 /**
- * 这一轮要给模型看的那几张，连同各自该取哪一份字节。按 id 附的取预览：判断「是不是那张图」
- * 预览就够，原件一次就是几 MB。内联的本来只有一份，照常给原件——遮罩也只对得上原件的尺寸。
+ * 这一轮要给模型看的那几张，连同各自该取哪一份字节。都取预览：判断「是不是那张图」、
+ * 框出要改的对象，预览就够，原件一次就是几 MB。内联上传的也一样（附件上传没开时用户的
+ * 图就是这么来的），工具要原件时另按 `original` 去取。带遮罩的由 `modelImage` 保留原件，
+ * 遮罩只对得上原件的尺寸。
  */
 export function shownImageRequests(
   references: readonly AgentImageReference[],
 ): AgentImageRequest[] {
-  return shownTurnReferences(references).map((one) =>
-    'mediaId' in one ? { imageId: one.imageId, variant: 'preview' as const } : one.imageId,
-  )
+  return shownTurnReferences(references).map((one) => ({
+    imageId: one.imageId,
+    variant: 'preview' as const,
+  }))
 }
 
 /**
@@ -146,13 +149,19 @@ export async function resolveTurnReferences(
   const resolved: ResolvedAgentImage[] = []
   for (const reference of shownTurnReferences(references)) {
     if (!('mediaId' in reference)) {
-      resolved.push({
-        imageId: reference.imageId,
-        dataUrl: reference.dataUrl,
-        ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
-        ...(reference.regions ? { regions: reference.regions } : {}),
-        ...(reference.editAction ? { editAction: reference.editAction } : {}),
-      })
+      const image = await withVisualPreparation(() =>
+        modelImage(
+          {
+            imageId: reference.imageId,
+            dataUrl: reference.dataUrl,
+            ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+            ...(reference.regions ? { regions: reference.regions } : {}),
+            ...(reference.editAction ? { editAction: reference.editAction } : {}),
+          },
+          'preview',
+        ),
+      )
+      if (image) resolved.push(image)
       continue
     }
     const image = await withVisualPreparation(async () => {

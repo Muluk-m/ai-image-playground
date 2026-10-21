@@ -4,6 +4,7 @@ import type {
   AgentMessageView,
   AgentMode,
   AgentStoredReference,
+  AgentThinkingDepth,
   AgentTurnCost,
   AgentTurnErrorCode,
   AgentTurnFailure,
@@ -20,6 +21,7 @@ import { createAutoSubmitBudget } from './auto-submit'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
+import { CONFIRMED_EDIT_CALL_PREFIX, confirmedMaskEditCall, toolCallStream } from './confirmed-edit'
 import {
   type AgentOwner,
   appendAgentMessage,
@@ -28,6 +30,7 @@ import {
 } from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
+import { fastRegionRouting, raceRegionProposal } from './fast-region'
 import { scheduleAgentFollowUps } from './follow-ups'
 import { createImageCombinationGuard } from './image-combinations'
 import {
@@ -42,10 +45,16 @@ import {
   shownImageRequests,
 } from './images'
 import { AGENT_LENGTH_CONTINUE_NOTE, agentLengthFailureText } from './length-continuation'
-import { AGENT_MASK_PROPOSAL_TOOL, maskProposalFromResult } from './mask-proposal'
+import {
+  AGENT_MASK_PROPOSAL_TOOL,
+  maskProposalAnswer,
+  maskProposalFailedText,
+  maskProposalFromResult,
+} from './mask-proposal'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
+import { resolveConfiguredAgentRuntime } from './model-settings-store'
 import { AgentRequestBudgetError } from './outbound-budget'
 import type { ConfiguredAgentRuntime } from './provider-settings'
 import {
@@ -67,6 +76,7 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
+import { toolErrorText } from './tools/adapter'
 import { AgentToolError } from './tools/errors'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
@@ -198,6 +208,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     ...(prepared.wake?.plan ? { carried: prepared.wake.plan.authorization } : {}),
   })
   let clarified = false
+  /** 确认范围后按提议直接提交的那一次调用试过没有；提交成功本轮就到此为止。 */
+  let directEditTried = false
+  let directEditSubmitted = false
+  /** 这一轮第一次真调用试过让快档陪跑框选没有（见 `fast-region.ts`）。 */
+  let raceTried = false
   let combinationClarified = false
   /** 这一轮已经拟出待确认的稿：接下来该说话的是用户，再问一次模型只是白花钱。 */
   let drafted = false
@@ -244,6 +259,35 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     toolFailures,
   )
   const model = prepared.selectedRuntime?.model ?? agentModel(prepared.params?.thinkingDepth)
+  /**
+   * 这一轮的第一次调用可能是在框选范围：带了没圈过的图、范围确认工具在场、还没有待确认的卡。
+   * 这时让快档陪跑一条（见 `fast-region.ts`）。自带运行时、已经是快档、唤醒轮都不陪跑。
+   */
+  const regionRaceEligible = async (
+    context: Parameters<typeof assertRequestWithinBudget>[0],
+  ): Promise<ConfiguredAgentRuntime | null> => {
+    if (
+      !fastRegionRouting() ||
+      prepared.wake ||
+      !prepared.params?.thinkingDepth ||
+      prepared.params.thinkingDepth === 'fast' ||
+      input.references.length === 0 ||
+      images.masked ||
+      !turnTools.some((tool) => tool.name === AGENT_MASK_PROPOSAL_TOOL) ||
+      maskProposalAnswer(history.messages, input.references)
+    )
+      return null
+    try {
+      // 快档按后台配置的那一档取，与用户自己选「快」时用的是同一个模型。
+      const fast = await resolveConfiguredAgentRuntime('fast')
+      if (fast.model.id === model.id) return null
+      assertRequestWithinBudget(context, compactionSettings(fast.model))
+      return fast
+    } catch {
+      return null
+    }
+  }
+
   const budget = compactionSettings(model)
   // 系统说明与工具清单这一轮里逐字不变，算一次就够；塑形按它让预算，硬闸按真发出去的那一份判。
   const overheadTokens = requestOverheadTokens({
@@ -297,6 +341,21 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     },
     streamFn: async (model, context, options) => {
       await execution.assert()
+      // 确认范围后的那一轮：第一次调用按提议直接提交，不问模型（见 `confirmed-edit.ts`）。
+      // 工具失败时下一次调用照常交给模型，它看得到这次调用和失败原因。
+      if (!directEditTried) {
+        directEditTried = true
+        const args = prepared.wake
+          ? null
+          : await confirmedMaskEditCall(history.messages, input.references, images)
+        if (args) {
+          log.info(
+            { event: 'agent.confirmed_edit_direct', conversationId, turnId },
+            'submitting the confirmed mask edit without a model call',
+          )
+          return toolCallStream(model, 'editImage', args)
+        }
+      }
       // 最后一道闸：算出来就超限的请求不发。上游那边它是一个更贵、更慢、必然被拒的请求，
       // 而这一刻退回去发更完整的历史只会更超（见 `request-budget.ts`）。
       // pi 的契约是 streamFn 的失败要编进返回流里，所以它把这一抛翻成「上游出错」的终帧；
@@ -329,64 +388,141 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         }
         throw thrown
       }
-      let callId = await ledger.begin('conversation', model.id, context)
-      modelCallId = callId
-      return agentStreamFn(
-        prepared.params?.thinkingDepth,
-        {
-          onDispatchPending: (pending) => {
-            // The fetch path reports rejection; this barrier only waits for its accounting.
-            const settled = pending.then(
-              () => {},
-              () => {},
-            )
-            dispatchAccounting = dispatchAccounting.then(() => settled)
-          },
-          onRetry: async (message) => {
-            await ledger.finish(callId, message)
-            callId = await ledger.begin('conversation', model.id, context)
-            modelCallId = callId
-          },
-          onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
-          onDispatch: async (bytes) => {
-            const evidence = visualWorkset.dispatched(context.messages)
-            if (evidence.length)
-              log.info(
-                {
-                  event: 'agent.visual_input',
-                  conversationId,
-                  turnId,
-                  blocks: evidence.length,
-                  evidence: evidence.map(
-                    ({ source, representation, width, height, bytes, selection }) => ({
-                      source,
-                      representation,
-                      width,
-                      height,
-                      bytes,
-                      selection,
-                    }),
-                  ),
-                },
-                'agent visual evidence dispatched',
+      // 每次真调用都在账本里有自己的一行；`primary` 是这一轮配置的那一档，只有它的拒绝
+      // 才算这一轮失败，快档陪跑的那一条被拒了也只是不采用。
+      const call = async (
+        callModel: typeof model,
+        depth: AgentThinkingDepth | undefined,
+        runtime: typeof prepared.selectedRuntime,
+        callOptions: typeof options,
+        primary: boolean,
+      ) => {
+        const entry = { id: await ledger.begin('conversation', callModel.id, context) }
+        const stream = await agentStreamFn(
+          depth,
+          {
+            onDispatchPending: (pending) => {
+              // The fetch path reports rejection; this barrier only waits for its accounting.
+              const settled = pending.then(
+                () => {},
+                () => {},
               )
-            await ledger.dispatched(callId, bytes)
+              dispatchAccounting = dispatchAccounting.then(() => settled)
+            },
+            onRetry: async (message) => {
+              const previous = entry.id
+              await ledger.finish(previous, message)
+              entry.id = await ledger.begin('conversation', callModel.id, context)
+              if (modelCallId === previous) modelCallId = entry.id
+            },
+            onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(entry.id),
+            onDispatch: async (bytes) => {
+              const evidence = primary ? visualWorkset.dispatched(context.messages) : []
+              if (evidence.length)
+                log.info(
+                  {
+                    event: 'agent.visual_input',
+                    conversationId,
+                    turnId,
+                    blocks: evidence.length,
+                    evidence: evidence.map(
+                      ({ source, representation, width, height, bytes, selection }) => ({
+                        source,
+                        representation,
+                        width,
+                        height,
+                        bytes,
+                        selection,
+                      }),
+                    ),
+                  },
+                  'agent visual evidence dispatched',
+                )
+              await ledger.dispatched(entry.id, bytes)
+            },
+            onRejected: async (rejection) => {
+              if (primary) {
+                error = 'agent_request_budget_exceeded'
+                failure = agentTurnFailure(error, rejection, model.id)
+              }
+              await ledger.rejected(entry.id, rejection)
+            },
           },
-          onRejected: async (rejection) => {
-            error = 'agent_request_budget_exceeded'
-            failure = agentTurnFailure(error, rejection, model.id)
-            await ledger.rejected(callId, rejection)
+          runtime,
+        )(callModel, context, callOptions)
+        return { entry, stream }
+      }
+
+      const fastRuntime = raceTried ? null : await regionRaceEligible(context)
+      raceTried = true
+      if (fastRuntime) {
+        const fastModel = fastRuntime.model
+        const fast = { id: '' }
+        const main = { id: '' }
+        const startedRace = Date.now()
+        const raced = await raceRegionProposal({
+          ...(options?.signal ? { signal: options.signal } : {}),
+          fast: async (signal) => {
+            const started = await call(
+              fastModel,
+              'fast',
+              fastRuntime,
+              {
+                ...options,
+                ...(fastRuntime.effort === 'off' ? {} : { reasoning: fastRuntime.effort }),
+                signal,
+              },
+              false,
+            )
+            fast.id = started.entry.id
+            return started.stream
           },
-        },
+          main: async (signal) => {
+            const started = await call(
+              model,
+              prepared.params?.thinkingDepth,
+              prepared.selectedRuntime,
+              { ...options, signal },
+              true,
+            )
+            main.id = started.entry.id
+            return started.stream
+          },
+          onLoser: async (loser, message) => {
+            const id = loser === 'fast' ? fast.id : main.id
+            if (id) await ledger.finish(id, message)
+          },
+        })
+        modelCallId = raced.winner === 'fast' ? fast.id : main.id
+        log.info(
+          {
+            event: 'agent.region_race',
+            conversationId,
+            turnId,
+            winner: raced.winner,
+            fastModel: fastModel.id,
+            decidedMs: Date.now() - startedRace,
+          },
+          'fast tier raced the configured tier for the region proposal',
+        )
+        return raced.stream
+      }
+      const started = await call(
+        model,
+        prepared.params?.thinkingDepth,
         prepared.selectedRuntime,
-      )(model, context, options)
+        options,
+        true,
+      )
+      modelCallId = started.entry.id
+      return started.stream
     },
     // 一次工具边界把已排队的插话按顺序交给模型，避免每句再触发一次模型请求。
     steeringMode: 'all',
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
     // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
-    shouldStopAfterTurn: () => clarified || drafted || aborted || !!error,
+    shouldStopAfterTurn: () => clarified || drafted || directEditSubmitted || aborted || !!error,
     transformContext: (messages) =>
       visualWorkset.transform(messages, retained?.transform ?? compact),
   })
@@ -428,6 +564,27 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const write = (append: (executor: typeof db | BffTransaction) => Promise<void>) => {
     writes = writes.then(() => execution.write(append))
     return writes
+  }
+
+  // 范围确认失败：记一条日志，给用户一句话并收尾。模型再试一次也只会拿到同样的失败，
+  // 或者改去整图编辑、叫用户手画，三种都不是用户要的。
+  const maskProposalFailed = async (reason: string) => {
+    log.warn(
+      {
+        event: 'agent.tool_failed',
+        conversationId,
+        turnId,
+        tool: AGENT_MASK_PROPOSAL_TOOL,
+        reason,
+      },
+      'mask proposal tool failed',
+    )
+    const messageId = crypto.randomUUID()
+    const text = maskProposalFailedText(reason)
+    events.emit({ type: 'assistantStart', messageId })
+    events.emit({ type: 'textDelta', messageId, delta: text })
+    await storeBlock({ type: 'text', text }, messageId)
+    clarified = true
   }
 
   const closeOpen = async () => {
@@ -643,7 +800,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         : event.toolName === AGENT_MASK_PROPOSAL_TOOL
           ? maskProposalFromResult(event.result)
           : clarificationFromResult(event.result)
-      if (!block) return
+      if (!block) {
+        if (event.isError && event.toolName === AGENT_MASK_PROPOSAL_TOOL && !aborted)
+          await maskProposalFailed(toolErrorText(event.result))
+        return
+      }
       const messageId = crypto.randomUUID()
       events.emit({ ...block, messageId })
       await storeBlock(block, messageId)
@@ -664,6 +825,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
       if (block.status === 'awaiting_confirmation') drafted = true
+      if (!event.isError && event.toolCallId.startsWith(CONFIRMED_EDIT_CALL_PREFIX))
+        directEditSubmitted = true
       const combinationQuestion = event.isError ? null : clarificationFromResult(event.result)
       if (combinationQuestion && !combinationClarified) {
         const messageId = crypto.randomUUID()
