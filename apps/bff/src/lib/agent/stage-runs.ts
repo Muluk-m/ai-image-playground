@@ -392,11 +392,12 @@ export async function stageRunWakeContent(
     guidance.push(
       `没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 ${rerun} 发起新的阶段授权。`,
     )
-  // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完：接着出首帧是同一条流程的下一步，不该停下来
-  // 等一句「继续」。普通节点批次、首帧阶段本身、已经定稿过的分镜表都不在此列；出视频等别的付费阶段仍要先问。
+  // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完（阶段名带「素材」，整批都是这张表引用的素材）：
+  // 接着出首帧是同一条流程的下一步，不该停下来等一句「继续」。普通节点批次、首帧阶段本身、已经定稿过的分镜表都不在此列；出视频等别的付费阶段仍要先问。
   const storyboardId =
     completed > 0 &&
     completed === run.nodes.length &&
+    state.stage.includes('素材') &&
     state.turn?.autoSubmit === true &&
     !state.storyboard
       ? await draftStoryboardUsing(owner.userId, state.projectId, state.nodeIds)

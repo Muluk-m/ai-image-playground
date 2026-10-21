@@ -124,7 +124,7 @@ afterAll(async () => {
 })
 
 /** 智能体在画布上建两个节点，再为给定节点提出一次阶段授权。 */
-async function proposal(nodeIds = ['a', 'b'], params?: AgentTurnParams) {
+async function proposal(nodeIds = ['a', 'b'], params?: AgentTurnParams, stage = '素材') {
   const conversationId = crypto.randomUUID(),
     projectId = crypto.randomUUID(),
     now = Date.now()
@@ -181,7 +181,7 @@ async function proposal(nodeIds = ['a', 'b'], params?: AgentTurnParams) {
   )
   const result = await runNodes
     .create(context)
-    .execute('proposal', { stage: '素材', nodeIds }, undefined, undefined)
+    .execute('proposal', { stage, nodeIds }, undefined, undefined)
   return { conversationId, ...result.details!.canvasRun! }
 }
 
@@ -466,8 +466,9 @@ async function completedAssetWake(
   params?: AgentTurnParams,
   storyboards: readonly string[] = ['board'],
   nodeIds: readonly string[] = ['a'],
+  stage = '素材',
 ) {
-  const run = await proposal([...nodeIds], params)
+  const run = await proposal([...nodeIds], params, stage)
   // 分镜表把 a 当作人物素材引用，还没定稿。
   for (const id of storyboards) await addStoryboard(run.projectId, id)
   const token = await confirm(run.authorizationId)
@@ -514,6 +515,12 @@ it('does not push an ordinary direct batch on to first frames when no draft stor
 it('does not continue to first frames when the batch mixes in nodes the storyboard does not use', async () => {
   // 分镜表只引用 a，这一批还带了不相干的 b。
   const wake = await completedAssetWake(undefined, ['board'], ['a', 'b'])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames after a batch that was not proposed as the asset stage', async () => {
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '节点生成')
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })

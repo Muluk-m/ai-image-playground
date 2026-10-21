@@ -1051,10 +1051,16 @@ export const runStoryboardFrames = defineAgentTool({
               storyboardFingerprint(board.data.shots) !== fingerprint
             )
               return invalid('分镜表刚被改过，请重新读取后再发起首帧阶段。')
+            const shotIds = storyboardShotIds(graph.nodes, board, params.shotIds)
+            // 预检之后素材可能被删掉或换掉：在要提交的画布上再核一次，缺图就整次回滚，不铺节点也不登记授权。
+            const missing = storyboardMissingAssetNodes(saved, board.id, shotIds)
+            if (missing.length)
+              return invalid(
+                missingAssetsMessage(missing, canvasStageRunsDirectly(context.params), shotIds),
+              )
             // 铺节点是幂等的：在要保存的画布副本上再跑一次只为拿到节点 ID，不写回。
             const persisted = new Set(graph.nodes.map((node) => node.id))
             const prepared = prepareFrames(saved, board.id, mode, scratchOrigin)
-            const shotIds = storyboardShotIds(graph.nodes, board, params.shotIds)
             const wanted = shotIds ? new Set(shotIds) : undefined
             const targets = wanted
               ? board.data.shots.flatMap((shot, index) =>
