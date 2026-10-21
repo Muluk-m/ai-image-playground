@@ -64,6 +64,7 @@ import {
   loadAgentTurnAudience,
   titleSourceText,
 } from './skills'
+import { stageRunWakeContent } from './stage-runs'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
@@ -486,6 +487,29 @@ async function wakeContent(
   history: Promise<AgentHistoryWindow>,
   wake: QueuedWake,
 ): Promise<TurnContent | TurnUnprepared> {
+  if (wake.stageRun) {
+    const [summary, window] = await Promise.all([
+      stageRunWakeContent(conversationId, owner, wake.stageRun),
+      history,
+    ])
+    if (!summary) return { kind: 'no_results' }
+    if ((await consecutiveAgentWakes(conversationId)) >= AGENT_MAX_CONSECUTIVE_WAKES)
+      return { kind: 'wake_limit' }
+    return {
+      text: summary.text,
+      references: [],
+      reviewImageIds: [],
+      mode: summary.mode,
+      params: summary.params,
+      selectionHistoryStart: clarificationChainStart(window.messages),
+      deviceId: wake.deviceId,
+      userMessageId: `${turnId}:wake`,
+      wake: {
+        authorizationPrompt:
+          '仅汇总这批画布节点运行的结果；新的运行要先向用户说明并等他同意，再用 runNodes 发起新的阶段授权。',
+      },
+    }
+  }
   if (wake.batch) {
     const [summary, window] = await Promise.all([
       batchWakeContent(conversationId, owner, wake.batch),
@@ -570,10 +594,16 @@ async function resumeContent(
   ])
   // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
   const jobs = wake ? wakeJobs(authorizedTurn, wake.taskIds) : []
+  const stageSummary = wake?.stageRun
+    ? await stageRunWakeContent(conversationId, owner, wake.stageRun)
+    : null
   const batchSummary = wake?.batch
     ? await batchWakeContent(conversationId, owner, wake.batch)
-    : null
-  const setup = wake ? wakeTurnSetup(jobs) : resume
+    : stageSummary
+      ? { text: stageSummary.text, optionalReviewImageIds: [] }
+      : null
+  // 续跑的是运行回报的唤醒：照那一轮的规矩，新的 runNodes 要等用户确认。
+  const setup = stageSummary ?? (wake ? wakeTurnSetup(jobs) : resume)
   const interruptedStart = window.messages.findIndex(
     (message) => message.turnId === resume.interruptedTurnId,
   )
@@ -613,11 +643,19 @@ async function messageContent(
   const { message } = source
   // 恰好排着的唤醒并进这一轮，不再单独起轮。
   const [wakes, window] = await Promise.all([pendingAgentWakes(conversationId), history])
-  const ordinaryWakes = wakes.filter((wake) => !wake.batch)
+  const ordinaryWakes = wakes.filter((wake) => !wake.batch && !wake.stageRun)
   const batchSummaries = (
     await Promise.all(
       wakes.flatMap((wake) =>
-        wake.batch ? [batchWakeContent(conversationId, owner, wake.batch)] : [],
+        wake.batch
+          ? [batchWakeContent(conversationId, owner, wake.batch)]
+          : wake.stageRun
+            ? [
+                stageRunWakeContent(conversationId, owner, wake.stageRun).then((summary) =>
+                  summary ? { text: summary.text, optionalReviewImageIds: [] } : null,
+                ),
+              ]
+            : [],
       ),
     )
   ).filter((summary) => summary !== null)
