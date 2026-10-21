@@ -8,18 +8,18 @@
  *
  * The map is validated as a whole before anything is written: every URL must be https on an
  * allowed host (default cms-r2.deepclick.com, override with --hosts), without credentials or an
- * explicit port, and is stored in its normalized form; every id must exist; published items run
+ * explicit port (not even :443), and is stored in its normalized form; every id must exist; published items run
  * the same publish validation the admin edit runs (channels are loaded for it).
  * --apply then updates the whole batch in ONE transaction: it locks every id in the map (including
  * the ones already pointing at their target), aborts without writing if any column of any of them
- * changed since the check, writes only cover_key / image_key, records an `inspiration.update`
+ * changed since the check, writes only cover_key / image_key in a single UPDATE, records an `inspiration.update`
  * audit per changed item and refreshes the publication once. Either every item ends up at its
  * target or nothing is written. A re-run is a no-op.
  */
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { InspirationWriteInput } from '@image-playground/shared'
-import { eq, inArray } from 'drizzle-orm'
+import { inArray, type SQL, sql } from 'drizzle-orm'
 import { config } from '../src/config'
 import { close, db, schema } from '../src/db/client'
 import { initChannels } from '../src/lib/channels'
@@ -67,7 +67,15 @@ function checkUrl(value: unknown): { href: string } | { error: string } {
   }
   if (url.protocol !== 'https:') return { error: 'not https' }
   if (url.username || url.password) return { error: 'contains credentials' }
-  if (url.port) return { error: 'explicit port' }
+  // URL normalizes the default :443 away, so check the raw authority for any explicit port.
+  const authority =
+    value
+      .trim()
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+      .split(/[/?#\\]/)[0] ?? ''
+  if (url.port || /:\d*$/.test(authority.replace(/^\[[^\]]*\]/, ''))) {
+    return { error: 'explicit port' }
+  }
   if (!hosts.has(url.hostname)) return { error: `host ${url.hostname} not allowed` }
   return { href: url.href }
 }
@@ -180,16 +188,29 @@ try {
         )
       }
       const now = Date.now()
-      for (const { row, url } of rows) {
-        await tx
-          .update(schema.inspiration_items)
-          .set({
-            cover_key: url.cover,
-            image_key: url.image,
-            updated_at: now,
-            updated_by: operatorId,
-          })
-          .where(eq(schema.inspiration_items.id, row.id))
+      // One statement for the whole batch keeps the locked window short.
+      const column = (pick: (url: Target) => string): SQL =>
+        sql`CASE ${schema.inspiration_items.id} ${sql.join(
+          rows.map(({ row, url }) => sql`WHEN ${row.id} THEN ${pick(url)}`),
+          sql` `,
+        )} END`
+      const updated = await tx
+        .update(schema.inspiration_items)
+        .set({
+          cover_key: column((url) => url.cover),
+          image_key: column((url) => url.image),
+          updated_at: now,
+          updated_by: operatorId,
+        })
+        .where(
+          inArray(
+            schema.inspiration_items.id,
+            rows.map(({ row }) => row.id),
+          ),
+        )
+        .returning({ id: schema.inspiration_items.id })
+      if (updated.length !== rows.length) {
+        throw new Error(`expected ${rows.length} updates, got ${updated.length}; rolled back`)
       }
       await tx.insert(schema.operator_audits).values(
         rows.map(({ row, url }) => ({
