@@ -566,4 +566,95 @@ describe('范围确认卡', () => {
     expect(end!.message).toContain('等用户确认')
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
   })
+
+  it('refuses a whole-image edit for a single-object request and has the agent propose the region', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const inline = `data:image/jpeg;base64,${bath.toString('base64')}`
+    setSegmentationProviderForTesting({
+      id: 'edgetam',
+      async segment() {
+        const data = new Uint8Array(320 * 240)
+        for (let y = 80; y < 170; y++) for (let x = 110; x < 210; x++) data[y * 320 + x] = 255
+        return [{ data, width: 320, height: 240, score: 0.9 }]
+      },
+    })
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'whole',
+            name: 'editImage',
+            args: { prompt: '把背景换成现代石材浴室', imageIds: ['file_bathtub'] },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'propose',
+            name: 'proposeEditRegion',
+            args: {
+              imageId: 'file_bathtub',
+              target: '浴缸',
+              segmentPrompt: 'bathtub',
+              change: '换一个浴缸，背景不变',
+              box: { x: 0.3, y: 0.3, width: 0.4, height: 0.45 },
+            },
+          }),
+        () => completionStream('不该走到这里'),
+      ]),
+    )
+    const frames = await runTurn(
+      conversationId,
+      '我想把这个浴缸换一下背景不变那种',
+      [{ imageId: 'file_bathtub', dataUrl: inline }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    const [refused] = eventsOfType(frames, 'toolEnd')
+    expect(refused).toMatchObject({ toolName: 'editImage', status: 'failed' })
+    expect(refused!.message).toContain('proposeEditRegion')
+    const [question] = eventsOfType(frames, 'clarification') as unknown as AgentClarificationBlock[]
+    expect(question?.maskProposal).toMatchObject({ imageId: 'file_bathtub', target: '浴缸' })
+    expect(calls).toHaveLength(2)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  }, 20_000)
+
+  it('still lets the agent edit the whole image for an overall request or an image too small to mask', async () => {
+    const small = await sharp({
+      create: { width: 320, height: 240, channels: 4, background: '#808080' },
+    })
+      .png()
+      .toBuffer()
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    for (const [text, bytes, mime] of [
+      ['把整张图调成黑白的', bath, 'image/jpeg'],
+      ['把这个浴缸换一下', small, 'image/png'],
+    ] as const) {
+      const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+      const conversationId = (json as { conversation: { id: string } }).conversation.id
+      setAgentFetchForTesting(
+        scriptedAgentFetch(
+          [],
+          [
+            () =>
+              toolCallCompletion({
+                id: 'whole',
+                name: 'editImage',
+                args: { prompt: text, imageIds: ['file_one'] },
+              }),
+            () => completionStream('好'),
+          ],
+        ),
+      )
+      const frames = await runTurn(
+        conversationId,
+        text,
+        [{ imageId: 'file_one', dataUrl: `data:${mime};base64,${bytes.toString('base64')}` }],
+        { thinkingDepth: 'fast', model: 'agnes-image' },
+      )
+      const [end] = eventsOfType(frames, 'toolEnd')
+      expect(end).toMatchObject({ toolName: 'editImage' })
+      expect(end!.status).not.toBe('failed')
+    }
+  }, 20_000)
 })

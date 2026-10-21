@@ -78,7 +78,27 @@ export interface MaskedOutputOptions {
   readonly repair?: (maskDataUrl: string, attempt: number) => Promise<Uint8Array | null>
 }
 
-/** 只在原图坐标内合成；轻微等比缩放须有分散的保护区纹理证据才可校正。 */
+/**
+ * 上游常不按请求的尺寸出图，而是按自己的像素档位等比放缩（如方图一律 1254×1254、768×1024 回
+ * 1086×1448）。宽高比对得上（只差取整）就可以缩回请求尺寸再核对、合成；宽高比不对说明画面被裁或
+ * 拉伸过，一律拒绝。
+ */
+export function acceptsUpstreamSize(
+  width: number,
+  height: number,
+  generatedWidth: number,
+  generatedHeight: number,
+): boolean {
+  const limits = maskedEditSettings.rescale
+  const sx = generatedWidth / width,
+    sy = generatedHeight / height
+  return (
+    Math.abs(sx / sy - 1) <= limits.maxAspectDifference &&
+    Math.max(sx, sy, 1 / sx, 1 / sy) <= limits.maxScaleFactor
+  )
+}
+
+/** 只在原图坐标内合成；上游等比放缩过的候选（宽高比一致）缩回原尺寸后，须有分散的保护区纹理证据才可校正。 */
 export async function protectMaskedOutput(
   sourceDataUrl: string,
   maskDataUrl: string,
@@ -136,13 +156,7 @@ export async function protectMaskedOutput(
     const translucentPixels = ignoreCandidateAlpha(generated)
     const rescaled = generated.info.width !== width || generated.info.height !== height
     if (rescaled) {
-      const limits = maskedEditSettings.rescale
-      const sx = generated.info.width / width,
-        sy = generated.info.height / height
-      if (
-        Math.max(Math.abs(1 - sx), Math.abs(1 - sy)) > limits.maxScaleDifference ||
-        Math.abs(sx / sy - 1) > limits.maxAspectDifference
-      )
+      if (!acceptsUpstreamSize(width, height, generated.info.width, generated.info.height))
         throw new MaskedOutputError(
           '生成图尺寸与原图不一致，无法保护选区外内容；候选已保留，未应用修改，可重试',
         )

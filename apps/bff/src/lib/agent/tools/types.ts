@@ -63,6 +63,11 @@ export interface AgentToolContext {
    * 并行调用时模型可能一边提议一边动手。
    */
   readonly maskProposals?: Set<string>
+  /**
+   * 这一轮用户要改的是图里的单个对象或局部（见 `edit-intent.ts`，只按字面判断）。为真时
+   * `editImage` 不接受无蒙版的整图编辑，要先发范围确认。
+   */
+  readonly singleObjectEdit?: boolean
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */
