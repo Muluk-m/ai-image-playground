@@ -11,8 +11,8 @@
  * Restore only takes items that were published before (published_at set) and that still pass the
  * same publish validation the admin UI runs (fields, model in the loaded channels, skill). An
  * archived draft, or an item edited into an invalid state while archived, is reported as blocked
- * and left archived. Rows are re-read and locked inside the transaction, so a concurrent change
- * between the dry run and --apply cannot slip through.
+ * and left archived. Validation runs before the transaction; --apply then locks the validated rows
+ * and aborts without writing if any of them changed in between, so nothing unchecked slips through.
  */
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -51,6 +51,7 @@ const ids = [...new Set((list as string[]).map((id) => id.trim()))]
 
 type Row = typeof schema.inspiration_items.$inferSelect
 type Executor = Pick<typeof db, 'select'>
+const stamp = (value: unknown) => (value instanceof Date ? value.getTime() : Number(value))
 
 async function blockReason(row: Row): Promise<string | null> {
   if (!restore) return null
@@ -83,12 +84,11 @@ async function blockReason(row: Row): Promise<string | null> {
   }
 }
 
-async function plan(executor: Executor, lock: boolean) {
-  const query = executor
+async function plan(executor: Executor) {
+  const rows: Row[] = await executor
     .select()
     .from(schema.inspiration_items)
     .where(inArray(schema.inspiration_items.id, ids))
-  const rows: Row[] = lock ? await query.for('update') : await query
   const found = new Set(rows.map((row) => row.id))
   const targets: Row[] = []
   const blocked: { row: Row; reason: string }[] = []
@@ -123,14 +123,39 @@ try {
     const channels = initChannels(config.channelsFile ?? undefined)
     for (const warning of channels.warnings) console.log(`  ! channels: ${warning}`)
   }
+  // Validation (which may load skills) runs before the transaction so no row lock is held while it
+  // awaits. The transaction then locks the validated rows and aborts if any of them changed since.
+  const result = await plan(db)
+  report(result)
   if (!apply) {
-    report(await plan(db, false))
     console.log('Nothing written. Re-run with --apply to change status.')
   } else {
     const outcome = await db.transaction(async (tx) => {
-      const result = await plan(tx, true)
-      report(result)
       if (result.targets.length === 0) return null
+      const locked = await tx
+        .select({
+          id: schema.inspiration_items.id,
+          status: schema.inspiration_items.status,
+          updated_at: schema.inspiration_items.updated_at,
+        })
+        .from(schema.inspiration_items)
+        .where(
+          inArray(
+            schema.inspiration_items.id,
+            result.targets.map((row) => row.id),
+          ),
+        )
+        .for('update')
+      const current = new Map(locked.map((row) => [row.id, row]))
+      const moved = result.targets.filter((row) => {
+        const now = current.get(row.id)
+        return !now || now.status !== from || stamp(now.updated_at) !== stamp(row.updated_at)
+      })
+      if (moved.length) {
+        throw new Error(
+          `changed since the check, nothing written; re-run: ${moved.map((row) => row.id).join(', ')}`,
+        )
+      }
       const now = Date.now()
       const changed = await tx
         .update(schema.inspiration_items)
