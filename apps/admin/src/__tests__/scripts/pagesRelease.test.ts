@@ -1,10 +1,11 @@
+import { readdirSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { adminRoutePaths, pagesRedirects } from '../../lib/pagesRedirects'
+import { adminRoutePaths, expectedRouteCount, pagesRedirects } from '../../lib/pagesRedirects'
 
 const adminRoot = resolve(__dirname, '../../..')
 const root = resolve(adminRoot, '../..')
@@ -55,6 +56,34 @@ describe('pagesRedirects', () => {
     for (const path of ['/login', '/overview', '/users', '/users/:userId', '/tasks/:taskId']) {
       expect(rules).toContain(`${path} / 200\n`)
     }
+  })
+
+  it('matches the route files, so a generator format change fails the build', async () => {
+    const source = await readFile(join(adminRoot, 'src/routeTree.gen.ts'), 'utf8')
+    const files = readdirSync(join(adminRoot, 'src/routes'), { recursive: true, encoding: 'utf8' })
+    expect(adminRoutePaths(source)).toHaveLength(expectedRouteCount(files))
+    expect(
+      expectedRouteCount([
+        '__root.tsx',
+        '_authed.tsx',
+        'index.tsx',
+        'login.tsx',
+        '_authed.users.index.tsx',
+        '_authed.users.$userId.tsx',
+        '_authed.billing.orders.route.tsx',
+        '-helpers.ts',
+        'login.lazy.tsx',
+        'README.md',
+      ]),
+    ).toBe(5)
+  })
+
+  it('accepts either quote style and nested braces in the generated interface', () => {
+    expect(
+      adminRoutePaths(
+        'export interface FileRoutesByFullPath {\n  "/": typeof A\n  "/x": { a: 1 }\n  \'/y\': typeof B\n}',
+      ),
+    ).toEqual(['/', '/x', '/y'])
   })
 
   it('refuses route trees it cannot express safely', () => {

@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import react from '@vitejs/plugin-react'
@@ -18,7 +18,10 @@ export default defineConfig({
       generatedRouteTree: './src/routeTree.gen.ts',
     }),
     react(),
-    pagesRedirectsPlugin(() => readFileSync(resolve(__dirname, 'src/routeTree.gen.ts'), 'utf8')),
+    pagesRedirectsPlugin(
+      () => readFileSync(resolve(__dirname, 'src/routeTree.gen.ts'), 'utf8'),
+      () => readdirSync(resolve(__dirname, 'src/routes'), { recursive: true, encoding: 'utf8' }),
+    ),
   ],
   resolve: {
     alias: {
