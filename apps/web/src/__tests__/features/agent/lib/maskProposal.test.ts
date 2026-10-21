@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addClick,
   annotationRegions,
   boxIoU,
   boxMask,
@@ -190,5 +191,16 @@ describe('card regions and confirmation', () => {
     ).toBe('data:image/png;base64,AA')
     expect(confirmedMaskSource([{ imageId: 'other', maskMediaId: 'm1' }], proposal)).toBeNull()
     expect(confirmedMaskSource(undefined, proposal)).toBeNull()
+  })
+})
+
+describe('addClick', () => {
+  it('replaces an earlier click at the same spot and keeps at most max', () => {
+    const a = { x: 0.9, y: 0.56, include: false }
+    const b = { x: 0.905, y: 0.56, include: true }
+    expect(addClick([a], b, 12)).toEqual([b])
+    const far = { x: 0.2, y: 0.2, include: true }
+    expect(addClick([a], far, 12)).toEqual([a, far])
+    expect(addClick([a, far], b, 1)).toEqual([b])
   })
 })
