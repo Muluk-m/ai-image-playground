@@ -497,7 +497,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     } else {
       await page.waitForURL(origin + '/image')
     }
-    const paths = [['/guide/create/','zh-CN'],['/guide/en/create/','en']]
+    const paths = [['/guide/create/composer/','zh-CN'],['/guide/en/create/composer/','en']]
     if (loginEnabled) paths.push(['/en/','en'],['/login/','zh-CN'])
     for (const [path,lang] of paths) {
       const response=await page.goto(origin+path,{waitUntil:'networkidle'})
@@ -511,6 +511,8 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       }
       if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
     }
+    await page.goto(origin+'/guide/create/#models-params')
+    await page.waitForURL(origin+'/guide/create/settings/#models-params')
     await page.setViewportSize({width:390,height:844})
     if (await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)) throw new Error('Login overflows narrow viewport')
     if (outputDir) {

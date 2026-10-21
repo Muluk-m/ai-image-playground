@@ -1,5 +1,6 @@
 import { guideEn } from '../../web/src/features/guide/content/en'
 import { guideZhCN } from '../../web/src/features/guide/content/zh-CN'
+import { type GuideContent, guideEntries } from '../../web/src/features/guide/model'
 
 export type Locale = 'zh-CN' | 'en'
 export const editions = { 'zh-CN': guideZhCN, en: guideEn }
@@ -100,9 +101,22 @@ export type Scenario = (typeof scenarios)[number]
 export interface SitePage {
   path: string
   locale: Locale
-  kind: 'home' | 'guide' | 'login' | 'scenario'
-  chapterId?: string
+  kind: 'home' | 'guide' | 'moved' | 'login' | 'scenario'
+  /** 指南页面 `group/page`；指南首页没有。 */
+  guideKey?: string
+  /** 跳转页：旧地址（相对指南 root）与新地址。 */
+  movedFrom?: string
+  movedTo?: string
   scenario?: Scenario
+}
+/** 依次找第一个存在的指南页面（`group/page`）；这一语言都没有时回到指南首页。 */
+export function guidePath(guide: GuideContent, ...keys: string[]) {
+  const entries = guideEntries(guide)
+  for (const key of keys) {
+    const entry = entries.find((item) => item.key === key)
+    if (entry) return entry.path
+  }
+  return guide.root
 }
 export const pageList: SitePage[] = (['zh-CN', 'en'] as const).flatMap((locale) => {
   const prefix = locale === 'en' ? '/en' : ''
@@ -117,32 +131,59 @@ export const pageList: SitePage[] = (['zh-CN', 'en'] as const).flatMap((locale) 
       scenario,
     })),
     { path: guide.root, locale, kind: 'guide' },
-    ...guide.chapters.map((chapter) => ({
-      path: `${guide.root}${chapter.id}/`,
+    ...guideEntries(guide).map((entry) => ({
+      path: entry.path,
       locale,
       kind: 'guide' as const,
-      chapterId: chapter.id,
+      guideKey: entry.key,
     })),
+    ...Object.entries(guide.moved)
+      .filter(([from]) => from)
+      .map(([from, moved]) => ({
+        path: `${guide.root}${from}`,
+        locale,
+        kind: 'moved' as const,
+        movedFrom: from,
+        movedTo: `${guide.root}${moved.to}`,
+      })),
   ]
 })
 export function findPage(path: string): SitePage | undefined {
   const normalized = `${path.replace(/\/+$/, '')}/`
   return pageList.find((page) => page.path === normalized)
 }
-export function alternatePage(page: SitePage): SitePage {
+/** 另一语言里内容对应的页面；没有对应页时返回 undefined（不写 hreflang）。 */
+export function counterpartPage(page: SitePage): SitePage | undefined {
   return pageList.find(
     (other) =>
       other.locale !== page.locale &&
       other.kind === page.kind &&
-      other.chapterId === page.chapterId &&
+      other.guideKey === page.guideKey &&
+      other.movedFrom === page.movedFrom &&
       other.scenario === page.scenario,
-  )!
+  )
+}
+/** 语言切换链接的目标：有对应页去对应页，否则去另一语言的指南首页。 */
+export function alternatePage(page: SitePage): SitePage {
+  return (
+    counterpartPage(page) ??
+    pageList.find(
+      (other) => other.locale !== page.locale && other.path === editions[other.locale].root,
+    )!
+  )
 }
 export function pageMeta(page: SitePage) {
   const text = copy[page.locale]
-  if (page.kind === 'guide') {
+  if (page.kind === 'guide' || page.kind === 'moved') {
     const guide = editions[page.locale]
-    return page.chapterId ? guide.chapters.find((c) => c.id === page.chapterId)!.meta : guide.meta
+    if (page.kind === 'moved')
+      return {
+        title: `${guide.chrome.movedTitle} — ${text.brand}`,
+        description: guide.chrome.movedBody,
+      }
+    return page.guideKey
+      ? guideEntries(guide).find((entry) => entry.key === page.guideKey)!.page.meta
+      : guide.meta
   }
   if (page.kind === 'login') return { title: text.loginTitle, description: text.loginLead }
   if (page.kind === 'scenario' && page.scenario)
