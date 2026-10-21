@@ -46,6 +46,8 @@ const hosts = new Set(
 )
 
 type Row = typeof schema.inspiration_items.$inferSelect
+/** Keeps one transaction's locks, CASE update and audit insert well within PostgreSQL limits. */
+const MAX_BATCH = 1000
 type Target = { cover: string; image: string }
 
 /** Stable comparison of a whole row (Date and jsonb values included, key order ignored). */
@@ -109,6 +111,10 @@ try {
   const channels = initChannels(config.channelsFile ?? undefined)
   for (const warning of channels.warnings) console.log(`  ! channels: ${warning}`)
   const problems: string[] = []
+  const entryCount = Object.keys(raw).length
+  if (entryCount > MAX_BATCH) {
+    problems.push(`map has ${entryCount} entries; split it into batches of at most ${MAX_BATCH}`)
+  }
   const targets = new Map<string, Target>()
   for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
     const entry = value as { cover?: unknown; image?: unknown } | null
