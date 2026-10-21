@@ -155,7 +155,11 @@ beforeEach(() => {
           : Response.json({ error: 'stage_run_not_reported' }, { status: 404 })
       if (url.endsWith('/confirm')) {
         confirms += 1
-        authorization = { ...authorization, status: 'active' }
+        authorization = {
+          ...authorization,
+          status: 'active',
+          audit: [...authorization.audit, { kind: 'confirmed', at: Date.now() }],
+        }
         return Response.json({ authorization, executionToken: 'ephemeral-token' })
       }
       if (url.endsWith('/preflight')) {
@@ -296,6 +300,26 @@ it('shows the shot table summary on a first-frame stage card and says confirming
   expect(text).toContain('确认即把这张分镜表定稿')
   await act(async () => button('确认运行')!.click())
   expect(confirms).toBe(1)
+})
+it('says the storyboard is finalized once a direct first-frame run has confirmed it', async () => {
+  await mount('direct-frames', true, {
+    ...proposal,
+    stage: '首帧',
+    direct: true,
+    storyboard: {
+      storyboardId: 'board',
+      shotCount: 1,
+      totalSeconds: 4,
+      shots: [{ id: 'shot-1', durationSeconds: 4, line: '林夏蹲在窗台前。' }],
+    },
+  })
+  await act(async () => {})
+  expect(confirms).toBe(1)
+  expect(mocks.run).toHaveBeenCalledOnce()
+  const text = document.body.textContent
+  expect(text).toContain('镜头表：1 镜，共 4 秒')
+  expect(text).toContain('这张分镜表已定稿')
+  expect(text).not.toContain('确认即把这张分镜表定稿')
 })
 it('starts a direct run with no confirmation card and no undo wait', async () => {
   await mount('direct', true, { ...proposal, direct: true })
