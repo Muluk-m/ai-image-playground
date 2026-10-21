@@ -16,14 +16,21 @@ case "$mode" in
   runtime)
     [ "$(basename "$input")" = image-playground-test ] || reject 'unexpected application project'
     [ -r "$input/app.env" ] && [ -r "$input/migrate.env" ] && [ -r "$input/operator-config.json" ] || reject 'application, migrator and operator configuration required'
-    # Docker env files are data, not shell: production EMAIL_FROM may contain spaces and < >.
+    # Match docker run/create --env-file (docker/cli pkg/kvfile): data, not shell.
+    # Leading whitespace on the line is trimmed; blank lines and # comments are skipped.
+    # Values are literal — no quote stripping, no variable expansion. Last assignment wins.
+    # See https://docs.docker.com/reference/cli/docker/container/run/#env and
+    # https://github.com/docker/cli/blob/master/pkg/kvfile/kvfile.go
     value() {
-      awk -v key="$2=" 'index($0, key) == 1 {
-        v = substr($0, length(key) + 1)
-        q = substr(v, 1, 1)
-        if ((q == "\"" || q == sprintf("%c", 39)) && substr(v, length(v), 1) == q) v = substr(v, 2, length(v) - 2)
-        result = v
-      } END { print result }' "$1"
+      awk -v key="$2=" '
+        {
+          line = $0
+          sub(/^[ \t]+/, "", line)
+          if (line == "" || substr(line, 1, 1) == "#") next
+          if (index(line, key) == 1) result = substr(line, length(key) + 1)
+        }
+        END { print result }
+      ' "$1"
     }
     for name in APP_DATABASE_URL ADMIN_DATABASE_URL; do
       setting=$(value "$input/app.env" "$name")
