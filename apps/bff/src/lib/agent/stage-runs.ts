@@ -328,7 +328,8 @@ export interface StageRunWakeContent {
 
 /**
  * 唤醒轮看到的那一段：哪个阶段、每个节点（用节点名）的结局与原因，以及该怎么说、不该做什么。
- * 说明里仍要求新的付费运行先问用户；这一轮里真发起 runNodes 或 runStoryboardFrames 时，
+ * 说明里仍要求新的付费运行先问用户，唯一的例外是直接出图开着、素材批全部完成时接着出分镜表首帧；
+ * 这一轮里真发起 runNodes 或 runStoryboardFrames 时，
  * 是否直接开跑沿用提案那一轮的直接出图偏好（见 {@link stageRunWakeParams}）。
  */
 export async function stageRunWakeContent(
@@ -387,7 +388,13 @@ export async function stageRunWakeContent(
     guidance.push(
       `没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 ${rerun} 发起新的阶段授权。`,
     )
-  guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  // 直接出图开着、为分镜表出的素材全部出完：接着出首帧是同一条流程的下一步，不该停下来等一句「继续」。
+  // 首帧阶段本身跑完不在此列，出视频等别的付费阶段仍要先问。
+  if (completed === run.nodes.length && state.turn?.autoSubmit === true && !state.storyboard)
+    guidance.push(
+      '这一批全部完成，这一轮沿用直接出图：如果这批是在为分镜表出素材，分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames 出首帧（不传 shotIds），不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。',
+    )
+  else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {
     text: [
       '（系统通知，不是用户说的话）你发起的画布节点运行这一批已经结束，授权随之结束。',

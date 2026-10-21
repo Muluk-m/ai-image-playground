@@ -430,6 +430,41 @@ it('keeps the confirmation card in the wake round when the proposing turn had au
   expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
 })
 
+/** 直接出图或确认卡下跑完一整批素材：唤醒轮该接着出首帧，还是先问用户。 */
+async function completedAssetWake(params?: AgentTurnParams) {
+  const run = await proposal(['a'], params)
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a', 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'completed' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  return wake
+}
+
+it('lets a direct wake round continue from a completed asset batch to the storyboard first frames', async () => {
+  const wake = await completedAssetWake()
+  expect(wake.params.autoSubmit).toBe(true)
+  expect(wake.text).toContain('本轮直接调用 runStoryboardFrames 出首帧')
+  expect(wake.text).toContain('出视频等其他阶段先向用户说明并等他同意')
+  expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('keeps asking before the next paid stage when auto-submit was off', async () => {
+  const wake = await completedAssetWake({ autoSubmit: false })
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('runStoryboardFrames 出首帧')
+})
+
 it('falls back to confirmation for authorizations recorded before the turn settings were kept', async () => {
   const run = await proposal(['a'], WORKBENCH)
   const state = await stored(run.authorizationId)

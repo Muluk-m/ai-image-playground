@@ -868,6 +868,49 @@ function prepareFrames(
   }
 }
 const scratchOrigin: CanvasOrigin = 'agent:storyboard-frames'
+type StoryboardCanvasNode = Extract<CanvasNode, { type: 'storyboard' }>
+/**
+ * shotIds 里混进了这张分镜表铺出的首帧节点 id 时，换成它对应的镜头 id：模型常把刚铺出的首帧节点
+ * 当成镜头传进来。认不出的原样留下，交给后面按未知镜头拒绝。
+ */
+function storyboardShotIds(
+  nodes: readonly CanvasNode[],
+  board: StoryboardCanvasNode,
+  shotIds: readonly string[] | undefined,
+): string[] | undefined {
+  if (!shotIds) return undefined
+  const known = new Set(board.data.shots.map((shot) => shot.id))
+  return [
+    ...new Set(
+      shotIds.map((value) => {
+        if (known.has(value)) return value
+        const node = nodes.find((one) => one.id === value)
+        const meta = node?.type === 'image' || node?.type === 'video' ? node.data.meta : undefined
+        return meta?.storyboardId === board.id &&
+          meta.storyboardRole === 'frame' &&
+          meta.storyboardShotId &&
+          known.has(meta.storyboardShotId)
+          ? meta.storyboardShotId
+          : value
+      }),
+    ),
+  ]
+}
+function unknownShotsMessage(board: StoryboardCanvasNode, unknown: readonly string[]): string {
+  const listed = board.data.shots.map((shot, index) => `第 ${index + 1} 镜 ${shot.id}`).join('、')
+  return `分镜表里没有这些镜头：${unknown.join('、')}。没有铺首帧，也没有登记授权。shotIds 填分镜表的镜头 id，不是首帧节点或素材节点 id；这张分镜表的镜头是：${listed}。出整张表的首帧时不传 shotIds。请改正参数后在这一轮重新调用。`
+}
+function missingAssetsMessage(
+  missing: readonly { id: string; name: string }[],
+  direct: boolean,
+): string {
+  const names = missing.map((asset) => `${asset.name}（${asset.id}）`).join('、')
+  const ids = JSON.stringify(missing.map((asset) => asset.id))
+  const next = direct
+    ? `这一轮是直接出图：现在就在同一轮里调用 runNodes（nodeIds: ${ids}，stage: "素材"）发起素材阶段，它会直接开跑，不需要用户确认，不要停下来只向用户转述。`
+    : `现在就在同一轮里调用 runNodes（nodeIds: ${ids}，stage: "素材"）提出素材阶段授权，由用户在确认卡上确认。`
+  return `先出素材、再出首帧：分镜表引用的素材还没有图：${names}。首帧没有铺，也没有登记授权，没有扣费。${next}素材没写提示词时按素材描述出图；画布上已有合适的图就改用 importCanvasImage 收进素材。素材批跑完后系统会唤醒你，那时再调用 runStoryboardFrames。`
+}
 /** 同一调用 ID 已登记的提案。不是这张分镜表的首帧阶段时按提案冲突处理，不能冒充重放。 */
 async function priorFrameProposal(
   userId: string,
@@ -905,13 +948,21 @@ export const runStoryboardFrames = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '分镜表出首帧只用本工具：不要用 createNodes、connectNodes 手工搭首帧节点，也不要对首帧节点用 runNodes。默认 mode 为 grid，宫格一次出图再切分；用户要求某一镜单独重出时传 shotIds（逐镜）。分镜表引用的人物或地点素材还没有图时，本工具不铺节点也不登记授权：照回执告诉用户缺哪些素材，并提议素材阶段授权（给这些素材节点写好提示词后用 runNodes，阶段写「素材」；画布上已有合适的图就用 importCanvasImage 收进素材）。这条授权一经确认，分镜表就定稿。只有查到 taskIds 才能说已提交，读到真实结果才能说已完成。',
+    '分镜表出首帧只用本工具，顺序是先素材、后首帧：分镜表引用的人物、地点素材都有图之后再调用；素材还没有图时，先用 runNodes（stage 写「素材」）出素材，素材批跑完系统会唤醒你，那时再调用本工具。首帧节点由本工具自己铺：不要用 createNodes、connectNodes 手工搭首帧节点，也不要对首帧节点用 runNodes。默认 mode 为 grid，宫格一次出图再切分；用户要求某一镜单独重出时传 shotIds（逐镜），shotIds 填分镜表镜头 id，不是首帧节点 id。素材缺图时本工具不铺节点也不登记授权，回执会列出缺图的素材节点：照回执在同一轮接着用 runNodes 发起素材阶段，不要停下来只向用户转述；画布上已有合适的图就用 importCanvasImage 收进素材。这条授权一经确认，分镜表就定稿。只有查到 taskIds 才能说已提交，读到真实结果才能说已完成。',
   description:
     '按分镜表铺首帧：每镜一个首帧节点，宫格模式另建宫格节点；首帧与宫格连上该镜人物、地点素材作为参考，再为本次要出图的节点登记首帧阶段授权，附镜头表摘要（镜数、总时长、每镜一句）。确认授权即把分镜表定稿；提案后镜头表被改过，确认会失败，需要重新提案。直接出图开着时原标签页立即确认并开跑。素材缺图时整次拒绝。',
   parameters: Type.Object({
     storyboardId: id,
     mode: Type.Optional(Type.Union([Type.Literal('grid'), Type.Literal('individual')])),
-    shotIds: Type.Optional(Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true })),
+    shotIds: Type.Optional(
+      Type.Array(id, {
+        minItems: 1,
+        maxItems: 200,
+        uniqueItems: true,
+        description:
+          '只重出这几镜时传：分镜表镜头 id（readCanvas 里分镜表 shots[].id，照抄），不是首帧节点 id。出整张分镜表的首帧时不传。',
+      }),
+    ),
   }),
   call: () => ({ title: '首帧阶段' }),
   execute: (context) => async (callId, params) => {
@@ -946,17 +997,12 @@ export const runStoryboardFrames = defineAgentTool({
         if (!board.data.shots.length)
           return invalid('分镜表还没有镜头，先用 applyScriptPlan 写镜头。')
         const known = new Set(board.data.shots.map((shot) => shot.id))
-        const unknown = (params.shotIds ?? []).filter((shot) => !known.has(shot))
-        if (unknown.length) invalid(`分镜表里没有这些镜头：${unknown.join('、')}`)
-        const missing = storyboardMissingAssetNodes(before, board.id, params.shotIds)
+        const shotIds = storyboardShotIds(readCanvasDocument(before).nodes, board, params.shotIds)
+        const unknown = (shotIds ?? []).filter((shot) => !known.has(shot))
+        if (unknown.length) invalid(unknownShotsMessage(board, unknown))
+        const missing = storyboardMissingAssetNodes(before, board.id, shotIds)
         if (missing.length)
-          invalid(
-            `分镜表引用的素材还没有图：${missing
-              .map((asset) => `${asset.name}（${asset.id}）`)
-              .join(
-                '、',
-              )}。首帧没有铺，也没有登记授权。请向用户说明缺哪些素材，并提议素材阶段授权：给这些素材节点写好提示词后用 runNodes（stage 写「素材」），或用 importCanvasImage 把画布上已有的图收进素材。`,
-          )
+          invalid(missingAssetsMessage(missing, canvasStageRunsDirectly(context.params)))
         fingerprint = storyboardFingerprint(board.data.shots)
         prepareFrames(before, board.id, mode, scratchOrigin)
       }
@@ -1007,7 +1053,8 @@ export const runStoryboardFrames = defineAgentTool({
             // 铺节点是幂等的：在要保存的画布副本上再跑一次只为拿到节点 ID，不写回。
             const persisted = new Set(graph.nodes.map((node) => node.id))
             const prepared = prepareFrames(saved, board.id, mode, scratchOrigin)
-            const wanted = params.shotIds ? new Set(params.shotIds) : undefined
+            const shotIds = storyboardShotIds(graph.nodes, board, params.shotIds)
+            const wanted = shotIds ? new Set(shotIds) : undefined
             const targets = wanted
               ? board.data.shots.flatMap((shot, index) =>
                   wanted.has(shot.id) ? [prepared.frameIds[index]!] : [],
