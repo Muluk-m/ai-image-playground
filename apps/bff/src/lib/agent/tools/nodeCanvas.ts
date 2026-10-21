@@ -7,6 +7,7 @@ import {
   canvasNodeKind,
   canvasNodeRegistry,
   canvasNodeSourceData,
+  canvasStageRunsDirectly,
   chooseCanvasResult,
   connectCanvasNodes,
   deleteCanvasNode,
@@ -14,12 +15,18 @@ import {
   isCanvasStoryboardData,
   layoutCanvasArrange,
   moveCanvasNodes,
+  parseCompleteStageVideoDraft,
   readCanvasDocument,
   recordCanvasResult,
   replaceStoryboardShots,
+  resolveStageImageExecution,
+  resolveStageVideoExecution,
+  type StageExecutionBinding,
+  stageExecutionBinding,
   type TextNodeData,
   ungroupCanvasNodes,
   updateCanvasNode,
+  videoModelSupportOf,
 } from '@image-playground/shared'
 import { type Static, Type } from 'typebox'
 import * as Y from 'yjs'
@@ -27,9 +34,16 @@ import { executeCanvasCommand } from '../../canvasCommands'
 import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
 import { agentCanvasProject } from '../node-canvas-view'
-import { agentVideoModel } from '../video-models'
+import {
+  proposeStageAuthorization,
+  readStageAuthorization,
+  StageAuthorizationError,
+  type StageChargeInput,
+} from '../stage-authorizations'
+import { agentVideoModel, agentVideoModels } from '../video-models'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
+import { resolveAgentModel } from './queueTask'
 import type { AgentToolAudience, AgentToolContext } from './types'
 
 const id = Type.String({ minLength: 1, maxLength: 128 })
@@ -465,25 +479,159 @@ export const arrangeNodes = defineAgentTool({
     }),
 })
 
+function stageNodeName(node: CanvasNode): string {
+  return 'name' in node.data && node.data.name ? node.data.name : '未命名节点'
+}
+function runnableStageNode(
+  graph: { edges: readonly { target: string }[] },
+  node: CanvasNode,
+): boolean {
+  if (node.type !== 'image' && node.type !== 'video') return false
+  const kind = canvasNodeKind(node)
+  if (kind !== 'image' && kind !== 'video') return false
+  const meta = node.data.meta ?? {}
+  // 与 buildNodeBatch 相同：有提示词的素材按普通出图授权；没提示词、只靠连线的素材排除。
+  return (
+    Boolean(meta.nodePrompt?.trim()) ||
+    (meta.nodeKind !== 'asset' && graph.edges.some((edge) => edge.target === node.id))
+  )
+}
+function stageExecution(
+  node: CanvasNode,
+  params:
+    | {
+        model?: string
+        canvasImageModel?: string
+        n?: number
+        video?: {
+          model: string
+          durationSeconds: number
+          resolution: string
+          aspectRatio?: string
+          voiceIds?: readonly string[]
+        }
+      }
+    | undefined,
+  graph: { nodes: readonly CanvasNode[]; edges: readonly { source: string; target: string }[] },
+  authorizedIds: ReadonlySet<string>,
+): { charge?: StageChargeInput; binding: StageExecutionBinding } | undefined {
+  if (node.type !== 'image' && node.type !== 'video') return undefined
+  const meta = node.data.meta ?? {}
+  const videoKind = canvasNodeKind(node) === 'video'
+  const workbench = params?.video
+    ? {
+        model: params.video.model,
+        duration: params.video.durationSeconds,
+        resolution: params.video.resolution,
+        aspectRatio: params.video.aspectRatio ?? '16:9',
+        ...(params.video.voiceIds?.length ? { voices: [...params.video.voiceIds] } : {}),
+      }
+    : undefined
+  const globalDraft = videoKind
+    ? (workbench ?? parseCompleteStageVideoDraft(meta.nodeVideoDraft))
+    : undefined
+  const channels = agentVideoModels().map((option) => ({
+    modelId: option.target.model,
+    support: option.support,
+  }))
+  const hinted = workbench?.model ?? parseCompleteStageVideoDraft(meta.nodeVideoDraft)?.model
+  const builtin = hinted ? videoModelSupportOf(hinted) : undefined
+  const resolved =
+    globalDraft &&
+    resolveStageVideoExecution({
+      meta,
+      references: graph.edges
+        .filter((edge) => edge.target === node.id)
+        .map((edge) => ({ id: edge.source })),
+      globalDraft,
+      options: channels.length
+        ? channels
+        : hinted && builtin
+          ? [{ modelId: hinted, support: builtin }]
+          : [],
+    })
+  const binding = stageExecutionBinding({
+    node,
+    nodes: graph.nodes,
+    edges: graph.edges,
+    authorizedIds,
+    ...(resolved
+      ? {
+          video: {
+            mode: resolved.mode,
+            draft: resolved.draft,
+            ...(resolved.legacyFirst ? { legacyFirst: resolved.legacyFirst } : {}),
+            ...(resolved.legacyLast ? { legacyLast: resolved.legacyLast } : {}),
+          },
+        }
+      : {}),
+  })
+  if (videoKind) {
+    if (
+      !resolved ||
+      !resolved.spec.model ||
+      !Number.isSafeInteger(resolved.spec.quantity) ||
+      resolved.spec.quantity < 1
+    )
+      return { binding }
+    return { charge: { nodeId: node.id, ...resolved.spec }, binding }
+  }
+  // 原标签页按工作台配置出图。报价必须用这一条，不能改成对话模型或渠道里的另一条。
+  const image = resolveStageImageExecution({
+    model: params?.canvasImageModel?.trim() || resolveAgentModel('image', params?.model)?.model,
+    count: params?.n,
+    storyboardRole: meta.storyboardRole,
+  })
+  return { ...(image ? { charge: { nodeId: node.id, ...image } } : {}), binding }
+}
 export const runNodes = defineAgentTool({
   name: 'runNodes',
-  label: '建议运行节点',
+  label: '阶段授权',
   modes,
   available,
   onError: 'continue',
   guidance:
-    '为画布节点生成图片或视频（包括批量生成）都用 runNodes。先 readCanvas 确认节点。工具成功不等于生成完成；回执说明这次是等用户确认还是直接运行，照回执如实告诉用户。',
+    '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
   description:
-    '为当前云端画布指定节点或分组发起运行。对话卡显示当前批次预估：对话模式下用户在卡上确认后运行；出图模式下直接运行，开跑前用户可撤销。工具本身不生成、不扣费；实际结果应通过 readCanvas 再查看。',
+    '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没有提示词、只靠连线的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
-    nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
+    nodeIds: Type.Optional(Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true })),
+    stage: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    estimatedCredits: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000000 })),
+    authorizationId: Type.Optional(id),
   }),
-  call: () => ({ title: '建议运行节点' }),
-  execute: (context) => async (_callId, params) => {
+  call: () => ({ title: '阶段授权' }),
+  execute: (context) => async (callId, params) => {
     if (!available(context.mode, context)) invalid('当前会话没有可用的云端节点画布。')
     const project = await agentCanvasProject(context)
     if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
+    if (params.authorizationId) {
+      const authorization = await readStageAuthorization(context.userId, params.authorizationId)
+      if (
+        authorization.projectId !== project.id ||
+        authorization.conversationId !== context.conversationId
+      )
+        return invalid('授权不属于当前会话与项目。')
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              ...authorization,
+              submitted: authorization.attempts.some((attempt) => attempt.taskIds.length > 0),
+              note:
+                authorization.status === 'pending'
+                  ? '待确认，尚未提交。'
+                  : '只有 taskIds 中的任务已提交；不代表已完成。',
+            }),
+          },
+        ],
+        details: {},
+      }
+    }
     await context.assertExecution?.()
+    const requested = params.nodeIds
+    if (!requested?.length) return invalid('需要指定要生成的节点。')
     const doc = new Y.Doc()
     try {
       Y.applyUpdate(doc, await accessCanvasDocument(context.userId, project.id))
@@ -492,14 +640,81 @@ export const runNodes = defineAgentTool({
         ...graph.nodes.map((node) => node.id),
         ...(graph.groups ?? []).map((group) => group.id),
       ])
-      for (const id of params.nodeIds)
+      for (const id of requested)
         if (!existing.has(id)) invalid(missingNodeMessage(id, graph.nodes))
-      // 出图模式与生成工具共用每轮自动提交额度；领不到就退回等用户在对话卡确认。
-      const autoRun = context.autoSubmit?.take() === true
+      const ids = new Set(requested)
+      for (const group of graph.groups ?? [])
+        if (ids.has(group.id)) for (const nodeId of group.members) ids.add(nodeId)
+      const scoped = graph.nodes.filter((node) => ids.has(node.id))
+      const promptlessAssets = scoped.filter(
+        (node) =>
+          (node.type === 'image' || node.type === 'video') &&
+          node.data.meta?.nodeKind === 'asset' &&
+          !node.data.meta.nodePrompt?.trim(),
+      )
+      const nodes = scoped.filter((node) => runnableStageNode(graph, node))
+      if (!nodes.length)
+        return invalid(
+          promptlessAssets.length
+            ? '范围内的素材节点没有提示词，不能单独生成。请写上提示词，或改为指定图片、视频节点。'
+            : '范围内没有可生成的图片或视频节点。',
+        )
+      const billing = isCapabilityEnabled('billing:credits')
+      const charges: StageChargeInput[] = []
+      const bindings: StageExecutionBinding[] = []
+      const authorizedIds = new Set(nodes.map((node) => node.id))
+      for (const node of nodes) {
+        const quoted = stageExecution(node, context.params, graph, authorizedIds)
+        if (!quoted) return invalid(`无法为节点「${stageNodeName(node)}」建立执行快照。`)
+        bindings.push(quoted.binding)
+        if (!quoted.charge) {
+          if (billing)
+            return invalid(
+              `无法为节点「${stageNodeName(node)}」计价，授权没有创建。图片需要可用的出图模型；视频需要节点上的模型与时长，或本轮视频参数。`,
+            )
+          charges.push({ nodeId: node.id, model: '', quantity: 1, unitMultiplier: 1 })
+          continue
+        }
+        charges.push(quoted.charge)
+      }
+      const direct = canvasStageRunsDirectly(context.params)
+      let authorization: Awaited<ReturnType<typeof proposeStageAuthorization>>
+      try {
+        authorization = await proposeStageAuthorization({
+          userId: context.userId,
+          conversationId: context.conversationId,
+          projectId: project.id,
+          proposalKey: `${context.turnId}:${callId}`,
+          stage: params.stage ?? '节点生成',
+          nodeIds: nodes.map((node) => node.id),
+          nodeNames: nodes.map((node) => stageNodeName(node)),
+          nodes: charges,
+          bindings,
+        })
+      } catch (error) {
+        if (
+          error instanceof StageAuthorizationError &&
+          error.code === 'stage_authorization_price_unavailable'
+        )
+          return invalid('无法为这些节点计价，授权没有创建。请确认模型可用后再提案。')
+        throw error
+      }
       const canvasRun = {
         projectId: project.id,
-        nodeIds: params.nodeIds,
-        ...(autoRun ? { autoRun: true as const } : {}),
+        nodeIds: authorization.nodeIds,
+        nodeNames: authorization.nodeNames,
+        authorizationId: authorization.id,
+        stage: authorization.stage,
+        estimatedCredits: authorization.estimatedCredits,
+        budgetCap: authorization.budgetCap,
+        status: authorization.status,
+        specs: authorization.charges?.map(({ nodeId, model, quantity, unitMultiplier }) => ({
+          nodeId,
+          model,
+          quantity,
+          unitMultiplier,
+        })),
+        direct,
       }
       return {
         content: [
@@ -508,9 +723,9 @@ export const runNodes = defineAgentTool({
             text: JSON.stringify({
               ...canvasRun,
               submitted: false,
-              note: autoRun
-                ? '出图模式：节点将在几秒后直接运行并计费，用户可在开跑前撤销。不得声称已生成，结果需重新读取画布。'
-                : '运行建议已给到用户；用户在对话卡确认前不会提交或扣费。不得声称已生成，结果需重新读取画布。',
+              note: direct
+                ? '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。'
+                : '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
             }),
           },
         ],

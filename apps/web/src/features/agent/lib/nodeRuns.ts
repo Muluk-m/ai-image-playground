@@ -1,125 +1,231 @@
-import type { AgentCanvasRunProposal } from '@image-playground/shared'
-// 只取类型：对话 store 引入本模块，不能把画布批次模块整个拉进对话侧。
-import type { NodeBatchError, NodeBatchJob } from '../../canvas/lib/nodeBatch'
+import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
+import { accountScope } from '../../../lib/authScope'
+import {
+  billedNodeQuantity,
+  type NodeBatchError,
+  type NodeBatchJob,
+} from '../../canvas/lib/nodeBatch'
 import { agentNodeRunBridge } from './nodeRunBridge'
+import { stageAuthorizationClient } from './stageAuthorizationClient'
 
-/** 出图模式开跑前留给用户撤销的秒数；倒计时内没有提交任何任务。 */
 export const AGENT_NODE_RUN_UNDO_SECONDS = 5
-
 interface RunBase {
   readonly jobs: readonly NodeBatchJob[]
   readonly credits?: number
+  readonly authorization?: StageAuthorization
 }
 export type AgentNodeRun = RunBase &
   (
+    | { readonly status: 'confirming' }
     | { readonly status: 'countdown'; readonly remaining: number }
     | { readonly status: 'running'; readonly completed: number; readonly active: string }
     | { readonly status: 'done' }
     | { readonly status: 'undone' }
     | { readonly status: 'failed'; readonly error: NodeBatchError; readonly completed: number }
   )
-
-// 运行不跟着卡片走：面板收起、卡片卸载都不中断；同一张卡在这个标签页里只跑一次。
+// Execution rights live only in this document. Reloads, snapshots and other tabs cannot acquire them.
+const origins = new Set<string>()
 const runs = new Map<string, AgentNodeRun>()
-const controls = new Map<string, AbortController>()
+const controls = new Map<string, { control: AbortController; authorizationId: string }>()
 const listeners = new Set<() => void>()
 let revision = 0
-
-function publish(key: string, run: AgentNodeRun) {
-  revision += 1
-  runs.set(key, run)
+export function registerAgentNodeRunOrigin(key: string) {
+  origins.add(key)
   for (const listener of listeners) listener()
 }
-
+/**
+ * 换会话或清掉消息之后调用。还没确认的提案不在 runs 里，随消息一起丢掉。
+ * 已经开跑的运行卡留下。不要在注册时按数量裁剪：未确认的卡片还没有 run，裁掉就会失去确认入口。
+ */
+export function releaseIdleAgentNodeRunOrigins() {
+  let changed = false
+  for (const key of origins) {
+    if (runs.has(key)) continue
+    origins.delete(key)
+    changed = true
+  }
+  if (!changed) return
+  revision += 1
+  for (const listener of listeners) listener()
+}
+export const isAgentNodeRunOrigin = (key: string) => origins.has(key)
 /** 运行表换代的次数。输入栏用它知道哪张运行卡已经开跑，不必再当成待确认。 */
 export function agentNodeRunRevision(): number {
   return revision
 }
-
-function batchError(error: unknown): NodeBatchError {
-  const code = (error as { code?: unknown } | null)?.code
-  return typeof code === 'string' ? (code as NodeBatchError) : 'failed'
-}
-
 export const agentNodeRun = (key: string) => runs.get(key)
-
 export function subscribeAgentNodeRuns(listener: () => void) {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
   }
 }
-
-/**
- * 按当前画布报价运行一张卡的节点；`undoSeconds` 大于 0 时先倒计时，期间可撤销。
- * 画布未打开、报价不可用或这张卡已经跑过时返回 false，不做任何事。
- */
+function publish(key: string, run: AgentNodeRun) {
+  revision += 1
+  runs.set(key, run)
+  for (const listener of listeners) listener()
+}
+export function forgetAgentNodeRun(key: string, control?: AbortController) {
+  const dropControl = control !== undefined && controls.get(key)?.control === control
+  if (!runs.has(key) && !origins.has(key) && !dropControl) return
+  runs.delete(key)
+  origins.delete(key)
+  if (dropControl) controls.delete(key)
+  revision += 1
+  for (const listener of listeners) listener()
+}
+export function agentNodeRunControl(key: string): AbortController | undefined {
+  return controls.get(key)?.control
+}
+/** Explicit confirmation is the only entry. The BFF grants a token once, before the undo window. */
 export function startAgentNodeRun(
   key: string,
   proposal: AgentCanvasRunProposal,
-  undoSeconds = 0,
+  undoSeconds = AGENT_NODE_RUN_UNDO_SECONDS,
 ): boolean {
-  if (runs.has(key)) return false
+  const authorizationId = proposal.authorizationId
+  if (!authorizationId || !origins.has(key) || runs.has(key)) return false
   const plan = agentNodeRunBridge()?.quote(proposal)
-  if (!plan || plan.error || plan.blocked) return false
-  const base: RunBase = {
-    jobs: plan.jobs,
-    ...(plan.credits !== undefined ? { credits: plan.credits } : {}),
-  }
-  const control = new AbortController()
-  controls.set(key, control)
-  let completed = 0
-  const execute = () => {
-    const bridge = agentNodeRunBridge()
-    publish(key, { ...base, status: 'running', completed, active: plan.jobs[0]?.id ?? '' })
-    const running =
-      bridge?.projectId === proposal.projectId
-        ? bridge.run(proposal, plan.signature, control.signal, (count, active) => {
-            completed = count
-            if (!control.signal.aborted)
-              publish(key, { ...base, status: 'running', completed, active })
-          })
-        : Promise.reject({ code: 'changed' })
-    running
-      .then(
-        () => publish(key, { ...base, status: 'done' }),
-        (error: unknown) =>
-          publish(key, {
-            ...base,
-            status: 'failed',
-            error: batchError(error),
-            completed,
-          }),
-      )
-      .finally(() => controls.delete(key))
-  }
-  if (undoSeconds <= 0) {
-    execute()
+  if (plan?.error === 'local') {
+    publish(key, {
+      jobs: plan.jobs,
+      credits: plan.credits,
+      status: 'failed',
+      error: 'local',
+      completed: 0,
+    })
+    void stageAuthorizationClient.end(authorizationId).catch(() => {})
     return true
   }
-  let remaining = undoSeconds
-  publish(key, { ...base, status: 'countdown', remaining })
-  const timer = setInterval(() => {
-    remaining -= 1
-    if (remaining > 0) return publish(key, { ...base, status: 'countdown', remaining })
-    clearInterval(timer)
-    execute()
-  }, 1000)
-  control.signal.addEventListener('abort', () => clearInterval(timer), { once: true })
+  if (!plan || plan.error || plan.blocked) return false
+  const sameAccount = accountScope()
+  const base: RunBase = { jobs: plan.jobs, credits: plan.credits }
+  const control = new AbortController()
+  controls.set(key, { control, authorizationId })
+  publish(key, { ...base, status: 'confirming' })
+  void (async () => {
+    let authorization: StageAuthorization | undefined
+    try {
+      const confirmed = await stageAuthorizationClient.confirm(
+        authorizationId,
+        plan.jobs.map((job) => ({
+          nodeId: job.id,
+          model: job.model,
+          quantity: billedNodeQuantity(job),
+          unitMultiplier: job.unitMultiplier ?? 1,
+        })),
+      )
+      authorization = confirmed.authorization
+      if (control.signal.aborted || !sameAccount()) return
+      if (undoSeconds > 0)
+        await new Promise<void>((resolve) => {
+          let remaining = undoSeconds
+          publish(key, { ...base, authorization, status: 'countdown', remaining })
+          const timer = setInterval(() => {
+            remaining -= 1
+            if (remaining > 0)
+              publish(key, { ...base, authorization, status: 'countdown', remaining })
+            else {
+              clearInterval(timer)
+              resolve()
+            }
+          }, 1000)
+          control.signal.addEventListener(
+            'abort',
+            () => {
+              clearInterval(timer)
+              resolve()
+            },
+            { once: true },
+          )
+        })
+      if (control.signal.aborted || !sameAccount()) return
+      const bridge = agentNodeRunBridge()
+      if (bridge?.projectId !== proposal.projectId)
+        throw Object.assign(new Error('changed'), { code: 'changed' })
+      publish(key, {
+        ...base,
+        authorization,
+        status: 'running',
+        completed: 0,
+        active: plan.jobs[0]?.id ?? '',
+      })
+      await bridge.run(
+        proposal,
+        plan.signature,
+        control.signal,
+        (completed, active) => {
+          if (!control.signal.aborted)
+            publish(key, { ...base, authorization, status: 'running', completed, active })
+        },
+        confirmed.executionToken,
+      )
+      authorization = await stageAuthorizationClient.read(authorizationId)
+      publish(key, { ...base, authorization, status: 'done' })
+    } catch (error) {
+      const run = runs.get(key)
+      let code: NodeBatchError = 'failed'
+      if (error && typeof error === 'object' && 'code' in error) {
+        switch (error.code) {
+          case 'empty':
+          case 'cycle':
+          case 'busy':
+          case 'prompt':
+          case 'media':
+          case 'model':
+          case 'changed':
+          case 'failed':
+          case 'cancelled':
+          case 'limit':
+          case 'balance':
+          case 'authorization':
+          case 'stale':
+          case 'local':
+            code = error.code
+        }
+      }
+      if (run?.status !== 'undone')
+        publish(key, {
+          ...base,
+          authorization,
+          status: 'failed',
+          error: code,
+          completed: run?.status === 'running' ? run.completed : 0,
+        })
+    } finally {
+      if (controls.get(key)?.control === control) controls.delete(key)
+      if (authorization) {
+        try {
+          const ended = await stageAuthorizationClient.end(authorizationId)
+          if (!sameAccount()) return
+          const run = runs.get(key)
+          if (run) publish(key, { ...run, authorization: ended })
+        } catch {
+          // 换账号后这枚会话已经不属于原用户，登出会在服务端收回。丢失回执也不能靠本地状态重放。
+        }
+      }
+    }
+  })()
   return true
 }
-
-/** 倒计时内撤销（什么都没提交）；运行中停止后续节点，已提交的任务照常完成。 */
+/** Stop prevents all later submissions; already accepted queue tasks continue normally. */
 export function stopAgentNodeRun(key: string) {
-  const run = runs.get(key)
-  const control = controls.get(key)
-  if (!run || !control) return
-  control.abort()
-  if (run.status !== 'countdown') return
-  controls.delete(key)
-  publish(key, {
-    jobs: run.jobs,
-    ...(run.credits !== undefined ? { credits: run.credits } : {}),
-    status: 'undone',
-  })
+  const run = runs.get(key),
+    execution = controls.get(key)
+  if (!run || !execution) return
+  execution.control.abort()
+  if (run.status === 'countdown' || run.status === 'confirming')
+    publish(key, {
+      jobs: run.jobs,
+      credits: run.credits,
+      authorization: run.authorization,
+      status: 'undone',
+    })
+  void stageAuthorizationClient
+    .end(execution.authorizationId)
+    .then((authorization) => {
+      const current = runs.get(key)
+      if (current) publish(key, { ...current, authorization })
+    })
+    .catch(() => {})
 }

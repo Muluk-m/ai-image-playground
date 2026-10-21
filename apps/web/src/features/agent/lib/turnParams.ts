@@ -41,8 +41,8 @@ export function toAgentTurnParams(
 ): AgentTurnParams | undefined {
   const next: Record<string, unknown> = {}
   if (model) next.model = model
-  // 出图模式只认显式 true：默认的对话模式一个字段都不发。
-  if (autoSubmit) next.autoSubmit = true
+  // 画布缺这个字段会按直接出图处理，所以关掉时必须显式送 false。
+  next.autoSubmit = autoSubmit
   if (params.size !== DEFAULT_PARAMS.size) next.size = params.size
   if (params.quality !== DEFAULT_PARAMS.quality) next.quality = params.quality
   if (params.output_format !== DEFAULT_PARAMS.output_format) {

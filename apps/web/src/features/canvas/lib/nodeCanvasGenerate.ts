@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   type CanvasOrigin,
   canvasInputFingerprint,
@@ -281,7 +282,11 @@ export function submitNodeImage(
   inputImageDataUrls: string[],
   edit?: { maskDataUrl?: string },
   assetViewLabel?: 'sheet',
-  configuration?: { settings: AppSettings; params: TaskParams },
+  configuration?: {
+    settings: AppSettings
+    params: TaskParams
+    stageAuthorization?: StageAuthorizationSubmission
+  },
 ): boolean {
   const node = imageNode(doc, nodeId)
   if (!node || loading(node.data.pending)) return false
@@ -303,6 +308,7 @@ export function submitNodeImage(
     {
       settings,
       outputRetention: 'candidate',
+      stageAuthorization: configuration?.stageAuthorization,
       profile,
       params,
       variants: [

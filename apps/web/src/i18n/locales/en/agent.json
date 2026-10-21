@@ -756,13 +756,28 @@
     "readPrompt": "Read the selected canvas nodes, review the existing material, and help me plan what to create next."
   },
   "nodeRun": {
-    "title": "Run nodes",
+    "title": "Stage authorization",
     "run": "Run",
+    "confirming": "Confirming authorization. No tasks submitted yet.",
+    "scope": "Authorized scope",
+    "budget": "Budget cap",
+    "spent": "Spent credits",
+    "originOnly": "This card is read-only here. Confirm in the proposing tab. Refreshing never starts tasks.",
+    "submitted": "Submitted. Results are not yet confirmed complete.",
+    "status": {
+      "pending": "Pending confirmation. No tasks submitted.",
+      "active": "Authorization active. No tasks submitted.",
+      "exhausted": "Authorization budget exhausted.",
+      "ended": "Authorization ended.",
+      "expired": "Authorization expired. No further tasks will be submitted."
+    },
     "undo": "Undo ({{seconds}}s)",
     "startingIn": "Starting in {{seconds}}s. Undo now to skip charges.",
     "running": "Running. Results go back to each node.",
     "undone": "Undone. Nothing was submitted.",
     "unpriced": "Charged by actual model usage",
-    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist."
+    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
+    "readFailed": "Couldn't load the authorization.",
+    "retryRead": "Retry"
   }
 }

@@ -31,7 +31,7 @@ export function confirmationHints(messages: readonly AgentPanelMessage[]): Confi
       hints.push({ kind: 'draft', messageId: message.id })
       continue
     }
-    if (message.canvasRun && !message.canvasRun.autoRun) {
+    if (message.canvasRun && !message.canvasRun.autoRun && message.canvasRun.direct !== true) {
       hints.push({ kind: 'nodeRun', messageId: message.id })
       continue
     }

@@ -9,6 +9,7 @@ import {
   AGENT_MAX_CONSECUTIVE_WAKES,
   agentConversationTitle,
   agentTitleLine,
+  canvasStageRunsDirectly,
 } from '@image-playground/shared'
 import { and, asc, eq } from 'drizzle-orm'
 import { config } from '../../config'
@@ -286,7 +287,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         providerInstance: selectedRuntime.providerId,
         reasoningEffort: selectedRuntime.effort,
         mode: content.mode,
-        autoSubmit: content.params?.autoSubmit === true,
+        autoSubmit:
+          audience.experience === 'canvas'
+            ? canvasStageRunsDirectly(content.params)
+            : content.params?.autoSubmit === true,
         directImage: content.params?.directImage === true,
         audience,
       })
@@ -460,7 +464,10 @@ function turnInputOf(
       ...(note?.optionalReviewImageIds ?? []),
     ]),
     ...(note ? { note: note.text } : {}),
-    autoSubmit: content.params?.autoSubmit === true || content.params?.directImage === true,
+    autoSubmit:
+      audience.experience === 'canvas'
+        ? canvasStageRunsDirectly(content.params)
+        : content.params?.autoSubmit === true || content.params?.directImage === true,
     directImage: content.params?.directImage === true,
     selectionHistoryStart: content.selectionHistoryStart,
     audience,

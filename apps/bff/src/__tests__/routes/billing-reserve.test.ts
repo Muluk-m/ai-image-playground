@@ -158,6 +158,40 @@ describe('billing reservation units', () => {
     ])
   })
 
+  it('rejects a video duration that is not one of the model tiers', async () => {
+    _setChannelsForTesting([
+      {
+        ...channels[1]!,
+        models: [{ ...channels[1]!.models[0]!, id: 'grok-imagine-video-1.5-lite' }],
+      },
+    ])
+    expect(
+      await submit('grok-imagine-video-1.5-lite', {
+        video: { duration_seconds: 1.9, aspect_ratio: '16:9', resolution: '720p' },
+      }),
+    ).toBe(400)
+    expect(reservations).toEqual([])
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(
+      await submit('grok-imagine-video-1.5-lite', {
+        video: { duration_seconds: 2, aspect_ratio: '16:9', resolution: '720p' },
+      }),
+    ).toBe(200)
+    expect(reservations).toEqual([
+      {
+        taskId: expect.any(String),
+        userId: 'billing-user',
+        model: 'grok-imagine-video-1.5-lite',
+        quantity: 2,
+        unitMultiplier: 1,
+      },
+    ])
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload).toMatchObject({
+      video: { duration_seconds: 2, resolution: '720p' },
+    })
+  })
+
   it('reserves a video task by seconds at the multiplier that model prices the resolution at', async () => {
     const status = await submit('grok-imagine-video', {
       video: { duration_seconds: 8, aspect_ratio: '16:9', resolution: '1080p' },

@@ -11,6 +11,7 @@ export interface AgentNodeRunBridge {
     signature: string,
     signal: AbortSignal,
     progress: (completed: number, id: string) => void,
+    executionToken: string,
   ): Promise<void>
 }
 let current: AgentNodeRunBridge | null = null

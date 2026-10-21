@@ -37,6 +37,7 @@ import type {
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
+  StageAuthorization,
   TaskErrorType,
   TaskKind,
   TaskStatus,
@@ -57,6 +58,7 @@ import {
   pgView,
   primaryKey,
   text,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
@@ -434,6 +436,7 @@ export const canvas_projects = pgTable(
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
     uniqueIndex('idx_canvas_projects_conversation').on(t.conversation_id),
+    unique('canvas_projects_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -517,6 +520,7 @@ export const agent_conversations = pgTable(
     index('idx_agent_conversations_device_time')
       .on(t.device_id, t.updated_at.desc())
       .where(sql`${t.device_id} IS NOT NULL`),
+    unique('agent_conversations_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -1624,5 +1628,41 @@ export const server_logs = pgTable(
       'server_logs_level_check',
       sql`${t.level} IN ('trace', 'debug', 'info', 'warn', 'error', 'fatal')`,
     ),
+  ],
+)
+
+/** Scope, activation and the append-only spend trail share one row lock. */
+export const agent_stage_authorizations = pgTable(
+  'agent_stage_authorizations',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_projects.id, { onDelete: 'cascade' }),
+    proposal_key: text('proposal_key').notNull(),
+    execution_token_hash: text('execution_token_hash'),
+    state: bunJsonb('state').$type<StageAuthorization>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_agent_stage_proposal').on(t.conversation_id, t.proposal_key),
+    index('idx_agent_stage_owner').on(t.user_id, t.conversation_id),
+    foreignKey({
+      columns: [t.user_id, t.conversation_id],
+      foreignColumns: [agent_conversations.user_id, agent_conversations.id],
+      name: 'agent_stage_authorizations_owner_conversation_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.user_id, t.project_id],
+      foreignColumns: [canvas_projects.user_id, canvas_projects.id],
+      name: 'agent_stage_authorizations_owner_project_fk',
+    }).onDelete('cascade'),
   ],
 )

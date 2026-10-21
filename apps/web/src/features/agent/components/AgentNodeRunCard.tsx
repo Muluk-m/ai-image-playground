@@ -1,7 +1,8 @@
-import type { AgentCanvasRunProposal } from '@image-playground/shared'
-import { useSyncExternalStore } from 'react'
+import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
+import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -9,11 +10,16 @@ import NodeBatchJobs from '../../canvas/components/NodeBatchJobs'
 import { CARD_NOTE } from '../agentStyles'
 import { agentNodeRunBridge, subscribeAgentNodeRun } from '../lib/nodeRunBridge'
 import {
+  type AgentNodeRun,
   agentNodeRun,
+  agentNodeRunControl,
+  forgetAgentNodeRun,
+  isAgentNodeRunOrigin,
   startAgentNodeRun,
   stopAgentNodeRun,
   subscribeAgentNodeRuns,
 } from '../lib/nodeRuns'
+import { stageAuthorizationClient } from '../lib/stageAuthorizationClient'
 
 export default function AgentNodeRunCard({
   runKey,
@@ -24,28 +30,164 @@ export default function AgentNodeRunCard({
 }) {
   const { t } = useTranslation(['agent', 'canvas'])
   const bridge = useSyncExternalStore(subscribeAgentNodeRun, agentNodeRunBridge)
-  const run = useSyncExternalStore(subscribeAgentNodeRuns, () => agentNodeRun(runKey))
-  // 运行开始后节点正在生成，现报价会是 busy；卡上始终展示开跑那一刻的批次。
+  const live = useSyncExternalStore(subscribeAgentNodeRuns, () => agentNodeRun(runKey))
+  const settled = useRef<AgentNodeRun>(undefined)
+  const run = live ?? settled.current
+  const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
+  const [stored, setStored] = useState<StageAuthorization>()
+  const [readFailed, setReadFailed] = useState(false)
+  const [readAttempt, setReadAttempt] = useState(0)
+  useEffect(() => {
+    if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
+      settled.current = live
+  }, [live])
+  useEffect(() => {
+    if (!proposal.direct || !origin || !bridge) return
+    startAgentNodeRun(runKey, proposal, 0)
+  }, [bridge, origin, proposal, runKey])
+  useEffect(() => {
+    if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
+      return
+    forgetAgentNodeRun(runKey, agentNodeRunControl(runKey))
+  }, [live, runKey])
+  useEffect(() => {
+    const authorizationId = proposal.authorizationId
+    if (!authorizationId || proposal.direct) return
+    let active = true
+    let timer: number | undefined
+    let failures = 0
+    const refresh = async () => {
+      try {
+        const state = await stageAuthorizationClient.read(authorizationId)
+        if (!active) return
+        failures = 0
+        setReadFailed(false)
+        setStored(state)
+        if (state.status === 'pending' || state.status === 'active')
+          timer = window.setTimeout(() => {
+            void refresh()
+          }, 3000)
+      } catch {
+        if (!active) return
+        failures += 1
+        if (failures >= 5) {
+          setReadFailed(true)
+          return
+        }
+        const delay = Math.min(30_000, 3000 * 2 ** (failures - 1))
+        timer = window.setTimeout(() => {
+          void refresh()
+        }, delay)
+      }
+    }
+    void refresh()
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [proposal.authorizationId, proposal.direct, readAttempt])
+  const authorization =
+    run?.authorization &&
+    (run.status !== 'running' || run.authorization.audit.length > (stored?.audit.length ?? 0))
+      ? run.authorization
+      : stored
   const plan = run ? undefined : bridge?.quote(proposal)
   const jobs = run?.jobs ?? plan?.jobs
-  const credits = run ? run.credits : plan?.credits
+  const credits = run?.credits ?? plan?.credits ?? proposal.estimatedCredits
   usePrivateSubmissionGuard({ model: jobs?.[0]?.model ?? '', quantity: 1 })
-  const subtitle = jobs
-    ? t('canvas:nodeBatch.summary', { count: jobs.length })
-    : t('nodeRun.unavailable')
-  const list = jobs && (
-    <>
-      <NodeBatchJobs
-        jobs={jobs}
-        completed={
-          run?.status === 'done'
-            ? jobs.length
-            : run?.status === 'running' || run?.status === 'failed'
-              ? run.completed
-              : 0
-        }
-        {...(run?.status === 'running' ? { active: run.active } : {})}
-      />
+  const pending = (authorization?.status ?? proposal.status) === 'pending'
+  const submitted = authorization?.attempts.some((attempt) => attempt.taskIds.length > 0)
+  const status = authorization?.status ?? proposal.status
+  const statusLabels: Record<StageAuthorization['status'], string> = {
+    pending: t('nodeRun.status.pending'),
+    active: t('nodeRun.status.active'),
+    exhausted: t('nodeRun.status.exhausted'),
+    ended: t('nodeRun.status.ended'),
+    expired: t('nodeRun.status.expired'),
+  }
+  const subtitle = readFailed
+    ? t('nodeRun.readFailed')
+    : run?.status === 'countdown'
+      ? t('nodeRun.startingIn', { seconds: run.remaining })
+      : run?.status === 'confirming'
+        ? t('nodeRun.confirming')
+        : run?.status === 'running'
+          ? t('nodeRun.running')
+          : submitted && status === 'active'
+            ? t('nodeRun.submitted')
+            : status
+              ? statusLabels[status]
+              : t('nodeRun.unavailable')
+  const terminal = run?.status === 'done' || run?.status === 'undone' || run?.status === 'failed'
+  const statusLabel =
+    run?.status === 'done'
+      ? t('canvas:nodeBatch.done')
+      : run?.status === 'undone'
+        ? t('nodeRun.undone')
+        : run?.status === 'failed'
+          ? t(`canvas:nodeBatch.${run.error}`)
+          : subtitle
+  const canConfirm = !proposal.direct && !run && pending && origin
+  if (proposal.direct && !run && !plan?.error && !plan?.blocked) return null
+  const canUndo = run?.status === 'countdown'
+  return (
+    <ApprovalCard
+      state={
+        terminal
+          ? run.status === 'done'
+            ? 'done'
+            : 'denied'
+          : run || canConfirm
+            ? 'request'
+            : 'done'
+      }
+      title={`${t('nodeRun.title')} · ${proposal.stage ?? ''}`}
+      subtitle={subtitle}
+      statusLabel={statusLabel}
+      icon={<Icon name="play" size="sm" />}
+      disabled={
+        canConfirm && !readFailed && (!stored || !plan || Boolean(plan.error) || plan.blocked)
+      }
+      {...(canConfirm && !readFailed
+        ? {
+            allowOnceLabel: t('nodeRun.run'),
+            onAllowOnce: () => startAgentNodeRun(runKey, proposal),
+          }
+        : {})}
+      {...(canUndo
+        ? {
+            allowOnceLabel: t('nodeRun.undo', { seconds: run.remaining }),
+            onAllowOnce: () => stopAgentNodeRun(runKey),
+          }
+        : {})}
+      {...(run?.status === 'running' || run?.status === 'confirming'
+        ? { denyLabel: t('canvas:nodeBatch.stop'), onDeny: () => stopAgentNodeRun(runKey) }
+        : {})}
+      details={[
+        {
+          label: t('nodeRun.scope'),
+          value: (authorization?.nodeNames ?? proposal.nodeNames ?? []).join('、'),
+        },
+        {
+          label: t('nodeRun.budget'),
+          value: String(authorization?.budgetCap ?? proposal.budgetCap ?? 0),
+        },
+        { label: t('nodeRun.spent'), value: String(authorization?.spentCredits ?? 0) },
+      ]}
+    >
+      {jobs && (
+        <NodeBatchJobs
+          jobs={jobs}
+          completed={
+            run?.status === 'done'
+              ? jobs.length
+              : run?.status === 'running' || run?.status === 'failed'
+                ? run.completed
+                : 0
+          }
+          {...(run?.status === 'running' ? { active: run.active } : {})}
+        />
+      )}
       <p className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span>{t('canvas:nodes.estimatedCost')}</span>
         {credits === undefined ? (
@@ -54,72 +196,29 @@ export default function AgentNodeRunCard({
           <Credits credits={credits} />
         )}
       </p>
-    </>
-  )
-  const icon = <Icon name="play" size="sm" />
-  if (run?.status === 'countdown')
-    return (
-      <ApprovalCard
-        state="request"
-        title={t('nodeRun.title')}
-        subtitle={t('nodeRun.startingIn', { seconds: run.remaining })}
-        icon={icon}
-        allowOnceLabel={t('nodeRun.undo', { seconds: run.remaining })}
-        onAllowOnce={() => stopAgentNodeRun(runKey)}
-      >
-        {list}
-      </ApprovalCard>
-    )
-  if (run?.status === 'running')
-    return (
-      <ApprovalCard
-        state="request"
-        title={t('nodeRun.title')}
-        subtitle={t('nodeRun.running')}
-        icon={icon}
-        denyLabel={t('canvas:nodeBatch.stop')}
-        onDeny={() => stopAgentNodeRun(runKey)}
-      >
-        {list}
-      </ApprovalCard>
-    )
-  if (run)
-    return (
-      <ApprovalCard
-        state={run.status === 'done' ? 'done' : 'denied'}
-        title={t('nodeRun.title')}
-        subtitle={subtitle}
-        icon={icon}
-        statusLabel={
-          run.status === 'done'
-            ? t('canvas:nodeBatch.done')
-            : run.status === 'undone'
-              ? t('nodeRun.undone')
-              : t(`canvas:nodeBatch.${run.error}`)
-        }
-      >
-        {list}
-      </ApprovalCard>
-    )
-  const error = plan?.error
-  return (
-    <ApprovalCard
-      state="request"
-      title={t('nodeRun.title')}
-      subtitle={subtitle}
-      icon={icon}
-      disabled={!plan || Boolean(error) || plan.blocked}
-      allowOnceLabel={t('nodeRun.run')}
-      onAllowOnce={() => startAgentNodeRun(runKey, proposal)}
-    >
-      {list}
-      {(!plan || error || plan.blockedReason) && (
+      {readFailed && (
         <p role="status" className={CARD_NOTE}>
-          {!plan
-            ? t('nodeRun.unavailable')
-            : error
-              ? t(`canvas:nodeBatch.${error}`)
-              : plan.blockedReason}
+          {t('nodeRun.readFailed')}{' '}
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="h-auto px-0 text-label-sm"
+            onClick={() => setReadAttempt((attempt) => attempt + 1)}
+          >
+            {t('nodeRun.retryRead')}
+          </Button>
+        </p>
+      )}
+      {!run && (!origin || !plan || plan.error || plan.blockedReason) && (
+        <p role="status" className={CARD_NOTE}>
+          {!origin
+            ? t('nodeRun.originOnly')
+            : !plan
+              ? t('nodeRun.unavailable')
+              : plan.error
+                ? t(`canvas:nodeBatch.${plan.error}`)
+                : plan.blockedReason}
         </p>
       )}
     </ApprovalCard>
