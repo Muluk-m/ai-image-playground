@@ -372,6 +372,8 @@ describe('runMigrations', () => {
     expect(reconcile?.data_type).toBe('timestamp with time zone')
   })
 
+  // Replaying 73 migrations on a fresh database takes about two seconds when CI is idle
+  // and crossed bun's five-second default under load (2014ms green, 5000ms timeout).
   it('upgrades a database already at 0073 to 0074 without replaying reconcile', async () => {
     await withEmptyDatabase('upgrade_0074', async (url) => {
       await migrateUntil(url, '0073_reconcile_schedule')
@@ -415,7 +417,7 @@ describe('runMigrations', () => {
         await client.close()
       }
     })
-  })
+  }, 30_000)
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
