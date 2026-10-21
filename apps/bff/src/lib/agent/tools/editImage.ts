@@ -138,6 +138,11 @@ export const editImage = defineAgentTool({
           '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
         )
       }
+      if (context.maskProposals?.has(images[0]!.imageId) && !images[0]!.maskDataUrl)
+        throw new AgentToolError(
+          'invalid_params',
+          '这张图的修改范围正在等用户确认，确认后会带着蒙版回来；这一轮不要先改它。',
+        )
       const prepared = await prepareMaskedEdit(
         images,
         params.selectionBindings,

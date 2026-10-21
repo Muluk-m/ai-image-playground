@@ -42,6 +42,7 @@ import {
   shownImageRequests,
 } from './images'
 import { AGENT_LENGTH_CONTINUE_NOTE, agentLengthFailureText } from './length-continuation'
+import { AGENT_MASK_PROPOSAL_TOOL, maskProposalFromResult } from './mask-proposal'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
@@ -227,6 +228,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       images,
       visualWorkset,
       imageCombinations,
+      maskProposals: new Set<string>(),
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
@@ -632,8 +634,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       }
     }
     // 澄清不出工具卡，所以它不在工具注册表里，`openTools` 也没有它的登记。
-    if (event.type === 'tool_execution_end' && event.toolName === AGENT_CLARIFICATION_TOOL) {
-      const block = event.isError ? null : clarificationFromResult(event.result)
+    if (
+      event.type === 'tool_execution_end' &&
+      (event.toolName === AGENT_CLARIFICATION_TOOL || event.toolName === AGENT_MASK_PROPOSAL_TOOL)
+    ) {
+      const block = event.isError
+        ? null
+        : event.toolName === AGENT_MASK_PROPOSAL_TOOL
+          ? maskProposalFromResult(event.result)
+          : clarificationFromResult(event.result)
       if (!block) return
       const messageId = crypto.randomUUID()
       events.emit({ ...block, messageId })
