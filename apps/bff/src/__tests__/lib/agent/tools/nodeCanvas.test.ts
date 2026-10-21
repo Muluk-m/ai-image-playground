@@ -998,6 +998,44 @@ it('replays the same first-frame call with its original authorization after the 
   expect(replayed.details?.canvasRun?.storyboard).toBeUndefined()
   expect(await stageRows()).toBe(rows)
   expect((await graph()).nodes.length).toBe(nodes)
+  // 同一调用 ID 换了参数不是重放：画布命令按调用指纹拒绝，不能拿原授权冒充新请求的结果。
+  await expect(
+    runStoryboardFrames
+      .create(context)
+      .execute(
+        'frames-replay',
+        { storyboardId: 'board', shotIds: ['shot-2'] },
+        undefined,
+        undefined,
+      ),
+  ).rejects.toThrow('canvas_command_conflict')
+  expect(await stageRows()).toBe(rows)
+})
+
+it('reports an expired authorization when replaying a first-frame call after its active TTL', async () => {
+  const { context, run } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  const call = () =>
+    runStoryboardFrames
+      .create(context)
+      .execute('frames-expire', { storyboardId: 'board' }, undefined, undefined)
+  const authorizationId = (await call()).details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const { authorization } = await confirmStageAuthorization(userId, authorizationId)
+  const table = schema.agent_stage_authorizations
+  // 把确认时间和最后更新都推回很久以前，没有在途任务，按 TTL 应当过期。
+  await db
+    .update(table)
+    .set({
+      updated_at: 1,
+      state: {
+        ...authorization,
+        audit: authorization.audit.map((event) => ({ ...event, at: 1 })),
+      },
+    })
+    .where(eq(table.id, authorizationId))
+  expect((await call()).details?.canvasRun?.status).toBe('expired')
 })
 
 it('rolls back laid-out first frames when the stage proposal cannot be registered', async () => {

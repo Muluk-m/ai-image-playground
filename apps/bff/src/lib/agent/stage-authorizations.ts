@@ -363,10 +363,12 @@ export async function readStageProposal(
   userId: string,
   conversationId: string,
   proposalKey: string,
-  tx: BffTransaction | typeof db = db,
+  tx?: BffTransaction,
 ): Promise<StageAuthorization | undefined> {
+  if (!tx)
+    return db.transaction((inner) => readStageProposal(userId, conversationId, proposalKey, inner))
   const [row] = await tx
-    .select({ state: table.state })
+    .select()
     .from(table)
     .where(
       and(
@@ -375,7 +377,9 @@ export async function readStageProposal(
         eq(table.proposal_key, proposalKey),
       ),
     )
-  return row?.state
+    .for('update')
+  // 与 readStageAuthorization 一样先按 TTL 收回，重放不能把已过期的授权说成仍可运行。
+  return row ? (await maybeExpire(tx, row)).state : undefined
 }
 export async function readStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => (await maybeExpire(tx, await owned(tx, userId, id))).state)

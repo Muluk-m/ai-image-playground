@@ -672,7 +672,7 @@ const STAGE_NOTE = {
 function canvasStageNote(direct: boolean, storyboard: boolean): string {
   const base = direct ? STAGE_NOTE.direct : STAGE_NOTE.pending
   if (!storyboard) return base
-  return base + (direct ? STAGE_NOTE.storyboardDirect : STAGE_NOTE.storyboardPending)
+  return `${base} ${direct ? STAGE_NOTE.storyboardDirect : STAGE_NOTE.storyboardPending}`
 }
 /** runNodes 与首帧阶段共用的回执。直接出图偏好只看本轮请求。 */
 function canvasStageResult(
@@ -917,33 +917,34 @@ export const runStoryboardFrames = defineAgentTool({
     const before = await load()
     let fingerprint: string
     try {
-      // 同一次调用已登记过就原样返回，不按可能已改过的画布重新校验或提案。
+      // 同一次调用已登记过：跳过按当前画布的预检，交给画布命令先核对调用参数，再在重放里取回原授权。
       const prior = await priorFrameProposal(
         userId,
         context.conversationId,
         `${context.turnId}:${callId}`,
         params.storyboardId,
       )
-      if (prior)
-        return canvasStageResult(context, project.id, prior, replayedStoryboard(before, prior))
-      const board = getNode(before, params.storyboardId)
-      if (board.type !== 'storyboard') return invalid(`节点不是分镜表：${params.storyboardId}`)
-      if (!board.data.shots.length)
-        return invalid('分镜表还没有镜头，先用 applyScriptPlan 写镜头。')
-      const known = new Set(board.data.shots.map((shot) => shot.id))
-      const unknown = (params.shotIds ?? []).filter((shot) => !known.has(shot))
-      if (unknown.length) invalid(`分镜表里没有这些镜头：${unknown.join('、')}`)
-      const missing = storyboardMissingAssetNodes(before, board.id, params.shotIds)
-      if (missing.length)
-        invalid(
-          `分镜表引用的素材还没有图：${missing
-            .map((asset) => `${asset.name}（${asset.id}）`)
-            .join(
-              '、',
-            )}。首帧没有铺，也没有登记授权。请向用户说明缺哪些素材，并提议素材阶段授权：给这些素材节点写好提示词后用 runNodes（stage 写「素材」），或用 importCanvasImage 把画布上已有的图收进素材。`,
-        )
-      fingerprint = storyboardFingerprint(board.data.shots)
-      prepareFrames(before, board.id, mode, scratchOrigin)
+      if (prior?.storyboard) fingerprint = prior.storyboard.fingerprint
+      else {
+        const board = getNode(before, params.storyboardId)
+        if (board.type !== 'storyboard') return invalid(`节点不是分镜表：${params.storyboardId}`)
+        if (!board.data.shots.length)
+          return invalid('分镜表还没有镜头，先用 applyScriptPlan 写镜头。')
+        const known = new Set(board.data.shots.map((shot) => shot.id))
+        const unknown = (params.shotIds ?? []).filter((shot) => !known.has(shot))
+        if (unknown.length) invalid(`分镜表里没有这些镜头：${unknown.join('、')}`)
+        const missing = storyboardMissingAssetNodes(before, board.id, params.shotIds)
+        if (missing.length)
+          invalid(
+            `分镜表引用的素材还没有图：${missing
+              .map((asset) => `${asset.name}（${asset.id}）`)
+              .join(
+                '、',
+              )}。首帧没有铺，也没有登记授权。请向用户说明缺哪些素材，并提议素材阶段授权：给这些素材节点写好提示词后用 runNodes（stage 写「素材」），或用 importCanvasImage 把画布上已有的图收进素材。`,
+          )
+        fingerprint = storyboardFingerprint(board.data.shots)
+        prepareFrames(before, board.id, mode, scratchOrigin)
+      }
     } finally {
       before.destroy()
     }
