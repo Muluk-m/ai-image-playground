@@ -30,12 +30,20 @@ const { maskedEditSize } = await import('../../../lib/agent/masked-input')
 const { protectMaskedOutput } = await import('../../../lib/agent/masked-output')
 const {
   boxAgreement,
+  dilationRadius,
   falSam3Body,
   falSam3Masks,
   pickMask,
+  promptBox,
+  segmentationProvider,
+  segmenterSize,
   segmentProposal,
   setSegmentationProviderForTesting,
+  setSegmenterFetchForTesting,
+  shapeMask,
+  unpackMaskBits,
 } = await import('../../../lib/agent/segmentation')
+const { config } = await import('../../../config')
 const { close: closeDb } = await import('../../../db/client')
 
 const MASK_CHANNEL = {
@@ -140,12 +148,48 @@ describe('proposeEditRegion', () => {
       target: '杯身和把手',
       change: '换成米白色釉面',
       keep: ['桌面', '书'],
-      segmentation: 'browser',
+      segmentation: 'box',
       model: { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare' },
       switchedFrom: { id: 'agnes-image', label: 'Agnes' },
     })
     expect(proposal.maskMediaId).toBeUndefined()
+    expect(proposal.regions).toBeUndefined()
     expect(ctx.maskProposals?.has('mug')).toBe(true)
+  })
+
+  it('numbers similar objects left to right and keeps which ones the agent picked', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(1024, 768))))
+    const result = await run(tool, {
+      ...args,
+      instances: [
+        { box: { x: 0.6, y: 0.4, width: 0.2, height: 0.3 }, label: '右边的杯子', selected: true },
+        { box: { x: 0.1, y: 0.4, width: 0.2, height: 0.3 }, label: '左边的杯子', selected: false },
+      ],
+    })
+    const regions = maskProposalFromResult(result)!.maskProposal!.regions!
+    expect(regions.map((one) => [one.number, one.label, one.selected])).toEqual([
+      [1, '左边的杯子', false],
+      [2, '右边的杯子', true],
+    ])
+    // 未登录、没有分割服务：区域按框画，不带蒙版。
+    expect(regions.every((one) => one.maskMediaId === undefined)).toBe(true)
+  })
+
+  it('rejects similar-object lists with nothing selected or only one entry', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(64, 64))))
+    const box = { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
+    await expect(
+      run(tool, {
+        ...args,
+        instances: [
+          { box, selected: false },
+          { box: { ...box, x: 0.5 }, selected: false },
+        ],
+      }),
+    ).rejects.toThrow('至少要有一个 selected')
+    await expect(run(tool, { ...args, instances: [{ box, selected: true }] })).rejects.toThrow(
+      'instances 只在',
+    )
   })
 
   it('rejects boxes in pixels, outside the image or too small', async () => {
@@ -232,6 +276,12 @@ describe('mask proposal answer', () => {
     })
   })
 
+  it('makes two images by default after a confirmation and keeps a larger count', () => {
+    expect(confirmedMaskProposalParams([asked], [masked], undefined)?.n).toBe(2)
+    expect(confirmedMaskProposalParams([asked], [masked], { n: 1 })?.n).toBe(2)
+    expect(confirmedMaskProposalParams([asked], [masked], { n: 4 })?.n).toBe(4)
+  })
+
   it('stays pending without a mask, for another image version, or after the user moved on', () => {
     expect(maskProposalAnswer([asked], [{ imageId: 'mug', mediaId: proposal.mediaId }])?.kind).toBe(
       'pending',
@@ -307,7 +357,7 @@ describe('server segmentation', () => {
     expect(pickMask([wrong], box)).toBeNull()
   })
 
-  it('returns null without a provider so the browser path takes over', async () => {
+  it('returns null without a provider so the card falls back to the agent box', async () => {
     expect(
       await segmentProposal({
         dataUrl: '',
@@ -385,4 +435,157 @@ describe('strict compositing at original resolution', () => {
     expect(outsideChanged).toBe(0)
     expect(insideChanged).toBeGreaterThan(0.9 * 600 * 600)
   }, 60_000)
+})
+
+describe('EdgeTAM segmenter', () => {
+  const segmentation = config.agent.segmentation as { segmenterUrl: string; provider: string }
+  const original = { ...segmentation }
+  const pack = (mask: Uint8Array) => {
+    const bits = new Uint8Array(Math.ceil(mask.length / 8))
+    for (let i = 0; i < mask.length; i++) if (mask[i]) bits[i >> 3]! |= 0x80 >> (i & 7)
+    return Buffer.from(bits).toString('base64')
+  }
+  const square = (width: number, height: number, box: [number, number, number, number]) => {
+    const data = new Uint8Array(width * height)
+    for (let y = box[1]; y < box[3]; y++)
+      for (let x = box[0]; x < box[2]; x++) data[y * width + x] = 1
+    return data
+  }
+
+  beforeEach(() => {
+    setSegmentationProviderForTesting()
+    segmentation.segmenterUrl = 'http://segmenter:8080'
+    segmentation.provider = 'fal-sam3'
+  })
+  afterAll(() => {
+    Object.assign(segmentation, original)
+    setSegmenterFetchForTesting()
+  })
+
+  it('prefers the in-house segmenter and honours off', () => {
+    expect(segmentationProvider()?.id).toBe('edgetam')
+    segmentation.provider = 'off'
+    expect(segmentationProvider()).toBeNull()
+  })
+
+  it('sizes requests to a 1024 long edge and unpacks MSB-first bits', () => {
+    expect(segmenterSize(2048, 1536)).toEqual({ width: 1024, height: 768 })
+    expect(segmenterSize(640, 480)).toEqual({ width: 640, height: 480 })
+    expect([...unpackMaskBits(new Uint8Array([0b1010_0000, 0b1000_0000]), 3, 3)]).toEqual([
+      255, 0, 255, 0, 0, 0, 0, 0, 255,
+    ])
+  })
+
+  it('asks by cache key first, resends a reduced image on 404 and returns the box-agreeing mask', async () => {
+    const source = url(await picture(2048, 1024))
+    const calls: Record<string, unknown>[] = []
+    setSegmenterFetchForTesting((async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>
+      calls.push(body)
+      if (!body.image) return Response.json({ error: 'image_required' }, { status: 404 })
+      const right = square(1024, 512, [256, 128, 512, 384])
+      const wrong = square(1024, 512, [800, 0, 1024, 100])
+      return Response.json({
+        width: 1024,
+        height: 512,
+        masks: [
+          { score: 0.99, bits: pack(wrong) },
+          { score: 0.8, bits: pack(right) },
+        ],
+      })
+    }) as unknown as typeof fetch)
+    const loaded: string[] = []
+    const result = await segmentProposal({
+      key: 'media:abc',
+      loadDataUrl: async () => {
+        loaded.push('read')
+        return source
+      },
+      width: 2048,
+      height: 1024,
+      prompt: 'mug',
+      box: { x: 0.25, y: 0.25, width: 0.25, height: 0.5 },
+      points: [{ x: 0.3, y: 0.5, include: true }],
+    })
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({
+      key: 'media:abc',
+      box: [0.25, 0.25, 0.5, 0.75],
+      points: [[0.3, 0.5, 1]],
+      output: { width: 1024, height: 512 },
+    })
+    expect(calls[0]!.image).toBeUndefined()
+    const sent = await sharp(Buffer.from(String(calls[1]!.image), 'base64')).metadata()
+    expect([sent.format, sent.width, sent.height]).toEqual(['jpeg', 1024, 512])
+    expect(loaded).toEqual(['read'])
+    expect(result?.provider).toBe('edgetam')
+    const mask = result!.mask
+    expect([mask.width, mask.height]).toEqual([2048, 1024])
+    // 放大回原图，再外扩 8px（长边 2048）。
+    const at = (x: number, y: number) => mask.data[y * 2048 + x]
+    expect(at(600, 400)).toBe(255)
+    expect(at(512 - 7, 400)).toBe(255)
+    expect(at(512 - 12, 400)).toBe(0)
+    expect(at(1700, 50)).toBe(0)
+  })
+
+  it('does not read the original when the segmenter already cached it', async () => {
+    setSegmenterFetchForTesting((async () =>
+      Response.json({
+        width: 64,
+        height: 64,
+        masks: [{ score: 0.9, bits: pack(square(64, 64, [16, 16, 48, 48])) }],
+      })) as unknown as typeof fetch)
+    const result = await segmentProposal({
+      key: 'media:abc',
+      loadDataUrl: async () => {
+        throw new Error('should not read the original')
+      },
+      width: 64,
+      height: 64,
+      prompt: 'x',
+      box: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 },
+    })
+    expect(result?.mask.data[32 * 64 + 32]).toBe(255)
+  })
+
+  it('gives up after the 3 s budget so the card keeps the agent box', async () => {
+    setSegmenterFetchForTesting(
+      ((_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) =>
+          init.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+        )) as unknown as typeof fetch,
+    )
+    const startedAt = Date.now()
+    const result = await segmentProposal({
+      key: 'media:slow',
+      dataUrl: url(await picture(32, 32)),
+      width: 32,
+      height: 32,
+      prompt: 'x',
+      box: { x: 0, y: 0, width: 1, height: 1 },
+    })
+    expect(result).toBeNull()
+    expect(Date.now() - startedAt).toBeLessThan(4_500)
+  }, 10_000)
+
+  it('dilates 4–8 px with the image size and grows the box to points clicked outside it', async () => {
+    expect(dilationRadius(512, 512)).toBe(4)
+    expect(dilationRadius(1536, 1024)).toBe(6)
+    expect(dilationRadius(4096, 4096)).toBe(8)
+    const shaped = await shapeMask(
+      { data: square(40, 40, [10, 10, 30, 30]).map((v) => v * 255), width: 40, height: 40 },
+      40,
+      40,
+      4,
+    )
+    expect(shaped.data[20 * 40 + 6]).toBe(255)
+    expect(shaped.data[20 * 40 + 4]).toBe(0)
+    expect(
+      promptBox({ x: 0.4, y: 0.4, width: 0.2, height: 0.2 }, [
+        { x: 0.9, y: 0.5, include: true },
+        { x: 0.1, y: 0.1, include: false },
+      ]),
+    ).toEqual({ x: 0.4, y: 0.4, width: expect.closeTo(0.52, 5), height: expect.closeTo(0.2, 5) })
+  })
 })

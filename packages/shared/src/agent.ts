@@ -993,10 +993,25 @@ export interface AgentMaskPromptPoint {
 }
 
 /**
- * 建议蒙版由谁给：服务端分割模型（`server`，带 `maskMediaId`）、浏览器里的分割模型（`browser`），
- * 或者只按框栅格化的粗略范围（`box`）。浏览器分割失败时界面同样退回 `box`。
+ * 建议蒙版由谁给：服务端分割模型（`server`，带 `maskMediaId`）、浏览器里的分割模型（`browser`，
+ * 旧提议才有，卡片已不再在浏览器里分割），或者只按框栅格化的粗略范围（`box`）。
  */
 export type AgentMaskSegmentation = 'server' | 'browser' | 'box'
+
+/**
+ * 画面里有几个相似对象时（例如两只杯子）逐个列出的区域，卡片上按编号显示，用户点编号增减。
+ * `selected` 是智能体判断的要改的那几个；生效的仍是用户确认带回来的那份蒙版。
+ */
+export interface AgentMaskRegion {
+  /** 从 1 开始的显示编号，按从左到右、从上到下排。 */
+  readonly number: number
+  readonly label?: string
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly selected: boolean
+  /** 服务端分割出的这个区域的蒙版（编辑格式，与原图同尺寸）；分割失败时缺席，卡片按框画。 */
+  readonly maskMediaId?: string
+}
 
 /**
  * 智能体提议的修改范围（`proposeEditRegion` 签发）。模型只给对象名、外接框与提示点；
@@ -1019,8 +1034,10 @@ export interface AgentMaskProposal {
   readonly box: AgentNormalizedBox
   readonly points?: readonly AgentMaskPromptPoint[]
   readonly segmentation: AgentMaskSegmentation
-  /** 服务端分割出的建议蒙版（不透明保留、透明重绘，与原图同尺寸）。 */
+  /** 服务端分割出的建议蒙版（不透明保留、透明重绘，与原图同尺寸）。有 `regions` 时由各区域合成。 */
   readonly maskMediaId?: string
+  /** 相似对象逐个编号；缺席表示只有一个目标（`box` / `points` / `maskMediaId` 就是它）。 */
+  readonly regions?: readonly AgentMaskRegion[]
   /** 这次局部编辑会用的模型；只会是支持蒙版的 GPT Image 系列。 */
   readonly model: { readonly id: string; readonly label: string }
   /** 用户选的模型不支持蒙版时记下原来那个；确认即同意改用 `model`。 */
