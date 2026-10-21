@@ -275,6 +275,28 @@ it('reports a direct run blocked before start with the missing input', async () 
     },
   ])
 })
+it('shows the shot table summary on a first-frame stage card and says confirming finalizes it', async () => {
+  await mount('frames', true, {
+    ...proposal,
+    stage: '首帧',
+    storyboard: {
+      storyboardId: 'board',
+      shotCount: 2,
+      totalSeconds: 9,
+      shots: [
+        { id: 'shot-1', durationSeconds: 4, line: '林夏蹲在窗台前。' },
+        { id: 'shot-2', durationSeconds: 5, line: '窗台特写' },
+      ],
+    },
+  })
+  const text = document.body.textContent
+  expect(text).toContain('镜头表：2 镜，共 9 秒')
+  expect(text).toContain('第 1 镜 · 4 秒 · 林夏蹲在窗台前。')
+  expect(text).toContain('第 2 镜 · 5 秒 · 窗台特写')
+  expect(text).toContain('确认即把这张分镜表定稿')
+  await act(async () => button('确认运行')!.click())
+  expect(confirms).toBe(1)
+})
 it('starts a direct run with no confirmation card and no undo wait', async () => {
   await mount('direct', true, { ...proposal, direct: true })
   await act(async () => {})
