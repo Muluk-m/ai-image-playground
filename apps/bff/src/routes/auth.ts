@@ -29,6 +29,7 @@ import { resolveAuthUser } from '../lib/user-auth'
 import {
   clearUserSessionCookie,
   createUserSession,
+  reclaimSwitchedAccount,
   resolveSessionUserId,
   revokeUserSession,
   sessionClientFromRequest,
@@ -173,6 +174,7 @@ export const userAuthRoutes = new Elysia()
       }
 
       const { sessionToken, user } = registration
+      await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, user.id)
       setUserSessionCookie(cookie, sessionToken)
       return status(201, {
         user: accountProfileView({
@@ -271,6 +273,7 @@ export const userAuthRoutes = new Elysia()
         return status(401, { error: 'invalid_credentials' })
       }
 
+      await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, authenticated.user.id)
       setUserSessionCookie(cookie, authenticated.token)
       sourceLimiter.recordSuccess(key)
       accountLimiter.recordSuccess(username)
