@@ -12,6 +12,7 @@ import { agentNodeRunBridge, subscribeAgentNodeRun } from '../lib/nodeRunBridge'
 import {
   type AgentNodeRun,
   agentNodeRun,
+  agentNodeRunControl,
   forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   startAgentNodeRun,
@@ -47,7 +48,7 @@ export default function AgentNodeRunCard({
   useEffect(() => {
     if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
       return
-    forgetAgentNodeRun(runKey)
+    forgetAgentNodeRun(runKey, agentNodeRunControl(runKey))
   }, [live, runKey])
   useEffect(() => {
     const authorizationId = proposal.authorizationId
@@ -104,8 +105,9 @@ export default function AgentNodeRunCard({
     ended: t('nodeRun.status.ended'),
     expired: t('nodeRun.status.expired'),
   }
-  const subtitle =
-    run?.status === 'countdown'
+  const subtitle = readFailed
+    ? t('nodeRun.readFailed')
+    : run?.status === 'countdown'
       ? t('nodeRun.startingIn', { seconds: run.remaining })
       : run?.status === 'confirming'
         ? t('nodeRun.confirming')
@@ -143,8 +145,10 @@ export default function AgentNodeRunCard({
       subtitle={subtitle}
       statusLabel={statusLabel}
       icon={<Icon name="play" size="sm" />}
-      disabled={canConfirm && (!stored || !plan || Boolean(plan.error) || plan.blocked)}
-      {...(canConfirm
+      disabled={
+        canConfirm && !readFailed && (!stored || !plan || Boolean(plan.error) || plan.blocked)
+      }
+      {...(canConfirm && !readFailed
         ? {
             allowOnceLabel: t('nodeRun.run'),
             onAllowOnce: () => startAgentNodeRun(runKey, proposal),

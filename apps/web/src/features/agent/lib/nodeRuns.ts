@@ -46,13 +46,17 @@ function publish(key: string, run: AgentNodeRun) {
   runs.set(key, run)
   for (const listener of listeners) listener()
 }
-export function forgetAgentNodeRun(key: string) {
-  if (!runs.has(key) && !origins.has(key) && !controls.has(key)) return
+export function forgetAgentNodeRun(key: string, control?: AbortController) {
+  const dropControl = control !== undefined && controls.get(key)?.control === control
+  if (!runs.has(key) && !origins.has(key) && !dropControl) return
   runs.delete(key)
   origins.delete(key)
-  controls.delete(key)
+  if (dropControl) controls.delete(key)
   revision += 1
   for (const listener of listeners) listener()
+}
+export function agentNodeRunControl(key: string): AbortController | undefined {
+  return controls.get(key)?.control
 }
 /** Explicit confirmation is the only entry. The BFF grants a token once, before the undo window. */
 export function startAgentNodeRun(

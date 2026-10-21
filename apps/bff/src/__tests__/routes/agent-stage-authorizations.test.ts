@@ -4,6 +4,8 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import {
   canvasNodeKind,
   canvasOrigin,
+  connectCanvasNodes,
+  insertCanvasNode,
   readCanvasDocument,
   updateCanvasNode,
 } from '@image-playground/shared'
@@ -264,7 +266,71 @@ it('prices the stage on the server when the model omits or understates the estim
   expect(result.status).toBe(200)
 })
 
-it('rejects a video node whose duration or resolution cannot be priced', async () => {
+it('prices prompted asset nodes like images and rejects promptless assets', async () => {
+  const insert = (
+    projectId: string,
+    node: {
+      id: string
+      data: {
+        name: string
+        meta: { nodeKind: 'asset'; assetKind: 'person' | 'location'; nodePrompt?: string }
+      }
+    },
+    linkFrom?: string,
+  ) =>
+    accessCanvasDocument('stage-owner', projectId, async (current) => {
+      const doc = new Y.Doc()
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+      const vector = Y.encodeStateVector(doc)
+      const origin = canvasOrigin('system', 'fixture')
+      insertCanvasNode(doc, { ...node, type: 'image', x: 0, y: 0, width: 320, height: 240 }, origin)
+      if (linkFrom) connectCanvasNodes(doc, { source: linkFrom, target: node.id }, origin)
+      const update = Y.encodeStateAsUpdate(doc, vector)
+      doc.destroy()
+      return update
+    })
+  const prompted = await fixture(['person'], undefined, async ({ projectId }) => {
+    await insert(projectId, {
+      id: 'person',
+      data: {
+        name: '林夏',
+        meta: { nodeKind: 'asset', assetKind: 'person', nodePrompt: '三视图' },
+      },
+    })
+  })
+  expect(prompted).toMatchObject({
+    nodeIds: ['person'],
+    estimatedCredits: 6,
+    budgetCap: 6,
+  })
+  const { executionToken } = await (await request(prompted.authorizationId, '/confirm', {})).json()
+  expect(
+    (
+      await request(prompted.authorizationId, '/preflight', {
+        nodeId: 'person',
+        model: 'gpt-image-2.5-flare',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'sheet',
+      })
+    ).status,
+  ).toBe(200)
+  await expect(
+    fixture(['blank'], undefined, async ({ projectId }) => {
+      await insert(
+        projectId,
+        {
+          id: 'blank',
+          data: { name: '空场景', meta: { nodeKind: 'asset', assetKind: 'location' } },
+        },
+        'a',
+      )
+    }),
+  ).rejects.toThrow('没有提示词')
+})
+
+it('rounds video duration up and prices an unknown resolution like settlement', async () => {
   const writeDraft = (projectId: string, draft: unknown) =>
     accessCanvasDocument('stage-owner', projectId, async (current) => {
       const doc = new Y.Doc()
@@ -318,23 +384,22 @@ it('rejects a video node whose duration or resolution cannot be priced', async (
         undefined,
       )
   }
-  await expect(
-    fixture(['clip'], undefined, async ({ projectId }) => {
-      await contextFor(projectId)
-      await writeDraft(projectId, { model: 'video-fixture', duration: 1.9, resolution: '720p' })
-    }),
-  ).rejects.toThrow('计价')
-  const priced = await fixture(['clip'], undefined, async ({ projectId }) => {
+  const fractional = await fixture(['clip'], undefined, async ({ projectId }) => {
     await contextFor(projectId)
-    await writeDraft(projectId, { model: 'video-fixture', duration: 5, resolution: '720p' })
+    await writeDraft(projectId, { model: 'video-fixture', duration: 1.9, resolution: '720p' })
   })
-  expect(priced).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
-  await expect(
-    fixture(['clip'], undefined, async ({ projectId }) => {
-      await contextFor(projectId)
-      await writeDraft(projectId, { model: 'video-fixture', duration: 5, resolution: '4k' })
-    }),
-  ).rejects.toThrow('计价')
+  expect(fractional).toMatchObject({ budgetCap: 12, nodeIds: ['clip'] })
+  expect(await (await request(fractional.authorizationId)).json()).toMatchObject({
+    charges: [{ nodeId: 'clip', quantity: 2, unitMultiplier: 1, credits: 12 }],
+  })
+  const unknown = await fixture(['clip'], undefined, async ({ projectId }) => {
+    await contextFor(projectId)
+    await writeDraft(projectId, { model: 'video-fixture', duration: 5, resolution: '4k' })
+  })
+  expect(unknown).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
+  expect(await (await request(unknown.authorizationId)).json()).toMatchObject({
+    charges: [{ nodeId: 'clip', quantity: 5, unitMultiplier: 1, credits: 30 }],
+  })
 })
 
 it('rejects a proposal when the server cannot price the nodes', async () => {

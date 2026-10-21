@@ -485,11 +485,14 @@ function runnableStageNode(
   node: CanvasNode,
 ): boolean {
   if (node.type !== 'image' && node.type !== 'video') return false
-  const meta = node.data.meta ?? {}
-  if (meta.nodeKind === 'asset') return false
   const kind = canvasNodeKind(node)
   if (kind !== 'image' && kind !== 'video') return false
-  return Boolean(meta.nodePrompt?.trim()) || graph.edges.some((edge) => edge.target === node.id)
+  const meta = node.data.meta ?? {}
+  // 与 buildNodeBatch 相同：有提示词的素材按普通出图授权；没提示词、只靠连线的素材排除。
+  return (
+    Boolean(meta.nodePrompt?.trim()) ||
+    (meta.nodeKind !== 'asset' && graph.edges.some((edge) => edge.target === node.id))
+  )
 }
 function stageCharge(
   node: CanvasNode,
@@ -516,19 +519,17 @@ function stageCharge(
       typeof saved.duration === 'number' ? saved.duration : params?.video?.durationSeconds
     const resolution =
       typeof saved.resolution === 'string' ? saved.resolution : params?.video?.resolution
-    if (
-      !model ||
-      typeof duration !== 'number' ||
-      !Number.isInteger(duration) ||
-      duration < 1 ||
-      !VIDEO_RESOLUTIONS.has(resolution as VideoResolution)
-    )
+    if (!model || typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0)
       return undefined
+    const quantity = Math.ceil(duration)
+    if (!Number.isSafeInteger(quantity) || quantity < 1) return undefined
     return {
       nodeId: node.id,
       model,
-      quantity: duration,
-      unitMultiplier: videoRateMultiplier(model, resolution as VideoResolution),
+      quantity,
+      unitMultiplier: VIDEO_RESOLUTIONS.has(resolution as VideoResolution)
+        ? videoRateMultiplier(model, resolution as VideoResolution)
+        : 1,
     }
   }
   const model = resolveAgentModel('image', params?.model)?.model
@@ -553,7 +554,7 @@ export const runNodes = defineAgentTool({
   guidance:
     '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
   description:
-    '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。素材节点不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
+    '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没有提示词、只靠连线的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
     nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
     stage: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
@@ -604,15 +605,17 @@ export const runNodes = defineAgentTool({
       for (const group of graph.groups ?? [])
         if (ids.has(group.id)) for (const nodeId of group.members) ids.add(nodeId)
       const scoped = graph.nodes.filter((node) => ids.has(node.id))
-      const assets = scoped.filter(
+      const promptlessAssets = scoped.filter(
         (node) =>
-          (node.type === 'image' || node.type === 'video') && node.data.meta?.nodeKind === 'asset',
+          (node.type === 'image' || node.type === 'video') &&
+          node.data.meta?.nodeKind === 'asset' &&
+          !node.data.meta.nodePrompt?.trim(),
       )
       const nodes = scoped.filter((node) => runnableStageNode(graph, node))
       if (!nodes.length)
         return invalid(
-          assets.length
-            ? '范围内只有素材节点。素材不会单独生成，请改为指定图片或视频节点。'
+          promptlessAssets.length
+            ? '范围内的素材节点没有提示词，不能单独生成。请写上提示词，或改为指定图片、视频节点。'
             : '范围内没有可生成的图片或视频节点。',
         )
       const billing = isCapabilityEnabled('billing:credits')

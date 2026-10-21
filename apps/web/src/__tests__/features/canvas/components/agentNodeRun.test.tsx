@@ -192,14 +192,15 @@ it('stops rereading an authorization after repeated failures', async () => {
       return new Response('unavailable', { status: 503 })
     }),
   )
-  await mount('read-backoff', false)
+  await mount('read-backoff')
   expect(reads).toBe(1)
   await act(async () => {
     await vi.advanceTimersByTimeAsync(120_000)
   })
   expect(reads).toBe(5)
   expect(document.body.textContent).toContain('读不到授权状态')
-  await act(async () => button('再试一次')!.click())
+  expect(button('确认运行')).toBeUndefined()
+  await act(async () => button('重试')!.click())
   expect(reads).toBe(6)
 })
 

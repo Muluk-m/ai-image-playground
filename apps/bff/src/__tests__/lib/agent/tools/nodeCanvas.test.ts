@@ -378,7 +378,7 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   ).rejects.toThrow('云端节点画布')
 })
 
-it('rejects a stage that only contains asset nodes', async () => {
+it('authorizes an asset node that has a prompt and rejects a promptless asset', async () => {
   const { context, projectId } = await fixture()
   await accessCanvasDocument(userId, projectId, async (current) => {
     const doc = new Y.Doc()
@@ -405,9 +405,50 @@ it('rejects a stage that only contains asset nodes', async () => {
     doc.destroy()
     return update
   })
+  const proposal = await runNodes
+    .create(context)
+    .execute('assets', { nodeIds: ['person'] }, undefined, undefined)
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['person'])
+  expect(proposal.details?.canvasRun).toMatchObject({ budgetCap: 0, estimatedCredits: 0 })
+  const authorizationId = proposal.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, authorizationId, [
+    { nodeId: 'person', model: 'fixture-image', quantity: 1, unitMultiplier: 1 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, authorizationId, {
+    nodeId: 'person',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'asset-sheet',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'blank',
+        type: 'image',
+        x: 400,
+        y: 0,
+        width: 320,
+        height: 240,
+        data: { name: '空素材', meta: { nodeKind: 'asset', assetKind: 'location' } },
+      },
+      origin,
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
   await expect(
-    runNodes.create(context).execute('assets', { nodeIds: ['person'] }, undefined, undefined),
-  ).rejects.toThrow('素材')
+    runNodes.create(context).execute('blank', { nodeIds: ['blank'] }, undefined, undefined),
+  ).rejects.toThrow('没有提示词')
 })
 
 it('turns a chat attachment into an image node the user does not have to drag in', async () => {
@@ -549,7 +590,8 @@ it('imports an existing image into the specified asset as its primary candidate 
   })
   const beforeTasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
   await run(updateNodes, { nodes: [{ id: 'asset', prompt: '人物正面侧面背面三视图' }] })
-  await expect(run(runNodes, { nodeIds: ['asset'] })).rejects.toThrow('素材')
+  const proposal = await run(runNodes, { nodeIds: ['asset'] })
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['asset'])
   expect((await graph()).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
     meta: { nodeKind: 'asset', nodePrompt: '人物正面侧面背面三视图' },
   })
