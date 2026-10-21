@@ -332,6 +332,23 @@ function inBox(box: AgentNormalizedBox, point: Point): boolean {
   )
 }
 
+/** 新的一下离之前某一下这么近，就当作改主意：换掉旧的，不让一正一负叠在同一处。 */
+export const CLICK_REPLACE_DISTANCE = 0.03
+
+/** 在一个区域的点选记录上加一下：附近的旧点让位，最多保留 `max` 个。 */
+export function addClick(
+  clicks: readonly AgentMaskPromptPoint[],
+  click: AgentMaskPromptPoint,
+  max: number,
+): AgentMaskPromptPoint[] {
+  return [
+    ...clicks.filter(
+      (one) => Math.hypot(one.x - click.x, one.y - click.y) > CLICK_REPLACE_DISTANCE,
+    ),
+    click,
+  ].slice(-max)
+}
+
 /**
  * 点一下落在哪个区域上：先看点在谁的蒙版里，再看在谁的框里（多个就取面积最小的），
  * 都不是就交给当前区域。排除点只认已经包含它的那个区域。

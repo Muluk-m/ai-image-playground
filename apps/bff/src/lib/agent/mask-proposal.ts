@@ -462,6 +462,22 @@ export type RefineEditRegionResult =
       readonly elapsedMs: number
     }
 
+/** 用户点在智能体给的点附近，就以用户的为准：那一点不再交给模型，免得一正一负互相抵消。 */
+export const SEED_OVERRIDE_DISTANCE = 0.06
+
+/** 智能体给的点在前、用户这几下在后；离用户某一下太近的智能体点去掉。 */
+export function seedPoints(
+  agent: readonly AgentMaskPromptPoint[] | undefined,
+  user: readonly AgentMaskPromptPoint[],
+): AgentMaskPromptPoint[] {
+  const kept = (agent ?? []).filter((point) =>
+    user.every(
+      (click) => Math.hypot(click.x - point.x, click.y - point.y) > SEED_OVERRIDE_DISTANCE,
+    ),
+  )
+  return [...kept, ...user]
+}
+
 /**
  * 卡片上点一下：在提议的那个区域上叠加用户的包含 / 排除点重新分割。原图只按会话的认领读，
  * 分割服务缓存过这张图时连原图都不读。结果不落库，确认时卡片会把最终蒙版一起交回来。
@@ -484,8 +500,7 @@ export async function refineEditRegion(input: {
   const provider = segmentationProvider()
   if (!provider) return { kind: 'unavailable' }
   const user = cleanPoints(input.points) ?? []
-  const seeded = [...((region ?? proposal).points ?? []), ...user]
-  const points = seeded.slice(-MASK_PROMPT_POINTS_MAX)
+  const points = seedPoints((region ?? proposal).points, user).slice(-MASK_PROMPT_POINTS_MAX)
   const startedAt = Date.now()
   const segmented = await segmentProposal({
     key: segmenterKey(proposal.mediaId),
