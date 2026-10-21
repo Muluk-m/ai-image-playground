@@ -9,6 +9,7 @@ import type {
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
+  AgentMaskPromptPoint,
   AgentMessageQueuedBody,
   AgentMessageView,
   AgentMode,
@@ -758,6 +759,36 @@ export async function postSave(
   if (!response.ok) throw await requestError(response)
   const body = (await response.json()) as AgentSaveResponse
   return body.message
+}
+
+export interface EditRegionRefinement {
+  /** 编辑格式的 PNG data URL（不透明保留、透明重绘），与原图同尺寸。 */
+  readonly mask: string
+  readonly provider: string
+  readonly elapsedMs: number
+}
+
+/**
+ * 范围确认卡上点一下：服务端在提议的那个区域上叠加这些点重新分割。没有分割服务时 503，
+ * 分割失败或超时 502；调用方保留当前范围，提示用户改用画笔。
+ */
+export async function refineEditRegion(
+  conversationId: string,
+  proposalId: string,
+  input: { readonly region?: number; readonly points: readonly AgentMaskPromptPoint[] },
+  signal?: AbortSignal,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<EditRegionRefinement> {
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/edit-region/${encodeURIComponent(proposalId)}/segment`),
+    {
+      ...jsonInit({ deviceId: getDeviceId(), ...input }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as EditRegionRefinement
 }
 
 /** 中止一条还在跑的重试，按原桶退回。 */

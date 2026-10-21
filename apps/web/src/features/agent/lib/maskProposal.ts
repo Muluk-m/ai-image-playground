@@ -292,3 +292,82 @@ export function maskAnswerReference(
     editAction: 'inpaint',
   }
 }
+
+/** 卡片上的一个可选区域：相似对象逐个编号；只有一个目标时就是提议本身。 */
+export interface MaskRegionView {
+  readonly number: number
+  readonly label?: string
+  readonly box: AgentNormalizedBox
+  readonly selected: boolean
+  readonly maskMediaId?: string
+}
+
+export function proposalRegions(
+  proposal: Pick<AgentMaskProposal, 'box' | 'maskMediaId' | 'regions'>,
+): MaskRegionView[] {
+  if (proposal.regions?.length)
+    return proposal.regions.map((one) => ({
+      number: one.number,
+      ...(one.label ? { label: one.label } : {}),
+      box: one.box,
+      selected: one.selected,
+      ...(one.maskMediaId ? { maskMediaId: one.maskMediaId } : {}),
+    }))
+  return [
+    {
+      number: 1,
+      box: proposal.box,
+      selected: true,
+      ...(proposal.maskMediaId ? { maskMediaId: proposal.maskMediaId } : {}),
+    },
+  ]
+}
+
+function inBox(box: AgentNormalizedBox, point: Point): boolean {
+  return (
+    point.x >= box.x &&
+    point.x <= box.x + box.width &&
+    point.y >= box.y &&
+    point.y <= box.y + box.height
+  )
+}
+
+/**
+ * 点一下落在哪个区域上：先看点在谁的蒙版里，再看在谁的框里（多个就取面积最小的），
+ * 都不是就交给当前区域。排除点只认已经包含它的那个区域。
+ */
+export function regionForClick(
+  regions: readonly MaskRegionView[],
+  containing: readonly number[],
+  point: Point,
+  include: boolean,
+  active: number,
+): number {
+  if (containing.length) return containing.includes(active) ? active : containing[0]!
+  if (!include) return active
+  const boxed = regions
+    .filter((one) => inBox(one.box, point))
+    .sort((a, b) => a.box.width * a.box.height - b.box.width * b.box.height)
+  return boxed[0]?.number ?? active
+}
+
+/** 确认后要出几张：默认 2；直接出图模式下输入框选了更多就按它（服务端同一口径）。 */
+export const MASK_CONFIRMED_DEFAULT_COUNT = 2
+export function maskOutputCount(composerCount: number | undefined): number {
+  return Math.max(MASK_CONFIRMED_DEFAULT_COUNT, composerCount ?? 1)
+}
+
+/** 确认那条用户消息里带回来的蒙版：云端引用给 media id，内联引用给 data URL。 */
+export function confirmedMaskSource(
+  references: readonly unknown[] | undefined,
+  proposal: Pick<AgentMaskProposal, 'imageId'>,
+): string | null {
+  for (const reference of references ?? []) {
+    if (!reference || typeof reference !== 'object') continue
+    const one = reference as { imageId?: unknown; maskMediaId?: unknown; maskDataUrl?: unknown }
+    if (one.imageId !== proposal.imageId) continue
+    if (typeof one.maskMediaId === 'string') return `aip-media:${one.maskMediaId}`
+    if (typeof one.maskDataUrl === 'string') return one.maskDataUrl
+  }
+  return null
+}

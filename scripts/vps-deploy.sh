@@ -51,11 +51,13 @@ present=$(cd "$release" && find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' 
 # Require exactly one record per requested edition and only inert, well-formed fields. The sixth
 # column, the registry digest, is `-` or absent in archive releases.
 awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
-  target == "test" && $1 != "test" && $1 != "backup" { exit 1 }
+  target == "test" && $1 != "test" && $1 != "backup" && $1 != "segmenter" { exit 1 }
+  target != "test" && $1 == "segmenter" { exit 1 }
   $1 == "test" && $2 !~ /^ai-image-playground:test-/ { exit 1 }
-  (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|test|backup)$/ || seen[$1]++ { exit 1 }
+  $1 == "segmenter" && ($2 !~ /^ai-image-playground:segmenter-/ || $5 != "-") { exit 1 }
+  (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|test|backup|segmenter)$/ || seen[$1]++ { exit 1 }
   NF == 6 && $6 != "-" && (index($6, repo) != 1 || substr($6, length(repo) + 1) !~ /^[0-9a-f]+$/ || length($6) != length(repo) + 64) { exit 1 }
-  $2 !~ /^ai-image-playground:(vps-main|paid|test|backup)-[0-9a-f-]+$/ { exit 1 }
+  $2 !~ /^ai-image-playground:(vps-main|paid|test|backup|segmenter)-[0-9a-f-]+$/ { exit 1 }
   $3 !~ /^sha256:[0-9a-f]+$/ || length($3) != 71 { exit 1 }
   $4 !~ /^[0-9a-f]+$/ || length($4) != 40 { exit 1 }
   $5 != "-" && ($5 !~ /^[0-9a-f]+$/ || length($5) != 40) { exit 1 }
@@ -111,6 +113,12 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
     docker run --rm --network none --memory 256m --entrypoint pg_dump "$image" --version
     continue
   fi
+  if [ "$edition" = segmenter ]; then
+    # Loads the baked weights and runs one prompt under the production limits.
+    docker run --rm --network none --memory 900m --memory-swap 900m --cpus 2 "$image" \
+      node server.mjs --self-test
+    continue
+  fi
   # Execute the target native module before touching services or schema.
   docker run --rm --network none --memory 256m --entrypoint bun "$image" -e '
     import sharp from "./apps/bff/node_modules/sharp";
@@ -119,6 +127,7 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   '
 done < "$release/images.tsv"
 backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
+segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
 rolled_out=
 for edition in $editions; do
   record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
@@ -127,6 +136,22 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
+  # The segmenter (deploy/segmenter) starts before the executors that call it. It is optional:
+  # if it does not come up, the BFF is not told about it and edit-region cards fall back to
+  # the agent's box, so a failure here warns instead of failing the release.
+  AGENT_SEGMENTER_URL=
+  if [ "$edition" = test ] && [ -n "$segmenter_image" ]; then
+    if SEGMENTER_IMAGE=$segmenter_image APP_IMAGE=$image BACKUP_IMAGE=$backup_image \
+      "$release/scripts/app-compose.sh" compose "$project" --profile segmenter \
+      up --detach --no-deps --wait segmenter; then
+      AGENT_SEGMENTER_URL=http://segmenter:8080
+      docker tag "$segmenter_image" ai-image-playground:segmenter
+      rolled_out="$rolled_out $segmenter_image"
+    else
+      echo "Warning: the segmenter did not start; edit-region cards fall back to the agent's box." >&2
+    fi
+  fi
+  export AGENT_SEGMENTER_URL
   APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$release/scripts/app-compose.sh" up "$project"
   docker tag "$image" "$(edition_var "$prefix" IMAGE)"
   append_deploy_log "$edition" "$image" ok

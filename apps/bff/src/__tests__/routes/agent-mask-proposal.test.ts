@@ -38,6 +38,8 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { editMaskPng } = await import('../../lib/agent/mask-proposal')
+const { setSegmentationProviderForTesting } = await import('../../lib/agent/segmentation')
+type SegmentationRequest = import('../../lib/agent/segmentation').SegmentationRequest
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -142,6 +144,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  setSegmentationProviderForTesting()
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
   setObjectStoreForTesting()
@@ -153,6 +156,15 @@ afterAll(async () => {
 })
 
 describe('范围确认卡', () => {
+  it('reports whether the segmenter is configured, without signing in', async () => {
+    const response = await app.handle(
+      new Request('http://localhost/api/agent/edit-region/segmenter'),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.json()).toEqual({ configured: false })
+  })
+
   it('asks for the region, then runs the strict masked edit with the confirmed mask', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
     const conversationId = (json as { conversation: { id: string } }).conversation.id
@@ -160,6 +172,17 @@ describe('范围确认卡', () => {
     await addConversationMediaClaims(conversationId, USER, [original.id])
     const reference = { imageId: original.id, mediaId: original.id }
 
+    // 分割服务按 ≤1024 边长交回三张候选，BFF 选与框一致的那张、放大回原图再外扩。
+    const segmented: SegmentationRequest[] = []
+    setSegmentationProviderForTesting({
+      id: 'edgetam',
+      async segment(request) {
+        segmented.push(request)
+        const data = new Uint8Array(320 * 240)
+        for (let y = 80; y < 170; y++) for (let x = 110; x < 210; x++) data[y * 320 + x] = 255
+        return [{ data, width: 320, height: 240, score: 0.9 }]
+      },
+    })
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -190,10 +213,51 @@ describe('范围确认卡', () => {
       width: WIDTH,
       height: HEIGHT,
       target: '杯身和把手',
-      segmentation: 'browser',
+      segmentation: 'server',
       model: { id: 'gpt-image-2.5-flare' },
       switchedFrom: { id: 'agnes-image' },
     })
+    const proposal = question!.maskProposal!
+    expect(proposal.maskMediaId).toBeString()
+    expect(segmented[0]).toMatchObject({
+      key: `media:${original.id}`,
+      width: WIDTH,
+      height: HEIGHT,
+    })
+
+    // 卡片上点一下：在同一个区域上叠加用户的点重新分割，回原图尺寸的编辑格式蒙版。
+    const refine = (id: string, body: Record<string, unknown>) =>
+      post(`/api/agent/conversations/${conversationId}/edit-region/${id}/segment`, {
+        deviceId: DEVICE,
+        ...body,
+      })
+    const clicked = await refine(proposal.id, {
+      points: [
+        { x: 0.5, y: 0.5, include: true },
+        { x: 0.68, y: 0.7, include: false },
+      ],
+    })
+    expect(clicked.status).toBe(200)
+    const refined = clicked.json as { mask: string; provider: string }
+    expect(refined.provider).toBe('edgetam')
+    const refinedMask = await sharp(Buffer.from(refined.mask.split(',')[1]!, 'base64'))
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    expect([refinedMask.info.width, refinedMask.info.height]).toEqual([WIDTH, HEIGHT])
+    expect(refinedMask.data[(500 * WIDTH + 640) * 4 + 3]).toBe(0)
+    expect(refinedMask.data[(20 * WIDTH + 20) * 4 + 3]).toBe(255)
+    expect(segmented.at(-1)?.points).toEqual([
+      { x: 0.5, y: 0.5, include: true },
+      { x: 0.68, y: 0.7, include: false },
+    ])
+    expect(
+      (await refine('someone-else', { points: [{ x: 0.5, y: 0.5, include: true }] })).status,
+    ).toBe(404)
+    setSegmentationProviderForTesting(null)
+    expect(
+      (await refine(proposal.id, { points: [{ x: 0.5, y: 0.5, include: true }] })).status,
+    ).toBe(503)
     // 提议发出后这一轮就停：轮到用户确认。
     expect(calls).toHaveLength(1)
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
@@ -249,6 +313,8 @@ describe('范围确认卡', () => {
     expect(end!.job?.taskId).toBeString()
     const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, end!.job!.taskId))
     expect(task!.model).toBe('gpt-image-2.5-flare')
+    // 确认后默认出 2 张。
+    expect(task!.request_payload.n).toBe(2)
     expect(task!.request_payload.preserve_outside_mask).toBe(true)
     const submitted = await hydrateInputImages(task!.request_payload)
     const [source] = submitted.input_images!
@@ -267,7 +333,7 @@ describe('范围确认卡', () => {
     expect(raw.equals(await sharp(ORIGINAL).ensureAlpha().raw().toBuffer())).toBe(true)
     const modelSaw = JSON.stringify(calls.map((call) => call.messages))
     expect(modelSaw).toContain('把手内侧也要改')
-  })
+  }, 20_000)
 
   it('does not let the agent edit the image without a mask while the region is pending', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
