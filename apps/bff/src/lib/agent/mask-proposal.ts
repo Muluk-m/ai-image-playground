@@ -437,7 +437,7 @@ export function maskProposalTool(context: AgentToolContext): AgentTool {
 }
 
 const MASK_PROPOSAL_DESCRIPTION =
-  '用户只想改图里某个对象或局部、而本轮没有附带选区时，先用它请用户确认修改范围：你给出对象名、英文分割提示与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。要换背景时用 invert：框住要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
+  '用户要改图里某个对象或局部（含「换掉 X、背景不变」）、或只换背景，而本轮没有附带选区时，必须先用它请用户确认修改范围，不要整图改：你给出对象名、英文分割提示与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。要换背景时用 invert：框住要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
 
 /** 只给预扣估算与清单用的声明；不需要运行期 context。 */
 export const maskProposalDeclaration = {
@@ -447,7 +447,7 @@ export const maskProposalDeclaration = {
 }
 
 export const MASK_PROPOSAL_GUIDANCE =
-  '用户只想改图中某个对象或局部、本轮却没有附带选区时，不要直接整图改：先调 proposeEditRegion 请他确认修改范围，确认后他会带着蒙版回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素保持原样。已有选区、或用户要的是整体风格、光线、构图变化时不用它。'
+  '用户要改图里的某一个对象或局部（换掉、改色、去掉某样东西，包括「把 X 换一下、背景不变」这类说法），或者只换背景、主体不动，而本轮没有附带选区时，一律先调 proposeEditRegion 请他确认修改范围，绝不直接整图改；整图改会被系统拒绝。不要先追问要换成什么样：用户没说的交给生成按原话处理，确认卡上他可以补充。只有要改的对象本身真有歧义（比如有几个都说得通、又不能用 instances 列出来让他选）时才先问一句。确认后他会带着蒙版回来，再按选区调 editImage；生成只改蒙版内，蒙版外像素保持原样。已有选区、或用户要的是整体风格、色调、光线、构图变化时不用它。'
 
 export function maskProposalFromResult(result: unknown): AgentClarificationBlock | null {
   const block = piToolResult<MaskProposalDetails>(result).details?.clarification

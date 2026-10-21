@@ -1,7 +1,7 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
 import { inspectMaskedAlignment } from '../../../lib/agent/masked-alignment'
-import { protectMaskedOutput } from '../../../lib/agent/masked-output'
+import { acceptsUpstreamSize, protectMaskedOutput } from '../../../lib/agent/masked-output'
 
 async function png(values: number[], mask = false) {
   const raw = Buffer.alloc(96 * 96 * 4)
@@ -360,4 +360,105 @@ it('only reports unchanged regions when no retry is available', async () => {
   const protect = await protectMaskedOutput(url(await encode(raw)), url(await encode(selection)))
   const result = await protect(await paint([inA]))
   expect(result.inspection).toMatchObject({ regions: 2, regionsUnchanged: 1, regionRetries: 0 })
+})
+
+/** 一张处处有纹理的图，中间一块是选区；与上面的等比校正用例同一做法。 */
+async function texturedCase(width: number, height: number) {
+  const raw = Buffer.alloc(width * height * 4),
+    selection = Buffer.alloc(raw.length, 255)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      raw.set(
+        [
+          128 + 80 * Math.sin(x / 9),
+          128 + 80 * Math.cos(y / 11),
+          128 + 70 * Math.sin((x + y) / 7),
+          255,
+        ],
+        i,
+      )
+      if (x > width * 0.4 && x < width * 0.6 && y > height * 0.4 && y < height * 0.6)
+        selection[i + 3] = 0
+    }
+  const original = await sharp(raw, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer()
+  const m = await sharp(selection, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer()
+  return { raw, selection, original, mask: m }
+}
+
+function expectProtectedUnchanged(raw: Buffer, selection: Buffer, delivered: Buffer) {
+  let changed = 0
+  for (let i = 0; i < raw.length; i += 4)
+    if (selection[i + 3] === 255 && !raw.subarray(i, i + 4).equals(delivered.subarray(i, i + 4)))
+      changed++
+  expect(changed).toBe(0)
+}
+
+it('accepts an upstream output at its own pixel tier when the aspect ratio matches (912→1254)', async () => {
+  // 上游不按请求尺寸出图：方图一律回 1254×1254。缩回原尺寸后照常核对，蒙版外一个像素不变。
+  const { raw, selection, original, mask: m } = await texturedCase(304, 304)
+  const protect = await protectMaskedOutput(url(original), url(m))
+  const result = await protect(await sharp(original).resize(418, 418).png().toBuffer())
+  expect(result.inspection.rescaled).toBe(1)
+  expect(result.inspection).toMatchObject({ width: 304, height: 304 })
+  expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
+})
+
+it('accepts a downscaled output with the same aspect ratio, as large prod uploads get', async () => {
+  const { raw, selection, original, mask: m } = await texturedCase(480, 320)
+  const protect = await protectMaskedOutput(url(original), url(m))
+  const result = await protect(await sharp(original).resize(240, 160).png().toBuffer())
+  expect(result.inspection.rescaled).toBe(1)
+  expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
+})
+
+it('tolerates rounding in the upstream size but rejects a different aspect ratio', async () => {
+  const { original, mask: m } = await texturedCase(304, 304)
+  const protect = await protectMaskedOutput(url(original), url(m))
+  // 418×419 只是取整差（0.24%），照常缩回。
+  const rounded = await protect(await sharp(original).resize(418, 419).png().toBuffer())
+  expect(rounded.inspection.rescaled).toBe(1)
+  // 宽高比差 3%：画面被裁或拉伸过，拒绝，不贴回。
+  await expect(
+    protect(await sharp(original).resize(418, 406, { fit: 'fill' }).png().toBuffer()),
+  ).rejects.toThrow('尺寸与原图不一致')
+})
+
+it('still refuses a same-aspect output whose content moved after the rescale', async () => {
+  const { original, mask: m } = await texturedCase(304, 304)
+  const protect = await protectMaskedOutput(url(original), url(m))
+  const moved = await sharp(original)
+    .extract({ left: 24, top: 0, width: 280, height: 304 })
+    .extend({ left: 0, top: 0, right: 24, bottom: 0, background: '#fff' })
+    .png()
+    .toBuffer()
+  await expect(protect(await sharp(moved).resize(418, 418).png().toBuffer())).rejects.toThrow(
+    '位置对应无法确认',
+  )
+})
+
+it('accepts the sizes prod upstreams actually return for a request, and only those', () => {
+  // 请求尺寸 → 付费版近 60 天上游实际回的尺寸（只读统计）。
+  for (const [w, h, gw, gh] of [
+    [1024, 1024, 1254, 1254],
+    [912, 912, 1254, 1254],
+    [720, 1280, 941, 1672],
+    [720, 1280, 940, 1672],
+    [1280, 720, 1671, 941],
+    [768, 1024, 1086, 1448],
+    [1024, 1360, 1086, 1448],
+    [1248, 1280, 1240, 1268],
+    [3840, 2160, 1672, 941],
+  ] as const)
+    expect(acceptsUpstreamSize(w, h, gw, gh)).toBe(true)
+  for (const [w, h, gw, gh] of [
+    [1280, 720, 1774, 887], // 16:9 回成 2:1
+    [1920, 816, 1916, 821], // 差 0.8%，超出取整
+    [96, 96, 1, 1], // 缩放过头
+  ] as const)
+    expect(acceptsUpstreamSize(w, h, gw, gh)).toBe(false)
 })

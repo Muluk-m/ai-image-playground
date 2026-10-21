@@ -1,7 +1,11 @@
 import { agentTitleLine } from '@image-playground/shared'
+import sharp from 'sharp'
 import { Type } from 'typebox'
+import { SINGLE_OBJECT_EDIT_REFUSAL } from '../edit-intent'
 import { requireAgentImages } from '../images'
+import { chooseMaskModel } from '../mask-proposal'
 import { prepareMaskedEdit } from '../masked-edit'
+import { maskedEditSize } from '../masked-input'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import {
@@ -143,6 +147,17 @@ export const editImage = defineAgentTool({
           'invalid_params',
           '这张图的修改范围正在等用户确认，确认后会带着蒙版回来；这一轮不要先改它。',
         )
+      if (
+        context.singleObjectEdit &&
+        context.experience === 'chat' &&
+        context.userId &&
+        !context.images.masked &&
+        !context.maskedEditPlan?.protected &&
+        !images.some((image) => image.maskDataUrl) &&
+        !params.selectionBindings?.length &&
+        (await maskable(images[0]!.dataUrl, context.params?.model))
+      )
+        throw new AgentToolError('invalid_params', SINGLE_OBJECT_EDIT_REFUSAL)
       const prepared = await prepareMaskedEdit(
         images,
         params.selectionBindings,
@@ -208,3 +223,15 @@ export const editImage = defineAgentTool({
     }
   },
 })
+
+/** 这张图能不能走范围确认：有按蒙版生成的模型，且原图尺寸在它的局部编辑范围内。不能时不拦整图编辑。 */
+async function maskable(dataUrl: string, preferred: string | undefined): Promise<boolean> {
+  try {
+    const { model } = chooseMaskModel(preferred)
+    const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
+    const { width, height } = await sharp(bytes).metadata()
+    return Boolean(width && height) && !('problem' in maskedEditSize(model.id, width!, height!))
+  } catch {
+    return false
+  }
+}
