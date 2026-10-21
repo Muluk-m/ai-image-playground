@@ -328,6 +328,26 @@ export function orderStageReferences<T extends { readonly id: string }>(
   )
 }
 
+/**
+ * 画布批量运行与阶段授权共用的入选规则：有提示词的节点照常运行；素材节点没写提示词但有描述
+ * （例如剧本拆分建出的人物、地点）时按「素材名：描述」出图——这正是 {@link stageAssetContext}
+ * 放在提示词最前面的那一段，所以不必改写节点，服务端冻结的提示词与原标签页提交的天然一致。
+ * 没提示词也没描述的素材、只靠连线的素材仍然排除。
+ */
+export function stageNodeRunnable(
+  node: CanvasNode,
+  edges: readonly { readonly target: string }[],
+): boolean {
+  if (node.type !== 'image' && node.type !== 'video') return false
+  const kind = canvasNodeKind(node)
+  if (kind !== 'image' && kind !== 'video') return false
+  const meta = node.data.meta ?? {}
+  if (meta.nodePrompt?.trim()) return true
+  if (meta.nodeKind === 'asset')
+    return kind === 'image' && node.type === 'image' && Boolean(meta.assetDescription?.trim())
+  return edges.some((edge) => edge.target === node.id)
+}
+
 export function stageAssetContext(node: CanvasNode): string {
   return node.type === 'image' && node.data.meta?.nodeKind === 'asset'
     ? [node.data.name, node.data.meta.assetDescription].filter(Boolean).join('：')
