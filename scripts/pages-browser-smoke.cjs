@@ -511,8 +511,11 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       }
       if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
     }
-    await page.goto(origin+'/guide/create/#models-params')
-    await page.waitForURL(origin+'/guide/create/settings/#models-params')
+    // 旧章节地址是跳转页：跳走时会中断它自己的脚本请求，所以单开一页检查，不计入资源失败。
+    const redirect = await context.newPage()
+    await redirect.goto(origin+'/guide/create/#models-params')
+    await redirect.waitForURL(origin+'/guide/create/settings/#models-params')
+    await redirect.close()
     await page.setViewportSize({width:390,height:844})
     if (await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)) throw new Error('Login overflows narrow viewport')
     if (outputDir) {
