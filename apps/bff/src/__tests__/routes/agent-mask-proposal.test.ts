@@ -481,11 +481,20 @@ describe('范围确认卡', () => {
       // 两条请求并发，按请求里的模型分别作答。
       const fast = recordingAgentFetch(calls, fastAnswer)
       const main = recordingAgentFetch(calls, mainAnswer)
-      setAgentFetchForTesting((async (input: string, init: { body: string }) =>
-        (JSON.parse(init.body).model === 'gpt-6-luna' ? fast : main)(
-          input,
-          init as RequestInit,
-        )) as unknown as typeof fetch)
+      // 快档等当前档那条真发出去了再作答：否则快档赢得太早，当前档还没派发就被掐掉，记账条数不定。
+      let mainSent!: () => void
+      const mainDispatched = new Promise<void>((resolve) => {
+        mainSent = resolve
+      })
+      setAgentFetchForTesting((async (input: string, init: { body: string }) => {
+        if (JSON.parse(init.body).model === 'gpt-6-luna') {
+          await mainDispatched
+          return fast(input, init as RequestInit)
+        }
+        const response = main(input, init as RequestInit)
+        mainSent()
+        return response
+      }) as unknown as typeof fetch)
       const frames = await runTurn(
         conversationId,
         '我想把这个浴缸换一下背景不变那种',
