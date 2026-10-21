@@ -19,7 +19,7 @@
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { InspirationWriteInput } from '@image-playground/shared'
-import { inArray, type SQL, sql } from 'drizzle-orm'
+import { asc, inArray, type SQL, sql } from 'drizzle-orm'
 import { config } from '../src/config'
 import { close, db, schema } from '../src/db/client'
 import { initChannels } from '../src/lib/channels'
@@ -186,6 +186,8 @@ try {
             snapshot.map((row) => row.id),
           ),
         )
+        // Lock in id order so overlapping batches (this script or inspiration-status) can't deadlock.
+        .orderBy(asc(schema.inspiration_items.id))
         .for('update')
       const current = new Map(locked.map((row) => [row.id, row]))
       const moved = snapshot.filter((row) => {
