@@ -7,6 +7,7 @@ import type {
   AgentMessageView,
 } from '@image-playground/shared'
 import sharp from 'sharp'
+import { Value } from 'typebox/value'
 import type { AgentToolContext } from '../../../lib/agent/tools/types'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_mask_proposal')
@@ -181,8 +182,8 @@ describe('proposeEditRegion', () => {
     expect(regions.every((one) => one.maskMediaId === undefined)).toBe(true)
   })
 
-  it('rejects similar-object lists with nothing selected or only one entry', async () => {
-    const tool = maskProposalTool(context({}, url(await picture(64, 64))))
+  it('rejects similar-object lists with nothing selected, and treats a single entry as the box', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(1024, 768))))
     const box = { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
     await expect(
       run(tool, {
@@ -193,9 +194,8 @@ describe('proposeEditRegion', () => {
         ],
       }),
     ).rejects.toThrow('至少要有一个 selected')
-    await expect(run(tool, { ...args, instances: [{ box, selected: true }] })).rejects.toThrow(
-      'instances 只在',
-    )
+    const single = await run(tool, { ...args, instances: [{ box, selected: true }] })
+    expect(maskProposalFromResult(single)!.maskProposal!.regions).toBeUndefined()
   })
 
   it('marks a background proposal as inverted and keeps the box on the subject', async () => {
@@ -207,19 +207,36 @@ describe('proposeEditRegion', () => {
     expect(maskProposalFromResult(await run(tool, args))!.maskProposal!.invert).toBeUndefined()
   })
 
-  it('rejects an inverted proposal that also lists similar objects', async () => {
-    const tool = maskProposalTool(context({}, url(await picture(64, 64))))
+  it('drops similar objects from an inverted proposal instead of failing', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(1024, 768))))
     const box = { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
-    await expect(
-      run(tool, {
-        ...args,
-        invert: true,
-        instances: [
-          { box, selected: true },
-          { box: { ...box, x: 0.5 }, selected: false },
-        ],
-      }),
-    ).rejects.toThrow('不要同时写 instances')
+    const result = await run(tool, {
+      ...args,
+      invert: true,
+      instances: [
+        { box, selected: true },
+        { box: { ...box, x: 0.5 }, selected: false },
+      ],
+    })
+    const proposal = maskProposalFromResult(result)!.maskProposal!
+    expect(proposal.invert).toBe(true)
+    expect(proposal.regions).toBeUndefined()
+  })
+
+  it('clips long fields and extra keep items instead of failing validation', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(1024, 768))))
+    const long = {
+      ...args,
+      target: '浴缸'.repeat(30),
+      keep: ['墙面', '地面', '窗户', '植物', '木凳', '毛巾'],
+      points: Array.from({ length: 12 }, () => ({ x: 0.45, y: 0.55, include: true })),
+    }
+    // 校验按工具声明的 schema 走（pi 执行前就是这么校验的），多写的不再算错。
+    expect(Value.Check(tool.parameters, long)).toBe(true)
+    const proposal = maskProposalFromResult(await run(tool, long))!.maskProposal!
+    expect(proposal.keep).toEqual(['墙面', '地面', '窗户', '植物'])
+    expect(Array.from(proposal.target)).toHaveLength(40)
+    expect(proposal.points?.length).toBeLessThanOrEqual(8)
   })
 
   it('rejects boxes in pixels, outside the image or too small', async () => {
