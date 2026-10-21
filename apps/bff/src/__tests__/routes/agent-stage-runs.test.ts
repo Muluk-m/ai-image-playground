@@ -437,7 +437,7 @@ it('keeps the confirmation card in the wake round when the proposing turn had au
   expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
 })
 
-async function addStoryboard(projectId: string) {
+async function addStoryboard(projectId: string, id = 'board') {
   await accessCanvasDocument(USER_ID, projectId, async (current) => {
     const doc = new Y.Doc()
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
@@ -445,7 +445,7 @@ async function addStoryboard(projectId: string) {
     insertCanvasNode(
       doc,
       {
-        id: 'board',
+        id,
         type: 'storyboard',
         x: 0,
         y: 600,
@@ -462,10 +462,13 @@ async function addStoryboard(projectId: string) {
 }
 
 /** 直接出图或确认卡下跑完一整批素材：唤醒轮该接着出首帧，还是先问用户。 */
-async function completedAssetWake(params?: AgentTurnParams, storyboard = true) {
+async function completedAssetWake(
+  params?: AgentTurnParams,
+  storyboards: readonly string[] = ['board'],
+) {
   const run = await proposal(['a'], params)
   // 分镜表把 a 当作人物素材引用，还没定稿。
-  if (storyboard) await addStoryboard(run.projectId)
+  for (const id of storyboards) await addStoryboard(run.projectId, id)
   const token = await confirm(run.authorizationId)
   expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
   await submitted(run.authorizationId, 'a-1', 'task-a', 'completed', 6)
@@ -500,7 +503,13 @@ it('keeps asking before the next paid stage when auto-submit was off', async () 
 })
 
 it('does not push an ordinary direct batch on to first frames when no draft storyboard uses it', async () => {
-  const wake = await completedAssetWake(undefined, false)
+  const wake = await completedAssetWake(undefined, [])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not guess a storyboard when several draft storyboards share the finished assets', async () => {
+  const wake = await completedAssetWake(undefined, ['board', 'board-2'])
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })

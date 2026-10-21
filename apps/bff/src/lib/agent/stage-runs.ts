@@ -419,7 +419,9 @@ export async function stageRunWakeContent(
 }
 
 /**
- * 这批节点被哪张还没定稿的分镜表当作人物或地点素材引用。读不到画布时当作没有，不接着出首帧。
+ * 这批节点被哪张还没定稿的分镜表当作人物或地点素材引用。只有恰好一张表命中时才返回它；
+ * 没有命中、或多张草稿表共用这批素材而无法确定是哪一张时，都不接着出首帧，交给用户决定。
+ * 读画布出错时记一条告警再按没有处理：不自动推进付费阶段是更安全的退路。
  */
 async function draftStoryboardUsing(
   userId: string,
@@ -430,17 +432,29 @@ async function draftStoryboardUsing(
   const doc = new Y.Doc()
   try {
     Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
-    return readCanvasDocument(doc).nodes.find(
-      (node) =>
-        node.type === 'storyboard' &&
-        node.data.confirmed?.fingerprint !== storyboardFingerprint(node.data.shots) &&
-        node.data.shots.some(
-          (shot) =>
-            shot.lookIds.some((id) => ids.has(id)) ||
-            (shot.locationId !== undefined && ids.has(shot.locationId)),
-        ),
-    )?.id
-  } catch {
+    const matches = readCanvasDocument(doc)
+      .nodes.filter(
+        (node) =>
+          node.type === 'storyboard' &&
+          node.data.confirmed?.fingerprint !== storyboardFingerprint(node.data.shots) &&
+          node.data.shots.some(
+            (shot) =>
+              shot.lookIds.some((id) => ids.has(id)) ||
+              (shot.locationId !== undefined && ids.has(shot.locationId)),
+          ),
+      )
+      .map((node) => node.id)
+    if (matches.length > 1)
+      log.info(
+        { projectId, nodeIds, storyboardIds: matches },
+        'stage run wake: asset batch used by several draft storyboards, not continuing to first frames',
+      )
+    return matches.length === 1 ? matches[0] : undefined
+  } catch (err) {
+    log.warn(
+      { err, projectId, nodeIds },
+      'stage run wake: failed to read canvas for storyboard follow-up, not continuing to first frames',
+    )
     return undefined
   } finally {
     doc.destroy()
