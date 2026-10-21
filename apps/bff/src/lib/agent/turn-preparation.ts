@@ -50,6 +50,7 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
+import { confirmedMaskProposalParams } from './mask-proposal'
 import {
   canRetainModelHistory,
   modelHistorySignature,
@@ -602,6 +603,10 @@ async function resumeContent(
   }
 }
 
+function withParams(params: AgentTurnParams | undefined): { params?: AgentTurnParams } {
+  return params ? { params } : {}
+}
+
 /** 用户消息这一轮：他的原话落库，恰好排着的唤醒并进来不再单独起轮，首轮还要落下标题。 */
 async function messageContent(
   conversationId: string,
@@ -665,7 +670,7 @@ async function messageContent(
         }
       : {}),
     mode,
-    ...(message.params ? { params: message.params } : {}),
+    ...withParams(confirmedMaskProposalParams(window.messages, message.references, message.params)),
     ...(message.canvas ? { canvas: message.canvas } : {}),
     selectionHistoryStart: clarificationChainStart(window.messages),
     deviceId: message.deviceId,
