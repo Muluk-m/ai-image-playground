@@ -37,6 +37,7 @@ const {
   promptBox,
   segmentationProvider,
   resetSegmenterProbeForTesting,
+  segmenterKey,
   segmenterSize,
   segmenterStatus,
   segmentProposal,
@@ -608,5 +609,13 @@ describe('EdgeTAM segmenter', () => {
     expect(paths.filter((one) => one === '/v1/segment')).toHaveLength(2)
     segmentation.segmenterUrl = ''
     expect(await segmenterStatus(true)).toEqual({ configured: false })
+  })
+
+  it("keeps each deployment's cache keys apart on the shared segmenter", () => {
+    const settings = config.agent.segmentation as { segmenterNamespace: string }
+    expect(segmenterKey('m1')).toBe('media:m1')
+    settings.segmenterNamespace = 'image-playground-test'
+    expect(segmenterKey('m1')).toBe('image-playground-test:media:m1')
+    settings.segmenterNamespace = ''
   })
 })

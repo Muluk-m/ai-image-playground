@@ -342,37 +342,6 @@ services:
       retries: 1
       start_period: 30s
 
-  # EdgeTAM segmentation for the agent's edit-region proposals (deploy/segmenter/README.md).
-  # Stateless: no app.env, no database, no provider credential, no published port. Only
-  # scripts/vps-deploy.sh starts it (profile `segmenter`, test project for now) and passes
-  # AGENT_SEGMENTER_URL=http://segmenter:8080 to that project's executors. The model loads on the
-  # first request and is released after 10 idle minutes; one request runs at a time.
-  segmenter:
-    image: ${SEGMENTER_IMAGE:-ai-image-playground:segmenter}
-    profiles:
-      - segmenter
-    init: true
-    restart: unless-stopped
-    logging: *log-forward
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m
-    mem_limit: 900m
-    memswap_limit: 900m
-    cpus: 2
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    networks:
-      - application
-
   # Receives every container's output on the Unix socket in LOG_FORWARD_DIR and posts it to the
   # BFF's /internal/logs/ingest through the stable router, which stores it for the Admin logs page.
   # Chunks stay in the log-buffer volume until the BFF accepts them, so a BFF or database restart
