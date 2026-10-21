@@ -182,7 +182,7 @@ export async function refreshPublication(tx: Parameters<Parameters<typeof db.tra
   return publication
 }
 
-function validateWriteInput(input: InspirationWriteInput): void {
+export function validateWriteInput(input: InspirationWriteInput): void {
   if (
     !input.id.trim() ||
     !input.title.trim() ||
@@ -203,7 +203,8 @@ function validateWriteInput(input: InspirationWriteInput): void {
   }
 }
 
-async function validateForPublish(input: InspirationWriteInput): Promise<void> {
+/** Same checks the admin publish runs; exported so maintenance scripts can preflight. */
+export async function validateForPublish(input: InspirationWriteInput): Promise<void> {
   validateWriteInput(input)
   const providerKind =
     input.recommendedProvider === 'openai-compat'
