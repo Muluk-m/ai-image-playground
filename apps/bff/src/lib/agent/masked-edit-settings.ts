@@ -12,12 +12,7 @@ for (const [key, names] of Object.entries({
     'maxFlatDifference',
   ],
   regions: ['minPixels', 'changedDelta', 'minChangedFraction', 'maxRetries'],
-  rescale: [
-    'maxScaleDifference',
-    'maxAspectDifference',
-    'minTexturedRegions',
-    'minMatchedQuadrants',
-  ],
+  rescale: ['maxScaleFactor', 'maxAspectDifference', 'minTexturedRegions', 'minMatchedQuadrants'],
 })) {
   const group = settings[key as keyof typeof settings]
   if (
@@ -38,7 +33,7 @@ if (
   !Number.isInteger(settings.boundary.featherPixels) ||
   settings.boundary.featherPixels > 32 ||
   !Number.isInteger(settings.boundary.minImageEdge) ||
-  settings.rescale.maxScaleDifference > 1 ||
+  settings.rescale.maxScaleFactor < 1 ||
   settings.rescale.maxAspectDifference > 1 ||
   !Number.isInteger(settings.rescale.minTexturedRegions) ||
   !Number.isInteger(settings.rescale.minMatchedQuadrants) ||
