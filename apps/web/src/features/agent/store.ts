@@ -269,6 +269,8 @@ export interface AgentState {
   load(): Promise<void>
   refreshConversations(): Promise<void>
   followBatchWake(conversationId: string, batchId: string, version: number): void
+  /** 画布节点运行的结局交上之后，接住智能体被唤醒的那一轮；跳过时卡上说明原因。 */
+  followStageRunWake(conversationId: string, authorizationId: string): void
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
@@ -686,7 +688,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         { ...event, type: 'toolResult' },
       ])
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
-      if (sent && card.kind === 'tool' && card.canvasRun) registerAgentNodeRunOrigin(card.id)
+      if (sent && card.kind === 'tool' && card.canvasRun)
+        registerAgentNodeRunOrigin(card.id, {
+          // 这批运行的结局交上之后，接住智能体被唤醒的那一轮。
+          onReported: (authorizationId) =>
+            get().followStageRunWake(conversationId, authorizationId),
+        })
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -1710,6 +1717,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     followBatchWake(conversationId, batchId, version) {
       if (get().historyCached || get().historyLoading || get().historyFailed) return
       jobs.followBatch(conversationId, batchId, version)
+    },
+    followStageRunWake(conversationId, authorizationId) {
+      if (get().historyCached || get().historyLoading || get().historyFailed) return
+      jobs.followStageRun(conversationId, authorizationId)
     },
     setOpen: (open) => set({ open }),
     setTab: (tab) => set({ tab }),

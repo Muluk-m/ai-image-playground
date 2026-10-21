@@ -1,3 +1,4 @@
+import type { StageRunOutcome } from '@image-playground/shared'
 import Badge from '../../../components/patterns/Badge'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
@@ -8,10 +9,13 @@ export default function NodeBatchJobs({
   jobs,
   completed = 0,
   active,
+  outcomes,
 }: {
   jobs: readonly NodeBatchJob[]
   completed?: number
   active?: string
+  /** 智能体阶段运行的逐节点结局；给了就按它标，不再按顺序数完成了几个。 */
+  outcomes?: Readonly<Record<string, StageRunOutcome>>
 }) {
   const { t } = useTranslation('canvas')
   return (
@@ -32,7 +36,17 @@ export default function NodeBatchJobs({
               {t(job.kind === 'image' ? 'nodeBatch.images' : 'nodeBatch.seconds')}
             </p>
           </div>
-          {index < completed ? (
+          {outcomes?.[job.id] ? (
+            <Badge tone={outcomes[job.id] === 'completed' ? 'success' : 'warning'}>
+              {outcomes[job.id] === 'completed'
+                ? t('nodeBatch.finished')
+                : outcomes[job.id] === 'failed'
+                  ? t('nodeBatch.outcome.failed')
+                  : outcomes[job.id] === 'blocked'
+                    ? t('nodeBatch.outcome.blocked')
+                    : t('nodeBatch.outcome.skipped')}
+            </Badge>
+          ) : index < completed ? (
             <Badge tone="success">{t('nodeBatch.finished')}</Badge>
           ) : active === job.id ? (
             <Badge tone="primary">{t('nodeBatch.running')}</Badge>
