@@ -226,6 +226,46 @@ export async function editMaskPng(
     .toBuffer()
 }
 
+/**
+ * 范围确认发不出去：不是模型能换个参数修好的问题。这一轮不再重试，由轮直接给用户一句话
+ * （见 turn.ts 对 proposeEditRegion 失败的处理），不要叫用户自己去画。
+ */
+export class MaskProposalUnavailable extends AgentToolError {
+  constructor(readonly reason: string) {
+    super(
+      'invalid_params',
+      `范围确认暂时不可用（${reason}）。不要再调用 proposeEditRegion，也不要让用户自己圈选；这一轮到此为止。`,
+    )
+  }
+}
+
+const UNAVAILABLE = /^范围确认暂时不可用（(.*)）。不要再调用/s
+
+/**
+ * 范围确认失败后发给用户的那一句：轮直接收尾，不再追加模型调用。可以照实说的原因
+ * （比如尺寸超限）带上，参数类失败只说没改成；都不叫用户自己去画。
+ */
+export function maskProposalFailedText(errorText: string): string {
+  const reason = UNAVAILABLE.exec(errorText)?.[1]
+  return reason
+    ? `这张图暂时没法自动圈出修改范围（${reason}），这次没有改图。你可以稍后再试或换一张图。`
+    : '这次没能圈出要改的范围，没有改图。你可以稍后再试，或说得更具体一点（比如要改的是哪一个物体）。'
+}
+
+/** 内联上传的原图存成媒体并挂到会话上，返回与云媒体引用同形的引用。 */
+async function persistOriginal(
+  context: AgentToolContext,
+  userId: string,
+  imageId: string,
+  bytes: Buffer,
+  dataUrl: string,
+) {
+  const contentType = dataUrl.slice(5, dataUrl.indexOf(';')) || 'image/png'
+  const media = await storeMedia(userId, bytes, contentType)
+  await addConversationMediaClaims(context.conversationId, userId, [media.id])
+  return { imageId, mediaId: media.id }
+}
+
 /** 分割好的蒙版存成媒体并挂到会话上，卡片与确认都按 id 取。 */
 async function storeMask(context: AgentToolContext, userId: string, mask: SegmentationMask) {
   const stored = await storeMedia(
@@ -274,31 +314,27 @@ async function propose(
   const keep = [...new Set((params.keep ?? []).map((one) => one.trim()).filter(Boolean))]
 
   const imageId = context.images.identify(params.imageId)
-  const [reference] = await context.images.resolveMediaReferences([imageId])
-  if (!reference)
-    throw new AgentToolError(
-      'invalid_params',
-      `图片 ${params.imageId} 没有可直接引用的原件（未登录或尚未保存），不能发起范围确认。请用户在图上手动圈选后再改。`,
-    )
   const image = await context.images.resolve(imageId, 'original')
-  if (!image) throw new AgentToolError('invalid_params', `图片 ${params.imageId} 不可用`)
-  const metadata = await sharp(
-    Buffer.from(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1), 'base64'),
-    {
-      limitInputPixels: visualPixelLimit(),
-    },
-  ).metadata()
+  if (!image) throw new MaskProposalUnavailable(`图片 ${params.imageId} 不可用`)
+  const bytes = Buffer.from(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1), 'base64')
+  const metadata = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).metadata()
+  // 云媒体里已有原件就直接引用；随消息内联上传的图（附件上传未开启时就是这样）在服务端
+  // 存成媒体并挂到会话上，与蒙版走同一条路，卡片、点选与确认都按这个 id 取原件。
+  const [stored] = await context.images.resolveMediaReferences([imageId])
+  const reference =
+    stored ??
+    (context.userId
+      ? await persistOriginal(context, context.userId, imageId, bytes, image.dataUrl)
+      : null)
+  if (!reference) throw new MaskProposalUnavailable('这张图还没有保存的原件（未登录）')
   const width = metadata.width ?? 0
   const height = metadata.height ?? 0
-  if (!width || !height) throw new AgentToolError('invalid_params', '读不出这张图的尺寸')
+  if (!width || !height) throw new MaskProposalUnavailable('读不出这张图的尺寸')
 
   const { model, switchedFrom } = chooseMaskModel(context.params?.model)
   const size = maskedEditSize(model.id, width, height)
   if ('problem' in size)
-    throw new AgentToolError(
-      'invalid_params',
-      `${size.problem}。原图 ${width}×${height}，如实告诉用户，不要改成整图编辑。`,
-    )
+    throw new MaskProposalUnavailable(`${size.problem}；原图 ${width}×${height}`)
 
   if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
   // 同一张原图用同一个缓存键：多个区域与卡片上的点选都只编码一次。
