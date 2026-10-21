@@ -1,11 +1,13 @@
 /// <reference types="vitest/config" />
 
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { parseCLI } from 'vitest/node'
 import { vitestGuard } from '../../scripts/test-guard'
+import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
 
 // dev: 前端 :5174，/api 反代到 admin server :37378（同源 cookie/session 用 proxy 透传）
 // prod: vite build 出 dist，admin server 直接 serve
@@ -16,6 +18,10 @@ export default defineConfig({
       generatedRouteTree: './src/routeTree.gen.ts',
     }),
     react(),
+    pagesRedirectsPlugin(
+      () => readFileSync(resolve(__dirname, 'src/routeTree.gen.ts'), 'utf8'),
+      () => readdirSync(resolve(__dirname, 'src/routes'), { recursive: true, encoding: 'utf8' }),
+    ),
   ],
   resolve: {
     alias: {
