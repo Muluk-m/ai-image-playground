@@ -180,6 +180,8 @@ export const config = {
       provider: env('AGENT_SEGMENTATION_PROVIDER', 'fal-sam3'),
       falKey: env('FAL_KEY', ''),
       segmenterUrl: env('AGENT_SEGMENTER_URL', ''),
+      /** 共享分割服务里本部署的缓存键前缀（部署时传项目名），各环境的图像编码互不复用。 */
+      segmenterNamespace: env('AGENT_SEGMENTER_NAMESPACE', ''),
     },
   },
   databaseUrl: env('DATABASE_URL'),

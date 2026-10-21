@@ -106,9 +106,10 @@ build_image() {
 }
 mkdir -p "$output/scripts/lib" "$output/deploy"
 cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" \
-  "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" "$output/scripts/"
+  "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" \
+  "$snapshot/public/scripts/segmenter-deploy.sh" "$output/scripts/"
 cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
-cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
+cp "$snapshot/public/deploy/compose.app.yaml" "$snapshot/public/deploy/compose.segmenter.yaml" "$output/deploy/"
 : > "$output/images.tsv"
 images=
 last_edition=

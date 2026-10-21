@@ -22,6 +22,7 @@ import {
   promptBox,
   type SegmentationMask,
   segmentationProvider,
+  segmenterKey,
   segmentProposal,
 } from './segmentation'
 import { asPiTool, piToolResult } from './tools/adapter'
@@ -291,7 +292,7 @@ async function propose(
   const segment = (target: { box: AgentNormalizedBox; points?: AgentMaskPromptPoint[] }) =>
     segmentProposal({
       dataUrl: image.dataUrl,
-      key: `media:${reference.mediaId}`,
+      key: segmenterKey(reference.mediaId),
       width,
       height,
       prompt,
@@ -487,7 +488,7 @@ export async function refineEditRegion(input: {
   const points = seeded.slice(-MASK_PROMPT_POINTS_MAX)
   const startedAt = Date.now()
   const segmented = await segmentProposal({
-    key: `media:${proposal.mediaId}`,
+    key: segmenterKey(proposal.mediaId),
     loadDataUrl: async () => {
       const media = await readConversationMedia(
         proposal.mediaId,
