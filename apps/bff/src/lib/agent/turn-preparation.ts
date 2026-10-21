@@ -609,7 +609,7 @@ async function resumeContent(
     : stageSummary
       ? { text: stageSummary.text, optionalReviewImageIds: [] }
       : null
-  // 续跑的是运行回报的唤醒：照那一轮的规矩，新的 runNodes 要等用户确认。
+  // 续跑的是运行回报的唤醒：参数照唤醒轮取，直接出图偏好沿用提案那一轮。
   const setup = stageSummary ?? (wake ? wakeTurnSetup(jobs) : resume)
   const interruptedStart = window.messages.findIndex(
     (message) => message.turnId === resume.interruptedTurnId,

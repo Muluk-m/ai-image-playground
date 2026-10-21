@@ -5,6 +5,7 @@ import {
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
+  stageExecutionBinding,
   updateCanvasNode,
   VIDEO_MODEL_SUPPORT,
 } from '@image-playground/shared'
@@ -348,6 +349,45 @@ it('keeps both generating copies as video references even when their old files m
     origin,
   )
   expect(buildNodeBatch(args()).signature).toBe(before.signature)
+})
+
+it('runs a promptless asset with its description as the prompt, the same prompt the stage binding froze', () => {
+  const { doc, input } = setup()
+  updateCanvasNode(
+    doc,
+    'a',
+    {
+      data: {
+        name: '林夏',
+        meta: { nodeKind: 'asset', assetKind: 'person', assetDescription: '插画师' },
+      },
+    },
+    origin,
+  )
+  updateCanvasNode(
+    doc,
+    'b',
+    {
+      data: {
+        name: '窗台',
+        meta: { nodeKind: 'asset', assetKind: 'location', assetDescription: ' ' },
+      },
+    },
+    origin,
+  )
+  const plan = buildNodeBatch(input())
+  expect(plan.error).toBeUndefined()
+  // 没有描述的素材仍然不单独生成。
+  expect(plan.jobs.map((job) => job.id)).toEqual(['a'])
+  const snapshot = readCanvasDocument(doc)
+  const binding = stageExecutionBinding({
+    node: snapshot.nodes.find((node) => node.id === 'a')!,
+    nodes: snapshot.nodes,
+    edges: snapshot.edges,
+    authorizedIds: new Set(['a']),
+  })
+  expect(plan.jobs[0]!.prompt).toBe('林夏：插画师')
+  expect(plan.jobs[0]!.prompt).toBe(binding.prompt)
 })
 
 it('keeps a generating asset as an image input for a downstream reference video', () => {

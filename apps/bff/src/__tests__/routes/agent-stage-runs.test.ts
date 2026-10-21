@@ -1,13 +1,14 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { StageAuthorization } from '@image-playground/shared'
+import type { AgentTurnParams, StageAuthorization } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import {
   type AgentCall,
   completionStream,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
+  toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
 import { waitFor } from '../helpers/upstreamStubs'
@@ -78,6 +79,7 @@ const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../lib/agent/images')
+const { stageRunWakeContent } = await import('../../lib/agent/stage-runs')
 
 await silenceChatUpstream()
 
@@ -115,7 +117,7 @@ afterAll(async () => {
 })
 
 /** 智能体在画布上建两个节点，再为给定节点提出一次阶段授权。 */
-async function proposal(nodeIds = ['a', 'b']) {
+async function proposal(nodeIds = ['a', 'b'], params?: AgentTurnParams) {
   const conversationId = crypto.randomUUID(),
     projectId = crypto.randomUUID(),
     now = Date.now()
@@ -157,6 +159,7 @@ async function proposal(nodeIds = ['a', 'b']) {
         throw new Error('画布不占每轮配额')
       },
     },
+    ...(params ? { params } : {}),
   }
   await createNodes.create(context).execute(
     'create',
@@ -350,6 +353,102 @@ it('points a first-frame batch back to runStoryboardFrames, not runNodes', async
   const asked = JSON.stringify(calls[0]!.messages)
   expect(asked).toContain('再用 runStoryboardFrames（单镜重出传 shotIds） 发起新的阶段授权')
   expect(asked).not.toContain('再用 runNodes 发起')
+})
+
+/** 唤醒轮里智能体再为节点 a 发起一次 runNodes：返回新授权与它的运行卡。 */
+async function wakeRerun(conversationId: string, previousId: string) {
+  // 线上项目第一轮就记下了画布入口；这里的提案直接调工具，没有那一轮，补记上。
+  await db
+    .update(schema.canvas_projects)
+    .set({ document: { version: 1, elements: [], experience: 'canvas' } })
+    .where(eq(schema.canvas_projects.conversation_id, conversationId))
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () =>
+        toolCallCompletion({
+          id: 'wake-rerun',
+          name: 'runNodes',
+          args: { stage: '素材', nodeIds: ['a'] },
+        }),
+      () => completionStream('已重新发起。'),
+    ]),
+  )
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(conversationId)
+  const rows = await db
+    .select({
+      id: schema.agent_stage_authorizations.id,
+      state: schema.agent_stage_authorizations.state,
+    })
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.conversation_id, conversationId))
+  const rerun = rows.find((row) => row.id !== previousId)?.state
+  if (!rerun) throw new Error('wake round did not propose a new authorization')
+  const messages = await db
+    .select({ content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(eq(schema.agent_messages.conversation_id, conversationId))
+  const card = messages
+    .flatMap((message) => message.content)
+    .find((block) => block.type === 'toolResult' && block.canvasRun?.authorizationId === rerun.id)
+  if (card?.type !== 'toolResult' || !card.canvasRun) throw new Error('missing rerun card')
+  return { rerun, canvasRun: card.canvasRun }
+}
+
+const WORKBENCH = { canvasImageModel: 'workbench-image', canvasImageCount: 4 } as const
+
+it('runs a wake-round runNodes directly with the proposing turn workbench model and count', async () => {
+  const run = await proposal(['a'], WORKBENCH)
+  expect(run.direct).toBe(true)
+  expect(run.specs).toEqual([
+    { nodeId: 'a', model: 'workbench-image', quantity: 4, unitMultiplier: 1 },
+  ])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_media' }],
+  })
+  expect(report.status).toBe(200)
+  const { rerun, canvasRun } = await wakeRerun(run.conversationId, run.authorizationId)
+  expect(canvasRun.direct).toBe(true)
+  // 报价与提案那一轮一致：工作台模型、4 张，原标签页照同一份规格开跑不会判成规格已变化。
+  expect(rerun.charges).toMatchObject([
+    { nodeId: 'a', model: 'workbench-image', quantity: 4, unitMultiplier: 1 },
+  ])
+})
+
+it('keeps the confirmation card in the wake round when the proposing turn had auto-submit off', async () => {
+  const run = await proposal(['a'], { ...WORKBENCH, autoSubmit: false })
+  expect(run.direct).toBe(false)
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(200)
+  const { rerun, canvasRun } = await wakeRerun(run.conversationId, run.authorizationId)
+  expect(canvasRun.direct).toBe(false)
+  expect(rerun.status).toBe('pending')
+  expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
+})
+
+it('falls back to confirmation for authorizations recorded before the turn settings were kept', async () => {
+  const run = await proposal(['a'], WORKBENCH)
+  const state = await stored(run.authorizationId)
+  const { turn: _dropped, ...legacy } = state
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: legacy })
+    .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  expect(wake?.params).toEqual({ autoSubmit: false })
 })
 
 it('rejects reports that disagree with what the server recorded', async () => {
