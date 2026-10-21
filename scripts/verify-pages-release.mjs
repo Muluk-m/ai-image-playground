@@ -113,12 +113,17 @@ export async function verifyAdminPagesRelease(origin, dist, fetcher = fetch, sig
   }
   await checkPage('/', 'Homepage')
   const redirects = await readFile(resolve(dist, '_redirects'), 'utf8')
+  const deepLinks = []
   for (const line of redirects.split('\n')) {
     const [source, target, status] = line.trim().split(/\s+/)
     if (!source || source.startsWith('#')) continue
     if (status !== '200' || target !== '/') throw new Error(`Unexpected Admin redirect rule: ${line.trim()}`)
     if (source === '/*' || source.startsWith('/assets')) throw new Error(`Admin redirect swallows assets: ${source}`)
-    await checkPage(source.replace(/:[^/]+/g, 'release-check'), 'Application deep link')
+    deepLinks.push(source.replace(/:[^/]+/g, 'release-check'))
+  }
+  // Bounded concurrency, same as the asset checks.
+  for (let offset = 0; offset < deepLinks.length; offset += 4) {
+    await Promise.all(deepLinks.slice(offset, offset + 4).map(path => checkPage(path, 'Application deep link')))
   }
   const assetCount = await verifyAssets(get, dist, ['assets'])
   await verifyMissingAssets(get, ['assets'])

@@ -72,6 +72,7 @@ describe('pagesRedirects', () => {
         '_authed.users.$userId.tsx',
         '_authed.billing.orders.route.tsx',
         '-helpers.ts',
+        'nested\\-helpers.ts',
         'login.lazy.tsx',
         'README.md',
       ]),

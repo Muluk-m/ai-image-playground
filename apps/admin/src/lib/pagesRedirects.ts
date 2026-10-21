@@ -33,7 +33,8 @@ export function adminRoutePaths(routeTreeSource: string): string[] {
  */
 export function expectedRouteCount(routeFiles: string[]): number {
   return routeFiles.filter((file) => {
-    const name = file.split('/').pop() ?? ''
+    // Windows 上 recursive readdir 返回 `\\` 分隔的嵌套路径。
+    const name = file.split(/[\\/]/).pop() ?? ''
     if (!/\.(?:tsx?|jsx?)$/.test(name) || name.startsWith('-') || /\.lazy\.[jt]sx?$/.test(name))
       return false
     const segments = name
