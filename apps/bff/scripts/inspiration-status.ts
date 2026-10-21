@@ -12,7 +12,8 @@
  * same publish validation the admin UI runs (fields, model in the loaded channels, skill). An
  * archived draft, or an item edited into an invalid state while archived, is reported as blocked
  * and left archived. Validation runs before the transaction; --apply then locks the validated rows
- * and aborts without writing if any of them changed in between, so nothing unchecked slips through.
+ * and aborts without writing if any column of any of them changed in between, so nothing
+ * unchecked slips through.
  */
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -51,7 +52,13 @@ const ids = [...new Set((list as string[]).map((id) => id.trim()))]
 
 type Row = typeof schema.inspiration_items.$inferSelect
 type Executor = Pick<typeof db, 'select'>
-const stamp = (value: unknown) => (value instanceof Date ? value.getTime() : Number(value))
+/** Stable comparison of a whole row (Date and jsonb values included, key order ignored). */
+const fingerprint = (row: Row): string =>
+  JSON.stringify(row, (_key, value) =>
+    value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+      : value,
+  )
 
 async function blockReason(row: Row): Promise<string | null> {
   if (!restore) return null
@@ -132,12 +139,8 @@ try {
   } else {
     const outcome = await db.transaction(async (tx) => {
       if (result.targets.length === 0) return null
-      const locked = await tx
-        .select({
-          id: schema.inspiration_items.id,
-          status: schema.inspiration_items.status,
-          updated_at: schema.inspiration_items.updated_at,
-        })
+      const locked: Row[] = await tx
+        .select()
         .from(schema.inspiration_items)
         .where(
           inArray(
@@ -147,9 +150,11 @@ try {
         )
         .for('update')
       const current = new Map(locked.map((row) => [row.id, row]))
+      // Compare the whole row, not just updated_at: any edit since validation (even one landing in
+      // the same millisecond) means the validation result no longer applies.
       const moved = result.targets.filter((row) => {
         const now = current.get(row.id)
-        return !now || now.status !== from || stamp(now.updated_at) !== stamp(row.updated_at)
+        return !now || fingerprint(now) !== fingerprint(row)
       })
       if (moved.length) {
         throw new Error(
