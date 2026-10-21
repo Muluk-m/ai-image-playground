@@ -8,10 +8,10 @@
  *   { id, title, prompt, category, size, file, featured?, sort?, tags?, description? }
  * where `category` is an existing category name and `file` is relative to <dir>.
  * Without --apply it only validates and prints. The whole manifest is validated (shape, required
- * fields, duplicate ids, files, categories, existing rows and, with --publish, the publish checks
+ * fields, duplicate ids, files (symlinks resolved, must stay inside <dir>), categories, existing rows and, with --publish, the publish checks
  * including the model) before the first upload, so a bad entry cannot leave a half-written batch.
  *
- * Existing ids: a draft this script created earlier with the same title and prompt is resumed
+ * Existing ids: a draft this script created earlier with the same metadata is resumed
  * (published with --publish); a published one with the same content is skipped. Any other
  * existing row (different content, an archived item, or a draft someone else wrote) is reported
  * as a conflict and stops the run: archived items come back only through an explicit
@@ -19,6 +19,7 @@
  * Undo: archive the ids with scripts/inspiration-status.ts (published items must be archived
  * before the admin UI can delete them).
  */
+import { realpathSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
 import type { InspirationAdminItem, InspirationWriteInput } from '@image-playground/shared'
 import { config } from '../src/config'
@@ -151,8 +152,35 @@ const writeInput = (item: NewItem, categoryId: string, key: string): Inspiration
   sort: item.sort,
 })
 
-const sameContent = (existing: InspirationAdminItem, item: NewItem) =>
-  existing.title === item.title && existing.prompt === item.prompt
+/**
+ * Every metadata field this script writes must match for an existing row to count as the same
+ * import. The image itself is not compared (the stored key is random); to replace an image use a
+ * new id or the admin UI.
+ */
+const sameContent = (existing: InspirationAdminItem, item: NewItem, categoryId: string) =>
+  existing.kind === 'showcase' &&
+  existing.title === item.title &&
+  existing.prompt === item.prompt &&
+  existing.categoryId === categoryId &&
+  existing.featured === item.featured &&
+  existing.sort === item.sort &&
+  (existing.description ?? null) === item.description &&
+  JSON.stringify(existing.tags) ===
+    JSON.stringify(item.tags.map((tag) => tag.trim()).filter(Boolean)) &&
+  existing.params.size === item.size &&
+  existing.recommendedProvider === MODEL.provider &&
+  existing.recommendedModel === MODEL.model
+
+/** Real path of a manifest file if it stays inside root after resolving symlinks, else null. */
+function fileInside(rootReal: string, relative: string): string | null | 'missing' {
+  let real: string
+  try {
+    real = realpathSync(resolve(rootReal, relative))
+  } catch {
+    return 'missing'
+  }
+  return real.startsWith(rootReal + sep) ? real : null
+}
 
 /** What --apply will do with each item; anything unsafe becomes a problem. */
 type Action = 'create' | 'resume' | 'skip'
@@ -166,12 +194,16 @@ try {
     for (const warning of channels.warnings) console.log(`  ! channels: ${warning}`)
   }
   const actions = new Map<string, Action>()
+  const files = new Map<string, string>()
+  const rootReal = realpathSync(root)
   for (const item of items) {
-    const path = resolve(root, item.file)
-    if (!path.startsWith(root + sep)) problems.push(`${item.id}: file escapes ${dir}`)
-    else if (!CONTENT_TYPES[extname(item.file).toLowerCase()])
+    const path = fileInside(rootReal, item.file)
+    if (path === 'missing') problems.push(`${item.id}: missing file`)
+    else if (path === null) problems.push(`${item.id}: file escapes ${dir} (symlinks resolved)`)
+    else if (!CONTENT_TYPES[extname(path).toLowerCase()])
       problems.push(`${item.id}: unsupported file`)
-    else if (!(await Bun.file(path).exists())) problems.push(`${item.id}: missing file`)
+    else files.set(item.id, path)
+    if (!files.has(item.id)) continue
     const categoryId = categories.get(item.category)
     if (!categoryId) {
       problems.push(`${item.id}: unknown category ${item.category}`)
@@ -191,10 +223,10 @@ try {
     else if (
       existing.status === 'draft' &&
       existing.updatedBy === operatorId &&
-      sameContent(existing, item)
+      sameContent(existing, item, categoryId)
     )
       actions.set(item.id, publish ? 'resume' : 'skip')
-    else if (existing.status === 'published' && sameContent(existing, item))
+    else if (existing.status === 'published' && sameContent(existing, item, categoryId))
       actions.set(item.id, 'skip')
     else
       problems.push(
@@ -223,8 +255,9 @@ try {
     for (const item of items) {
       const action = actions.get(item.id)
       if (action === 'create') {
-        const contentType = CONTENT_TYPES[extname(item.file).toLowerCase()] as string
-        const body = Bun.file(resolve(root, item.file))
+        const path = files.get(item.id) as string
+        const contentType = CONTENT_TYPES[extname(path).toLowerCase()] as string
+        const body = Bun.file(path)
         const target = createInspirationUploadTarget({ filename: item.file, contentType })
         const uploaded = await fetch(target.uploadUrl, {
           method: 'PUT',
