@@ -1,18 +1,34 @@
-import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
+import type {
+  AgentCanvasRunProposal,
+  StageAuthorization,
+  StageRunNodeReport,
+  StageRunReason,
+  StageRunRecord,
+} from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import {
   billedNodeQuantity,
   type NodeBatchError,
   type NodeBatchJob,
+  type NodeBatchPlan,
 } from '../../canvas/lib/nodeBatch'
 import { agentNodeRunBridge } from './nodeRunBridge'
 import { stageAuthorizationClient } from './stageAuthorizationClient'
 
 export const AGENT_NODE_RUN_UNDO_SECONDS = 5
+/** 这一批交给智能体的回报：逐节点结局，以及唤醒走到了哪一步。 */
+export interface AgentNodeRunReport {
+  readonly nodes: readonly StageRunNodeReport[]
+  /** `reporting` 正在交；`queued` 已排上唤醒；`failed` 没交上（网络或授权已失效）。 */
+  readonly wake: 'reporting' | 'queued' | 'duplicate' | 'none' | 'failed'
+  /** 唤醒没有起轮的原因，面板据此说明智能体没有查看。 */
+  readonly wakeSkipped?: StageRunRecord['wakeSkipped']
+}
 interface RunBase {
   readonly jobs: readonly NodeBatchJob[]
   readonly credits?: number
   readonly authorization?: StageAuthorization
+  readonly report?: AgentNodeRunReport
 }
 export type AgentNodeRun = RunBase &
   (
@@ -23,14 +39,18 @@ export type AgentNodeRun = RunBase &
     | { readonly status: 'undone' }
     | { readonly status: 'failed'; readonly error: NodeBatchError; readonly completed: number }
   )
+/** 发起这次运行的那张卡：回报交上之后，由它去接智能体的唤醒轮。 */
+export interface AgentNodeRunOrigin {
+  readonly onReported?: (authorizationId: string) => void
+}
 // Execution rights live only in this document. Reloads, snapshots and other tabs cannot acquire them.
-const origins = new Set<string>()
+const origins = new Map<string, AgentNodeRunOrigin>()
 const runs = new Map<string, AgentNodeRun>()
 const controls = new Map<string, { control: AbortController; authorizationId: string }>()
 const listeners = new Set<() => void>()
 let revision = 0
-export function registerAgentNodeRunOrigin(key: string) {
-  origins.add(key)
+export function registerAgentNodeRunOrigin(key: string, origin: AgentNodeRunOrigin = {}) {
+  origins.set(key, origin)
   for (const listener of listeners) listener()
 }
 /**
@@ -39,7 +59,7 @@ export function registerAgentNodeRunOrigin(key: string) {
  */
 export function releaseIdleAgentNodeRunOrigins() {
   let changed = false
-  for (const key of origins) {
+  for (const key of origins.keys()) {
     if (runs.has(key)) continue
     origins.delete(key)
     changed = true
@@ -77,6 +97,154 @@ export function forgetAgentNodeRun(key: string, control?: AbortController) {
 export function agentNodeRunControl(key: string): AbortController | undefined {
   return controls.get(key)?.control
 }
+/**
+ * 开跑前就拦下、且不会自己消失的错误：报给智能体让它说明缺什么。`busy`（正在生成或上传）与
+ * `balance`（余额不足或还没读到）会自己变化，不报：前者等它跑完再开，后者按「积分不足不唤醒」处理。
+ */
+const PERSISTENT_BLOCKS = new Set<NodeBatchError>([
+  'empty',
+  'cycle',
+  'prompt',
+  'media',
+  'model',
+  'limit',
+  'local',
+  'stale',
+])
+const BLOCK_REASONS: Partial<Record<NodeBatchError, StageRunReason>> = {
+  cycle: 'dependency_cycle',
+  stale: 'spec_changed',
+  changed: 'canvas_changed',
+  authorization: 'authorization',
+  balance: 'insufficient_balance',
+}
+/** 开跑前被拦下：每个授权节点各记一笔，有自己原因的记被拦下，其余记没轮到。 */
+function blockedReport(
+  proposal: AgentCanvasRunProposal,
+  plan: Pick<NodeBatchPlan, 'jobs'> | null | undefined,
+  error: NodeBatchError,
+): StageRunNodeReport[] {
+  const fallback = BLOCK_REASONS[error]
+  return proposal.nodeIds.map((nodeId) => {
+    const job = plan?.jobs.find((one) => one.id === nodeId)
+    const reason: StageRunReason | undefined = !job
+      ? 'missing_prompt'
+      : (job.blocked ??
+        (Object.keys(job.temporary).length > 0 && error === 'local' ? 'local_upload' : fallback))
+    return reason
+      ? { nodeId, outcome: 'blocked' as const, reason }
+      : { nodeId, outcome: 'skipped' as const, reason: 'stopped' as const }
+  })
+}
+const MID_RUN_REASONS: Partial<Record<NodeBatchError, StageRunReason>> = {
+  changed: 'canvas_changed',
+  media: 'missing_media',
+  authorization: 'authorization',
+}
+/** 跑到一半停下：已有结局的照记，正在跑的那个记失败，其余记没轮到。 */
+function interruptedReport(
+  proposal: AgentCanvasRunProposal,
+  outcomes: ReadonlyMap<string, StageRunNodeReport>,
+  active: string | undefined,
+  error: NodeBatchError | undefined,
+): StageRunNodeReport[] {
+  return proposal.nodeIds.map(
+    (nodeId) =>
+      outcomes.get(nodeId) ??
+      (nodeId === active
+        ? {
+            nodeId,
+            outcome: 'failed' as const,
+            reason: (error && MID_RUN_REASONS[error]) || ('generation_failed' as const),
+          }
+        : { nodeId, outcome: 'skipped' as const, reason: 'stopped' as const }),
+  )
+}
+function batchError(error: unknown): NodeBatchError {
+  if (error && typeof error === 'object' && 'code' in error) {
+    switch (error.code) {
+      case 'empty':
+      case 'cycle':
+      case 'busy':
+      case 'prompt':
+      case 'media':
+      case 'model':
+      case 'changed':
+      case 'failed':
+      case 'cancelled':
+      case 'limit':
+      case 'balance':
+      case 'authorization':
+      case 'stale':
+      case 'local':
+        return error.code
+    }
+  }
+  return 'failed'
+}
+/**
+ * 把这一批的结局交给 BFF：它结束授权、唤醒智能体一次。服务端收下了（这一次排上、或早已收过）就让
+ * 发起的那张卡去接唤醒轮。请求出错时回报可能已在服务端落库、只是响应丢了，先按唤醒回执确认一次：
+ * 收下了照常接唤醒轮；确认没收下才在卡上说明没交上，不重放。
+ * 终局先带着「正在交」发出去，卡在交完之前不会把这次运行收走。返回服务端是否已收下这份回报。
+ */
+async function reportRun(
+  key: string,
+  terminal: AgentNodeRun,
+  authorizationId: string,
+  nodes: readonly StageRunNodeReport[],
+  executionToken: string | undefined,
+  sameAccount: () => boolean,
+): Promise<boolean> {
+  const origin = origins.get(key)
+  let published = false
+  const update = (report: AgentNodeRunReport, authorization?: StageAuthorization) => {
+    if (!sameAccount()) return
+    // 第一次发的是终局本身；之后在卡上那份之上补回执（卡在交完之前不会收走它）。
+    const run = published ? (runs.get(key) ?? terminal) : terminal
+    published = true
+    publish(key, { ...run, report, ...(authorization ? { authorization } : {}) })
+  }
+  const follow = () => {
+    if (sameAccount()) origin?.onReported?.(authorizationId)
+  }
+  update({ nodes, wake: 'reporting' })
+  try {
+    const result = await stageAuthorizationClient.report(authorizationId, {
+      nodes,
+      ...(executionToken ? { executionToken } : {}),
+    })
+    update({ nodes, wake: result.wake }, result.authorization)
+    // 重复上报说明早已有人交上（响应丢了重交、或另一处先交了）：那条唤醒照样要接。
+    if (result.wake === 'queued' || result.wake === 'duplicate') follow()
+    return true
+  } catch {
+    const receipt = await stageAuthorizationClient.wake(authorizationId).catch(() => null)
+    if (receipt) {
+      const authorization = await stageAuthorizationClient
+        .read(authorizationId)
+        .catch(() => undefined)
+      update({ nodes, wake: 'duplicate' }, authorization)
+      follow()
+      return true
+    }
+    update({ nodes, wake: 'failed' })
+    return false
+  }
+}
+const skippedWakes = new Map<string, NonNullable<StageRunRecord['wakeSkipped']>>()
+/** 唤醒被跳过（积分不足、连续唤醒到了上限）：卡上说明智能体没有查看。运行收走之后也记得。 */
+export function noteAgentNodeRunWakeSkipped(
+  authorizationId: string,
+  reason: NonNullable<StageRunRecord['wakeSkipped']>,
+) {
+  if (skippedWakes.get(authorizationId) === reason) return
+  skippedWakes.set(authorizationId, reason)
+  revision += 1
+  for (const listener of listeners) listener()
+}
+export const agentNodeRunWakeSkipped = (authorizationId: string | undefined) =>
+  authorizationId ? skippedWakes.get(authorizationId) : undefined
 /** Explicit confirmation is the only entry. The BFF grants a token once, before the undo window. */
 export function startAgentNodeRun(
   key: string,
@@ -86,25 +254,37 @@ export function startAgentNodeRun(
   const authorizationId = proposal.authorizationId
   if (!authorizationId || !origins.has(key) || runs.has(key)) return false
   const plan = agentNodeRunBridge()?.quote(proposal)
-  if (plan?.error === 'local') {
-    publish(key, {
-      jobs: plan.jobs,
-      credits: plan.credits,
-      status: 'failed',
-      error: 'local',
-      completed: 0,
+  const sameAccount = accountScope()
+  // 直接出图开跑前就被拦下（缺首帧、缺素材、参数不可用……）：不提交，把原因交给智能体，授权随之结束。
+  // 需要确认的卡在这种情况下按钮是灰的，用户看得到原因，不自动回报。
+  if (proposal.direct && plan?.error && PERSISTENT_BLOCKS.has(plan.error)) {
+    const error = plan.error
+    void reportRun(
+      key,
+      { jobs: plan.jobs, credits: plan.credits, status: 'failed', error, completed: 0 },
+      authorizationId,
+      blockedReport(proposal, plan, error),
+      undefined,
+      sameAccount,
+    ).then((reported) => {
+      if (!reported) void stageAuthorizationClient.end(authorizationId).catch(() => {})
     })
-    void stageAuthorizationClient.end(authorizationId).catch(() => {})
     return true
   }
   if (!plan || plan.error || plan.blocked) return false
-  const sameAccount = accountScope()
   const base: RunBase = { jobs: plan.jobs, credits: plan.credits }
   const control = new AbortController()
   controls.set(key, { control, authorizationId })
   publish(key, { ...base, status: 'confirming' })
   void (async () => {
     let authorization: StageAuthorization | undefined
+    let executionToken: string | undefined
+    // 已经交到浏览器里的逐节点结局；`active` 是正在提交或等结果的那个，`started` 说明已经过了开跑前的检查。
+    const outcomes = new Map<string, StageRunNodeReport>()
+    let active: string | undefined
+    let started = false
+    let terminal: AgentNodeRun | undefined
+    let nodes: StageRunNodeReport[] | undefined
     try {
       const confirmed = await stageAuthorizationClient.confirm(
         authorizationId,
@@ -116,6 +296,7 @@ export function startAgentNodeRun(
         })),
       )
       authorization = confirmed.authorization
+      executionToken = confirmed.executionToken
       if (control.signal.aborted || !sameAccount()) return
       if (undoSeconds > 0)
         await new Promise<void>((resolve) => {
@@ -154,46 +335,54 @@ export function startAgentNodeRun(
         proposal,
         plan.signature,
         control.signal,
-        (completed, active) => {
+        (completed, id) => {
+          if (id) {
+            started = true
+            active = id
+          }
           if (!control.signal.aborted)
-            publish(key, { ...base, authorization, status: 'running', completed, active })
+            publish(key, { ...base, authorization, status: 'running', completed, active: id })
         },
         confirmed.executionToken,
+        (report) => {
+          outcomes.set(report.nodeId, report)
+        },
       )
-      authorization = await stageAuthorizationClient.read(authorizationId)
-      publish(key, { ...base, authorization, status: 'done' })
+      nodes = interruptedReport(proposal, outcomes, undefined, undefined)
+      terminal = { ...base, authorization, status: 'done' }
     } catch (error) {
       const run = runs.get(key)
-      let code: NodeBatchError = 'failed'
-      if (error && typeof error === 'object' && 'code' in error) {
-        switch (error.code) {
-          case 'empty':
-          case 'cycle':
-          case 'busy':
-          case 'prompt':
-          case 'media':
-          case 'model':
-          case 'changed':
-          case 'failed':
-          case 'cancelled':
-          case 'limit':
-          case 'balance':
-          case 'authorization':
-          case 'stale':
-          case 'local':
-            code = error.code
-        }
-      }
+      const code = batchError(error)
+      // 用户自己撤销或停下、换了账号：不唤醒，那是用户自己的决定。
+      const reportable = !control.signal.aborted && sameAccount() && run?.status !== 'undone'
+      if (reportable)
+        nodes = started
+          ? interruptedReport(proposal, outcomes, active, code)
+          : // 确认时规格就对不上，或开跑前的预检、复核没过：一个都没提交，算被拦下。
+            authorization || code === 'stale'
+            ? blockedReport(proposal, agentNodeRunBridge()?.quote(proposal) ?? plan, code)
+            : undefined
       if (run?.status !== 'undone')
-        publish(key, {
+        terminal = {
           ...base,
           authorization,
           status: 'failed',
           error: code,
           completed: run?.status === 'running' ? run.completed : 0,
-        })
+        }
     } finally {
       if (controls.get(key)?.control === control) controls.delete(key)
+      if (terminal && nodes && sameAccount()) {
+        const reported = await reportRun(
+          key,
+          terminal,
+          authorizationId,
+          nodes,
+          executionToken,
+          sameAccount,
+        )
+        if (reported) authorization = undefined
+      } else if (terminal) publish(key, terminal)
       if (authorization) {
         try {
           const ended = await stageAuthorizationClient.end(authorizationId)

@@ -119,6 +119,28 @@ export async function resolveSessionUserId(token: string): Promise<string | null
   return row.user_id
 }
 
+/**
+ * 登录或注册换成了另一个账号、却没先登出：旧账号还开着的阶段授权在这里收回。
+ * 浏览器换了 cookie 之后，旧账号的运行再也收不了尾（`/end` 会以新账号的身份被拒）。
+ * 和登出一样是尽力而为：失败只记日志，不挡这次登录。同一账号重新登录不收回。
+ */
+export async function reclaimSwitchedAccount(
+  previousToken: unknown,
+  nextUserId: string,
+): Promise<void> {
+  if (typeof previousToken !== 'string' || !previousToken) return
+  try {
+    const previous = await resolveSessionUserId(previousToken)
+    if (!previous || previous === nextUserId) return
+    await endStageAuthorizationsForUser(previous)
+  } catch (error) {
+    log.warn(
+      { err: error, event: 'auth.switch.reclaim_failed' },
+      'stage authorization reclaim failed while switching accounts',
+    )
+  }
+}
+
 export async function resolveUserSession(
   token: string,
   client?: SessionClient | null,

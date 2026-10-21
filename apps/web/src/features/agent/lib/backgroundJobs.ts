@@ -1,7 +1,9 @@
 import type {
   AgentBackgroundJobProgress,
   AgentBackgroundJobView,
+  AgentBatchWakeReceipt,
   AgentMessageView,
+  StageRunWakeReceipt,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
@@ -12,6 +14,7 @@ import {
   AgentRequestError,
   cancelRetry as cancelRetryRequest,
   fetchBatchWakeReceipt,
+  fetchStageRunWakeReceipt,
   cancelJob as requestJobCancel,
   fetchJobs as requestJobs,
   fetchMessages as requestSnapshot,
@@ -23,6 +26,7 @@ import {
 } from './artifactDelivery'
 import { agentCanvasSink } from './canvasSink'
 import { agentJobUnsettled } from './jobProgress'
+import { noteAgentNodeRunWakeSkipped } from './nodeRuns'
 import { panelMessage } from './panelMessages'
 import { agentDraftReservation } from './promptDraft'
 import type { AgentRetryRefusal } from './retry'
@@ -109,6 +113,8 @@ export interface AgentBackgroundJobs {
   resume(conversationId: string, messages: readonly AgentPanelMessage[]): void
   /** A completed batch uses the same durable wake pickup, once per version in this conversation. */
   followBatch(conversationId: string, batchId: string, version: number): void
+  /** 画布节点运行的回报同样走持久的唤醒：每条授权只接一次。 */
+  followStageRun(conversationId: string, authorizationId: string): void
   /**
    * 单独取消这张结果卡提交的任务；服务端按原桶退回，卡随即换成取消后的结局。还在重试队列里
    * 排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
@@ -168,8 +174,10 @@ export function createAgentBackgroundJobs({
   let wakeWatch: { readonly conversationId: string; result: Promise<boolean> } | null = null
   interface BatchWake {
     readonly conversationId: string
-    readonly batchId: string
-    readonly version: number
+    /** 这条唤醒走到了哪一步：批次版本或运行回报各有自己的回执。 */
+    readonly receipt: () => Promise<AgentBatchWakeReceipt | StageRunWakeReceipt>
+    /** 唤醒被跳过时的收尾：运行卡要说明智能体没有查看。 */
+    readonly skipped?: (receipt: Extract<StageRunWakeReceipt, { status: 'skipped' }>) => void
     readonly currentScope: () => boolean
     running: boolean
     adopted: boolean
@@ -448,11 +456,13 @@ export function createAgentBackgroundJobs({
       batchWakes.get(key) === pending &&
       pending.currentScope() &&
       session.isCurrent(pending.conversationId)
-    void fetchBatchWakeReceipt(pending.batchId, pending.version)
+    void pending
+      .receipt()
       .then(async (receipt) => {
         if (!current()) return
         if (receipt.status === 'skipped') {
           pending.adopted = true
+          pending.skipped?.(receipt)
           return
         }
         if (receipt.status !== 'consumed' || !session.isIdle(pending.conversationId)) return
@@ -493,6 +503,35 @@ export function createAgentBackgroundJobs({
     for (const [key, pending] of batchWakes) pickUpBatchWake(key, pending)
   }
 
+  /** 跟住一条持久的唤醒：回执说已起轮就接上那一轮，说跳过就收尾。同一条只跟一次。 */
+  const followWake = (
+    conversationId: string,
+    key: string,
+    receipt: BatchWake['receipt'],
+    skipped?: BatchWake['skipped'],
+  ) => {
+    if (!session.isCurrent(conversationId)) return
+    refreshWakeRecovery()
+    let pending = batchWakes.get(key)
+    if (!pending) {
+      const sameAccount = accountScope()
+      const backend = bffBaseUrl()
+      pending = {
+        conversationId,
+        receipt,
+        ...(skipped ? { skipped } : {}),
+        currentScope: () => sameAccount() && bffBaseUrl() === backend,
+        running: false,
+        adopted: false,
+        retryAfter: 0,
+        retryCount: 0,
+      }
+      batchWakes.set(key, pending)
+    }
+    pickUpBatchWake(key, pending)
+    refreshWakeRecovery()
+  }
+
   const reserveSlot = (
     conversationId: string,
     card: AgentToolMessage,
@@ -529,27 +568,21 @@ export function createAgentBackgroundJobs({
     },
 
     followBatch(conversationId, batchId, version) {
-      if (!session.isCurrent(conversationId)) return
-      const key = JSON.stringify([conversationId, batchId, version])
-      refreshWakeRecovery()
-      let pending = batchWakes.get(key)
-      if (!pending) {
-        const sameAccount = accountScope()
-        const backend = bffBaseUrl()
-        pending = {
-          conversationId,
-          batchId,
-          version,
-          currentScope: () => sameAccount() && bffBaseUrl() === backend,
-          running: false,
-          adopted: false,
-          retryAfter: 0,
-          retryCount: 0,
-        }
-        batchWakes.set(key, pending)
-      }
-      pickUpBatchWake(key, pending)
-      refreshWakeRecovery()
+      followWake(conversationId, JSON.stringify([conversationId, batchId, version]), () =>
+        fetchBatchWakeReceipt(batchId, version),
+      )
+    },
+
+    followStageRun(conversationId, authorizationId) {
+      followWake(
+        conversationId,
+        JSON.stringify([conversationId, 'stage-run', authorizationId]),
+        () => fetchStageRunWakeReceipt(authorizationId),
+        (receipt) => {
+          if (receipt.reason === 'insufficient_credits' || receipt.reason === 'wake_limit')
+            noteAgentNodeRunWakeSkipped(authorizationId, receipt.reason)
+        },
+      )
     },
 
     async cancel(conversationId, messageId) {
