@@ -10,7 +10,7 @@ async function pixels(bytes: Uint8Array) {
   const image = sharp(bytes, { limitInputPixels: selectionSettings.maxPixels })
   const metadata = await image.metadata()
   if ((metadata.orientation ?? 1) !== 1 || (metadata.pages ?? 1) !== 1)
-    throw new MaskedOutputError('生成图的方向或帧数无法与选区对应，未应用修改')
+    throw new MaskedOutputError('生成图的方向或帧数无法与选区对应，未应用修改，可重试')
   return image.toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true })
 }
 
@@ -54,7 +54,7 @@ export async function protectMaskedOutput(
           Math.abs(sx / sy - 1) > limits.maxAspectDifference
         )
           throw new MaskedOutputError(
-            '生成图尺寸与原图不一致，无法保护选区外内容；候选已保留，未应用修改',
+            '生成图尺寸与原图不一致，无法保护选区外内容；候选已保留，未应用修改，可重试',
           )
         // 此时只是待验证的尺度假设；没有足够原位纹理证据就拒绝，不盲目贴回。
         generated = await pixels(
@@ -77,7 +77,9 @@ export async function protectMaskedOutput(
           (alignment.texturedRegions < maskedEditSettings.rescale.minTexturedRegions ||
             alignment.matchedQuadrants < maskedEditSettings.rescale.minMatchedQuadrants))
       )
-        throw new MaskedOutputError('生成图与原图的位置对应无法确认；候选已保留，未应用修改')
+        throw new MaskedOutputError(
+          '生成图与原图的位置对应无法确认；候选已保留，未应用修改，可重试',
+        )
       const output = Buffer.from(source.data)
       let outsideChangedPixels = 0
       let insideChangedPixels = 0
@@ -135,7 +137,7 @@ export async function protectMaskedOutput(
       }
     } catch (error) {
       if (error instanceof MaskedOutputError) throw error
-      throw new MaskedOutputError('生成图无法与原图选区对应；候选已保留，未应用修改', {
+      throw new MaskedOutputError('生成图无法与原图选区对应；候选已保留，未应用修改，可重试', {
         cause: error,
       })
     }

@@ -88,7 +88,14 @@ function clarificationCard(
   id: string,
   turnId: string,
 ): AgentClarificationMessage {
-  return { kind: 'clarification', id, turnId, question: block.question, options: block.options }
+  return {
+    kind: 'clarification',
+    id,
+    turnId,
+    question: block.question,
+    options: block.options,
+    ...(block.maskProposal ? { maskProposal: block.maskProposal } : {}),
+  }
 }
 
 function textCard(

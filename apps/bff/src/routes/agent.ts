@@ -18,6 +18,7 @@ import type {
 import {
   AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
+  AGENT_REGION_NOTE_MAX_CHARS,
   AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
@@ -263,6 +264,13 @@ const referencesSchema = t.Optional(
             y: t.Number({ minimum: 0, maximum: 1 }),
             width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
             height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+            note: t.Optional(t.String({ minLength: 1, maxLength: AGENT_REGION_NOTE_MAX_CHARS })),
+            arrow: t.Optional(
+              t.Object({
+                x: t.Number({ minimum: 0, maximum: 1 }),
+                y: t.Number({ minimum: 0, maximum: 1 }),
+              }),
+            ),
           }),
           { maxItems: 32 },
         ),
