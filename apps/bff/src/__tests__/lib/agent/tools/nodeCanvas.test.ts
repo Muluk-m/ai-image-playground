@@ -381,6 +381,24 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   ).rejects.toThrow('云端节点画布')
 })
 
+it('quotes image nodes with the workbench image count, not the omitted turn n', async () => {
+  const { context } = await fixture()
+  await createNodes
+    .create(context)
+    .execute(
+      'create',
+      { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] },
+      undefined,
+      undefined,
+    )
+  const quoted = await runNodes
+    .create({ ...context, params: { canvasImageModel: 'workbench-image', canvasImageCount: 4 } })
+    .execute('count', { nodeIds: ['image'] }, undefined, undefined)
+  expect(quoted.details?.canvasRun?.specs).toEqual([
+    { nodeId: 'image', model: 'workbench-image', quantity: 4, unitMultiplier: 1 },
+  ])
+})
+
 it('uses the workbench image model and adopts a real model when the unbilled placeholder is empty', async () => {
   const { context } = await fixture()
   await createNodes

@@ -15,6 +15,7 @@ import type {
 import {
   AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
+  agentImageCount,
   PROJECT_NAME_MAX_LENGTH,
   stripTitleMarkdown,
 } from '@image-playground/shared'
@@ -1365,6 +1366,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }),
       // 工作台出图模型单独送：默认智能选模型时不把它写进对话模型，阶段授权仍要按它报价。
       ...(selected ? { canvasImageModel: selected } : {}),
+      // 张数同理：画布轮不送 n，报价却要和原标签页 buildNodeBatch 提交的张数（同一个 agentImageCount）一致。
+      canvasImageCount: agentImageCount({ n: params.n }),
       ...(imageDirect ? { directImage: true as const } : {}),
       thinkingDepth: get().thinkingDepth,
       ...(mode === 'video' && useVideoStore.getState().draft.model
