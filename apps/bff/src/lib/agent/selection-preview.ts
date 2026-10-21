@@ -39,6 +39,37 @@ function asImage(dataUrl: string): ImageContent {
   }
 }
 
+/**
+ * 箭头标注只画在定位图上：从尾端指向区域中心，末端一个实心箭头。文字不画——服务器上
+ * 未必有中文字体，标注原文已经随编号写进清单。
+ */
+export function arrowMarkup(
+  region: { x: number; y: number; width: number; height: number; arrow?: { x: number; y: number } },
+  width: number,
+  height: number,
+  radius: number,
+): string {
+  if (!region.arrow) return ''
+  const fromX = region.arrow.x * width
+  const fromY = region.arrow.y * height
+  const toX = (region.x + region.width / 2) * width
+  const toY = (region.y + region.height / 2) * height
+  const length = Math.hypot(toX - fromX, toY - fromY)
+  if (length < 1) return ''
+  const unitX = (toX - fromX) / length
+  const unitY = (toY - fromY) / length
+  const head = Math.min(length, radius * 1.6)
+  const baseX = toX - unitX * head
+  const baseY = toY - unitY * head
+  const side = head * 0.55
+  const points = [
+    `${toX},${toY}`,
+    `${baseX - unitY * side},${baseY + unitX * side}`,
+    `${baseX + unitY * side},${baseY - unitX * side}`,
+  ].join(' ')
+  return `<line x1="${fromX}" y1="${fromY}" x2="${baseX}" y2="${baseY}" stroke="#159cf6" stroke-width="${radius / 3}" stroke-linecap="round"/><polygon points="${points}" fill="#159cf6"/>`
+}
+
 /** ID 同时绑定图片与 mask 字节，旧选区不能静默套用到同尺寸的新版本。 */
 async function prepareSelection(
   reference: Reference,
@@ -101,7 +132,7 @@ async function prepareSelection(
         const x = region.x * info.width,
           y = region.y * info.height
         const radius = Math.max(8, Math.min(info.width, info.height) * 0.014)
-        return `<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${region.number ?? index + 1}</text>`
+        return `${arrowMarkup(region, info.width, info.height, radius)}<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${region.number ?? index + 1}</text>`
       })
       .join('')
     const preview = await sharp(raw)
