@@ -328,7 +328,7 @@ export interface StageRunWakeContent {
 
 /**
  * 唤醒轮看到的那一段：哪个阶段、每个节点（用节点名）的结局与原因，以及该怎么说、不该做什么。
- * 这一轮里再发起的 runNodes 一律等用户在卡上确认：自动重试已经用过，新的花费要用户点头。
+ * 这一轮里再发起的 runNodes 或 runStoryboardFrames 一律等用户在卡上确认：自动重试已经用过，新的花费要用户点头。
  */
 export async function stageRunWakeContent(
   conversationId: string,
@@ -363,6 +363,8 @@ export async function stageRunWakeContent(
   const overBudget = run.nodes.some(
     (node) => node.outcome === 'failed' && !node.task && node.reason === 'budget_exceeded',
   )
+  // 首帧阶段的节点 runNodes 不收，要重出得走 runStoryboardFrames。
+  const rerun = state.storyboard ? 'runStoryboardFrames（单镜重出传 shotIds）' : 'runNodes'
   const guidance = [
     '汇报规则：用节点名称指代节点，不要说内部 id；只有标为「已完成」的节点才能说已完成或已生成，提交了但没有结果的只能说「已提交」或「失败」。',
   ]
@@ -373,7 +375,7 @@ export async function stageRunWakeContent(
   if (failed > 0)
     guidance.push(
       overBudget
-        ? '失败节点的自动重试超出了这次授权的预算：说明还差什么，请用户同意后再用 runNodes 为这些节点发起新的阶段授权。'
+        ? `失败节点的自动重试超出了这次授权的预算：说明还差什么，请用户同意后再用 ${rerun} 为这些节点发起新的阶段授权。`
         : '失败节点已在授权内自动重试过至多一次，不要再自行重试或重新提交：说明失败的是哪几个，提议下一步，等用户决定。',
     )
   if (unsettled > 0)
@@ -382,7 +384,7 @@ export async function stageRunWakeContent(
     )
   if (skipped > 0)
     guidance.push(
-      '没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 runNodes 发起新的阶段授权。',
+      `没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 ${rerun} 发起新的阶段授权。`,
     )
   guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {
