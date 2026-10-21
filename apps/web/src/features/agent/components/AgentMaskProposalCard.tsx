@@ -432,7 +432,9 @@ export default function AgentMaskProposalCard({
   }, [redraw])
   useEffect(
     () => () => {
+      // 卸载（含开发模式的重复挂载）时取消并清空，否则后面的重绘永远排不上。
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      frameRef.current = null
       refineRef.current.controller?.abort()
     },
     [],
