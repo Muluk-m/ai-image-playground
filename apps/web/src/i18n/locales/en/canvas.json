@@ -656,6 +656,7 @@
     "model": "A video model is unavailable. Select another model.",
     "changed": "Inputs, settings, or pricing changed. Review the batch again.",
     "stale": "The workbench model or spec changed. Ask the agent to propose this stage again.",
+    "local": "A reference image is still only in this browser and is not on the canvas. Add it to the canvas, then ask the agent to propose the stage again.",
     "authorization": "Authorization is inactive, out of scope, or over budget. Ask the agent for a new stage proposal.",
     "failed": "The batch stopped. Check the failed node; completed results are kept.",
     "cancelled": "Remaining jobs stopped. Submitted jobs will finish.",

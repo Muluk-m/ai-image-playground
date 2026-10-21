@@ -90,6 +90,7 @@ export default function NodeBatchDialog({
     balance: t('nodeBatch.balance'),
     authorization: t('nodeBatch.authorization'),
     stale: t('nodeBatch.stale'),
+    local: t('nodeBatch.local'),
   }
   return (
     <Dialog

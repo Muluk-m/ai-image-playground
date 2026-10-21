@@ -7,6 +7,8 @@ import {
   stageExecutionBinding,
   stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
+  stageSubmittedFileIds,
+  stageSubmittedInputCount,
 } from '../stage-execution'
 import { VIDEO_MODEL_SUPPORT } from '../video-presets'
 
@@ -172,5 +174,35 @@ describe('stage execution binding', () => {
     expect(stageExecutionBindingMatches(binding, { prompt: '上文\n嫩芽', inputCount: 0 })).toBe(
       true,
     )
+  })
+
+  it('counts image inputs the way the queue submits them and keeps video slots', () => {
+    const shared = [
+      { id: 'a', kind: 'image' as const, fileId: 'same' },
+      { id: 'b', kind: 'image' as const, fileId: 'same' },
+      { id: 'c', kind: 'image' as const, fileId: 'other' },
+    ]
+    const authorized = new Set(['a', 'b'])
+    expect(stageSubmittedInputCount(shared, authorized, 'image')).toBe(3)
+    expect(stageSubmittedFileIds(shared, authorized, 'image')).toEqual(['same', 'same', 'other'])
+    expect(stageSubmittedInputCount(shared, new Set(), 'image')).toBe(2)
+    expect(stageSubmittedFileIds(shared, new Set(), 'image')).toEqual(['same', 'other'])
+    expect(stageSubmittedInputCount(shared, authorized, 'video')).toBe(3)
+    expect(
+      stageExecutionBindingMatches(
+        {
+          nodeId: 'v',
+          kind: 'video',
+          prompt: '嫩芽',
+          inputCount: 0,
+          video: { durationSeconds: 2, resolution: '720p', aspectRatio: '16:9' },
+        },
+        {
+          prompt: '嫩芽',
+          inputCount: 0,
+          video: { durationSeconds: 1.9, resolution: '720p', aspectRatio: '16:9' },
+        },
+      ),
+    ).toBe(false)
   })
 })

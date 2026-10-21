@@ -14,6 +14,7 @@ import {
   stageActiveReferences,
   stageIncomingReferences,
   stageNodePrompt,
+  stageSubmittedFileIds,
   videoRequestRejection,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
@@ -48,6 +49,7 @@ export type NodeBatchError =
   | 'balance'
   | 'authorization'
   | 'stale'
+  | 'local'
 export class NodeBatchFailure extends Error {
   constructor(public readonly code: NodeBatchError) {
     super(code)
@@ -344,6 +346,21 @@ export async function executeNodeBatch(
   control.progress(plan.jobs.length, '')
 }
 
+/** 阶段提交的图片清单与服务端冻结的张数使用同一套身份。临时上传不在画布上，直接拒绝。 */
+export function stageAuthorizedImageInputs(
+  refs: readonly NodeReference[],
+  files: Readonly<Record<string, string>>,
+  authorizedIds: ReadonlySet<string>,
+  temporary: Readonly<Record<string, string>>,
+): string[] {
+  if (Object.keys(temporary).length > 0) throw new NodeBatchFailure('local')
+  return stageSubmittedFileIds(refs, authorizedIds, 'image').map((id) => {
+    const url = files[id]
+    if (!url) throw new NodeBatchFailure('media')
+    return url
+  })
+}
+
 export async function runNodeBatch(
   doc: Y.Doc,
   editor: CanvasEditor,
@@ -371,7 +388,10 @@ export async function runNodeBatch(
     submit: async (job) => {
       const current = currentNodeBatch(doc, editor, ids).jobs.find((one) => one.id === job.id)
       if (!current) throw new NodeBatchFailure('changed')
+      const stage = stageAuthorizations?.[job.id]
+      if (stage && Object.keys(current.temporary).length > 0) throw new NodeBatchFailure('local')
       const files = { ...editor.doc.files, ...current.temporary }
+      const authorizedIds = new Set(plan.jobs.map((item) => item.id))
       if (
         current.refs.some(
           (ref) =>
@@ -390,7 +410,9 @@ export async function runNodeBatch(
               doc,
               job.id,
               job.prompt,
-              referenceFileIds(current.refs, files).map((id) => files[id]!),
+              stage
+                ? stageAuthorizedImageInputs(current.refs, files, authorizedIds, current.temporary)
+                : referenceFileIds(current.refs, files).map((id) => files[id]!),
               undefined,
               undefined,
               {

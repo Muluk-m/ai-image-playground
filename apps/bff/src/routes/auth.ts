@@ -28,7 +28,7 @@ import { resolveAuthUser } from '../lib/user-auth'
 import {
   clearUserSessionCookie,
   createUserSession,
-  resolveUserSession,
+  resolveSessionUserId,
   revokeUserSession,
   sessionClientFromRequest,
   setUserSessionCookie,
@@ -62,6 +62,20 @@ const registrationLimiter = createRateLimiter({
 })
 const verificationSourceLimiter = createWindowLimiter(60 * 60_000, 2048)
 const verificationEmailLimiter = createWindowLimiter(60 * 60_000, 2048)
+
+/** 授权回收失败也要清掉会话和 cookie，避免登出请求失败后登录态还在。 */
+export async function finishLogout(
+  token: string,
+  clearCookie: () => void,
+  reclaim: () => Promise<void>,
+): Promise<void> {
+  try {
+    await reclaim()
+  } finally {
+    clearCookie()
+    await revokeUserSession(token)
+  }
+}
 
 const passwordChangeLimiter = createRateLimiter({
   maxFailures: 10,
@@ -263,10 +277,14 @@ export const userAuthRoutes = new Elysia()
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
-    const user = token ? await resolveUserSession(token) : null
-    if (user) await endStageAuthorizationsForUser(user.id)
-    await revokeUserSession(token)
-    clearUserSessionCookie(cookie)
+    const userId = token ? await resolveSessionUserId(token) : null
+    await finishLogout(
+      token,
+      () => clearUserSessionCookie(cookie),
+      async () => {
+        if (userId) await endStageAuthorizationsForUser(userId)
+      },
+    )
     return { ok: true }
   })
   .get('/api/auth/me', ({ authUser, status }) => {

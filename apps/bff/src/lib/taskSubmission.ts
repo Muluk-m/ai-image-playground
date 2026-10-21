@@ -400,6 +400,9 @@ export async function createQueueTask(
         {
           prompt: input.request.prompt,
           inputCount: requestPayload.input_images?.length ?? 0,
+          // 指纹用提交的原始时长，必须和提案冻结的草稿一致。
+          // 计价 quantity 是向上取整后的额度，不能拿来放宽比对，否则 1.9 秒会消耗 2 秒的授权。
+          // 不在模型档位里的时长在进入这里之前就被 videoRequestRejection 拒绝。
           ...(input.video
             ? {
                 video: {

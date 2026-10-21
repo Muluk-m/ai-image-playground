@@ -97,6 +97,24 @@ export async function createUserSession(
   return token
 }
 
+/**
+ * 登出收回阶段授权时用。过期会话返回空，不要求账号仍是 active。
+ * 不像 resolveUserSession 那样在账号被禁用时先删掉会话。
+ */
+export async function resolveSessionUserId(token: string): Promise<string | null> {
+  if (!token) return null
+  const [row] = await db
+    .select({
+      user_id: schema.user_sessions.user_id,
+      expires_at: schema.user_sessions.expires_at,
+    })
+    .from(schema.user_sessions)
+    .where(eq(schema.user_sessions.token_hash, hashSessionToken(token)))
+    .limit(1)
+  if (!row || row.expires_at <= Date.now()) return null
+  return row.user_id
+}
+
 export async function resolveUserSession(
   token: string,
   client?: SessionClient | null,
@@ -139,7 +157,18 @@ export async function resolveUserSession(
     return accountProfileView(row)
   }
 
-  // 仅真实存在但已过期/禁用的 session 才清理。
+  // 禁用账号的会话在这里就会被删掉，登出处理函数来不及再查主人。先收回阶段授权。
+  if (row.status !== 'active' && row.expires_at > now) {
+    try {
+      const { endStageAuthorizationsForUser } = await import('./agent/stage-authorizations')
+      await endStageAuthorizationsForUser(row.id)
+    } finally {
+      await db.delete(schema.user_sessions).where(eq(schema.user_sessions.token_hash, tokenHash))
+    }
+    return null
+  }
+
+  // 仅真实存在但已过期的 session 才清理。过期会话不再收回授权，交给 30 分钟过期扫描。
   await db.delete(schema.user_sessions).where(eq(schema.user_sessions.token_hash, tokenHash))
   return null
 }

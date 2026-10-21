@@ -61,7 +61,10 @@ _setPrivateBffOverlayForTesting({
 // Module loading must follow isolated DATABASE_URL and billing-boundary installation.
 const { app } = await import('../../app')
 const { db, schema, close } = await import('../../db/client')
-const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { createUserSession, hashSessionToken, USER_SESSION_COOKIE } = await import(
+  '../../lib/user-session'
+)
+const { finishLogout } = await import('../../routes/auth')
 const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
 const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
 const {
@@ -1288,6 +1291,42 @@ it('returns the existing proposal when the key matches and rejects a different o
       bindings: row.state.bindings.map((binding) => ({ ...binding, nodeId: 'b' })),
     }),
   ).rejects.toThrow('stage_authorization_conflict')
+  await expect(
+    proposeStageAuthorization({
+      userId: 'stage-owner',
+      conversationId: row.conversation_id,
+      projectId: row.project_id,
+      proposalKey: row.proposal_key,
+      stage: row.state.stage,
+      nodeIds: [...row.state.nodeIds],
+      nodeNames: [...row.state.nodeNames],
+      nodes: (row.state.charges ?? []).map(({ nodeId, model, unitMultiplier }) => ({
+        nodeId,
+        model,
+        quantity: 2,
+        unitMultiplier,
+      })),
+      bindings: row.state.bindings,
+    }),
+  ).rejects.toThrow('stage_authorization_conflict')
+  const binding = row.state.bindings[0]
+  if (!binding) throw new Error('missing binding')
+  await expect(
+    proposeStageAuthorization({
+      userId: 'stage-owner',
+      conversationId: row.conversation_id,
+      projectId: row.project_id,
+      proposalKey: `${row.proposal_key}:duplicate`,
+      stage: row.state.stage,
+      nodeIds: ['a', 'a'],
+      nodeNames: ['嫩芽', '嫩芽'],
+      nodes: [
+        { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+        { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+      ],
+      bindings: [binding, { ...binding, nodeId: 'b' }],
+    }),
+  ).rejects.toThrow('stage_authorization_scope')
   const otherConversation = crypto.randomUUID()
   const now = Date.now()
   await db.insert(schema.agent_conversations).values({
@@ -1345,20 +1384,78 @@ it('returns the existing proposal when the key matches and rejects a different o
 
 it('ends active stage authorizations when the user logs out', async () => {
   const proposal = await fixture()
+  const second = await fixture()
   const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
   expect(executionToken).toEqual(expect.any(String))
-  const logoutCookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('stage-owner', tx))}`
+  await (await request(second.authorizationId, '/confirm', {})).json()
+  const token = await db.transaction((tx) => createUserSession('stage-owner', tx))
   const logout = await app.handle(
     new Request('http://localhost/api/auth/logout', {
       method: 'POST',
-      headers: { cookie: logoutCookie },
+      headers: { cookie: `${USER_SESSION_COOKIE}=${token}` },
     }),
   )
   expect(logout.status).toBe(200)
-  const [row] = await db
+  for (const id of [proposal.authorizationId, second.authorizationId]) {
+    const [row] = await db
+      .select()
+      .from(schema.agent_stage_authorizations)
+      .where(eq(schema.agent_stage_authorizations.id, id))
+    expect(row?.state.status).toBe('ended')
+  }
+  expect(
+    await db
+      .select({ token_hash: schema.user_sessions.token_hash })
+      .from(schema.user_sessions)
+      .where(eq(schema.user_sessions.token_hash, hashSessionToken(token))),
+  ).toHaveLength(0)
+  expect((await request(proposal.authorizationId)).status).toBe(200)
+
+  const disabled = await fixture()
+  await (await request(disabled.authorizationId, '/confirm', {})).json()
+  await db
+    .update(schema.users)
+    .set({ status: 'disabled' })
+    .where(eq(schema.users.id, 'stage-owner'))
+  const disabledToken = await db.transaction((tx) => createUserSession('stage-owner', tx))
+  const disabledLogout = await app.handle(
+    new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: `${USER_SESSION_COOKIE}=${disabledToken}` },
+    }),
+  )
+  expect(disabledLogout.status).toBe(200)
+  const [disabledRow] = await db
     .select()
     .from(schema.agent_stage_authorizations)
-    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
-  expect(row?.state.status).toBe('ended')
-  expect((await request(proposal.authorizationId)).status).toBe(200)
+    .where(eq(schema.agent_stage_authorizations.id, disabled.authorizationId))
+  expect(disabledRow?.state.status).toBe('ended')
+  expect(
+    await db
+      .select({ token_hash: schema.user_sessions.token_hash })
+      .from(schema.user_sessions)
+      .where(eq(schema.user_sessions.token_hash, hashSessionToken(disabledToken))),
+  ).toHaveLength(0)
+})
+
+it('revokes the session when stage reclaim fails during logout', async () => {
+  const token = await db.transaction((tx) => createUserSession('stage-owner', tx))
+  let cleared = false
+  await expect(
+    finishLogout(
+      token,
+      () => {
+        cleared = true
+      },
+      async () => {
+        throw new Error('reclaim failed')
+      },
+    ),
+  ).rejects.toThrow('reclaim failed')
+  expect(cleared).toBe(true)
+  const sessions = await db
+    .select({ token_hash: schema.user_sessions.token_hash })
+    .from(schema.user_sessions)
+    .where(eq(schema.user_sessions.token_hash, hashSessionToken(token)))
+  expect(sessions).toHaveLength(0)
 })

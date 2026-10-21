@@ -154,8 +154,24 @@ async function quote(
 }
 function sameIdSet(left: readonly string[], right: readonly string[]) {
   if (left.length !== right.length) return false
-  const seen = new Set(left)
-  return seen.size === left.length && right.every((id) => seen.has(id))
+  const leftSeen = new Set(left)
+  const rightSeen = new Set(right)
+  return (
+    leftSeen.size === left.length &&
+    rightSeen.size === right.length &&
+    right.every((id) => leftSeen.has(id))
+  )
+}
+function sameNameList(
+  ids: readonly string[],
+  names: readonly string[],
+  otherIds: readonly string[],
+  otherNames: readonly string[],
+) {
+  if (ids.length !== names.length || otherIds.length !== otherNames.length) return false
+  if (!sameIdSet(ids, otherIds)) return false
+  const nameOf = new Map(ids.map((id, index) => [id, names[index]]))
+  return otherIds.every((id, index) => nameOf.get(id) === otherNames[index])
 }
 function sameBinding(
   left: StageExecutionBinding | undefined,
@@ -184,7 +200,10 @@ function proposalAgrees(
   input: {
     userId: string
     projectId: string
+    stage: string
     nodeIds: readonly string[]
+    nodeNames: readonly string[]
+    nodes: readonly StageChargeInput[]
     bindings: readonly StageExecutionBinding[]
   },
 ) {
@@ -193,7 +212,9 @@ function proposalAgrees(
     row.user_id === input.userId &&
     row.project_id === input.projectId &&
     state.projectId === input.projectId &&
-    sameIdSet(state.nodeIds, input.nodeIds) &&
+    state.stage === input.stage &&
+    sameNameList(state.nodeIds, state.nodeNames, input.nodeIds, input.nodeNames) &&
+    stageExecutionSpecsMatch(input.nodes, state.charges ?? []) &&
     sameIdSet(
       input.bindings.map((binding) => binding.nodeId),
       input.nodeIds,
@@ -219,6 +240,7 @@ async function assertStageOwnership(
     })
     .from(schema.agent_conversations)
     .where(eq(schema.agent_conversations.id, conversationId))
+    .for('update')
   const [project] = await tx
     .select({
       user_id: schema.canvas_projects.user_id,
@@ -227,6 +249,7 @@ async function assertStageOwnership(
     })
     .from(schema.canvas_projects)
     .where(eq(schema.canvas_projects.id, projectId))
+    .for('update')
   if (
     !conversation ||
     conversation.deleted_at ||
@@ -363,22 +386,32 @@ export async function confirmStageAuthorization(
     return { authorization, executionToken }
   })
 }
-/** 登出时收回这个用户还开着的阶段授权。已结束或已过期的行保持原样。 */
+/**
+ * 登出时在一个事务里收回这个用户还开着的阶段授权。
+ * 已结束或已过期的行保持原样。锁住待处理行，避免逐条事务把登出拖住，也不把并发里已经结束的行算成失败。
+ */
 export async function endStageAuthorizationsForUser(userId: string): Promise<number> {
-  const rows = await db
-    .select({ id: table.id })
-    .from(table)
-    .where(and(eq(table.user_id, userId), sql`${table.state}->>'status' in ('pending', 'active')`))
-  let ended = 0
-  for (const row of rows) {
-    try {
-      const state = await endStageAuthorization(userId, row.id)
-      if (state.status === 'ended') ended += 1
-    } catch (error) {
-      if (!(error instanceof StageAuthorizationError)) throw error
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(table)
+      .where(
+        and(eq(table.user_id, userId), sql`${table.state}->>'status' in ('pending', 'active')`),
+      )
+      .for('update')
+    const now = Date.now()
+    let ended = 0
+    for (const row of rows) {
+      if (row.state.status !== 'pending' && row.state.status !== 'active') continue
+      await save(tx, {
+        ...row.state,
+        status: 'ended',
+        audit: [...row.state.audit, { kind: 'ended', at: now }],
+      })
+      ended += 1
     }
-  }
-  return ended
+    return ended
+  })
 }
 export async function endStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => {

@@ -430,21 +430,64 @@ export function stageActiveReferences(input: {
   }
 }
 
-/** 文件已在画布上的外部图，加上本阶段会产出的上游，各算一张。浏览器临时上传不在这里。 */
-export function stageSubmittedInputCount(
-  refs: readonly StageBindingReference[],
+type StageInputRef = {
+  readonly id: string
+  readonly kind: string
+  readonly fileId?: string
+  readonly asset?: boolean
+}
+
+/**
+ * 和队列实际提交的图片一一对应。
+ * 图片：本阶段会重跑的上游按节点各算一张（即使现在共用一个 fileId，跑完也是各自的新图）；
+ * 画布上已有的外部图按 fileId 去重，和 referenceFileIds 一致。
+ * 视频：首帧、尾帧、参考图各占一个槽，同一张图被两个节点引用也要各交一次。
+ * 只存在于浏览器、还没写入画布的临时上传不在这份清单里，阶段提交必须先拒绝。
+ */
+function stageInputKey(
+  ref: StageInputRef,
   authorizedIds: ReadonlySet<string>,
-): number {
-  const images = refs.filter(
+  kind: 'image' | 'video',
+): string {
+  if (kind === 'video') return `slot:${ref.id}`
+  if (authorizedIds.has(ref.id)) return `node:${ref.id}`
+  return ref.fileId ? `file:${ref.fileId}` : ''
+}
+
+function stageInputImages(refs: readonly StageInputRef[], authorizedIds: ReadonlySet<string>) {
+  return refs.filter(
     (ref) =>
       ref.kind === 'image' && (!ref.asset || Boolean(ref.fileId) || authorizedIds.has(ref.id)),
   )
-  const keys = new Set<string>()
-  for (const ref of images) {
-    if (authorizedIds.has(ref.id)) keys.add(`node:${ref.id}`)
-    else if (ref.fileId) keys.add(`file:${ref.fileId}`)
+}
+
+export function stageSubmittedFileIds(
+  refs: readonly StageInputRef[],
+  authorizedIds: ReadonlySet<string>,
+  kind: 'image' | 'video',
+): string[] {
+  const fileIds: string[] = []
+  const seen = new Set<string>()
+  for (const ref of stageInputImages(refs, authorizedIds)) {
+    const key = stageInputKey(ref, authorizedIds, kind)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    if (ref.fileId) fileIds.push(ref.fileId)
   }
-  return keys.size
+  return fileIds
+}
+
+export function stageSubmittedInputCount(
+  refs: readonly StageInputRef[],
+  authorizedIds: ReadonlySet<string>,
+  kind: 'image' | 'video',
+): number {
+  const seen = new Set<string>()
+  for (const ref of stageInputImages(refs, authorizedIds)) {
+    const key = stageInputKey(ref, authorizedIds, kind)
+    if (key) seen.add(key)
+  }
+  return seen.size
 }
 
 export function stageExecutionBinding(input: {
@@ -491,7 +534,7 @@ export function stageExecutionBinding(input: {
       assetContext: kind === 'image' ? stageAssetContext(input.node) : '',
       references: active.refs,
     }),
-    inputCount: stageSubmittedInputCount(active.refs, input.authorizedIds),
+    inputCount: stageSubmittedInputCount(active.refs, input.authorizedIds, kind),
     ...(kind === 'video' && input.video
       ? {
           video: {
