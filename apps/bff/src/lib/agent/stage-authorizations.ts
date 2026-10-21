@@ -271,8 +271,8 @@ function withoutInFlightTasks() {
         when jsonb_typeof(attempt->'taskIds') = 'array' then attempt->'taskIds'
         else '[]'::jsonb
       end
-    ) as task_id
-    inner join ${schema.tasks} on ${schema.tasks.id} = task_id
+    ) as task_value(task_id)
+    inner join ${schema.tasks} on ${schema.tasks.id} = task_value.task_id
     where ${schema.tasks.status} in ('queued', 'in_progress', 'reconciling')
   )`
 }
@@ -392,11 +392,13 @@ export async function consumeStageAuthorization(
   credits: number,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
+  const quantity = Math.ceil(usage.quantity)
   if (
     !Number.isFinite(credits) ||
     credits < 0 ||
     !Number.isFinite(usage.quantity) ||
-    usage.quantity < 1 ||
+    !Number.isSafeInteger(quantity) ||
+    quantity < 1 ||
     !Number.isFinite(usage.unitMultiplier) ||
     usage.unitMultiplier <= 0
   )
@@ -411,7 +413,7 @@ export async function consumeStageAuthorization(
   if (
     attempt.model !== usage.model ||
     attempt.unitMultiplier !== usage.unitMultiplier ||
-    attempt.submittedQuantity + usage.quantity > attempt.quantity
+    attempt.submittedQuantity + quantity > attempt.quantity
   )
     throw new StageAuthorizationError('stage_authorization_attempt_conflict')
   if (
@@ -430,7 +432,7 @@ export async function consumeStageAuthorization(
         ? item
         : {
             ...attempt,
-            submittedQuantity: attempt.submittedQuantity + usage.quantity,
+            submittedQuantity: attempt.submittedQuantity + quantity,
             spentCredits: attempt.spentCredits + credits,
             taskIds: [...attempt.taskIds, taskId],
           },

@@ -88,7 +88,15 @@ async function fixture(
   nodeIds = ['a'],
   estimatedCredits?: number,
   beforePropose?: (input: { projectId: string }) => Promise<void>,
-  turnParams?: { canvasImageModel?: string },
+  turnParams?: {
+    canvasImageModel?: string
+    video?: {
+      model: string
+      durationSeconds: number
+      resolution: '480p' | '720p' | '1080p' | '2k'
+      aspectRatio: '16:9' | '9:16' | '1:1'
+    }
+  },
 ) {
   const conversationId = crypto.randomUUID(),
     projectId = crypto.randomUUID(),
@@ -336,7 +344,7 @@ it('prices prompted asset nodes like images and rejects promptless assets', asyn
 })
 
 it('rounds video duration up and prices an unknown resolution like settlement', async () => {
-  const writeDraft = (projectId: string, draft: unknown) =>
+  const writeDraft = (projectId: string, draft: unknown, mode?: string | null) =>
     accessCanvasDocument('stage-owner', projectId, async (current) => {
       const doc = new Y.Doc()
       Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
@@ -344,13 +352,20 @@ it('rounds video duration up and prices an unknown resolution like settlement', 
       const node = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
       if (!node || node.type !== 'image' || canvasNodeKind(node) !== 'video')
         throw new Error('missing clip')
+      const meta: Record<string, string> = {
+        ...node.data.meta,
+        nodeVideoDraft: JSON.stringify(draft),
+      }
+      // 创建时写了文生。不传模式就删掉，才能测「没写模式时按参考图封顶」。
+      if (mode === null) delete meta.nodeVideoMode
+      else if (mode !== undefined) meta.nodeVideoMode = mode
       updateCanvasNode(
         doc,
         'clip',
         {
           data: {
             ...node.data,
-            meta: { ...node.data.meta, nodeVideoDraft: JSON.stringify(draft) },
+            meta,
           },
         },
         canvasOrigin('system', 'fixture'),
@@ -391,7 +406,12 @@ it('rounds video duration up and prices an unknown resolution like settlement', 
   }
   const fractional = await fixture(['clip'], undefined, async ({ projectId }) => {
     await contextFor(projectId)
-    await writeDraft(projectId, { model: 'video-fixture', duration: 1.9, resolution: '720p' })
+    await writeDraft(projectId, {
+      model: 'video-fixture',
+      duration: 1.9,
+      resolution: '720p',
+      aspectRatio: '16:9',
+    })
   })
   expect(fractional).toMatchObject({ budgetCap: 12, nodeIds: ['clip'] })
   expect(await (await request(fractional.authorizationId)).json()).toMatchObject({
@@ -399,7 +419,12 @@ it('rounds video duration up and prices an unknown resolution like settlement', 
   })
   const unknown = await fixture(['clip'], undefined, async ({ projectId }) => {
     await contextFor(projectId)
-    await writeDraft(projectId, { model: 'video-fixture', duration: 5, resolution: '4k' })
+    await writeDraft(projectId, {
+      model: 'video-fixture',
+      duration: 5,
+      resolution: '4k',
+      aspectRatio: '16:9',
+    })
   })
   expect(unknown).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
   expect(await (await request(unknown.authorizationId)).json()).toMatchObject({
@@ -444,6 +469,43 @@ it('rounds video duration up and prices an unknown resolution like settlement', 
       })
     ).status,
   ).toBe(200)
+  const narrowed = await fixture(['clip'], undefined, async ({ projectId }) => {
+    await contextFor(projectId)
+    await writeDraft(
+      projectId,
+      {
+        model: 'grok-imagine-video',
+        duration: 8,
+        resolution: '1080p',
+        aspectRatio: '16:9',
+      },
+      null,
+    )
+  })
+  expect(await (await request(narrowed.authorizationId)).json()).toMatchObject({
+    budgetCap: 48,
+    charges: [{ model: 'grok-imagine-video', quantity: 8, unitMultiplier: 1, credits: 48 }],
+  })
+  const partial = await fixture(
+    ['clip'],
+    undefined,
+    async ({ projectId }) => {
+      await contextFor(projectId)
+      await writeDraft(projectId, { model: 'grok-imagine-video', duration: 15 }, null)
+    },
+    {
+      video: {
+        model: 'grok-imagine-video',
+        durationSeconds: 8,
+        resolution: '1080p',
+        aspectRatio: '16:9',
+      },
+    },
+  )
+  expect(await (await request(partial.authorizationId)).json()).toMatchObject({
+    budgetCap: 48,
+    charges: [{ model: 'grok-imagine-video', quantity: 8, unitMultiplier: 1, credits: 48 }],
+  })
 })
 
 it('rejects a proposal when the server cannot price the nodes', async () => {
@@ -799,6 +861,45 @@ it('rejects negative or non-positive settlement usage', async () => {
     spentCredits: 0,
     attempts: [{ taskIds: [] }],
   })
+})
+
+it('counts a fractional submitted duration as the preflight ceiling', async () => {
+  const proposal = await fixture(['a'])
+  const { executionToken } = await (
+    await request(proposal.authorizationId, '/confirm', {
+      charges: [{ nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 2, unitMultiplier: 1 }],
+    })
+  ).json()
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gpt-image-2.5-flare',
+        quantity: 2,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'fraction',
+      })
+    ).status,
+  ).toBe(200)
+  const ref = {
+    authorizationId: proposal.authorizationId,
+    nodeId: 'a',
+    attemptId: 'fraction',
+    executionToken,
+  }
+  const usage = { model: 'gpt-image-2.5-flare', quantity: 1.2, unitMultiplier: 1 }
+  await db.transaction((tx) =>
+    consumeStageAuthorization(tx, 'stage-owner', ref, 'task-fraction', usage, 0),
+  )
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    attempts: [{ submittedQuantity: 2, taskIds: ['task-fraction'] }],
+  })
+  await expect(
+    db.transaction((tx) =>
+      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-fraction-again', usage, 0),
+    ),
+  ).rejects.toThrow('stage_authorization_attempt_conflict')
 })
 
 it('looks up an authorization without node ids', async () => {

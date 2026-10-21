@@ -1,27 +1,21 @@
-import { VIDEO_RESOLUTIONS, type VideoModelSupport } from '@image-playground/shared'
+import {
+  effectiveVideoNodeMode,
+  narrowVideoModelSupport,
+  type VideoModelSupport,
+  type VideoNodeMode,
+  videoNodeModes,
+} from '@image-playground/shared'
 import type { NodeReference } from './nodeCanvasFlow'
 
-export type NodeVideoMode = 'text' | 'first' | 'frames' | 'reference'
+export type NodeVideoMode = VideoNodeMode
 export function nodeVideoModes(support: VideoModelSupport): NodeVideoMode[] {
-  return [
-    'text',
-    ...(support.firstFrame ? ['first'] : []),
-    ...(support.firstFrame && support.lastFrame ? ['frames'] : []),
-    ...(support.referenceImages ? ['reference'] : []),
-  ] as NodeVideoMode[]
+  return videoNodeModes(support)
 }
 export function effectiveNodeVideoMode(
   support: VideoModelSupport,
   requested?: string,
 ): NodeVideoMode {
-  const modes = nodeVideoModes(support)
-  return modes.includes(requested as NodeVideoMode)
-    ? (requested as NodeVideoMode)
-    : support.referenceImages
-      ? 'reference'
-      : support.firstFrame
-        ? 'first'
-        : 'text'
+  return effectiveVideoNodeMode(support, requested)
 }
 /** Frame slots use connection order by default; explicit slots never silently pick another image. */
 export function nodeVideoInputs(
@@ -78,15 +72,5 @@ export function nodeVideoSupport(
   mode: NodeVideoMode,
   hasVoices = false,
 ): VideoModelSupport {
-  const caps = [
-    mode === 'reference' ? support.referenceImages?.maxResolution : undefined,
-    mode === 'frames' || hasVoices ? support.guideMaxResolution : undefined,
-  ].filter((value): value is NonNullable<typeof value> => Boolean(value))
-  const max = Math.min(...caps.map((value) => VIDEO_RESOLUTIONS.indexOf(value)))
-  return caps.length
-    ? {
-        ...support,
-        resolutions: support.resolutions.filter((value) => VIDEO_RESOLUTIONS.indexOf(value) <= max),
-      }
-    : support
+  return narrowVideoModelSupport(support, mode, hasVoices)
 }

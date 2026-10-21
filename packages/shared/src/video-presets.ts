@@ -403,6 +403,52 @@ export function videoRateMultiplier(modelId: string, resolution: VideoResolution
   return ownVideoModelSupport(modelId)?.resolutionMultipliers[resolution] ?? 1
 }
 
+export type VideoNodeMode = 'text' | 'first' | 'frames' | 'reference'
+
+/** 与画布节点的视频模式列表相同：文生、首帧、首尾帧、参考图。 */
+export function videoNodeModes(support: VideoModelSupport): VideoNodeMode[] {
+  return [
+    'text',
+    ...(support.firstFrame ? (['first'] as const) : []),
+    ...(support.firstFrame && support.lastFrame ? (['frames'] as const) : []),
+    ...(support.referenceImages ? (['reference'] as const) : []),
+  ]
+}
+
+/** 没写模式时的退档与画布一致：有参考图就用参考图，否则能接首帧就用首帧。 */
+export function effectiveVideoNodeMode(
+  support: VideoModelSupport,
+  requested?: string,
+): VideoNodeMode {
+  const modes = videoNodeModes(support)
+  return modes.includes(requested as VideoNodeMode)
+    ? (requested as VideoNodeMode)
+    : support.referenceImages
+      ? 'reference'
+      : support.firstFrame
+        ? 'first'
+        : 'text'
+}
+
+/** 参考图、首尾帧或预设声音会把清晰度封在模型声明的上限里。 */
+export function narrowVideoModelSupport(
+  support: VideoModelSupport,
+  mode: VideoNodeMode,
+  hasVoices = false,
+): VideoModelSupport {
+  const caps = [
+    mode === 'reference' ? support.referenceImages?.maxResolution : undefined,
+    mode === 'frames' || hasVoices ? support.guideMaxResolution : undefined,
+  ].filter((value): value is VideoResolution => Boolean(value))
+  const max = Math.min(...caps.map((value) => VIDEO_RESOLUTIONS.indexOf(value)))
+  return caps.length
+    ? {
+        ...support,
+        resolutions: support.resolutions.filter((value) => VIDEO_RESOLUTIONS.indexOf(value) <= max),
+      }
+    : support
+}
+
 function asVideoResolution(value: string | undefined): VideoResolution | undefined {
   return value !== undefined && (VIDEO_RESOLUTIONS as readonly string[]).includes(value)
     ? (value as VideoResolution)
@@ -425,11 +471,21 @@ export function stageVideoQuote(input: {
   readonly duration: number
   readonly resolution?: string | undefined
   readonly aspectRatio?: string | undefined
+  /** 节点视频模式。缺省时按模型支持矩阵选择默认模式，再按该模式封顶清晰度。 */
+  readonly mode?: string | undefined
+  readonly hasVoices?: boolean | undefined
+  /** 渠道能力裁剪后的支持矩阵。缺省时用模型自己的完整矩阵。 */
+  readonly support?: VideoModelSupport | undefined
 }): { readonly quantity: number; readonly unitMultiplier: number } | undefined {
   if (!input.model || !Number.isFinite(input.duration) || input.duration <= 0) return undefined
-  const support = ownVideoModelSupport(input.model)
+  const support = input.support ?? ownVideoModelSupport(input.model)
   if (support) {
-    const preset = clampVideoPreset(support, {
+    const narrowed = narrowVideoModelSupport(
+      support,
+      effectiveVideoNodeMode(support, input.mode),
+      Boolean(input.hasVoices),
+    )
+    const preset = clampVideoPreset(narrowed, {
       duration: input.duration,
       resolution: asVideoResolution(input.resolution),
       aspectRatio: asVideoAspectRatio(input.aspectRatio),

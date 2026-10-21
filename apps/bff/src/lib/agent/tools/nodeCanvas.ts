@@ -36,7 +36,7 @@ import {
   StageAuthorizationError,
   type StageChargeInput,
 } from '../stage-authorizations'
-import { agentVideoModel } from '../video-models'
+import { agentVideoModel, agentVideoModels } from '../video-models'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import { resolveAgentModel } from './queueTask'
@@ -492,6 +492,40 @@ function runnableStageNode(
     (meta.nodeKind !== 'asset' && graph.edges.some((edge) => edge.target === node.id))
   )
 }
+/** 与 nodeVideoConfiguration 相同：四项都在才认节点草稿，否则整份退回工作台草稿。 */
+function completeNodeVideoDraft(raw: string | undefined):
+  | {
+      model: string
+      duration: number
+      resolution: string
+      aspectRatio: string
+      voices?: string[]
+    }
+  | undefined {
+  try {
+    const parsed = JSON.parse(raw ?? '')
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof parsed.model !== 'string' ||
+      typeof parsed.duration !== 'number' ||
+      typeof parsed.resolution !== 'string' ||
+      typeof parsed.aspectRatio !== 'string'
+    )
+      return undefined
+    return {
+      model: parsed.model,
+      duration: parsed.duration,
+      resolution: parsed.resolution,
+      aspectRatio: parsed.aspectRatio,
+      ...(Array.isArray(parsed.voices)
+        ? { voices: parsed.voices.filter((one: unknown) => typeof one === 'string') }
+        : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
 function stageCharge(
   node: CanvasNode,
   params:
@@ -504,34 +538,48 @@ function stageCharge(
           durationSeconds: number
           resolution: string
           aspectRatio?: string
+          voiceIds?: readonly string[]
         }
       }
     | undefined,
+  graph: { nodes: readonly CanvasNode[]; edges: readonly { source: string; target: string }[] },
 ): StageChargeInput | undefined {
   if (node.type !== 'image' && node.type !== 'video') return undefined
   const meta = node.data.meta ?? {}
   if (canvasNodeKind(node) === 'video') {
-    let saved: {
-      model?: unknown
-      duration?: unknown
-      resolution?: unknown
-      aspectRatio?: unknown
-    } = {}
-    try {
-      const parsed = JSON.parse(meta.nodeVideoDraft ?? '')
-      if (parsed && typeof parsed === 'object') saved = parsed
-    } catch {
-      saved = {}
+    const saved = completeNodeVideoDraft(meta.nodeVideoDraft)
+    const fallback = params?.video
+      ? {
+          model: params.video.model,
+          duration: params.video.durationSeconds,
+          resolution: params.video.resolution,
+          aspectRatio: params.video.aspectRatio,
+          ...(params.video.voiceIds?.length ? { voices: [...params.video.voiceIds] } : {}),
+        }
+      : undefined
+    const draft = saved ?? fallback
+    if (!draft) return undefined
+    let legacyFirst = false
+    let legacyLast = false
+    for (const edge of graph.edges) {
+      if (edge.target !== node.id) continue
+      if (meta[`role:${edge.source}`] === 'first') legacyFirst = true
+      if (meta[`role:${edge.source}`] === 'last') legacyLast = true
     }
-    const model = typeof saved.model === 'string' ? saved.model : params?.video?.model
-    const duration =
-      typeof saved.duration === 'number' ? saved.duration : params?.video?.durationSeconds
-    const resolution =
-      typeof saved.resolution === 'string' ? saved.resolution : params?.video?.resolution
-    const aspectRatio =
-      typeof saved.aspectRatio === 'string' ? saved.aspectRatio : params?.video?.aspectRatio
-    if (!model || typeof duration !== 'number') return undefined
-    const quoted = stageVideoQuote({ model, duration, resolution, aspectRatio })
+    const requested =
+      meta.nodeVideoMode || (legacyLast ? 'frames' : legacyFirst ? 'first' : undefined)
+    const channels = agentVideoModels()
+    const option = channels.find((one) => one.target.model === draft.model) ?? channels[0]
+    const model = option?.target.model ?? draft.model
+    const quoted = stageVideoQuote({
+      model,
+      duration: draft.duration,
+      resolution: draft.resolution,
+      aspectRatio: draft.aspectRatio,
+      mode: requested,
+      hasVoices: Boolean(draft.voices?.length),
+      ...(option ? { support: option.support } : {}),
+    })
     if (!quoted) return undefined
     return { nodeId: node.id, model, ...quoted }
   }
@@ -628,7 +676,7 @@ export const runNodes = defineAgentTool({
       const billing = isCapabilityEnabled('billing:credits')
       const charges: StageChargeInput[] = []
       for (const node of nodes) {
-        const charge = stageCharge(node, context.params)
+        const charge = stageCharge(node, context.params, graph)
         if (!charge) {
           if (billing)
             return invalid(
