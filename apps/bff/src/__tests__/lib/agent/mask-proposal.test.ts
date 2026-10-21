@@ -196,6 +196,30 @@ describe('proposeEditRegion', () => {
     )
   })
 
+  it('marks a background proposal as inverted and keeps the box on the subject', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(1024, 768))))
+    const box = { x: 0.3, y: 0.1, width: 0.4, height: 0.85 }
+    const result = await run(tool, { ...args, target: '背景', box, invert: true })
+    const proposal = maskProposalFromResult(result)!.maskProposal!
+    expect(proposal).toMatchObject({ target: '背景', box, invert: true })
+    expect(maskProposalFromResult(await run(tool, args))!.maskProposal!.invert).toBeUndefined()
+  })
+
+  it('rejects an inverted proposal that also lists similar objects', async () => {
+    const tool = maskProposalTool(context({}, url(await picture(64, 64))))
+    const box = { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
+    await expect(
+      run(tool, {
+        ...args,
+        invert: true,
+        instances: [
+          { box, selected: true },
+          { box: { ...box, x: 0.5 }, selected: false },
+        ],
+      }),
+    ).rejects.toThrow('不要同时写 instances')
+  })
+
   it('rejects boxes in pixels, outside the image or too small', async () => {
     const tool = maskProposalTool(context({}, url(await picture(64, 64))))
     await expect(
