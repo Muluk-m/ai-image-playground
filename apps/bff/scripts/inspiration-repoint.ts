@@ -61,6 +61,9 @@ const fingerprint = (row: Row): string =>
 /** Normalized https URL on an allowed host, or a reason it is rejected. */
 function checkUrl(value: unknown): { href: string } | { error: string } {
   if (typeof value !== 'string') return { error: 'not a string' }
+  // URL silently drops tabs/newlines and trims; reject them so the raw checks below see what URL sees.
+  if (/[\u0000-\u0020\u007f]/.test(value))
+    return { error: 'contains whitespace or control characters' }
   let url: URL
   try {
     url = new URL(value)
