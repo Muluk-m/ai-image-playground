@@ -744,6 +744,15 @@
     "unpriced": "按实际模型用量结算",
     "unavailable": "请打开对应画布，并确认建议中的节点仍然存在。",
     "readFailed": "读不到授权状态。",
-    "retryRead": "重试"
+    "retryRead": "重试",
+    "partial": "{{count}} 个节点没有出结果，已完成的结果会保留。",
+    "reported": "已把这批结果交给智能体，它会接着说明。",
+    "reportFailed": "没能把结果交给智能体，可以在对话里直接问它。",
+    "storyboard": {
+      "summary": "镜头表：{{count}} 镜，共 {{seconds}} 秒",
+      "shot": "第 {{index}} 镜 · {{seconds}} 秒 · {{line}}",
+      "more": "……另有 {{count}} 镜",
+      "finalizes": "确认即把这张分镜表定稿；之后再改镜头，已出的首帧会标为过期。"
+    }
   }
 }

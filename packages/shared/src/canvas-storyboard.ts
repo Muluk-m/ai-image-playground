@@ -103,6 +103,47 @@ export function storyboardFingerprint(shots: readonly ProductionShot[]): string 
   )
 }
 
+/** 首帧阶段授权卡上的镜头表摘要：镜数、总时长、每镜一句。 */
+export interface StoryboardStageSummary {
+  readonly storyboardId: string
+  readonly shotCount: number
+  readonly totalSeconds: number
+  readonly shots: readonly {
+    readonly id: string
+    readonly durationSeconds: number
+    readonly line: string
+  }[]
+}
+
+/** 镜头没写时长时按 5 秒算，与分镜表编辑器的默认显示一致。 */
+export const STORYBOARD_DEFAULT_SHOT_SECONDS = 5
+const SUMMARY_LINE_MAX = 40
+
+function summaryLine(description: string): string {
+  const flat = description.trim().replace(/\s+/g, ' ')
+  const sentence = flat.match(/^.+?[。！？!?；;]/)?.[0] ?? flat
+  return sentence.length <= SUMMARY_LINE_MAX
+    ? sentence
+    : `${sentence.slice(0, SUMMARY_LINE_MAX - 1)}…`
+}
+
+export function storyboardStageSummary(
+  storyboardId: string,
+  shots: readonly ProductionShot[],
+): StoryboardStageSummary {
+  const rows = shots.map((shot) => ({
+    id: shot.id,
+    durationSeconds: shot.durationSeconds ?? STORYBOARD_DEFAULT_SHOT_SECONDS,
+    line: summaryLine(shot.description),
+  }))
+  return {
+    storyboardId,
+    shotCount: rows.length,
+    totalSeconds: rows.reduce((sum, row) => sum + row.durationSeconds, 0),
+    shots: rows,
+  }
+}
+
 export function initializeStoryboard(node: Y.Map<unknown>, shots: readonly ProductionShot[]): void {
   if (node.has('storyboardShots')) return
   const entries = new Y.Map<Y.Map<unknown>>()

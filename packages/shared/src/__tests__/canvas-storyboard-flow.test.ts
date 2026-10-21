@@ -17,7 +17,9 @@ import {
   type StoryboardVideoDraft,
   type StoryboardVideoModel,
   storyboardFingerprint,
+  storyboardMissingAssetNodes,
   storyboardMissingAssets,
+  storyboardStageSummary,
   updateCanvasNode,
   updateStoryboardShot,
   VIDEO_MODEL_SUPPORT,
@@ -317,3 +319,51 @@ for (const [count, duration, lengths] of [
       ).toBeLessThanOrEqual(600)
   })
 }
+
+it('lets the agent first-frame stage prepare a draft table while manual preparation still requires finalizing', () => {
+  const { doc, origin } = setup(2)
+  updateStoryboardShot(doc, 'board', 'shot-0', { description: 'Edited' }, origin)
+  expect(() => prepareStoryboardFrames(doc, 'board', 'grid', { origin })).toThrow('finalizeFirst')
+  const prepared = prepareStoryboardFrames(doc, 'board', 'grid', { origin, allowDraft: true })
+  const board = readCanvasDocument(doc).nodes.find((node) => node.id === 'board')
+  if (board?.type !== 'storyboard') throw new Error('missing board')
+  expect(prepared.frameIds).toHaveLength(2)
+  for (const id of prepared.frameIds) {
+    const frame = readCanvasDocument(doc).nodes.find((node) => node.id === id)
+    expect(frame?.type === 'image' && frame.data.meta?.storyboardFingerprint).toBe(
+      storyboardFingerprint(board.data.shots),
+    )
+  }
+  expect(board.data.confirmed?.fingerprint).not.toBe(storyboardFingerprint(board.data.shots))
+})
+
+it('lists missing assets with ids, optionally for selected shots only', () => {
+  const { doc, origin } = setup(2)
+  updateStoryboardShot(doc, 'board', 'shot-1', { lookIds: [], locationId: 'ghost' }, origin)
+  updateCanvasNode(doc, 'person', { data: { name: '芽芽', meta: { nodeKind: 'asset' } } }, origin)
+  expect(storyboardMissingAssetNodes(doc, 'board')).toEqual([
+    { id: 'person', name: '芽芽' },
+    { id: 'ghost', name: 'ghost' },
+  ])
+  expect(storyboardMissingAssetNodes(doc, 'board', ['shot-1'])).toEqual([
+    { id: 'ghost', name: 'ghost' },
+  ])
+  expect(storyboardMissingAssets(doc, 'board')).toEqual(['芽芽', 'ghost'])
+})
+
+it('summarizes a shot table with count, total seconds and one line per shot', () => {
+  expect(
+    storyboardStageSummary('board', [
+      { id: 'a', description: '林夏蹲在窗台前。她伸手摸嫩芽', lookIds: [], durationSeconds: 4 },
+      { id: 'b', description: `${'长'.repeat(60)}`, lookIds: [] },
+    ]),
+  ).toEqual({
+    storyboardId: 'board',
+    shotCount: 2,
+    totalSeconds: 9,
+    shots: [
+      { id: 'a', durationSeconds: 4, line: '林夏蹲在窗台前。' },
+      { id: 'b', durationSeconds: 5, line: `${'长'.repeat(39)}…` },
+    ],
+  })
+})

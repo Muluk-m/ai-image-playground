@@ -605,6 +605,11 @@ export interface AgentInboxTaskResultPayload {
     readonly eventVersion: 1
     readonly itemKeys: readonly string[]
   }
+  /** 一批阶段授权运行的回报（画布节点运行）；摘要从授权上的回报读，不在这里。 */
+  readonly stageRun?: {
+    readonly authorizationId: string
+    readonly eventVersion: 1
+  }
 }
 
 /**
@@ -620,7 +625,7 @@ export interface AgentInboxResumePayload {
    * 被打断的是一轮唤醒：它当时要处理的那一批（提交它们的轮与任务）。续跑照这一批接着处理，
    * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
    */
-  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch'>
+  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch' | 'stageRun'>
   /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
   readonly canvas?: AgentCanvasSnapshot
 }
